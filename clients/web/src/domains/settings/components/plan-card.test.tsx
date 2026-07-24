@@ -36,6 +36,7 @@ import type {
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import * as runtimeBrowser from "@/runtime/browser";
+import { PLAN_TIER_COPY } from "@/domains/settings/billing/plans/plans-copy";
 import { routes } from "@/utils/routes";
 
 // Capture navigate() targets so the action-button wiring can be asserted
@@ -313,6 +314,7 @@ describe("PlanCard", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Free");
+    expect(html).toContain("Your Current Plan");
     expect(html).toContain("plan-card-renews");
     expect(html).toContain("auto renew");
   });
@@ -320,7 +322,7 @@ describe("PlanCard", () => {
   test("shows the upgrade button for a base plan", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("plan-card-upgrade-button");
-    expect(html).toContain("View Plans");
+    expect(html).toContain("View All Plans");
   });
 
   test("does not render the invoices button (moved to inline table)", () => {
@@ -331,47 +333,53 @@ describe("PlanCard", () => {
   test("renders the recommended-upgrade banner (Mighty from Free)", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("recommended-upgrade-button");
-    expect(html).toContain("Recommended Upgrade");
+    expect(html).toContain("Recommended");
     expect(html).toContain("Mighty");
   });
 
   test("no upgrade banner when the package catalog is empty (flag off)", () => {
     const html = renderCard(baseSubscription(), emptyCatalogPlans());
+    // Only the current card renders; the recommended card (and its CTA) is gone.
     expect(html).not.toContain("recommended-upgrade-button");
-    expect(html).not.toContain("Recommended Upgrade");
   });
 
-  test("Free → Mighty chips: credits, storage, and the larger-machines unlock", () => {
+  test("Free current card is chip-less; recommended shows the summary chip", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
-    // Mighty keeps the small baseline machine (machine_size null), so the third
-    // chip advertises the Pro larger-machines unlock rather than a no-op
-    // "Small Machine" row. The vCPU chip is gone entirely.
-    expect(html).toContain("Larger machines");
-    expect(html).not.toContain("vCPU");
+    // The current (Free) card is now a minimal centered card with NO spec chips:
+    // none of the free-baseline chip labels appear.
+    expect(html).not.toContain("$0 credits");
+    expect(html).not.toContain("4 GB");
     expect(html).not.toContain("Small Machine");
-    expect(html).not.toContain("Standard");
-    // Credits step from Free's $0 to Mighty's $25 (arrow form, real change),
-    // labelled per-month.
-    expect(html).toContain("$0 → $25 credits/mo");
-    // Storage really changes (free's 4 GiB baseline → Mighty's 10 GB).
-    expect(html).toContain("4 → 10 GB");
-    expect(html).not.toContain("0 → 10 GB");
+    // The recommended (Mighty) card shows the single summary chip, replacing the
+    // old absolute per-resource chips (machine · credits · storage). Free→Mighty
+    // stays on the Small baseline, so the chip omits the machine claim.
+    expect(html).toContain("more credits and storage");
+    expect(html).not.toContain("stronger machine");
+    expect(html).not.toContain("$25 credits");
+    expect(html).not.toContain("10 GB");
+    expect(html).not.toContain("vCPU");
+    // The centered free card still shows its "Your Current Plan" tag and its real
+    // tagline — the tagline follows "known plan", not "has chips".
+    expect(html).toContain("Your Current Plan");
+    expect(html).toContain(PLAN_TIER_COPY.free.tagline);
   });
 
-  test("Mighty → Super: recommends Super with a machine step-up chip", () => {
+  test("Mighty → Super: current keeps its chips, recommended shows the summary chip", () => {
     const html = renderCard(proMightySubscription(), plansWithSuper());
     // On Mighty, the recommended upgrade is the next catalog package, Super.
     expect(html).toContain("recommended-upgrade-button");
-    expect(html).toContain("Recommended Upgrade");
+    expect(html).toContain("Recommended");
     expect(html).toContain("Super");
-    // The machine tier actually changes here, so the third chip is the machine
-    // arrow — NOT the larger-machines unlock (that's only the Free → Pro step).
-    expect(html).toContain("Small → Medium Machine");
-    expect(html).not.toContain("Larger machines");
-    // Credits and storage step up from Mighty's values.
-    expect(html).toContain("$25 → $45 credits/mo");
-    expect(html).toContain("10 → 30 GB");
-    // The current-plan row shows the actual package name "Mighty" (not the
+    // The recommended (Super) card shows the single summary chip, not Super's
+    // absolute per-resource chips.
+    expect(html).toContain("more credits, storage, and a stronger machine");
+    expect(html).not.toContain("$45 credits");
+    expect(html).not.toContain("30 GB");
+    // The current (Mighty) card keeps its absolute chips.
+    expect(html).toContain("$25 credits");
+    expect(html).toContain("10 GB");
+    expect(html).toContain("Small Machine");
+    // The current-plan card shows the actual package name "Mighty" (not the
     // generic plan name "Pro").
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Mighty");
@@ -391,9 +399,12 @@ describe("PlanCard", () => {
     expect(html).toContain("recommended-upgrade-button");
     expect(html).toContain("Switch plan");
     expect(html).toContain("Switch to Mighty");
-    expect(html).not.toContain("Recommended Upgrade");
-    expect(html).not.toContain("credits/mo");
-    expect(html).not.toContain("Larger machines");
+    // A neutral switch drops the "Recommended" tag and renders no chips on the
+    // recommended card — not even the summary chip; the current "Custom" card
+    // also has no knowable chips. Asserting on the "more credits" prefix covers
+    // both the full and machine-less summary labels.
+    expect(html).not.toContain("Recommended");
+    expect(html).not.toContain("more credits");
   });
 
   test("a customized Pro sub's banner drops the stock upgrade framing", () => {
@@ -409,17 +420,20 @@ describe("PlanCard", () => {
     // neutral switch since the customized tiers can differ from stock Super.
     expect(html).toContain("Switch plan");
     expect(html).toContain("Switch to Super");
-    expect(html).not.toContain("Recommended Upgrade");
-    expect(html).not.toContain("credits/mo");
+    expect(html).not.toContain("Recommended");
+    // A neutral switch renders no summary chip either. The "more credits" prefix
+    // covers both the full and machine-less summary labels.
+    expect(html).not.toContain("more credits");
   });
 
-  test("a base user's banner keeps the directional upgrade framing", () => {
-    // Base → Pro is a genuine Stripe-checkout upgrade, so the banner keeps its
-    // "Recommended Upgrade" tag, the "Upgrade for … more" CTA, and stock deltas.
+  test("a base user's banner keeps the upgrade CTA (not a switch)", () => {
+    // Base → Pro is a genuine Stripe-checkout upgrade, so the recommended card
+    // keeps its "Recommended" tag and a compact "Upgrade" CTA (no "Switch").
     const html = renderCard(baseSubscription(), basePlansResponse());
-    expect(html).toContain("Recommended Upgrade");
-    expect(html).toContain("Upgrade for");
+    expect(html).toContain("Recommended");
+    expect(html).toContain("Upgrade");
     expect(html).not.toContain("Switch plan");
+    expect(html).not.toContain("Switch to");
   });
 
   test("current-plan row labels a customized package as custom", () => {
@@ -435,6 +449,9 @@ describe("PlanCard", () => {
     // doesn't masquerade as a stock package.
     expect(html).toContain("Custom");
     expect(html).not.toContain("Mighty (Custom)");
+    // Its specs are unknowable (no chips), so the stock Mighty tagline must not
+    // render under the "Custom" name either — same gate as the chips.
+    expect(html).not.toContain(PLAN_TIER_COPY.mighty.tagline);
   });
 
   test("current-plan row labels an unpinned Pro sub as custom", () => {
@@ -448,6 +465,42 @@ describe("PlanCard", () => {
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Custom");
     expect(html).not.toContain("Pro");
+    // `currentTier` falls back to "free" for an unpinned sub, but its specs are
+    // unknowable (no chips), so the stock free tagline must not leak in under
+    // the "Custom" name.
+    expect(html).not.toContain(PLAN_TIER_COPY.free.tagline);
+  });
+
+  test("a clean-pinned Pro sub whose package is absent from the catalog shows no chips", () => {
+    // A clean pin on Mighty, but the catalog has no packages (e.g. the
+    // `pro-packages` flag is off, or the pinned key isn't in this response). The
+    // package lookup misses, so the current card's specs are unknowable and it
+    // must render NO chips — crucially NOT the free baseline, which would
+    // mislabel this paid Pro sub as $0 credits / 4 GB / Small Machine.
+    const html = renderCard(proMightySubscription(), emptyCatalogPlans());
+    // The current card still names the pinned package ("Mighty"), not "Custom".
+    expect(html).toContain("plan-card-name");
+    expect(html).toContain("Mighty");
+    // No free-baseline chips leak onto the paid sub's current card.
+    expect(html).not.toContain("$0 credits");
+    expect(html).not.toContain("4 GB");
+    expect(html).not.toContain("Small Machine");
+  });
+
+  test("a free user's current card is centered, chip-less, and keeps its tagline", () => {
+    const html = renderCard(baseSubscription(), basePlansResponse());
+    // The free current card is a minimal centered card: centering classes on the
+    // card, its "Your Current Plan" tag, and the real free tagline, but NO chips.
+    expect(html).toContain("justify-center");
+    expect(html).toContain("Your Current Plan");
+    expect(html).toContain(PLAN_TIER_COPY.free.tagline);
+    expect(html).not.toContain("$0 credits");
+    expect(html).not.toContain("4 GB");
+    expect(html).not.toContain("Small Machine");
+    // The recommended (Mighty) card shows the single summary chip. Free→Mighty
+    // keeps the Small baseline machine, so the chip claims only credits/storage.
+    expect(html).toContain("more credits and storage");
+    expect(html).not.toContain("stronger machine");
   });
 });
 
@@ -506,10 +559,10 @@ describe("PlanCard action button", () => {
     expect(navigateArgs).toEqual([]);
   });
 
-  test("a customized Pro sub's Manage stays on onManage", async () => {
+  test("a customized Pro sub's Manage opens the plans takeover", async () => {
     const onManage = mock(() => {});
-    // A customized package's tiers differ from the stock package, so the
-    // takeover would misrepresent it — keep it on the manage modal.
+    // A customized pin routes to the takeover alongside every other Pro sub; the
+    // takeover's own CTAs handle the customized state's transitions.
     const subscription = proMightySubscription();
     subscription.package = {
       key: "mighty",
@@ -526,16 +579,115 @@ describe("PlanCard action button", () => {
     fireEvent.click(await findByTestId("plan-card-manage-button"));
 
     await waitFor(() => {
+      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    });
+    expect(onManage).not.toHaveBeenCalled();
+  });
+
+  test("a Pro sub without a pinned package opens the plans takeover", async () => {
+    const onManage = mock(() => {});
+    // A legacy/unpinned Custom Pro sub routes to the takeover with the rest; the
+    // takeover surfaces the Custom row as its current plan.
+    const subscription = { ...proMightySubscription(), package: undefined };
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    await waitFor(() => {
+      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    });
+    expect(onManage).not.toHaveBeenCalled();
+  });
+
+  test("a from-scratch custom Pro sub's Manage opens the plans takeover", async () => {
+    const onManage = mock(() => {});
+    // A Pro sub built from scratch — no stock lineage, pinned but customized —
+    // routes to the takeover like every other Pro sub with a live catalog.
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "custom",
+      name: "Custom",
+      version: 1,
+      customized: true,
+    };
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    await waitFor(() => {
+      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    });
+    expect(onManage).not.toHaveBeenCalled();
+  });
+
+  test("a cancelling custom Pro sub's Manage stays on the manage fallback", async () => {
+    const onManage = mock(() => {});
+    // A customized/unpinned sub pending cancellation keeps the manage modal,
+    // which surfaces the cancellation state and the "Keep your Plan" action; the
+    // takeover can't act on a cancelling sub.
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "mighty",
+      name: "Mighty",
+      version: 1,
+      customized: true,
+    };
+    subscription.cancel_at = "2026-08-23T12:36:05Z";
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    await waitFor(() => {
       expect(onManage).toHaveBeenCalledTimes(1);
     });
     expect(navigateArgs).toEqual([]);
   });
 
-  test("a Pro sub without a pinned package stays on onManage", async () => {
+  test("a cancelling clean-pin Pro sub still opens the plans takeover", async () => {
     const onManage = mock(() => {});
-    // A legacy/custom Pro sub (no package) would render as free in the takeover,
-    // so it stays on the manage modal even with a live catalog.
-    const subscription = { ...proMightySubscription(), package: undefined };
+    // A clean pin routes to the takeover even while cancelling; its package CTA
+    // reaches the manage surface from there.
+    const subscription = proMightySubscription();
+    subscription.cancel_at = "2026-08-23T12:36:05Z";
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    await waitFor(() => {
+      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    });
+    expect(onManage).not.toHaveBeenCalled();
+  });
+
+  test("an unpaid custom Pro sub's Manage stays on the manage fallback", async () => {
+    const onManage = mock(() => {});
+    // A custom sub in a non-entitlement status (e.g. unpaid) is switch-ineligible,
+    // so it keeps the manage modal — the takeover would bounce every CTA back to
+    // the manage surface.
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "mighty",
+      name: "Mighty",
+      version: 1,
+      customized: true,
+    };
+    subscription.status = "unpaid";
     const { findByTestId } = renderCardInteractive(
       subscription,
       plansWithSuper(),

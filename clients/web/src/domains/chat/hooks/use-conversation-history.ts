@@ -175,9 +175,10 @@ export function useConversationHistory({
 
     // Seq baseline (replay idempotency) + cold-start ring-replay anchor. Tag
     // the frontier with the generation the page's `/messages` request was
-    // issued in (falling back to the current generation for pages that predate
-    // the stamp) so a page that raced a generation reset is recognised as a
-    // stale anchor by the stale-frontier guard rather than starving the stream.
+    // issued in (falling back to the current generation for pages that carry no
+    // stamped generation) so a page that raced a generation reset is recognised
+    // as a stale anchor by the stale-frontier guard rather than starving the
+    // stream.
     const latestPageSeq = pagination.latestPage?.seq ?? null;
     const latestPageGeneration =
       pagination.latestPage?.seqGeneration ?? getSeqGeneration();

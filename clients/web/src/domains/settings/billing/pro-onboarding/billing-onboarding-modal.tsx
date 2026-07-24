@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
 import { assistantsDomainsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import type { CreditTierEnum } from "@/generated/api/types.gen";
 import {
   clearCheckoutIntent,
   readCheckoutIntent,
@@ -18,9 +25,15 @@ import type {
   ProvisioningDimensions,
   ProvisioningStateKind,
 } from "./provisioning-machine";
-import { ProvisioningState, TAKEOVER_BACKGROUND } from "./provisioning-state";
+import {
+  ProvisioningState,
+  TAKEOVER_SURFACE,
+  TAKEOVER_SURFACE_VAR,
+} from "./provisioning-state";
+import { TakeoverBackdrop } from "./takeover-backdrop";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { useProProvisioning } from "./use-pro-provisioning";
+import { useTakeoverSurface } from "./use-takeover-surface";
 
 type WizardStep = "provisioning" | "domain" | "complete";
 
@@ -67,6 +80,12 @@ export interface BillingOnboardingModalProps {
    * step shows only when it is newly usable (entitled AND no domain yet).
    */
   mode?: "checkout" | "resize";
+  /**
+   * Resize mode only: the credit tier applied by an in-place change, forwarded
+   * to the takeover. Ignored in checkout mode, where credits ride the stashed
+   * intent instead. See `ProvisioningStateProps.resizeCredits`.
+   */
+  resizeCredits?: CreditTierEnum | null;
 }
 
 export function BillingOnboardingModal({
@@ -75,6 +94,7 @@ export function BillingOnboardingModal({
   dwellMs,
   phaseMinMs,
   mode = "checkout",
+  resizeCredits,
 }: BillingOnboardingModalProps) {
   const isResize = mode === "resize";
   const queryClient = useQueryClient();
@@ -146,6 +166,12 @@ export function BillingOnboardingModal({
 
   const { targets, assistantId, domainSetupAvailable, onboardingSettled } =
     provisioning;
+
+  // The takeover and the sheet that covers it on the way out paint from one
+  // surface: the tint published as a custom property, plus the same blurred
+  // backdrop a custom-image avatar shows — so the handoff can't cross-fade a
+  // colour or an image against a flat fill.
+  const { tintHex, backdropImageUrl } = useTakeoverSurface(assistantId);
 
   // Resize-mode routing needs "is a domain already registered?", which
   // checkout mode never consults — DomainStep owns its own fetch there. The
@@ -330,13 +356,16 @@ export function BillingOnboardingModal({
     >
       <Modal.Content
         size="md"
-        hideCloseButton
+        // The final step is terminal — nothing is in flight to interrupt, so it
+        // gets the standard dismiss. Earlier steps keep their exits in-content.
+        hideCloseButton={step !== "complete"}
         dismissOnOverlayClick={!lockTakeover}
         onEscapeKeyDown={lockTakeover ? (e) => e.preventDefault() : undefined}
         onInteractOutside={lockTakeover ? (e) => e.preventDefault() : undefined}
         data-theme={isTakeover ? "dark" : undefined}
         overlayClassName={overlayClass}
         className={isTakeover ? provisioningContentClass : "overflow-hidden"}
+        style={{ [TAKEOVER_SURFACE_VAR]: tintHex } as CSSProperties}
       >
         {/* Keyed on step so the fade replays as we swap takeover ⇄ card. The
             takeover is the modal's opening step, so it mounts at full size
@@ -362,8 +391,17 @@ export function BillingOnboardingModal({
                   : "[animation:fadeIn_380ms_ease-out_both_reverse]"
               }`
             }
-            style={{ backgroundColor: TAKEOVER_BACKGROUND }}
-          />
+            style={{ backgroundColor: TAKEOVER_SURFACE }}
+          >
+            {/* A custom-image takeover's colour lives in this blurred image, not
+                the ground fill, so the sheet reproduces it to match. The
+                `TAKEOVER_SURFACE` fill shows through while it decodes. The
+                sheet's own fade drives the reveal, so the backdrop doesn't
+                re-fade over it. */}
+            {backdropImageUrl && (
+              <TakeoverBackdrop imageUrl={backdropImageUrl} animateIn={false} />
+            )}
+          </div>
         )}
       </Modal.Content>
     </Modal.Root>
@@ -379,6 +417,7 @@ export function BillingOnboardingModal({
           state={provisioning.state}
           softWaiting={provisioning.softWaiting}
           intent={intent}
+          resizeCredits={isResize ? resizeCredits : undefined}
           targets={targets ?? EMPTY_DIMENSIONS}
           fromSnapshot={provisioning.actualsSnapshot ?? EMPTY_DIMENSIONS}
           celebrating={routingSettled}

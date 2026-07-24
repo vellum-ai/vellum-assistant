@@ -38,8 +38,7 @@ function parsePathNumbers(d: string): number[] {
   return nums;
 }
 
-function computeCentroid(d: string): PathPoint {
-  const nums = parsePathNumbers(d);
+function computeCentroid(nums: number[]): PathPoint {
   let sx = 0;
   let sy = 0;
   let count = 0;
@@ -51,23 +50,27 @@ function computeCentroid(d: string): PathPoint {
   return count > 0 ? { x: sx / count, y: sy / count } : { x: 0, y: 0 };
 }
 
-function wobblePath(d: string, seed: number, amount: number): string {
-  const center = computeCentroid(d);
+function wobblePath(
+  d: string,
+  nums: number[],
+  center: PathPoint,
+  seed: number,
+  amount: number,
+): string {
   const phase = seed * 1.1;
+  let idx = 0;
 
-  return d.replace(/-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi, (match, offset: number) => {
-    const val = parseFloat(match);
-    const prevText = d.slice(0, offset);
-    const numsBefore = prevText.match(/-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi);
-    const idx = numsBefore ? numsBefore.length : 0;
-    const isX = idx % 2 === 0;
+  return d.replace(/-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi, () => {
+    const currentIdx = idx;
+    idx++;
+    const val = nums[currentIdx]!;
+    const isX = currentIdx % 2 === 0;
 
     const refVal = isX ? center.x : center.y;
-    const otherNums = parsePathNumbers(d);
-    const pairedIdx = isX ? idx + 1 : idx - 1;
+    const pairedIdx = isX ? currentIdx + 1 : currentIdx - 1;
     const pairedVal =
-      pairedIdx >= 0 && pairedIdx < otherNums.length
-        ? otherNums[pairedIdx]!
+      pairedIdx >= 0 && pairedIdx < nums.length
+        ? nums[pairedIdx]!
         : refVal;
 
     const px = isX ? val : pairedVal;
@@ -89,9 +92,11 @@ function precomputeWobbledPaths(
   count: number,
   amount: number,
 ): string[] {
+  const nums = parsePathNumbers(basePath);
+  const center = computeCentroid(nums);
   const paths: string[] = [basePath];
   for (let i = 1; i < count; i++) {
-    paths.push(wobblePath(basePath, i, amount));
+    paths.push(wobblePath(basePath, nums, center, i, amount));
   }
   return paths;
 }
@@ -153,10 +158,9 @@ export function AnimatedAvatar({
   const eyeCenterOutputY =
     bodyScaleFactor * (remapTy + eyeStyle.eyeCenter.y * remapScale) + bodyTy;
 
-  // Wobble variants are only used during streaming, and precomputing them is
-  // O(n²) per path — doing it eagerly for every avatar (e.g. the 10 mounted on
-  // each onboarding step) caused a noticeable jank on mount. Compute lazily,
-  // only once an avatar actually streams.
+  // Wobble variants are only used during streaming. Compute them lazily so
+  // idle avatars (including the set mounted during onboarding) do no path
+  // transformation work.
   const morphPaths = useMemo(
     () =>
       isAssistantBusy

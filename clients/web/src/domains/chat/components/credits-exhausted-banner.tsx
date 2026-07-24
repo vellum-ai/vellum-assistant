@@ -2,6 +2,27 @@
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
 import type { CreditPaywallCtaMode } from "@/domains/chat/utils/credit-paywall-cta";
 
+const COPY: Record<
+  CreditPaywallCtaMode,
+  { title: string; subtitle: string; ctaLabel: string }
+> = {
+  upgrade: {
+    title: "You’ve used all your Free credits",
+    subtitle: "Upgrade to a higher plan to continue.",
+    ctaLabel: "View plans",
+  },
+  "add-credits-free": {
+    title: "You’ve used all your credits",
+    subtitle: "Add credits to continue without changing your plan.",
+    ctaLabel: "Add credits",
+  },
+  "add-credits-paid": {
+    title: "You’ve used all your credits",
+    subtitle: "Add more credits to keep going.",
+    ctaLabel: "Add credits",
+  },
+};
+
 interface CreditsExhaustedBannerProps {
   mode: CreditPaywallCtaMode;
   onAddCredits: () => void;
@@ -13,22 +34,14 @@ export function CreditsExhaustedBanner({
   onAddCredits,
   onUpgrade,
 }: CreditsExhaustedBannerProps) {
-  const isUpgrade = mode === "upgrade";
+  const copy = COPY[mode];
   return (
     <BillingErrorBanner
-      ariaLabel={
-        isUpgrade
-          ? "Your balance has run out. Upgrade to a higher plan to continue."
-          : "Your balance has run out. Add credits to continue."
-      }
-      title="💰  Your balance has run out"
-      subtitle={
-        isUpgrade
-          ? "Upgrade to a higher plan to continue."
-          : "Add credits to continue."
-      }
-      ctaLabel={isUpgrade ? "Upgrade" : "Add Credits"}
-      onAction={isUpgrade ? onUpgrade : onAddCredits}
+      ariaLabel={`${copy.title}. ${copy.subtitle}`}
+      title={`💰  ${copy.title}`}
+      subtitle={copy.subtitle}
+      ctaLabel={copy.ctaLabel}
+      onAction={mode === "upgrade" ? onUpgrade : onAddCredits}
       detached={true}
     />
   );

@@ -224,6 +224,48 @@ describe("twilio voice webhook handler", () => {
     expect(forwardCalled).toBe(true);
   });
 
+  test("anonymous inbound call (no From) still routes to the default assistant under default policy", async () => {
+    // Caller-ID-withheld call: no `From` to route on. resolveAssistant
+    // fail-closes on the missing identity, but a voice line is intentionally
+    // open, so the handler answers via the default assistant.
+    const configWithDefault: GatewayConfig = {
+      ...baseConfig,
+      unmappedPolicy: "default",
+      defaultAssistantId: "fallback-assistant",
+    };
+    const handler = createTwilioVoiceWebhookHandler(
+      configWithDefault,
+      makeCachesWithPhoneNumbers(),
+    );
+    const req = makeVoiceRequest({
+      CallSid: "CA_inbound_anon",
+      To: "+12015550199",
+    });
+
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    expect(forwardCalled).toBe(true);
+  });
+
+  test("anonymous inbound call (no From) is rejected under reject policy", async () => {
+    const handler = createTwilioVoiceWebhookHandler(
+      baseConfig, // unmappedPolicy: "reject"
+      makeCachesWithPhoneNumbers(),
+    );
+    const req = makeVoiceRequest({
+      CallSid: "CA_inbound_anon_reject",
+      To: "+12015550199",
+    });
+
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("<Reject");
+    expect(forwardCalled).toBe(false);
+  });
+
   test("outbound call (callSessionId present) does not resolve assistant by phone", async () => {
     const handler = createTwilioVoiceWebhookHandler(
       baseConfig,

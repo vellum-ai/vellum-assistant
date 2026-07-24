@@ -130,20 +130,19 @@ interface CachedModule {
   mtimeMs: number;
 }
 
-/** Default per-request timeout for user-defined route handlers (30 seconds). */
-const DEFAULT_HANDLER_TIMEOUT_MS = 30_000;
+/** Default per-request timeout for user-defined route handlers (2 minutes). */
+const DEFAULT_HANDLER_TIMEOUT_MS = 120_000;
 
 export class UserRouteDispatcher {
   private moduleCache = new Map<string, CachedModule>();
   private handlerTimeoutMs: number;
   private context: UserRouteContext;
   /**
-   * Lazily created on the first request that runs while the route host is
-   * enabled. Constructing it is inert (the subprocess spawns lazily on the
-   * client's first `invoke`), so a dispatcher whose host is never enabled never
-   * creates one.
+   * The route host client. Constructing it is inert — the subprocess spawns
+   * lazily on the client's first `invoke` — so a dispatcher whose host is never
+   * enabled never spawns one.
    */
-  private routeHostClient: RouteHostClient | undefined;
+  private readonly routeHostClient: RouteHostClient;
 
   constructor(options: {
     handlerTimeoutMs?: number;
@@ -152,10 +151,13 @@ export class UserRouteDispatcher {
     this.handlerTimeoutMs =
       options.handlerTimeoutMs ?? DEFAULT_HANDLER_TIMEOUT_MS;
     this.context = Object.freeze({ ...options.context });
-  }
-
-  private getRouteHostClient(): RouteHostClient {
-    return (this.routeHostClient ??= new RouteHostClient());
+    // Both execution paths — in-process ({@link executeHandler}) and the route
+    // host subprocess — must honor the same per-request timeout, so the host
+    // client's hard-kill deadline is driven by the dispatcher's timeout rather
+    // than its own independent default.
+    this.routeHostClient = new RouteHostClient({
+      invokeTimeoutMs: this.handlerTimeoutMs,
+    });
   }
 
   /**
@@ -227,7 +229,7 @@ export class UserRouteDispatcher {
     }
 
     try {
-      const result = await this.getRouteHostClient().invoke(
+      const result = await this.routeHostClient.invoke(
         {
           filePath,
           mtimeMs,

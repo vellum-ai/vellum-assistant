@@ -17,16 +17,19 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
+import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
 import type { ServerMessage } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import {
   getSiblingStreamedReplyTs,
   linkMessage,
+  storeInboundSlackMetadata,
   storeReplyMessageId,
   storeStreamedReplyTs,
 } from "../../../persistence/delivery-crud.js";
 import {
-  getSiblingEventDeliveryStatuses,
+  deferRetryUntilIdle,
+  isDeduplicatedDeliveryOwnedBySibling,
   markProcessed,
   recordProcessingFailure,
 } from "../../../persistence/delivery-status.js";
@@ -55,6 +58,7 @@ import { isContactTrustClass } from "../../trust-class.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
 import { finalizeEventDelivery } from "../channel-delivery-routes.js";
 import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
+import { withChannelTurnAdmission } from "./channel-turn-admission.js";
 
 const log = getLogger("runtime-http");
 
@@ -140,7 +144,23 @@ export function processChannelMessageInBackground(
     slackInbound,
   } = params;
 
-  (async () => {
+  // Capture the Slack ingress metadata onto the stored payload up front — before
+  // the admission wait or any processing — so if the daemon dies mid-wait or
+  // mid-turn, the retry sweep replays with the SAME `slackInbound` this turn
+  // used. That keeps the derived idempotency key identical (the replay dedups
+  // against a turn this attempt already persisted) and carries full slackMeta.
+  if (slackInbound) {
+    storeInboundSlackMetadata(eventId, slackInbound);
+  }
+
+  // Defer the whole turn + delivery until the conversation's processing lock is
+  // free, serialized per conversation so same-conversation replies stay ordered.
+  // A channel message routed to a busy conversation (e.g. a Slack
+  // thread-participant reply arriving mid-session) is thereby processed when the
+  // in-flight turn completes instead of being dropped. See
+  // `channel-turn-admission.ts` for why channel turns defer rather than route
+  // through the SSE-oriented conversation queue.
+  void withChannelTurnAdmission(conversationId, async () => {
     const typingCallbackUrl = shouldEmitTelegramTyping(
       sourceChannel,
       replyCallbackUrl,
@@ -261,14 +281,30 @@ export function processChannelMessageInBackground(
           storeReplyMessageId(eventId, replyMessageId);
         }
       } catch (err) {
-        log.error(
-          { err, conversationId },
-          "Background channel message processing failed",
-        );
         // Stop any live Slack stream cleanly. Its `ts` is already durably
         // recorded via `onStreamOpen`, so the retry sweep can reconcile
         // against that message rather than posting a duplicate.
         await slackReplySession?.finish();
+        if (isConversationBusyError(err)) {
+          // Admission observed the conversation idle, but a non-channel turn
+          // (web / wake / voice) re-took the processing lock before this turn
+          // could. Re-schedule for the retry sweep without burning a retry
+          // attempt (`deferRetryUntilIdle`) so it reprocesses and delivers from
+          // the stored payload once the lock frees — a plain processing-failure
+          // record would classify the busy message as fatal and dead-letter it
+          // (a silent drop), and even a retryable one could exhaust the budget
+          // under sustained contention.
+          log.info(
+            { conversationId, eventId },
+            "Channel turn lost the processing lock after admission; deferring to the retry sweep",
+          );
+          deferRetryUntilIdle(eventId);
+          return;
+        }
+        log.error(
+          { err, conversationId },
+          "Background channel message processing failed",
+        );
         recordProcessingFailure(eventId, err);
         return;
       }
@@ -295,11 +331,7 @@ export function processChannelMessageInBackground(
       let priorDeduplicatedDeliveryOwned = false;
       let recoveredStreamMessageTs: string | undefined;
       if (deduplicatedIngress && userMessageId !== undefined) {
-        const siblingStatuses = getSiblingEventDeliveryStatuses(
-          userMessageId,
-          eventId,
-        );
-        if (siblingStatuses.some((status) => status !== "pending")) {
+        if (isDeduplicatedDeliveryOwnedBySibling(userMessageId, eventId)) {
           priorDeduplicatedDeliveryOwned = true;
         } else {
           recoveredStreamMessageTs = getSiblingStreamedReplyTs(
@@ -342,7 +374,12 @@ export function processChannelMessageInBackground(
       stopApprovalWatcher?.();
       stopTcApprovalNotifier?.();
     }
-  })();
+  }).catch((err) => {
+    log.error(
+      { err, conversationId, eventId },
+      "Channel turn admission failed unexpectedly",
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +392,9 @@ function shouldEmitTelegramTyping(
   sourceChannel: ChannelId,
   replyCallbackUrl?: string,
 ): boolean {
-  if (sourceChannel !== "telegram" || !replyCallbackUrl) return false;
+  if (sourceChannel !== "telegram" || !replyCallbackUrl) {
+    return false;
+  }
   try {
     return new URL(replyCallbackUrl).pathname.endsWith("/deliver/telegram");
   } catch {
@@ -372,7 +411,9 @@ function startTelegramTypingHeartbeat(
   let inFlight = false;
 
   const emitTyping = (): void => {
-    if (!active || inFlight) return;
+    if (!active || inFlight) {
+      return;
+    }
     inFlight = true;
     void deliverChannelReply(callbackUrl, {
       chatId,
@@ -433,7 +474,9 @@ export function shouldStartSlackThinkingStatusImmediately(params: {
   chatType?: string;
   slackBotMentioned?: boolean;
 }): boolean {
-  if (params.sourceChannel !== "slack") return false;
+  if (params.sourceChannel !== "slack") {
+    return false;
+  }
   return params.chatType === "im" || params.slackBotMentioned === true;
 }
 
@@ -469,7 +512,9 @@ function createSlackThinkingStatusController(params: {
   const taskProgressBySurfaceId = new Map<string, TaskProgressData>();
 
   const start = (): void => {
-    if (stopped || slackThinkingStatus) return;
+    if (stopped || slackThinkingStatus) {
+      return;
+    }
     slackThinkingStatus = setSlackThinkingStatus(
       callbackUrl,
       chatId,
@@ -481,7 +526,9 @@ function createSlackThinkingStatusController(params: {
 
   const maybeUpdateLoadingMessages = (): void => {
     const nextLoadingMessageKey = getLoadingMessagesKey(currentLoadingMessages);
-    if (nextLoadingMessageKey === lastSentLoadingMessageKey) return;
+    if (nextLoadingMessageKey === lastSentLoadingMessageKey) {
+      return;
+    }
     lastSentLoadingMessageKey = nextLoadingMessageKey;
     slackThinkingStatus?.updateLoadingMessages(currentLoadingMessages);
   };
@@ -489,12 +536,16 @@ function createSlackThinkingStatusController(params: {
   const observeTaskProgress = (msg: ServerMessage): void => {
     if (msg.type === "ui_surface_show") {
       const progress = getTaskProgressDataFromSurfaceData(msg.data);
-      if (!progress) return;
+      if (!progress) {
+        return;
+      }
       taskProgressBySurfaceId.set(msg.surfaceId, progress);
     } else if (msg.type === "ui_surface_update") {
       const existing = taskProgressBySurfaceId.get(msg.surfaceId);
       const progress = mergeTaskProgressData(existing, msg.data);
-      if (!progress) return;
+      if (!progress) {
+        return;
+      }
       taskProgressBySurfaceId.set(msg.surfaceId, progress);
     } else {
       return;
@@ -513,14 +564,18 @@ function createSlackThinkingStatusController(params: {
 
   return {
     observeEvent(msg) {
-      if (stopped) return;
+      if (stopped) {
+        return;
+      }
 
       if (msg.type === "ui_surface_show" || msg.type === "ui_surface_update") {
         observeTaskProgress(msg);
         return;
       }
 
-      if (slackThinkingStatus || msg.type !== "assistant_text_delta") return;
+      if (slackThinkingStatus || msg.type !== "assistant_text_delta") {
+        return;
+      }
 
       observedAssistantText += msg.text;
       if (shouldStartSlackThinkingStatusForText(observedAssistantText)) {
@@ -551,12 +606,16 @@ function getLoadingMessagesKey(loadingMessages?: string[]): string | undefined {
 function getTaskProgressLoadingMessage(
   progress: TaskProgressData | undefined,
 ): string[] | undefined {
-  if (!progress) return undefined;
+  if (!progress) {
+    return undefined;
+  }
 
   const activeStepIndex = progress.steps.findIndex(
     (step) => step.status === "in_progress",
   );
-  if (activeStepIndex < 0) return undefined;
+  if (activeStepIndex < 0) {
+    return undefined;
+  }
 
   const activeStep = progress.steps[activeStepIndex]!;
   return [
@@ -607,7 +666,9 @@ function setSlackThinkingStatus(
     });
 
     const clearReaction = (): void => {
-      if (cleared) return;
+      if (cleared) {
+        return;
+      }
       cleared = true;
       clearTimeout(safetyTimer);
       void addPromise.then(() =>
@@ -652,7 +713,9 @@ function setSlackThinkingStatus(
   });
 
   const updateLoadingMessages = (nextLoadingMessages?: string[]): void => {
-    if (cleared) return;
+    if (cleared) {
+      return;
+    }
     statusPromise = statusPromise.then(() =>
       deliverChannelReply(callbackUrl, {
         chatId,
@@ -675,7 +738,9 @@ function setSlackThinkingStatus(
   };
 
   const clearStatus = (): void => {
-    if (cleared) return;
+    if (cleared) {
+      return;
+    }
     cleared = true;
     clearTimeout(safetyTimer);
     void statusPromise.then(() =>

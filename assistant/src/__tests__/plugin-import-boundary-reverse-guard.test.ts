@@ -89,7 +89,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/context/strip-injections.ts",
     "src/daemon/conversation-agent-loop-handlers.ts",
     "src/daemon/conversation-agent-loop.ts",
-    "src/daemon/conversation-lifecycle.ts",
     "src/daemon/conversation-runtime-assembly.ts",
     "src/daemon/conversation-surfaces.ts",
     "src/daemon/conversation-tool-setup.ts",

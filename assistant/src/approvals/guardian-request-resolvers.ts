@@ -512,6 +512,23 @@ const OUTCOME_BY_ACTION = {
   block: "block",
 } as const satisfies Record<ApprovalAction, IntroductionOutcome>;
 
+/**
+ * The introduction outcome a decision action resolves to for an access request.
+ * The generic decision pair folds onto the card outcomes (`reject` →
+ * `leave_unverified`, `approve_once` → `verify_code`); the introduction actions
+ * map to themselves. Every outcome is itself an `ApprovalAction`, so a caller
+ * that must reflect the resolved *outcome* rather than the raw button — the
+ * resolved-card projection, so a `reject` that parked the contact at
+ * `unverified` reads as the neutral "Left unverified" and not "Denied" — can
+ * normalize through this. It does not apply the bot handshake→trust coercion,
+ * which does not affect the park/deny distinction the card cares about.
+ */
+export function introductionOutcomeForAction(
+  action: ApprovalAction,
+): ApprovalAction {
+  return OUTCOME_BY_ACTION[action];
+}
+
 /** Derived access-request decision facts shared by `prepare` and `resolve`. */
 interface AccessRequestDerivation {
   channel: NotificationSourceChannel;
@@ -641,9 +658,13 @@ async function deliverRequesterNotice(params: {
 }
 
 /**
- * Deliver the "denied" notice to the requester and emit the denial lifecycle
- * signals. Shared by the `leave_unverified` and `block` outcomes — both look
- * identical to the requester (the block is not revealed).
+ * Emit the guardian-facing denial lifecycle signals and, unless suppressed,
+ * deliver the "declined" notice to the requester. Both the `leave_unverified`
+ * and `block` outcomes call this for the lifecycle signals, but the requester
+ * notice is delivered only for `block` (in denied mode) — `leave_unverified`
+ * always passes `suppressRequesterNotice: true`, staying a silent park at
+ * `unverified`. The notice text is a plain decline that does not reveal whether
+ * the sender was blocked.
  */
 async function notifyRequesterOfDenial(params: {
   channel: NotificationSourceChannel;
@@ -684,7 +705,10 @@ async function notifyRequesterOfDenial(params: {
       assistantId,
       channelDeliveryContext,
       desktopDeliverUrl,
-      text: "Your access request has been denied.",
+      // Active-denial copy, deliberately distinct from the expiry notice
+      // ("…expired before it was reviewed") so a reviewed decline never reads
+      // as a request that simply timed out.
+      text: "Your access request was declined.",
     });
   }
 
@@ -937,7 +961,12 @@ const accessRequestResolver: GuardianRequestResolver = {
         deniedPayload,
         requestId: request.id,
         conversationId: request.sourceConversationId,
-        suppressRequesterNotice: !mode.notifyRequesterOnDeny,
+        // Leave-unverified is a silent park: the sender stays an `unverified`
+        // contact and is never told (per docs/trusted-contact-access.md — they
+        // only learn if they message again). Unlike `block`, this notice is
+        // always suppressed, in both denied and admitted modes; the
+        // guardian-facing lifecycle signals still emit.
+        suppressRequesterNotice: true,
       });
 
       return {
@@ -1044,7 +1073,10 @@ const accessRequestResolver: GuardianRequestResolver = {
     const session = ctx.mintedSession;
     if (!session) {
       log.error(
-        { event: "resolver_access_request_missing_mint", requestId: request.id },
+        {
+          event: "resolver_access_request_missing_mint",
+          requestId: request.id,
+        },
         "Access request resolver: decide returned no mintedSession for a verify_code outcome",
       );
       return { ok: false, reason: "minted_session_missing" };

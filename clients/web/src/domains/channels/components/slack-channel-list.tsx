@@ -368,24 +368,29 @@ export function SlackChannelList({
                       />
                     </div>
                   ) : (
-                    visibleChannels.map((channel) => (
-                      <SlackChannelRow
-                        key={channel.id}
-                        channel={channel}
-                        open={openIds.has(channel.id)}
-                        onToggle={() => toggleRow(channel.id)}
-                        pending={pendingChannelIds.has(channel.id)}
-                        overridesLoading={tierOverridesLoading}
-                        overridesError={tierOverridesError}
-                        defaultTier={defaultTier}
-                        accessControls={accessControlsSupported}
-                        tierOverride={tierOverrides?.[channel.id]}
-                        onTierChange={(tier) =>
-                          onTierChange?.(channel.id, tier)
-                        }
-                        onReset={() => onTierReset?.(channel.id)}
-                      />
-                    ))
+                    // Cap the list so the "Assistant Access levels" key stays
+                    // reachable without scrolling past every channel; the rows
+                    // scroll within this bound (mirrors the virtualized h-96).
+                    <div className="max-h-96 overflow-y-auto">
+                      {visibleChannels.map((channel) => (
+                        <SlackChannelRow
+                          key={channel.id}
+                          channel={channel}
+                          open={openIds.has(channel.id)}
+                          onToggle={() => toggleRow(channel.id)}
+                          pending={pendingChannelIds.has(channel.id)}
+                          overridesLoading={tierOverridesLoading}
+                          overridesError={tierOverridesError}
+                          defaultTier={defaultTier}
+                          accessControls={accessControlsSupported}
+                          tierOverride={tierOverrides?.[channel.id]}
+                          onTierChange={(tier) =>
+                            onTierChange?.(channel.id, tier)
+                          }
+                          onReset={() => onTierReset?.(channel.id)}
+                        />
+                      ))}
+                    </div>
                   )}
                 </Collapsible.Root>
               )}

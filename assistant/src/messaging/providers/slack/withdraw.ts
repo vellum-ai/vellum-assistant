@@ -15,10 +15,29 @@
  * back to editing the message down to a status-only block — still an edit.
  */
 
+import {
+  isParkAction,
+  PARK_STATUS_LABEL,
+} from "../../../runtime/channel-approval-types.js";
 import { getLogger } from "../../../util/logger.js";
 import { callSlackApi, getSlackMessageBlocks } from "./api.js";
 
 const log = getLogger("slack-withdraw");
+
+/**
+ * `block_id` prefix stamped on the instruction / CTA blocks of an approval
+ * card (reply directives, the "open invite flow" prompt, the guardian
+ * verification nudge) at build time. Withdrawal drops every block whose
+ * `block_id` starts with this: once a decision is recorded the guardian has
+ * nothing left to do, so the call-to-action copy must disappear, leaving only
+ * the card's audit content and the resolved-status line. A prefix (not a fixed
+ * id) because Slack requires each block's `block_id` to be unique within a
+ * message, so each tagged block appends its own suffix. Shared with the Slack
+ * notification adapter that builds these blocks so the tag can never drift
+ * between the writer and the stripper.
+ */
+export const APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX =
+  "vellum:approval-instructions";
 
 const STATUS_GLYPH: Record<string, string> = {
   approved: ":white_check_mark:",
@@ -34,6 +53,13 @@ const STATUS_WORD: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
+/**
+ * Glyph for a parked (leave-unverified) decision. A neutral "on hold" mark
+ * rather than the `denied` red cross — the sender was neither trusted nor kept
+ * out, just left at `unverified`.
+ */
+const PARK_STATUS_GLYPH = ":pause_button:";
+
 export interface WithdrawSlackApprovalCardParams {
   /** Channel/DM id the approval message lives in. */
   channel: string;
@@ -41,6 +67,13 @@ export interface WithdrawSlackApprovalCardParams {
   messageTs: string;
   /** Terminal status of the request (e.g. "approved", "denied", "expired"). */
   status: string;
+  /**
+   * The action the guardian took, when known. A `denied` status reached by a
+   * park action (`leave_unverified`) reads as the neutral
+   * {@link PARK_STATUS_LABEL} rather than "Denied"; `block`/`reject` stay a
+   * denial. Omitted for status-only transitions (e.g. the expiry sweep).
+   */
+  decidedAction?: string;
   /** Slack user id of the decider, when the decision came from Slack. */
   decidedByExternalUserId?: string;
   /** Decision time (epoch ms) for the audit line. */
@@ -52,8 +85,11 @@ export interface WithdrawSlackApprovalCardParams {
  * Uses Slack's `<!date>` token so the time renders in each viewer's timezone.
  */
 function buildStatusText(params: WithdrawSlackApprovalCardParams): string {
-  const glyph = STATUS_GLYPH[params.status] ?? "";
-  const word = STATUS_WORD[params.status] ?? "Resolved";
+  const park = params.status === "denied" && isParkAction(params.decidedAction);
+  const glyph = park ? PARK_STATUS_GLYPH : (STATUS_GLYPH[params.status] ?? "");
+  const word = park
+    ? PARK_STATUS_LABEL
+    : (STATUS_WORD[params.status] ?? "Resolved");
   let line = glyph ? `${glyph} *${word}*` : `*${word}*`;
   if (params.decidedByExternalUserId) {
     line += ` by <@${params.decidedByExternalUserId}>`;
@@ -68,8 +104,11 @@ function buildStatusText(params: WithdrawSlackApprovalCardParams): string {
 
 /**
  * Remove interactive affordances from a fetched message's blocks: drop
- * standalone `actions` rows and strip the `actions` array from native `card`
- * blocks, leaving all informational content intact.
+ * standalone `actions` rows, strip the `actions` array from native `card`
+ * blocks, and drop instruction/CTA blocks tagged with
+ * {@link APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX} (reply directives, the "open
+ * invite flow" prompt, the verification nudge). Informational content —
+ * identity, message preview, source link — is left intact for the audit trail.
  */
 export function stripApprovalActionBlocks(blocks: unknown[]): unknown[] {
   const result: unknown[] = [];
@@ -79,7 +118,16 @@ export function stripApprovalActionBlocks(blocks: unknown[]): unknown[] {
       continue;
     }
     const b = block as Record<string, unknown>;
-    if (b.type === "actions") continue;
+    if (b.type === "actions") {
+      continue;
+    }
+    // CTA / instruction copy is meaningless once a decision is recorded.
+    if (
+      typeof b.block_id === "string" &&
+      b.block_id.startsWith(APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX)
+    ) {
+      continue;
+    }
     if (b.type === "card" && "actions" in b) {
       const { actions: _removed, ...rest } = b;
       result.push(rest);

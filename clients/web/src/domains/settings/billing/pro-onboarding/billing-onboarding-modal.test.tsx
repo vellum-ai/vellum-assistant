@@ -17,18 +17,23 @@ import { MemoryRouter } from "react-router";
 import {
   assistantsDomainsListOptions,
   assistantsDomainsListSetQueryData,
+  organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionOnboardingRetrieveSetQueryData,
 } from "@/generated/api/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
   Assistant,
+  CreditTierEnum,
   EnsureProvisionedResponse,
   OnboardingStateResponse,
   OperationalStatus,
   PaginatedAssistantDomainList,
+  PlanListResponse,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import { readCheckoutIntent, saveCheckoutIntent } from "@/lib/billing/checkout-intent";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 import * as proOnboardingUtils from "./utils";
 
@@ -52,12 +57,16 @@ mock.module("@/stores/organization-store", () => ({
 
 // Stub the takeover avatar hook so the provisioning target's avatar doesn't
 // fire (404-ing) fetches that each invalidateQueries() would await, slowing
-// the polls past the test budget.
+// the polls past the test budget. The payload is mutable so the surface tint
+// derived from it can be driven per-test.
+let avatarComponents: CharacterComponents | null = null;
+let avatarTraits: CharacterTraits | null = null;
+let avatarCustomImageUrl: string | null = null;
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: () => ({
-    components: null,
-    traits: null,
-    customImageUrl: null,
+    components: avatarComponents,
+    traits: avatarTraits,
+    customImageUrl: avatarCustomImageUrl,
     isLoading: false,
     invalidate: () => {},
   }),
@@ -131,6 +140,35 @@ function makeEnsureResponse(
     state,
     reason,
     targets: { machine_size: "large", storage_gib: 50 },
+  };
+}
+
+/** A pro catalog with a `credits_50` tier the terminal credits chip resolves. */
+function plansWithCredits(): PlanListResponse {
+  return {
+    plans: [
+      {
+        id: "pro",
+        name: "Pro",
+        base_lookup_key: "pro_base",
+        base_price_cents: 2000,
+        billing_interval: "month",
+        included_features: [],
+        machine_tiers: [],
+        storage_tiers: [],
+        credit_tiers: [
+          {
+            tier: "credits_50",
+            label: "$50 credits/mo",
+            credits_usd: 50,
+            price_cents: 5000,
+            lookup_key: "credits_50_key",
+            legacy: false,
+          },
+        ],
+        packages: [],
+      },
+    ],
   };
 }
 
@@ -220,6 +258,9 @@ mock.module("@/generated/api/sdk.gen", () => ({
 }));
 
 const { BillingOnboardingModal } = await import("./billing-onboarding-modal");
+const { TAKEOVER_SURFACE, TAKEOVER_SURFACE_VAR } = await import(
+  "./provisioning-state"
+);
 
 const BACKGROUND_LINE =
   "Assistant will go offline briefly while it resizes. Chat might not work during that time.";
@@ -232,10 +273,23 @@ const BACKGROUND_LINE =
  */
 const TEST_DWELL_MS = 250;
 
-function renderModal({ mode }: { mode?: "checkout" | "resize" } = {}) {
+function renderModal({
+  mode,
+  resizeCredits,
+  plans,
+}: {
+  mode?: "checkout" | "resize";
+  resizeCredits?: CreditTierEnum | null;
+  plans?: PlanListResponse;
+} = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  // Seed the plan catalog so the terminal credits chip resolves its label
+  // without a fetch (the credits hook reads this shared query).
+  if (plans) {
+    client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), plans);
+  }
   const onClose = mock(() => {});
   const view = render(
     <MemoryRouter>
@@ -246,6 +300,7 @@ function renderModal({ mode }: { mode?: "checkout" | "resize" } = {}) {
           dwellMs={TEST_DWELL_MS}
           phaseMinMs={0}
           mode={mode}
+          resizeCredits={resizeCredits}
         />
       </QueryClientProvider>
     </MemoryRouter>,
@@ -254,6 +309,9 @@ function renderModal({ mode }: { mode?: "checkout" | "resize" } = {}) {
 }
 
 beforeEach(() => {
+  avatarComponents = null;
+  avatarTraits = null;
+  avatarCustomImageUrl = null;
   subscriptionPlanId = "base";
   onboardingResponse = makeOnboarding();
   assistantResponse = makeAssistant("small", 10);
@@ -346,6 +404,33 @@ describe("BillingOnboardingModal", () => {
     expect(domainsCalls).toBe(0);
   });
 
+  test("the complete step exposes a close button that dismisses", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = makeOnboarding({ domain_setup_available: false });
+    const { client, getByText, onClose } = renderModal();
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    await waitFor(() => expect(getByText("10 GB")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    // The takeover holds no close control on the way through.
+    expect(document.body.querySelector('[aria-label="Close"]')).toBeNull();
+
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+
+    const close = document.body.querySelector('[aria-label="Close"]');
+    expect(close).not.toBeNull();
+    fireEvent.click(close as Element);
+    expect(onClose).toHaveBeenCalled();
+  });
+
   test("storage-only package provisions without a machine card", async () => {
     subscriptionPlanId = "pro";
     onboardingResponse = makeOnboarding({ max_machine_tier: null });
@@ -429,6 +514,61 @@ describe("BillingOnboardingModal", () => {
     const card = document.body.querySelector('[data-slot="modal-content"]');
     expect(card?.getAttribute("data-theme")).toBeNull();
     expect(card?.className).not.toContain("w-screen");
+  });
+
+  test("the takeover and its exit sheet both paint from the modal's surface variable", async () => {
+    // The sheet covers the takeover while the modal changes shape and theme
+    // underneath it, so a second colour there would show as a cross-fade.
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+    subscriptionPlanId = "pro";
+    assistantResponse = makeAssistant("large", 50);
+    const { getByText, findByTestId } = renderModal();
+
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    const content = document.body.querySelector<HTMLElement>(
+      '[data-slot="modal-content"]',
+    );
+    expect(
+      content?.style.getPropertyValue(TAKEOVER_SURFACE_VAR).toLowerCase(),
+    ).toBe("#29202e");
+    const takeover = document.body.querySelector<HTMLElement>(
+      ".provision-surface-settle",
+    );
+    expect(takeover?.style.backgroundColor).toBe(TAKEOVER_SURFACE);
+
+    const sheet = await findByTestId("takeover-exit-sheet");
+    expect(sheet.style.backgroundColor).toBe(TAKEOVER_SURFACE);
+  });
+
+  test("a custom-image takeover's exit sheet reproduces the blurred backdrop", async () => {
+    // A custom-image takeover paints its colour in a blurred backdrop, not the
+    // ground fill. The exit sheet must carry that same image, or the covering
+    // fade cross-fades the image to flat neutral — the handoff it exists to
+    // prevent.
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+    subscriptionPlanId = "pro";
+    assistantResponse = makeAssistant("large", 50);
+    const { getByText, findByTestId } = renderModal();
+
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+
+    const sheet = await findByTestId("takeover-exit-sheet");
+    const backdrop = sheet.querySelector<HTMLElement>(
+      '[data-testid="takeover-backdrop"]',
+    );
+    expect(backdrop).not.toBeNull();
+    expect(backdrop?.querySelector("img")?.getAttribute("src")).toBe(
+      "blob:vellum/avatar-image",
+    );
+    // The sheet's own fade drives the reveal here, so the backdrop must not
+    // re-fade over it.
+    expect(backdrop?.className).not.toContain("provision-avatar-reveal");
   });
 
   test(
@@ -1008,6 +1148,29 @@ describe("BillingOnboardingModal — resize mode", () => {
       { timeout: 5000 },
     );
     expect(queryByText("Super package")).toBeNull();
+  });
+
+  test("confirms an applied credit bundle on the terminal phase", async () => {
+    subscriptionPlanId = "pro";
+    const { client, getByText } = renderModal({
+      mode: "resize",
+      resizeCredits: "credits_50",
+      plans: plansWithCredits(),
+    });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    // The threaded bundle is confirmed on the terminal phase — a credit change
+    // never reaches the WAITING credits chip, so this is its only surface.
+    expect(getByText("$50 credits/mo")).toBeTruthy();
   });
 
   test(

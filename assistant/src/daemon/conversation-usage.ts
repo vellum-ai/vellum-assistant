@@ -200,9 +200,19 @@ export function recordUsage(
       ? pricing.estimatedCostUsd
       : 0;
 
-  ctx.usageStats.inputTokens += inputTokens;
-  ctx.usageStats.outputTokens += outputTokens;
-  ctx.usageStats.estimatedCost += estimatedCost;
+  // Normalize both sides: NaN passes the <=0 early-return above (NaN
+  // comparisons are false) and binds as NULL in SQLite, and normalizing the
+  // running total heals a counter already poisoned by a prior NaN.
+  ctx.usageStats.inputTokens =
+    normalizeTokenCount(ctx.usageStats.inputTokens) +
+    normalizeTokenCount(inputTokens);
+  ctx.usageStats.outputTokens =
+    normalizeTokenCount(ctx.usageStats.outputTokens) +
+    normalizeTokenCount(outputTokens);
+  ctx.usageStats.estimatedCost =
+    (Number.isFinite(ctx.usageStats.estimatedCost)
+      ? ctx.usageStats.estimatedCost
+      : 0) + estimatedCost;
 
   updateConversationUsage(
     ctx.conversationId,

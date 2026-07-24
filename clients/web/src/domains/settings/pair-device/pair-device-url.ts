@@ -15,11 +15,18 @@ export {
   type PublicBaseUrlResult,
 } from "@vellumai/service-contracts/remote-web-pairing";
 
-import type { PublicBaseUrlRejection } from "@vellumai/service-contracts/remote-web-pairing";
+import {
+  tunnelProviderWebsiteName,
+  type PublicBaseUrlRejection,
+} from "@vellumai/service-contracts/remote-web-pairing";
 
-/** Inline validation message for each rejection reason. */
+/**
+ * Inline validation message for each rejection reason. `value` is the raw input
+ * that was rejected, used to name the specific vendor for a service-website URL.
+ */
 export function publicBaseUrlRejectionMessage(
   reason: PublicBaseUrlRejection,
+  value?: string,
 ): string {
   switch (reason) {
     case "unparseable":
@@ -28,6 +35,10 @@ export function publicBaseUrlRejectionMessage(
       return "This is a loopback address your phone can't reach. Enter the assistant's public https URL.";
     case "non-https":
       return "The URL must use https so your phone can connect securely.";
+    case "service-website": {
+      const service =
+        (value && tunnelProviderWebsiteName(value)) || "the tunnel provider";
+      return `This is ${service}'s website, not your assistant's address. Run \`vellum tunnel\` on the host to get one.`;
+    }
   }
 }
-

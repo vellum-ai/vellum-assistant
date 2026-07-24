@@ -4,11 +4,11 @@ import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import * as schema from "../schema.js";
-import { migrateAddLlmUsageConversationType } from "./348-add-llm-usage-conversation-type.js";
+import { migrateAddLlmUsageConversationType } from "./353-add-llm-usage-conversation-type.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
-  // Pre-348 shape: only the columns the migration and tests touch.
+  // Pre-353 shape: only the columns the migration and tests touch.
   sqlite.exec(/*sql*/ `
     CREATE TABLE conversations (
       id TEXT PRIMARY KEY,
@@ -60,7 +60,7 @@ function typeOf(sqlite: Database, eventId: string): unknown {
   return row.conversation_type;
 }
 
-describe("migration 348: llm_usage_events.conversation_type", () => {
+describe("migration 353: llm_usage_events.conversation_type", () => {
   test("adds the nullable column", () => {
     const { sqlite, db } = createTestDb();
     migrateAddLlmUsageConversationType(db);

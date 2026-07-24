@@ -282,7 +282,7 @@ export const llmUsageEvents = sqliteTable(
      * flush joins against it (memory-retrospective forks are GC'd once
      * superseded; users delete conversations), so a flush-time JOIN alone
      * under-labels usage rows. Null when the call has no parent
-     * conversation and for rows persisted before migration 348 ran (the
+     * conversation and for rows persisted before migration 353 ran (the
      * telemetry read path falls back to the JOIN for those).
      */
     conversationType: text("conversation_type"),

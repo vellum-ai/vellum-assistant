@@ -16,6 +16,10 @@ import { downloadAttachment } from "@/domains/chat/components/chat-attachments/d
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ToolResultImages } from "@/domains/chat/components/chat-attachments/tool-result-images";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import {
+  VellumFileActionModal,
+  type VellumFileActionTarget,
+} from "@/domains/chat/components/vellum-file-action-modal";
 import { toast } from "@vellumai/design-library";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { MessageLongPressActions } from "@/domains/chat/components/message-hover-actions/message-long-press-actions";
@@ -42,9 +46,11 @@ import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
 import { captureError } from "@/lib/sentry/capture-error";
 import { getExternalLinkUrl } from "@/domains/chat/types/types";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useLongPress } from "@/hooks/use-long-press";
+import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
@@ -81,6 +87,15 @@ import { saveFile } from "@/runtime/native-file";
  * applies), trading polish for headroom on outlier-length messages.
  */
 const STREAM_WORD_FADE_MAX_CHARS = 12000;
+
+/** Percent-decodes `value`, returning it unchanged on malformed encoding. */
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
 
 /**
  * Renders a `DisplayMessage`'s body by walking its unified `contentBlocks`
@@ -383,18 +398,23 @@ export function TranscriptMessageBody({
     useViewerStore.getState().openBackgroundTaskDetail(id);
   }, []);
 
+  // The `vellum://` file link awaiting an action choice in the modal, plus
+  // the context needed to execute either action.
+  const [pendingVellumFile, setPendingVellumFile] = useState<
+    | (VellumFileActionTarget & {
+        attachment?: NonNullable<DisplayMessage["attachments"]>[number];
+        isHost: boolean;
+      })
+    | null
+  >(null);
+
   const handleVellumLinkClick = useCallback(
     (href: string, linkText: string) => {
       const rawBasename = href.split("/").pop() ?? "";
       // The daemon percent-decodes vellum:// paths before storing attachment
       // filenames, so match on the decoded basename. Keep the raw form as a
       // defensive fallback for malformed encodings.
-      let pathBasename = rawBasename;
-      try {
-        pathBasename = decodeURIComponent(rawBasename);
-      } catch {
-        // Malformed percent-encoding: fall back to the raw basename.
-      }
+      const pathBasename = safeDecodeURIComponent(rawBasename);
       // Mirror the daemon's stored-filename rule (shared contract): a link
       // label is only the stored name when it carries a recognized
       // extension, otherwise the attachment lives under the path basename.
@@ -407,59 +427,81 @@ export function TranscriptMessageBody({
         pathBasename,
         "label",
       );
-      const att =
+      const attachment =
         message.attachments?.find((a) => a.filename === expectedFilename) ??
         message.attachments?.find((a) => a.filename === linkText) ??
         message.attachments?.find((a) => a.filename === pathBasename) ??
         message.attachments?.find((a) => a.filename === rawBasename);
-      if (att) {
-        void downloadAttachment(att, assistantId);
-      } else if (href.startsWith("vellum://workspace/")) {
-        // Fallback for files not registered as message attachments — e.g.
-        // files linked only inside component/surface HTML. The daemon's
-        // cleanAssistantContent only extracts vellum:// links from assistant
-        // TEXT blocks, not from dynamic_page surface HTML, so a file cited
-        // only in a component never becomes an attachment. Fetch it by path
-        // from the workspace file content endpoint instead — the same route
-        // the workspace browser uses. Inlined here to avoid a cross-domain
-        // import (chat -> workspace).
-        const WORKSPACE_PREFIX = "vellum://workspace/";
-        let filePath = href.slice(WORKSPACE_PREFIX.length);
-        try {
-          filePath = decodeURIComponent(filePath);
-        } catch {
-          // Malformed percent-encoding — use the raw path.
-        }
-        const filename = resolveAttachmentFilename(
-          linkText || undefined,
-          pathBasename,
-          "label",
-        );
-        void (async () => {
-          try {
-            const { data, error } = await workspaceFileContentGet({
-              path: { assistant_id: assistantId ?? "" },
-              query: { path: filePath },
-              parseAs: "blob",
-              throwOnError: false,
-            });
-            if (error || !(data instanceof Blob)) {
-              throw new Error("workspace file content fetch failed");
-            }
-            await saveFile(data, filename);
-          } catch {
-            toast.error("Failed to download file", { description: filename });
-          }
-        })();
-      } else {
-        const isHost = href.startsWith("vellum://host/");
-        toast.error(
-          `File not available for download${isHost ? " (host file approval may have timed out)" : ""}`,
-          { description: linkText || pathBasename },
-        );
-      }
+      const WORKSPACE_PREFIX = "vellum://workspace/";
+      setPendingVellumFile({
+        filename: attachment?.filename ?? expectedFilename,
+        workspacePath: href.startsWith(WORKSPACE_PREFIX)
+          ? safeDecodeURIComponent(href.slice(WORKSPACE_PREFIX.length))
+          : undefined,
+        attachment,
+        isHost: href.startsWith("vellum://host/"),
+      });
     },
-    [message.attachments, assistantId],
+    [message.attachments],
+  );
+
+  const handleGoToPendingFile = useCallback(() => {
+    const workspacePath = pendingVellumFile?.workspacePath;
+    setPendingVellumFile(null);
+    if (workspacePath) {
+      void openWorkspaceFile(workspacePath);
+    }
+  }, [pendingVellumFile]);
+
+  const handleDownloadPendingFile = useCallback(() => {
+    const pending = pendingVellumFile;
+    setPendingVellumFile(null);
+    if (!pending) {
+      return;
+    }
+    if (pending.attachment) {
+      void downloadAttachment(pending.attachment, assistantId);
+    } else if (pending.workspacePath) {
+      // Fallback for files not registered as message attachments — e.g.
+      // files linked only inside component/surface HTML. The daemon's
+      // cleanAssistantContent only extracts vellum:// links from assistant
+      // TEXT blocks, not from dynamic_page surface HTML, so a file cited
+      // only in a component never becomes an attachment. Fetch it by path
+      // from the workspace file content endpoint instead — the same route
+      // the workspace browser uses. Inlined here to avoid a cross-domain
+      // import (chat -> workspace).
+      const { workspacePath, filename } = pending;
+      void (async () => {
+        try {
+          const { data, error } = await workspaceFileContentGet({
+            path: { assistant_id: assistantId ?? "" },
+            query: { path: workspacePath },
+            parseAs: "blob",
+            throwOnError: false,
+          });
+          if (error || !(data instanceof Blob)) {
+            throw new Error("workspace file content fetch failed");
+          }
+          await saveFile(data, filename);
+        } catch {
+          toast.error("Failed to download file", { description: filename });
+        }
+      })();
+    } else {
+      toast.error(
+        `File not available for download${pending.isHost ? " (host file approval may have timed out)" : ""}`,
+        { description: pending.filename },
+      );
+    }
+  }, [pendingVellumFile, assistantId]);
+
+  const vellumFileModal = (
+    <VellumFileActionModal
+      target={pendingVellumFile}
+      onGoToFile={handleGoToPendingFile}
+      onDownload={handleDownloadPendingFile}
+      onClose={() => setPendingVellumFile(null)}
+    />
   );
 
   const renderTextWithInlineSurfaces = (
@@ -955,6 +997,7 @@ export function TranscriptMessageBody({
           {renderUserContent(userItems)}
           {trailer}
         </div>
+        {vellumFileModal}
         {isTouch && (
           <div onClick={(e) => e.stopPropagation()}>
             <MessageLongPressActions
@@ -997,6 +1040,7 @@ export function TranscriptMessageBody({
         )}
         {trailer}
       </div>
+      {vellumFileModal}
       {isTouch && !isAssistant && (
         <div onClick={(e) => e.stopPropagation()}>
           <MessageLongPressActions

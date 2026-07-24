@@ -13,11 +13,12 @@ import { z } from "zod";
 import { getConfig } from "../../config/loader.js";
 import { searchContacts } from "../../contacts/contact-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
+import { getMemorySqlite } from "../../persistence/db-connection.js";
 import {
   embedWithBackend,
   getMemoryBackendStatus,
 } from "../../persistence/embeddings/embedding-backend.js";
-import { rawAll } from "../../persistence/raw-query.js";
+import { rawMemoryAll } from "../../persistence/raw-query.js";
 import { semanticSearch } from "../../plugins/defaults/memory/search/semantic.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
@@ -151,6 +152,11 @@ function parseSearchQuery(rawQ: string | undefined): {
 }
 
 function searchMemoryItems(query: string, limit: number): GlobalSearchMemory[] {
+  // The memory graph lives in the dedicated memory database. If it cannot be
+  // opened, degrade this category to empty rather than failing the whole
+  // federated search — conversations, schedules, and contacts still return.
+  if (!getMemorySqlite()) return [];
+
   const likePattern = `%${query.replace(/%/g, "").replace(/_/g, "")}%`;
 
   interface MemoryRow {
@@ -161,7 +167,7 @@ function searchMemoryItems(query: string, limit: number): GlobalSearchMemory[] {
     last_accessed: number;
   }
 
-  const rows = rawAll<MemoryRow>(
+  const rows = rawMemoryAll<MemoryRow>(
     "globalSearch:searchMemoryItems",
     `SELECT id, type, content, confidence, last_accessed
      FROM memory_graph_nodes

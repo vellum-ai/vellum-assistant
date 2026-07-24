@@ -1,13 +1,13 @@
 /**
- * Tests for `RenameConversationDialog`.
+ * Tests for `NameInputDialog` — the shared name entry/edit dialog used for
+ * conversation rename and group create/rename.
  *
  * The component is a thin composition over `@vellumai/design-library`'s
  * `Modal` primitive (Radix Dialog under the hood). We mount it via
  * `@testing-library/react` (backed by happy-dom — see
  * `clients/web/test-setup.ts`) and exercise the user-facing behaviors that
- * matter: typing into the field, submitting via the Save button,
- * cancelling via Cancel, and the disabled-state heuristics that prevent
- * empty / no-op renames.
+ * matter: typing into the field, submitting, cancelling, and the
+ * disabled-state heuristics that prevent empty / no-op edits.
  *
  * Behaviors delegated to Radix (focus trap, Escape, portal mount) aren't
  * re-asserted here — they're tested upstream by the design library.
@@ -17,7 +17,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import { RenameConversationDialog } from "@/domains/chat/components/rename-conversation-dialog.js";
+import { NameInputDialog } from "@/domains/chat/components/name-input-dialog";
 
 afterEach(() => {
   cleanup();
@@ -27,11 +27,11 @@ function getNameInput(): HTMLInputElement {
   // The Modal portals into document.body, so query against the document
   // rather than the render container.
   const input = document.querySelector<HTMLInputElement>("input");
-  if (!input) throw new Error("expected rename input to be in the DOM");
+  if (!input) throw new Error("expected name input to be in the DOM");
   return input;
 }
 
-function getButton(label: "Cancel" | "Save"): HTMLButtonElement {
+function getButton(label: string): HTMLButtonElement {
   const buttons = Array.from(
     document.querySelectorAll<HTMLButtonElement>("button"),
   );
@@ -47,33 +47,35 @@ function getButton(label: "Cancel" | "Save"): HTMLButtonElement {
 }
 
 // ---------------------------------------------------------------------------
-// Initial render
+// Rename variant (title/label passed in by the caller)
 // ---------------------------------------------------------------------------
 
 describe("Initial render", () => {
-  test("renders title, input pre-filled with currentTitle, and Cancel + Save buttons", () => {
+  test("renders the passed title, input pre-filled with initialValue, and Cancel + submit buttons", () => {
     render(
-      <RenameConversationDialog
+      <NameInputDialog
         open
-        currentTitle="Trip planning"
+        title="Rename conversation"
+        submitLabel="Save"
+        initialValue="Trip planning"
         onSubmit={() => {}}
         onCancel={() => {}}
       />,
     );
 
-    // Modal.Title text appears in the portaled content.
     expect(document.body.textContent).toContain("Rename conversation");
-
     expect(getNameInput().value).toBe("Trip planning");
     expect(getButton("Cancel")).toBeTruthy();
     expect(getButton("Save")).toBeTruthy();
   });
 
-  test("Save is disabled when the input matches currentTitle (no-op rename)", () => {
+  test("submit is disabled when the input matches initialValue (no-op edit)", () => {
     render(
-      <RenameConversationDialog
+      <NameInputDialog
         open
-        currentTitle="Trip planning"
+        title="Rename conversation"
+        submitLabel="Save"
+        initialValue="Trip planning"
         onSubmit={() => {}}
         onCancel={() => {}}
       />,
@@ -81,23 +83,27 @@ describe("Initial render", () => {
     expect(getButton("Save").disabled).toBe(true);
   });
 
-  test("Save is disabled when currentTitle is empty and the user hasn't typed yet", () => {
+  test("submit is disabled when initialValue is empty and the user hasn't typed yet", () => {
     render(
-      <RenameConversationDialog
+      <NameInputDialog
         open
-        currentTitle=""
+        title="New group"
+        submitLabel="Create"
+        initialValue=""
         onSubmit={() => {}}
         onCancel={() => {}}
       />,
     );
-    expect(getButton("Save").disabled).toBe(true);
+    expect(getButton("Create").disabled).toBe(true);
   });
 
   test("does not render anything portaled when open=false", () => {
     render(
-      <RenameConversationDialog
+      <NameInputDialog
         open={false}
-        currentTitle="Trip planning"
+        title="Rename conversation"
+        submitLabel="Save"
+        initialValue="Trip planning"
         onSubmit={() => {}}
         onCancel={() => {}}
       />,
@@ -107,16 +113,14 @@ describe("Initial render", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Edit + submit flow
-// ---------------------------------------------------------------------------
-
 describe("Edit + submit", () => {
-  test("typing a new value enables Save", () => {
+  test("typing a new value enables submit", () => {
     render(
-      <RenameConversationDialog
+      <NameInputDialog
         open
-        currentTitle="Trip planning"
+        title="Rename conversation"
+        submitLabel="Save"
+        initialValue="Trip planning"
         onSubmit={() => {}}
         onCancel={() => {}}
       />,
@@ -125,19 +129,19 @@ describe("Edit + submit", () => {
     expect(getButton("Save").disabled).toBe(false);
   });
 
-  test("clicking Save invokes onSubmit with the trimmed new title", () => {
+  test("clicking submit invokes onSubmit with the trimmed value", () => {
     const onSubmit = mock(() => {});
     render(
-      <RenameConversationDialog
+      <NameInputDialog
         open
-        currentTitle="Trip planning"
+        title="Rename conversation"
+        submitLabel="Save"
+        initialValue="Trip planning"
         onSubmit={onSubmit}
         onCancel={() => {}}
       />,
     );
-    fireEvent.change(getNameInput(), {
-      target: { value: "  Paris trip  " },
-    });
+    fireEvent.change(getNameInput(), { target: { value: "  Paris trip  " } });
     fireEvent.click(getButton("Save"));
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -147,18 +151,17 @@ describe("Edit + submit", () => {
   test("pressing Enter in the input submits the form", () => {
     const onSubmit = mock(() => {});
     render(
-      <RenameConversationDialog
+      <NameInputDialog
         open
-        currentTitle="Trip planning"
+        title="Rename conversation"
+        submitLabel="Save"
+        initialValue="Trip planning"
         onSubmit={onSubmit}
         onCancel={() => {}}
       />,
     );
     fireEvent.change(getNameInput(), { target: { value: "Paris trip" } });
 
-    // Submitting the surrounding <form> matches the real-world Enter-key
-    // path. happy-dom doesn't synthesize a form submit purely from a
-    // keydown, so we trigger the form directly.
     const form = getNameInput().closest("form");
     if (!form) throw new Error("expected the input to be inside a <form>");
     fireEvent.submit(form);
@@ -167,12 +170,14 @@ describe("Edit + submit", () => {
     expect(onSubmit).toHaveBeenCalledWith("Paris trip");
   });
 
-  test("Save stays disabled (and onSubmit doesn't fire) when input is whitespace only", () => {
+  test("submit stays disabled (and onSubmit doesn't fire) when input is whitespace only", () => {
     const onSubmit = mock(() => {});
     render(
-      <RenameConversationDialog
+      <NameInputDialog
         open
-        currentTitle="Trip planning"
+        title="Rename conversation"
+        submitLabel="Save"
+        initialValue="Trip planning"
         onSubmit={onSubmit}
         onCancel={() => {}}
       />,
@@ -183,49 +188,55 @@ describe("Edit + submit", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  test("Save stays disabled when typed value trims back to currentTitle", () => {
-    const onSubmit = mock(() => {});
+  test("submit stays disabled when the typed value trims back to initialValue", () => {
     render(
-      <RenameConversationDialog
+      <NameInputDialog
         open
-        currentTitle="Trip planning"
-        onSubmit={onSubmit}
+        title="Rename conversation"
+        submitLabel="Save"
+        initialValue="Trip planning"
+        onSubmit={() => {}}
         onCancel={() => {}}
       />,
     );
-    fireEvent.change(getNameInput(), {
-      target: { value: "  Trip planning  " },
-    });
+    fireEvent.change(getNameInput(), { target: { value: "  Trip planning  " } });
     expect(getButton("Save").disabled).toBe(true);
   });
 });
 
-// ---------------------------------------------------------------------------
-// Cancel flow
-// ---------------------------------------------------------------------------
-
-describe("Cancel", () => {
-  test("clicking Cancel invokes onCancel", () => {
-    const onCancel = mock(() => {});
+describe("Create variant", () => {
+  test("uses the passed create title + submit label and enables on typing", () => {
+    const onSubmit = mock(() => {});
     render(
-      <RenameConversationDialog
+      <NameInputDialog
         open
-        currentTitle="Trip planning"
-        onSubmit={() => {}}
-        onCancel={onCancel}
+        title="New group"
+        submitLabel="Create"
+        initialValue=""
+        onSubmit={onSubmit}
+        onCancel={() => {}}
       />,
     );
-    fireEvent.click(getButton("Cancel"));
-    expect(onCancel).toHaveBeenCalledTimes(1);
-  });
+    expect(document.body.textContent).toContain("New group");
+    expect(getButton("Create").disabled).toBe(true);
 
-  test("clicking Cancel after typing does not invoke onSubmit", () => {
+    fireEvent.change(getNameInput(), { target: { value: "Research" } });
+    expect(getButton("Create").disabled).toBe(false);
+    fireEvent.click(getButton("Create"));
+    expect(onSubmit).toHaveBeenCalledWith("Research");
+  });
+});
+
+describe("Cancel", () => {
+  test("clicking Cancel invokes onCancel and not onSubmit", () => {
     const onSubmit = mock(() => {});
     const onCancel = mock(() => {});
     render(
-      <RenameConversationDialog
+      <NameInputDialog
         open
-        currentTitle="Trip planning"
+        title="Rename conversation"
+        submitLabel="Save"
+        initialValue="Trip planning"
         onSubmit={onSubmit}
         onCancel={onCancel}
       />,
@@ -237,16 +248,14 @@ describe("Cancel", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Reset on reopen
-// ---------------------------------------------------------------------------
-
 describe("Reset on reopen", () => {
-  test("rerendering with a new currentTitle while open repopulates the input", () => {
+  test("rerendering with a new initialValue while open repopulates the input", () => {
     const { rerender } = render(
-      <RenameConversationDialog
+      <NameInputDialog
         open
-        currentTitle="Trip planning"
+        title="Rename conversation"
+        submitLabel="Save"
+        initialValue="Trip planning"
         onSubmit={() => {}}
         onCancel={() => {}}
       />,
@@ -254,12 +263,12 @@ describe("Reset on reopen", () => {
     fireEvent.change(getNameInput(), { target: { value: "Paris" } });
     expect(getNameInput().value).toBe("Paris");
 
-    // Simulates re-opening the dialog against a different conversation:
-    // the consumer keeps `open=true` but swaps the title.
     rerender(
-      <RenameConversationDialog
+      <NameInputDialog
         open
-        currentTitle="Grocery list"
+        title="Rename conversation"
+        submitLabel="Save"
+        initialValue="Grocery list"
         onSubmit={() => {}}
         onCancel={() => {}}
       />,

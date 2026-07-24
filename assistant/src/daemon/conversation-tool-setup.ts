@@ -871,10 +871,10 @@ export function createResolveToolsCallback(
 
     // Same treatment for user-plugin tools: pull the plugin mtime-cache's
     // active tool set into the registry (a no-op costs a fingerprint compare
-    // per plugin). This pull is a pure cache read — the sentinel reconcile that
-    // activates plugins runs on the hook-dispatch path that precedes tool
-    // resolution each turn — so a plugin installed/removed/edited at runtime is
-    // still picked up here without recreating the conversation.
+    // per plugin). This pull is a pure cache read — plugin activation happens
+    // only at boot and through the install/uninstall routes, both main-daemon
+    // paths — so a plugin installed or removed through the routes is still
+    // picked up here without recreating the conversation.
     void loadPluginTools();
 
     // Read every registered plugin tool each turn (so runtime installs/edits

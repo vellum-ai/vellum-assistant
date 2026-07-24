@@ -320,6 +320,8 @@ To share a workspace file, use a markdown link with the \`vellum://\` scheme:
 
 The path after \`workspace/\` is relative to your working directory. The file renders as a downloadable attachment. For host filesystem files, use \`vellum://host/absolute/path\`.
 
+Use the same link form when referencing a workspace file you are discussing — in the app, clicking the link lets the user open the file in the workspace browser or download it.
+
 Embed images/GIFs inline using standard markdown: \`![description](URL)\`.
 `,
   },

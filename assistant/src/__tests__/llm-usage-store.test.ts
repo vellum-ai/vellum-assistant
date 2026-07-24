@@ -1819,7 +1819,7 @@ describe("queryUnreportedUsageEvents", () => {
       `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-legacy', 'scheduled', ${now}, ${now})`,
     );
     insertEventAt(1000, { conversationId: "conv-legacy" });
-    // Simulate a row persisted before migration 348 stamped the column.
+    // Simulate a row persisted before migration 353 stamped the column.
     db.run(
       `UPDATE llm_usage_events SET conversation_type = NULL WHERE conversation_id = 'conv-legacy'`,
     );

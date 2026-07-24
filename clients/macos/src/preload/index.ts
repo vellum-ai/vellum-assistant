@@ -285,6 +285,10 @@ const bridge: VellumBridge = {
       ipcRenderer.send("vellum:dock:setBadge", count);
     },
   },
+  share: {
+    shareFile: (bytes: Uint8Array, filename: string): Promise<void> =>
+      ipcRenderer.invoke("vellum:share:file", bytes, filename),
+  },
   localMode: {
     hatch: (species: string, remote?: string) =>
       ipcRenderer.invoke("vellum:localMode:hatch", species, remote) as Promise<{

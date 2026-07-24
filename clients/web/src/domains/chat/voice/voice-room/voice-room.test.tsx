@@ -15,6 +15,8 @@
  * removed on unmount (no leaks).
  */
 
+import { type ReactNode } from "react";
+
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
@@ -51,6 +53,11 @@ let mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
 let mockSearch = "";
 mock.module("react-router", () => ({
   useLocation: () => ({ pathname: mockPathname, search: mockSearch }),
+  // The settings popover's bring-your-own-provider row links to Settings; a
+  // plain anchor renders it without a Router.
+  Link: ({ to, children }: { to: string; children: ReactNode }) => (
+    <a href={typeof to === "string" ? to : "#"}>{children}</a>
+  ),
 }));
 
 let mockMainView: MainView = "chat";

@@ -1,43 +1,20 @@
-// External service integrations: Slack, Telegram, Vercel, ingress, guardian.
+// External service integrations: Slack, Telegram, Vercel, ingress, platform.
+//
+// Server→client events that are live hub broadcasts are single-sourced from
+// their canonical `api/events` wire schemas; this file only composes them into
+// the domain union consumed by `message-protocol.ts`. Config get/set flows
+// (Slack webhook, ingress, platform, Vercel, Telegram, integration listing and
+// connect) are served by the HTTP settings routes, not by client messages.
 
 import type { NavigateSettingsEvent } from "../../api/events/navigate-settings.js";
+import type { OAuthConnectResultEvent } from "../../api/events/oauth-connect-result.js";
 import type { OpenPanelEvent } from "../../api/events/open-panel.js";
 import type { OpenUrlEvent } from "../../api/events/open-url.js";
+import type { PlatformDisconnectedEvent } from "../../api/events/platform-disconnected.js";
+import type { ShowPlatformLoginEvent } from "../../api/events/show-platform-login.js";
 import type { ChannelId } from "../../channels/types.js";
 
 // === Client → Server ===
-
-export interface SlackWebhookConfigRequest {
-  type: "slack_webhook_config";
-  action: "get" | "set";
-  webhookUrl?: string;
-}
-
-export interface IngressConfigRequest {
-  type: "ingress_config";
-  action: "get" | "set";
-  publicBaseUrl?: string;
-  enabled?: boolean;
-}
-
-export interface PlatformConfigRequest {
-  type: "platform_config";
-  action: "get" | "set";
-  baseUrl?: string;
-}
-
-export interface VercelApiConfigRequest {
-  type: "vercel_api_config";
-  action: "get" | "set" | "delete";
-  apiToken?: string;
-}
-
-export interface TelegramConfigRequest {
-  type: "telegram_config";
-  action: "get" | "set" | "clear" | "set_commands" | "setup";
-  botToken?: string; // Only for action: 'set' or 'setup'
-  commands?: Array<{ command: string; description: string }>; // Only for action: 'set_commands' or 'setup'
-}
 
 export interface ChannelVerificationSessionRequest {
   type: "channel_verification_session";
@@ -60,86 +37,7 @@ export interface ChannelVerificationSessionRequest {
   contactChannelId?: string;
 }
 
-export interface IntegrationListRequest {
-  type: "integration_list";
-}
-
-export interface IntegrationConnectRequest {
-  type: "integration_connect";
-  integrationId: string;
-}
-
-export interface IntegrationDisconnectRequest {
-  type: "integration_disconnect";
-  integrationId: string;
-}
-
-export interface OAuthConnectStartRequest {
-  type: "oauth_connect_start";
-  service: string;
-  requestedScopes?: string[];
-}
-
-export interface LinkOpenRequest {
-  type: "link_open_request";
-  url: string;
-  metadata?: Record<string, unknown>;
-}
-
 // === Server → Client ===
-
-export interface SlackWebhookConfigResponse {
-  type: "slack_webhook_config_response";
-  webhookUrl?: string;
-  success: boolean;
-  error?: string;
-}
-
-export interface IngressConfigResponse {
-  type: "ingress_config_response";
-  enabled: boolean;
-  publicBaseUrl: string;
-  /** Read-only gateway target computed from GATEWAY_PORT env var (default 7830) + loopback host. */
-  localGatewayTarget: string;
-  /**
-   * When true, this assistant uses platform-managed callback routing.
-   * Webhook delivery is handled by the platform — no local tunnel or
-   * ngrok setup is needed. `publicBaseUrl` reflects the platform callback URL.
-   */
-  managedCallbacks?: boolean;
-  success: boolean;
-  error?: string;
-}
-
-export interface PlatformConfigResponse {
-  type: "platform_config_response";
-  baseUrl: string;
-  success: boolean;
-  error?: string;
-}
-
-export interface VercelApiConfigResponse {
-  type: "vercel_api_config_response";
-  hasToken: boolean;
-  success: boolean;
-  error?: string;
-}
-
-export interface TelegramConfigResponse {
-  type: "telegram_config_response";
-  success: boolean;
-  hasBotToken: boolean;
-  botId?: string;
-  botUsername?: string;
-  connected: boolean;
-  hasWebhookSecret: boolean;
-  lastError?: string;
-  error?: string;
-  /** Names of bot commands that were registered (present after set_commands or setup). */
-  commandsRegistered?: string[];
-  /** Non-fatal warning (e.g. commands registration failed during setup but token was configured). */
-  warning?: string;
-}
 
 export interface ChannelVerificationSessionResponse {
   type: "channel_verification_session_response";
@@ -178,72 +76,15 @@ export interface ChannelVerificationSessionResponse {
   pendingBootstrap?: boolean;
 }
 
-export interface IntegrationListResponse {
-  type: "integration_list_response";
-  integrations: Array<{
-    id: string;
-    connected: boolean;
-    accountInfo?: string | null;
-    connectedAt?: number | null;
-    lastUsed?: number | null;
-    error?: string | null;
-  }>;
-}
-
-export interface IntegrationConnectResult {
-  type: "integration_connect_result";
-  integrationId: string;
-  success: boolean;
-  accountInfo?: string | null;
-  error?: string | null;
-  setupRequired?: boolean;
-  setupHint?: string;
-}
-
-export interface OAuthConnectResultResponse {
-  type: "oauth_connect_result";
-  success: boolean;
-  service?: string;
-  grantedScopes?: string[];
-  accountInfo?: string;
-  error?: string;
-}
-
-export interface ShowPlatformLogin {
-  type: "show_platform_login";
-}
-
-export interface PlatformDisconnected {
-  type: "platform_disconnected";
-}
-
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
-export type _IntegrationsClientMessages =
-  | SlackWebhookConfigRequest
-  | IngressConfigRequest
-  | PlatformConfigRequest
-  | VercelApiConfigRequest
-  | TelegramConfigRequest
-  | ChannelVerificationSessionRequest
-  | IntegrationListRequest
-  | IntegrationConnectRequest
-  | IntegrationDisconnectRequest
-  | OAuthConnectStartRequest
-  | LinkOpenRequest;
+export type _IntegrationsClientMessages = ChannelVerificationSessionRequest;
 
 export type _IntegrationsServerMessages =
-  | SlackWebhookConfigResponse
-  | IngressConfigResponse
-  | PlatformConfigResponse
-  | VercelApiConfigResponse
-  | TelegramConfigResponse
   | ChannelVerificationSessionResponse
-  | IntegrationListResponse
-  | IntegrationConnectResult
-  | OAuthConnectResultResponse
+  | OAuthConnectResultEvent
   | OpenUrlEvent
   | OpenPanelEvent
   | NavigateSettingsEvent
-  | ShowPlatformLogin
-  | PlatformDisconnected;
+  | ShowPlatformLoginEvent
+  | PlatformDisconnectedEvent;

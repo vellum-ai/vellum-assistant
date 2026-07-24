@@ -114,7 +114,7 @@ export function recordUsageEvent(
       assistantVersion: event.assistantVersion,
       // Capture the parent conversation's type at RECORD time for the
       // same reason: the conversation row may be deleted before the
-      // telemetry flush joins against it. See migration 348.
+      // telemetry flush joins against it. See migration 353.
       conversationType: lookupConversationType(event.conversationId),
     })
     .run();
@@ -223,7 +223,7 @@ export interface UnreportedUsageEvent extends UsageEvent {
    * `"scheduled"`). Sourced from the value captured at record time
    * (survives deletion of the parent conversation before flush), with a
    * JOIN to `conversations` as the fallback for rows persisted before
-   * migration 348. Null when the LLM call has no `conversationId`
+   * migration 353. Null when the LLM call has no `conversationId`
    * (memory consolidation, background embedding work, etc.).
    */
   conversationType: string | null;
@@ -294,9 +294,9 @@ export function queryUnreportedUsageEvents(
     )
   END`;
   // `conversationType` prefers the value stamped on the row at record
-  // time (migration 348) — the parent conversation may have been deleted
+  // time (migration 353) — the parent conversation may have been deleted
   // before this flush (retrospective fork GC, user deletion) — and falls
-  // back to a LEFT JOIN against `conversations` for pre-348 rows. LEFT
+  // back to a LEFT JOIN against `conversations` for pre-353 rows. LEFT
   // JOIN because `llm_usage_events.conversationId` is nullable — calls
   // that aren't tied to a conversation (memory consolidation, etc.)
   // still need to flush through telemetry.

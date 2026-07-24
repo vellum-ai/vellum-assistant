@@ -162,6 +162,45 @@ describe("completeSubmittedSurface", () => {
 
     expect(completeSubmittedSurface(messages, "s-copy", "copy")).toBe(messages);
   });
+
+  it("does not mislabel a guardian decision on a secondary button as Cancelled, and applies the tone", () => {
+    const messages = [
+      msg({
+        surfaces: [
+          {
+            surfaceId: "access-request-req1",
+            surfaceType: "card",
+            completed: false,
+            data: {},
+            actions: [
+              {
+                id: "apr:req1:leave_unverified",
+                label: "Leave unverified",
+                style: "secondary",
+              },
+            ],
+          } as never,
+        ],
+      }),
+    ];
+
+    const replyText = "Alice will stay unverified.";
+    const result = completeSubmittedSurface(
+      messages,
+      "access-request-req1",
+      "apr:req1:leave_unverified",
+      replyText,
+      { isGuardianDecision: true, tone: "neutral" },
+    );
+
+    const surface = result[0]!.surfaces![0]!;
+    expect(surface.completed).toBe(true);
+    // The secondary-style button must NOT collapse to "Cancelled" for a
+    // guardian decision — the resolver's reply text is preserved.
+    expect(surface.completionSummary).toBe(replyText);
+    // A leave-unverified park is a neutral hold, not a denial.
+    expect(surface.completionTone).toBe("neutral");
+  });
 });
 
 // ---------------------------------------------------------------------------
