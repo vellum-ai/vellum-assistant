@@ -1,6 +1,7 @@
 import { Coins, Info, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router";
 
 import {
     organizationsBillingAutoTopUpDisableCreateMutation,
@@ -147,6 +148,9 @@ export function AutoTopUpCard() {
     organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation(),
   );
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const cardRef = useRef<HTMLDivElement>(null);
+
   const [mode, setMode] = useState<Mode>("view");
   const [pendingEnable, setPendingEnable] = useState(false);
   const [confirmingDisable, setConfirmingDisable] = useState(false);
@@ -165,6 +169,35 @@ export function AutoTopUpCard() {
       setShowAddPm(false);
     }
   }, [showAddPm, configQuery.data?.has_payment_method]);
+
+  // Arriving with `?configure_top_up=1` (deeplinked from the Add Credits
+  // modal) replays the toggle-on path once — reveal the configure form, or the
+  // add-card gate with no usable PM — then strips the param. Never mutates the
+  // server; persistence still requires Save. Must sit before the loading/error
+  // guards below (rules-of-hooks); `handleToggleChange` is only reached once
+  // `configQuery.data` is loaded, i.e. after its declaration ran this render.
+  const configureTopUpRequested =
+    searchParams.get("configure_top_up") === "1";
+  useEffect(() => {
+    if (!configureTopUpRequested || configQuery.data == null) {
+      return;
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("configure_top_up");
+    setSearchParams(next, { replace: true });
+    if (configQuery.data.enabled !== true) {
+      handleToggleChange(true);
+      const reduceMotion =
+        typeof window !== "undefined" &&
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ===
+          true;
+      cardRef.current?.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "center",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per arrival; `handleToggleChange`/`searchParams` excluded to avoid re-runs and pre-guard TDZ
+  }, [configureTopUpRequested, configQuery.data]);
 
   if (configQuery.isLoading) {
     return (
@@ -463,7 +496,7 @@ export function AutoTopUpCard() {
   const toggleChecked = enabled || pendingEnable;
 
   return (
-    <div data-testid="auto-top-up-card">
+    <div ref={cardRef} data-testid="auto-top-up-card">
       <div className="flex items-center justify-between gap-4">
         <Toggle
           checked={toggleChecked}
