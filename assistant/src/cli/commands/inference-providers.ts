@@ -23,6 +23,7 @@ import { cliIpcCall } from "../../ipc/cli-client.js";
 import type { OAuth2Config } from "../../security/oauth2.js";
 import { subcommand } from "../lib/cli-command-help.js";
 import { writeCliError } from "../lib/cli-output.js";
+import { refuseAgentShellInlineSecret } from "../utils/inline-secret-guard.js";
 import { attachDefaultProviderSubcommand } from "./inference-providers-default.js";
 
 // ---------------------------------------------------------------------------
@@ -121,6 +122,74 @@ function buildAuthInput(
     return { type: "oauth_subscription", credential };
   }
   return `Unknown auth type "${authType}". Use: api_key, platform, none, oauth_subscription`;
+}
+
+/**
+ * Outcome of storing a raw API key and deriving the connection auth that
+ * references it: the derived `api_key` auth on success, a CLI error message,
+ * or `aborted` when the inline-secret guard already reported a refusal and set
+ * the exit code (the caller must return without emitting further output).
+ */
+type ApiKeyStoreOutcome =
+  | { kind: "ok"; auth: Record<string, unknown> }
+  | { kind: "error"; message: string }
+  | { kind: "aborted" };
+
+/**
+ * Store a raw API key in secure storage under the connection-owned slot
+ * `credential/<connectionName>/api_key` and derive the `api_key` auth that
+ * references it — the store-then-wire sequence an API-key provider needs so
+ * the registry can resolve the credential the connection points at.
+ *
+ * Refuses when the provider does not authenticate by API key, and runs the
+ * agent-shell inline-secret guard so a key that transited the assistant's own
+ * conversation is never persisted from a chat-spawned shell.
+ */
+async function storeApiKeyAndDeriveAuth(
+  connectionName: string,
+  provider: string,
+  apiKey: string,
+  opts: { generated?: boolean; json?: boolean },
+  cmd: Command,
+): Promise<ApiKeyStoreOutcome> {
+  // Deferred: pure modules, imported lazily per cli/no-daemon-internals.
+  const [{ deriveAuthForProvider }, { credentialKey }] = await Promise.all([
+    import("../../providers/inference/auth.js"),
+    import("../../security/credential-key.js"),
+  ]);
+  const derived = deriveAuthForProvider(provider, "probe");
+  if (!derived || derived.type !== "api_key") {
+    return {
+      kind: "error",
+      message: `Provider "${provider}" does not authenticate by API key, so --api-key does not apply. See 'assistant inference providers --help' for the auth it requires.`,
+    };
+  }
+  const credential = credentialKey(connectionName, "api_key");
+  if (
+    refuseAgentShellInlineSecret(cmd, opts, {
+      what: "API key",
+      redirect: `Collect it securely via the app UI instead: assistant credentials prompt --service ${connectionName} --field api_key --label "${provider} API key", then re-run with --credential ${credential}.`,
+    })
+  ) {
+    return { kind: "aborted" };
+  }
+  const stored = await cliIpcCall<{ credentialId: string }>("credentials_set", {
+    body: {
+      service: connectionName,
+      field: "api_key",
+      value: apiKey,
+      label: `${provider} API key`,
+    },
+  });
+  if (!stored.ok) {
+    return {
+      kind: "error",
+      message:
+        stored.error ??
+        `Failed to store the API key for "${connectionName}" in secure storage`,
+    };
+  }
+  return { kind: "ok", auth: { type: "api_key", credential } };
 }
 
 /** Commander collector for a repeatable option (e.g. `--model` multiple times). */
@@ -252,14 +321,42 @@ function attachCreateSubcommand(parent: Command): void {
           provider: string;
           auth?: string;
           credential?: string;
+          apiKey?: string;
           baseUrl?: string;
           model?: string[];
           json?: boolean;
         },
+        cmd: Command,
       ) => {
-        const authInput = opts.auth
-          ? buildAuthInput(opts.auth, opts.credential)
-          : await deriveAuthInput(opts.provider, opts.credential);
+        let authInput: Record<string, unknown> | string;
+        if (opts.apiKey !== undefined) {
+          if (opts.auth !== undefined || opts.credential !== undefined) {
+            writeCliError(
+              "--api-key cannot be combined with --auth or --credential. Use --api-key to store a new key, or --credential to reference an existing vault key.",
+              opts.json,
+            );
+            return;
+          }
+          const outcome = await storeApiKeyAndDeriveAuth(
+            name,
+            opts.provider,
+            opts.apiKey,
+            opts,
+            cmd,
+          );
+          if (outcome.kind === "aborted") {
+            return;
+          }
+          if (outcome.kind === "error") {
+            writeCliError(outcome.message, opts.json);
+            return;
+          }
+          authInput = outcome.auth;
+        } else {
+          authInput = opts.auth
+            ? buildAuthInput(opts.auth, opts.credential)
+            : await deriveAuthInput(opts.provider, opts.credential);
+        }
         if (typeof authInput === "string") {
           writeCliError(authInput, opts.json);
           return;
@@ -326,16 +423,59 @@ function attachUpdateSubcommand(parent: Command): void {
         opts: {
           auth?: string;
           credential?: string;
+          apiKey?: string;
           baseUrl?: string;
           model?: string[];
           json?: boolean;
         },
+        cmd: Command,
       ) => {
-        // Resolve the auth to send: explicit --auth wins; a bare --credential
-        // rotates the key via derived api_key auth; with neither, re-send the
+        // Resolve the auth to send: --api-key stores a raw key and wires the
+        // connection-owned slot; explicit --auth wins; a bare --credential
+        // rotates the key via derived api_key auth; with none, re-send the
         // stored auth verbatim so base-url/model-only updates work.
         let authInput: Record<string, unknown> | string;
-        if (opts.auth) {
+        if (opts.apiKey !== undefined) {
+          if (opts.auth !== undefined || opts.credential !== undefined) {
+            writeCliError(
+              "--api-key cannot be combined with --auth or --credential. Use --api-key to store a new key, or --credential to reference an existing vault key.",
+              opts.json,
+            );
+            return;
+          }
+          const existing = await cliIpcCall<ProviderConnection>(
+            "inference_provider_connections_get",
+            { pathParams: { name } },
+          );
+          if (!existing.ok) {
+            writeCliError(existing.error ?? "Unknown error", opts.json);
+            return;
+          }
+          // Subscription tokens rotate via login-chatgpt — never let a raw
+          // API key silently flip subscription auth to api_key.
+          if (existing.result!.auth.type === "oauth_subscription") {
+            writeCliError(
+              `Provider "${name}" uses subscription auth, which --api-key cannot set. Re-run: assistant inference providers login-chatgpt (or pass an explicit --auth to switch auth types)`,
+              opts.json,
+            );
+            return;
+          }
+          const outcome = await storeApiKeyAndDeriveAuth(
+            name,
+            existing.result!.provider,
+            opts.apiKey,
+            opts,
+            cmd,
+          );
+          if (outcome.kind === "aborted") {
+            return;
+          }
+          if (outcome.kind === "error") {
+            writeCliError(outcome.message, opts.json);
+            return;
+          }
+          authInput = outcome.auth;
+        } else if (opts.auth) {
           authInput = buildAuthInput(opts.auth, opts.credential);
         } else {
           const existing = await cliIpcCall<ProviderConnection>(

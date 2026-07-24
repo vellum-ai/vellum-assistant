@@ -334,6 +334,183 @@ describe("providers update", () => {
   });
 });
 
+describe("providers create — --api-key (store then wire)", () => {
+  /**
+   * The store-then-wire contract: --api-key stores the raw key in secure
+   * storage FIRST, then creates the connection whose auth references that
+   * exact slot — so the registry can resolve it.
+   */
+  test("stores the raw key under the connection slot, then wires the connection to reference it", async () => {
+    // GIVEN a fresh api-key provider (openrouter) and a raw key supplied inline
+    // WHEN the provider is created with --api-key
+    await run([
+      "providers",
+      "create",
+      "openrouter",
+      "--provider",
+      "openrouter",
+      "--api-key",
+      "sk-or-test",
+    ]);
+    // THEN the secret is stored before the connection that references it
+    expect(ipcCalls.map((c) => c.method)).toEqual([
+      "credentials_set",
+      "inference_provider_connections_create",
+    ]);
+    // AND the raw key lands in the connection-owned credential slot
+    expect(ipcCalls[0]?.params?.body).toEqual({
+      service: "openrouter",
+      field: "api_key",
+      value: "sk-or-test",
+      label: "openrouter API key",
+    });
+    // AND the connection references that exact slot (never the raw key)
+    expect(lastIpcCall()?.params?.body).toEqual({
+      name: "openrouter",
+      provider: "openrouter",
+      auth: { type: "api_key", credential: "credential/openrouter/api_key" },
+    });
+  });
+
+  /** The raw secret must never travel to the provider CRUD route. */
+  test("never forwards the raw key to the connection route", async () => {
+    // GIVEN a raw key supplied inline
+    // WHEN the provider is created with --api-key
+    await run([
+      "providers",
+      "create",
+      "openrouter",
+      "--provider",
+      "openrouter",
+      "--api-key",
+      "sk-or-secret",
+    ]);
+    const createCall = ipcCalls.find(
+      (c) => c.method === "inference_provider_connections_create",
+    );
+    expect(JSON.stringify(createCall?.params?.body)).not.toContain(
+      "sk-or-secret",
+    );
+  });
+
+  /** --api-key (a raw key) and --credential (a vault reference) are exclusive. */
+  test("rejects --api-key combined with --credential before any daemon call", async () => {
+    // GIVEN both a raw key and a vault reference
+    // WHEN the provider is created with the conflicting flags
+    const { exitCode } = await run([
+      "providers",
+      "create",
+      "openrouter",
+      "--provider",
+      "openrouter",
+      "--api-key",
+      "sk-or-test",
+      "--credential",
+      "credential/openrouter/api_key",
+    ]);
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall()).toBeNull();
+  });
+
+  /** Keyless providers (ollama) have no API key to store. */
+  test("rejects --api-key for a keyless provider without storing anything", async () => {
+    // GIVEN a keyless provider (ollama)
+    // WHEN it is created with --api-key
+    const { exitCode } = await run([
+      "providers",
+      "create",
+      "ollama-personal",
+      "--provider",
+      "ollama",
+      "--api-key",
+      "sk-or-test",
+    ]);
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall()).toBeNull();
+  });
+
+  /** A key typed into the assistant's own conversation must not be persisted. */
+  test("refuses an inline key when spawned from an agent shell", async () => {
+    // GIVEN a shell spawned from an assistant conversation (conversation id set)
+    process.env.__CONVERSATION_ID = "conv-test";
+    try {
+      const { exitCode } = await run([
+        "providers",
+        "create",
+        "openrouter",
+        "--provider",
+        "openrouter",
+        "--api-key",
+        "sk-or-test",
+      ]);
+      expect(exitCode).toBe(1);
+      // Nothing is stored or created — the secret would persist in the
+      // transcript.
+      expect(lastIpcCall()).toBeNull();
+    } finally {
+      delete process.env.__CONVERSATION_ID;
+    }
+  });
+});
+
+describe("providers update — --api-key (store then wire)", () => {
+  /** Rotating a key on an existing connection follows the same store-then-wire order. */
+  test("stores the raw key then rewrites auth to reference the connection slot", async () => {
+    // GIVEN an existing api-key connection
+    mockIpcResult = {
+      ok: true,
+      result: {
+        ...CONNECTION_RESULT,
+        name: "openrouter",
+        provider: "openrouter",
+        auth: { type: "api_key", credential: "credential/openrouter/api_key" },
+      },
+    };
+    // WHEN the key is rotated via --api-key
+    await run(["providers", "update", "openrouter", "--api-key", "sk-or-new"]);
+    // THEN it fetches the connection, stores the new key, then rewrites auth
+    expect(ipcCalls.map((c) => c.method)).toEqual([
+      "inference_provider_connections_get",
+      "credentials_set",
+      "inference_provider_connections_update",
+    ]);
+    expect(lastIpcCall()?.params).toEqual({
+      pathParams: { name: "openrouter" },
+      body: {
+        auth: { type: "api_key", credential: "credential/openrouter/api_key" },
+      },
+    });
+  });
+
+  /** Subscription auth rotates via login-chatgpt, never a raw API key. */
+  test("refuses --api-key on a subscription connection", async () => {
+    // GIVEN a subscription (oauth_subscription) connection
+    mockIpcResult = {
+      ok: true,
+      result: {
+        ...CONNECTION_RESULT,
+        name: "chatgpt-subscription",
+        provider: "openai",
+        auth: {
+          type: "oauth_subscription",
+          credential: "credential/chatgpt/access_token",
+        },
+      },
+    };
+    const { exitCode } = await run([
+      "providers",
+      "update",
+      "chatgpt-subscription",
+      "--api-key",
+      "sk-test",
+    ]);
+    expect(exitCode).toBe(1);
+    expect(ipcCalls.map((c) => c.method)).toEqual([
+      "inference_provider_connections_get",
+    ]);
+  });
+});
+
 describe("providers list output", () => {
   test("shows providers without auth details", async () => {
     mockIpcResult = {

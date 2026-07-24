@@ -958,4 +958,31 @@ const scheduleCreateNode = getExistingPath(spec, "schedules create");
 scheduleCreateNode.argRules = scheduleCreateArgRules;
 scheduleCreateNode.argSchema = { valueFlags: ["--mode", "--script"] };
 
+// `inference providers create/update` are medium-risk state mutations, but
+// `--api-key <value>` carries raw secret material through the argv — classify
+// those invocations high like `credentials set`. `--credential` remains a
+// vault reference (not a secret) and stays at the base risk.
+function applyProviderApiKeyArgRule(path: string, idSuffix: string): void {
+  const node = getExistingPath(spec, path);
+  node.argRules = [
+    {
+      id: `assistant-inference-providers-${idSuffix}:api-key`,
+      flags: ["--api-key"],
+      risk: "high",
+      reason: "Stores raw API key material passed inline on the command line",
+    },
+  ];
+  node.argSchema = { valueFlags: ["--api-key"] };
+}
+applyProviderApiKeyArgRule("inference providers create", "create");
+applyProviderApiKeyArgRule("inference providers update", "update");
+applyProviderApiKeyArgRule(
+  "inference providers connections create",
+  "connections-create",
+);
+applyProviderApiKeyArgRule(
+  "inference providers connections update",
+  "connections-update",
+);
+
 export default spec;

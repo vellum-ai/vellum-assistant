@@ -200,7 +200,15 @@ Examples:
 A provider entry names a model provider plus how to reach it. Auth is
 derived from the provider: keyless providers (ollama) need none, the
 Vellum entry routes through the platform's managed proxy, and everything
-else uses an API key referenced by --credential.
+else uses an API key.
+
+For API-key providers there are two ways to supply the key:
+  --api-key <value>     Store the raw key securely and wire the connection
+                        to it in one step (stored at
+                        credential/<name>/api_key).
+  --credential <key>    Reference a vault key you already stored (e.g. via
+                        'assistant credentials prompt'). This is a reference,
+                        NOT the raw key.
 
 Canonical entry (seeded on every boot):
   vellum → the platform-managed provider; cannot be deleted
@@ -208,13 +216,14 @@ Canonical entry (seeded on every boot):
 Examples:
   $ assistant inference providers list
   $ assistant inference providers get vellum
+  $ assistant inference providers create openrouter \\
+      --provider openrouter --api-key sk-or-...
   $ assistant inference providers create anthropic-personal \\
       --provider anthropic --credential credential/anthropic/api_key
   $ assistant inference providers create local-llm \\
       --provider openai-compatible \\
       --base-url http://localhost:1234/v1 --model my-model
-  $ assistant inference providers update anthropic-personal \\
-      --credential credential/anthropic/api_key
+  $ assistant inference providers update openrouter --api-key sk-or-...
   $ assistant inference providers delete anthropic-personal
 
 After creating or updating a provider, validate it with a live call through
@@ -250,9 +259,14 @@ a profile that uses it:
               required: true,
             },
             {
+              flags: "--api-key <value>",
+              description:
+                "Store this raw API key securely and wire the connection to it (mutually exclusive with --credential/--auth)",
+            },
+            {
               flags: "--credential <vault-key>",
               description:
-                "Vault credential name (required for API-key providers)",
+                "Reference an already-stored vault credential (required for API-key providers unless --api-key is given)",
             },
             {
               flags: "--auth <type>",
@@ -273,9 +287,14 @@ a profile that uses it:
           description: "Update a provider entry",
           options: [
             {
+              flags: "--api-key <value>",
+              description:
+                "Store this raw API key securely and wire the connection to it (mutually exclusive with --credential/--auth)",
+            },
+            {
               flags: "--credential <vault-key>",
               description:
-                "Rotate the API-key credential (derives api_key auth)",
+                "Rotate to an already-stored vault credential (derives api_key auth)",
             },
             {
               flags: "--auth <type>",
@@ -327,9 +346,14 @@ matching \`assistant inference providers <verb>\` command.`,
                   required: true,
                 },
                 {
+                  flags: "--api-key <value>",
+                  description:
+                    "Store this raw API key securely and wire the connection to it (mutually exclusive with --credential/--auth)",
+                },
+                {
                   flags: "--credential <vault-key>",
                   description:
-                    "Vault credential name (required for API-key providers)",
+                    "Reference an already-stored vault credential (required for API-key providers unless --api-key is given)",
                 },
                 {
                   flags: "--auth <type>",
@@ -349,9 +373,14 @@ matching \`assistant inference providers <verb>\` command.`,
               description: "(Deprecated) use `providers update`",
               options: [
                 {
+                  flags: "--api-key <value>",
+                  description:
+                    "Store this raw API key securely and wire the connection to it (mutually exclusive with --credential/--auth)",
+                },
+                {
                   flags: "--credential <vault-key>",
                   description:
-                    "Rotate the API-key credential (derives api_key auth)",
+                    "Rotate to an already-stored vault credential (derives api_key auth)",
                 },
                 {
                   flags: "--auth <type>",
