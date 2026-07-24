@@ -239,6 +239,12 @@ The pairing session survives assistant restarts via a refresh cookie, so you
 stay signed in. Pairing codes are **single-use and expire after 10 minutes**;
 run `vellum pair --qr` again to add another device or replace a lapsed code.
 
+**Prefer a UI over the terminal?** The desktop app has the same flow as a
+card: **Settings → General → Pair a device**. It prefills the address
+`vellum tunnel` recorded (or shows "No tunnel detected" guidance when there
+isn't one), rejects lookalike tunnel-provider website URLs, and names the
+assistant it pairs — generate the QR there and scan it the same way.
+
 ## 6. Using the Vellum iOS app
 
 The native **Vellum iOS app** can point at your self-hosted assistant instead
