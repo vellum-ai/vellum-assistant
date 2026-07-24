@@ -95,6 +95,7 @@ import {
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import {
   isLiveVoiceSessionActive,
+  minimizeVoiceRoom,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -824,6 +825,12 @@ export function useLiveVoice(
         client.on("ttsDone", () => {
           if (!live()) return;
           void finishResponseAfterPlayback(session, teardown);
+        }),
+        client.on("minimizeRoom", () => {
+          // Assistant asked to reveal the screen behind the room. Advisory: if
+          // the room isn't up (already minimized, pop-out, other route) this is
+          // a no-op — minimizeVoiceRoom() is an idempotent store write.
+          minimizeVoiceRoom();
         }),
         client.on("turnCancelled", () => {
           if (!live() || !session.handsFree) return;

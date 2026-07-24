@@ -47,7 +47,7 @@ import {
 // static import graph.
 const { useLiveVoice } =
   await import("@/domains/chat/voice/live-voice/use-live-voice");
-const { useLiveVoiceStore, getLiveVoicePlaybackProgress } =
+const { useLiveVoiceStore, getLiveVoicePlaybackProgress, restoreVoiceRoom } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 
@@ -874,6 +874,56 @@ describe("hands-free mode", () => {
   // "hands-free session controls" suite below: it sends ptt_release (the
   // daemon honors it as a manual VAD override) while leaving forwarding and
   // local state untouched.
+});
+
+// ---------------------------------------------------------------------------
+// minimize_room (assistant-requested room dismissal)
+// ---------------------------------------------------------------------------
+
+describe("minimize_room", () => {
+  test("emitting minimizeRoom sets roomMinimized on the store", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+
+    act(() => {
+      h.client.emit("minimizeRoom", {
+        type: "minimize_room",
+        seq: 2,
+        turnId: "t1",
+      });
+    });
+
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    // Advisory frame: the session itself is untouched.
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.closed).toBe(false);
+  });
+
+  test("a repeat frame while already minimized stays minimized, and restore still works", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("minimizeRoom", {
+        type: "minimize_room",
+        seq: 2,
+        turnId: "t1",
+      });
+      h.client.emit("minimizeRoom", {
+        type: "minimize_room",
+        seq: 3,
+        turnId: "t2",
+      });
+    });
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+
+    // The user can still bring the room back after a server-driven minimize.
+    act(() => {
+      restoreVoiceRoom();
+    });
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
