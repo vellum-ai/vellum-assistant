@@ -1,0 +1,1490 @@
+import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, sep } from "node:path";
+import { Database } from "bun:sqlite";
+import { afterEach, describe, expect, test } from "bun:test";
+
+import { drizzle } from "drizzle-orm/bun-sqlite";
+
+import { assertNotLiveDb } from "../../__tests__/assert-not-live-db.js";
+import { resolveConversationDirectoryPaths } from "../conversation-directories.js";
+import * as schema from "../schema.js";
+import { migrationSteps } from "../steps.js";
+import { migrateMaterializeHistoricalInlineMessageMedia } from "./351-materialize-historical-inline-message-media.js";
+import { runMigrationSteps } from "./run-migrations.js";
+
+const tempDirs: string[] = [];
+const DEFAULT_CONVERSATION_ID = "conversation-test";
+const DEFAULT_CONVERSATION_CREATED_AT = 1000;
+
+function preparedLexicalJob(
+  messageId: string,
+  jobId = `prepared-${messageId}`,
+) {
+  return {
+    jobId,
+    messageId,
+    fallbackRunAfter: Number.MAX_SAFE_INTEGER,
+  };
+}
+
+function createTestDb() {
+  const sqlite = new Database(":memory:");
+  sqlite.exec(/*sql*/ `
+    PRAGMA foreign_keys = ON;
+    CREATE TABLE conversations (
+      id TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      finalized INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE TABLE attachments (
+      id TEXT PRIMARY KEY,
+      original_filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      data_base64 TEXT NOT NULL,
+      content_hash TEXT,
+      thumbnail_base64 TEXT,
+      file_path TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX idx_attachments_content_dedup
+      ON attachments(content_hash) WHERE content_hash IS NOT NULL;
+    CREATE TABLE message_attachments (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      attachment_id TEXT NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+  `);
+  const workspaceDir = mkdtempSync(join(tmpdir(), "inline-media-"));
+  tempDirs.push(workspaceDir);
+  const attachmentsDirFor = (
+    conversationId: string,
+    conversationCreatedAt: number,
+  ): string =>
+    join(
+      resolveConversationDirectoryPaths(
+        conversationId,
+        conversationCreatedAt,
+        workspaceDir,
+      ).resolvedDirPath,
+      "attachments",
+    );
+  const attachmentsDir = attachmentsDirFor(
+    DEFAULT_CONVERSATION_ID,
+    DEFAULT_CONVERSATION_CREATED_AT,
+  );
+  return {
+    sqlite,
+    db: drizzle(sqlite, { schema }),
+    workspaceDir,
+    attachmentsDir,
+    attachmentsDirFor,
+    options: {
+      resolveAttachmentsDir: attachmentsDirFor,
+      resolveMessageContentPath: (ref: string): string =>
+        join(workspaceDir, ref),
+      prepareLexicalReindex: preparedLexicalJob,
+      releaseLexicalReindex: () => {},
+      yieldToEventLoop: async () => {},
+    },
+  };
+}
+
+function insertMessage(
+  sqlite: Database,
+  id: string,
+  content: unknown,
+  finalized = 1,
+  conversationId = DEFAULT_CONVERSATION_ID,
+  conversationCreatedAt = DEFAULT_CONVERSATION_CREATED_AT,
+): void {
+  sqlite
+    .query(`INSERT OR IGNORE INTO conversations (id, created_at) VALUES (?, ?)`)
+    .run(conversationId, conversationCreatedAt);
+  sqlite
+    .query(
+      `INSERT INTO messages (
+         id, conversation_id, content, created_at, finalized
+       ) VALUES (?, ?, ?, 1234, ?)`,
+    )
+    .run(
+      id,
+      conversationId,
+      typeof content === "string" ? content : JSON.stringify(content),
+      finalized,
+    );
+}
+
+function messageContent(sqlite: Database, id: string): unknown {
+  const row = sqlite
+    .query(`SELECT content FROM messages WHERE id = ?`)
+    .get(id) as { content: string };
+  return JSON.parse(row.content);
+}
+
+function messageFinalized(sqlite: Database, id: string): number {
+  return (
+    sqlite.query(`SELECT finalized FROM messages WHERE id = ?`).get(id) as {
+      finalized: number;
+    }
+  ).finalized;
+}
+
+function writeMessageContentFile(
+  workspaceDir: string,
+  ref: string,
+  lines: unknown[],
+): string {
+  const path = join(workspaceDir, ref);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n"));
+  return path;
+}
+
+function count(sqlite: Database, table: string): number {
+  return (
+    sqlite.query(`SELECT COUNT(*) AS count FROM ${table}`).get() as {
+      count: number;
+    }
+  ).count;
+}
+
+function historicalAttachmentId(
+  messageId: string,
+  path: string,
+  bytes: Buffer,
+): string {
+  const contentHash = createHash("sha256").update(bytes).digest("hex");
+  const identityHash = createHash("sha256")
+    .update(`${messageId}\0${path}\0${contentHash}`)
+    .digest("hex");
+  return `historical-inline-media-${identityHash}`;
+}
+
+function insertAttachment(
+  sqlite: Database,
+  id: string,
+  dataBase64: string,
+  filePath: string | null = null,
+): void {
+  sqlite
+    .query(
+      `INSERT INTO attachments (
+         id, original_filename, mime_type, size_bytes, kind, data_base64,
+         content_hash, thumbnail_base64, file_path, created_at
+       ) VALUES (?, 'existing.bin', 'application/octet-stream', ?, 'document', ?, NULL, NULL, ?, 1000)`,
+    )
+    .run(id, Buffer.from(dataBase64, "base64").length, dataBase64, filePath);
+}
+
+function linkAttachment(
+  sqlite: Database,
+  messageId: string,
+  attachmentId: string,
+  position: number,
+): void {
+  sqlite
+    .query(
+      `INSERT INTO message_attachments (
+         id, message_id, attachment_id, position, created_at
+       ) VALUES (?, ?, ?, ?, 1000)`,
+    )
+    .run(
+      `link-${messageId}-${attachmentId}`,
+      messageId,
+      attachmentId,
+      position,
+    );
+}
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    assertNotLiveDb(dir);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+describe("migration 351: materialize historical inline message media", () => {
+  test("is registered as its own checkpointed migration step", () => {
+    const step = migrationSteps.find(
+      (candidate) =>
+        typeof candidate !== "function" &&
+        candidate.name === "migrateMaterializeHistoricalInlineMessageMedia",
+    );
+    expect(step).toBeDefined();
+    expect(typeof step !== "function" ? step?.run : undefined).toBe(
+      migrateMaterializeHistoricalInlineMessageMedia,
+    );
+  });
+
+  test("materializes root and nested image/file blocks with stable links and metadata", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const preparedMessageIds: string[] = [];
+    const releasedMessageIds: string[] = [];
+    const imageOne = Buffer.from("image-one").toString("base64");
+    const fileOne = Buffer.from("file-one").toString("base64");
+    const imageTwo = Buffer.from("image-two").toString("base64");
+    const fileTwo = Buffer.from("file-two").toString("base64");
+    const webFile = Buffer.from("web-file").toString("base64");
+    insertMessage(sqlite, "message-1", [
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: imageOne,
+          custom: "preserved",
+        },
+        blockMetadata: true,
+      },
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "text/plain",
+          data: fileOne,
+          filename: "notes.txt",
+        },
+        extracted_text: "notes",
+      },
+      {
+        type: "tool_result",
+        tool_use_id: "tool-1",
+        content: "generated media",
+        contentBlocks: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/jpeg",
+              data: imageTwo,
+            },
+          },
+          {
+            type: "file",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: fileTwo,
+              filename: "report.pdf",
+            },
+          },
+        ],
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "search-1",
+        content: [],
+        contentBlocks: [
+          {
+            type: "file",
+            source: {
+              type: "base64",
+              media_type: "text/plain",
+              data: webFile,
+              filename: "result.txt",
+            },
+          },
+        ],
+      },
+    ]);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+      ...options,
+      prepareLexicalReindex: (messageId) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(messageId);
+      },
+      releaseLexicalReindex: (prepared) => {
+        releasedMessageIds.push(prepared.messageId);
+      },
+    });
+
+    const content = messageContent(sqlite, "message-1") as Array<any>;
+    const converted = [
+      content[0],
+      content[1],
+      content[2].contentBlocks[0],
+      content[2].contentBlocks[1],
+      content[3].contentBlocks[0],
+    ];
+    expect(converted.map((block) => block.source.type)).toEqual([
+      "workspace_ref",
+      "workspace_ref",
+      "workspace_ref",
+      "workspace_ref",
+      "workspace_ref",
+    ]);
+    expect(converted.map((block) => block.source.sizeBytes)).toEqual([
+      9, 8, 9, 8, 8,
+    ]);
+    expect(content[0].source.custom).toBe("preserved");
+    expect(content[0].blockMetadata).toBe(true);
+    expect(content[1].source.filename).toBe("notes.txt");
+    expect(content[1].extracted_text).toBe("notes");
+    expect(content[2].contentBlocks[1].source.filename).toBe("report.pdf");
+    expect(content[3].contentBlocks[0].source.filename).toBe("result.txt");
+    expect(count(sqlite, "attachments")).toBe(5);
+    expect(count(sqlite, "message_attachments")).toBe(5);
+    expect(preparedMessageIds).toEqual(["message-1"]);
+    expect(releasedMessageIds).toEqual(["message-1"]);
+    const positions = (
+      sqlite
+        .query(
+          `SELECT position FROM message_attachments
+           WHERE message_id = 'message-1' ORDER BY position`,
+        )
+        .all() as Array<{ position: number }>
+    ).map((row) => row.position);
+    expect(positions).toEqual([0, 1, 2, 3, 4]);
+    for (const block of converted) {
+      const row = sqlite
+        .query(
+          `SELECT file_path AS filePath, content_hash AS contentHash FROM attachments WHERE id = ?`,
+        )
+        .get(block.source.attachmentId) as {
+        filePath: string;
+        contentHash: string | null;
+      };
+      expect(existsSync(row.filePath)).toBe(true);
+      expect(row.contentHash).toBeNull();
+    }
+  });
+
+  test("folds finalized content refs and rewrites media inline atomically", async () => {
+    const { sqlite, db, options, workspaceDir } = createTestDb();
+    const ref = "conversations/conversation-test/inflight/message-ref.jsonl";
+    const olderImage = Buffer.from("older-image").toString("base64");
+    const rootImage = Buffer.from("root-image").toString("base64");
+    const nestedFile = Buffer.from("nested-file").toString("base64");
+    const malformedText = { type: "text", text: 42 };
+    const retiredBlock = {
+      type: "ui_surface",
+      surfaceType: "historical-panel",
+      data: { preserved: true },
+    };
+    const typelessBlock = { historicalPayload: "preserved" };
+    const contentPath = writeMessageContentFile(workspaceDir, ref, [
+      {
+        i: 0,
+        seq: 1,
+        block: {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: olderImage,
+          },
+        },
+      },
+      {
+        i: 0,
+        seq: 3,
+        block: {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: rootImage,
+          },
+        },
+      },
+      {
+        i: 1,
+        seq: 2,
+        block: {
+          type: "tool_result",
+          tool_use_id: "tool-ref",
+          content: "nested media",
+          contentBlocks: [
+            {
+              type: "file",
+              source: {
+                type: "base64",
+                media_type: "text/plain",
+                data: nestedFile,
+                filename: "nested.txt",
+              },
+            },
+          ],
+        },
+      },
+      { i: 2, seq: 1, block: malformedText },
+      { i: 3, seq: 1, block: retiredBlock },
+      { i: 4, seq: 1, block: typelessBlock },
+    ]);
+    writeFileSync(
+      contentPath,
+      `${readFileSync(contentPath, "utf8")}\nnot-json\n{"i":5,"seq":1,"block":`,
+    );
+    insertMessage(sqlite, "message-ref", JSON.stringify({ ref }));
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    const content = messageContent(sqlite, "message-ref") as Array<any>;
+    expect(content[0].source).toMatchObject({
+      type: "workspace_ref",
+      sizeBytes: Buffer.from("root-image").length,
+    });
+    expect(content[1].contentBlocks[0].source).toMatchObject({
+      type: "workspace_ref",
+      sizeBytes: Buffer.from("nested-file").length,
+      filename: "nested.txt",
+    });
+    expect(content.slice(2)).toEqual([
+      malformedText,
+      retiredBlock,
+      typelessBlock,
+    ]);
+    const migratedIds = [
+      content[0].source.attachmentId,
+      content[1].contentBlocks[0].source.attachmentId,
+    ] as string[];
+    expect(
+      migratedIds.every((id) => id.startsWith("historical-inline-media-")),
+    ).toBe(true);
+    expect(count(sqlite, "attachments")).toBe(2);
+    expect(count(sqlite, "message_attachments")).toBe(2);
+    expect(readFileSync(contentPath, "utf8")).toContain(olderImage);
+
+    const firstContent = JSON.stringify(content);
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    expect(JSON.stringify(messageContent(sqlite, "message-ref"))).toBe(
+      firstContent,
+    );
+    expect(count(sqlite, "attachments")).toBe(2);
+    expect(count(sqlite, "message_attachments")).toBe(2);
+  });
+
+  test("finalizes crashed and shared content refs after materializing nested media", async () => {
+    const { sqlite, db, options, workspaceDir } = createTestDb();
+    const ref = "conversations/conversation-test/inflight/shared-ref.jsonl";
+    const mediaBytes = Buffer.from("crash-recovered-image");
+    const contentPath = writeMessageContentFile(workspaceDir, ref, [
+      {
+        i: 0,
+        seq: 1,
+        block: {
+          type: "tool_result",
+          tool_use_id: "tool-crashed",
+          content: "pending tool result",
+          contentBlocks: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/png",
+                data: mediaBytes.toString("base64"),
+              },
+            },
+          ],
+        },
+      },
+    ]);
+    const storedRef = JSON.stringify({ ref });
+    insertMessage(sqlite, "message-ref-crashed", storedRef, 0);
+    insertMessage(sqlite, "message-ref-shared", storedRef, 1);
+    const preparedMessageIds: string[] = [];
+    const releasedMessageIds: string[] = [];
+    const migrationOptions = {
+      ...options,
+      prepareLexicalReindex: (messageId: string) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(messageId);
+      },
+      releaseLexicalReindex: (prepared: { messageId: string }): void => {
+        releasedMessageIds.push(prepared.messageId);
+      },
+    };
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    const crashed = messageContent(sqlite, "message-ref-crashed") as Array<any>;
+    const shared = messageContent(sqlite, "message-ref-shared") as Array<any>;
+    for (const content of [crashed, shared]) {
+      const source = content[0].contentBlocks[0].source;
+      expect(source.type).toBe("workspace_ref");
+      expect(source.attachmentId.startsWith("historical-inline-media-")).toBe(
+        true,
+      );
+      const row = sqlite
+        .query(`SELECT file_path AS filePath FROM attachments WHERE id = ?`)
+        .get(source.attachmentId) as { filePath: string };
+      expect(readFileSync(row.filePath)).toEqual(mediaBytes);
+    }
+    expect(messageFinalized(sqlite, "message-ref-crashed")).toBe(1);
+    expect(messageFinalized(sqlite, "message-ref-shared")).toBe(1);
+    expect(preparedMessageIds).toEqual([
+      "message-ref-crashed",
+      "message-ref-shared",
+    ]);
+    expect(releasedMessageIds).toEqual(preparedMessageIds);
+    expect(count(sqlite, "attachments")).toBe(2);
+    expect(count(sqlite, "message_attachments")).toBe(2);
+    expect(existsSync(contentPath)).toBe(true);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    expect(preparedMessageIds).toEqual([
+      "message-ref-crashed",
+      "message-ref-shared",
+    ]);
+    expect(releasedMessageIds).toEqual(preparedMessageIds);
+    expect(count(sqlite, "attachments")).toBe(2);
+    expect(count(sqlite, "message_attachments")).toBe(2);
+    expect(existsSync(contentPath)).toBe(true);
+  });
+
+  test("finalizes pending inline content after materializing media", async () => {
+    const { sqlite, db, options } = createTestDb();
+    insertMessage(
+      sqlite,
+      "message-pending-inline",
+      [
+        {
+          type: "file",
+          source: {
+            type: "base64",
+            media_type: "text/plain",
+            data: Buffer.from("pending-inline").toString("base64"),
+          },
+        },
+      ],
+      0,
+    );
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    const content = messageContent(
+      sqlite,
+      "message-pending-inline",
+    ) as Array<any>;
+    expect(content[0].source.type).toBe("workspace_ref");
+    expect(messageFinalized(sqlite, "message-pending-inline")).toBe(1);
+    expect(count(sqlite, "attachments")).toBe(1);
+    expect(count(sqlite, "message_attachments")).toBe(1);
+  });
+
+  test("detaches media-free finalized refs without touching pending shared refs", async () => {
+    const { sqlite, db, options, workspaceDir } = createTestDb();
+    const ref = "conversations/conversation-test/inflight/message-ref.jsonl";
+    writeMessageContentFile(workspaceDir, ref, [
+      {
+        i: 0,
+        seq: 1,
+        block: { type: "text", text: "Already externalized" },
+      },
+      {
+        i: 1,
+        seq: 2,
+        block: {
+          type: "image",
+          source: {
+            type: "workspace_ref",
+            media_type: "image/png",
+            attachmentId: "attachment-existing",
+            sizeBytes: 10,
+          },
+        },
+      },
+    ]);
+    const storedRef = { ref };
+    insertMessage(
+      sqlite,
+      "message-ref-no-inline",
+      JSON.stringify(storedRef),
+      0,
+    );
+    insertMessage(
+      sqlite,
+      "message-ref-no-inline-finalized",
+      JSON.stringify(storedRef),
+    );
+    insertAttachment(sqlite, "attachment-existing", "");
+    linkAttachment(sqlite, "message-ref-no-inline", "attachment-existing", 0);
+    const reads: string[] = [];
+    const preparedMessageIds: string[] = [];
+    const releasedMessageIds: string[] = [];
+    const migrationOptions = {
+      ...options,
+      resolveAttachmentsDir: (): never => {
+        throw new Error("media-free refs must not resolve attachment storage");
+      },
+      readLinkedAttachmentBytes: (attachmentId: string): never => {
+        reads.push(attachmentId);
+        throw new Error("media-free refs must not read linked attachments");
+      },
+      prepareLexicalReindex: (messageId: string) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(messageId);
+      },
+      releaseLexicalReindex: (prepared: { messageId: string }): void => {
+        releasedMessageIds.push(prepared.messageId);
+      },
+    };
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    expect(reads).toEqual([]);
+    expect(messageContent(sqlite, "message-ref-no-inline")).toEqual(storedRef);
+    expect(messageFinalized(sqlite, "message-ref-no-inline")).toBe(0);
+    expect(messageContent(sqlite, "message-ref-no-inline-finalized")).toEqual([
+      { type: "text", text: "Already externalized" },
+      {
+        type: "image",
+        source: {
+          type: "workspace_ref",
+          media_type: "image/png",
+          attachmentId: "attachment-existing",
+          sizeBytes: 10,
+        },
+      },
+    ]);
+    expect(messageFinalized(sqlite, "message-ref-no-inline-finalized")).toBe(1);
+    expect(preparedMessageIds).toEqual(["message-ref-no-inline-finalized"]);
+    expect(releasedMessageIds).toEqual(preparedMessageIds);
+    expect(count(sqlite, "attachments")).toBe(1);
+    expect(count(sqlite, "message_attachments")).toBe(1);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    expect(preparedMessageIds).toEqual(["message-ref-no-inline-finalized"]);
+    expect(releasedMessageIds).toEqual(preparedMessageIds);
+  });
+
+  test("detaches a readable empty finalized ref", async () => {
+    const { sqlite, db, options, workspaceDir } = createTestDb();
+    const ref = "conversations/conversation-test/inflight/empty-ref.jsonl";
+    writeMessageContentFile(workspaceDir, ref, []);
+    insertMessage(sqlite, "message-ref-empty", JSON.stringify({ ref }));
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    expect(messageContent(sqlite, "message-ref-empty")).toEqual([]);
+    expect(messageFinalized(sqlite, "message-ref-empty")).toBe(1);
+    expect(count(sqlite, "attachments")).toBe(0);
+    expect(count(sqlite, "message_attachments")).toBe(0);
+  });
+
+  test("leaves missing and malformed content refs unchanged", async () => {
+    const { sqlite, db, options, workspaceDir } = createTestDb();
+    const missingRef =
+      "conversations/conversation-test/inflight/missing-ref.jsonl";
+    const malformedRef =
+      "conversations/conversation-test/inflight/malformed-ref.jsonl";
+    const malformedPath = join(workspaceDir, malformedRef);
+    mkdirSync(dirname(malformedPath), { recursive: true });
+    writeFileSync(malformedPath, 'not-json\n{"i":0');
+    insertMessage(
+      sqlite,
+      "message-ref-missing",
+      JSON.stringify({ ref: missingRef }),
+    );
+    insertMessage(
+      sqlite,
+      "message-ref-malformed",
+      JSON.stringify({ ref: malformedRef }),
+      0,
+    );
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    expect(messageContent(sqlite, "message-ref-missing")).toEqual({
+      ref: missingRef,
+    });
+    expect(messageContent(sqlite, "message-ref-malformed")).toEqual({
+      ref: malformedRef,
+    });
+    expect(messageFinalized(sqlite, "message-ref-missing")).toBe(1);
+    expect(messageFinalized(sqlite, "message-ref-malformed")).toBe(0);
+    expect(count(sqlite, "attachments")).toBe(0);
+    expect(count(sqlite, "message_attachments")).toBe(0);
+  });
+
+  test("reuses same-message references and exact linked media without inferring by position", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const fileData = Buffer.from("known-file").toString("base64");
+    const imageData = Buffer.from("known-image").toString("base64");
+    const unrelatedData = Buffer.from("unrelated").toString("base64");
+    insertMessage(sqlite, "message-2", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/octet-stream",
+          data: fileData,
+          filename: "known.bin",
+        },
+        _attachmentId: "attachment-file",
+      },
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: imageData,
+        },
+      },
+      {
+        type: "image",
+        source: {
+          type: "workspace_ref",
+          media_type: "image/png",
+          attachmentId: "already-referenced",
+          sizeBytes: 10,
+        },
+      },
+    ]);
+    insertAttachment(sqlite, "attachment-unrelated", unrelatedData);
+    insertAttachment(sqlite, "attachment-file", fileData);
+    insertAttachment(sqlite, "attachment-image", imageData);
+    linkAttachment(sqlite, "message-2", "attachment-unrelated", 0);
+    linkAttachment(sqlite, "message-2", "attachment-file", 4);
+    linkAttachment(sqlite, "message-2", "attachment-image", 7);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    const content = messageContent(sqlite, "message-2") as Array<any>;
+    expect(content[0].source.attachmentId).toBe("attachment-file");
+    expect(content[0]._attachmentId).toBeUndefined();
+    expect(content[1].source.attachmentId).toBe("attachment-image");
+    expect(content[2].source.attachmentId).toBe("already-referenced");
+    expect(count(sqlite, "attachments")).toBe(3);
+    expect(count(sqlite, "message_attachments")).toBe(3);
+  });
+
+  test("skips linked attachment reads when recursive content has no inline media", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const content = [
+      {
+        type: "image",
+        source: {
+          type: "workspace_ref",
+          media_type: "image/png",
+          attachmentId: "attachment-existing",
+          sizeBytes: 1_000_000_000,
+        },
+      },
+      {
+        type: "tool_result",
+        tool_use_id: "tool-1",
+        content: "existing",
+        contentBlocks: [
+          {
+            type: "file",
+            source: {
+              type: "workspace_ref",
+              media_type: "application/octet-stream",
+              attachmentId: "attachment-existing",
+              sizeBytes: 1_000_000_000,
+            },
+          },
+        ],
+      },
+    ];
+    insertMessage(sqlite, "message-referenced", content);
+    insertAttachment(
+      sqlite,
+      "attachment-existing",
+      "",
+      "/unreadable/large-attachment.bin",
+    );
+    linkAttachment(sqlite, "message-referenced", "attachment-existing", 0);
+    const reads: string[] = [];
+    const preparedMessageIds: string[] = [];
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+      ...options,
+      readLinkedAttachmentBytes: (attachmentId) => {
+        reads.push(attachmentId);
+        throw new Error("linked attachment must not be read");
+      },
+      prepareLexicalReindex: (messageId) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(messageId);
+      },
+    });
+
+    expect(reads).toEqual([]);
+    expect(preparedMessageIds).toEqual([]);
+    expect(messageContent(sqlite, "message-referenced")).toEqual(content);
+  });
+
+  test("reads linked candidates lazily and skips all reads on an idempotent replay", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const inlineBytes = Buffer.from("matching-inline-file");
+    insertMessage(sqlite, "message-lazy-match", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/octet-stream",
+          data: inlineBytes.toString("base64"),
+          filename: "match.bin",
+        },
+      },
+    ]);
+    for (const [position, attachmentId] of [
+      "attachment-wrong",
+      "attachment-match",
+      "attachment-never-read",
+    ].entries()) {
+      insertAttachment(
+        sqlite,
+        attachmentId,
+        "",
+        `/candidate/${attachmentId}.bin`,
+      );
+      linkAttachment(sqlite, "message-lazy-match", attachmentId, position);
+    }
+    const candidateBytes = new Map<string, Buffer>([
+      ["attachment-wrong", Buffer.from("wrong")],
+      ["attachment-match", inlineBytes],
+      ["attachment-never-read", Buffer.from("unused")],
+    ]);
+    const reads: string[] = [];
+    const preparedMessageIds: string[] = [];
+    const releasedMessageIds: string[] = [];
+    const migrationOptions = {
+      ...options,
+      readLinkedAttachmentBytes: (attachmentId: string): Buffer | null => {
+        reads.push(attachmentId);
+        return candidateBytes.get(attachmentId) ?? null;
+      },
+      prepareLexicalReindex: (messageId: string) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(messageId);
+      },
+      releaseLexicalReindex: (prepared: { messageId: string }): void => {
+        releasedMessageIds.push(prepared.messageId);
+      },
+    };
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    const content = messageContent(sqlite, "message-lazy-match") as Array<any>;
+    expect(reads).toEqual(["attachment-wrong", "attachment-match"]);
+    expect(content[0].source).toMatchObject({
+      type: "workspace_ref",
+      attachmentId: "attachment-match",
+      sizeBytes: inlineBytes.length,
+    });
+    expect(count(sqlite, "attachments")).toBe(3);
+    expect(count(sqlite, "message_attachments")).toBe(3);
+    expect(preparedMessageIds).toEqual(["message-lazy-match"]);
+    expect(releasedMessageIds).toEqual(["message-lazy-match"]);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    expect(reads).toEqual(["attachment-wrong", "attachment-match"]);
+    expect(preparedMessageIds).toEqual(["message-lazy-match"]);
+    expect(releasedMessageIds).toEqual(["message-lazy-match"]);
+    expect(count(sqlite, "attachments")).toBe(3);
+    expect(count(sqlite, "message_attachments")).toBe(3);
+  });
+
+  test("falls back from a missing legacy hint to the matching linked attachment", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const inlineBytes = Buffer.from("fork-owned-media");
+    insertMessage(sqlite, "message-missing-hint", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/octet-stream",
+          data: inlineBytes.toString("base64"),
+          filename: "fork.bin",
+        },
+        _attachmentId: "source-attachment-missing",
+      },
+    ]);
+    for (const [position, attachmentId] of [
+      "fork-attachment-match",
+      "attachment-never-read",
+    ].entries()) {
+      insertAttachment(sqlite, attachmentId, "", `/candidate/${attachmentId}`);
+      linkAttachment(sqlite, "message-missing-hint", attachmentId, position);
+    }
+    const reads: string[] = [];
+    const migrationOptions = {
+      ...options,
+      readLinkedAttachmentBytes: (attachmentId: string): Buffer | null => {
+        reads.push(attachmentId);
+        return attachmentId === "fork-attachment-match"
+          ? inlineBytes
+          : Buffer.from("unused");
+      },
+    };
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    const content = messageContent(
+      sqlite,
+      "message-missing-hint",
+    ) as Array<any>;
+    expect(reads).toEqual(["fork-attachment-match"]);
+    expect(content[0]._attachmentId).toBeUndefined();
+    expect(content[0].source.attachmentId).toBe("fork-attachment-match");
+    expect(count(sqlite, "attachments")).toBe(2);
+    expect(count(sqlite, "message_attachments")).toBe(2);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    expect(reads).toEqual(["fork-attachment-match"]);
+    expect(count(sqlite, "attachments")).toBe(2);
+    expect(count(sqlite, "message_attachments")).toBe(2);
+  });
+
+  test("falls back after a mismatched linked hint while preserving hint priority", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const inlineBytes = Buffer.from("fork-owned-media");
+    insertMessage(sqlite, "message-mismatched-hint", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/octet-stream",
+          data: inlineBytes.toString("base64"),
+          filename: "fork.bin",
+        },
+        _attachmentId: "source-attachment-stale",
+      },
+    ]);
+    for (const [attachmentId, position] of [
+      ["fork-attachment-match", 0],
+      ["source-attachment-stale", 1],
+      ["attachment-never-read", 2],
+    ] as const) {
+      insertAttachment(sqlite, attachmentId, "", `/candidate/${attachmentId}`);
+      linkAttachment(sqlite, "message-mismatched-hint", attachmentId, position);
+    }
+    const reads: string[] = [];
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+      ...options,
+      readLinkedAttachmentBytes: (attachmentId) => {
+        reads.push(attachmentId);
+        return attachmentId === "fork-attachment-match"
+          ? inlineBytes
+          : Buffer.from("not-the-inline-bytes");
+      },
+    });
+
+    const content = messageContent(
+      sqlite,
+      "message-mismatched-hint",
+    ) as Array<any>;
+    expect(reads).toEqual(["source-attachment-stale", "fork-attachment-match"]);
+    expect(content[0]._attachmentId).toBeUndefined();
+    expect(content[0].source.attachmentId).toBe("fork-attachment-match");
+    expect(count(sqlite, "attachments")).toBe(3);
+    expect(count(sqlite, "message_attachments")).toBe(3);
+  });
+
+  test("materializes the inline bytes when a legacy attachment ID points at different media", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const inlineBytes = Buffer.from("correct-media");
+    insertMessage(sqlite, "message-stale-link", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/octet-stream",
+          data: inlineBytes.toString("base64"),
+          filename: "correct.bin",
+        },
+        _attachmentId: "attachment-stale",
+      },
+    ]);
+    insertAttachment(
+      sqlite,
+      "attachment-stale",
+      Buffer.from("wrong-media").toString("base64"),
+    );
+    linkAttachment(sqlite, "message-stale-link", "attachment-stale", 0);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    const content = messageContent(sqlite, "message-stale-link") as Array<any>;
+    const recoveredId = content[0].source.attachmentId as string;
+    expect(recoveredId.startsWith("historical-inline-media-")).toBe(true);
+    expect(recoveredId).not.toBe("attachment-stale");
+    expect(content[0]._attachmentId).toBeUndefined();
+    const recovered = sqlite
+      .query(`SELECT file_path AS filePath FROM attachments WHERE id = ?`)
+      .get(recoveredId) as { filePath: string };
+    expect(readFileSync(recovered.filePath)).toEqual(inlineBytes);
+    expect(count(sqlite, "attachments")).toBe(2);
+    expect(count(sqlite, "message_attachments")).toBe(2);
+  });
+
+  test("is idempotent across rows, links, and files", async () => {
+    const { sqlite, db, options, attachmentsDir } = createTestDb();
+    insertMessage(sqlite, "message-3", [
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: Buffer.from("same-image").toString("base64"),
+        },
+      },
+    ]);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+    const firstContent = JSON.stringify(messageContent(sqlite, "message-3"));
+    const firstFiles = readdirSync(attachmentsDir).sort();
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    expect(JSON.stringify(messageContent(sqlite, "message-3"))).toBe(
+      firstContent,
+    );
+    expect(count(sqlite, "attachments")).toBe(1);
+    expect(count(sqlite, "message_attachments")).toBe(1);
+    expect(readdirSync(attachmentsDir).sort()).toEqual(firstFiles);
+  });
+
+  test("stores files under independently removable conversation directories", async () => {
+    const { sqlite, db, options, attachmentsDirFor, workspaceDir } =
+      createTestDb();
+    const insertInlineFile = (
+      messageId: string,
+      conversationId: string,
+      conversationCreatedAt: number,
+    ): void => {
+      insertMessage(
+        sqlite,
+        messageId,
+        [
+          {
+            type: "file",
+            source: {
+              type: "base64",
+              media_type: "text/plain",
+              data: Buffer.from(messageId).toString("base64"),
+              filename: `${messageId}.txt`,
+            },
+          },
+        ],
+        1,
+        conversationId,
+        conversationCreatedAt,
+      );
+    };
+    insertInlineFile("message-a", "conversation-a", 1000);
+    insertInlineFile("message-b", "conversation-b", 2000);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    const rows = sqlite
+      .query(
+        `SELECT m.conversation_id AS conversationId, a.file_path AS filePath
+         FROM message_attachments ma
+         JOIN messages m ON m.id = ma.message_id
+         JOIN attachments a ON a.id = ma.attachment_id
+         ORDER BY m.conversation_id`,
+      )
+      .all() as Array<{ conversationId: string; filePath: string }>;
+    const attachmentsDirA = attachmentsDirFor("conversation-a", 1000);
+    const attachmentsDirB = attachmentsDirFor("conversation-b", 2000);
+    expect(rows[0].filePath.startsWith(`${attachmentsDirA}${sep}`)).toBe(true);
+    expect(rows[1].filePath.startsWith(`${attachmentsDirB}${sep}`)).toBe(true);
+
+    const conversationDirA = resolveConversationDirectoryPaths(
+      "conversation-a",
+      1000,
+      workspaceDir,
+    ).resolvedDirPath;
+    assertNotLiveDb(conversationDirA);
+    rmSync(conversationDirA, {
+      recursive: true,
+      force: true,
+    });
+    expect(existsSync(rows[0].filePath)).toBe(false);
+    expect(existsSync(rows[1].filePath)).toBe(true);
+  });
+
+  test("rejects path-traversal-shaped conversation IDs before writing files", async () => {
+    const { sqlite, db, options, workspaceDir } = createTestDb();
+    insertMessage(
+      sqlite,
+      "message-unsafe-conversation",
+      [
+        {
+          type: "file",
+          source: {
+            type: "base64",
+            media_type: "text/plain",
+            data: Buffer.from("unsafe").toString("base64"),
+          },
+        },
+      ],
+      1,
+      "../outside",
+      1000,
+    );
+
+    await expect(
+      migrateMaterializeHistoricalInlineMessageMedia(db, options),
+    ).rejects.toThrow("unsafe conversation ID");
+    expect(readdirSync(workspaceDir)).toEqual([]);
+    expect(count(sqlite, "attachments")).toBe(0);
+    expect(count(sqlite, "message_attachments")).toBe(0);
+  });
+
+  test("reuses a verified deterministic row left without its message link", async () => {
+    const { sqlite, db, options, attachmentsDir } = createTestDb();
+    const bytes = Buffer.from("pre-existing-media");
+    const data = bytes.toString("base64");
+    const attachmentId = historicalAttachmentId("message-recovery", "0", bytes);
+    const filePath = join(attachmentsDir, attachmentId);
+    mkdirSync(attachmentsDir, { recursive: true });
+    writeFileSync(filePath, bytes);
+    insertMessage(sqlite, "message-recovery", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "text/plain",
+          data,
+          filename: "recovery.txt",
+        },
+      },
+    ]);
+    insertAttachment(sqlite, attachmentId, "", filePath);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    const content = messageContent(sqlite, "message-recovery") as Array<any>;
+    expect(content[0].source.attachmentId).toBe(attachmentId);
+    expect(count(sqlite, "attachments")).toBe(1);
+    expect(count(sqlite, "message_attachments")).toBe(1);
+    expect(readdirSync(attachmentsDir)).toEqual([attachmentId]);
+  });
+
+  test("rejects a deterministic row whose stored path conflicts with its identity", async () => {
+    const { sqlite, db, options, attachmentsDir } = createTestDb();
+    const bytes = Buffer.from("conflicting-media");
+    const data = bytes.toString("base64");
+    const attachmentId = historicalAttachmentId("message-conflict", "0", bytes);
+    const alternatePath = join(attachmentsDir, "alternate-file");
+    mkdirSync(attachmentsDir, { recursive: true });
+    writeFileSync(alternatePath, bytes);
+    insertMessage(sqlite, "message-conflict", [
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data,
+        },
+      },
+    ]);
+    insertAttachment(sqlite, attachmentId, "", alternatePath);
+
+    await expect(
+      migrateMaterializeHistoricalInlineMessageMedia(db, options),
+    ).rejects.toThrow("conflicts with deterministic identity");
+    expect(
+      (messageContent(sqlite, "message-conflict") as Array<any>)[0].source.type,
+    ).toBe("base64");
+    expect(count(sqlite, "message_attachments")).toBe(0);
+  });
+
+  test("leaves malformed JSON and invalid base64 untouched", async () => {
+    const { sqlite, db, options, attachmentsDir } = createTestDb();
+    const preparedMessageIds: string[] = [];
+    insertMessage(sqlite, "malformed-json", "{not-json");
+    insertMessage(sqlite, "invalid-base64", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "text/plain",
+          data: "not base64!",
+          filename: "bad.txt",
+        },
+      },
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "text/plain",
+          data: "abcd==",
+          filename: "bad-padding.txt",
+        },
+      },
+    ]);
+    const before = sqlite
+      .query(`SELECT id, content FROM messages ORDER BY id`)
+      .all();
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+      ...options,
+      prepareLexicalReindex: (messageId) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(messageId);
+      },
+    });
+
+    expect(
+      sqlite.query(`SELECT id, content FROM messages ORDER BY id`).all(),
+    ).toEqual(before);
+    expect(count(sqlite, "attachments")).toBe(0);
+    expect(count(sqlite, "message_attachments")).toBe(0);
+    expect(preparedMessageIds).toEqual([]);
+    expect(existsSync(attachmentsDir)).toBe(false);
+  });
+
+  test("prepares before the rewrite and releases only after its commit", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const events: string[] = [];
+    insertMessage(sqlite, "message-lexical-order", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "text/plain",
+          data: Buffer.from("ordered").toString("base64"),
+          filename: "ordered.txt",
+        },
+      },
+    ]);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+      ...options,
+      prepareLexicalReindex: (messageId) => {
+        expect(
+          (messageContent(sqlite, messageId) as Array<any>)[0].source.type,
+        ).toBe("base64");
+        events.push("prepare-before-update");
+        return preparedLexicalJob(messageId);
+      },
+      releaseLexicalReindex: (prepared) => {
+        expect(
+          (messageContent(sqlite, prepared.messageId) as Array<any>)[0].source
+            .type,
+        ).toBe("workspace_ref");
+        expect(count(sqlite, "attachments")).toBe(1);
+        events.push("release-after-commit");
+      },
+    });
+
+    expect(events).toEqual(["prepare-before-update", "release-after-commit"]);
+  });
+
+  test("leaves the row and migration checkpoint unfinished when preparation fails", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const content = [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "text/plain",
+          data: Buffer.from("retryable").toString("base64"),
+          filename: "retryable.txt",
+        },
+      },
+    ];
+    insertMessage(sqlite, "message-lexical-prepare-failure", content);
+
+    const result = await runMigrationSteps(db, [
+      {
+        name: "migrateMaterializeHistoricalInlineMessageMedia",
+        run: (migrationDb) =>
+          migrateMaterializeHistoricalInlineMessageMedia(migrationDb, {
+            ...options,
+            prepareLexicalReindex: () => {
+              throw new Error("jobs database unavailable");
+            },
+          }),
+      },
+    ]);
+
+    expect(result.failed).toEqual([
+      "migrateMaterializeHistoricalInlineMessageMedia",
+    ]);
+    expect(
+      (
+        sqlite
+          .query(
+            `SELECT value FROM memory_checkpoints
+             WHERE key = 'step:migrateMaterializeHistoricalInlineMessageMedia'`,
+          )
+          .get() as { value: string }
+      ).value,
+    ).toBe("started");
+    expect(messageContent(sqlite, "message-lexical-prepare-failure")).toEqual(
+      content,
+    );
+    expect(count(sqlite, "attachments")).toBe(0);
+    expect(count(sqlite, "message_attachments")).toBe(0);
+  });
+
+  test("keeps the deferred fallback durable when post-commit release fails", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const preparedJobs: Array<ReturnType<typeof preparedLexicalJob>> = [];
+    let releaseAttempts = 0;
+    insertMessage(sqlite, "message-lexical-failure", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "text/plain",
+          data: Buffer.from("searchable").toString("base64"),
+          filename: "searchable.txt",
+        },
+      },
+    ]);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+      ...options,
+      prepareLexicalReindex: (messageId) => {
+        const prepared = preparedLexicalJob(messageId, `durable-${messageId}`);
+        preparedJobs.push(prepared);
+        return prepared;
+      },
+      releaseLexicalReindex: () => {
+        releaseAttempts += 1;
+        throw new Error("jobs database unavailable");
+      },
+    });
+
+    const content = messageContent(
+      sqlite,
+      "message-lexical-failure",
+    ) as Array<any>;
+    expect(content[0].source.type).toBe("workspace_ref");
+    expect(releaseAttempts).toBe(1);
+    expect(preparedJobs).toHaveLength(1);
+    expect(preparedJobs[0]).toMatchObject({
+      jobId: "durable-message-lexical-failure",
+      messageId: "message-lexical-failure",
+    });
+    expect(preparedJobs[0]!.fallbackRunAfter).toBeGreaterThan(Date.now());
+    expect(count(sqlite, "attachments")).toBe(1);
+    expect(count(sqlite, "message_attachments")).toBe(1);
+  });
+
+  test("leaves a valid media write failure uncheckpointed without changing database state", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const content = [
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: Buffer.from("valid-image").toString("base64"),
+        },
+      },
+    ];
+    insertMessage(sqlite, "message-4", content);
+
+    const result = await runMigrationSteps(db, [
+      {
+        name: "migrateMaterializeHistoricalInlineMessageMedia",
+        run: (migrationDb) =>
+          migrateMaterializeHistoricalInlineMessageMedia(migrationDb, {
+            ...options,
+            writeFile: () => {
+              throw new Error("disk unavailable");
+            },
+          }),
+      },
+    ]);
+
+    expect(result.failed).toEqual([
+      "migrateMaterializeHistoricalInlineMessageMedia",
+    ]);
+    expect(
+      (
+        sqlite
+          .query(
+            `SELECT value FROM memory_checkpoints
+             WHERE key = 'step:migrateMaterializeHistoricalInlineMessageMedia'`,
+          )
+          .get() as { value: string }
+      ).value,
+    ).toBe("started");
+    expect(messageContent(sqlite, "message-4")).toEqual(content);
+    expect(count(sqlite, "attachments")).toBe(0);
+    expect(count(sqlite, "message_attachments")).toBe(0);
+  });
+
+  test("rolls back database writes and reuses the deterministic file after interruption", async () => {
+    const { sqlite, db, options, attachmentsDir } = createTestDb();
+    const preparedMessageIds: string[] = [];
+    const releasedMessageIds: string[] = [];
+    const migrationOptions = {
+      ...options,
+      prepareLexicalReindex: (messageId: string) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(
+          messageId,
+          `prepared-${preparedMessageIds.length}-${messageId}`,
+        );
+      },
+      releaseLexicalReindex: (prepared: { messageId: string }): void => {
+        releasedMessageIds.push(prepared.messageId);
+      },
+    };
+    insertMessage(sqlite, "message-5", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "text/plain",
+          data: Buffer.from("recoverable").toString("base64"),
+          filename: "recover.txt",
+        },
+      },
+    ]);
+    sqlite.exec(/*sql*/ `
+      CREATE TRIGGER fail_message_rewrite
+      BEFORE UPDATE ON messages
+      BEGIN
+        SELECT RAISE(ABORT, 'interrupted');
+      END;
+    `);
+
+    await expect(
+      migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions),
+    ).rejects.toThrow("interrupted");
+    expect(count(sqlite, "attachments")).toBe(0);
+    expect(count(sqlite, "message_attachments")).toBe(0);
+    expect(preparedMessageIds).toEqual(["message-5"]);
+    expect(releasedMessageIds).toEqual([]);
+    expect(readdirSync(attachmentsDir)).toHaveLength(1);
+
+    sqlite.exec(`DROP TRIGGER fail_message_rewrite`);
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    const content = messageContent(sqlite, "message-5") as Array<any>;
+    expect(content[0].source.type).toBe("workspace_ref");
+    expect(count(sqlite, "attachments")).toBe(1);
+    expect(count(sqlite, "message_attachments")).toBe(1);
+    expect(preparedMessageIds).toEqual(["message-5", "message-5"]);
+    expect(releasedMessageIds).toEqual(["message-5"]);
+    expect(readdirSync(attachmentsDir)).toHaveLength(1);
+  });
+});

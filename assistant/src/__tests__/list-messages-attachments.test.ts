@@ -233,6 +233,77 @@ describe("handleListMessages attachments", () => {
       "output.png",
     );
   });
+
+  test("does not append a migrated nested tool image as a standalone attachment", async () => {
+    const conv = createConversation();
+    const stored = uploadAttachment("screenshot.png", "image/png", "AQIDBA==");
+    const toolUse = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([
+        {
+          type: "tool_use",
+          id: "tool-1",
+          name: "browser_screenshot",
+          input: {},
+        },
+      ]),
+    );
+    const toolResult = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([
+        {
+          type: "tool_result",
+          tool_use_id: "tool-1",
+          content: "captured",
+          contentBlocks: [
+            {
+              type: "image",
+              source: {
+                type: "workspace_ref",
+                media_type: "image/png",
+                attachmentId: stored.id,
+                sizeBytes: 4,
+              },
+            },
+          ],
+        },
+      ]),
+    );
+    linkAttachmentToMessage(toolResult.id, stored.id, 0);
+
+    const response = handleListMessages(createTestArgs(conv.id));
+    const body = response as {
+      messages: Array<{
+        id: string;
+        mergedMessageIds?: string[];
+        attachments: Array<{ id: string }>;
+        toolCalls?: Array<{ imageAttachmentIds?: string[] }>;
+        contentBlocks: Array<{
+          type: string;
+          toolCall?: { imageAttachmentIds?: string[] };
+        }>;
+      }>;
+    };
+
+    expect(body.messages).toHaveLength(1);
+    const message = body.messages[0];
+    expect(message.id).toBe(toolUse.id);
+    expect(message.mergedMessageIds).toEqual([toolResult.id]);
+    expect(message.attachments.map((attachment) => attachment.id)).toEqual([
+      stored.id,
+    ]);
+    expect(message.toolCalls?.[0]?.imageAttachmentIds).toEqual([stored.id]);
+    expect(
+      message.contentBlocks.filter((block) => block.type === "attachment"),
+    ).toEqual([]);
+    expect(
+      message.contentBlocks
+        .filter((block) => block.type === "tool_use")
+        .flatMap((block) => block.toolCall?.imageAttachmentIds ?? []),
+    ).toEqual([stored.id]);
+  });
 });
 
 describe("handleListMessages HEIC display normalization", () => {

@@ -40,7 +40,7 @@ import {
   saveRawConfig,
 } from "../../../config/loader.js";
 import { getWorkspacePluginsDir } from "../../../util/platform.js";
-import { getMemoryDb } from "../../db-connection.js";
+import { getMemoryDb, getMemorySqlite } from "../../db-connection.js";
 import { initializeDb } from "../../db-init.js";
 import { memoryJobs } from "../../schema/index.js";
 const MEMORY_PLUGIN_NAME = "default-memory";
@@ -48,6 +48,9 @@ import {
   enqueueDeleteMessageLexical,
   enqueueLexicalIndexForMessage,
   enqueuePurgeConversationLexical,
+  PREPARED_LEXICAL_INDEX_FALLBACK_DELAY_MS,
+  prepareLexicalIndexForMessage,
+  releasePreparedLexicalIndexJob,
 } from "../message-lexical.js";
 
 await initializeDb();
@@ -84,6 +87,14 @@ function jobCount(type: string): number {
     .all().length;
 }
 
+function jobRows(type: string) {
+  return getMemoryDb()!
+    .select()
+    .from(memoryJobs)
+    .where(eq(memoryJobs.type, type))
+    .all();
+}
+
 // Let any stray fire-and-forget promise settle before asserting.
 const flush = () => new Promise((r) => setTimeout(r, 5));
 
@@ -107,6 +118,92 @@ describe("lexical enqueues with memory enabled", () => {
     expect(deleteByConversationCalls).toEqual([]);
     expect(deleteByMessageIdCalls).toEqual([]);
   });
+
+  test("prepares the normal payload with a durable fallback, then releases the exact job", () => {
+    const beforePrepare = Date.now();
+    const prepared = prepareLexicalIndexForMessage("msg-prepared");
+    const afterPrepare = Date.now();
+    const preparedRows = jobRows("index_message_lexical");
+
+    expect(prepared.messageId).toBe("msg-prepared");
+    expect(prepared.fallbackRunAfter).toBeGreaterThanOrEqual(
+      beforePrepare + PREPARED_LEXICAL_INDEX_FALLBACK_DELAY_MS,
+    );
+    expect(prepared.fallbackRunAfter).toBeLessThanOrEqual(
+      afterPrepare + PREPARED_LEXICAL_INDEX_FALLBACK_DELAY_MS,
+    );
+    expect(preparedRows).toHaveLength(1);
+    expect(preparedRows[0]).toMatchObject({
+      id: prepared.jobId,
+      status: "pending",
+      runAfter: prepared.fallbackRunAfter,
+    });
+    expect(JSON.parse(preparedRows[0]!.payload)).toEqual({
+      messageId: "msg-prepared",
+    });
+
+    releasePreparedLexicalIndexJob(prepared);
+
+    const releasedRows = jobRows("index_message_lexical");
+    expect(releasedRows).toHaveLength(1);
+    expect(releasedRows[0]!.id).toBe(prepared.jobId);
+    expect(releasedRows[0]!.status).toBe("pending");
+    expect(releasedRows[0]!.runAfter).toBeLessThanOrEqual(Date.now());
+  });
+
+  test("keeps the prepared fallback pending when release storage fails", () => {
+    const prepared = prepareLexicalIndexForMessage("msg-release-failure");
+    const sqlite = getMemorySqlite()!;
+    sqlite.exec(/*sql*/ `
+      CREATE TEMP TRIGGER reject_prepared_lexical_release
+      BEFORE UPDATE OF run_after ON memory_jobs
+      BEGIN
+        SELECT RAISE(ABORT, 'release unavailable');
+      END;
+    `);
+
+    try {
+      expect(() => releasePreparedLexicalIndexJob(prepared)).toThrow(
+        "release unavailable",
+      );
+    } finally {
+      sqlite.exec(`DROP TRIGGER reject_prepared_lexical_release`);
+    }
+
+    expect(jobRows("index_message_lexical")).toEqual([
+      expect.objectContaining({
+        id: prepared.jobId,
+        status: "pending",
+        runAfter: prepared.fallbackRunAfter,
+      }),
+    ]);
+  });
+
+  test.each(["running", "completed"] as const)(
+    "enqueues a fresh immediate job when the prepared job is unexpectedly %s",
+    (status) => {
+      const prepared = prepareLexicalIndexForMessage(`msg-${status}`);
+      getMemoryDb()!
+        .update(memoryJobs)
+        .set({ status })
+        .where(eq(memoryJobs.id, prepared.jobId))
+        .run();
+
+      releasePreparedLexicalIndexJob(prepared);
+
+      const rows = jobRows("index_message_lexical");
+      expect(rows).toHaveLength(2);
+      expect(rows.find((row) => row.id === prepared.jobId)?.status).toBe(
+        status,
+      );
+      const replacement = rows.find((row) => row.id !== prepared.jobId);
+      expect(replacement).toMatchObject({ status: "pending" });
+      expect(replacement!.runAfter).toBeLessThanOrEqual(Date.now());
+      expect(JSON.parse(replacement!.payload)).toEqual({
+        messageId: `msg-${status}`,
+      });
+    },
+  );
 });
 
 describe("lexical enqueues with memory DISABLED — unchanged", () => {

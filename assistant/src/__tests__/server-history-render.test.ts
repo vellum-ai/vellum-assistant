@@ -330,6 +330,38 @@ describe("renderHistoryContent", () => {
     expect(output.toolCalls[0].imageData).toBeUndefined();
   });
 
+  test("finds workspace_ref images in recursively nested tool results", () => {
+    const stored = uploadAttachment("nested.png", "image/png", "aGVsbG8=");
+    const output = renderHistoryContent([
+      { type: "tool_use", id: "tu_1", name: "nested_tool", input: {} },
+      {
+        type: "tool_result",
+        tool_use_id: "tu_1",
+        content: "outer result",
+        contentBlocks: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu_nested",
+            content: "inner result",
+            contentBlocks: [
+              {
+                type: "image",
+                source: {
+                  type: "workspace_ref",
+                  media_type: "image/png",
+                  attachmentId: stored.id,
+                  sizeBytes: 5,
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    expect(output.toolCalls[0].imageAttachmentIds).toEqual([stored.id]);
+  });
+
   test("resolves an inline base64 tool-result image without an id", () => {
     const output = renderHistoryContent([
       { type: "tool_use", id: "tu_1", name: "browser_screenshot", input: {} },

@@ -94,6 +94,7 @@ import {
   enqueuePurgeConversationLexical,
 } from "./job-handlers/message-lexical.js";
 import { buildLifecycleTelemetryEvent } from "./lifecycle-events-store.js";
+import { remapWorkspaceRefAttachmentIds } from "./media-reference-content.js";
 import { resolveMessageContentBlocks } from "./message-content-file.js";
 import {
   rawAll,
@@ -1410,6 +1411,17 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     if (stagingMessageId) {
       relinkAttachments([stagingMessageId], forkedMessageId);
       db.delete(messages).where(eq(messages.id, stagingMessageId)).run();
+    }
+
+    const remappedContent =
+      attachmentLinks.length === 0
+        ? message.content
+        : remapWorkspaceRefAttachmentIds(message.content, attachmentIdMap);
+    if (remappedContent !== message.content) {
+      db.update(messages)
+        .set({ content: JSON.stringify(remappedContent) })
+        .where(eq(messages.id, forkedMessageId))
+        .run();
     }
 
     diskSyncQueue?.push({

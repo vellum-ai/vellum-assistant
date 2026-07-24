@@ -13,7 +13,11 @@ import {
 import { withQdrantBreaker } from "../embeddings/qdrant-circuit-breaker.js";
 import { resolveQdrantUrl } from "../embeddings/qdrant-client.js";
 import { asString } from "../job-utils.js";
-import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
+import {
+  enqueueMemoryJob,
+  type MemoryJob,
+  releasePendingMemoryJob,
+} from "../jobs-store.js";
 import { messages } from "../schema/index.js";
 
 const log = getLogger("messages-lexical-enqueue");
@@ -181,6 +185,57 @@ export function enqueueLexicalIndexForMessage(messageId: string): void {
       "Failed to enqueue lexical index job for message (non-fatal)",
     );
   }
+}
+
+export const PREPARED_LEXICAL_INDEX_FALLBACK_DELAY_MS = 60 * 60 * 1000;
+
+export interface PreparedLexicalIndexJob {
+  jobId: string;
+  messageId: string;
+  fallbackRunAfter: number;
+}
+
+/**
+ * Durably prepare a lexical reindex without making it immediately claimable.
+ * The one-hour fallback is intentionally conservative relative to the
+ * caller's short local transaction, while ensuring the job becomes runnable
+ * if the process exits before explicitly releasing it. Unlike the best-effort
+ * enqueue helper, failures propagate so callers can avoid committing the
+ * content change without a job.
+ */
+export function prepareLexicalIndexForMessage(
+  messageId: string,
+): PreparedLexicalIndexJob {
+  if (!messageId) {
+    throw new Error("Cannot prepare a lexical index job without a message ID");
+  }
+  const fallbackRunAfter =
+    Date.now() + PREPARED_LEXICAL_INDEX_FALLBACK_DELAY_MS;
+  return {
+    jobId: enqueueMemoryJob(
+      "index_message_lexical",
+      { messageId },
+      fallbackRunAfter,
+    ),
+    messageId,
+    fallbackRunAfter,
+  };
+}
+
+/**
+ * Release an exact prepared job after its source content commits. If that row
+ * has already left the pending state, enqueue a fresh idempotent reindex so an
+ * early worker cannot leave the newly committed content stale.
+ */
+export function releasePreparedLexicalIndexJob(
+  prepared: PreparedLexicalIndexJob,
+): void {
+  if (releasePendingMemoryJob(prepared.jobId)) {
+    return;
+  }
+  enqueueMemoryJob("index_message_lexical", {
+    messageId: prepared.messageId,
+  });
 }
 
 /**

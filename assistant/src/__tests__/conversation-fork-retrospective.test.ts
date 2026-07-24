@@ -5,9 +5,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 import {
+  attachInlineAttachmentToMessage,
   getAttachmentsForMessage,
-  linkAttachmentToMessage,
-  uploadAttachment,
 } from "../persistence/attachments-store.js";
 import { appendCompactionEvent } from "../persistence/compaction-ledger-store.js";
 import {
@@ -16,6 +15,7 @@ import {
   forkConversation,
   forkConversationForRetrospective,
   getMessages,
+  updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { getConversationDirPath } from "../persistence/conversation-disk-view.js";
 import {
@@ -52,6 +52,7 @@ import {
   findForkBoundaryCreatedAt,
   loadRetrospectiveRunMessages,
 } from "../plugins/defaults/memory/memory-retrospective-fork-boundary.js";
+import type { ContentBlock } from "../providers/types.js";
 
 await initializeDb();
 
@@ -198,8 +199,27 @@ describe("forkConversationForRetrospective", () => {
     const assistant = await addMessage(source.id, "assistant", "see mockup", {
       skipIndexing: true,
     });
-    const uploaded = uploadAttachment("wireframe.png", "image/png", "iVBORw0K");
-    linkAttachmentToMessage(assistant.id, uploaded.id, 0);
+    const sourceAttachment = attachInlineAttachmentToMessage(
+      assistant.id,
+      0,
+      "wireframe.png",
+      "image/png",
+      "iVBORw0K",
+    );
+    updateMessageContent(
+      assistant.id,
+      JSON.stringify([
+        {
+          type: "image",
+          source: {
+            type: "workspace_ref",
+            media_type: "image/png",
+            attachmentId: sourceAttachment.id,
+            sizeBytes: sourceAttachment.sizeBytes,
+          },
+        },
+      ] satisfies ContentBlock[]),
+    );
 
     const asyncFork = await forkConversationForRetrospective({
       conversationId: source.id,
@@ -211,9 +231,16 @@ describe("forkConversationForRetrospective", () => {
     const forkAttachments = getAttachmentsForMessage(forkAssistant!.id);
     expect(forkAttachments).toHaveLength(1);
     // Scoped to the fork — a distinct attachment row from the source's.
-    expect(forkAttachments[0]?.id).not.toBe(
-      getAttachmentsForMessage(assistant.id)[0]?.id,
-    );
+    expect(forkAttachments[0]?.id).not.toBe(sourceAttachment.id);
+    const forkImage = forkAssistant!.content[0] as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    expect(forkImage.source.type).toBe("workspace_ref");
+    if (forkImage.source.type !== "workspace_ref") {
+      throw new Error("expected retrospective fork workspace reference");
+    }
+    expect(forkImage.source.attachmentId).toBe(forkAttachments[0]?.id);
   });
 
   test("carries the parent graph-memory state on a full fork", async () => {
