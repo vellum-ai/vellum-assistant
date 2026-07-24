@@ -99,7 +99,6 @@ export function BillingOnboardingModal({
   const isResize = mode === "resize";
   const queryClient = useQueryClient();
   const [step, setStep] = useState<WizardStep>("provisioning");
-  const [finishedInBackground, setFinishedInBackground] = useState(false);
   const [takeoverExit, setTakeoverExit] = useState<TakeoverExit>("idle");
   const exitTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [intent, setIntent] = useState<CheckoutIntent | null>(null);
@@ -130,7 +129,6 @@ export function BillingOnboardingModal({
     exitTimers.current.forEach(clearTimeout);
     exitTimers.current = [];
     setStep("provisioning");
-    setFinishedInBackground(false);
     setTakeoverExit("idle");
     setDisplayedPhase(null);
     setDomainsOpenedAt(null);
@@ -154,7 +152,6 @@ export function BillingOnboardingModal({
   // while that resize is in flight — including a stall, where the machine may
   // still be mid-restart.
   const machineBusy = isMachineBusy(provisioning.state);
-  const provisioningSettled = isSettled(provisioning.state);
 
   // The lock describes the screen the user is looking at, so it reads the
   // takeover's held phase rather than the live one. The domain step still keys
@@ -302,14 +299,6 @@ export function BillingOnboardingModal({
     onClose();
   }, [provisioning, onClose]);
 
-  // Stalled recovery re-calls the idempotent, org-wide ensure-provisioned
-  // reconcile — the same path the wizard fires on Pro confirmation. Its errors
-  // surface as-is; a server-side resize that is still running converges the
-  // actuals polling to DONE and replaces the stalled UI regardless.
-  const { stalledAction } = provisioning;
-  const stalledActionIfStalled =
-    provisioning.state === "STALLED" ? stalledAction : undefined;
-
   // The fetch-error variant of the provisioning step is a standard dismissible
   // card, not the locked full-bleed takeover — otherwise the light error UI is
   // marooned in the dark full-screen viewport and the user can't act on it.
@@ -443,19 +432,12 @@ export function BillingOnboardingModal({
       return (
         <DomainStep
           machineBusy={machineBusy}
-          stalledAction={stalledActionIfStalled}
           assistantId={assistantId}
           onExit={() => setStep("complete")}
         />
       );
     }
 
-    return (
-      <CompleteState
-        finishedInBackground={finishedInBackground && !provisioningSettled}
-        stalledAction={stalledActionIfStalled}
-        assistantId={assistantId}
-      />
-    );
+    return <CompleteState assistantId={assistantId} />;
   }
 }
