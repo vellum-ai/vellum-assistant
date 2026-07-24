@@ -200,6 +200,7 @@ export const routes = {
     // Deep-link straight to the Billing sub-tab (only shown when signed in to
     // the Vellum platform).
     usageBilling: `${SETTINGS_USAGE_PATH}?tab=billing`,
+    usageBillingConfigureTopUps: `${SETTINGS_USAGE_PATH}?tab=billing&configure_top_up=1`,
     // Post-Stripe-Checkout return. The Billing tab opens the Pro onboarding
     // wizard while `session_id` is in the URL — the same param the platform's
     // web `success_url` lands on `/assistant/settings/billing` with.

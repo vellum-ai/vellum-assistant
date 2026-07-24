@@ -47,6 +47,8 @@ describe("AddCreditsModal", () => {
     const link = screen.getByRole("link", {
       name: /Configure Automatic Top-Ups/,
     });
-    expect(link.getAttribute("href")).toBe(routes.settings.usageBilling);
+    expect(link.getAttribute("href")).toBe(
+      routes.settings.usageBillingConfigureTopUps,
+    );
   });
 });
