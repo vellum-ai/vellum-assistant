@@ -1,6 +1,14 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 // The transcript transitively pulls in the viewer store → the generated daemon
 // SDK (not built in CI/worktree checkouts). Stub the two endpoints it references
@@ -28,6 +36,49 @@ mock.module("@/domains/chat/utils/acp-run-actions", () => ({
 }));
 mock.module("@/domains/chat/utils/background-task-actions", () => ({
   stopBackgroundTask: stopBackgroundTaskMock,
+}));
+
+// The vellum file action modal builds on the design-library Modal (Radix
+// dialog). Stub the design-library primitives with bare elements so these
+// tests exercise the modal's action wiring without pulling in Radix's portal
+// and focus machinery.
+mock.module("@vellumai/design-library/components/modal", () => {
+  const passthrough =
+    (slot: string) =>
+    ({ children }: { children?: ReactNode }) => (
+      <div data-testid={slot}>{children}</div>
+    );
+  return {
+    Modal: {
+      Root: ({
+        open,
+        children,
+      }: {
+        open?: boolean;
+        children?: ReactNode;
+      }) => (open ? <div role="dialog">{children}</div> : null),
+      Content: passthrough("modal-content"),
+      Header: passthrough("modal-header"),
+      Title: ({ children }: { children?: ReactNode }) => (
+        <div data-testid="modal-title">{children}</div>
+      ),
+      Description: passthrough("modal-description"),
+      Footer: passthrough("modal-footer"),
+    },
+  };
+});
+mock.module("@vellumai/design-library/components/button", () => ({
+  Button: ({
+    children,
+    onClick,
+  }: {
+    children?: ReactNode;
+    onClick?: () => void;
+  }) => (
+    <button type="button" onClick={onClick}>
+      {children}
+    </button>
+  ),
 }));
 
 // `openWorkspaceFile` lazily imports the app router, which these tests don't
@@ -231,6 +282,22 @@ import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compa
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const noop = () => {};
+
+/**
+ * Drives a `vellum://` link click through the mocked markdown renderer. The
+ * click stages the file in component state (opening the action modal), so it
+ * must run inside `act`.
+ */
+function clickVellumLink(href: string, linkText: string) {
+  act(() => {
+    lastVellumLinkClick?.(href, linkText);
+  });
+}
+
+/** Clicks an action button inside the vellum file action modal. */
+function clickModalAction(name: string) {
+  fireEvent.click(screen.getByRole("button", { name }));
+}
 
 // `TranscriptMessageBody` renders a row's body by walking its unified
 // `contentBlocks` projection — the sole source of truth. Each block embeds its
@@ -1091,10 +1158,8 @@ describe("TranscriptMessageBody", () => {
 
     // Bare label + percent-encoded path: the daemon stored the DECODED
     // basename ("qa shot.png"), so the click must decode before matching.
-    lastVellumLinkClick?.(
-      "vellum://workspace/scratch/qa%20shot.png",
-      "desktop",
-    );
+    clickVellumLink("vellum://workspace/scratch/qa%20shot.png", "desktop");
+    clickModalAction("Download file");
     expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
     expect(
       (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
@@ -1130,7 +1195,8 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    lastVellumLinkClick?.("vellum://workspace/b/result.png", "second");
+    clickVellumLink("vellum://workspace/b/result.png", "second");
+    clickModalAction("Download file");
     expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
     expect(
       (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
@@ -1169,52 +1235,54 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    lastVellumLinkClick?.(
-      "vellum://workspace/qa-delete-desktop-dialog.png",
-      "desktop",
-    );
+    clickVellumLink("vellum://workspace/qa-delete-desktop-dialog.png", "desktop");
+    clickModalAction("Download file");
     expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
     expect(
       (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
     ).toMatchObject({ id: "att-real" });
   });
 
-  test("vellum://open/ link click navigates to the workspace file, never downloads", () => {
+  test("workspace link click opens the action modal; Go to file navigates", () => {
     downloadAttachmentMock.mockClear();
     openWorkspaceFileMock.mockClear();
     render(
       <TranscriptMessageBody
         message={{
-          id: "a-open",
+          id: "a-modal",
           role: "assistant",
           contentBlocks: [textBlock("see the skill")],
-          attachments: [
-            {
-              // Even an attachment whose filename matches the link must not
-              // shadow reference-link navigation.
-              id: "att-skill",
-              filename: "SKILL.md",
-              mimeType: "text/markdown",
-              sizeBytes: 5,
-              previewUrl: null,
-            },
-          ],
         }}
         onSurfaceAction={noop}
       />,
     );
 
-    lastVellumLinkClick?.("vellum://open/skills/foo/SKILL.md", "SKILL.md");
-    expect(openWorkspaceFileMock).toHaveBeenCalledWith("skills/foo/SKILL.md");
+    clickVellumLink(
+      "vellum://workspace/skills/foo/weekly%20plan.md",
+      "weekly plan.md",
+    );
+    // Both actions are offered for a workspace file.
+    expect(screen.getByRole("button", { name: "Go to file" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Download file" }),
+    ).not.toBeNull();
+
+    clickModalAction("Go to file");
+    // The workspace path is percent-decoded before navigation.
+    expect(openWorkspaceFileMock).toHaveBeenCalledWith(
+      "skills/foo/weekly plan.md",
+    );
     expect(downloadAttachmentMock).not.toHaveBeenCalled();
+    // Choosing an action dismisses the modal.
+    expect(screen.queryByRole("button", { name: "Go to file" })).toBeNull();
   });
 
-  test("vellum://open/ link click decodes percent-encoded paths", () => {
+  test("legacy vellum://open/ links open the same modal as workspace links", () => {
     openWorkspaceFileMock.mockClear();
     render(
       <TranscriptMessageBody
         message={{
-          id: "a-open-enc",
+          id: "a-open-legacy",
           role: "assistant",
           contentBlocks: [textBlock("see the notes")],
         }}
@@ -1222,8 +1290,29 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    lastVellumLinkClick?.("vellum://open/notes/weekly%20plan.md", "plan");
-    expect(openWorkspaceFileMock).toHaveBeenCalledWith("notes/weekly plan.md");
+    clickVellumLink("vellum://open/notes/plan.md", "plan");
+    clickModalAction("Go to file");
+    expect(openWorkspaceFileMock).toHaveBeenCalledWith("notes/plan.md");
+  });
+
+  test("host link modal offers download only, not Go to file", () => {
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-host",
+          role: "assistant",
+          contentBlocks: [textBlock("host file")],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    clickVellumLink("vellum://host/Users/user1/doc.pdf", "doc.pdf");
+    // Host files cannot open in the workspace browser.
+    expect(screen.queryByRole("button", { name: "Go to file" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Download file" }),
+    ).not.toBeNull();
   });
 
   test("vellum link click still matches link text and raw basename", () => {
@@ -1256,14 +1345,16 @@ describe("TranscriptMessageBody", () => {
     );
 
     // Link text still wins when it names the attachment.
-    lastVellumLinkClick?.("vellum://workspace/out/final.pdf", "report.pdf");
+    clickVellumLink("vellum://workspace/out/final.pdf", "report.pdf");
+    clickModalAction("Download file");
     expect(
       (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
     ).toMatchObject({ id: "att-label" });
 
     // Malformed percent-encoding: decodeURIComponent throws, raw basename
     // fallback still finds the attachment.
-    lastVellumLinkClick?.("vellum://workspace/qa%ZZshot.png", "shot");
+    clickVellumLink("vellum://workspace/qa%ZZshot.png", "shot");
+    clickModalAction("Download file");
     expect(
       (downloadAttachmentMock.mock.calls[1] as unknown[])[0],
     ).toMatchObject({ id: "att-raw" });
