@@ -428,7 +428,7 @@ describe("schedule tools — active-model note", () => {
     expect(result.content).toContain(ACTIVE_MODEL_SELECTION_NOTE);
   });
 
-  test("one-shot execute schedule with no inference_profile includes the note", async () => {
+  test("one-shot execute schedule omits the note (fires once, no compounding cost)", async () => {
     const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const result = await executeScheduleCreate(
       {
@@ -442,7 +442,7 @@ describe("schedule tools — active-model note", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("One-shot schedule created successfully");
     expect(result.content).toContain("Mode: execute");
-    expect(result.content).toContain(ACTIVE_MODEL_SELECTION_NOTE);
+    expect(result.content).not.toContain(ACTIVE_MODEL_SELECTION_NOTE);
   });
 
   test("execute schedule with an inference_profile omits the note", async () => {

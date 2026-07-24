@@ -244,9 +244,6 @@ export async function executeScheduleCreate(
           ``,
           `Integrations: ${integrations}`,
           `\u26a0 If this schedule requires an integration that isn't connected, it will fail at runtime. Warn about any missing capabilities before confirming the schedule is ready.`,
-          ...(shouldNoteActiveModelSelection(job.mode, job.inferenceProfile)
-            ? [ACTIVE_MODEL_SELECTION_NOTE]
-            : []),
         ].join("\n"),
         isError: false,
       };
@@ -347,7 +344,11 @@ export async function executeScheduleCreate(
         ``,
         `Integrations: ${integrations}`,
         `\u26a0 If this schedule requires an integration that isn't connected, it will fail at runtime. Warn about any missing capabilities before confirming the schedule is ready.`,
-        ...(shouldNoteActiveModelSelection(job.mode, job.inferenceProfile)
+        ...(shouldNoteActiveModelSelection(
+          job.mode,
+          job.inferenceProfile,
+          job.expression != null,
+        )
           ? [ACTIVE_MODEL_SELECTION_NOTE]
           : []),
       ].join("\n"),

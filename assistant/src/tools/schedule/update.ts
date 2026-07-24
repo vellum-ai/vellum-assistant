@@ -303,7 +303,11 @@ export async function executeScheduleUpdate(
         `  Schedule: ${scheduleDescription}${job.timezone ? ` (${job.timezone})` : ""}`,
         `  Enabled: ${job.enabled}`,
         `  Next run: ${job.enabled ? formatLocalDate(job.nextRunAt) : "n/a (disabled)"}`,
-        ...(shouldNoteActiveModelSelection(job.mode, job.inferenceProfile)
+        ...(shouldNoteActiveModelSelection(
+          job.mode,
+          job.inferenceProfile,
+          job.expression != null,
+        )
           ? [ACTIVE_MODEL_SELECTION_NOTE]
           : []),
       ].join("\n"),
