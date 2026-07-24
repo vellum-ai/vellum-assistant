@@ -178,6 +178,46 @@ describe("recoverInflightContent — folding stranded rows", () => {
       getMessageById(source.messageId, source.conversationId)?.content,
     ).toEqual(getMessageById(forkRow.id, fork.id)?.content);
   });
+
+  test("retains a shared ref until its finalized retrospective fork detaches", async () => {
+    const source = await reserveInflight();
+    const content = [textBlock("shared recovery content")];
+    appendInflightSnapshot(source.writer, content, 1, rlog);
+    const sourceRefContent = rawRow(source.messageId).content;
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.conversationId,
+    });
+    const forkRow = db()
+      .query(
+        `SELECT id, content, finalized FROM messages
+         WHERE conversation_id = ?`,
+      )
+      .get(fork.id) as { id: string; content: string; finalized: number };
+    expect(forkRow.content).toBe(sourceRefContent);
+    expect(forkRow.finalized).toBe(1);
+    backdateDeltaFile(source.writer.absPath);
+
+    const firstResult = recoverInflightContent({ minAgeMs: 0 });
+
+    expect(firstResult.finalized).toBeGreaterThanOrEqual(1);
+    expect(rawRow(source.messageId)).toEqual({
+      content: JSON.stringify(content),
+      finalized: 1,
+    });
+    expect(rawRow(forkRow.id)).toEqual({
+      content: sourceRefContent,
+      finalized: 1,
+    });
+    expect(existsSync(source.writer.absPath)).toBe(true);
+    expect(getMessageById(forkRow.id, fork.id)?.content).toEqual(content);
+
+    finalizeMessageContent(forkRow.id, JSON.stringify(content));
+    const secondResult = recoverInflightContent({ minAgeMs: 0 });
+
+    expect(secondResult.filesDeleted).toBeGreaterThanOrEqual(1);
+    expect(existsSync(source.writer.absPath)).toBe(false);
+    expect(getMessageById(forkRow.id, fork.id)?.content).toEqual(content);
+  });
 });
 
 describe("recoverInflightContent — ownership guards", () => {

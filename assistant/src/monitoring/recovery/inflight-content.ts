@@ -28,10 +28,10 @@
  *
  * Two phases:
  *   1. Fold each eligible `finalized = 0` row's resolved content inline and set
- *      `finalized = 1`, deleting its delta file.
- *   2. GC orphan delta files no `finalized = 0` row references — e.g. a file
- *      whose finalize landed but whose unlink was interrupted, which phase 1
- *      never revisits and which would otherwise leak on disk.
+ *      `finalized = 1` without deleting its delta file.
+ *   2. GC delta files no message row references, regardless of finalization
+ *      state. A finalized retrospective fork can share the pending source's
+ *      ref, so the file remains until every row has detached from it.
  */
 
 import { readdirSync, rmSync, statSync } from "node:fs";
@@ -59,7 +59,7 @@ export const DEFAULT_INFLIGHT_MIN_AGE_MS = 60_000;
 export interface InflightRecoveryResult {
   /** `finalized = 0` rows folded inline and flipped to `finalized = 1`. */
   finalized: number;
-  /** Orphan delta files unlinked from disk. */
+  /** Delta files unreferenced by every message row and unlinked from disk. */
   filesDeleted: number;
   /** Rows left for a later run because their conversation is mid-turn. */
   skippedProcessing: number;
@@ -121,8 +121,8 @@ export function recoverInflightContent(
       .all() as UnfinalizedRow[];
 
     // `AND finalized = 0` makes the write a no-op if the daemon finalized the
-    // row between our read and this write; `changes` then reports 0 and we
-    // leave its file to the daemon.
+    // row between our read and this write; `changes` then reports 0. File
+    // deletion is deferred to the all-message reference sweep below.
     const finalizeStmt = db.query(
       `UPDATE messages SET content = ?, finalized = 1
         WHERE id = ? AND finalized = 0`,
@@ -150,9 +150,6 @@ export function recoverInflightContent(
         const info = finalizeStmt.run(JSON.stringify(blocks), row.id);
         if (info.changes > 0) {
           finalized++;
-          if (absPath != null) {
-            rmSync(absPath, { force: true });
-          }
         }
       } catch (err) {
         log.warn(
@@ -174,24 +171,27 @@ export function recoverInflightContent(
 }
 
 /**
- * Delete delta files no `finalized = 0` row references. Re-reads the
- * unfinalized set so a row whose fold we skipped (busy conversation, fresh
- * file) keeps its file, and honours the same age floor so a live writer's file
- * is never unlinked mid-stream.
+ * Delete delta files no message row references. Re-reads all rows after the
+ * fold so skipped pending rows and finalized rows sharing their refs retain
+ * the file, and honours the same age floor so a live writer's file is never
+ * unlinked mid-stream.
  */
 function sweepOrphanDeltaFiles(
   db: Database,
   minAgeMs: number,
   now: number,
 ): number {
-  const referenced = new Set<string>();
+  const retained = new Set<string>();
+  // parseContentRef rejects every value whose first character is not `{`.
+  // Apply that exact fast-path in SQL so large historical inline arrays do not
+  // cross into the monitor process merely to be rejected in JavaScript.
   const rows = db
-    .query(`SELECT content FROM messages WHERE finalized = 0`)
+    .query(`SELECT content FROM messages WHERE substr(content, 1, 1) = '{'`)
     .all() as Array<{ content: string }>;
   for (const row of rows) {
     const absPath = refAbsPath(row.content);
     if (absPath != null) {
-      referenced.add(absPath);
+      retained.add(absPath);
     }
   }
 
@@ -217,7 +217,7 @@ function sweepOrphanDeltaFiles(
         continue;
       }
       const absPath = resolve(inflightDir, file);
-      if (referenced.has(absPath)) {
+      if (retained.has(absPath)) {
         continue;
       }
       const mtime = fileMtimeMs(absPath);
