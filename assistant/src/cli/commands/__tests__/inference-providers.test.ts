@@ -10,16 +10,22 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
+type IpcResult = { ok: boolean; result?: unknown; error?: string };
+
 let ipcCalls: { method: string; params?: any }[] = [];
-let mockIpcResult: { ok: boolean; result?: unknown; error?: string } = {
+let mockIpcResult: IpcResult = {
   ok: true,
   result: {},
 };
+// Per-method overrides for tests that need distinct results per IPC call
+// (e.g. a create existence pre-check that must see "not found" while the
+// create itself succeeds). Falls back to `mockIpcResult` when unset.
+let mockIpcResults: Record<string, IpcResult> = {};
 
 mock.module("../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
     ipcCalls.push({ method, params });
-    return mockIpcResult;
+    return mockIpcResults[method] ?? mockIpcResult;
   },
 }));
 
@@ -49,6 +55,7 @@ function lastIpcCall(): { method: string; params?: any } | null {
 beforeEach(() => {
   ipcCalls = [];
   mockIpcResult = { ok: true, result: CONNECTION_RESULT };
+  mockIpcResults = {};
   process.exitCode = 0;
 });
 
@@ -341,7 +348,11 @@ describe("providers create — --api-key (store then wire)", () => {
    * exact slot — so the registry can resolve it.
    */
   test("stores the raw key under the connection slot, then wires the connection to reference it", async () => {
-    // GIVEN a fresh api-key provider (openrouter) and a raw key supplied inline
+    // GIVEN a fresh api-key provider (openrouter) that does not exist yet
+    mockIpcResults.inference_provider_connections_get = {
+      ok: false,
+      error: "not found",
+    };
     // WHEN the provider is created with --api-key
     await run([
       "providers",
@@ -352,13 +363,16 @@ describe("providers create — --api-key (store then wire)", () => {
       "--api-key",
       "sk-or-test",
     ]);
-    // THEN the secret is stored before the connection that references it
+    // THEN it checks the name is free, stores the secret, then creates the
+    // connection that references it — store strictly before create
     expect(ipcCalls.map((c) => c.method)).toEqual([
+      "inference_provider_connections_get",
       "credentials_set",
       "inference_provider_connections_create",
     ]);
     // AND the raw key lands in the connection-owned credential slot
-    expect(ipcCalls[0]?.params?.body).toEqual({
+    const storeCall = ipcCalls.find((c) => c.method === "credentials_set");
+    expect(storeCall?.params?.body).toEqual({
       service: "openrouter",
       field: "api_key",
       value: "sk-or-test",
@@ -374,7 +388,11 @@ describe("providers create — --api-key (store then wire)", () => {
 
   /** The raw secret must never travel to the provider CRUD route. */
   test("never forwards the raw key to the connection route", async () => {
-    // GIVEN a raw key supplied inline
+    // GIVEN a fresh name and a raw key supplied inline
+    mockIpcResults.inference_provider_connections_get = {
+      ok: false,
+      error: "not found",
+    };
     // WHEN the provider is created with --api-key
     await run([
       "providers",
@@ -391,6 +409,119 @@ describe("providers create — --api-key (store then wire)", () => {
     expect(JSON.stringify(createCall?.params?.body)).not.toContain(
       "sk-or-secret",
     );
+  });
+
+  /**
+   * Creating over an existing name would overwrite that connection's live key
+   * before create fails with 409 — refuse up front and store nothing.
+   */
+  test("refuses to create over an existing connection without storing the key", async () => {
+    // GIVEN a connection that already owns this name
+    mockIpcResults.inference_provider_connections_get = {
+      ok: true,
+      result: {
+        ...CONNECTION_RESULT,
+        name: "openrouter",
+        provider: "openrouter",
+        auth: { type: "api_key", credential: "credential/openrouter/api_key" },
+      },
+    };
+    // WHEN a create with --api-key targets that same name
+    const { exitCode } = await run([
+      "providers",
+      "create",
+      "openrouter",
+      "--provider",
+      "openrouter",
+      "--api-key",
+      "sk-or-new",
+    ]);
+    // THEN it fails after the existence check, before storing or creating
+    expect(exitCode).toBe(1);
+    expect(ipcCalls.map((c) => c.method)).toEqual([
+      "inference_provider_connections_get",
+    ]);
+  });
+
+  /** --api-key (a raw key) and --auth (an explicit override) are exclusive. */
+  test("rejects --api-key combined with --auth before any daemon call", async () => {
+    // GIVEN both a raw key and an explicit auth override
+    // WHEN the provider is created with the conflicting flags
+    const { exitCode } = await run([
+      "providers",
+      "create",
+      "openrouter",
+      "--provider",
+      "openrouter",
+      "--api-key",
+      "sk-or-test",
+      "--auth",
+      "api_key",
+    ]);
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall()).toBeNull();
+  });
+
+  /** A secure-store failure must abort before the connection is created. */
+  test("does not create the connection when secure storage fails", async () => {
+    // GIVEN a fresh name but a credential store that rejects the write
+    mockIpcResults.inference_provider_connections_get = {
+      ok: false,
+      error: "not found",
+    };
+    mockIpcResults.credentials_set = { ok: false, error: "vault unavailable" };
+    // WHEN the provider is created with --api-key
+    const { exitCode } = await run([
+      "providers",
+      "create",
+      "openrouter",
+      "--provider",
+      "openrouter",
+      "--api-key",
+      "sk-or-test",
+    ]);
+    // THEN it stops after the failed store — the connection is never created
+    expect(exitCode).toBe(1);
+    expect(ipcCalls.map((c) => c.method)).toEqual([
+      "inference_provider_connections_get",
+      "credentials_set",
+    ]);
+  });
+
+  /**
+   * --generated is the escape hatch the inline-secret guard prescribes for
+   * machine-obtained keys; it must be a registered option that lets a
+   * chat-spawned shell proceed with the store-then-wire flow.
+   */
+  test("accepts --generated to store a machine-obtained key from an agent shell", async () => {
+    // GIVEN a shell spawned from an assistant conversation and a fresh name
+    process.env.__CONVERSATION_ID = "conv-test";
+    mockIpcResults.inference_provider_connections_get = {
+      ok: false,
+      error: "not found",
+    };
+    try {
+      // WHEN the provider is created with --api-key --generated
+      const { exitCode } = await run([
+        "providers",
+        "create",
+        "openrouter",
+        "--provider",
+        "openrouter",
+        "--api-key",
+        "sk-or-generated",
+        "--generated",
+      ]);
+      // THEN the guard is bypassed and the store-then-wire flow runs
+      expect(exitCode).toBe(0);
+      expect(ipcCalls.map((c) => c.method)).toEqual([
+        "inference_provider_connections_get",
+        "credentials_set",
+        "inference_provider_connections_create",
+      ]);
+    } finally {
+      delete process.env.__CONVERSATION_ID;
+    }
   });
 
   /** --api-key (a raw key) and --credential (a vault reference) are exclusive. */
@@ -414,7 +545,11 @@ describe("providers create — --api-key (store then wire)", () => {
 
   /** Keyless providers (ollama) have no API key to store. */
   test("rejects --api-key for a keyless provider without storing anything", async () => {
-    // GIVEN a keyless provider (ollama)
+    // GIVEN a keyless provider (ollama) with a name that is free
+    mockIpcResults.inference_provider_connections_get = {
+      ok: false,
+      error: "not found",
+    };
     // WHEN it is created with --api-key
     const { exitCode } = await run([
       "providers",
@@ -425,14 +560,22 @@ describe("providers create — --api-key (store then wire)", () => {
       "--api-key",
       "sk-or-test",
     ]);
+    // THEN it is rejected before anything is stored or created
     expect(exitCode).toBe(1);
-    expect(lastIpcCall()).toBeNull();
+    expect(ipcCalls.map((c) => c.method)).not.toContain("credentials_set");
+    expect(ipcCalls.map((c) => c.method)).not.toContain(
+      "inference_provider_connections_create",
+    );
   });
 
   /** A key typed into the assistant's own conversation must not be persisted. */
   test("refuses an inline key when spawned from an agent shell", async () => {
-    // GIVEN a shell spawned from an assistant conversation (conversation id set)
+    // GIVEN a shell spawned from an assistant conversation and a free name
     process.env.__CONVERSATION_ID = "conv-test";
+    mockIpcResults.inference_provider_connections_get = {
+      ok: false,
+      error: "not found",
+    };
     try {
       const { exitCode } = await run([
         "providers",
@@ -446,7 +589,10 @@ describe("providers create — --api-key (store then wire)", () => {
       expect(exitCode).toBe(1);
       // Nothing is stored or created — the secret would persist in the
       // transcript.
-      expect(lastIpcCall()).toBeNull();
+      expect(ipcCalls.map((c) => c.method)).not.toContain("credentials_set");
+      expect(ipcCalls.map((c) => c.method)).not.toContain(
+        "inference_provider_connections_create",
+      );
     } finally {
       delete process.env.__CONVERSATION_ID;
     }

@@ -322,17 +322,41 @@ function attachCreateSubcommand(parent: Command): void {
           auth?: string;
           credential?: string;
           apiKey?: string;
+          generated?: boolean;
           baseUrl?: string;
           model?: string[];
           json?: boolean;
         },
         cmd: Command,
       ) => {
+        if (opts.provider === "openai-compatible" && !opts.baseUrl) {
+          writeCliError(
+            "--base-url is required when --provider openai-compatible",
+            opts.json,
+          );
+          return;
+        }
+
         let authInput: Record<string, unknown> | string;
         if (opts.apiKey !== undefined) {
           if (opts.auth !== undefined || opts.credential !== undefined) {
             writeCliError(
               "--api-key cannot be combined with --auth or --credential. Use --api-key to store a new key, or --credential to reference an existing vault key.",
+              opts.json,
+            );
+            return;
+          }
+          // Storing the key before create would overwrite the credential of a
+          // connection that already owns this name/slot even though create then
+          // fails with 409. Refuse up front so a failed create never rotates an
+          // existing connection's live key.
+          const existing = await cliIpcCall<ProviderConnection>(
+            "inference_provider_connections_get",
+            { pathParams: { name } },
+          );
+          if (existing.ok) {
+            writeCliError(
+              `Provider "${name}" already exists — creating it again would overwrite its key. Rotate it with: assistant inference providers update ${name} --api-key <value>`,
               opts.json,
             );
             return;
@@ -359,14 +383,6 @@ function attachCreateSubcommand(parent: Command): void {
         }
         if (typeof authInput === "string") {
           writeCliError(authInput, opts.json);
-          return;
-        }
-
-        if (opts.provider === "openai-compatible" && !opts.baseUrl) {
-          writeCliError(
-            "--base-url is required when --provider openai-compatible",
-            opts.json,
-          );
           return;
         }
 
@@ -424,6 +440,7 @@ function attachUpdateSubcommand(parent: Command): void {
           auth?: string;
           credential?: string;
           apiKey?: string;
+          generated?: boolean;
           baseUrl?: string;
           model?: string[];
           json?: boolean;

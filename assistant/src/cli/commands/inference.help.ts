@@ -264,6 +264,11 @@ a profile that uses it:
                 "Store this raw API key securely and wire the connection to it (mutually exclusive with --credential/--auth)",
             },
             {
+              flags: "--generated",
+              description:
+                "Assert the --api-key value was machine-obtained (e.g. an API exchange result) and never entered via chat; bypasses the agent-shell inline-secret guard",
+            },
+            {
               flags: "--credential <vault-key>",
               description:
                 "Reference an already-stored vault credential (required for API-key providers unless --api-key is given)",
@@ -290,6 +295,11 @@ a profile that uses it:
               flags: "--api-key <value>",
               description:
                 "Store this raw API key securely and wire the connection to it (mutually exclusive with --credential/--auth)",
+            },
+            {
+              flags: "--generated",
+              description:
+                "Assert the --api-key value was machine-obtained (e.g. an API exchange result) and never entered via chat; bypasses the agent-shell inline-secret guard",
             },
             {
               flags: "--credential <vault-key>",
@@ -351,6 +361,11 @@ matching \`assistant inference providers <verb>\` command.`,
                     "Store this raw API key securely and wire the connection to it (mutually exclusive with --credential/--auth)",
                 },
                 {
+                  flags: "--generated",
+                  description:
+                    "Assert the --api-key value was machine-obtained (e.g. an API exchange result) and never entered via chat; bypasses the agent-shell inline-secret guard",
+                },
+                {
                   flags: "--credential <vault-key>",
                   description:
                     "Reference an already-stored vault credential (required for API-key providers unless --api-key is given)",
@@ -376,6 +391,11 @@ matching \`assistant inference providers <verb>\` command.`,
                   flags: "--api-key <value>",
                   description:
                     "Store this raw API key securely and wire the connection to it (mutually exclusive with --credential/--auth)",
+                },
+                {
+                  flags: "--generated",
+                  description:
+                    "Assert the --api-key value was machine-obtained (e.g. an API exchange result) and never entered via chat; bypasses the agent-shell inline-secret guard",
                 },
                 {
                   flags: "--credential <vault-key>",
