@@ -13,7 +13,13 @@ interface MockProfileEntry {
   mix?: Array<{ profile: string; weight: number }>;
 }
 
+interface MockDefaultProvider {
+  provider: string;
+  connectionName?: string;
+}
+
 let mockProfiles: Record<string, MockProfileEntry> = {};
+let mockDefaultProvider: MockDefaultProvider | undefined;
 
 // Real model catalog — don't mock it, the test exercises real catalog lookups.
 const { doesSupportVision } = await import("./vision-support.js");
@@ -40,16 +46,26 @@ function profile(key: string): ModelProfileInfo {
 function applyConfig(): void {
   setConfig("llm", { profiles: {} });
   const config = getConfig() as { llm: unknown };
-  config.llm = { profiles: mockProfiles };
+  config.llm = {
+    profiles: mockProfiles,
+    ...(mockDefaultProvider != null
+      ? { defaultProvider: mockDefaultProvider }
+      : {}),
+  };
 }
 
-function setMockConfig(profiles: Record<string, MockProfileEntry>) {
+function setMockConfig(
+  profiles: Record<string, MockProfileEntry>,
+  defaultProvider?: MockDefaultProvider,
+) {
   mockProfiles = profiles;
+  mockDefaultProvider = defaultProvider;
   applyConfig();
 }
 
 beforeEach(() => {
   mockProfiles = {};
+  mockDefaultProvider = undefined;
   applyConfig();
 });
 
@@ -144,6 +160,33 @@ describe("doesSupportVision", () => {
       },
     });
     expect(doesSupportVision(profile("mix-profile"))).toBe(false);
+  });
+});
+
+describe("doesSupportVision on a BYOK workspace", () => {
+  // A default profile key is capability-checked against the model dispatch runs
+  // it as — the default provider's column — not the managed `vellum` body.
+  // `cost-optimized` flips capability across columns: the managed body is
+  // Fireworks DeepSeek V4 Flash (text-only), while the anthropic column is
+  // Haiku and the openai column is GPT-5.4-nano (both vision-capable).
+  test("checks the managed `vellum` body when no default provider is set", () => {
+    setMockConfig({});
+    // DeepSeek V4 Flash — the `vellum` column of `cost-optimized` — is
+    // text-only.
+    expect(doesSupportVision(profile("cost-optimized"))).toBe(false);
+  });
+
+  test("checks the default provider's column, not the managed body, on BYOK", () => {
+    setMockConfig({}, { provider: "anthropic" });
+    // Anthropic `cost-optimized` resolves to Haiku, which is vision-capable —
+    // the opposite of the managed DeepSeek body's answer.
+    expect(doesSupportVision(profile("cost-optimized"))).toBe(true);
+  });
+
+  test("follows the resolved provider when the default provider changes", () => {
+    setMockConfig({}, { provider: "openai" });
+    // OpenAI `cost-optimized` resolves to GPT-5.4-nano — vision-capable.
+    expect(doesSupportVision(profile("cost-optimized"))).toBe(true);
   });
 });
 

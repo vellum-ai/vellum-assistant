@@ -17,7 +17,13 @@ interface MockProfileEntry {
   mix?: Array<{ profile: string; weight: number }>;
 }
 
+interface MockDefaultProvider {
+  provider: string;
+  connectionName?: string;
+}
+
 let mockProfiles: Record<string, MockProfileEntry> = {};
+let mockDefaultProvider: MockDefaultProvider | undefined;
 
 // Real model catalog — the test exercises real catalog pricing lookups.
 
@@ -41,16 +47,26 @@ function profile(key: string): ModelProfileInfo {
 function applyConfig(): void {
   setConfig("llm", { profiles: {} });
   const config = getConfig() as { llm: unknown };
-  config.llm = { profiles: mockProfiles };
+  config.llm = {
+    profiles: mockProfiles,
+    ...(mockDefaultProvider != null
+      ? { defaultProvider: mockDefaultProvider }
+      : {}),
+  };
 }
 
-function setMockConfig(profiles: Record<string, MockProfileEntry>) {
+function setMockConfig(
+  profiles: Record<string, MockProfileEntry>,
+  defaultProvider?: MockDefaultProvider,
+) {
   mockProfiles = profiles;
+  mockDefaultProvider = defaultProvider;
   applyConfig();
 }
 
 beforeEach(() => {
   mockProfiles = {};
+  mockDefaultProvider = undefined;
   applyConfig();
 });
 
@@ -128,6 +144,46 @@ describe("getProfileInputTokenPrice", () => {
       fable: { provider: "anthropic", model: "claude-fable-5" },
     });
     expect(getProfileInputTokenPrice(profile("mix-profile"))).toBeNull();
+  });
+});
+
+describe("getProfileInputTokenPrice on a BYOK workspace", () => {
+  // A default profile key dispatches through the `llm.defaultProvider`-aware
+  // resolver, so its effective `(provider, model)` — and therefore its price —
+  // comes from the default provider's column of the intent × provider matrix,
+  // not the managed `vellum` body. `cost-optimized` is the sharpest case: the
+  // managed body is Fireworks DeepSeek V4 Flash (0.14), the anthropic column is
+  // Haiku (1), and the openai column is GPT-5.4-nano (0.2) — three distinct
+  // prices for one key.
+  test("prices the managed `vellum` body when no default provider is set", () => {
+    setMockConfig({});
+    // Fireworks DeepSeek V4 Flash — the `vellum` column of `cost-optimized`.
+    expect(getProfileInputTokenPrice(profile("cost-optimized"))).toBe(0.14);
+  });
+
+  test("prices the default provider's column, not the managed body, on BYOK", () => {
+    setMockConfig({}, { provider: "anthropic" });
+    // Anthropic `cost-optimized` resolves to Haiku (latency-optimized intent),
+    // which prices at 1 — not the managed DeepSeek body's 0.14.
+    expect(getProfileInputTokenPrice(profile("cost-optimized"))).toBe(1);
+  });
+
+  test("follows the resolved provider when the default provider changes", () => {
+    setMockConfig({}, { provider: "openai" });
+    // OpenAI `cost-optimized` resolves to GPT-5.4-nano (0.2); `balanced`
+    // resolves to GPT-5.4-mini (0.75) — both the openai column, not `vellum`.
+    expect(getProfileInputTokenPrice(profile("cost-optimized"))).toBe(0.2);
+    expect(getProfileInputTokenPrice(profile("balanced"))).toBe(0.75);
+  });
+
+  test("a user-owned profile is unaffected by the default provider", () => {
+    // A non-default key carries its own `(provider, model)` regardless of the
+    // BYOK default provider — only default-profile keys route by column.
+    setMockConfig(
+      { custom: { provider: "anthropic", model: "claude-fable-5" } },
+      { provider: "openai" },
+    );
+    expect(getProfileInputTokenPrice(profile("custom"))).toBe(10);
   });
 });
 

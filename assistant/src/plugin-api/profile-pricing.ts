@@ -7,9 +7,11 @@
  * instead of hardcoding model names or prices.
  */
 
-import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
-import { resolveEntryCatalogModel } from "./profile-catalog-resolution.js";
+import {
+  resolveDispatchProfileEntry,
+  resolveEntryCatalogModel,
+} from "./profile-catalog-resolution.js";
 import type { ModelProfileInfo } from "./types.js";
 
 /**
@@ -17,17 +19,21 @@ import type { ModelProfileInfo } from "./types.js";
  * resolves to, or `null` when the price is unknown.
  *
  * A `string` argument is a profile key; a {@link ModelProfileInfo} is read for
- * its `key`. `null` covers a profile that doesn't resolve to a catalog model, a
- * catalog model that carries no pricing, and a "mix" profile — a mix has no
- * single `(provider, model)`, so its per-call price is indeterminate. Callers
- * ranking profiles by cost treat `null` as "rank last".
+ * its `key`. The key resolves through the same `llm.defaultProvider`-aware path
+ * dispatch uses (see {@link resolveDispatchProfileEntry}), so on a BYOK install
+ * a default profile prices the model it actually runs — the default provider's
+ * column — not the managed `vellum` body. `null` covers a profile that doesn't
+ * resolve to a catalog model, a catalog model that carries no pricing, and a
+ * "mix" profile — a mix has no single `(provider, model)`, so its per-call
+ * price is indeterminate. Callers ranking profiles by cost treat `null` as
+ * "rank last".
  */
 export function getProfileInputTokenPrice(
   profile: ModelProfileInfo | string,
 ): number | null {
   const key = typeof profile === "string" ? profile : profile.key;
   const { llm } = getConfig();
-  const entry = getEffectiveProfile(llm.profiles, key);
+  const entry = resolveDispatchProfileEntry(llm, key);
   if (entry == null || entry.mix != null) {
     return null;
   }

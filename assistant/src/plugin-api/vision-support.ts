@@ -16,9 +16,11 @@
  * over silently shipping a raw image to a provider that may reject it.
  */
 
-import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
-import { resolveEntryCatalogModel } from "./profile-catalog-resolution.js";
+import {
+  resolveDispatchProfileEntry,
+  resolveEntryCatalogModel,
+} from "./profile-catalog-resolution.js";
 import type { ModelProfileInfo } from "./types.js";
 
 /**
@@ -70,15 +72,18 @@ function modelVision(model: string, provider?: string): boolean | undefined {
 }
 
 /**
- * Resolve a profile key through `llm.profiles` to its vision capability, or
- * `undefined` when the key is unknown or resolves to a model the catalog
- * doesn't know. A mix profile resolves to `true` if any arm supports vision
- * (the mix can route to it) and `false` only once every arm is a known
- * text-only model.
+ * Resolve a profile key to its vision capability, or `undefined` when the key
+ * is unknown or resolves to a model the catalog doesn't know. Resolution
+ * follows the same `llm.defaultProvider`-aware path dispatch uses (see
+ * {@link resolveDispatchProfileEntry}), so on a BYOK install a default profile
+ * is capability-checked against the model it actually runs — the default
+ * provider's column — not the managed `vellum` body. A mix profile resolves to
+ * `true` if any arm supports vision (the mix can route to it) and `false` only
+ * once every arm is a known text-only model.
  */
 function profileVision(profileKey: string): boolean | undefined {
   const { llm } = getConfig();
-  const entry = getEffectiveProfile(llm.profiles, profileKey);
+  const entry = resolveDispatchProfileEntry(llm, profileKey);
   if (entry == null) {
     return undefined;
   }
@@ -86,7 +91,7 @@ function profileVision(profileKey: string): boolean | undefined {
   if (entry.mix != null) {
     let sawUnknown = false;
     for (const arm of entry.mix) {
-      const armEntry = getEffectiveProfile(llm.profiles, arm.profile);
+      const armEntry = resolveDispatchProfileEntry(llm, arm.profile);
       const armVision =
         armEntry == null ? undefined : resolveEntryVision(armEntry);
       if (armVision === true) {

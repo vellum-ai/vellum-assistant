@@ -4,15 +4,53 @@
  * Vision-capability and input-token pricing both need the concrete
  * {@link CatalogModel} a profile's `(provider, model)` resolves to, so the
  * resolution lives here once and each caller reads the field it needs off the
- * returned model.
+ * returned model. They also both need the effective {@link ProfileEntry} a
+ * profile key resolves to under `llm.defaultProvider`, which
+ * {@link resolveDispatchProfileEntry} centralizes.
  */
 
+import { resolveDefaultProfileForProvider } from "../config/default-profile-catalog.js";
+import type {
+  DefaultProviderConfig,
+  ProfileEntry,
+} from "../config/schemas/llm.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import {
   type CatalogModel,
   getCatalogProviderForModel,
   PROVIDER_CATALOG,
 } from "../providers/model-catalog.js";
+
+/**
+ * Resolve a profile key to the effective {@link ProfileEntry} dispatch would
+ * run it as, honoring `llm.defaultProvider`.
+ *
+ * A default profile key (`balanced`, `quality-optimized`, `cost-optimized`)
+ * resolves through the default provider's column of the intent × provider
+ * matrix — the same body `getConfiguredProvider(callSite, { overrideProfile })`
+ * dereferences via the resolver's `providerAwareEntry` — so a BYOK install
+ * prices and capability-checks the model it actually runs, not the managed
+ * `vellum` body. A `null`/absent `defaultProvider` and every non-default key
+ * fall back to the plain effective-profile resolution. Returns `undefined` when
+ * the key is unknown.
+ *
+ * Callers that only need the `(provider, model)` — pricing and vision — read it
+ * off the returned entry; a "mix" entry is returned as-is (its arms are
+ * resolved individually) so the caller keeps its own mix semantics.
+ */
+export function resolveDispatchProfileEntry(
+  llm: {
+    profiles?: Record<string, ProfileEntry>;
+    defaultProvider?: DefaultProviderConfig | null;
+  },
+  name: string,
+): ProfileEntry | undefined {
+  return resolveDefaultProfileForProvider(
+    llm.profiles,
+    name,
+    llm.defaultProvider ?? null,
+  );
+}
 
 /**
  * Resolve a concrete (non-mix) profile entry to its catalog model from its own
