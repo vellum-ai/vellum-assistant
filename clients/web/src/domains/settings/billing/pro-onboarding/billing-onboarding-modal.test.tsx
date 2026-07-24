@@ -623,7 +623,7 @@ describe("BillingOnboardingModal", () => {
   });
 
   test(
-    "the stall shows the honest taking-longer copy — no Apply — and escaping kicks the reconcile, toasts, and closes",
+    "the stall shows the honest taking-longer copy — no Apply — and confirming the background exit kicks the reconcile, toasts, and closes",
     async () => {
       subscriptionPlanId = "pro";
       const { getByText, getByTestId, queryByText, queryByTestId, onClose } =
@@ -647,9 +647,16 @@ describe("BillingOnboardingModal", () => {
       // Apply & Restart is gone from the takeover.
       expect(queryByTestId("provisioning-apply")).toBeNull();
 
-      // "Continue in the background" fires the idempotent reconcile as a
-      // fire-and-forget kick, toasts, and closes — it never advances the wizard.
+      // "Continue in the background" opens the confirm; it warns chat is
+      // unavailable and does not kick or close on its own.
       fireEvent.click(getByTestId("provisioning-escape"));
+      expect(getByText("Continue in the background?")).toBeTruthy();
+      expect(ensureCalls).toBe(1);
+      expect(onClose).not.toHaveBeenCalled();
+
+      // Confirming with "Continue" fires the idempotent reconcile as a
+      // fire-and-forget kick, toasts, and closes — it never advances the wizard.
+      fireEvent.click(getByText("Continue"));
       await waitFor(() => expect(ensureCalls).toBe(2));
       expect(onClose).toHaveBeenCalled();
       expect(toastInfoCalls).toContain(
@@ -658,6 +665,94 @@ describe("BillingOnboardingModal", () => {
       // No advance to the email/All-set steps while the machine is busy.
       expect(queryByText("Assistant Email")).toBeNull();
       expect(queryByText("You're all set!")).toBeNull();
+    },
+    20_000,
+  );
+
+  test(
+    "waiting on the background confirm keeps the user on the takeover — no kick, no close",
+    async () => {
+      subscriptionPlanId = "pro";
+      const { getByText, getByTestId, queryByText, onClose } = renderModal();
+
+      await waitFor(
+        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      await waitFor(() => expect(ensureCalls).toBe(1));
+
+      dateNowOffsetMs = 61_000;
+      await waitFor(
+        () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+
+      // Open the confirm, then dismiss it with "Wait".
+      fireEvent.click(getByTestId("provisioning-escape"));
+      expect(getByText("Continue in the background?")).toBeTruthy();
+      fireEvent.click(getByText("Wait"));
+
+      // The dialog closes and nothing was kicked or closed — still upgrading.
+      await waitFor(() =>
+        expect(queryByText("Continue in the background?")).toBeNull(),
+      );
+      expect(ensureCalls).toBe(1);
+      expect(onClose).not.toHaveBeenCalled();
+    },
+    20_000,
+  );
+
+  test(
+    "a resize settling while the background confirm is open dismisses it without force-closing the advanced step",
+    async () => {
+      subscriptionPlanId = "pro";
+      // Route to complete so the dialog's own "Continue"/"Wait" are the only
+      // ones on screen — the domain step renders its own "Continue" button.
+      onboardingResponse = makeOnboarding({ domain_setup_available: false });
+      const { client, getByText, getByTestId, queryByText, onClose } =
+        renderModal();
+
+      await waitFor(
+        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      await waitFor(() => expect(ensureCalls).toBe(1));
+      // Wait for the pre-resize actuals to land (the "from" card) before
+      // mutating, mirroring the other DONE-transition tests.
+      await waitFor(() => expect(getByText("10 GB")).toBeTruthy(), {
+        timeout: 5000,
+      });
+
+      // Elapse the escape window so the background CTA surfaces while busy, then
+      // open the confirm.
+      dateNowOffsetMs = 61_000;
+      await waitFor(
+        () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      fireEvent.click(getByTestId("provisioning-escape"));
+      expect(getByText("Continue in the background?")).toBeTruthy();
+
+      // The resize finishes while the confirm is still open: actuals meet the
+      // targets, so the machine settles and the wizard advances to complete.
+      assistantResponse = makeAssistant("large", 50);
+      await client.invalidateQueries();
+      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+
+      // The confirm auto-dismissed the moment provisioning stopped being busy,
+      // so its "Continue" can't fire and force-close the wizard over the
+      // now-uncovered complete step.
+      expect(queryByText("Continue in the background?")).toBeNull();
+      expect(
+        queryByText(
+          "Your assistant is still upgrading. Chatting won't be available until it finishes — you can keep waiting here, or continue and we'll let you know when it's ready.",
+        ),
+      ).toBeNull();
+      expect(queryByText("Continue")).toBeNull();
+      expect(queryByText("Wait")).toBeNull();
+      expect(onClose).not.toHaveBeenCalled();
     },
     20_000,
   );
@@ -724,7 +819,7 @@ describe("BillingOnboardingModal", () => {
   });
 
   test(
-    "escaping a busy takeover kicks the reconcile, toasts, and closes — it never advances to complete",
+    "confirming the background exit on a busy takeover kicks the reconcile, toasts, and closes — it never advances to complete",
     async () => {
       subscriptionPlanId = "pro";
       onboardingResponse = makeOnboarding({ domain_setup_available: false });
@@ -742,10 +837,16 @@ describe("BillingOnboardingModal", () => {
         () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
         { timeout: 15_000 },
       );
+      // The escape CTA opens the confirm; nothing kicks or closes until confirmed.
       fireEvent.click(getByTestId("provisioning-escape"));
+      expect(getByText("Continue in the background?")).toBeTruthy();
+      expect(ensureCalls).toBe(1);
+      expect(onClose).not.toHaveBeenCalled();
 
-      // A fire-and-forget kick, an error-free toast, and a close — no advance to
-      // the All-set step, no background-finishing line.
+      // Confirming with "Continue": a fire-and-forget kick, an error-free toast,
+      // and a close — no advance to the All-set step, no background-finishing
+      // line.
+      fireEvent.click(getByText("Continue"));
       await waitFor(() => expect(ensureCalls).toBe(2));
       expect(onClose).toHaveBeenCalled();
       expect(toastInfoCalls).toContain(
@@ -831,10 +932,16 @@ describe("BillingOnboardingModal", () => {
       ).toBeTruthy();
       expect(queryByTestId("provisioning-apply")).toBeNull();
 
-      // The snag CTA reads "Retry in the background": it re-kicks the reconcile,
-      // toasts the error-aware line, and closes.
+      // The snag CTA reads "Retry in the background": clicking it opens the
+      // confirm; confirming with "Continue" re-kicks the reconcile, toasts the
+      // error-aware line, and closes.
       expect(getByText("Retry in the background")).toBeTruthy();
       fireEvent.click(getByTestId("provisioning-escape"));
+      expect(getByText("Continue in the background?")).toBeTruthy();
+      expect(ensureCalls).toBe(1);
+      expect(onClose).not.toHaveBeenCalled();
+
+      fireEvent.click(getByText("Continue"));
       await waitFor(() => expect(ensureCalls).toBe(2));
       expect(onClose).toHaveBeenCalled();
       expect(toastInfoCalls).toContain(

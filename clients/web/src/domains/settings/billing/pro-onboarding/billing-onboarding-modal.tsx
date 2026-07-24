@@ -15,6 +15,7 @@ import {
   readCheckoutIntent,
   type CheckoutIntent,
 } from "@/lib/billing/checkout-intent";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -110,6 +111,9 @@ export function BillingOnboardingModal({
   // hook's `openedAt`: only a domains response fetched at/after this instant is
   // trusted for routing. Null while closed.
   const [domainsOpenedAt, setDomainsOpenedAt] = useState<number | null>(null);
+  // Gates the "Continue in the background" exit behind a confirm that warns
+  // chatting stays unavailable until the upgrade finishes.
+  const [backgroundConfirmOpen, setBackgroundConfirmOpen] = useState(false);
 
   // The hook owns the on-open subscription/onboarding cache invalidation and
   // every provisioning poll; it keeps tracking across step changes so a
@@ -132,6 +136,7 @@ export function BillingOnboardingModal({
     setTakeoverExit("idle");
     setDisplayedPhase(null);
     setDomainsOpenedAt(null);
+    setBackgroundConfirmOpen(false);
   }, [open, isResize]);
 
   useEffect(
@@ -285,19 +290,42 @@ export function BillingOnboardingModal({
     );
   }, [domainSetupAvailable, isResize, hasExistingDomain]);
 
-  // "Continue in the background" kicks the idempotent ensure-provisioned
-  // reconcile, shows an error-aware toast, and closes the takeover so the user
-  // is handed back to the app rather than parked on the email/All-set steps
-  // mid-provisioning.
+  // "Continue in the background" opens a confirm that warns chatting stays
+  // unavailable until the upgrade finishes, so the user chooses to keep waiting
+  // or to be handed back to the app while the machine is still restarting.
   const escapeProvisioning = useCallback(() => {
+    setBackgroundConfirmOpen(true);
+  }, []);
+
+  // Confirming the exit kicks the idempotent ensure-provisioned reconcile, shows
+  // an error-aware toast, dismisses the confirm, and closes the takeover so the
+  // user is handed back to the app rather than parked on the email/All-set steps
+  // mid-provisioning.
+  const confirmBackgroundExit = useCallback(() => {
     provisioning.kickProvisioning();
     toast.info(
       provisioning.kickError != null
         ? "We'll retry your upgrade in the background."
         : "Your upgrade continues in the background.",
     );
+    setBackgroundConfirmOpen(false);
     onClose();
   }, [provisioning, onClose]);
+
+  // Cancelling keeps the user on the takeover, still waiting on the upgrade.
+  const cancelBackgroundExit = useCallback(() => {
+    setBackgroundConfirmOpen(false);
+  }, []);
+
+  // A resize that settles while the confirm is open dismisses it: the moment
+  // provisioning stops being busy the wizard advances to the domain or complete
+  // step, so a lingering confirm would cover that step — and its "Continue"
+  // would force-close the wizard over it.
+  useEffect(() => {
+    if (!machineBusy && backgroundConfirmOpen) {
+      setBackgroundConfirmOpen(false);
+    }
+  }, [machineBusy, backgroundConfirmOpen]);
 
   // The fetch-error variant of the provisioning step is a standard dismissible
   // card, not the locked full-bleed takeover — otherwise the light error UI is
@@ -337,65 +365,86 @@ export function BillingOnboardingModal({
       : "[animation:fadeIn_0.25s_ease-out_both]";
 
   return (
-    <Modal.Root
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) {
-          onClose();
-        }
-      }}
-    >
-      <Modal.Content
-        size="md"
-        // The final step is terminal — nothing is in flight to interrupt, so it
-        // gets the standard dismiss. Earlier steps keep their exits in-content.
-        hideCloseButton={step !== "complete"}
-        dismissOnOverlayClick={!lockTakeover}
-        onEscapeKeyDown={lockTakeover ? (e) => e.preventDefault() : undefined}
-        onInteractOutside={lockTakeover ? (e) => e.preventDefault() : undefined}
-        data-theme={isTakeover ? "dark" : undefined}
-        overlayClassName={overlayClass}
-        className={isTakeover ? provisioningContentClass : "overflow-hidden"}
-        style={{ [TAKEOVER_SURFACE_VAR]: tintHex } as CSSProperties}
+    <>
+      <Modal.Root
+        open={open}
+        onOpenChange={(o) => {
+          if (!o) {
+            onClose();
+          }
+        }}
       >
-        {/* Keyed on step so the fade replays as we swap takeover ⇄ card. The
-            takeover is the modal's opening step, so it mounts at full size
-            rather than growing into it — it gets a longer, softer entrance so
-            a full-bleed dark canvas doesn't just appear over the billing page. */}
-        <div
-          key={step}
-          className={`flex min-h-0 flex-1 flex-col motion-reduce:[animation:none] ${stepEntrance}`}
+        <Modal.Content
+          size="md"
+          // The final step is terminal — nothing is in flight to interrupt, so
+          // it gets the standard dismiss. Earlier steps keep exits in-content.
+          hideCloseButton={step !== "complete"}
+          dismissOnOverlayClick={!lockTakeover}
+          onEscapeKeyDown={lockTakeover ? (e) => e.preventDefault() : undefined}
+          onInteractOutside={
+            lockTakeover ? (e) => e.preventDefault() : undefined
+          }
+          data-theme={isTakeover ? "dark" : undefined}
+          overlayClassName={overlayClass}
+          className={isTakeover ? provisioningContentClass : "overflow-hidden"}
+          style={{ [TAKEOVER_SURFACE_VAR]: tintHex } as CSSProperties}
         >
-          {renderStep()}
-        </div>
-        {takeoverExit !== "idle" && (
+          {/* Keyed on step so the fade replays as we swap takeover ⇄ card. The
+              takeover is the modal's opening step, so it mounts at full size
+              rather than growing into it — it gets a longer, softer entrance so
+              a full-bleed dark canvas doesn't just appear over the billing page. */}
           <div
-            aria-hidden
-            data-testid="takeover-exit-sheet"
-            className={
-              // `fixed` escapes the card's box once the modal has shrunk back,
-              // so the sheet still covers the viewport while it clears. Reversed
-              // fadeIn is the fade-out; no second keyframe needed.
-              `pointer-events-none fixed inset-0 z-50 ${
-                takeoverExit === "covering"
-                  ? "[animation:fadeIn_200ms_ease-in_both]"
-                  : "[animation:fadeIn_380ms_ease-out_both_reverse]"
-              }`
-            }
-            style={{ backgroundColor: TAKEOVER_SURFACE }}
+            key={step}
+            className={`flex min-h-0 flex-1 flex-col motion-reduce:[animation:none] ${stepEntrance}`}
           >
-            {/* A custom-image takeover's colour lives in this blurred image, not
-                the ground fill, so the sheet reproduces it to match. The
-                `TAKEOVER_SURFACE` fill shows through while it decodes. The
-                sheet's own fade drives the reveal, so the backdrop doesn't
-                re-fade over it. */}
-            {backdropImageUrl && (
-              <TakeoverBackdrop imageUrl={backdropImageUrl} animateIn={false} />
-            )}
+            {renderStep()}
           </div>
-        )}
-      </Modal.Content>
-    </Modal.Root>
+          {takeoverExit !== "idle" && (
+            <div
+              aria-hidden
+              data-testid="takeover-exit-sheet"
+              className={
+                // `fixed` escapes the card's box once the modal has shrunk back,
+                // so the sheet still covers the viewport while it clears.
+                // Reversed fadeIn is the fade-out; no second keyframe needed.
+                `pointer-events-none fixed inset-0 z-50 ${
+                  takeoverExit === "covering"
+                    ? "[animation:fadeIn_200ms_ease-in_both]"
+                    : "[animation:fadeIn_380ms_ease-out_both_reverse]"
+                }`
+              }
+              style={{ backgroundColor: TAKEOVER_SURFACE }}
+            >
+              {/* A custom-image takeover's colour lives in this blurred image,
+                  not the ground fill, so the sheet reproduces it to match. The
+                  `TAKEOVER_SURFACE` fill shows through while it decodes. The
+                  sheet's own fade drives the reveal, so the backdrop doesn't
+                  re-fade over it. */}
+              {backdropImageUrl && (
+                <TakeoverBackdrop
+                  imageUrl={backdropImageUrl}
+                  animateIn={false}
+                />
+              )}
+            </div>
+          )}
+        </Modal.Content>
+      </Modal.Root>
+      {/* Stacks over the locked full-bleed takeover as its own Modal.Root; its
+          Escape/backdrop closes only this confirm, never the takeover behind. */}
+      <ConfirmDialog
+        // Gated on the live machine state too: a resize that settles while the
+        // confirm is open closes it declaratively, so its buttons can't act
+        // after the wizard has advanced past provisioning.
+        open={backgroundConfirmOpen && machineBusy}
+        title="Continue in the background?"
+        message="Your assistant is still upgrading. Chatting won't be available until it finishes — you can keep waiting here, or continue and we'll let you know when it's ready."
+        confirmLabel="Continue"
+        cancelLabel="Wait"
+        onConfirm={confirmBackgroundExit}
+        onCancel={cancelBackgroundExit}
+      />
+    </>
   );
 
   function renderStep() {
