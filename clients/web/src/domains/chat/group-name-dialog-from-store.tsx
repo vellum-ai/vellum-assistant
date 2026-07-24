@@ -9,21 +9,19 @@ import type {
 
 /**
  * Store-driven group-name dialog. Reads the pending create/rename request from
- * {@link useGroupNameRequestStore} and drives one {@link GroupNameDialog} for
+ * {@link useGroupNameRequestStore} and drives one {@link NameInputDialog} for
  * both. On a "create" submit it creates the group and moves the requesting
  * conversation into it; on "rename" it renames. Extracted so the
  * create-then-move / rename wiring lives with the dialog rather than being
  * threaded through the parent orchestrator's dependency tree.
  */
 interface GroupNameDialogFromStoreProps {
-  conversationGroups: ConversationGroup[];
   createGroup: (name: string) => Promise<ConversationGroup | null>;
   renameGroup: (groupId: string, name: string) => void;
   moveToGroup: (conversation: Conversation, groupId: string) => void;
 }
 
 export function GroupNameDialogFromStore({
-  conversationGroups,
   createGroup,
   renameGroup,
   moveToGroup,
@@ -50,10 +48,7 @@ export function GroupNameDialogFromStore({
   );
 
   const isRename = request?.mode === "rename";
-  const currentName =
-    request?.mode === "rename"
-      ? (conversationGroups.find((g) => g.id === request.groupId)?.name ?? "")
-      : "";
+  const currentName = request?.mode === "rename" ? request.currentName : "";
 
   return (
     <NameInputDialog

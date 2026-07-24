@@ -495,10 +495,24 @@ export function ChatLayout({
     [],
   );
   const handleRequestRenameGroup = useCallback(
-    (groupId: string) =>
-      useGroupNameRequestStore.getState().requestRenameGroup(groupId),
-    [],
+    (groupId: string) => {
+      const currentName =
+        conversationGroups.find((g) => g.id === groupId)?.name ?? "";
+      useGroupNameRequestStore
+        .getState()
+        .requestRenameGroup(groupId, currentName);
+    },
+    [conversationGroups],
   );
+
+  // A pending group-name request captures a specific conversation ("New
+  // group…") or group ("Rename"); if the active assistant changes before the
+  // user submits, that target belongs to the previous assistant while the
+  // create/move/rename would run against the new one. Clear it on assistant
+  // change so we never act across a mismatched assistant.
+  useEffect(() => {
+    useGroupNameRequestStore.getState().clearGroupNameRequest();
+  }, [assistantId]);
 
   // Resolve the active row from whichever list cache holds it (foreground,
   // background, or scheduled), fetching the single row when an open
@@ -972,7 +986,6 @@ export function ChatLayout({
 
       <RenameDialogFromStore assistantId={assistantId} />
       <GroupNameDialogFromStore
-        conversationGroups={conversationGroups}
         createGroup={createGroup}
         renameGroup={renameGroup}
         moveToGroup={handleMoveToGroup}
