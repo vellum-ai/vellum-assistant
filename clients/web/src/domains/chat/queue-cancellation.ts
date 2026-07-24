@@ -1,4 +1,5 @@
 import { deleteQueuedMessage } from "@/domains/chat/api/messages";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { removeQueuedMessage } from "@/domains/chat/utils/stream-updaters/shared";
@@ -29,6 +30,12 @@ export async function confirmQueuedMessageDeletion({
   );
   if (!deleted) {
     return false;
+  }
+
+  if (
+    useChatSessionStore.getState().previousConversationId !== conversationId
+  ) {
+    return true;
   }
 
   const removeMessage = (prev: DisplayMessage[]) =>

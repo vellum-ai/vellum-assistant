@@ -39,6 +39,7 @@ mock.module("@/domains/chat/api/messages", () => ({
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { registerHistoryCachePatcher } from "@/domains/chat/transcript/patch-transcript-messages";
+import { useTurnStore } from "@/domains/chat/turn-store";
 
 function queuedMessage(
   id: string,
@@ -80,9 +81,12 @@ beforeEach(() => {
     resolveDelete = resolve;
   });
   registerHistoryCachePatcher(null);
+  useTurnStore.getState().resetTurn();
   useChatSessionStore.setState({
     optimisticSends: [],
     snapshot: null,
+    previousAssistantId: "assistant-1",
+    previousConversationId: "conversation-1",
     pendingQueuedMessageIds: [],
     requestIdToMessageId: new Map(),
     pendingLocalDeletions: new Set(),
@@ -214,6 +218,43 @@ describe("useMessageQueue", () => {
     expect(useChatSessionStore.getState().optimisticSends).toHaveLength(1);
     expect(useChatSessionStore.getState().snapshot?.messages).toHaveLength(1);
     expect(useChatSessionStore.getState().requestIdToMessageId.size).toBe(1);
+  });
+
+  test("does not apply delayed deletion cleanup after navigation", async () => {
+    seedQueuedCopies();
+    useTurnStore.setState({ phase: "thinking", pendingQueuedCount: 1 });
+    const { result } = renderHook(() =>
+      useMessageQueue({
+        assistantId: "assistant-1",
+        activeConversationId: "conversation-1",
+      }),
+    );
+
+    act(() => {
+      result.current.handleCancelQueuedMessage("client-1");
+      useChatSessionStore.getState().switchToConversation({
+        assistantId: "assistant-1",
+        activeConversationId: "conversation-2",
+      });
+      useChatSessionStore.setState({
+        optimisticSends: [queuedMessage("client-2", "client-2")],
+        requestIdToMessageId: new Map([["request-2", "client-2"]]),
+      });
+      useTurnStore.setState({ phase: "thinking", pendingQueuedCount: 1 });
+    });
+
+    await act(async () => {
+      resolveDelete(true);
+      await deletePromise;
+    });
+
+    expect(useChatSessionStore.getState().optimisticSends[0]?.id).toBe(
+      "client-2",
+    );
+    expect(useChatSessionStore.getState().requestIdToMessageId).toEqual(
+      new Map([["request-2", "client-2"]]),
+    );
+    expect(useTurnStore.getState().pendingQueuedCount).toBe(1);
   });
 
   test("keeps an early cancellation visible while its request id is pending", () => {
