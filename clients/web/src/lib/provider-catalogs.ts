@@ -225,6 +225,34 @@ export const IMAGE_GEN_MODEL_DISPLAY_NAMES: Record<string, string> = {
 };
 
 /**
+ * Image-generation providers offered by the settings card. `vellum` is the
+ * managed option (no API key; billed to the Vellum account); `gemini` uses
+ * the user's key. `openai` stays a valid daemon value but is not offered —
+ * the card renders it read-only when a daemon reports it.
+ */
+export const IMAGE_GEN_PROVIDERS = ["vellum", "gemini"] as const;
+
+export const IMAGE_GEN_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  vellum: "Vellum",
+  gemini: "Gemini",
+  openai: "OpenAI",
+};
+
+/**
+ * Models selectable under a provider. Vellum spans both backends (the daemon
+ * derives the managed proxy from the model prefix); BYOK providers list only
+ * the models their key can serve.
+ */
+export function imageGenModelsForProvider(provider: string): string[] {
+  if (provider === "vellum") {
+    return [...AVAILABLE_IMAGE_GEN_MODELS];
+  }
+  return AVAILABLE_IMAGE_GEN_MODELS.filter(
+    (m) => providerForImageGenModel(m) === provider,
+  );
+}
+
+/**
  * Image-generation provider for a model id, by prefix. Mirrors the daemon's
  * `providerForImageModelPrefix` / `providerForModel` (`assistant/src/media/`):
  * `gpt-*` / `dall-e-*` → openai, `gemini-*` → gemini, otherwise gemini.
