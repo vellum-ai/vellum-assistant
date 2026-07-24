@@ -19,7 +19,6 @@ import {
   releasePreparedLexicalIndexJob,
 } from "../job-handlers/message-lexical.js";
 import {
-  foldContentFile,
   parseContentRef,
   resolveContentRefPath,
 } from "../message-content-file.js";
@@ -136,6 +135,43 @@ function readableAttachmentBytes(row: AttachmentRow): Buffer | null {
     }
   }
   return decodeBase64(row.dataBase64);
+}
+
+function foldContentFileLosslessly(path: string): unknown[] | null {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+  const byIndex = new Map<number, { seq: number; block: unknown }>();
+  for (const line of text.split("\n")) {
+    if (!line) {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (
+      !isRecord(parsed) ||
+      !Number.isInteger(parsed.i) ||
+      typeof parsed.seq !== "number" ||
+      !("block" in parsed)
+    ) {
+      continue;
+    }
+    const index = parsed.i as number;
+    const existing = byIndex.get(index);
+    if (!existing || parsed.seq > existing.seq) {
+      byIndex.set(index, { seq: parsed.seq, block: parsed.block });
+    }
+  }
+  return [...byIndex.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, entry]) => entry.block);
 }
 
 function byteSignature(bytes: Buffer): ByteSignature {
@@ -332,7 +368,7 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
         if (!contentPath) {
           continue;
         }
-        const folded = foldContentFile(contentPath);
+        const folded = foldContentFileLosslessly(contentPath);
         if (!folded) {
           continue;
         }

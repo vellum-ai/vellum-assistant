@@ -376,6 +376,13 @@ describe("migration 351: materialize historical inline message media", () => {
     const olderImage = Buffer.from("older-image").toString("base64");
     const rootImage = Buffer.from("root-image").toString("base64");
     const nestedFile = Buffer.from("nested-file").toString("base64");
+    const malformedText = { type: "text", text: 42 };
+    const retiredBlock = {
+      type: "ui_surface",
+      surfaceType: "historical-panel",
+      data: { preserved: true },
+    };
+    const typelessBlock = { historicalPayload: "preserved" };
     const contentPath = writeMessageContentFile(workspaceDir, ref, [
       {
         i: 0,
@@ -421,7 +428,14 @@ describe("migration 351: materialize historical inline message media", () => {
           ],
         },
       },
+      { i: 2, seq: 1, block: malformedText },
+      { i: 3, seq: 1, block: retiredBlock },
+      { i: 4, seq: 1, block: typelessBlock },
     ]);
+    writeFileSync(
+      contentPath,
+      `${readFileSync(contentPath, "utf8")}\nnot-json\n{"i":5,"seq":1,"block":`,
+    );
     insertMessage(sqlite, "message-ref", JSON.stringify({ ref }));
 
     await migrateMaterializeHistoricalInlineMessageMedia(db, options);
@@ -436,6 +450,11 @@ describe("migration 351: materialize historical inline message media", () => {
       sizeBytes: Buffer.from("nested-file").length,
       filename: "nested.txt",
     });
+    expect(content.slice(2)).toEqual([
+      malformedText,
+      retiredBlock,
+      typelessBlock,
+    ]);
     const migratedIds = [
       content[0].source.attachmentId,
       content[1].contentBlocks[0].source.attachmentId,
