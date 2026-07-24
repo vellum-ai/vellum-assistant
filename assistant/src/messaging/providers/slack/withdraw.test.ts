@@ -12,6 +12,7 @@ const callSlackApi = mock(
 mock.module("./api.js", () => ({ getSlackMessageBlocks, callSlackApi }));
 
 import {
+  APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX,
   stripApprovalActionBlocks,
   withdrawSlackApprovalCard,
 } from "./withdraw.js";
@@ -64,6 +65,42 @@ describe("stripApprovalActionBlocks", () => {
       { type: "section" },
     ]);
     expect(result).toHaveLength(3);
+  });
+
+  test("drops instruction/CTA blocks tagged with the approval-instruction prefix, keeping audit content", () => {
+    const blocks = [
+      { type: "card", body: { type: "mrkdwn", text: "Alice wants in" } },
+      {
+        type: "context",
+        elements: [{ type: "mrkdwn", text: "Source: Slack — #general" }],
+      },
+      {
+        type: "context",
+        block_id: `${APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX}:invite`,
+        elements: [
+          {
+            type: "mrkdwn",
+            text: 'Reply "open invite flow" to start Trusted Contacts invite flow.',
+          },
+        ],
+      },
+      {
+        type: "context",
+        block_id: `${APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX}:verify`,
+        elements: [
+          { type: "mrkdwn", text: "You haven't verified your identity yet." },
+        ],
+      },
+    ];
+    const result = stripApprovalActionBlocks(blocks) as Array<
+      Record<string, unknown>
+    >;
+    // Card + source context survive; both tagged instruction blocks are dropped.
+    expect(result.map((b) => b.type)).toEqual(["card", "context"]);
+    const serialized = JSON.stringify(result);
+    expect(serialized).toContain("Source: Slack");
+    expect(serialized).not.toContain("open invite flow");
+    expect(serialized).not.toContain("verified your identity");
   });
 });
 

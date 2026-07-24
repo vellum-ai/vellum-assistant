@@ -20,6 +20,21 @@ import { callSlackApi, getSlackMessageBlocks } from "./api.js";
 
 const log = getLogger("slack-withdraw");
 
+/**
+ * `block_id` prefix stamped on the instruction / CTA blocks of an approval
+ * card (reply directives, the "open invite flow" prompt, the guardian
+ * verification nudge) at build time. Withdrawal drops every block whose
+ * `block_id` starts with this: once a decision is recorded the guardian has
+ * nothing left to do, so the call-to-action copy must disappear, leaving only
+ * the card's audit content and the resolved-status line. A prefix (not a fixed
+ * id) because Slack requires each block's `block_id` to be unique within a
+ * message, so each tagged block appends its own suffix. Shared with the Slack
+ * notification adapter that builds these blocks so the tag can never drift
+ * between the writer and the stripper.
+ */
+export const APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX =
+  "vellum:approval-instructions";
+
 const STATUS_GLYPH: Record<string, string> = {
   approved: ":white_check_mark:",
   denied: ":x:",
@@ -68,8 +83,11 @@ function buildStatusText(params: WithdrawSlackApprovalCardParams): string {
 
 /**
  * Remove interactive affordances from a fetched message's blocks: drop
- * standalone `actions` rows and strip the `actions` array from native `card`
- * blocks, leaving all informational content intact.
+ * standalone `actions` rows, strip the `actions` array from native `card`
+ * blocks, and drop instruction/CTA blocks tagged with
+ * {@link APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX} (reply directives, the "open
+ * invite flow" prompt, the verification nudge). Informational content —
+ * identity, message preview, source link — is left intact for the audit trail.
  */
 export function stripApprovalActionBlocks(blocks: unknown[]): unknown[] {
   const result: unknown[] = [];
@@ -79,7 +97,16 @@ export function stripApprovalActionBlocks(blocks: unknown[]): unknown[] {
       continue;
     }
     const b = block as Record<string, unknown>;
-    if (b.type === "actions") continue;
+    if (b.type === "actions") {
+      continue;
+    }
+    // CTA / instruction copy is meaningless once a decision is recorded.
+    if (
+      typeof b.block_id === "string" &&
+      b.block_id.startsWith(APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX)
+    ) {
+      continue;
+    }
     if (b.type === "card" && "actions" in b) {
       const { actions: _removed, ...rest } = b;
       result.push(rest);

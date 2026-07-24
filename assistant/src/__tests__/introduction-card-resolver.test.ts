@@ -169,7 +169,9 @@ describe("introduction card decisions", () => {
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     const mints = outcomesOfType("mint_outbound_session");
     expect(mints).toHaveLength(1);
     expect(mints[0]).toMatchObject({
@@ -208,7 +210,7 @@ describe("introduction card decisions", () => {
     }
   });
 
-  test("leave_unverified persists the sender as unverified (legacy reject path)", async () => {
+  test("leave_unverified persists the sender as unverified and is silent (legacy reject path)", async () => {
     for (const action of ["leave_unverified", "reject"] as const) {
       resetState();
       const req = makeAccessRequest({ sourceChannel: "slack" });
@@ -224,6 +226,9 @@ describe("introduction card decisions", () => {
       expect(outcomesOfType("seed_unverified")).toHaveLength(1);
       expect(outcomesOfType("block")).toHaveLength(0);
       expect(outcomesOfType("activate_member")).toHaveLength(0);
+      // Silent park (docs/trusted-contact-access.md): leave-unverified never
+      // sends the requester a notice — they only learn if they message again.
+      expect(deliverReplyCalls).toHaveLength(0);
     }
   });
 
@@ -243,6 +248,14 @@ describe("introduction card decisions", () => {
     expect(blocks[0].externalUserId).toBe("U-REQUESTER");
     expect(blocks[0].reason).toBe("introduction_block");
     expect(outcomesOfType("seed_unverified")).toHaveLength(0);
+    // Unlike leave-unverified, block DOES notify the requester with the decline
+    // notice (the block itself is not revealed).
+    const declineNotices = deliverReplyCalls.filter(
+      (c) =>
+        typeof c.payload.text === "string" &&
+        c.payload.text.includes("Your access request was declined."),
+    );
+    expect(declineNotices).toHaveLength(1);
     // The terminal decision projects onto the delivered cards.
     expect(withdrawCalls).toHaveLength(1);
   });

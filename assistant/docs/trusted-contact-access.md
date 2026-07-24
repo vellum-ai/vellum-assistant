@@ -39,7 +39,7 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 
    This ensures unknown inbound access attempts always trigger guardian notification, even when the requester's source channel has no guardian binding.
 
-4. **Guardian decides.** All decisions route through the guardian decision primitive (`applyGuardianDecision`, `approvals/guardian-decision-primitive.ts`) and commit via the gateway's `guardian_requests_decide` IPC op: the status CAS and the decision's ACL outcome execute in ONE gateway transaction, so an `approved` request can never exist without its ACL write. The introduction card supports four outcomes: **approve** (start the verification handshake), **trust** (activate directly, no code — used for workspace-vouched identities), **deny** (persist a terminal denial), and **block**.
+4. **Guardian decides.** All decisions route through the guardian decision primitive (`applyGuardianDecision`, `approvals/guardian-decision-primitive.ts`) and commit via the gateway's `guardian_requests_decide` IPC op: the status CAS and the decision's ACL outcome execute in ONE gateway transaction, so an `approved` request can never exist without its ACL write. The introduction card supports four outcomes: **approve** (start the verification handshake), **trust** (activate directly, no code — used for workspace-vouched identities), **leave unverified** (the `leave_unverified` action id — park the sender as an `unverified` contact, **silently**: the requester is not notified and only learns if they message again; a later trust-requiring inbound re-fires the flow), and **block** (revoke the sender's channel and notify them their request was declined). Note the `unverified` contact left by "leave unverified" is not a guaranteed keep-out — it is still admitted under the permissive admission floors (`any_contact`, `strangers`); **block** (→ revoked) is the hard keep-out.
 5. **On approval the gateway mints a verification session.** The decide op carries a `mint_outbound_session` outcome; inside the decide transaction the gateway (`gateway/src/verification/session-service.ts`) generates a 6-digit code, persists only its SHA-256 hash in `channel_verification_sessions` (identity-bound to the requester, `verificationPurpose: 'trusted_contact'`), and returns the raw secret to the daemon in the decide response for delivery.
 6. **The code is delivered.** The daemon delivers the code to the guardian's verified channel (ephemeral + DM on Slack shared channels so other members never see it). On Slack the code is also DM'd straight to the requester; on other channels the guardian relays it out-of-band (in person, text message, phone call). That out-of-band transfer is the trust anchor: it proves the requester has a real-world relationship with the guardian.
 7. **Requester enters the code** back to the assistant on the same channel. The **gateway** intercepts bare verification codes at ingress (`gateway/src/verification/text-verification.ts`) whenever an interceptable session exists for that channel — the daemon never sees verification code messages.
@@ -52,14 +52,14 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 requested -> pending_guardian -> verification_pending -> active | denied | expired
 ```
 
-| State                  | Description                                                                                                        | Store representation                                                                                                                                                     |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `requested`            | Unknown user messaged the assistant and was denied. The system records the access attempt.                         | No member record exists. The inbound is logged in `channel_inbound_events` (assistant DB). A notification signal is emitted via `emitNotificationSignal()`.              |
-| `pending_guardian`     | The guardian has been notified and a decision is pending.                                                          | A `guardian_requests` record (gateway DB) with `status: 'pending'`, `kind: 'access_request'`.                                                                            |
-| `verification_pending` | The guardian approved. A verification session is active with a 6-digit code waiting for the requester to enter.    | Gateway `channel_verification_sessions` record with `status: 'awaiting_response'`, identity-bound to the requester. The guardian request is `status: 'approved'`.        |
-| `active`               | The requester entered the correct code (or the guardian chose direct trust). They are now a trusted contact.       | Gateway `contact_channels` record with `status: 'active'`, `policy: 'allow'`; identity mirrored to the assistant DB. The verification session is `status: 'consumed'`.   |
-| `denied`               | The guardian explicitly denied the request.                                                                        | The guardian request has `status: 'denied'`. The sender is persisted as an unverified contact and later inbound is suppressed (terminal-deny).                           |
-| `expired`              | The guardian never responded (approval TTL elapsed) or the requester never entered the code (session TTL elapsed). | Guardian request: `status: 'expired'` (CAS-expired by the gateway via the daemon's expiry sweep). Verification session: expires naturally when `expiresAt < Date.now()`. |
+| State                  | Description                                                                                                        | Store representation                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `requested`            | Unknown user messaged the assistant and was denied. The system records the access attempt.                         | No member record exists. The inbound is logged in `channel_inbound_events` (assistant DB). A notification signal is emitted via `emitNotificationSignal()`.                                                                                                                                                                                                                |
+| `pending_guardian`     | The guardian has been notified and a decision is pending.                                                          | A `guardian_requests` record (gateway DB) with `status: 'pending'`, `kind: 'access_request'`.                                                                                                                                                                                                                                                                              |
+| `verification_pending` | The guardian approved. A verification session is active with a 6-digit code waiting for the requester to enter.    | Gateway `channel_verification_sessions` record with `status: 'awaiting_response'`, identity-bound to the requester. The guardian request is `status: 'approved'`.                                                                                                                                                                                                          |
+| `active`               | The requester entered the correct code (or the guardian chose direct trust). They are now a trusted contact.       | Gateway `contact_channels` record with `status: 'active'`, `policy: 'allow'`; identity mirrored to the assistant DB. The verification session is `status: 'consumed'`.                                                                                                                                                                                                     |
+| `denied`               | The guardian resolved the request without granting access — `leave_unverified` (park) or `block` (keep-out).       | The guardian request has `status: 'denied'` for both. `leave_unverified` persists an `unverified` contact — a neutral park, so a later trust-requiring inbound **re-fires** the flow; `block` revokes the channel — a durable keep-out, so re-contact is suppressed. Suppression keys off the durable **contact status** (`revoked`/`blocked`), never this request status. |
+| `expired`              | The guardian never responded (approval TTL elapsed) or the requester never entered the code (session TTL elapsed). | Guardian request: `status: 'expired'` (CAS-expired by the gateway via the daemon's expiry sweep). Verification session: expires naturally when `expiresAt < Date.now()`.                                                                                                                                                                                                   |
 
 ## Identity Binding Rules
 
@@ -112,7 +112,14 @@ Identity binding ensures the verification code can only be consumed by the inten
 | -------------------------------------------------- | ------------------- | ------------------------------------------------------------- |
 | gateway `guardian-request-service.ts` (gateway DB) | `guardian_requests` | Updated to `status: 'denied'`, `decidedByExternalUserId` set. |
 
-No trusted-contact activation happens. The sender is persisted as an unverified contact, and the terminal-deny check suppresses re-prompting the guardian for the same sender.
+No trusted-contact activation happens. The `leave_unverified` outcome persists the sender as an `unverified` contact **and sends no requester notification** (silent park); `block` instead revokes the channel and **does** notify the requester ("Your access request was declined.").
+
+The two outcomes differ on re-contact. Suppression of re-prompting keys off the **durable contact status**, not this `denied` request status:
+
+- `leave_unverified` → `unverified` contact: a neutral park, **not** kept out. If the contact later does something that needs trust — e.g. DMs on a `trusted_contacts` channel — the deny-path flow **re-fires** (self-verify challenge + a fresh guardian card), so the guardian decides afresh. The guardian's way to stop the prompts is to `block`.
+- `block` → `revoked` contact: a durable keep-out. Re-contact is suppressed (no challenge, no guardian notification) on every floor.
+
+Separately, the admitted-mode introduction **nudge** (for a contact who cleared the floor unclassified) is quieted once the guardian has decided the contact, so a classified contact is not re-nudged across conversations. That is distinct from the deny-path re-fire above.
 
 ### Stage: `expired`
 
@@ -191,10 +198,15 @@ sequenceDiagram
         GW->>A: Forward with allow verdict
         A->>A: Process message normally
 
-    else Guardian denies
-        G->>A: Deny (inline button / app / plain text)
-        A->>A: Resolver persists denial (terminal-deny)
-        A-->>U: (No notification — user only knows<br/>they were denied if they message again)
+    else Guardian leaves unverified
+        G->>A: Leave unverified (inline button / app / plain text)
+        A->>A: Resolver seeds unverified contact (neutral park —<br/>a trust-requiring re-contact re-fires the flow)
+        A-->>U: (No notification — user only learns<br/>if they message again)
+
+    else Guardian blocks
+        G->>A: Block
+        A->>A: Resolver revokes the channel (durable keep-out —<br/>re-contact suppressed)
+        A-->>U: "Your access request was declined."
 
     else Guardian never responds
         Note over A: runGuardianExpirySweep()<br/>runs every 60 seconds
@@ -241,7 +253,7 @@ sequenceDiagram
 
 - If the unknown user messages the assistant multiple times before the guardian responds, each message hits the ACL denial path independently.
 - `notifyGuardianOfAccessRequest()` dedupes on the existing pending guardian request for the same (assistant, channel, requester), and the notification pipeline's `dedupeKey` prevents duplicate notification events.
-- A prior terminal deny suppresses re-prompting entirely, and an approval whose verification window is still open suppresses a fresh request (the sender is told to enter their code instead).
+- A **durable keep-out** — a `revoked` or `blocked` contact — suppresses re-prompting entirely (`isKeptOutStatus(previousMemberStatus)`). A `leave_unverified` park (`unverified` contact) is **not** a keep-out and re-fires; only `block` stops the prompts. An approval whose verification window is still open also suppresses a fresh request (the sender is told to enter their code instead).
 
 ### Requester already has a member record in non-active state
 
