@@ -1,6 +1,9 @@
 import { beforeEach, describe, test, expect } from "bun:test";
 
-import { readCheckoutIntent } from "@/lib/billing/checkout-intent";
+import {
+  readCheckoutIntent,
+  saveCheckoutIntent,
+} from "@/lib/billing/checkout-intent";
 
 import {
   resolveNavigation,
@@ -854,6 +857,24 @@ describe("resolveNavigation", () => {
         action: "redirect",
         to: "/assistant",
       });
+    });
+
+    test("a non-checkout signup clears a stale stash from an abandoned attempt", () => {
+      saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
+      expect(postAuth("signup", "/some-return")).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
+      });
+      expect(readCheckoutIntent()).toBeNull();
+    });
+
+    test("a non-checkout login clears a stale stash from an abandoned attempt", () => {
+      saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
+      expect(postAuth("login", "/assistant/home")).toEqual({
+        action: "redirect",
+        to: "/assistant/home",
+      });
+      expect(readCheckoutIntent()).toBeNull();
     });
   });
 

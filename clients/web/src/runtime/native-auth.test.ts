@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { readCheckoutIntent } from "@/lib/billing/checkout-intent";
+import {
+  readCheckoutIntent,
+  saveCheckoutIntent,
+} from "@/lib/billing/checkout-intent";
 
 import { resolveNativePostAuthDestination } from "./native-auth";
 
@@ -43,6 +46,24 @@ describe("resolveNativePostAuthDestination", () => {
     );
 
     expect(destination).toBe("/assistant/checkout?package=super");
+    expect(readCheckoutIntent()).toBeNull();
+  });
+
+  test("native non-checkout signup clears a stale stash from an abandoned attempt", () => {
+    saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
+
+    const destination = resolveNativePostAuthDestination("signup", "/assistant/home");
+
+    expect(destination).toBe("/assistant/onboarding/privacy");
+    expect(readCheckoutIntent()).toBeNull();
+  });
+
+  test("native non-checkout login clears a stale stash from an abandoned attempt", () => {
+    saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
+
+    const destination = resolveNativePostAuthDestination("login", "/assistant/home");
+
+    expect(destination).toBe("/assistant/home");
     expect(readCheckoutIntent()).toBeNull();
   });
 });
