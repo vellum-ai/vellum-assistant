@@ -968,6 +968,22 @@ describe("PlansPage — Custom row current-plan marker", () => {
     await findByRole("button", { name: "Configure" });
     expect(queryByText("Your Current Plan")).toBeNull();
   });
+
+  test("a custom sub with no loaded current tiers shows no marker", async () => {
+    // When the onboarding read yields no provisioned storage (e.g. it errors),
+    // the row isn't marked current — no "Your Current Plan" tag next to a
+    // degraded summary.
+    const { findByRole, queryByText } = renderInteractive(
+      proCustomizedWithCredits(),
+      {
+        plans: customCatalog(),
+        onboardingData: onboarding({ selected_storage_gib: null }),
+      },
+    );
+
+    await findByRole("button", { name: "Configure" });
+    expect(queryByText("Your Current Plan")).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

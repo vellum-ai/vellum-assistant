@@ -327,10 +327,15 @@ export function PlansPage() {
     // not any named card. Mark that row as their current plan and summarize its
     // tiers, once the current tiers have loaded.
     const isCustomCurrent = isProUser && currentTierKey === null;
-    const currentSummary =
-      isCustomCurrent && currentReady
-        ? customCurrentSummary(current, proPlan)
-        : undefined;
+    // Mark the row current only once the real current tiers have loaded.
+    // `currentReady` also flips true when the onboarding read settles with an
+    // error (tiers null), so require the provisioned storage as the loaded
+    // signal — otherwise the row is marked current next to a degraded summary.
+    const showCurrentPlan =
+      isCustomCurrent && currentReady && current.storageGib != null;
+    const currentSummary = showCurrentPlan
+      ? customCurrentSummary(current, proPlan)
+      : undefined;
 
     const selectTier = (tierKey: string) => {
       // A billing action is already in flight (checkout / package switch /
@@ -566,7 +571,7 @@ export function PlansPage() {
           className="mt-10"
           onConfigure={handleConfigure}
           configureDisabled={(isProUser && !currentReady) || billingActionPending}
-          isCurrent={isCustomCurrent && currentReady}
+          isCurrent={showCurrentPlan}
           currentSummary={currentSummary}
         />
 
