@@ -50,10 +50,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useLongPress } from "@/hooks/use-long-press";
-import {
-  openWorkspaceFile,
-  VELLUM_OPEN_PREFIX,
-} from "@/utils/open-workspace-file";
+import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
@@ -435,15 +432,11 @@ export function TranscriptMessageBody({
         message.attachments?.find((a) => a.filename === linkText) ??
         message.attachments?.find((a) => a.filename === pathBasename) ??
         message.attachments?.find((a) => a.filename === rawBasename);
-      // `vellum://open/` is the legacy reference-only scheme; treat it as a
-      // workspace link so old transcripts keep working.
-      const workspacePrefix = ["vellum://workspace/", VELLUM_OPEN_PREFIX].find(
-        (prefix) => href.startsWith(prefix),
-      );
+      const WORKSPACE_PREFIX = "vellum://workspace/";
       setPendingVellumFile({
         filename: attachment?.filename ?? expectedFilename,
-        workspacePath: workspacePrefix
-          ? safeDecodeURIComponent(href.slice(workspacePrefix.length))
+        workspacePath: href.startsWith(WORKSPACE_PREFIX)
+          ? safeDecodeURIComponent(href.slice(WORKSPACE_PREFIX.length))
           : undefined,
         attachment,
         isHost: href.startsWith("vellum://host/"),

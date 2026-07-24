@@ -82,11 +82,10 @@ mock.module("@vellumai/design-library/components/button", () => ({
 }));
 
 // `openWorkspaceFile` lazily imports the app router, which these tests don't
-// build. Stub it to record the workspace paths opened by `vellum://open/`
-// reference-link clicks.
+// build. Stub it to record the workspace paths opened via the file action
+// modal's "Go to file" button.
 const openWorkspaceFileMock = mock(async (_path: string) => {});
 mock.module("@/utils/open-workspace-file", () => ({
-  VELLUM_OPEN_PREFIX: "vellum://open/",
   openWorkspaceFile: openWorkspaceFileMock,
 }));
 
@@ -1275,24 +1274,6 @@ describe("TranscriptMessageBody", () => {
     expect(downloadAttachmentMock).not.toHaveBeenCalled();
     // Choosing an action dismisses the modal.
     expect(screen.queryByRole("button", { name: "Go to file" })).toBeNull();
-  });
-
-  test("legacy vellum://open/ links open the same modal as workspace links", () => {
-    openWorkspaceFileMock.mockClear();
-    render(
-      <TranscriptMessageBody
-        message={{
-          id: "a-open-legacy",
-          role: "assistant",
-          contentBlocks: [textBlock("see the notes")],
-        }}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    clickVellumLink("vellum://open/notes/plan.md", "plan");
-    clickModalAction("Go to file");
-    expect(openWorkspaceFileMock).toHaveBeenCalledWith("notes/plan.md");
   });
 
   test("host link modal offers download only, not Go to file", () => {
