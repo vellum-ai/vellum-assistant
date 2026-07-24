@@ -6,11 +6,10 @@ import { z } from "zod";
  * A subagent runs as an unattended background conversation whose tool-use loop
  * iterates LLM calls on its own. Late iterations carry the full accumulated
  * context, so a run that never stops re-reads a large cache on every call and
- * its cost grows super-linearly. Production data (Jul 2026) put the per-spawn
- * call count at p50 9, p90 36, p99 ~115, with a worst-case single spawn making
- * 293 calls that read 65.8M cache tokens ($15.99). These thresholds bound that
- * tail: a one-time soft nudge asks the agent to wrap up, and a hard cap ends the
- * run gracefully with a truncation notice so the parent can respawn to continue.
+ * its cost grows super-linearly. These thresholds bound that tail: a one-time
+ * soft nudge asks the agent to wrap up, and a hard cap ends the run gracefully
+ * with a truncation notice so the parent can respawn to continue. The defaults
+ * leave typical deep work untouched and clip only pathological tails.
  */
 export const SubagentConfigSchema = z
   .object({
@@ -20,7 +19,7 @@ export const SubagentConfigSchema = z
       .positive("subagent.softNudgeAtCalls must be a positive integer")
       .default(60)
       .describe(
-        "LLM-call count within one subagent run at which a one-time wrap-up nudge is injected into the loop, telling the agent its iteration budget is nearly exhausted and it should return its best result now. Must be <= maxCallsPerRun. p99 of production subagent runs is ~115 calls, so a soft nudge at 60 lands well before the cap for the runaway tail while leaving typical runs (p50 9, p90 36) untouched.",
+        "LLM-call count within one subagent run at which a one-time wrap-up nudge is injected into the loop, telling the agent its iteration budget is nearly exhausted and it should return its best result now. Must be <= maxCallsPerRun. The soft threshold warns a long-running run to conclude before it reaches the hard cap, while leaving typical deep work untouched.",
       ),
     maxCallsPerRun: z
       .number({ error: "subagent.maxCallsPerRun must be a number" })
@@ -28,7 +27,7 @@ export const SubagentConfigSchema = z
       .positive("subagent.maxCallsPerRun must be a positive integer")
       .default(100)
       .describe(
-        "Hard ceiling on LLM calls within one subagent run. When reached, the loop stops gracefully — the run completes with whatever the agent last produced plus a truncation notice so the parent can respawn to continue. A cost backstop, not a normal exit: p99 of production runs is ~115 calls and the extreme tail reached 293 calls in one spawn ($15.99), so 100 bounds cost while leaving typical runs (p50 9, p90 36) untouched.",
+        "Hard ceiling on LLM calls within one subagent run. When reached, the loop stops gracefully — the run completes with whatever the agent last produced plus a truncation notice so the parent can respawn to continue. A cost backstop bounding an unattended run, not a normal exit: it clips only pathological tails while leaving typical deep work untouched.",
       ),
   })
   .describe(
