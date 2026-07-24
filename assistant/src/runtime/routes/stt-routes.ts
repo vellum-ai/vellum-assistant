@@ -29,6 +29,7 @@ import {
   BadGatewayError,
   BadRequestError,
   GatewayTimeoutError,
+  PaymentRequiredError,
   type RouteError,
   ServiceUnavailableError,
   TooManyRequestsError,
@@ -214,6 +215,8 @@ const STT_ERROR_MAP: Record<SttErrorCategory, () => RouteError> = {
   timeout: () => new GatewayTimeoutError("STT transcription timed out"),
   "invalid-audio": () =>
     new BadRequestError("Audio payload was rejected by the STT provider"),
+  "credits-exhausted": () =>
+    new PaymentRequiredError("Vellum credits are exhausted"),
   "provider-error": () => new BadGatewayError("STT provider error"),
 };
 

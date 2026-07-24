@@ -555,6 +555,33 @@ describe("VoiceRoom — connect feedback", () => {
   });
 });
 
+describe("VoiceRoom — wind-down notice", () => {
+  test("shows why the room is closing instead of vanishing mid-session", () => {
+    startOwnedSession("listening");
+    useLiveVoiceStore.getState().setClosingNotice("Out of credits");
+    render(<VoiceRoom />);
+    expect(screen.getByTestId("voice-room-closing-label").textContent).toBe(
+      "Out of credits",
+    );
+  });
+
+  test("outranks the connect label — a session dying mid-connect is closing, not connecting", () => {
+    startOwnedSession("connecting");
+    useLiveVoiceStore.getState().setClosingNotice("Out of credits");
+    render(<VoiceRoom />);
+    expect(screen.queryByTestId("voice-room-connect-label")).toBeNull();
+    expect(screen.getByTestId("voice-room-closing-label").textContent).toBe(
+      "Out of credits",
+    );
+  });
+
+  test("absent for an ordinary session", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(screen.queryByTestId("voice-room-closing-label")).toBeNull();
+  });
+});
+
 describe("VoiceRoom — audio-aware status label (JARVIS-1279)", () => {
   // The sr-only aria-live region uses the "…"-suffixed state labels, distinct
   // from the caption's un-suffixed text (e.g. "Thinking" vs "Thinking…").

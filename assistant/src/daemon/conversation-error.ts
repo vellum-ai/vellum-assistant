@@ -1,6 +1,7 @@
-import type {
-  ConversationErrorCode,
-  ConversationErrorEvent,
+import {
+  type ConversationErrorCode,
+  type ConversationErrorEvent,
+  CREDITS_EXHAUSTED_ERROR_CATEGORY,
 } from "../api/events/conversation-error.js";
 import {
   ORDERING_ERROR_PATTERNS,
@@ -689,7 +690,7 @@ function managedBalanceClassification(): Omit<
     userMessage:
       "You've run out of credits. Add funds to continue using the assistant.",
     retryable: false,
-    errorCategory: "credits_exhausted",
+    errorCategory: CREDITS_EXHAUSTED_ERROR_CATEGORY,
   };
 }
 

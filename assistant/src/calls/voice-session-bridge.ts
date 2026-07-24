@@ -210,6 +210,16 @@ export interface VoiceToolResultEvent {
   resultPreview: string;
 }
 
+/** Structured classification accompanying a voice-turn failure. */
+export interface VoiceRunErrorDetail {
+  /**
+   * `errorCategory` from the originating `conversation_error` (e.g.
+   * `credits_exhausted`). Absent for failures raised outside the agent loop's
+   * classifier.
+   */
+  errorCategory?: string;
+}
+
 /**
  * Real-time event sink for voice TTS streaming. Agent-loop events are
  * forwarded here for real-time text-to-speech without modifying the
@@ -225,7 +235,13 @@ export interface VoiceRunEventSink {
       { type: "message_complete" } | { type: "generation_cancelled" }
     >,
   ): void;
-  onError(message: string): void;
+  /**
+   * `detail` carries the structured classification when the failure came from a
+   * `conversation_error` (whose `errorCategory` drives client billing
+   * surfaces). Optional so consumers that only need the message — telephony,
+   * where there is no UI to route to — implement the one-arg form unchanged.
+   */
+  onError(message: string, detail?: VoiceRunErrorDetail): void;
   onToolUse(
     toolName: string,
     input: Record<string, unknown>,
@@ -285,8 +301,13 @@ export interface VoiceTurnOptions {
   onTextDelta?: (text: string) => void;
   /** Called when the agent loop completes a full response. */
   onComplete?: () => void;
-  /** Called when the agent loop encounters an error. */
-  onError?: (message: string) => void;
+  /**
+   * Called when the agent loop encounters an error. `detail` carries the
+   * structured classification (e.g. `errorCategory: "credits_exhausted"`) when
+   * the failure came from a `conversation_error`; consumers with no UI to route
+   * to (telephony) can ignore it.
+   */
+  onError?: (message: string, detail?: VoiceRunErrorDetail) => void;
   /** Event-name callbacks used by non-phone voice clients. */
   callbacks?: VoiceTurnCallbacks;
   /** Optional AbortSignal for external cancellation (e.g. barge-in). */
@@ -584,8 +605,8 @@ export async function startVoiceTurn(
         }
       }
     },
-    onError: (message) => {
-      opts.onError?.(message);
+    onError: (message, detail) => {
+      opts.onError?.(message, detail);
     },
     onToolUse: (toolName, input, toolUseId) => {
       log.debug({ toolName, input }, "Voice turn tool_use event");
@@ -1305,7 +1326,9 @@ export async function startVoiceTurn(
           } else if (msg.type === "error") {
             eventSink.onError(msg.message);
           } else if (msg.type === "conversation_error") {
-            eventSink.onError(msg.userMessage);
+            eventSink.onError(msg.userMessage, {
+              errorCategory: msg.errorCategory,
+            });
           } else if (msg.type === "tool_use_start") {
             eventSink.onToolUse(msg.toolName, msg.input, msg.toolUseId);
           } else if (msg.type === "tool_result") {

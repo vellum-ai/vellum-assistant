@@ -50,6 +50,8 @@ const { useLiveVoice } =
 const { useLiveVoiceStore, getLiveVoicePlaybackProgress } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -64,6 +66,7 @@ function renderController(
   extraOptions: {
     observeAudioState?: boolean;
     reconnectBackoffMs?: number[];
+    billingExitHoldMs?: number;
     /**
      * Configure each FakeCapture at creation — before the controller calls
      * `capture.start()`, which happens synchronously at connect time (so
@@ -134,6 +137,9 @@ beforeEach(() => {
     pauseBeforeReplyMs: null,
     interruptSensitivity: null,
   });
+  // A billing failure mirrors itself into the chat session store (that's where
+  // the banner reads from), so clear it too or it leaks across tests.
+  useChatSessionStore.getState().setError(null);
 });
 
 afterEach(() => {
@@ -1752,6 +1758,70 @@ describe("failure", () => {
     expect(h.view.result.current.error).toBe("kaboom");
     expect(h.client.closed).toBe(true);
     expect(h.getCapture().shutdownCount).toBe(1);
+  });
+
+  test("a billing failure holds the room for a beat, then fails", async () => {
+    const h = renderController({ billingExitHoldMs: 20 });
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("error", {
+        reason: "protocol-error",
+        message: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      } satisfies LiveVoiceClientError);
+    });
+
+    // The beat: the room is still mounted (an active state, not `failed`) and
+    // shows why it is closing, instead of vanishing mid-animation.
+    expect(useLiveVoiceStore.getState().closingNotice).toBe("Out of credits");
+    expect(h.view.result.current.state).not.toBe("failed");
+    // Audio is already stopped — the beat is cosmetic, not a live session.
+    expect(h.getCapture().shutdownCount).toBe(1);
+
+    await act(async () => {
+      await sleep(40);
+    });
+
+    expect(h.view.result.current.state).toBe("failed");
+    expect(useLiveVoiceStore.getState().errorCategory).toBe(
+      "credits_exhausted",
+    );
+    expect(useLiveVoiceStore.getState().closingNotice).toBeNull();
+  });
+
+  test("the billing banner is armed immediately, so an early exit still lands on it", async () => {
+    const h = renderController({ billingExitHoldMs: 10_000 });
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("error", {
+        reason: "protocol-error",
+        message: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      } satisfies LiveVoiceClientError);
+    });
+
+    // Published before the hold elapses: a user who hits ✕ during the beat
+    // cancels the pending fail, so this is their only surface.
+    expect(useChatSessionStore.getState().error).toMatchObject({
+      errorCategory: "credits_exhausted",
+    });
+  });
+
+  test("a non-billing failure fails immediately, with no wind-down beat", async () => {
+    const h = renderController({ billingExitHoldMs: 10_000 });
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("error", {
+        reason: "protocol-error",
+        message: "kaboom",
+      } satisfies LiveVoiceClientError);
+    });
+
+    expect(h.view.result.current.state).toBe("failed");
+    expect(useLiveVoiceStore.getState().closingNotice).toBeNull();
   });
 
   test("busy frame fails the session", async () => {

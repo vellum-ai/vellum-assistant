@@ -122,6 +122,9 @@ export function VoiceRoom() {
 function VoiceRoomOverlay() {
   const state = useLiveVoiceStore.use.state();
   const reconnecting = useLiveVoiceStore.use.reconnecting();
+  // Set for the beat between a terminal billing failure landing and the room
+  // closing, so the exit reads as caused. See `use-live-voice`'s wind-down.
+  const closingNotice = useLiveVoiceStore.use.closingNotice();
   // `speaking` stays set across a mid-turn tool run; gate `responding` on audio
   // actually flowing so the room reads `thinking` while the tool works.
   const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
@@ -153,6 +156,10 @@ function VoiceRoomOverlay() {
   const labelState =
     state === "speaking" && !assistantAudioActive ? "thinking" : state;
   const stateLabel = liveVoiceStateLabel(labelState, reconnecting);
+  // The under-avatar status line: the wind-down reason when the room is
+  // closing, otherwise the connect label (nothing once the session is running).
+  const statusLabel =
+    closingNotice ?? (state === "connecting" ? stateLabel : null);
 
   // The state caption (e.g. "Listening…") shows only while the assistant
   // transcript is hidden; the captions toggle itself lives in the room's
@@ -279,7 +286,9 @@ function VoiceRoomOverlay() {
           {/* Same state caption + gating as the color look (stands down while
               the assistant transcript is on), in the same shared lower zone —
               both looks name the beat from one baseline. */}
-          {!showAssistantTranscript ? <VoiceStateCaption visual={visual} /> : null}
+          {!showAssistantTranscript ? (
+            <VoiceStateCaption visual={visual} />
+          ) : null}
         </>
       )}
 
@@ -386,12 +395,22 @@ function VoiceRoomOverlay() {
           shows the idle visual, which otherwise reads as dead air — surface
           the "Connecting…" / "Reconnecting…" label so the user knows when to
           start talking. aria-hidden: the sr-only live region below already
-          announces every state change. */}
+          announces every state change.
+
+          The same slot carries the wind-down line (`closingNotice`, e.g. "Out
+          of credits") for the beat before a terminal billing failure closes the
+          room — without it the takeover just vanishes and reads as a crash
+          rather than a consequence. It outranks the connect label: a session
+          that dies mid-connect is closing, not connecting. */}
       <AnimatePresence>
-        {state === "connecting" ? (
+        {statusLabel ? (
           <motion.p
-            key="connect-label"
-            data-testid="voice-room-connect-label"
+            key="room-status-label"
+            data-testid={
+              closingNotice
+                ? "voice-room-closing-label"
+                : "voice-room-connect-label"
+            }
             aria-hidden
             className="pointer-events-none absolute left-1/2 top-[calc(50%+8.5rem)] z-0 -translate-x-1/2 text-sm text-[var(--content-tertiary)]"
             initial={reduce ? false : { opacity: 0 }}
@@ -399,7 +418,7 @@ function VoiceRoomOverlay() {
             exit={{ opacity: 0 }}
             transition={{ duration: reduce ? 0 : 0.3 }}
           >
-            {stateLabel}
+            {statusLabel}
           </motion.p>
         ) : null}
       </AnimatePresence>

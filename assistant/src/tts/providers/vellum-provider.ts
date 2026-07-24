@@ -25,14 +25,16 @@ import {
   mapVelayError,
   probeVelayRejection,
   resolveSpeechRelayConnection,
+  type VelayErrorInfo,
 } from "../../providers/speech-to-text/vellum-speech-relay-connection.js";
 import { getLogger } from "../../util/logger.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
-import type {
-  TtsProvider,
-  TtsProviderCapabilities,
-  TtsSynthesisRequest,
-  TtsSynthesisResult,
+import {
+  TtsCreditsExhaustedError,
+  type TtsProvider,
+  type TtsProviderCapabilities,
+  type TtsSynthesisRequest,
+  type TtsSynthesisResult,
 } from "../types.js";
 import { synthesizeOverVellumTtsSocket } from "./vellum-tts-socket.js";
 
@@ -68,9 +70,21 @@ function resolveManagedVoice(request: TtsSynthesisRequest): string | undefined {
   return request.voiceId ?? getConfig().services.tts.providers.vellum.model;
 }
 
+/**
+ * A relay `{code, detail}` as a throwable. Credit exhaustion keeps its own type
+ * so the live-voice session can tell it apart from a transient relay blip
+ * (which it treats as a recoverable, session-surviving segment failure).
+ */
+function relayError(error: VelayErrorInfo): Error {
+  const mapped = mapVelayError(error);
+  return mapped.category === "credits-exhausted"
+    ? new TtsCreditsExhaustedError(mapped.message)
+    : new Error(mapped.message);
+}
+
 function synthesisError(failure: ManagedSpeechFailure): Error {
   if (failure.code === "insufficient_balance") {
-    return new Error(
+    return new TtsCreditsExhaustedError(
       "Vellum credits are exhausted — add funds to your Vellum account to continue using managed speech.",
     );
   }
@@ -154,8 +168,7 @@ async function performStreamingSynthesis(
         new Error(`Managed streaming TTS failed: ${detail}`),
       makeEmptyError: () =>
         new Error("Managed streaming TTS returned no audio"),
-      makeRelayError: (code, detail) =>
-        new Error(mapVelayError({ code, detail }).message),
+      makeRelayError: (code, detail) => relayError({ code, detail }),
     });
     return {
       audio,
@@ -180,7 +193,7 @@ async function performStreamingSynthesis(
       `${connection.httpBaseUrl}${TTS_STREAM_PATH}?${probeParams.toString()}`,
     );
     if (rejection) {
-      throw new Error(mapVelayError(rejection).message);
+      throw relayError(rejection);
     }
     throw err;
   }

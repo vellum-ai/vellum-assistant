@@ -30,6 +30,7 @@ import { VoiceComposerBar } from "@/domains/chat/components/chat-composer/voice-
 import { VoiceLiveTranscript } from "@/domains/chat/components/chat-composer/voice-live-transcript";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { getChatBillingBannerDecision } from "@/domains/chat/utils/error-classification";
 import {
     VoiceInputButton,
     type VoiceInputButtonHandle,
@@ -269,6 +270,15 @@ export function ChatComposer({
   // drives it through the store-registered `starter`/`controls` seams.
   const liveVoiceState = useLiveVoiceStore.use.state();
   const liveVoiceError = useLiveVoiceStore.use.error();
+  const liveVoiceErrorCategory = useLiveVoiceStore.use.errorCategory();
+  // A billing failure is already rendered by the orchestration stack's billing
+  // banner (the voice controller mirrors it into the chat session store, the
+  // same place a text turn's `conversation_error` lands). Suppress the generic
+  // voice Notice so the user gets one surface with a working CTA, not two.
+  const liveVoiceFailureIsBilling =
+    getChatBillingBannerDecision({
+      errorCategory: liveVoiceErrorCategory ?? undefined,
+    }) !== null;
   // Whether any session is live anywhere (this thread or another). `failed`
   // is a retryable/inactive state, so it must count as inactive — otherwise
   // dictation would stay unavailable after a failed start.
@@ -575,13 +585,16 @@ export function ChatComposer({
           Keyed on the session state (not entry eligibility) for the same
           reason as `isLiveVoiceActive`: a session that fails right after an
           eligibility drop must still surface its error. */}
-      {showVoiceInput && liveVoiceState === "failed" && liveVoiceError && (
-        <div className="mb-2">
-          <Notice tone="error" onDismiss={dismissLiveVoiceFailure}>
-            {liveVoiceError}
-          </Notice>
-        </div>
-      )}
+      {showVoiceInput &&
+        liveVoiceState === "failed" &&
+        liveVoiceError &&
+        !liveVoiceFailureIsBilling && (
+          <div className="mb-2">
+            <Notice tone="error" onDismiss={dismissLiveVoiceFailure}>
+              {liveVoiceError}
+            </Notice>
+          </div>
+        )}
       {/* Pre-open "configure voice" prompt — surfaced when the readiness
           preflight returns `not-ready` (no usable STT/TTS provider that
           couldn't be auto-configured). The room stays closed; the action

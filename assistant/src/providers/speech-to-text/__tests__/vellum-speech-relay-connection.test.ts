@@ -68,8 +68,10 @@ describe("mapVelayError", () => {
       category: "auth",
       message: expect.stringContaining("restart the assistant"),
     });
+    // Its own category, NOT `provider-error`: consumers that retry or suppress
+    // transient provider blips (hands-free live voice) must surface this.
     expect(mapVelayError({ code: "insufficient_balance" })).toMatchObject({
-      category: "provider-error",
+      category: "credits-exhausted",
       message: expect.stringContaining("credits"),
     });
     expect(mapVelayError({ code: "provider_unreachable" }).category).toBe(

@@ -143,6 +143,14 @@ export type SttErrorCategory =
   | "timeout"
   /** The audio payload was rejected (unsupported format, too large, etc.). */
   | "invalid-audio"
+  /**
+   * Managed speech is out of Vellum credits. Distinct from `provider-error`
+   * because it is definitionally non-transient: every subsequent request fails
+   * identically until the user tops up, so callers that retry or suppress
+   * transient provider blips (e.g. hands-free live voice) must surface this
+   * instead of swallowing it.
+   */
+  | "credits-exhausted"
   /** Any other provider-side or network failure. */
   | "provider-error";
 

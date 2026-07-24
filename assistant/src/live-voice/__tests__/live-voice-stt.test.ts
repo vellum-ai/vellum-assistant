@@ -283,6 +283,25 @@ describe("LiveVoiceSession STT", () => {
     }
   });
 
+  test("marks credit exhaustion non-recoverable and tags it for the billing surface", async () => {
+    const { frames, session, transcriber } = createSessionWithTranscriber();
+
+    await session.start();
+    transcriber.emit({
+      type: "error",
+      category: "credits-exhausted",
+      message:
+        "Managed speech is paused: your Vellum organization is out of credits.",
+    });
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
+
+    const frame = frames.find((f) => f.type === "error");
+    // Recoverable would leave a hands-free client listening forever against a
+    // relay that can never transcribe again — the silent failure this fixes.
+    expect(frame).not.toHaveProperty("recoverable");
+    expect(frame).toMatchObject({ errorCategory: "credits_exhausted" });
+  });
+
   test("forwards binary audio to the transcriber and emits STT frames", async () => {
     const { frames, session, transcriber } = createSessionWithTranscriber();
 

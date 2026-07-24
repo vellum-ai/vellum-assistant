@@ -297,6 +297,18 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
    * from older daemons) means the error is terminal for the session.
    */
   readonly recoverable?: boolean;
+  /**
+   * Billing/quota classification, using the same vocabulary as the
+   * `conversation_error` SSE event's `errorCategory` (e.g. `credits_exhausted`)
+   * so clients can route a voice failure to the same billing surface a text
+   * turn would raise. Absent for ordinary failures and on frames from older
+   * daemons.
+   *
+   * Needed because the speech legs never reach the agent loop: an STT or TTS
+   * credit failure produces no `conversation_error`, so this frame is the only
+   * carrier of the reason the room is closing.
+   */
+  readonly errorCategory?: string;
 }
 
 export type LiveVoiceServerFrame =

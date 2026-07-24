@@ -125,6 +125,38 @@ export interface TtsSynthesisResult {
 }
 
 // ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Synthesis failed because the org is out of Vellum credits.
+ *
+ * Its own type because credit exhaustion is definitionally non-transient:
+ * callers that tolerate a one-off synthesis failure (live voice treats a failed
+ * segment as recoverable and keeps the session alive) must instead treat this
+ * as terminal — every subsequent segment fails identically until the user tops
+ * up, so retrying only produces a session that has silently stopped speaking.
+ */
+export class TtsCreditsExhaustedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TtsCreditsExhaustedError";
+  }
+}
+
+/**
+ * Whether a thrown value is (or wraps) a {@link TtsCreditsExhaustedError}.
+ * Checks one level of `cause` so the signal survives a provider or stream layer
+ * that re-wraps the failure.
+ */
+export function isTtsCreditsExhaustedError(err: unknown): boolean {
+  if (err instanceof TtsCreditsExhaustedError) {
+    return true;
+  }
+  return err instanceof Error && err.cause instanceof TtsCreditsExhaustedError;
+}
+
+// ---------------------------------------------------------------------------
 // Alignment / viseme events
 // ---------------------------------------------------------------------------
 

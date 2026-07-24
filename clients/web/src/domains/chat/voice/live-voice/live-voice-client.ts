@@ -73,6 +73,13 @@ export interface LiveVoiceClientError {
    * kept open — the session is still live. Absent means the client tore down.
    */
   readonly recoverable?: boolean;
+  /**
+   * Billing/quota classification from the server `error` frame, in the same
+   * vocabulary as a `conversation_error` (e.g. `credits_exhausted`). Lets the
+   * session controller route the failure to the chat billing banner instead of
+   * a generic notice.
+   */
+  readonly errorCategory?: string;
 }
 
 /**
@@ -457,7 +464,11 @@ export class LiveVoiceChannelClient {
           });
           return;
         }
-        this.fail("protocol-error", frame.message, frame.code);
+        this.fail("protocol-error", frame.message, frame.code, {
+          // `in` narrows past LiveVoiceInvalidJsonFrame, which carries no category.
+          errorCategory:
+            "errorCategory" in frame ? frame.errorCategory : undefined,
+        });
         return;
       case "unknown_frame":
         // Frame types from a newer server than this client. Ignore so
@@ -515,10 +526,18 @@ export class LiveVoiceChannelClient {
     reason: LiveVoiceClientErrorReason,
     message: string,
     code?: string,
+    detail?: { errorCategory?: string },
   ): void {
     if (this.state === "closed") return;
     this.teardown();
-    this.emit("error", { reason, message, ...(code ? { code } : {}) });
+    this.emit("error", {
+      reason,
+      message,
+      ...(code ? { code } : {}),
+      ...(detail?.errorCategory !== undefined
+        ? { errorCategory: detail.errorCategory }
+        : {}),
+    });
     // Locally initiated after surfacing the failure; never a reconnect trigger.
     this.emit("closed", { code: null, reason: message });
   }

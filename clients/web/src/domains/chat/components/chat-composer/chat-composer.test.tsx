@@ -1281,6 +1281,26 @@ describe("ChatComposer — live-voice integration", () => {
     expect(useLiveVoiceStore.getState().error).toBeNull();
   });
 
+  test("a billing failure suppresses the generic notice — the banner owns that surface", () => {
+    // GIVEN a session that failed on credits. The controller mirrors this into
+    // the chat session store, where the orchestration stack's billing banner
+    // (with its "Add credits" CTA) renders it.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    seedLiveVoiceSession("listening");
+    useLiveVoiceStore
+      .getState()
+      .fail("You've run out of credits.", "credits_exhausted");
+
+    // WHEN the composer renders
+    const { queryByText, queryByLabelText } = renderVoiceComposer();
+
+    // THEN it does not also render the plain error Notice — one surface, not
+    // two, and the one the user gets has an actionable CTA.
+    expect(queryByText("You've run out of credits.")).toBeNull();
+    expect(queryByLabelText("Dismiss")).toBeNull();
+  });
+
   test("no live-voice error notice while idle or without an error", () => {
     // GIVEN the flag is on with an idle session and no error
     useTurnStore.setState(INITIAL_TURN_STATE);

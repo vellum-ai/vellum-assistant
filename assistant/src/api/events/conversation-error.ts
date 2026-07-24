@@ -48,6 +48,15 @@ export const ConversationErrorCodeSchema = z.enum([
 
 export type ConversationErrorCode = z.infer<typeof ConversationErrorCodeSchema>;
 
+/**
+ * `errorCategory` value meaning "the org is out of Vellum credits". Clients key
+ * their credits paywall off it. Exported because the same classification is
+ * raised outside the agent loop — a live-voice STT/TTS credit failure never
+ * produces a `conversation_error`, so it stamps this onto its own error frame
+ * to reach the same billing surface.
+ */
+export const CREDITS_EXHAUSTED_ERROR_CATEGORY = "credits_exhausted";
+
 export const ConversationErrorEventSchema = z.object({
   type: z.literal("conversation_error"),
   conversationId: z.string(),

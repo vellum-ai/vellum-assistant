@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 
+import { CREDITS_EXHAUSTED_ERROR_CATEGORY } from "../api/events/conversation-error.js";
 import {
   MediaTurnDetector,
   type TurnDetectorConfig,
@@ -55,6 +56,7 @@ import type {
 } from "../stt/types.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
+import { isTtsCreditsExhaustedError } from "../tts/types.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { pickAckPhrase, pickProgressPhrase } from "./ack-phrases.js";
@@ -2381,8 +2383,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   // Providers emit `error` mid-stream and may keep streaming; `closed` /
   // `final` still drive turn lifecycle. Only transient categories are
-  // recoverable — auth/rate-limit/invalid-audio will not self-heal, so
-  // hands-free clients must surface them instead of suppressing them.
+  // recoverable — auth/rate-limit/invalid-audio/credits-exhausted will not
+  // self-heal, so hands-free clients must surface them instead of suppressing
+  // them. `credits-exhausted` in particular used to ride in `provider-error`,
+  // which made an out-of-credits call look like it had simply stopped
+  // listening: the client suppressed it and left the mic open forever.
   private async sendTranscriberErrorFrame(
     event: SttStreamServerErrorEvent,
   ): Promise<void> {
@@ -2393,6 +2398,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       code: LiveVoiceProtocolErrorCode.InvalidField,
       message: event.message,
       ...(recoverable ? { recoverable: true } : {}),
+      ...(event.category === "credits-exhausted"
+        ? { errorCategory: CREDITS_EXHAUSTED_ERROR_CATEGORY }
+        : {}),
     });
   }
 
@@ -3018,7 +3026,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             this.maybeNarrateProgress(current, "ops");
           },
         },
-        onError: (message) => {
+        onError: (message, detail) => {
           const current = this.activeAssistantTurn;
           if (
             !this.isActiveAssistantTurn(token) ||
@@ -3031,6 +3039,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               type: "error",
               code: LiveVoiceProtocolErrorCode.InvalidField,
               message,
+              // Billing classification from the agent loop's
+              // `conversation_error`, forwarded so a voice turn that dies on
+              // credits reaches the same paywall a text turn would.
+              ...(detail?.errorCategory !== undefined
+                ? { errorCategory: detail.errorCategory }
+                : {}),
             });
             const currentTurn = this.activeAssistantTurn;
             if (currentTurn?.token !== token) {
@@ -3839,14 +3853,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await job.frames;
 
       if (failed && this.isForwardingTts(token)) {
-        // Per-segment failure: the turn (and session) continue, so the
-        // error is recoverable for the client.
+        // Per-segment failure: the turn (and session) continue, so the error is
+        // recoverable for the client — except credit exhaustion, where every
+        // later segment fails the same way. Marking that recoverable leaves the
+        // assistant listening and thinking but permanently mute, so it is
+        // terminal and carries the billing category to the client's paywall.
+        const creditsExhausted = isTtsCreditsExhaustedError(synthesisError);
         await this.sendFrame(
           {
             type: "error",
             code: LiveVoiceProtocolErrorCode.InvalidField,
             message: `Live voice TTS failed: ${errorMessage(synthesisError)}`,
-            recoverable: true,
+            ...(creditsExhausted
+              ? { errorCategory: CREDITS_EXHAUSTED_ERROR_CATEGORY }
+              : { recoverable: true }),
           },
           () => this.isForwardingTts(token),
         );

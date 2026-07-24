@@ -322,6 +322,41 @@ describe("dismissLiveVoiceFailure", () => {
   });
 });
 
+describe("fail", () => {
+  test("carries the billing category so surfaces can route to the paywall", () => {
+    useLiveVoiceStore.getState().fail("out of credits", "credits_exhausted");
+
+    expect(useLiveVoiceStore.getState().state).toBe("failed");
+    expect(useLiveVoiceStore.getState().errorCategory).toBe(
+      "credits_exhausted",
+    );
+  });
+
+  test("leaves errorCategory null for an ordinary failure", () => {
+    useLiveVoiceStore.getState().fail("boom");
+
+    expect(useLiveVoiceStore.getState().errorCategory).toBeNull();
+  });
+
+  test("clears the wind-down notice — the beat is over once the failure lands", () => {
+    useLiveVoiceStore.getState().setClosingNotice("Out of credits");
+
+    useLiveVoiceStore.getState().fail("out of credits", "credits_exhausted");
+
+    expect(useLiveVoiceStore.getState().closingNotice).toBeNull();
+  });
+
+  test("reset clears both, so a later session starts clean", () => {
+    useLiveVoiceStore.getState().fail("out of credits", "credits_exhausted");
+    useLiveVoiceStore.getState().setClosingNotice("Out of credits");
+
+    useLiveVoiceStore.getState().reset();
+
+    expect(useLiveVoiceStore.getState().errorCategory).toBeNull();
+    expect(useLiveVoiceStore.getState().closingNotice).toBeNull();
+  });
+});
+
 describe("isLiveVoiceMicLive", () => {
   test("true for the whole listening→speaking span (amplitude keeps flowing for barge-in)", () => {
     const micLive: LiveVoiceSessionState[] = [

@@ -281,6 +281,20 @@ export interface LiveVoiceState {
   playbackProgressProvider: (() => LiveVoicePlaybackProgress | null) | null;
   /** Human-readable error message when `state === "failed"`, `null` otherwise. */
   error: string | null;
+  /**
+   * Billing/quota classification of `error`, in the `conversation_error`
+   * vocabulary (e.g. `credits_exhausted`). `null` for ordinary failures.
+   * Surfaces route on this instead of the message so a credits failure reaches
+   * the billing banner (with its CTA) rather than a generic error notice.
+   */
+  errorCategory: string | null;
+  /**
+   * Short farewell line shown in the voice room while a terminal failure is
+   * being wound down — set for the beat between "the session is over" and the
+   * room actually unmounting, so the exit reads as caused rather than as the
+   * room crashing. `null` outside that window.
+   */
+  closingNotice: string | null;
 }
 
 export interface LiveVoiceActions {
@@ -338,7 +352,9 @@ export interface LiveVoiceActions {
     provider: (() => LiveVoicePlaybackProgress | null) | null,
   ) => void;
   /** Transition to `failed` with a message. */
-  fail: (message: string) => void;
+  fail: (message: string, errorCategory?: string) => void;
+  /** Show (or clear) the room's wind-down line. See {@link LiveVoiceState.closingNotice}. */
+  setClosingNotice: (closingNotice: string | null) => void;
   /**
    * Reset every session field back to the idle defaults. Deliberately leaves
    * `starter` registered — it belongs to the controller's mount lifecycle,
@@ -355,7 +371,9 @@ export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
 // ---------------------------------------------------------------------------
 
 /** Whether `state` is a live session phase (anything but idle/failed). */
-export function isLiveVoiceSessionActive(state: LiveVoiceSessionState): boolean {
+export function isLiveVoiceSessionActive(
+  state: LiveVoiceSessionState,
+): boolean {
   return state !== "idle" && state !== "failed";
 }
 
@@ -438,6 +456,8 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   outputAmplitudeProvider: null,
   playbackProgressProvider: null,
   error: null,
+  errorCategory: null,
+  closingNotice: null,
 };
 
 const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
@@ -465,7 +485,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   appendAssistantTranscript: (delta) =>
     set((s) => ({ assistantTranscript: s.assistantTranscript + delta })),
   clearAssistantTranscript: () => set({ assistantTranscript: "" }),
-  clearUserTranscripts: () => set({ partialTranscript: "", finalTranscript: "" }),
+  clearUserTranscripts: () =>
+    set({ partialTranscript: "", finalTranscript: "" }),
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
   setMuted: (muted) => set({ muted }),
   setHandsFree: (handsFree) => set({ handsFree }),
@@ -475,7 +496,15 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     set({ outputAmplitudeProvider }),
   setPlaybackProgressProvider: (playbackProgressProvider) =>
     set({ playbackProgressProvider }),
-  fail: (message) => set({ state: "failed", error: message }),
+  fail: (message, errorCategory) =>
+    set({
+      state: "failed",
+      error: message,
+      errorCategory: errorCategory ?? null,
+      // The wind-down beat is over once the failure lands.
+      closingNotice: null,
+    }),
+  setClosingNotice: (closingNotice) => set({ closingNotice }),
   reset: () => set({ ...INITIAL_SESSION_STATE }),
 }));
 

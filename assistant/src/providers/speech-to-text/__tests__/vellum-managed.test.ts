@@ -81,7 +81,7 @@ describe("sttErrorFromManagedSpeech", () => {
       messageIncludes: "no connection",
     },
     {
-      name: "insufficient_balance → provider-error, user-facing credit copy",
+      name: "insufficient_balance → credits-exhausted, user-facing credit copy",
       failure: {
         ok: false,
         kind: "platform-error",
@@ -89,7 +89,7 @@ describe("sttErrorFromManagedSpeech", () => {
         code: "insufficient_balance",
         message: "balance",
       },
-      category: "provider-error",
+      category: "credits-exhausted",
       userFacing: true,
       messageIncludes: "Vellum credits",
     },

@@ -41,6 +41,11 @@ export function describeSttFailure(
       return "Transcription timed out.";
     case "invalid-audio":
       return "The audio could not be transcribed (unsupported or corrupted format).";
+    case "credits-exhausted":
+      // Managed-speech adapters mark their credit failures `userFacing` and
+      // return above with copy naming the remediation; this is the fallback for
+      // any future non-user-facing source of the category.
+      return "Vellum credits are exhausted — add funds to your Vellum account to continue.";
     default:
       return `${provider} returned an error while transcribing.`;
   }

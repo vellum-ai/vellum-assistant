@@ -60,7 +60,7 @@ export function sttErrorFromManagedSpeech(
   }
   if (failure.code === "insufficient_balance") {
     return managed(
-      "provider-error",
+      "credits-exhausted",
       "Vellum credits are exhausted — add funds to your Vellum account to continue using managed transcription.",
     );
   }

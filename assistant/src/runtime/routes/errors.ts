@@ -55,6 +55,13 @@ export class TooManyRequestsError extends RouteError {
   }
 }
 
+export class PaymentRequiredError extends RouteError {
+  constructor(message: string) {
+    super(message, "PAYMENT_REQUIRED", 402);
+    this.name = "PaymentRequiredError";
+  }
+}
+
 export class ForbiddenError extends RouteError {
   constructor(message: string) {
     super(message, "FORBIDDEN", 403);

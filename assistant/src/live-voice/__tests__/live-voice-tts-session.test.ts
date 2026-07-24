@@ -15,6 +15,7 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import { TtsCreditsExhaustedError } from "../../tts/types.js";
 import { pickAckPhrase } from "../ack-phrases.js";
 import type {
   VoiceAckTextInput,
@@ -416,6 +417,58 @@ describe("LiveVoiceSession TTS", () => {
       type: "tts_done",
       turnId: "live-turn-1",
     });
+  });
+
+  test("forwards the agent loop's billing category onto the error frame", async () => {
+    let onError: VoiceTurnOptions["onError"];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      onError = options.onError;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio: null,
+    });
+
+    await startReleasedTurn(session);
+    // The LLM leg's `conversation_error` classification, which the bridge would
+    // otherwise flatten to a bare string — losing the client's route to the
+    // billing banner and its "Add credits" CTA.
+    onError?.("You've run out of credits.", {
+      errorCategory: "credits_exhausted",
+    });
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
+
+    expect(frames.find((f) => f.type === "error")).toMatchObject({
+      message: "You've run out of credits.",
+      errorCategory: "credits_exhausted",
+    });
+  });
+
+  test("treats a TTS credit failure as terminal, not a recoverable segment blip", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const streamTtsAudio = mock(async () => {
+      throw new TtsCreditsExhaustedError("Vellum credits are exhausted");
+    });
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta("This should persist."));
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
+
+    // Unlike an ordinary segment failure, every later segment fails the same
+    // way — marking it recoverable leaves the assistant permanently mute while
+    // the room keeps animating, with nothing shown to the user.
+    const frame = frames.find((f) => f.type === "error");
+    expect(frame).not.toHaveProperty("recoverable");
+    expect(frame).toMatchObject({ errorCategory: "credits_exhausted" });
   });
 
   test("sanitizes markdown spanning deltas before TTS while deltas stay raw", async () => {

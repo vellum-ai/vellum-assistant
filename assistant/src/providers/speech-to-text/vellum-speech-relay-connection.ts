@@ -118,7 +118,7 @@ export function mapVelayError(error: VelayErrorInfo): {
       };
     case "insufficient_balance":
       return {
-        category: "provider-error",
+        category: "credits-exhausted",
         message:
           "Managed speech is paused: your Vellum organization is out of credits. Top up credits to continue.",
       };

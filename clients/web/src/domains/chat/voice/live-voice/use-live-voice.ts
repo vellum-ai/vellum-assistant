@@ -102,6 +102,8 @@ import {
   interruptSensitivityToMs,
   useVoicePrefsStore,
 } from "@/stores/voice-prefs-store";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { getChatBillingBannerDecision } from "@/domains/chat/utils/error-classification";
 
 // ---------------------------------------------------------------------------
 // Thresholds (mirror the macOS LiveVoiceChannelManager defaults)
@@ -135,6 +137,21 @@ const MINIMUM_SPEECH_DURATION_BEFORE_RELEASE_MS = 120;
  * attempts — after the last one the session fails.
  */
 const RECONNECT_BACKOFF_MS = [1200, 3000, 6000];
+
+// ---------------------------------------------------------------------------
+// Billing wind-down
+// ---------------------------------------------------------------------------
+
+/**
+ * How long the room holds after a billing failure before it closes. Long enough
+ * to read the reason, short enough not to feel like a stall — the user cannot
+ * act on it from inside the room, so this is an explanation, not a decision
+ * point.
+ */
+const BILLING_EXIT_HOLD_MS = 1500;
+
+/** The room's wind-down line for a billing failure. */
+const BILLING_CLOSING_NOTICE = "Out of credits";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -202,6 +219,12 @@ export interface UseLiveVoiceOptions {
    * seconds; production uses {@link RECONNECT_BACKOFF_MS}.
    */
   reconnectBackoffMs?: number[];
+  /**
+   * Override how long the room holds after a billing failure before closing.
+   * Test seam, same rationale as {@link LiveVoiceControllerOptions.reconnectBackoffMs};
+   * production uses {@link BILLING_EXIT_HOLD_MS}.
+   */
+  billingExitHoldMs?: number;
 }
 
 /**
@@ -380,6 +403,11 @@ export function useLiveVoice(
   // from `reconnectAttemptRef` so the room shows "Connecting…", not
   // "Reconnecting…"), sharing `reconnectTimerRef` for cancellation. Both reset
   // on a fresh `start()`, on `ready`, and on teardown/stop.
+  //
+  // `reconnectTimerRef` also carries the billing wind-down beat — same
+  // cancellation semantics: stop()/teardown()/unmount must drop it, and the two
+  // can never be pending at once (the beat only starts after the session has
+  // been detached from the transport, so no reconnect can be queued).
   const hasReadyRef = useRef(false);
   const initialConnectAttemptRef = useRef(0);
   const connectSessionRef = useRef<
@@ -939,7 +967,30 @@ export function useLiveVoice(
               return;
             }
           }
-          finishWithError(session, teardown, err.message);
+          // A billing failure (out of credits) ends the session, but closing
+          // the room the instant it lands reads as the room crashing — the
+          // takeover just vanishes mid-animation. Hold it for a beat with a
+          // reason, then finish. The banner is armed underneath immediately, so
+          // an impatient ✕ during the beat still lands on it.
+          if (
+            getChatBillingBannerDecision({
+              errorCategory: err.errorCategory,
+            }) !== null
+          ) {
+            publishBillingFailure(err.message, err.errorCategory);
+            sessionRef.current = null;
+            disposeSessionPrimitives(session);
+            clearReconnectTimer();
+            const s = useLiveVoiceStore.getState();
+            s.setClosingNotice(BILLING_CLOSING_NOTICE);
+            reconnectTimerRef.current = setTimeout(() => {
+              reconnectTimerRef.current = null;
+              teardown();
+              useLiveVoiceStore.getState().fail(err.message, err.errorCategory);
+            }, optionsRef.current.billingExitHoldMs ?? BILLING_EXIT_HOLD_MS);
+            return;
+          }
+          finishWithError(session, teardown, err.message, err.errorCategory);
         }),
         client.on("closed", (info) => {
           // A transport close after a clean end()/teardown is expected; only an
@@ -1444,7 +1495,27 @@ function finishWithError(
   session: SessionContext,
   teardown: () => void,
   message: string,
+  errorCategory?: string,
 ): void {
   teardown();
-  useLiveVoiceStore.getState().fail(message);
+  useLiveVoiceStore.getState().fail(message, errorCategory);
+  publishBillingFailure(message, errorCategory);
+}
+
+/**
+ * Mirror a billing failure into the chat session store so the composer's
+ * existing billing banner (with its "Add credits" CTA) renders it — the one
+ * surface a text turn's `conversation_error` would have reached.
+ *
+ * The speech legs never touch the agent loop, so an STT/TTS credit failure
+ * produces no `conversation_error` and this is its only route to that banner.
+ * For an LLM-leg failure the SSE event sets the same thing; re-setting it is
+ * idempotent. Non-billing failures stay on the composer's voice notice.
+ */
+function publishBillingFailure(
+  message: string,
+  errorCategory: string | undefined,
+): void {
+  if (getChatBillingBannerDecision({ errorCategory }) === null) return;
+  useChatSessionStore.getState().setError({ message, errorCategory });
 }
