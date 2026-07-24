@@ -164,7 +164,7 @@ export function applyQueuedMessageDequeue(
     if (!messageMatchesKey(message, id)) {
       return [message];
     }
-    if (message.queueStatus === "queued" && !message.clientMessageId) {
+    if (!message.clientMessageId) {
       return [];
     }
     return [
