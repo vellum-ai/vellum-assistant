@@ -95,16 +95,6 @@ export type GraphMemoryResult = Awaited<
 >;
 
 /**
- * How many recent conversation summaries {@link
- * ConversationGraphMemory.fetchRecentSummaries} scans to find the 3 it returns.
- * The scan no longer joins `conversations`, so it over-fetches and partitions in
- * JS; background/scheduled conversations are a small minority, so this window
- * contains the 3 most-recent user summaries in every realistic history, and the
- * read is best-effort regardless.
- */
-const RECENT_SUMMARY_CANDIDATE_LIMIT = 100;
-
-/**
  * Manages memory graph state for a single conversation.
  * Create one per Conversation instance. Persists across turns.
  */
@@ -210,16 +200,13 @@ export class ConversationGraphMemory {
     try {
       const db = getDb();
 
-      // Read candidate summaries most-recent first. This can't join
-      // `conversations` because `memory_summaries` is moving to the dedicated
-      // memory database while `conversations` stays on main, so the
-      // conversationType filter runs as a second lookup below. Over-fetch a
-      // window (see RECENT_SUMMARY_CANDIDATE_LIMIT) and partition in JS.
-      const candidates = db
-        .select({
-          scopeKey: memorySummaries.scopeKey,
-          summary: memorySummaries.summary,
-        })
+      // Read the candidate conversation summaries' keys, most-recent first. Only
+      // ids/timestamps are read here so the full summary text is fetched for
+      // just the few rows actually returned. The conversationType filter is a
+      // separate lookup rather than a JOIN, so summaries and conversations need
+      // not share a database connection.
+      const candidateKeys = db
+        .select({ scopeKey: memorySummaries.scopeKey })
         .from(memorySummaries)
         .where(
           and(
@@ -228,60 +215,81 @@ export class ConversationGraphMemory {
           ),
         )
         .orderBy(desc(memorySummaries.updatedAt))
-        .limit(RECENT_SUMMARY_CANDIDATE_LIMIT)
-        .all();
+        .all()
+        .map((r) => r.scopeKey);
 
-      if (candidates.length === 0) {
+      if (candidateKeys.length === 0) {
         return [];
       }
 
-      // Resolve each candidate conversation's type on the main connection. A
-      // summary whose conversation row is gone is dropped, matching the old
-      // innerJoin. Chunk the id list under SQLite's bound-parameter limit.
+      // Resolve each candidate conversation's type. A summary whose conversation
+      // row is gone is dropped, matching the old innerJoin. Chunk the id list
+      // under SQLite's bound-parameter limit.
       const typeByConversation = new Map<string, string>();
-      const ids = candidates.map((c) => c.scopeKey);
       const CHUNK = 500;
-      for (let i = 0; i < ids.length; i += CHUNK) {
+      for (let i = 0; i < candidateKeys.length; i += CHUNK) {
         const rows = db
           .select({
             id: conversations.id,
             type: conversations.conversationType,
           })
           .from(conversations)
-          .where(inArray(conversations.id, ids.slice(i, i + CHUNK)))
+          .where(inArray(conversations.id, candidateKeys.slice(i, i + CHUNK)))
           .all();
         for (const r of rows) {
           typeByConversation.set(r.id, r.type);
         }
       }
 
-      // Partition in the candidates' most-recent-first order: up to 3 user
-      // summaries, then at most 1 background/scheduled to fill — exactly the two
-      // limited queries this replaces.
-      const userSummaries: string[] = [];
-      const backgroundSummaries: string[] = [];
-      for (const candidate of candidates) {
-        const type = typeByConversation.get(candidate.scopeKey);
+      // Walk every candidate in most-recent-first order (not a fixed window, so
+      // the 3 most-recent user summaries are still found behind any number of
+      // newer background rows) and pick up to 3 user keys, then at most 1
+      // background/scheduled to fill — exactly the two limited queries this
+      // replaces.
+      const selectedKeys: string[] = [];
+      const backgroundKeys: string[] = [];
+      for (const scopeKey of candidateKeys) {
+        const type = typeByConversation.get(scopeKey);
         if (type === undefined) {
           continue; // orphan summary — the old innerJoin dropped it
         }
         if (type === "background" || type === "scheduled") {
-          if (backgroundSummaries.length < 1) {
-            backgroundSummaries.push(candidate.summary);
-          }
-        } else if (userSummaries.length < 3) {
-          userSummaries.push(candidate.summary);
+          if (backgroundKeys.length < 1) backgroundKeys.push(scopeKey);
+        } else if (selectedKeys.length < 3) {
+          selectedKeys.push(scopeKey);
         }
-        if (userSummaries.length >= 3) {
-          break;
-        }
+        if (selectedKeys.length >= 3) break;
+      }
+      if (selectedKeys.length < 3) {
+        selectedKeys.push(
+          ...backgroundKeys.slice(0, Math.min(1, 3 - selectedKeys.length)),
+        );
+      }
+      if (selectedKeys.length === 0) {
+        return [];
       }
 
-      if (userSummaries.length >= 3) {
-        return userSummaries;
-      }
-      const remaining = Math.min(1, 3 - userSummaries.length);
-      return [...userSummaries, ...backgroundSummaries.slice(0, remaining)];
+      // Fetch the summary text for the selected rows only, then return them in
+      // the selection order (user summaries most-recent first, then the one
+      // background summary).
+      const textByKey = new Map<string, string>();
+      const selectedRows = db
+        .select({
+          scopeKey: memorySummaries.scopeKey,
+          summary: memorySummaries.summary,
+        })
+        .from(memorySummaries)
+        .where(
+          and(
+            eq(memorySummaries.scope, "conversation"),
+            inArray(memorySummaries.scopeKey, selectedKeys),
+          ),
+        )
+        .all();
+      for (const r of selectedRows) textByKey.set(r.scopeKey, r.summary);
+      return selectedKeys
+        .map((k) => textByKey.get(k))
+        .filter((s): s is string => s !== undefined);
     } catch (err) {
       log.warn({ err }, "Failed to fetch recent conversation summaries");
       return [];

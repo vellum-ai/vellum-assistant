@@ -118,4 +118,21 @@ describe("fetchRecentSummaries", () => {
   test("returns an empty list when there are no summaries", () => {
     expect(recentSummaries()).toEqual([]);
   });
+
+  test("finds user summaries even behind 100+ newer background summaries", () => {
+    // 3 (older) user summaries, then many newer background summaries. A
+    // fixed-window scan would cut the user rows off; the full scan must still
+    // return them.
+    seedConversation("u1", "standard");
+    seedSummary("u1", "user u1", 1);
+    seedConversation("u2", "standard");
+    seedSummary("u2", "user u2", 2);
+    seedConversation("u3", "standard");
+    seedSummary("u3", "user u3", 3);
+    for (let i = 0; i < 110; i++) {
+      seedConversation(`bg${i}`, "background");
+      seedSummary(`bg${i}`, `bg ${i}`, 100 + i); // all newer than the users
+    }
+    expect(recentSummaries()).toEqual(["user u3", "user u2", "user u1"]);
+  });
 });
