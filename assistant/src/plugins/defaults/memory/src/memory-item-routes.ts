@@ -73,7 +73,10 @@ import type {
   MemoryType,
   NewNode,
 } from "../graph/types.js";
-import { readPendingBufferEntries } from "../graph-topology/pending-buffer.js";
+import {
+  findPendingEntryForContent,
+  readPendingBufferEntries,
+} from "../graph-topology/pending-buffer.js";
 import { consolidationBackoffRemainingMs } from "../jobs-worker.js";
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
@@ -1110,15 +1113,18 @@ export const ROUTES: RouteDefinition[] = [
       maybeEnqueueConsolidationForCreate(config);
 
       // Resolve the pending graph-node id of the entry just appended so the
-      // client can fly the map to it. The append is synchronous, so the
-      // buffer's last entry is ours (a concurrent remember could interleave;
-      // the id is a navigation hint, not a correctness contract). Best-effort
-      // — the create already succeeded, so a read failure returns no id
-      // rather than an error.
+      // client can fly the map to it. Matched by this request's content
+      // (normalized through the same buffer parse) rather than the buffer
+      // tail, so a concurrently interleaved remember from another writer is
+      // never reported as this one's entry. Best-effort — the create already
+      // succeeded, so a read failure returns no id rather than an error.
       let pendingNodeId: string | undefined;
       try {
         const entries = await readPendingBufferEntries(getWorkspaceDir());
-        pendingNodeId = entries.at(-1)?.id;
+        pendingNodeId = findPendingEntryForContent(
+          entries,
+          parsed.data.content,
+        )?.id;
       } catch (err) {
         log.warn({ err }, "Failed to resolve pending node id after create");
       }
