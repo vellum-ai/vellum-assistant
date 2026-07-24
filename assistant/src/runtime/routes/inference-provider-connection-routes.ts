@@ -411,8 +411,8 @@ async function handleUpdateConnection({
 
   const customFields = await parseCustomProviderFields(body, existing.provider);
 
-  // Only a CHANGED label is validated: rows whose stored identity predates
-  // validation stay editable for unrelated changes (key rotation, models).
+  // Only a CHANGED label is validated: keeping a stored label — whatever it
+  // is — must never block unrelated edits (key rotation, models).
   // Checked in the same event-loop turn as the write so concurrent requests
   // cannot both pass.
   const labelChanging =

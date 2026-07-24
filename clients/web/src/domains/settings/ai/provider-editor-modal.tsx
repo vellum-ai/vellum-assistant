@@ -157,8 +157,8 @@ export function ProviderEditorContent({
   // remains fixed, so a non-empty value is the only save gate.
   // A custom provider must not take a built-in provider's name or another
   // custom provider's — mirrors the daemon's route-side validation.
-  // Only a changed label is validated — a stored identity that predates
-  // validation must not lock the row out of unrelated edits (key rotation).
+  // Only a changed label is validated — keeping the stored label must never
+  // lock the row out of unrelated edits (key rotation).
   const labelChanged = label.trim() !== (connection?.label ?? "").trim();
   const nameConflict = isOpenAICompatible && labelChanged
     ? customProviderNameConflict(label, connections, connection?.name)
