@@ -1855,4 +1855,29 @@ describe("orchestrate — span-query pass", () => {
       new Set(["topic-a", "topic-b", "topic-c", "topic-d"]),
     );
   });
+
+  test("an article hit by several chunks records its highest-scoring section", async () => {
+    const lanes = await buildLanes();
+    // Both chunks surface topic-d; the EARLIER chunk's hit is the weaker one.
+    // Chunk order must not decide the recorded section — the strong match
+    // (ordinal 1, `## Notes`) wins over the lead (ordinal 0).
+    denseHits = [];
+    denseHitsByQuery.set(CHUNK_1, [
+      { article: "topic-d", section: 0, score: 0.2 },
+    ]);
+    denseHitsByQuery.set(CHUNK_2, [
+      { article: "topic-d", section: 1, score: 0.9 },
+    ]);
+
+    const result = await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(result.matchedSections.get("topic-d")?.ordinal).toBe(1);
+    expect(result.matchedSections.get("topic-d")?.text).toContain("grape");
+    expect(
+      result.lanes.finder.filter((c) => c.slug === "topic-d"),
+    ).toHaveLength(1);
+  });
 });

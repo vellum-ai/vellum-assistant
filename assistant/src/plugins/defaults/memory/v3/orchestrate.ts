@@ -65,6 +65,7 @@ import {
 } from "../../../../daemon/turn-latency-sub-spans.js";
 import { recordWatchdogEvent } from "../../../../telemetry/watchdog-events-store.js";
 import { getLogger } from "../logging.js";
+import type { DenseHitScored } from "./dense.js";
 import { denseLaneScored } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
 import { edgeExpand } from "./edge.js";
@@ -499,7 +500,19 @@ export async function orchestrate(
   // span-surfaced articles tag `"span"`. Like the reply pass, span hits are
   // excluded from the injection gate (which scores current-message needle +
   // dense only) and from the edge-expansion seeds.
+  //
+  // An article can be surfaced by SEVERAL chunks; dedupe by best cosine score
+  // before `addFinder`, since chunk order would otherwise decide which section
+  // gets recorded — letting an earlier chunk's weak match mask the strong
+  // buried-clause match the pass exists to recover.
+  const bestSpanHits = new Map<Slug, DenseHitScored>();
   for (const hit of spanDensed.flat()) {
+    const prev = bestSpanHits.get(hit.article);
+    if (!prev || hit.score > prev.score) {
+      bestSpanHits.set(hit.article, hit);
+    }
+  }
+  for (const hit of bestSpanHits.values()) {
     if (!deps.sectionIndex.byArticle.has(hit.article)) continue;
     addFinder(
       hit.article,
