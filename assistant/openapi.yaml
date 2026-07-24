@@ -17480,8 +17480,8 @@ paths:
       summary: Create a memory by remembering a fact
       description:
         Append a user-authored fact to the memory buffer via handleRemember. The fact surfaces in the memory graph
-        immediately as a pending node, and a consolidation run is nudged (deduped, backoff-respecting) so it files into
-        concept pages promptly.
+        immediately as a pending node (its id is returned so clients can navigate to it), and a consolidation run is
+        nudged (deduped, backoff-respecting) so it files into concept pages promptly.
       tags:
         - memory
       requestBody:
@@ -17507,6 +17507,11 @@ paths:
                     type: string
                   success:
                     type: boolean
+                  pendingNodeId:
+                    description:
+                      Graph node id (`buffer:<hash>`) of the pending entry this create appended, for fly-to-node navigation.
+                      Absent when the buffer can't be re-read.
+                    type: string
                 required:
                   - message
                   - success
