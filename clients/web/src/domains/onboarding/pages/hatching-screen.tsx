@@ -6,11 +6,14 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { getAssistant, getAssistantHealthz, hatchAssistant, type Assistant } from "@/assistant/api";
 import {
+    assistantsOperationalStatusDetailRead,
     organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate,
     organizationsBillingSubscriptionOnboardingRetrieve,
+    organizationsBillingSubscriptionRetrieve,
 } from "@/generated/api/sdk.gen";
 import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
 import {
+    isResizeOperationInFlight,
     targetsMet,
     type ProvisioningDimensions,
 } from "@/lib/billing/provisioning-targets";
@@ -323,7 +326,9 @@ export function HatchingScreen() {
                   useOrganizationStore.getState().currentOrganizationId ?? undefined,
               });
             }
-            handleHatchReady();
+            // Route the reload path through the same provisioning wait as the
+            // polled-active path so a purchased resize is never skipped.
+            await finishActiveHatch(existing.data.id);
             return;
           }
           // A clean 404 (`auto_hatch`) means no assistant existed yet, so the
@@ -501,10 +506,10 @@ export function HatchingScreen() {
     // Platform-only: once the assistant is active and healthz-ready, hold the
     // hatching screen until the server-side resize to the purchased machine and
     // storage specs converges, then re-probe healthz (the resize restarts the
-    // pod). The reconcile is idempotent and fire-and-forget; any failure, a free
-    // org with nothing purchased, or the RESIZE_WAIT_MAX_MS cap falls through to
-    // completion at baseline, so a Pro hatch emerges at the right size without
-    // ever trapping the user.
+    // pod). The reconcile is idempotent and fire-and-forget; a genuinely free
+    // org, and the RESIZE_WAIT_MAX_MS cap, fall through to completion at
+    // baseline, so a Pro hatch emerges at the right size without ever trapping
+    // the user.
     const awaitPurchasedProvisioning = async (
       assistantId: string,
     ): Promise<void> => {
@@ -520,41 +525,81 @@ export function HatchingScreen() {
         });
       }
 
-      // Resolve the purchased ceilings, mirroring the pro-onboarding derivation.
+      // The cap covers both waits below — the entitlement/targets confirmation
+      // and the resize itself — so a lagging subscription can never hold the
+      // user past RESIZE_WAIT_MAX_MS.
+      const resizeDeadline = Date.now() + RESIZE_WAIT_MAX_MS;
+
+      // Confirm the entitlement before concluding "free". A paid checkout can
+      // return before the onboarding targets are visible, so gate the no-wait
+      // completion on the actual subscription plan rather than on the first null
+      // targets. While the plan reads Pro but the targets aren't provisioned yet
+      // (the entitlement race), keep polling the subscription and targets within
+      // the cap instead of completing at baseline.
       let targets: ProvisioningDimensions | null = null;
-      try {
-        const onboarding =
-          await organizationsBillingSubscriptionOnboardingRetrieve({
+      while (!cancelled) {
+        let planId: string | null = null;
+        try {
+          const subscription = await organizationsBillingSubscriptionRetrieve({
             throwOnError: false,
           });
-        const data = onboarding.data;
-        if (data) {
-          targets = {
-            machineSize:
-              allowedMachineSizesForTier(data.max_machine_tier).at(-1) ?? null,
-            storageGib: data.selected_storage_gib ?? null,
-          };
+          if (cancelled) {
+            return;
+          }
+          planId = subscription.data?.plan_id ?? null;
+        } catch {
+          // Subscription endpoint blip; keep polling to the cap.
         }
-      } catch {
-        // Fire-and-forget: a failed targets fetch falls through to completion.
+
+        try {
+          const onboarding =
+            await organizationsBillingSubscriptionOnboardingRetrieve({
+              throwOnError: false,
+            });
+          if (cancelled) {
+            return;
+          }
+          const data = onboarding.data;
+          if (data) {
+            targets = {
+              machineSize:
+                allowedMachineSizesForTier(data.max_machine_tier).at(-1) ?? null,
+              storageGib: data.selected_storage_gib ?? null,
+            };
+          }
+        } catch {
+          // Targets fetch blip; keep polling to the cap.
+        }
+
+        const hasTargets =
+          targets != null &&
+          (targets.machineSize != null || targets.storageGib != null);
+
+        // Not Pro — genuinely free, or the subscription hasn't flipped. Complete
+        // exactly as a non-provisioned hatch does today.
+        if (planId !== "pro") {
+          return;
+        }
+        // Pro with a purchased ceiling to wait on: hold for the resize below.
+        if (hasTargets) {
+          break;
+        }
+        // Pro but the targets aren't visible yet: keep polling within the cap
+        // rather than completing at baseline onto an unprovisioned assistant.
+        if (Date.now() >= resizeDeadline) {
+          return;
+        }
+        await new Promise<void>((resolve) => {
+          pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+        });
+        pollTimer = null;
       }
       if (cancelled) {
         return;
       }
 
-      // A free org (or nothing purchased) has no ceiling to wait on — complete
-      // exactly as a non-provisioned hatch does today.
-      if (
-        !targets ||
-        (targets.machineSize == null && targets.storageGib == null)
-      ) {
-        return;
-      }
-
-      // Hold in an in-progress phase while the resize lands. The cap is measured
-      // from here — the reconcile above is already in flight.
+      // Hold in an in-progress phase while the resize lands.
       transitionPhase("resizing");
-      const resizeDeadline = Date.now() + RESIZE_WAIT_MAX_MS;
 
       while (!cancelled) {
         let actuals: ProvisioningDimensions | null = null;
@@ -572,7 +617,27 @@ export function HatchingScreen() {
         } catch {
           // Assistant endpoint unreachable mid-resize; keep polling to the cap.
         }
-        if (targetsMet(targets, actuals)) {
+
+        let operationInFlight = false;
+        try {
+          const opStatus = await assistantsOperationalStatusDetailRead({
+            path: { id: assistantId },
+            throwOnError: false,
+          });
+          if (cancelled) {
+            return;
+          }
+          operationInFlight = isResizeOperationInFlight(opStatus.data);
+        } catch {
+          // Operational-status endpoint unreachable mid-resize: treat the resize
+          // as still in flight and keep polling to the cap rather than guessing.
+          operationInFlight = true;
+        }
+
+        // The platform persists the effective sizes before the pod finishes
+        // restarting, so completion requires the resize operation to have
+        // cleared — not just targets-met — to avoid landing on a soon-dead pod.
+        if (targetsMet(targets, actuals) && !operationInFlight) {
           break;
         }
         if (Date.now() >= resizeDeadline) {
@@ -607,6 +672,46 @@ export function HatchingScreen() {
         });
         pollTimer = null;
       }
+    };
+
+    // Both the preflight-active path (a reload onto an already-active assistant)
+    // and the polled-active path converge here: wait for healthz, hold for the
+    // purchased resize, then complete. Sharing this tail keeps a reload from
+    // skipping the provisioning wait.
+    const finishActiveHatch = async (assistantId: string): Promise<void> => {
+      // The platform may report "active" before the pod is ready to serve, so
+      // wait for the daemon to answer healthz before holding for the resize.
+      transitionPhase("connecting");
+      while (!cancelled) {
+        try {
+          const health = await getAssistantHealthz(assistantId);
+          if (health.ok) {
+            break;
+          }
+        } catch {
+          // Daemon not reachable yet.
+        }
+        if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
+          setError(
+            "Your assistant is taking longer than expected. Please try again.",
+          );
+          return;
+        }
+        await new Promise<void>((resolve) => {
+          pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+        });
+        pollTimer = null;
+      }
+      if (cancelled) {
+        return;
+      }
+
+      await awaitPurchasedProvisioning(assistantId);
+      if (cancelled) {
+        return;
+      }
+
+      handleHatchReady();
     };
 
     const runPoll = async () => {
@@ -652,34 +757,11 @@ export function HatchingScreen() {
               });
             }
 
-            // Wait for the daemon to be reachable before navigating.
-            // The platform may report "active" before the pod is
-            // fully ready to serve requests.
-            transitionPhase("connecting");
-            while (!cancelled) {
-              try {
-                const health = await getAssistantHealthz(assistantId);
-                if (health.ok) break;
-              } catch {
-                // Daemon not reachable yet
-              }
-              if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
-                setError("Your assistant is taking longer than expected. Please try again.");
-                return;
-              }
-              await new Promise<void>(resolve => {
-                pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
-              });
-              pollTimer = null;
-            }
-            if (cancelled) return;
-
-            // Hold completion until the purchased machine/storage resize lands
-            // (platform hatches only; local hatches never reach this poll loop).
-            await awaitPurchasedProvisioning(assistantId);
-            if (cancelled) {
-              return;
-            }
+            // Wait for healthz, then hold for the purchased resize before
+            // completing (platform hatches only; local hatches never reach this
+            // poll loop).
+            await finishActiveHatch(assistantId);
+            return;
           }
 
           handleHatchReady();
