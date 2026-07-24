@@ -387,6 +387,33 @@ export function ChatMainPanel({
     void navigate(routes.plans);
   }, [navigate]);
 
+  /**
+   * Wrap a billing banner's CTA so acting on it also drops the billing error
+   * that raised the banner.
+   *
+   * The error is client state that outlives the remediation: the user tops up,
+   * raises their limit, or fixes a provider key, comes back, and it is still
+   * latched — keeping the banner painted and any surface gated on it (voice
+   * entry) disabled against billing that may now be fine. Enumerating the
+   * return path per CTA is fragile — there is one for a modal, one per settings
+   * route, one for the plans takeover — so hang it off the single act every
+   * remediation shares: engaging the CTA.
+   *
+   * Worst case the wall was real and the next turn re-raises it, which beats a
+   * surface stuck off with no way back but a text message.
+   */
+  const onBillingRemediation = useCallback(
+    (action: () => void) => () => {
+      useChatSessionStore
+        .getState()
+        .setError((prev) =>
+          getChatBillingBannerDecision(prev) !== null ? null : prev,
+        );
+      action();
+    },
+    [],
+  );
+
   const checkAssistant = useCallback(() => lifecycleService.checkAssistant(), []);
 
   const handleDismissUnknownNudge = useCallback(
@@ -1006,15 +1033,21 @@ export function ChatMainPanel({
           onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
           billingBannerSlot={
             billingBannerDecision === "daily_limit" ? (
-              <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
+              <DailyLimitBanner
+                onAdjustLimit={onBillingRemediation(pushToBillingSettings)}
+              />
             ) : billingBannerDecision === "managed_credits" ? (
               <CreditsExhaustedBanner
                 mode={creditPaywallMode}
-                onAddCredits={() => setShowAddCreditsModal(true)}
-                onUpgrade={pushToPlansTakeover}
+                onAddCredits={onBillingRemediation(() =>
+                  setShowAddCreditsModal(true),
+                )}
+                onUpgrade={onBillingRemediation(pushToPlansTakeover)}
               />
             ) : billingBannerDecision === "provider_billing" ? (
-              <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
+              <ProviderBillingBanner
+                onOpenSettings={onBillingRemediation(pushToAiSettings)}
+              />
             ) : null
           }
           diskPressureBanner={diskPressureBannerSlot}
