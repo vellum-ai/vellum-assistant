@@ -94,18 +94,10 @@ export function ImageGenerationCard() {
   const [imageGenApiKey, setImageGenApiKey] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // `openai` is a valid daemon value the picker does not offer: render it
-  // when the daemon reports it, but never nudge users onto it.
-  const providerOptions = useMemo(() => {
-    const ids: string[] =
-      provider === "openai"
-        ? [...IMAGE_GEN_PROVIDERS, "openai"]
-        : [...IMAGE_GEN_PROVIDERS];
-    return ids.map((id) => ({
-      value: id,
-      label: IMAGE_GEN_PROVIDER_DISPLAY_NAMES[id] ?? id,
-    }));
-  }, [provider]);
+  const providerOptions = IMAGE_GEN_PROVIDERS.map((id) => ({
+    value: id,
+    label: IMAGE_GEN_PROVIDER_DISPLAY_NAMES[id] ?? id,
+  }));
 
   const modelOptions = useMemo(
     () =>

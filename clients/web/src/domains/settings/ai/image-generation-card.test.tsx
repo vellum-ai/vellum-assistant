@@ -157,11 +157,11 @@ describe("ImageGenerationCard — provider-only configuration", () => {
     expect(trigger("Image generation provider")).toBeTruthy();
   });
 
-  test("the provider picker offers Vellum and Gemini", () => {
+  test("the provider picker offers Vellum, Gemini and OpenAI", () => {
     renderCard();
 
     fireEvent.click(trigger("Image generation provider"));
-    expect(visibleOptions()).toEqual(["Vellum", "Gemini"]);
+    expect(visibleOptions()).toEqual(["Vellum", "Gemini", "OpenAI"]);
   });
 
   test("Vellum hides the key field, lists every model, and saves the pair", async () => {
@@ -251,7 +251,20 @@ describe("ImageGenerationCard — provider-only configuration", () => {
     expect(screen.queryByText("API Key")).toBeNull();
   });
 
-  test("an openai daemon config renders honestly and is not clobbered", async () => {
+  test("selecting OpenAI shows the openai key field and gpt models", async () => {
+    renderCard();
+
+    fireEvent.click(trigger("Image generation provider"));
+    selectOption("OpenAI");
+
+    expect(
+      screen.getByPlaceholderText("Enter your OpenAI API key"),
+    ).toBeTruthy();
+    fireEvent.click(trigger("Image generation model"));
+    expect(visibleOptions()).toEqual(["GPT Image 2"]);
+  });
+
+  test("an openai daemon config renders as the selected provider", async () => {
     daemonConfigData = {
       services: {
         "image-generation": { mode: "your-own", provider: "openai" },
