@@ -383,7 +383,15 @@ export function useChannelPermissionOverrides({
     bucketDeleteMutation.variables,
   ]);
 
-  if (!enabled) {
+  // The version gate can't know whether *this* assistant's gateway actually
+  // wired up the channel-permission routes — a build that reports a supported
+  // version but still 404s the list route would otherwise leave the pickers
+  // permanently disabled (they hold disabled until overrides load, which never
+  // happens). Treat a list-route error like an unsupported assistant and
+  // degrade to the read-only channel list, the same fall-back the version gate
+  // uses. A 404 won't recover on retry; a transient error self-heals on the
+  // query's next refetch, flipping this back to supported.
+  if (!enabled || query.isError) {
     return {
       supported: false,
       tierOverrides: undefined,
