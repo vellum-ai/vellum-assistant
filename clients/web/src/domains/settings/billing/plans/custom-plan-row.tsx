@@ -20,8 +20,8 @@ export interface CustomPlanRowProps {
    */
   isCurrent?: boolean;
   /**
-   * A short recap of the current custom tiers (e.g. "Medium machine · 30 GB ·
-   * $50 credits"). Shown as the row descriptor in place of the generic copy so
+   * A short recap of the current custom tiers (e.g. "Medium Machine · 30 GB ·
+   * 50 credits"). Shown as the row descriptor in place of the generic copy so
    * the user sees what their custom plan actually is.
    */
   currentSummary?: string;

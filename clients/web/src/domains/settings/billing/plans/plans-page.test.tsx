@@ -881,16 +881,16 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
     expect(changePackageCall!.body).toEqual({ package: "mighty" });
   });
 
-  test("a Custom sub's Free card is a downgrade; the Custom row is current, no named card is", () => {
+  test("a Custom sub's Free card is a downgrade and no named card is current", () => {
     const html = renderStatic(proCustomizedMightySubscription(), fullCatalog());
     // Pro → Free is always a downgrade.
     expect(html).toContain("Downgrade to Free");
     expect(html).not.toContain("Start Free");
-    // A Custom sub has no catalog rank, so the Custom row carries the
-    // current-plan tag instead of any named column card.
-    expect(count(html, /Your Current Plan/g)).toBe(1);
-    // Every "Current Plan" match is that tag — no named column card is current.
-    expect(count(html, /Current Plan/g)).toBe(count(html, /Your Current Plan/g));
+    // A Custom sub has no catalog rank, so no named column card is its current
+    // plan. The Custom row's own current-plan tag is gated on the onboarding
+    // read, which a single-pass static render never resolves — the interactive
+    // "Custom row current-plan marker" suite covers that tag.
+    expect(html).not.toContain("Current Plan");
   });
 });
 
@@ -907,6 +907,16 @@ describe("PlansPage — Custom row current-plan marker", () => {
     };
   }
 
+  // A legacy/unpinned Pro sub carries no package at all, so it too is a Custom
+  // sub represented by the Custom row rather than any named card.
+  function proUnpinnedWithCredits(): SubscriptionResponse {
+    return {
+      ...proMightySubscription(),
+      package: null,
+      selected_credit_tier: "credits_50",
+    };
+  }
+
   test("a custom Pro sub sees the Custom row marked current with a tier summary", async () => {
     // onboarding() supplies medium machine / 10 GB; the sub carries credits_50.
     const { findByText } = renderInteractive(proCustomizedWithCredits(), {
@@ -914,7 +924,17 @@ describe("PlansPage — Custom row current-plan marker", () => {
     });
 
     await findByText("Your Current Plan");
-    await findByText("Medium machine · 10 GB · $50 credits");
+    await findByText("Medium Machine · 10 GB · 50 credits");
+  });
+
+  test("a legacy/unpinned Pro sub sees the Custom row marked current with a tier summary", async () => {
+    // No package pin — the same Custom-row current marker as the customized case.
+    const { findByText } = renderInteractive(proUnpinnedWithCredits(), {
+      plans: customCatalog(),
+    });
+
+    await findByText("Your Current Plan");
+    await findByText("Medium Machine · 10 GB · 50 credits");
   });
 
   test("a clean-pinned Pro sub sees no marker on the Custom row", async () => {
