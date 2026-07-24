@@ -225,7 +225,7 @@ function handleGetConnection({ pathParams = {} }: RouteHandlerArgs) {
  * provider's identity. Enforced daemon-side: every client (web, CLI, API)
  * goes through these routes.
  */
-function assertValidCustomProviderLabel(
+function assertValidCustomProviderIdentity(
   provider: string,
   labelRaw: unknown,
   selfName: string,
@@ -233,14 +233,15 @@ function assertValidCustomProviderLabel(
   if (provider !== "openai-compatible") {
     return;
   }
+  // The display identity is the label, falling back to the name — a
+  // label-less row named "openai" impersonates a built-in just as well as
+  // a labeled one.
   const label = typeof labelRaw === "string" ? labelRaw.trim() : "";
-  if (!label) {
-    return;
-  }
-  const lower = label.toLowerCase();
+  const identity = label || selfName;
+  const lower = identity.toLowerCase();
   if (RESERVED_PROVIDER_IDENTITIES.has(lower)) {
     throw new BadRequestError(
-      `Invalid label: "${label}" belongs to a built-in provider. Pick another name.`,
+      `Invalid ${label ? "label" : "name"}: "${identity}" belongs to a built-in provider. Pick another name.`,
     );
   }
   const duplicate = listConnections(getDb(), {
@@ -252,7 +253,7 @@ function assertValidCustomProviderLabel(
   );
   if (duplicate) {
     throw new BadRequestError(
-      `Invalid label: a custom provider named "${label}" already exists.`,
+      `Invalid ${label ? "label" : "name"}: a custom provider named "${identity}" already exists.`,
     );
   }
 }
@@ -301,12 +302,14 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  assertValidCustomProviderLabel(providerResult.data, labelRaw, name);
-
   const customFields = await parseCustomProviderFields(
     body,
     providerResult.data,
   );
+
+  // Same event-loop turn as the write: no await separates this check from
+  // createConnection, so concurrent requests cannot both pass it.
+  assertValidCustomProviderIdentity(providerResult.data, labelRaw, name);
 
   const result = createConnection(getDb(), {
     name,
@@ -393,8 +396,6 @@ async function handleUpdateConnection({
       `Invalid label: must be a non-empty string or null`,
     );
   }
-  assertValidCustomProviderLabel(existing.provider, labelRaw, name);
-
   // Managed connections: lock auth to `{type:"platform"}`. The boot upsert in
   // `seedCanonicalConnections` would revert any other value on next restart;
   // reject the write here so the surprise loop never happens. Label remains
@@ -409,6 +410,16 @@ async function handleUpdateConnection({
   }
 
   const customFields = await parseCustomProviderFields(body, existing.provider);
+
+  // Only a CHANGED label is validated: rows whose stored identity predates
+  // validation stay editable for unrelated changes (key rotation, models).
+  // Checked in the same event-loop turn as the write so concurrent requests
+  // cannot both pass.
+  const labelChanging =
+    labelRaw !== undefined && (labelRaw ?? "") !== (existing.label ?? "");
+  if (labelChanging) {
+    assertValidCustomProviderIdentity(existing.provider, labelRaw, name);
+  }
 
   const result = updateConnection(getDb(), name, {
     auth: authResult.data,

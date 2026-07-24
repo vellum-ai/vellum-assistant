@@ -339,6 +339,72 @@ describe("POST inference/provider-connections (create)", () => {
     expect(result.label).toBe("Anthropic");
   });
 
+  test("a label-less custom provider's name is validated as its identity", async () => {
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "openai",
+          provider: "openai-compatible",
+          base_url: "http://localhost:1234/v1",
+          models: [{ id: "my-model" }],
+        },
+      }),
+    ).rejects.toThrow(/belongs to a built-in provider/);
+
+    await call(findHandler("inference_provider_connections_create"), {
+      body: {
+        name: "endpoint-a",
+        provider: "openai-compatible",
+        label: "My Box",
+        base_url: "http://localhost:1234/v1",
+        models: [{ id: "my-model" }],
+      },
+    });
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "my box",
+          provider: "openai-compatible",
+          base_url: "http://localhost:5678/v1",
+          models: [{ id: "other" }],
+        },
+      }),
+    ).rejects.toThrow(/already exists/);
+  });
+
+  test("an unchanged label is not re-validated, so pre-validation rows stay editable", async () => {
+    const now = Date.now();
+    getDb()
+      .insert(providerConnections)
+      .values({
+        name: "legacy-endpoint",
+        provider: "openai-compatible",
+        label: "Anthropic",
+        auth: JSON.stringify({ type: "none" }),
+        baseUrl: "http://localhost:1234/v1",
+        models: JSON.stringify([{ id: "my-model" }]),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "legacy-endpoint" },
+        body: { models: [{ id: "another-model" }] },
+      },
+    )) as { label: string | null };
+    expect(result.label).toBe("Anthropic");
+
+    await expect(
+      call(findHandler("inference_provider_connections_update"), {
+        pathParams: { name: "legacy-endpoint" },
+        body: { label: "OpenAI" },
+      }),
+    ).rejects.toThrow(/belongs to a built-in provider/);
+  });
+
   test("derives none auth for openai-compatible without a credential", async () => {
     const result = (await call(
       findHandler("inference_provider_connections_create"),
