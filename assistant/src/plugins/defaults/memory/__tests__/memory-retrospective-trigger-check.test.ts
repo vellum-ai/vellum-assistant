@@ -1,14 +1,19 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Record enqueues instead of writing job rows — the trigger decision is the
-// unit under test here, not the jobs store's gating.
+// unit under test here, not the jobs store's gating. `enqueueResult` simulates
+// whether the real helper actually queued a job: an ineligible source (scheduled
+// thread, consolidation source, recursion guard) returns false; a normal enqueue
+// returns true. The daily budget must be consumed only on a true return.
 let enqueueCalls: Array<{ conversationId: string; trigger: string }> = [];
+let enqueueResult = true;
 mock.module("../memory-retrospective-enqueue.js", () => ({
   enqueueMemoryRetrospectiveIfEnabled: (args: {
     conversationId: string;
     trigger: string;
   }) => {
     enqueueCalls.push(args);
+    return enqueueResult;
   },
 }));
 
@@ -251,6 +256,7 @@ describe("maybeEnqueueRetrospective — kind-aware accounting", () => {
   beforeEach(() => {
     resetTables();
     enqueueCalls = [];
+    enqueueResult = true;
   });
 
   test("card-only tail past the cursor: no enqueue, even when the interval threshold has long elapsed", async () => {
@@ -359,6 +365,7 @@ describe("maybeEnqueueRetrospective — daily runaway cap", () => {
   beforeEach(() => {
     resetTables();
     enqueueCalls = [];
+    enqueueResult = true;
   });
 
   test("at the cap: a would-be trigger is skipped and the count is untouched", () => {
@@ -443,5 +450,43 @@ describe("maybeEnqueueRetrospective — daily runaway cap", () => {
 
     expect(enqueueCalls).toEqual([]);
     expect(readDailyCount()).toBe(0);
+  });
+
+  test("an ineligible source the enqueue helper skips consumes no budget", () => {
+    const conv = createConversation("conv");
+    insertMessage(conv.id, { createdAt: 2_000 }); // first-run interval fires
+    seedDailyCount(5);
+    // The trigger fires and the budget is under cap, so the enqueue is
+    // attempted — but the helper skips this source (e.g. a scheduled thread or
+    // consolidation conversation), returning false. Nothing was queued, so the
+    // day's count must not move: a stream of low-yield turns can never exhaust
+    // the budget on its own.
+    enqueueResult = false;
+
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+    );
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "interval" },
+    ]);
+    expect(readDailyCount()).toBe(5);
+  });
+
+  test("an eligible enqueue consumes exactly one unit", () => {
+    const conv = createConversation("conv");
+    insertMessage(conv.id, { createdAt: 2_000 });
+    seedDailyCount(5);
+
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+    );
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "interval" },
+    ]);
+    expect(readDailyCount()).toBe(6);
   });
 });

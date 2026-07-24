@@ -24,7 +24,10 @@
 import type { AssistantConfig } from "../../../config/types.js";
 import { getLogger } from "./logging.js";
 import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
-import { reserveDailyRetrospectiveBudget } from "./memory-retrospective-daily-count.js";
+import {
+  isDailyRetrospectiveBudgetExhausted,
+  recordDailyRetrospectiveRun,
+} from "./memory-retrospective-daily-count.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "./memory-retrospective-enqueue.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";
 
@@ -103,16 +106,14 @@ export function maybeEnqueueRetrospective(
       return;
     }
 
-    // Runaway backstop: reserve one unit of the assistant's daily budget. A
-    // capped day skips the enqueue without recording. Pre-compaction enqueues
-    // route around this path entirely, so they bypass the cap exactly as they
-    // bypass the cooldown gate above.
-    if (
-      !reserveDailyRetrospectiveBudget(
-        config.memory.retrospective.maxRunsPerAssistantPerDay,
-        now,
-      )
-    ) {
+    // Runaway backstop: skip once the assistant's daily budget for this UTC day
+    // is exhausted. The budget is consumed only when an enqueue actually lands
+    // (below), so a source the enqueue helper skips (scheduled thread,
+    // consolidation source, recursion guard) costs nothing. Pre-compaction
+    // enqueues route around this path entirely, so they bypass the cap exactly
+    // as they bypass the cooldown gate above.
+    const maxRunsPerDay = config.memory.retrospective.maxRunsPerAssistantPerDay;
+    if (isDailyRetrospectiveBudgetExhausted(maxRunsPerDay, now)) {
       log.debug(
         { conversationId, trigger },
         "daily retrospective cap reached; skipping enqueue",
@@ -120,7 +121,9 @@ export function maybeEnqueueRetrospective(
       return;
     }
 
-    enqueueMemoryRetrospectiveIfEnabled({ conversationId, trigger });
+    if (enqueueMemoryRetrospectiveIfEnabled({ conversationId, trigger })) {
+      recordDailyRetrospectiveRun(maxRunsPerDay, now);
+    }
   } catch (err) {
     log.warn({ err, conversationId }, "trigger-check failed; skipping enqueue");
   }

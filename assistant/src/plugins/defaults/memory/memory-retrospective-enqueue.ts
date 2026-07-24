@@ -47,14 +47,21 @@ export type MemoryRetrospectiveTrigger =
 
 const COMPACTION_DEBOUNCE_MS = 500;
 
+/**
+ * Enqueue a retrospective job for `conversationId`, applying the recursion and
+ * low-yield source guards. Returns `true` only when a job is actually queued —
+ * `false` on any skip (memory disabled, recursion guard, low-yield source) or an
+ * upsert failure. Budget-metered callers reserve one unit of the daily cap only
+ * on a `true` return, so a skipped source never consumes budget.
+ */
 export function enqueueMemoryRetrospectiveIfEnabled(args: {
   conversationId: string;
   trigger: MemoryRetrospectiveTrigger;
-}): void {
+}): boolean {
   const { conversationId, trigger } = args;
 
   if (!isMemoryEnabled()) {
-    return;
+    return false;
   }
 
   if (isMemoryRetrospectiveConversation(conversationId)) {
@@ -62,7 +69,7 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
       { conversationId, trigger },
       "Skipping memory-retrospective enqueue: source is a memory-retrospective conversation",
     );
-    return;
+    return false;
   }
 
   if (isLowYieldRetrospectiveSource(conversationId)) {
@@ -70,7 +77,7 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
       { conversationId, trigger },
       "Skipping memory-retrospective enqueue: scheduled or consolidation source",
     );
-    return;
+    return false;
   }
 
   const runAfter =
@@ -78,11 +85,13 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
 
   try {
     upsertMemoryRetrospectiveJob({ conversationId }, runAfter);
+    return true;
   } catch (err) {
     log.warn(
       { err, conversationId, trigger },
       "Failed to upsert memory-retrospective job",
     );
+    return false;
   }
 }
 
@@ -107,7 +116,9 @@ export function isMemoryRetrospectiveConversation(
  */
 function isLowYieldRetrospectiveSource(conversationId: string): boolean {
   const conversation = getConversation(conversationId);
-  if (!conversation) return false;
+  if (!conversation) {
+    return false;
+  }
   return (
     conversation.conversationType === "scheduled" ||
     conversation.source === MEMORY_V2_CONSOLIDATION_SOURCE

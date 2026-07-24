@@ -3,13 +3,17 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Record enqueues instead of writing job rows — the sweep's scan/gate decision
 // is the unit under test, not the jobs store's coalescing. The enqueue's own
 // recursion/low-yield guards are covered by memory-retrospective-enqueue tests.
+// `enqueueResult` simulates whether the real helper actually queued a job: a
+// source it skips returns false, and the sweep must consume no budget for it.
 let enqueueCalls: Array<{ conversationId: string; trigger: string }> = [];
+let enqueueResult = true;
 mock.module("../memory-retrospective-enqueue.js", () => ({
   enqueueMemoryRetrospectiveIfEnabled: (args: {
     conversationId: string;
     trigger: string;
   }) => {
     enqueueCalls.push(args);
+    return enqueueResult;
   },
 }));
 
@@ -75,6 +79,17 @@ function seedDailyCount(now: number, count: number): void {
     .run(dayKey, count);
 }
 
+function readDailyCount(now: number): number {
+  const dayKey = new Date(now).toISOString().slice(0, 10);
+  const row = getMemorySqlite()!
+    .query<
+      { run_count: number },
+      [string]
+    >(`SELECT run_count FROM memory_retrospective_daily_count WHERE day_key = ?`)
+    .get(dayKey);
+  return row?.run_count ?? 0;
+}
+
 let messageSeq = 0;
 function insertMessage(
   conversationId: string,
@@ -103,6 +118,7 @@ describe("runRetrospectiveSweep", () => {
   beforeEach(() => {
     resetTables();
     enqueueCalls = [];
+    enqueueResult = true;
   });
 
   test("never-run conversation with unprocessed messages is swept", async () => {
@@ -271,6 +287,46 @@ describe("runRetrospectiveSweep", () => {
       { conversationId: "conv-a", trigger: "sweep" },
     ]);
     expect(result.enqueued).toBe(1);
+  });
+
+  test("an eligible sweep enqueue consumes exactly one unit", async () => {
+    const now = Date.now();
+    const conv = createConversation({ id: "conv-a" });
+    insertMessage(conv.id, { createdAt: 1_000 });
+    seedDailyCount(now, 5);
+
+    const result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+      now,
+    );
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "sweep" },
+    ]);
+    expect(result.enqueued).toBe(1);
+    expect(readDailyCount(now)).toBe(6);
+  });
+
+  test("a source the enqueue helper skips consumes no budget and is not counted", async () => {
+    const now = Date.now();
+    const conv = createConversation({ id: "conv-a" });
+    insertMessage(conv.id, { createdAt: 1_000 });
+    seedDailyCount(now, 5);
+    // The enqueue is attempted (budget under cap), but the helper skips this
+    // source and queues nothing, so the day's count must not move and the sweep
+    // reports it as scanned-not-enqueued.
+    enqueueResult = false;
+
+    const result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+      now,
+    );
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "sweep" },
+    ]);
+    expect(result).toEqual({ scanned: 1, enqueued: 0 });
+    expect(readDailyCount(now)).toBe(5);
   });
 });
 

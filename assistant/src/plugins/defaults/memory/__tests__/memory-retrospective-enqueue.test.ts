@@ -44,14 +44,15 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     upsertCalls.length = 0;
   });
 
-  test("standard source — interval trigger enqueues with runAfter ≈ now", () => {
+  test("standard source — interval trigger enqueues with runAfter ≈ now and reports true", () => {
     const before = Date.now();
-    enqueueMemoryRetrospectiveIfEnabled({
+    const enqueued = enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
     });
     const after = Date.now();
 
+    expect(enqueued).toBe(true);
     expect(upsertCalls).toHaveLength(1);
     const call = upsertCalls[0]!;
     expect(call.payload).toEqual({ conversationId: "c1" });
@@ -71,41 +72,45 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     expect(call.runAfter).toBeGreaterThan(before + 100);
   });
 
-  test("recursion guard — source = 'memory-retrospective' skips enqueue", () => {
+  test("recursion guard — source = 'memory-retrospective' skips enqueue and reports false", () => {
     sourceTag = "memory-retrospective";
-    enqueueMemoryRetrospectiveIfEnabled({
+    const enqueued = enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
     });
+    expect(enqueued).toBe(false);
     expect(upsertCalls).toHaveLength(0);
   });
 
-  test("scheduled conversation — skips enqueue", () => {
+  test("scheduled conversation — skips enqueue and reports false", () => {
     convType = "scheduled";
-    enqueueMemoryRetrospectiveIfEnabled({
+    const enqueued = enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
     });
+    expect(enqueued).toBe(false);
     expect(upsertCalls).toHaveLength(0);
   });
 
-  test("memory_v2_consolidation source — skips enqueue", () => {
+  test("memory_v2_consolidation source — skips enqueue and reports false", () => {
     convType = "background";
     convSource = "memory_v2_consolidation";
-    enqueueMemoryRetrospectiveIfEnabled({
+    const enqueued = enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
     });
+    expect(enqueued).toBe(false);
     expect(upsertCalls).toHaveLength(0);
   });
 
-  test("heartbeat (background) source — still enqueues", () => {
+  test("heartbeat (background) source — still enqueues and reports true", () => {
     convType = "background";
     convSource = "heartbeat";
-    enqueueMemoryRetrospectiveIfEnabled({
+    const enqueued = enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
     });
+    expect(enqueued).toBe(true);
     expect(upsertCalls).toHaveLength(1);
   });
 });

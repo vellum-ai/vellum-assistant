@@ -3,16 +3,16 @@
 // ---------------------------------------------------------------------------
 //
 // A single assistant-wide counter, keyed by UTC date, backing the
-// `memory.retrospective.maxRunsPerAssistantPerDay` cap. Each retrospective
-// enqueue decision from the responsive path (post-turn trigger check) and the
-// timer sweep reserves one unit of the day's budget; once the day's count
-// reaches the cap those paths stop enqueuing until the next UTC day, whose
-// fresh `day_key` starts a new count with no cron needed.
+// `memory.retrospective.maxRunsPerAssistantPerDay` cap. The responsive path
+// (post-turn trigger check) and the timer sweep check the day's budget before
+// enqueuing and record one unit only after an enqueue actually lands; once the
+// day's count reaches the cap those paths stop enqueuing until the next UTC day,
+// whose fresh `day_key` starts a new count with no cron needed.
 //
 // The counter is NOT conversation-keyed — it spans every conversation — so it
 // deliberately stays out of `CONVERSATION_KEYED_MEMORY_TABLES` and survives
 // conversation deletion. Stale prior-day rows are pruned opportunistically on
-// the first reservation of each new day (see `reserveDailyRetrospectiveBudget`).
+// the first recorded run of each new day (see `recordDailyRetrospectiveRun`).
 //
 // The row lives on the dedicated memory connection (`assistant-memory.db`),
 // resolved via `memoryDbOrNull`; every read/write degrades to a no-op (and the
@@ -50,43 +50,63 @@ export function getRetrospectiveDailyCount(now: number): number {
 }
 
 /**
- * Reserve one unit of the assistant's daily retrospective budget for `now`'s
- * UTC day. Returns `true` — recording the reservation (incrementing the day's
- * count) — when the day's count is still below `maxRunsPerDay`; returns `false`
- * WITHOUT recording once the cap is reached, so a capped attempt costs nothing.
+ * Whether the assistant's daily retrospective budget for `now`'s UTC day is
+ * exhausted — its recorded count has reached `maxRunsPerDay`. Callers check this
+ * BEFORE enqueuing and skip when it returns `true`. The count is bumped
+ * separately, only after an enqueue actually lands, via
+ * `recordDailyRetrospectiveRun`, so a source the enqueue helper skips (scheduled
+ * thread, consolidation source, recursion guard) never consumes budget.
  *
- * Fail-open on every degraded path: an unavailable memory database, a
- * non-positive/non-finite cap, or a thrown SQLite error all return `true`
- * without capping, matching the memory subsystem's degrade-don't-block posture
- * (a down memory connection already fails the cooldown gate open too).
- *
- * Rolling the counter is cheap and idempotent: a primary-key upsert bumps the
- * current day's row, and a single `day_key < today` delete prunes stale rows.
- * The delete only removes anything on the first reservation of a new UTC day;
- * on every later same-day call there are no older rows, so it is a no-op.
+ * Fails open — returns `false` (not exhausted) — on every degraded path: a
+ * non-positive/non-finite cap (cap disabled), an unavailable memory database, or
+ * a thrown SQLite error, matching the memory subsystem's degrade-don't-block
+ * posture (a down memory connection already fails the cooldown gate open too).
  */
-export function reserveDailyRetrospectiveBudget(
+export function isDailyRetrospectiveBudgetExhausted(
   maxRunsPerDay: number,
   now: number,
 ): boolean {
   if (!Number.isFinite(maxRunsPerDay) || maxRunsPerDay <= 0) {
-    return true;
+    return false;
   }
-  const mdb = memoryDbOrNull("reserveDailyRetrospectiveBudget");
+  try {
+    return getRetrospectiveDailyCount(now) >= maxRunsPerDay;
+  } catch (err) {
+    log.warn(
+      { err, dayKey: utcDayKey(now) },
+      "daily retrospective budget check failed; allowing enqueue",
+    );
+    return false;
+  }
+}
+
+/**
+ * Record one retrospective enqueue against `now`'s UTC day, bumping the day's
+ * count. Call ONLY after an enqueue actually landed — a skipped or ineligible
+ * enqueue must not consume budget.
+ *
+ * No-ops on a disabled cap (non-positive/non-finite `maxRunsPerDay`) so a
+ * disabled backstop never writes rows, and degrades to a no-op on an unavailable
+ * memory database or a thrown SQLite error.
+ *
+ * Rolling the counter is cheap and idempotent: a primary-key upsert bumps the
+ * current day's row, and a single `day_key < today` delete prunes stale rows.
+ * The delete only removes anything on the first recorded run of a new UTC day;
+ * on every later same-day call there are no older rows, so it is a no-op.
+ */
+export function recordDailyRetrospectiveRun(
+  maxRunsPerDay: number,
+  now: number,
+): void {
+  if (!Number.isFinite(maxRunsPerDay) || maxRunsPerDay <= 0) {
+    return;
+  }
+  const mdb = memoryDbOrNull("recordDailyRetrospectiveRun");
   if (!mdb) {
-    return true;
+    return;
   }
   const dayKey = utcDayKey(now);
   try {
-    const row = mdb
-      .select({ runCount: memoryRetrospectiveDailyCount.runCount })
-      .from(memoryRetrospectiveDailyCount)
-      .where(eq(memoryRetrospectiveDailyCount.dayKey, dayKey))
-      .get();
-    if ((row?.runCount ?? 0) >= maxRunsPerDay) {
-      return false;
-    }
-
     mdb
       .insert(memoryRetrospectiveDailyCount)
       .values({ dayKey, runCount: 1 })
@@ -102,13 +122,10 @@ export function reserveDailyRetrospectiveBudget(
       .delete(memoryRetrospectiveDailyCount)
       .where(lt(memoryRetrospectiveDailyCount.dayKey, dayKey))
       .run();
-
-    return true;
   } catch (err) {
     log.warn(
       { err, dayKey },
-      "daily retrospective budget reservation failed; allowing enqueue",
+      "daily retrospective run recording failed; continuing",
     );
-    return true;
   }
 }

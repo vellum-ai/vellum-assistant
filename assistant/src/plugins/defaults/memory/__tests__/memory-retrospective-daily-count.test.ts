@@ -4,7 +4,8 @@ import { getMemorySqlite } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
 import {
   getRetrospectiveDailyCount,
-  reserveDailyRetrospectiveBudget,
+  isDailyRetrospectiveBudgetExhausted,
+  recordDailyRetrospectiveRun,
   utcDayKey,
 } from "../memory-retrospective-daily-count.js";
 
@@ -26,32 +27,35 @@ describe("utcDayKey", () => {
   });
 });
 
-describe("reserveDailyRetrospectiveBudget", () => {
+describe("isDailyRetrospectiveBudgetExhausted / recordDailyRetrospectiveRun", () => {
   beforeEach(() => {
     resetTable();
   });
 
-  test("allows and increments while under the cap, then skips at the cap", () => {
+  test("stays unexhausted while under the cap, then reports exhausted at the cap", () => {
     const cap = 40;
     for (let i = 0; i < cap; i += 1) {
-      expect(reserveDailyRetrospectiveBudget(cap, DAY1)).toBe(true);
+      expect(isDailyRetrospectiveBudgetExhausted(cap, DAY1)).toBe(false);
+      recordDailyRetrospectiveRun(cap, DAY1);
     }
     expect(getRetrospectiveDailyCount(DAY1)).toBe(cap);
 
-    // The 41st attempt on the same UTC day is skipped and does not record.
-    expect(reserveDailyRetrospectiveBudget(cap, DAY1_LATER)).toBe(false);
+    // The 41st attempt on the same UTC day sees an exhausted budget and, being
+    // skipped, records nothing.
+    expect(isDailyRetrospectiveBudgetExhausted(cap, DAY1_LATER)).toBe(true);
     expect(getRetrospectiveDailyCount(DAY1)).toBe(cap);
   });
 
   test("a new UTC day resets the count and prunes the prior day's row", () => {
     const cap = 40;
     for (let i = 0; i < cap; i += 1) {
-      reserveDailyRetrospectiveBudget(cap, DAY1);
+      recordDailyRetrospectiveRun(cap, DAY1);
     }
-    expect(reserveDailyRetrospectiveBudget(cap, DAY1)).toBe(false);
+    expect(isDailyRetrospectiveBudgetExhausted(cap, DAY1)).toBe(true);
 
     // First attempt on the next UTC day is allowed against a fresh count...
-    expect(reserveDailyRetrospectiveBudget(cap, DAY2)).toBe(true);
+    expect(isDailyRetrospectiveBudgetExhausted(cap, DAY2)).toBe(false);
+    recordDailyRetrospectiveRun(cap, DAY2);
     expect(getRetrospectiveDailyCount(DAY2)).toBe(1);
 
     // ...and the rollover opportunistically drops the stale prior-day row.
@@ -65,9 +69,11 @@ describe("reserveDailyRetrospectiveBudget", () => {
     expect(remaining?.n).toBe(1);
   });
 
-  test("a non-positive cap fails open without recording", () => {
-    expect(reserveDailyRetrospectiveBudget(0, DAY1)).toBe(true);
-    expect(reserveDailyRetrospectiveBudget(-5, DAY1)).toBe(true);
+  test("a non-positive cap is never exhausted and records nothing", () => {
+    expect(isDailyRetrospectiveBudgetExhausted(0, DAY1)).toBe(false);
+    expect(isDailyRetrospectiveBudgetExhausted(-5, DAY1)).toBe(false);
+    recordDailyRetrospectiveRun(0, DAY1);
+    recordDailyRetrospectiveRun(-5, DAY1);
     expect(getRetrospectiveDailyCount(DAY1)).toBe(0);
   });
 });
