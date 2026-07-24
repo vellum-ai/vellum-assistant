@@ -62,18 +62,44 @@ const PEM_END = String.raw`-----END ${PEM_KEY_TYPE}-----`;
 const PEM_COMPLETE_BLOCK = new RegExp(`${PEM_END}$`);
 
 /**
- * Header-only private-key matcher: matches just the `-----BEGIN … PRIVATE
- * KEY-----` header, with no optional block-body capture.
- *
- * Detect/redact-only consumers (log serializers, the tool-output scanner) use
- * this instead of the whole-block {@link PREFIX_PATTERNS} entry: they only need
- * to KNOW a private key is present and mask it — they never store or rewrite
- * the block — so they must not pay the O(n²) cost the whole-block matcher incurs
- * on large serialized strings, where every footerless header rescans to EOF
- * looking for a footer. `detectSecretsInText` (chat) keeps the whole-block
- * matcher, which the store/rewrite path relies on to capture the full key.
+ * Whole-block PEM body atom: one tempered body character. `(?!-----BEGIN)`
+ * keeps the body from crossing into an adjacent block, so two keys never
+ * merge into one span.
  */
-export const PRIVATE_KEY_HEADER_REGEX = new RegExp(PEM_BEGIN);
+const PEM_BLOCK_TAIL = String.raw`(?:(?!-----BEGIN)[\s\S])`;
+
+/**
+ * Upper bound on the PEM body scan distance for the redaction matcher. An
+ * RSA-8192 PEM is ~6.4 KB, so 16 KiB clears real keys with headroom while
+ * capping the per-header rescan distance. The bound is what keeps the
+ * redaction matcher O(n) on large serialized strings full of footerless
+ * `-----BEGIN … PRIVATE KEY-----` headers: each header rescans at most this
+ * far looking for a footer instead of to EOF, which is what the unbounded
+ * whole-block matcher does (its O(n²) worst case).
+ */
+export const PEM_REDACTION_MAX_BODY_LENGTH = 16384;
+
+/**
+ * Whole-block private-key matcher for detect-AND-REDACT consumers (log
+ * serializers, the tool-output scanner, staged-export rewrite).
+ *
+ * These consumers replace the matched span in place, so the match must cover
+ * the ENTIRE key — header → body → footer — or the base64 body and `-----END-----`
+ * footer survive redaction. This captures the whole block, but with a
+ * length-BOUNDED body quantifier ({@link PEM_REDACTION_MAX_BODY_LENGTH}) so a
+ * stream of footerless headers cannot drive the O(n²) worst case the unbounded
+ * whole-block matcher incurs. The footer group is optional, so a truncated /
+ * footerless key still matches header-only — preserving the detection-fires
+ * guarantee ingress blocking relies on. Tempered + lazy + bounded ⇒ no
+ * catastrophic backtracking.
+ *
+ * `detectSecretsInText` (chat) keeps the unbounded whole-block
+ * {@link PREFIX_PATTERNS} entry, which the store/rewrite path relies on to
+ * capture arbitrarily large keys in full.
+ */
+export const PRIVATE_KEY_REDACTION_REGEX = new RegExp(
+  `${PEM_BEGIN}(?:${PEM_BLOCK_TAIL}{0,${PEM_REDACTION_MAX_BODY_LENGTH}}?${PEM_END})?`,
+);
 
 /**
  * True when a `Private Key` match is a complete PEM block — it ends at an
@@ -101,9 +127,7 @@ export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
     // no footer (truncated or streamed partial paste) still matches alone,
     // which ingress blocking relies on. The body is tempered — it never
     // crosses another BEGIN header — so adjacent blocks match separately.
-    regex: new RegExp(
-      `${PEM_BEGIN}(?:(?:(?!-----BEGIN)[\\s\\S])*?${PEM_END})?`,
-    ),
+    regex: new RegExp(`${PEM_BEGIN}(?:${PEM_BLOCK_TAIL}*?${PEM_END})?`),
   },
 
   // -- AWS --
@@ -202,18 +226,20 @@ export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
 ];
 
 /**
- * {@link PREFIX_PATTERNS} variant for detect/redact-only consumers (log
- * serializers, the tool-output scanner). Identical to `PREFIX_PATTERNS` except
- * the private-key entry matches the PEM header alone
- * ({@link PRIVATE_KEY_HEADER_REGEX}): those consumers only DETECT or REDACT a
- * private key — they never store or rewrite the block — so they route here to
- * avoid the whole-block matcher's O(n²) worst case on large serialized strings.
- * `detectSecretsInText` (chat) uses `PREFIX_PATTERNS` for full-block capture.
+ * {@link PREFIX_PATTERNS} variant for detect-AND-redact consumers (log
+ * serializers, the tool-output scanner, staged-export rewrite). Identical to
+ * `PREFIX_PATTERNS` except the private-key entry uses the length-BOUNDED
+ * whole-block matcher ({@link PRIVATE_KEY_REDACTION_REGEX}): those consumers
+ * replace the matched span in place, so the match must cover the whole key
+ * (header → body → footer) or the body leaks — but they route to the bounded
+ * matcher to avoid the unbounded whole-block matcher's O(n²) worst case on
+ * large serialized strings. `detectSecretsInText` (chat) uses `PREFIX_PATTERNS`
+ * for unbounded full-block capture.
  */
 export const REDACTION_PREFIX_PATTERNS: SecretPrefixPattern[] =
   PREFIX_PATTERNS.map((p) =>
     p.label === PRIVATE_KEY_LABEL
-      ? { label: PRIVATE_KEY_LABEL, regex: PRIVATE_KEY_HEADER_REGEX }
+      ? { label: PRIVATE_KEY_LABEL, regex: PRIVATE_KEY_REDACTION_REGEX }
       : p,
   );
 

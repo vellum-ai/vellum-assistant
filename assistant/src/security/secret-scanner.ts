@@ -71,11 +71,12 @@ function derivePluginScannerPattern(p: SecretPrefixPattern): SecretPattern {
   };
 }
 
-// Static patterns derived from the shared source of truth. The scanner detects
-// and redacts but never stores or rewrites a private key, so it uses the
-// header-only private-key matcher (via REDACTION_PREFIX_PATTERNS) — the
-// whole-block redaction the chat-persist path needs is handled by
-// candidate protection running before this scanner.
+// Static patterns derived from the shared source of truth. This scanner
+// redacts by replacing the matched span in place, so it uses the bounded
+// whole-block private-key matcher (via REDACTION_PREFIX_PATTERNS): the match
+// must cover header → body → footer or the key body would survive redaction.
+// The bound keeps it O(n) on large serialized strings; `detectSecretsInText`
+// (chat) keeps the unbounded whole-block matcher for full-key capture.
 const PREFIX_DERIVED: SecretPattern[] =
   REDACTION_PREFIX_PATTERNS.map(deriveScannerPattern);
 
