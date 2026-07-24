@@ -56,6 +56,13 @@ interface WakeConversationProbe {
      * system prompt before `agentLoop.run()`.
      */
     personaOverride?: unknown;
+    /**
+     * The immutable billing-origin `usageOriginSnapshot` forwarded on the run
+     * config — the wake path must build it from the live conversation (via
+     * `buildTurnUsageOriginSnapshot`) so scheduled / retrospective / background
+     * wakes send the same `X-Vellum-*` headers a normal turn does.
+     */
+    usageOriginSnapshot?: unknown;
     order: number;
   }>;
   /** Every `setProcessing` value, in call order. */
@@ -187,7 +194,9 @@ mock.module("../assistant-event-hub.js", () => ({
     const probe = frame.conversationId
       ? wakeConvRegistry.get(frame.conversationId)
       : undefined;
-    if (!probe) return;
+    if (!probe) {
+      return;
+    }
     if (frame.type === "ui_surface_show") {
       const source = (
         frame.data as
@@ -331,6 +340,37 @@ mock.module("../../persistence/llm-request-log-store.js", () => ({
     return "log-id-test";
   },
   backfillMessageIdOnLogs: () => {},
+}));
+
+// Stub the DB-backed billing-origin snapshot assembly (it counts real user
+// turns via `countRealUserTurns`, which needs a live SQLite DB these unit
+// tests don't set up). Records its call args and returns a fixed sentinel so
+// tests can assert the wake builds the snapshot from the live conversation and
+// forwards it verbatim onto `agentLoop.run`.
+const buildTurnUsageOriginSnapshotCalls: Array<{
+  conversationId: string;
+  callSite: string | null;
+}> = [];
+const SENTINEL_USAGE_ORIGIN_SNAPSHOT = {
+  conversationType: "background",
+  conversationSource: "memory-retrospective",
+  workOrigin: "delegated_child",
+  conversationId: "sentinel-conv",
+  turnIndex: 2,
+  parentConversationId: "sentinel-parent",
+  parentTurnIndex: 5,
+};
+mock.module("../../usage/usage-origin-snapshot.js", () => ({
+  buildTurnUsageOriginSnapshot: (
+    conversation: { conversationId: string },
+    callSite: string | null,
+  ) => {
+    buildTurnUsageOriginSnapshotCalls.push({
+      conversationId: conversation.conversationId,
+      callSite,
+    });
+    return SENTINEL_USAGE_ORIGIN_SNAPSHOT;
+  },
 }));
 
 import type {
@@ -512,6 +552,7 @@ function makeWakeConversation(options: {
           trust: options.trust,
           allowedTools: snapshotAllowedTools(),
           personaOverride: wakePersonaOverride,
+          usageOriginSnapshot: options.usageOriginSnapshot,
           order: order++,
         });
         return runBody(input, onEvent, options);
@@ -606,6 +647,7 @@ beforeEach(() => {
   wakeConvRegistry.clear();
   recordRequestLogCalls.length = 0;
   recordUsageCalls.length = 0;
+  buildTurnUsageOriginSnapshotCalls.length = 0;
   publishMessagesChangedCalls.length = 0;
   mockGetOrCreateConversationCalls.length = 0;
   mockResolverTarget = null;
@@ -646,6 +688,35 @@ describe("wakeAgentForOpportunity", () => {
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
     expect(conversation.runCalls).toHaveLength(1);
+  });
+
+  test("forwards a billing-origin usageOriginSnapshot built from the live conversation onto agentLoop.run", async () => {
+    const conversation = makeWakeConversation({
+      conversationId: "retro-fork-1",
+      scriptedAssistant: null,
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "retrospective",
+        source: "memory-retrospective",
+        callSite: "memoryRetrospective",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(conversation.runCalls).toHaveLength(1);
+    // The wake built the snapshot from THIS conversation and the resolved call
+    // site, then forwarded the exact snapshot onto the run config — so the
+    // managed proxy sends the same X-Vellum-* headers a normal turn would.
+    expect(buildTurnUsageOriginSnapshotCalls).toEqual([
+      { conversationId: "retro-fork-1", callSite: "memoryRetrospective" },
+    ]);
+    expect(conversation.runCalls[0]!.usageOriginSnapshot).toBe(
+      SENTINEL_USAGE_ORIGIN_SNAPSHOT,
+    );
   });
 
   test("blocks background wakes during disk pressure before marking processing", async () => {
