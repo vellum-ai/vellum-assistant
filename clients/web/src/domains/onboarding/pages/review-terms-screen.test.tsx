@@ -115,6 +115,7 @@ const { ReviewTermsScreen } = await import(
 );
 
 const TOS_LABEL = "I agree to the Terms of Service";
+const PRIVACY_LABEL = "I agree to the Privacy and AI Data Sharing Policy";
 const AI_LABEL = "I agree to the Privacy and AI Data Sharing Policy";
 
 function continueButton(): HTMLButtonElement {
@@ -201,6 +202,25 @@ describe("ReviewTermsScreen", () => {
     const checkedTos = screen.getByLabelText(TOS_LABEL) as HTMLInputElement;
     expect(checkedTos).toBeTruthy();
     expect(checkedTos.checked).toBe(true);
+    expect(continueButton().disabled).toBe(false);
+  });
+
+  test("first consent (nothing ever accepted) shows consent framing, no changelog", () => {
+    // A user who arrived with an assistant but never consented — e.g. via the
+    // bring-your-agent import, which replaces onboarding.
+    tosAccepted = false;
+    privacyConsent = false;
+    const { rerender } = render(<ReviewTermsScreen />);
+
+    expect(screen.getByText("Before You Start")).toBeTruthy();
+    expect(screen.queryByText("Updated terms")).toBeNull();
+    // No "what's changed" notes on a first-time consent — no baseline to diff.
+    expect(screen.queryByText(/what's changed/i)).toBeNull();
+    // Both legal checkboxes gate Continue.
+    expect(continueButton().disabled).toBe(true);
+    fireEvent.click(screen.getByLabelText(TOS_LABEL));
+    fireEvent.click(screen.getByLabelText(PRIVACY_LABEL));
+    rerender(<ReviewTermsScreen />);
     expect(continueButton().disabled).toBe(false);
   });
 

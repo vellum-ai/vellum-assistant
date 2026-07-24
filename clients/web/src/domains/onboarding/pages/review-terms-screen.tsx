@@ -72,17 +72,27 @@ export function ReviewTermsScreen() {
   const showDiagnostics = diagnosticsStaleAtMount || nothingStaleAtMount;
   const onlyTogglesStaleAtMount =
     !nothingStaleAtMount && !tosStaleAtMount && !privacyStaleAtMount;
+  // Both legal docs unaccepted at mount means this user never consented at
+  // all (e.g. arrived with an assistant via the bring-your-agent import,
+  // which replaces onboarding). Present first-time consent framing, not the
+  // "we've updated our terms" re-review framing — there is no baseline to
+  // diff against.
+  const firstConsentAtMount = tosStaleAtMount && privacyStaleAtMount;
 
   const heading = nothingStaleAtMount
     ? "Terms & privacy"
     : onlyTogglesStaleAtMount
       ? "Review your privacy preferences"
-      : "Updated terms";
+      : firstConsentAtMount
+        ? "Before You Start"
+        : "Updated terms";
   const subheading = nothingStaleAtMount
     ? "Review your terms and privacy preferences anytime."
     : onlyTogglesStaleAtMount
       ? "Confirm your privacy preferences to continue."
-      : "We've updated our terms. Please review and accept to continue.";
+      : firstConsentAtMount
+        ? "Review and accept the terms to start using your assistant. You can update your preferences anytime in Settings."
+        : "We've updated our terms. Please review and accept to continue.";
 
   const onContinue = useCallback(() => {
     // Only persist a share toggle when it was actually on screen — a user
@@ -174,8 +184,16 @@ export function ReviewTermsScreen() {
             tosAccepted={tosAccepted}
             onPrivacyChange={setPrivacyConsent}
             onTosChange={setTosAccepted}
-            privacyNotes={showPrivacy ? privacyChangeNotes(PRIVACY_CONSENT_VERSION) : []}
-            tosNotes={showTos ? tosChangeNotes(TOS_CONSENT_VERSION) : []}
+            privacyNotes={
+              showPrivacy && !firstConsentAtMount
+                ? privacyChangeNotes(PRIVACY_CONSENT_VERSION)
+                : []
+            }
+            tosNotes={
+              showTos && !firstConsentAtMount
+                ? tosChangeNotes(TOS_CONSENT_VERSION)
+                : []
+            }
             className="mt-6 w-full"
             style={{ animation: "fadeInUp 0.5s ease-out 0.36s both" }}
           />

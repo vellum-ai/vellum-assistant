@@ -72,4 +72,10 @@ describe("login flow routing", () => {
     expect(requiresFullPageNavigation("/assistant")).toBe(false);
     expect(requiresFullPageNavigation("/onboarding/privacy")).toBe(false);
   });
+
+  test("requiresFullPageNavigation for the marketing import funnel", () => {
+    // /import is served by the platform Next.js app, not this SPA.
+    expect(requiresFullPageNavigation("/import")).toBe(true);
+    expect(requiresFullPageNavigation("/import?utm_source=hermes")).toBe(true);
+  });
 });
