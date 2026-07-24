@@ -13,26 +13,85 @@ import type {
 } from "@vellumai/assistant-api";
 import { roleCounts } from "@/lib/diagnostics";
 
-/**
- * Serialized size of a message's unified `contentBlocks` projection, in KB
- * (UTF-8 bytes, two-decimal precision). This is the migration's canonical
- * content payload, so its size is the meaningful weight of a row's body.
- */
-function contentBlocksSizeKb(
-  blocks: ConversationContentBlock[] | undefined,
-): number {
-  if (!blocks || blocks.length === 0) {
-    return 0;
-  }
-  const bytes = new TextEncoder().encode(JSON.stringify(blocks)).length;
+interface ContentBlockSizeSummary {
+  contentBlocksKb: number;
+  inlineMediaKb: number;
+  inlineMediaCount: number;
+}
+
+const UTF8_ENCODER = new TextEncoder();
+
+function roundKb(bytes: number): number {
   return Math.round((bytes / 1024) * 100) / 100;
 }
 
+function isAttachmentMetadata(value: unknown): value is object {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    "filename" in value &&
+    "mimeType" in value &&
+    "sizeBytes" in value
+  );
+}
+
+/**
+ * Measures serialized `contentBlocks` after replacing base64 payloads with
+ * empty markers, then adds their ASCII lengths back into the total.
+ */
+function summarizeContentBlockSize(
+  blocks: ConversationContentBlock[] | undefined,
+): ContentBlockSizeSummary {
+  if (!blocks || blocks.length === 0) {
+    return {
+      contentBlocksKb: 0,
+      inlineMediaKb: 0,
+      inlineMediaCount: 0,
+    };
+  }
+
+  let inlineMediaBytes = 0;
+  let inlineMediaCount = 0;
+  const redactInlineMedia = (value: string): string => {
+    inlineMediaBytes += value.length;
+    inlineMediaCount++;
+    return "";
+  };
+  const redacted = JSON.stringify(blocks, function (
+    this: unknown,
+    key,
+    value: unknown,
+  ) {
+    if (key === "imageDataList" && Array.isArray(value)) {
+      return value.map((item) =>
+        typeof item === "string" ? redactInlineMedia(item) : item,
+      );
+    }
+    if (
+      typeof value === "string" &&
+      (key === "imageData" ||
+        (isAttachmentMetadata(this) &&
+          (key === "data" || key === "thumbnailData")))
+    ) {
+      return redactInlineMedia(value);
+    }
+    return value;
+  });
+  const redactedBytes = UTF8_ENCODER.encode(redacted).length;
+  return {
+    contentBlocksKb: roundKb(redactedBytes + inlineMediaBytes),
+    inlineMediaKb: roundKb(inlineMediaBytes),
+    inlineMediaCount,
+  };
+}
+
 export function summarizeDisplayMessage(message: DisplayMessage): Record<string, unknown> {
+  const contentBlockSize = summarizeContentBlockSize(message.contentBlocks);
   return {
     id: message.id,
     role: message.role,
-    contentBlocksKb: contentBlocksSizeKb(message.contentBlocks),
+    ...contentBlockSize,
     timestamp: message.timestamp ?? null,
     queueStatus: message.queueStatus ?? null,
     queuePosition: message.queuePosition ?? null,
@@ -45,10 +104,11 @@ export function summarizeDisplayMessage(message: DisplayMessage): Record<string,
 }
 
 export function summarizeRuntimeMessage(message: ConversationMessage): Record<string, unknown> {
+  const contentBlockSize = summarizeContentBlockSize(message.contentBlocks);
   return {
     id: message.id,
     role: message.role,
-    contentBlocksKb: contentBlocksSizeKb(message.contentBlocks),
+    ...contentBlockSize,
     timestamp: message.timestamp ?? null,
     toolCallCount: message.toolCalls?.length ?? 0,
     surfaceCount: message.surfaces?.length ?? 0,

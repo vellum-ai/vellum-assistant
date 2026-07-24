@@ -18,6 +18,7 @@ import {
 interface CapturedRequest {
   url: string;
   init: RequestInit | undefined;
+  signal: AbortSignal | null | undefined;
 }
 
 function makeJsonResponse(
@@ -46,7 +47,8 @@ beforeEach(() => {
         : input instanceof URL
           ? input.toString()
           : input.url;
-    captured.push({ url, init });
+    const signal = input instanceof Request ? input.signal : init?.signal;
+    captured.push({ url, init, signal });
     if (!nextResponse) {
       throw new Error("test setup forgot to set nextResponse");
     }
@@ -95,6 +97,33 @@ describe("fetchLatestHistoryPage URL construction", () => {
     const url = new URL(captured[0]!.url, "http://localhost");
     expect(url.searchParams.get("limit")).toBe("25");
   });
+
+  test("threads an AbortSignal into the history request", async () => {
+    const controller = new AbortController();
+    const abortReason = new DOMException("Obsolete history", "AbortError");
+    nextResponse = new Promise<Response>((_resolve, reject) => {
+      controller.signal.addEventListener(
+        "abort",
+        () => reject(abortReason),
+        { once: true },
+      );
+    });
+
+    const pending = fetchLatestHistoryPage(
+      "asst-1",
+      "K",
+      undefined,
+      controller.signal,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.signal?.aborted).toBe(false);
+    controller.abort(abortReason);
+
+    await expect(pending).rejects.toBe(abortReason);
+    expect(captured[0]!.signal?.aborted).toBe(true);
+  });
 });
 
 describe("fetchOlderHistoryPage URL construction", () => {
@@ -130,6 +159,28 @@ describe("fetchOlderHistoryPage URL construction", () => {
 
     const url = new URL(captured[0]!.url, "http://localhost");
     expect(url.searchParams.get("limit")).toBe("10");
+  });
+
+  test("threads an AbortSignal into an older-page request", async () => {
+    const controller = new AbortController();
+    nextResponse = makeJsonResponse({
+      messages: [],
+      hasMore: false,
+      oldestTimestamp: null,
+      oldestMessageId: null,
+    });
+
+    await fetchOlderHistoryPage(
+      "asst-1",
+      "K",
+      1_700_000_000_000,
+      undefined,
+      controller.signal,
+    );
+
+    expect(captured[0]!.signal?.aborted).toBe(false);
+    controller.abort();
+    expect(captured[0]!.signal?.aborted).toBe(true);
   });
 });
 
