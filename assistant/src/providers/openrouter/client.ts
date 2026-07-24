@@ -6,6 +6,7 @@ import {
 } from "../anthropic-gateway-shared.js";
 import {
   modelEffortCeilings,
+  modelOpenrouterPreferredUpstreams,
   PROMPT_CACHE_BREAKPOINT_MODEL_IDS,
 } from "../model-catalog.js";
 import {
@@ -13,7 +14,10 @@ import {
   EFFORT_TO_REASONING_EFFORT,
   OpenAIChatCompletionsProvider,
 } from "../openai/chat-completions-provider.js";
-import { OpenAIResponsesProvider } from "../openai/responses-provider.js";
+import {
+  OpenAIResponsesProvider,
+  type OpenAIResponsesProviderOptions,
+} from "../openai/responses-provider.js";
 import { isThinkingConfigEnabled } from "../thinking-config.js";
 import type {
   Message,
@@ -35,6 +39,17 @@ const OPENROUTER_APP_ATTRIBUTION_HEADERS = {
 };
 
 const OPENROUTER_MODEL_EFFORT_CEILINGS = modelEffortCeilings("openrouter");
+const OPENROUTER_MODEL_PREFERRED_UPSTREAMS =
+  modelOpenrouterPreferredUpstreams("openrouter");
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(
+    (x): x is string => typeof x === "string" && x.length > 0,
+  );
+}
 
 /**
  * Extract the normalized `openrouter.only` list from a per-call config. Returns
@@ -44,9 +59,113 @@ const OPENROUTER_MODEL_EFFORT_CEILINGS = modelEffortCeilings("openrouter");
  */
 export function extractOnlyList(config: unknown): string[] {
   const cfg = config as { openrouter?: { only?: unknown } } | undefined;
-  const only = cfg?.openrouter?.only;
-  if (!Array.isArray(only)) return [];
-  return only.filter((x): x is string => typeof x === "string" && x.length > 0);
+  return normalizeStringList(cfg?.openrouter?.only);
+}
+
+/**
+ * Extract the normalized `openrouter.order` list — the upstream providers to
+ * try first — from a per-call config. Empty when absent or malformed. Exported
+ * for tests.
+ */
+export function extractOrderList(config: unknown): string[] {
+  const cfg = config as { openrouter?: { order?: unknown } } | undefined;
+  return normalizeStringList(cfg?.openrouter?.order);
+}
+
+/**
+ * Extract the `openrouter.allowFallbacks` toggle from a per-call config, or
+ * `undefined` when unset. Serialized as OpenRouter's snake_case
+ * `allow_fallbacks` on the wire. Exported for tests.
+ */
+export function extractAllowFallbacks(config: unknown): boolean | undefined {
+  const cfg = config as
+    | { openrouter?: { allowFallbacks?: unknown } }
+    | undefined;
+  const allow = cfg?.openrouter?.allowFallbacks;
+  return typeof allow === "boolean" ? allow : undefined;
+}
+
+/** Resolve the effective model for a call, honoring a per-call `model` override. */
+export function resolveOpenRouterEffectiveModel(
+  config: unknown,
+  fallbackModel: string,
+): string {
+  const cfg = config as { model?: unknown } | undefined;
+  const override =
+    typeof cfg?.model === "string" && cfg.model.trim().length > 0
+      ? cfg.model.trim()
+      : undefined;
+  return override ?? fallbackModel;
+}
+
+// OpenRouter provider-preferences keys that themselves express a routing
+// priority (which upstream is tried first). When a caller supplies one of
+// these directly on `config.provider`, they have already stated an explicit
+// routing intent, so the catalog default `order` must not be injected on top —
+// doing so would override an explicit `provider.order` or fight an explicit
+// `provider.sort`. A bare `only` allowlist is NOT a priority key: it restricts
+// which upstreams are eligible but states no preference among them, so the
+// catalog default still applies. See OpenRouter's provider-routing docs
+// (https://openrouter.ai/docs/features/provider-routing).
+const PROVIDER_ROUTING_PRIORITY_KEYS = ["order", "sort"] as const;
+
+function providerHasRoutingPriority(
+  provider: Record<string, unknown>,
+): boolean {
+  return PROVIDER_ROUTING_PRIORITY_KEYS.some(
+    (key) => provider[key] !== undefined,
+  );
+}
+
+/**
+ * Build OpenRouter's `provider` routing body object from a per-call config and
+ * the effective model. Composes any caller-set `provider` fields with
+ * `openrouter.only` (upstream allowlist), `openrouter.order` (upstream
+ * preference — defaulting from the model catalog's `openrouterPreferredUpstreams`
+ * when neither `openrouter.order` nor an explicit caller `provider` routing
+ * priority is present), and `openrouter.allowFallbacks` (serialized as
+ * OpenRouter's snake_case `allow_fallbacks`). Explicit caller routing always
+ * wins: a caller-supplied `provider.order` or `provider.sort` suppresses the
+ * catalog default order (a bare `provider.only` allowlist does not). Returns
+ * `undefined` when nothing applies so callers can omit the field entirely.
+ * Exported for tests.
+ */
+export function buildOpenRouterProviderField(
+  config: unknown,
+  effectiveModel: string,
+): Record<string, unknown> | undefined {
+  const only = extractOnlyList(config);
+  const configOrder = extractOrderList(config);
+  const allowFallbacks = extractAllowFallbacks(config);
+
+  const existingProvider = ((config as Record<string, unknown> | undefined)
+    ?.provider ?? {}) as Record<string, unknown>;
+
+  // The catalog default order is a fallback, applied only when the caller has
+  // stated no routing priority of their own — neither `openrouter.order` nor an
+  // explicit `provider.{order,sort}`.
+  const order =
+    configOrder.length > 0
+      ? configOrder
+      : providerHasRoutingPriority(existingProvider)
+        ? []
+        : [...(OPENROUTER_MODEL_PREFERRED_UPSTREAMS.get(effectiveModel) ?? [])];
+
+  const provider: Record<string, unknown> = { ...existingProvider };
+  let hasField = Object.keys(existingProvider).length > 0;
+  if (only.length > 0) {
+    provider.only = only;
+    hasField = true;
+  }
+  if (order.length > 0) {
+    provider.order = order;
+    hasField = true;
+  }
+  if (allowFallbacks !== undefined) {
+    provider.allow_fallbacks = allowFallbacks;
+    hasField = true;
+  }
+  return hasField ? provider : undefined;
 }
 
 // OpenRouter's `reasoning.summary` field controls whether reasoning models emit
@@ -70,7 +189,7 @@ function extractReasoningSummaryOverride(config: unknown): string | undefined {
 
 /**
  * Rewrite `options.config` for the Anthropic-compat path so OpenRouter's
- * `provider: { only: [...] }` body field travels through `AnthropicProvider`'s
+ * `provider` routing body field travels through `AnthropicProvider`'s
  * `...restConfig` spread into `Anthropic.MessageStreamParams`. The `openrouter`
  * key itself is removed because Anthropic's JSON parser doesn't know about it
  * — only the translated `provider` field should reach the wire. Safe to inject
@@ -80,39 +199,51 @@ function extractReasoningSummaryOverride(config: unknown): string | undefined {
 export function withOpenRouterBodyExtras(
   options?: SendMessageOptions,
 ): SendMessageOptions | undefined {
-  if (!options?.config) return options;
-  const only = extractOnlyList(options.config);
-  if (only.length === 0) return options;
+  if (!options?.config) {
+    return options;
+  }
+  const effectiveModel = resolveOpenRouterEffectiveModel(options.config, "");
+  const provider = buildOpenRouterProviderField(options.config, effectiveModel);
+  if (provider === undefined) {
+    return options;
+  }
   const { openrouter: _openrouter, ...rest } = options.config as Record<
     string,
     unknown
   >;
-  const existingProvider = (rest.provider ?? {}) as Record<string, unknown>;
   return {
     ...options,
-    config: { ...rest, provider: { ...existingProvider, only } },
+    config: { ...rest, provider },
   };
 }
 
 /**
  * Responses-API delegate for OpenRouter `openai/*` models with explicit
  * prompt caching. Extends the OpenAI Responses transport with OpenRouter's
- * `provider: { only: [...] }` body field — the same translation the
- * chat-completions path performs in `OpenRouterProvider.buildExtraCreateParams`.
- * Exported for tests.
+ * `provider` routing body field — the same translation the chat-completions
+ * path performs in `OpenRouterProvider.buildExtraCreateParams`. Exported for
+ * tests.
  */
 export class OpenRouterResponsesProvider extends OpenAIResponsesProvider {
+  private readonly routingModel: string;
+
+  constructor(
+    apiKey: string,
+    model: string,
+    options: OpenAIResponsesProviderOptions = {},
+  ) {
+    super(apiKey, model, options);
+    this.routingModel = model;
+  }
+
   protected override buildExtraCreateParams(
     options?: SendMessageOptions,
   ): Record<string, unknown> {
-    const only = extractOnlyList(options?.config);
-    if (only.length === 0) {
-      return {};
-    }
-    const existingProvider = ((
-      options?.config as Record<string, unknown> | undefined
-    )?.provider ?? {}) as Record<string, unknown>;
-    return { provider: { ...existingProvider, only } };
+    const provider = buildOpenRouterProviderField(
+      options?.config,
+      resolveOpenRouterEffectiveModel(options?.config, this.routingModel),
+    );
+    return provider === undefined ? {} : { provider };
   }
 }
 
@@ -224,13 +355,12 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
       reasoning.summary = summaryOverride ?? "detailed";
       extras.reasoning = reasoning;
     }
-    const only = extractOnlyList(config);
-    if (only.length > 0) {
-      const existingProvider = (config?.provider ?? {}) as Record<
-        string,
-        unknown
-      >;
-      extras.provider = { ...existingProvider, only };
+    const provider = buildOpenRouterProviderField(
+      config,
+      this.resolveEffectiveModel(options),
+    );
+    if (provider !== undefined) {
+      extras.provider = provider;
     }
     return extras;
   }
@@ -248,12 +378,7 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
   }
 
   private resolveEffectiveModel(options?: SendMessageOptions): string {
-    const config = options?.config as Record<string, unknown> | undefined;
-    const override =
-      typeof config?.model === "string" && config.model.trim().length > 0
-        ? config.model.trim()
-        : undefined;
-    return override ?? this.defaultModel;
+    return resolveOpenRouterEffectiveModel(options?.config, this.defaultModel);
   }
 
   private getAnthropicInner(): AnthropicProvider {

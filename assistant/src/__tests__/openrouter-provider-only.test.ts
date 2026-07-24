@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildOpenRouterProviderField,
+  extractAllowFallbacks,
   extractOnlyList,
+  extractOrderList,
   OpenRouterProvider,
   withOpenRouterBodyExtras,
 } from "../providers/openrouter/client.js";
@@ -37,6 +40,138 @@ describe("OpenRouter provider.only plumbing", () => {
       expect(extractOnlyList({ openrouter: { only: "Anthropic" } })).toEqual(
         [],
       );
+    });
+  });
+
+  describe("extractOrderList", () => {
+    test("returns the list when present and well-formed", () => {
+      expect(
+        extractOrderList({ openrouter: { order: ["deepseek", "fireworks"] } }),
+      ).toEqual(["deepseek", "fireworks"]);
+    });
+
+    test("filters empty strings and non-strings", () => {
+      expect(
+        extractOrderList({
+          openrouter: { order: ["deepseek", "", 7, null, "together"] },
+        }),
+      ).toEqual(["deepseek", "together"]);
+    });
+
+    test("returns [] when openrouter/order is absent or malformed", () => {
+      expect(extractOrderList(undefined)).toEqual([]);
+      expect(extractOrderList({ openrouter: {} })).toEqual([]);
+      expect(extractOrderList({ openrouter: { order: "deepseek" } })).toEqual(
+        [],
+      );
+    });
+  });
+
+  describe("extractAllowFallbacks", () => {
+    test("returns the boolean when set", () => {
+      expect(
+        extractAllowFallbacks({ openrouter: { allowFallbacks: false } }),
+      ).toBe(false);
+      expect(
+        extractAllowFallbacks({ openrouter: { allowFallbacks: true } }),
+      ).toBe(true);
+    });
+
+    test("returns undefined when absent or non-boolean", () => {
+      expect(extractAllowFallbacks(undefined)).toBeUndefined();
+      expect(extractAllowFallbacks({ openrouter: {} })).toBeUndefined();
+      expect(
+        extractAllowFallbacks({ openrouter: { allowFallbacks: "false" } }),
+      ).toBeUndefined();
+    });
+  });
+
+  describe("buildOpenRouterProviderField", () => {
+    test("defaults order from the catalog for a deepseek model with no config order", () => {
+      expect(
+        buildOpenRouterProviderField({}, "deepseek/deepseek-v4-flash"),
+      ).toEqual({ order: ["deepseek"] });
+    });
+
+    test("config order overrides the catalog default", () => {
+      expect(
+        buildOpenRouterProviderField(
+          { openrouter: { order: ["fireworks"] } },
+          "deepseek/deepseek-v4-flash",
+        ),
+      ).toEqual({ order: ["fireworks"] });
+    });
+
+    test("no default order for a non-deepseek model", () => {
+      expect(
+        buildOpenRouterProviderField({}, "x-ai/grok-4.20"),
+      ).toBeUndefined();
+    });
+
+    test("serializes allow_fallbacks as snake_case only when set", () => {
+      expect(
+        buildOpenRouterProviderField(
+          { openrouter: { allowFallbacks: false } },
+          "deepseek/deepseek-v4-flash",
+        ),
+      ).toEqual({ order: ["deepseek"], allow_fallbacks: false });
+      const withoutFlag = buildOpenRouterProviderField(
+        {},
+        "deepseek/deepseek-v4-flash",
+      );
+      expect(withoutFlag).not.toHaveProperty("allow_fallbacks");
+    });
+
+    test("only composes with the catalog default order", () => {
+      expect(
+        buildOpenRouterProviderField(
+          { openrouter: { only: ["DeepSeek"] } },
+          "deepseek/deepseek-v4-flash",
+        ),
+      ).toEqual({ only: ["DeepSeek"], order: ["deepseek"] });
+    });
+
+    test("a caller-set provider.sort suppresses the catalog default order", () => {
+      // An explicit routing-priority strategy (`sort`) is the caller's stated
+      // intent; injecting the catalog default `order` alongside it would fight
+      // that choice.
+      expect(
+        buildOpenRouterProviderField(
+          { provider: { sort: "throughput" } },
+          "deepseek/deepseek-v4-flash",
+        ),
+      ).toEqual({ sort: "throughput" });
+    });
+
+    test("a caller-set provider.order suppresses the catalog default order", () => {
+      expect(
+        buildOpenRouterProviderField(
+          { provider: { order: ["fireworks"] } },
+          "deepseek/deepseek-v4-flash",
+        ),
+      ).toEqual({ order: ["fireworks"] });
+    });
+
+    test("a bare caller-set provider.only does not suppress the catalog default order", () => {
+      // `only` is an allowlist, not a routing priority, so the catalog default
+      // still fills the preference among the allowed upstreams.
+      expect(
+        buildOpenRouterProviderField(
+          { provider: { only: ["deepseek"] } },
+          "deepseek/deepseek-v4-flash",
+        ),
+      ).toEqual({ only: ["deepseek"], order: ["deepseek"] });
+    });
+
+    test("does not mutate the shared catalog default array across calls", () => {
+      const first = buildOpenRouterProviderField(
+        {},
+        "deepseek/deepseek-v4-flash",
+      );
+      (first?.order as string[]).push("mutated");
+      expect(
+        buildOpenRouterProviderField({}, "deepseek/deepseek-v4-flash"),
+      ).toEqual({ order: ["deepseek"] });
     });
   });
 
@@ -229,6 +364,76 @@ describe("OpenRouter provider.only plumbing", () => {
       expect(extras).toEqual({
         reasoning: { enabled: true, summary: "detailed" },
       });
+    });
+
+    test("defaults provider.order from the catalog for a deepseek model", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "deepseek/deepseek-v4-flash",
+      );
+      const extras = provider.probeExtras({ config: {} });
+      expect(extras).toEqual({ provider: { order: ["deepseek"] } });
+    });
+
+    test("config order overrides the catalog default for a deepseek model", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "deepseek/deepseek-v4-flash",
+      );
+      const extras = provider.probeExtras({
+        config: { openrouter: { order: ["fireworks"] } },
+      });
+      expect(extras).toEqual({ provider: { order: ["fireworks"] } });
+    });
+
+    test("deepseek default order composes with only and reasoning", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "deepseek/deepseek-v4-pro",
+      );
+      const extras = provider.probeExtras({
+        config: {
+          thinking: { enabled: true },
+          openrouter: { only: ["DeepSeek"] },
+        },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, summary: "detailed" },
+        provider: { only: ["DeepSeek"], order: ["deepseek"] },
+      });
+    });
+
+    test("serializes allow_fallbacks as snake_case for a deepseek model", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "deepseek/deepseek-v4-flash",
+      );
+      const extras = provider.probeExtras({
+        config: { openrouter: { allowFallbacks: false } },
+      });
+      expect(extras).toEqual({
+        provider: { order: ["deepseek"], allow_fallbacks: false },
+      });
+    });
+
+    test("no default order for a non-deepseek model", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "x-ai/grok-4.20",
+      );
+      const extras = provider.probeExtras({ config: {} });
+      expect(extras).toEqual({});
+    });
+
+    test("keys the catalog default order off a per-call model override", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "x-ai/grok-4.20",
+      );
+      const extras = provider.probeExtras({
+        config: { model: "deepseek/deepseek-v4-flash" },
+      });
+      expect(extras).toEqual({ provider: { order: ["deepseek"] } });
     });
   });
 

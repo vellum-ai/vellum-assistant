@@ -841,7 +841,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         maxAttempts: 4,
       },
     });
-    expect(savedProfile.openrouter).toEqual({ only: ["anthropic"] });
+    expect(savedProfile.openrouter).toEqual({ only: ["anthropic"], order: [] });
   });
 
   test("writes only the replacement contextWindow maxInputTokens override", async () => {
@@ -876,7 +876,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         maxAttempts: 4,
       },
     });
-    expect(savedProfile.openrouter).toEqual({ only: ["anthropic"] });
+    expect(savedProfile.openrouter).toEqual({ only: ["anthropic"], order: [] });
   });
 
   test("writes provider_connection when present in body", async () => {

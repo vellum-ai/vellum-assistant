@@ -364,21 +364,29 @@ const ContextWindowDeepPartialSchema = z
 // OpenRouter provider-routing preferences
 //
 // OpenRouter's `/v1/chat/completions` and `/v1/messages` endpoints both accept
-// a `provider: { only: [...] }` body field that restricts which upstream
-// providers (Anthropic, Google, etc.) may fulfill a request. Exposed here so
-// users can pin routing via config without touching the wire-format knobs
-// directly. Nested shape keeps room for sibling OpenRouter knobs (`order`,
-// `allow_fallbacks`, …) to be added later without another schema reshape.
+// a `provider` body object of routing knobs. `only` restricts which upstream
+// providers (Anthropic, Google, etc.) may fulfill a request. `order` lists
+// upstream slugs to try first, in order, before OpenRouter's default load
+// balancing; pinning the order restores prefix-cache affinity for models whose
+// upstreams each keep an independent cache. `allowFallbacks` toggles whether
+// OpenRouter may fall back to upstreams outside the preferred set (default: it
+// may). Exposed here so users can pin routing via config without touching the
+// wire-format knobs directly. `allowFallbacks` is camelCase in config and
+// serialized as OpenRouter's snake_case `allow_fallbacks` on the wire.
 // ---------------------------------------------------------------------------
 
-const OpenRouterOnlyItemSchema = z.string().min(1);
+const OpenRouterProviderItemSchema = z.string().min(1);
 
 const OpenRouterSchema = z.object({
-  only: z.array(OpenRouterOnlyItemSchema).default([]),
+  only: z.array(OpenRouterProviderItemSchema).default([]),
+  order: z.array(OpenRouterProviderItemSchema).default([]),
+  allowFallbacks: z.boolean().optional(),
 });
 
 const OpenRouterDeepPartialSchema = z.object({
-  only: z.array(OpenRouterOnlyItemSchema).optional(),
+  only: z.array(OpenRouterProviderItemSchema).optional(),
+  order: z.array(OpenRouterProviderItemSchema).optional(),
+  allowFallbacks: z.boolean().optional(),
 });
 
 // ---------------------------------------------------------------------------
