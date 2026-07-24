@@ -184,10 +184,14 @@ describe("VellumManagedRealtimeTranscriber", () => {
     );
     sockets[0]!.simulateClose(1011, "insufficient_balance");
 
+    // Its own category, not `provider-error`: the live-voice session treats
+    // provider errors as recoverable and would suppress this, leaving a
+    // hands-free call listening forever against a relay that can never
+    // transcribe again.
     expect(events).toEqual([
       expect.objectContaining({
         type: "error",
-        category: "provider-error",
+        category: "credits-exhausted",
         message: expect.stringContaining("credits"),
       }),
       { type: "closed" },
@@ -292,7 +296,7 @@ describe("VellumManagedRealtimeTranscriber", () => {
     expect(events).toEqual([
       expect.objectContaining({
         type: "error",
-        category: "provider-error",
+        category: "credits-exhausted",
         message: expect.stringContaining("credits"),
       }),
       { type: "closed" },
