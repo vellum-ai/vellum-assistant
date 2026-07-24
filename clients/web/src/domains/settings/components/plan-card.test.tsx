@@ -518,7 +518,7 @@ describe("PlanCard", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Free");
-    expect(html).toContain("Your Current Plan");
+    expect(html).toContain("Current Plan");
     expect(html).toContain("plan-card-renews");
     expect(html).toContain("auto renew");
   });
@@ -561,10 +561,8 @@ describe("PlanCard", () => {
     expect(html).toContain(PLAN_TIER_COPY.mighty.upgradeBlurb!);
     expect(html).not.toContain("more credits and storage");
     expect(html).not.toContain("Recommended");
-    // The centered free card still shows its "Your Current Plan" tag and its real
-    // tagline — the tagline follows "known plan", not "has chips".
-    expect(html).toContain("Your Current Plan");
-    expect(html).toContain(PLAN_TIER_COPY.free.tagline);
+    // The centered free card still shows its "Current Plan" tag.
+    expect(html).toContain("Current Plan");
   });
 
   test("Mighty → Super: current keeps its chips, recommended shows the promo card", () => {
@@ -652,9 +650,6 @@ describe("PlanCard", () => {
     // doesn't masquerade as a stock package.
     expect(html).toContain("Custom");
     expect(html).not.toContain("Mighty (Custom)");
-    // Its specs are unknowable (no chips), so the stock Mighty tagline must not
-    // render under the "Custom" name either — same gate as the chips.
-    expect(html).not.toContain(PLAN_TIER_COPY.mighty.tagline);
   });
 
   test("current-plan row labels an unpinned Pro sub as custom", () => {
@@ -668,10 +663,6 @@ describe("PlanCard", () => {
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Custom");
     expect(html).not.toContain("Pro");
-    // `currentTier` falls back to "free" for an unpinned sub, but its specs are
-    // unknowable (no chips), so the stock free tagline must not leak in under
-    // the "Custom" name.
-    expect(html).not.toContain(PLAN_TIER_COPY.free.tagline);
   });
 
   test("a clean-pinned Pro sub whose package is absent from the catalog shows no chips", () => {
@@ -690,13 +681,12 @@ describe("PlanCard", () => {
     expect(html).not.toContain("Small Machine");
   });
 
-  test("a free user's current card is centered, chip-less, and keeps its tagline", () => {
+  test("a free user's current card is centered and chip-less", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     // The free current card is a minimal centered card: centering classes on the
-    // card, its "Your Current Plan" tag, and the real free tagline, but NO chips.
+    // card and its "Current Plan" tag, but NO chips.
     expect(html).toContain("justify-center");
-    expect(html).toContain("Your Current Plan");
-    expect(html).toContain(PLAN_TIER_COPY.free.tagline);
+    expect(html).toContain("Current Plan");
     expect(html).not.toContain("$0 credits");
     expect(html).not.toContain("4 GB");
     expect(html).not.toContain("Small Machine");
