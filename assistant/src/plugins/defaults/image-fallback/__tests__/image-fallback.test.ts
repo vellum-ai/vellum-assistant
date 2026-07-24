@@ -28,6 +28,10 @@ import { lastToolResultUserMessageIndex } from "../../../../context/outbound-san
 let visionProfiles: Set<string>;
 let visionModels: Set<string>;
 let mockProfiles: ModelProfileInfo[];
+// Resolved input-token price ($/1M) per profile key, controlling how
+// `findVisionProfile` ranks vision-capable profiles. A key absent from the map
+// reads as unknown price (ranked after every priced profile).
+let profilePrices: Map<string, number>;
 let sendMessageResponse = {
   content: [{ type: "text", text: "A red chart showing Q3 revenue." }],
 };
@@ -56,6 +60,10 @@ mock.module("@vellumai/plugin-api", () => ({
       ? visionModels.has(arg)
       : visionProfiles.has(arg.key),
   getModelProfiles: () => mockProfiles,
+  getProfileInputTokenPrice: (arg: ModelProfileInfo | string) => {
+    const key = typeof arg === "string" ? arg : arg.key;
+    return profilePrices.get(key) ?? null;
+  },
   resolveMediaSourceData: mockResolveMediaSourceData,
   getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
   lastToolResultUserMessageIndex,
@@ -196,6 +204,7 @@ beforeEach(() => {
     profile("text-only", { label: "Text Only", isActive: true }),
     profile("vision-profile", { label: "Vision" }),
   ];
+  profilePrices = new Map<string, number>();
   sendMessageResponse = {
     content: [{ type: "text", text: "A red chart showing Q3 revenue." }],
   };
@@ -425,6 +434,88 @@ describe("findVisionProfile", () => {
   test("returns null when no profiles support vision", () => {
     visionProfiles = new Set<string>();
     expect(findVisionProfile()).toBeNull();
+  });
+
+  test("returns the sole vision profile without consulting pricing", () => {
+    mockProfiles = [
+      profile("text-only", { label: "Text", isActive: true }),
+      profile("only-vision", { label: "Vision" }),
+    ];
+    visionProfiles = new Set(["only-vision"]);
+    // No price known — a single vision profile is returned regardless.
+    profilePrices = new Map<string, number>();
+    expect(findVisionProfile()).toBe("only-vision");
+  });
+
+  test("prefers the cheapest vision-capable profile among several", () => {
+    mockProfiles = [
+      profile("premium-vision", { label: "Premium" }),
+      profile("cheap-vision", { label: "Cheap" }),
+      profile("mid-vision", { label: "Mid" }),
+    ];
+    visionProfiles = new Set(["premium-vision", "cheap-vision", "mid-vision"]);
+    profilePrices = new Map<string, number>([
+      ["premium-vision", 15],
+      ["cheap-vision", 0.8],
+      ["mid-vision", 3],
+    ]);
+    expect(findVisionProfile()).toBe("cheap-vision");
+  });
+
+  test("ranks unknown-price vision profiles after priced ones", () => {
+    mockProfiles = [
+      profile("unknown-first", { label: "Unknown First" }),
+      profile("priced", { label: "Priced" }),
+      profile("unknown-last", { label: "Unknown Last" }),
+    ];
+    visionProfiles = new Set(["unknown-first", "priced", "unknown-last"]);
+    // Only "priced" has a known price; it wins over both unknowns even though
+    // one precedes it in picker order.
+    profilePrices = new Map<string, number>([["priced", 9]]);
+    expect(findVisionProfile()).toBe("priced");
+  });
+
+  test("keeps picker order among unknown-price vision profiles", () => {
+    mockProfiles = [
+      profile("first-vision", { label: "First" }),
+      profile("second-vision", { label: "Second" }),
+    ];
+    visionProfiles = new Set(["first-vision", "second-vision"]);
+    // Every profile is unknown-price, so the first in picker order wins.
+    profilePrices = new Map<string, number>();
+    expect(findVisionProfile()).toBe("first-vision");
+  });
+
+  test("keeps picker order among equally-priced vision profiles", () => {
+    mockProfiles = [
+      profile("vision-a", { label: "A" }),
+      profile("vision-b", { label: "B" }),
+    ];
+    visionProfiles = new Set(["vision-a", "vision-b"]);
+    profilePrices = new Map<string, number>([
+      ["vision-a", 2],
+      ["vision-b", 2],
+    ]);
+    expect(findVisionProfile()).toBe("vision-a");
+  });
+
+  test("never selects a disabled or non-vision profile even when cheaper", () => {
+    mockProfiles = [
+      profile("cheap-disabled-vision", {
+        label: "Cheap Disabled",
+        isDisabled: true,
+      }),
+      profile("cheap-text-only", { label: "Cheap Text" }),
+      profile("enabled-vision", { label: "Enabled Vision" }),
+    ];
+    // Only "enabled-vision" is both enabled and vision-capable.
+    visionProfiles = new Set(["cheap-disabled-vision", "enabled-vision"]);
+    profilePrices = new Map<string, number>([
+      ["cheap-disabled-vision", 0.1],
+      ["cheap-text-only", 0.2],
+      ["enabled-vision", 20],
+    ]);
+    expect(findVisionProfile()).toBe("enabled-vision");
   });
 });
 

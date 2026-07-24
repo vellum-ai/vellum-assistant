@@ -157,6 +157,12 @@ export { getModelProfiles } from "./model-profiles.js";
 // looks up the model catalog's `supportsVision` flag (mix profiles are
 // vision-capable if any arm is). Returns false when nothing resolves.
 export { doesSupportVision } from "./vision-support.js";
+// Input-token price (USD per 1M tokens) of the model a profile resolves to, or
+// null when unknown — an unresolvable profile, an unpriced catalog model, or a
+// "mix" profile with no single model. A plugin choosing among routing-eligible
+// profiles by cost (e.g. the cheapest vision-capable profile for image
+// captioning) ranks on this instead of hardcoding model names.
+export { getProfileInputTokenPrice } from "./profile-pricing.js";
 // Resolve a stored credential to its plaintext value — the same value
 // `assistant credentials reveal` prints — from a UUID or a "service/field"
 // reference. When a plugin is in context, resolution is scoped to credentials

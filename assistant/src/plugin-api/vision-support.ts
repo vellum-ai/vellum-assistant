@@ -18,11 +18,8 @@
 
 import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
-import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
-import {
-  getCatalogProviderForModel,
-  PROVIDER_CATALOG,
-} from "../providers/model-catalog.js";
+import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
+import { resolveEntryCatalogModel } from "./profile-catalog-resolution.js";
 import type { ModelProfileInfo } from "./types.js";
 
 /**
@@ -94,36 +91,13 @@ function profileVision(profileKey: string): boolean | undefined {
 
 /**
  * Resolve whether a concrete (non-mix) profile entry supports vision from its
- * own `(provider, model)`, inferring the provider from the catalog when only
- * the model is set. Returns `undefined` when the effective `(provider, model)`
- * can't be determined or isn't in the catalog — an entry that omits its model
- * is not a usable resolution target, so it fails safe to "caption".
+ * own `(provider, model)`. Returns `undefined` when the entry doesn't resolve
+ * to a known catalog model — an entry that omits its model is not a usable
+ * resolution target, so it fails safe to "caption".
  */
 function resolveEntryVision(entry: {
   provider?: string;
   model?: string;
 }): boolean | undefined {
-  // Routing identities ("vellum"/"chatgpt") are not catalog providers; the
-  // model's catalog owner is the capability source for them.
-  const provider =
-    entry.provider != null && ROUTING_IDENTITY_PROVIDERS.has(entry.provider)
-      ? undefined
-      : entry.provider;
-  const model = entry.model;
-
-  // Infer provider from model when missing (mirrors the resolver's catalog
-  // provider implication).
-  const effectiveProvider =
-    provider ??
-    (typeof model === "string" ? getCatalogProviderForModel(model) : undefined);
-
-  if (typeof effectiveProvider !== "string" || typeof model !== "string") {
-    return undefined;
-  }
-
-  const catalogProvider = PROVIDER_CATALOG.find(
-    (p) => p.id === effectiveProvider,
-  );
-  const catalogModel = catalogProvider?.models.find((m) => m.id === model);
-  return catalogModel?.supportsVision;
+  return resolveEntryCatalogModel(entry)?.supportsVision;
 }

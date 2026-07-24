@@ -12,6 +12,7 @@ import {
   doesSupportVision,
   getConfiguredProvider,
   getModelProfiles,
+  getProfileInputTokenPrice,
   type ImageContent,
   type PluginLogger,
   resolveMediaSourceData,
@@ -34,21 +35,54 @@ const CAPTION_USER_PROMPT =
   "Describe this image concisely for a text-only assistant.";
 
 /**
- * Find a vision-capable, enabled profile key for captioning.
+ * Find a vision-capable, enabled profile key for captioning, preferring the
+ * cheapest.
  *
- * Scans the workspace's profiles in `getModelProfiles()` order (the same order
- * the `/model` picker shows them) and returns the first enabled profile whose
- * resolved model supports vision. Returns `null` when no vision profile exists
- * — the hook fails-open in that case, leaving a placeholder text block.
+ * Collects every enabled profile whose resolved model supports vision, in
+ * `getModelProfiles()` order (the order the `/model` picker shows them), then
+ * returns the one with the lowest resolved input-token price. Any vision model
+ * captions a 1-2 sentence description adequately, so cost is the tiebreak.
+ * Profiles the catalog can't price rank after all priced ones, and equal prices
+ * keep picker order — so a single vision profile, or a set with no known
+ * pricing, is returned exactly as picker order presents it. Returns `null` when
+ * no vision profile exists — the hook fails-open in that case, leaving a
+ * placeholder text block.
  */
 export function findVisionProfile(): string | null {
+  const visionProfileKeys: string[] = [];
   for (const profile of getModelProfiles()) {
-    if (profile.isDisabled) continue;
+    if (profile.isDisabled) {
+      continue;
+    }
     if (doesSupportVision(profile)) {
-      return profile.key;
+      visionProfileKeys.push(profile.key);
     }
   }
-  return null;
+  return cheapestByInputPrice(visionProfileKeys);
+}
+
+/**
+ * Pick the cheapest profile key by resolved input-token price. `profileKeys`
+ * arrives in picker order; unknown-price profiles rank after every priced
+ * profile and, along with equal-priced ones, keep that incoming order. A list
+ * of zero or one key is returned without pricing any profile, so single-profile
+ * selection stays identical to picker order. Returns `null` for an empty list.
+ */
+function cheapestByInputPrice(profileKeys: string[]): string | null {
+  if (profileKeys.length <= 1) {
+    return profileKeys[0] ?? null;
+  }
+  const ranked = profileKeys
+    .map((key, index) => ({
+      key,
+      index,
+      // Unknown price sorts after every known price.
+      price: getProfileInputTokenPrice(key) ?? Number.POSITIVE_INFINITY,
+    }))
+    .sort((a, b) =>
+      a.price !== b.price ? a.price - b.price : a.index - b.index,
+    );
+  return ranked[0].key;
 }
 
 /**
@@ -71,7 +105,9 @@ export async function captionImage(
   // Hash the image's content (resolving a reference source to its bytes, a
   // no-op for inline base64) so the caption cache keys on the image itself.
   const resolved = resolveMediaSourceData(image.source);
-  if (!resolved) return null;
+  if (!resolved) {
+    return null;
+  }
   const hash = imageHash(resolved.data);
   const cached = getCachedCaption(hash, conversationId);
   if (cached !== undefined) {
