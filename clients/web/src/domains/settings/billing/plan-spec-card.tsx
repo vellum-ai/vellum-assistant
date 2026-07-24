@@ -57,16 +57,14 @@ export function PlanSpecCard({
     >
       <div
         className={cn(
-          "flex flex-wrap gap-3",
-          centered
-            ? "items-center justify-center"
-            : "items-start justify-between",
+          "flex items-center gap-3",
+          centered ? "justify-center" : "justify-between",
         )}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <PlanTierAvatar tier={tierKey} />
-          <div className="flex min-w-0 flex-col gap-1">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <Typography
                 as="span"
                 variant="body-large-default"
@@ -92,7 +90,11 @@ export function PlanSpecCard({
       </div>
       {hasSpecs ? (
         <>
-          <div className="h-px w-full bg-[var(--border-base)]" />
+          {/* mt-auto anchors the divider + chips to the bottom of the card, so
+              the chip rows align across the two cards even when one card is
+              taller (e.g. a wrapped tagline) and `items-stretch` stretches the
+              other — matching the mock, where chips sit near the card bottom. */}
+          <div className="mt-auto h-px w-full bg-[var(--border-base)]" />
           <div className="flex flex-wrap items-center gap-2">
             {specs.map((spec) => (
               <SpecChip

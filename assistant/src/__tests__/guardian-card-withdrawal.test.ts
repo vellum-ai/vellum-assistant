@@ -228,6 +228,63 @@ describe("withdrawGuardianRequestCards", () => {
       "Approved",
     );
   });
+
+  test("renders a leave-unverified park neutrally in-app and forwards the action to Slack", async () => {
+    const req = makeRequest({ decidedByExternalUserId: "U-guardian" });
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-1",
+    });
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "slack",
+      destinationChatId: "C1",
+      destinationMessageId: "1.0",
+    });
+
+    await withdrawGuardianRequestCards({
+      request: req,
+      status: "denied",
+      originChannel: "slack",
+      decidedAction: "leave_unverified",
+    });
+
+    // In-app card reads the neutral park label, not "Denied".
+    expect(completeSurfaceAndNotify).toHaveBeenCalledWith(
+      "conv-1",
+      `access-request-${req.id}`,
+      "Left unverified",
+    );
+    // The park action is forwarded so the Slack surface renders it neutrally too.
+    const [params] = withdrawSlackApprovalCard.mock.calls[0];
+    expect(params).toMatchObject({
+      status: "denied",
+      decidedAction: "leave_unverified",
+    });
+  });
+
+  test("a block deny still reads 'Denied' on the in-app card", async () => {
+    const req = makeRequest();
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-1",
+    });
+
+    await withdrawGuardianRequestCards({
+      request: req,
+      status: "denied",
+      originChannel: "slack",
+      decidedAction: "block",
+    });
+
+    expect(completeSurfaceAndNotify).toHaveBeenCalledWith(
+      "conv-1",
+      `access-request-${req.id}`,
+      "Denied",
+    );
+  });
 });
 
 describe("recordApprovalCardDelivery", () => {

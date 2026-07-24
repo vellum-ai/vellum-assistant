@@ -34,9 +34,41 @@ import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("mcp-auth-routes");
+
+// ── Request schemas ─────────────────────────────────────────────────
+//
+// Each schema is declared once and referenced by both the route's
+// `requestBody` (the OpenAPI/wire contract) and the handler's `parseBody`
+// call, so the advertised shape and the validated shape can't drift.
+
+const McpServerIdParams = z.object({ serverId: z.string() });
+
+const McpUpdateParams = z.object({
+  name: z.string(),
+  enabled: z.boolean().optional(),
+  defaultRiskLevel: z.string().optional(),
+  maxTools: z.number().optional(),
+  allowedTools: z.array(z.string()).nullable().optional(),
+  blockedTools: z.array(z.string()).nullable().optional(),
+  headers: z.record(z.string(), z.string()).nullable().optional(),
+});
+
+const McpAddParams = z.object({
+  name: z.string(),
+  transportType: z.string(),
+  url: z.string().optional(),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  risk: z.string().optional(),
+  disabled: z.boolean().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+});
+
+const McpRemoveParams = z.object({ name: z.string() });
 
 async function handleMcpAuthStart({
   body,
@@ -47,7 +79,7 @@ async function handleMcpAuthStart({
   state: string;
   already_authenticated?: boolean;
 }> {
-  const { serverId } = body as { serverId: string };
+  const { serverId } = parseBody(McpServerIdParams, body);
 
   const raw = loadRawConfig();
   const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
@@ -333,15 +365,7 @@ async function handleMcpUpdate({
     allowedTools,
     blockedTools,
     headers,
-  } = body as {
-    name: string;
-    enabled?: boolean;
-    defaultRiskLevel?: string;
-    maxTools?: number;
-    allowedTools?: string[] | null;
-    blockedTools?: string[] | null;
-    headers?: Record<string, string> | null;
-  };
+  } = parseBody(McpUpdateParams, body);
 
   const raw = loadRawConfig();
   const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
@@ -423,16 +447,7 @@ async function handleMcpAdd({
   body?: Record<string, unknown>;
 }): Promise<{ added: true }> {
   const { name, transportType, url, command, args, risk, disabled, headers } =
-    body as {
-      name: string;
-      transportType: string;
-      url?: string;
-      command?: string;
-      args?: string[];
-      risk?: string;
-      disabled?: boolean;
-      headers?: Record<string, string>;
-    };
+    parseBody(McpAddParams, body);
 
   const riskLevel = risk ?? "high";
   if (!["low", "medium", "high"].includes(riskLevel)) {
@@ -507,7 +522,7 @@ async function handleMcpAuthRevoke({
 }: {
   body?: Record<string, unknown>;
 }): Promise<{ revoked: true }> {
-  const { serverId } = body as { serverId: string };
+  const { serverId } = parseBody(McpServerIdParams, body);
 
   const raw = loadRawConfig();
   const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
@@ -545,7 +560,7 @@ async function handleMcpRemove({
 }: {
   body?: Record<string, unknown>;
 }): Promise<{ removed: true }> {
-  const { name } = body as { name: string };
+  const { name } = parseBody(McpRemoveParams, body);
 
   const raw = loadRawConfig();
   const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
@@ -595,7 +610,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Starts a daemon-owned MCP OAuth flow and returns the authorization URL for the CLI to open in the browser.",
     tags: ["internal"],
-    requestBody: z.object({ serverId: z.string() }),
+    requestBody: McpServerIdParams,
     handler: handleMcpAuthStart,
   },
   {
@@ -706,15 +721,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Updates fields on an existing MCP server config entry and triggers a reload.",
     tags: ["internal"],
-    requestBody: z.object({
-      name: z.string(),
-      enabled: z.boolean().optional(),
-      defaultRiskLevel: z.string().optional(),
-      maxTools: z.number().optional(),
-      allowedTools: z.array(z.string()).nullable().optional(),
-      blockedTools: z.array(z.string()).nullable().optional(),
-      headers: z.record(z.string(), z.string()).nullable().optional(),
-    }),
+    requestBody: McpUpdateParams,
     handler: handleMcpUpdate,
   },
   {
@@ -729,16 +736,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Writes a new MCP server entry to config.json and triggers a reload.",
     tags: ["internal"],
-    requestBody: z.object({
-      name: z.string(),
-      transportType: z.string(),
-      url: z.string().optional(),
-      command: z.string().optional(),
-      args: z.array(z.string()).optional(),
-      risk: z.string().optional(),
-      disabled: z.boolean().optional(),
-      headers: z.record(z.string(), z.string()).optional(),
-    }),
+    requestBody: McpAddParams,
     handler: handleMcpAdd,
   },
   {
@@ -753,7 +751,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Deletes stored OAuth tokens for an MCP server and triggers a reload.",
     tags: ["internal"],
-    requestBody: z.object({ serverId: z.string() }),
+    requestBody: McpServerIdParams,
     responseBody: z.object({ revoked: z.boolean() }),
     handler: handleMcpAuthRevoke,
   },
@@ -769,7 +767,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Removes an MCP server from config.json, cleans up OAuth credentials, and triggers a reload.",
     tags: ["internal"],
-    requestBody: z.object({ name: z.string() }),
+    requestBody: McpRemoveParams,
     handler: handleMcpRemove,
   },
 ];

@@ -34,7 +34,8 @@ mock.module("../../permissions/question-prompter.js", () => ({
 
 // Import after the mock so the tool's `import { QuestionPrompter }` binds
 // to the stub class above.
-const { askQuestionTool } = await import("./ask-question-tool.js");
+const { askQuestionTool, formatQuestionsAsTextFallback } =
+  await import("./ask-question-tool.js");
 
 type PromptParams = QuestionPromptParams;
 
@@ -287,6 +288,91 @@ describe("AskQuestionTool.execute", () => {
       makeContext({ signal: ac.signal }),
     );
     expect(calls[0]?.signal).toBe(ac.signal);
+  });
+});
+
+// ── Text fallback on channels without dynamic UI ────────────────────
+
+describe("AskQuestionTool text fallback (supportsDynamicUi === false)", () => {
+  test("returns a formatted text block without ever prompting", async () => {
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({ supportsDynamicUi: false }),
+    );
+
+    // The channel can't render the interactive card, so the prompter must
+    // never be invoked — broadcasting a question_request would reach app
+    // clients but never the channel the turn came from. Instead the model gets
+    // text to relay in its reply, which IS what reaches the channel.
+    expect(calls).toHaveLength(0);
+    expect(result.isError).toBe(false);
+    // Carries the question, both option labels, the option description, and an
+    // instruction to present the question as plain text.
+    expect(result.content).toContain(singleQ.question);
+    expect(result.content).toContain("Apple");
+    expect(result.content).toContain("Banana");
+    expect(result.content).toContain("Ripe");
+    expect(result.content).toContain("Options:");
+    expect(result.content.toLowerCase()).toContain("plain-text");
+  });
+
+  test("still prompts when supportsDynamicUi is true or unset", async () => {
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+
+    // The fallback keys off an explicit `false`; a dynamic-UI channel (true)
+    // and a client that never set the flag (unset) both take the card path.
+    await askQuestionTool.execute(
+      validInput,
+      makeContext({ supportsDynamicUi: true }),
+    );
+    await askQuestionTool.execute(validInput, makeContext());
+
+    expect(calls).toHaveLength(2);
+  });
+
+  test("isInteractive:false short-circuits before the text fallback", async () => {
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({ isInteractive: false, supportsDynamicUi: false }),
+    );
+
+    // No interactive user present wins over the channel fallback: there is no
+    // one to answer at all, so proceed with defaults rather than emitting a
+    // question the turn would never get a reply to.
+    expect(calls).toHaveLength(0);
+    expect(result.content.toLowerCase()).toContain("no interactive user");
+  });
+});
+
+describe("formatQuestionsAsTextFallback", () => {
+  test("renders a single question with un-numbered options by label", () => {
+    const text = formatQuestionsAsTextFallback([singleQ]);
+
+    expect(text).toContain("Question: Which fruit?");
+    expect(text).toContain("Pick one to add to the smoothie.");
+    expect(text).toContain("Options:");
+    expect(text).toContain("- Apple");
+    expect(text).toContain("- Banana — Ripe");
+    // A single question is not numbered.
+    expect(text).not.toContain("Question 1:");
+  });
+
+  test("numbers questions in a multi-question batch", () => {
+    const q2 = {
+      question: "Preferred time?",
+      options: [
+        { id: "morning", label: "Morning" },
+        { id: "afternoon", label: "Afternoon" },
+      ],
+    };
+
+    const text = formatQuestionsAsTextFallback([singleQ, q2]);
+
+    expect(text).toContain("2 questions");
+    expect(text).toContain("Question 1: Which fruit?");
+    expect(text).toContain("Question 2: Preferred time?");
+    expect(text).toContain("- Morning");
+    expect(text).toContain("- Afternoon");
   });
 });
 

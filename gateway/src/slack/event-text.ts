@@ -1,22 +1,5 @@
-import type {
-  SlackAppMentionEvent,
-  SlackChannelMessageEvent,
-  SlackDirectMessageEvent,
-  SlackMessageChangedEvent,
-  SlackMessageDeletedEvent,
-  SlackReactionAddedEvent,
-  SlackReactionRemovedEvent,
-} from "./normalize.js";
-
-/** The Slack event shapes that flow through text extraction. */
-export type SlackTextBearingEvent =
-  | SlackAppMentionEvent
-  | SlackDirectMessageEvent
-  | SlackChannelMessageEvent
-  | SlackMessageChangedEvent
-  | SlackMessageDeletedEvent
-  | SlackReactionAddedEvent
-  | SlackReactionRemovedEvent;
+import type { SlackInboundEvent } from "./envelope.js";
+import { classifySlackEvent } from "./classify-event.js";
 
 /**
  * Extract the user-authored text from a Slack event for mention/channel label
@@ -29,15 +12,21 @@ export type SlackTextBearingEvent =
  * path before the tolerant normalizer ever runs. Returning a string (or
  * undefined) keeps that path crash-safe.
  */
-export function slackEventText(
-  event: SlackTextBearingEvent,
-): string | undefined {
-  const raw =
-    event.type === "message" &&
-    (event as SlackMessageChangedEvent).subtype === "message_changed"
-      ? (event as SlackMessageChangedEvent).message?.text
-      : event.type === "app_mention" || event.type === "message"
-        ? (event as SlackAppMentionEvent | SlackDirectMessageEvent).text
-        : undefined;
+export function slackEventText(event: SlackInboundEvent): string | undefined {
+  const classified = classifySlackEvent(event);
+  let raw: unknown;
+  switch (classified?.kind) {
+    // The edited body lives on the inner `message`, not the top level.
+    case "message_changed":
+      raw = classified.event.message?.text;
+      break;
+    case "app_mention":
+    case "message":
+      raw = classified.event.text;
+      break;
+    // message_deleted / reactions carry no user-authored text to resolve.
+    default:
+      raw = undefined;
+  }
   return typeof raw === "string" ? raw : undefined;
 }

@@ -21,6 +21,19 @@ const SEED: PaginatedHistoryResult = {
   seq: 0,
 };
 
+const queuedSnapshot = (): PaginatedHistoryResult => ({
+  ...SEED,
+  messages: [
+    {
+      id: "req-1",
+      role: "user",
+      queueStatus: "queued",
+      queuePosition: 1,
+    },
+  ],
+  seq: 1,
+});
+
 // `emittedAt` is derived from `seq` so the deterministic creation stamp is
 // `1000 + seq` — the reducer parses it back to that epoch ms.
 function env(seq: number, message: AssistantEvent): AssistantEventEnvelope {
@@ -212,6 +225,74 @@ describe("rolling-snapshot reducer", () => {
       // A stale tail (<= snapshot.seq) folds to nothing.
       const resolved = resolveSnapshot(snapshot, [textDelta(4, "a1", " stale")]);
       expect(resolved.messages.find((m) => m.id === "a1")?.textSegments).toEqual(["x"]);
+    });
+
+    test("reconciles a nonce-less placeholder after an optimistic steer", () => {
+      const dequeued = env(2, {
+        type: "message_dequeued",
+        conversationId: "conv-1",
+        requestId: "req-1",
+      } as AssistantEvent);
+      const snapshot = queuedSnapshot();
+      snapshot.messages[0] = {
+        ...snapshot.messages[0]!,
+        attachments: [
+          {
+            id: "attachment-1",
+            filename: "report.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 1,
+            previewUrl: null,
+          },
+        ],
+        queueStatus: undefined,
+        queuePosition: undefined,
+      };
+      snapshot.messages.push({
+        id: "nonce-2",
+        clientMessageId: "nonce-2",
+        role: "user",
+        isOptimistic: true,
+        queueStatus: "queued",
+        queuePosition: 2,
+      });
+      const resolved = resolveSnapshot(snapshot, [
+        dequeued,
+        userEcho(3, "persisted-1", "queued message"),
+      ]);
+
+      expect(resolved.messages).toHaveLength(2);
+      expect(resolved.messages[0]?.id).toBe("persisted-1");
+      expect(resolved.messages[0]?.isOptimistic).toBe(false);
+      expect(resolved.messages[0]?.attachments?.[0]?.id).toBe("attachment-1");
+      expect(resolved.messages[1]?.id).toBe("nonce-2");
+    });
+
+    test("retains a correlated queued row when replaying a dequeue", () => {
+      const snapshot = queuedSnapshot();
+      snapshot.messages[0]!.clientMessageId = "nonce-1";
+      const resolved = resolveSnapshot(snapshot, [
+        env(2, {
+          type: "message_dequeued",
+          conversationId: "conv-1",
+          requestId: "req-1",
+        } as AssistantEvent),
+      ]);
+
+      expect(resolved.messages[0]?.queueStatus).toBeUndefined();
+      expect(resolved.messages[0]?.queuePosition).toBeUndefined();
+    });
+
+    test("replays a queued deletion onto a queued snapshot row", () => {
+      const resolved = resolveSnapshot(queuedSnapshot(), [
+        env(2, {
+          type: "message_queued_deleted",
+          conversationId: "conv-1",
+          requestId: "req-1",
+        } as AssistantEvent),
+      ]);
+
+      expect(resolved.messages).toEqual([]);
     });
   });
 

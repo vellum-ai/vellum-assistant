@@ -47,7 +47,9 @@ export function acknowledgeDelivery(
     )
     .get();
 
-  if (!existing) return false;
+  if (!existing) {
+    return false;
+  }
 
   db.update(channelInboundEvents)
     .set({
@@ -340,6 +342,23 @@ export function getSiblingEventDeliveryStatuses(
     .map((row) => row.deliveryStatus);
 }
 
+/**
+ * True when another inbound event linked to the same user message has already
+ * taken ownership of delivering this turn's reply — its delivery status has left
+ * `pending` (delivered, failed, or dead-lettered). A deduplicated replay must
+ * skip `finalizeEventDelivery` in that case, or it would re-post a reply the
+ * owning event already delivered (or is retrying). Shared by the live
+ * background dispatch and the retry sweep so both gate delivery identically.
+ */
+export function isDeduplicatedDeliveryOwnedBySibling(
+  messageId: string,
+  excludeEventId: string,
+): boolean {
+  return getSiblingEventDeliveryStatuses(messageId, excludeEventId).some(
+    (status) => status !== "pending",
+  );
+}
+
 /** Fetch dead-lettered events. */
 export function getDeadLetterEvents(): Array<{
   id: string;
@@ -405,7 +424,9 @@ export function replayDeadLetters(eventIds: string[]): number {
         ),
       )
       .get();
-    if (!existing) continue;
+    if (!existing) {
+      continue;
+    }
 
     if (existing.processingStatus === "dead_letter") {
       db.update(channelInboundEvents)

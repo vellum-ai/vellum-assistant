@@ -993,6 +993,7 @@ function ProfileEditorModalInner({
           variant="inline"
           assistantId={assistantId}
           existingNames={effectiveConnections.map((c) => c.name)}
+          connections={effectiveConnections}
           defaultProviderType={provider || undefined}
           onCreated={handleProviderCreated}
           onCancel={() => setCreatingProvider(false)}

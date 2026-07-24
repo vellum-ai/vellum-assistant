@@ -1,23 +1,28 @@
 import { describe, it, expect } from "bun:test";
 import {
-  normalizeSlackBlockActions,
-  normalizeSlackReactionAdded,
-  normalizeSlackReactionRemoved,
   normalizeSlackDirectMessage,
   normalizeSlackChannelMessage,
   normalizeSlackAppMention,
+} from "./message-normalizer.js";
+import {
   normalizeSlackMessageEdit,
   normalizeSlackMessageDelete,
-  enrichNormalizedActor,
-  slackBotContactNote,
-  type SlackBlockActionsPayload,
-  type SlackDirectMessageEvent,
-  type SlackChannelMessageEvent,
-  type SlackAppMentionEvent,
-  type SlackMessageChangedEvent,
-  type SlackMessageDeletedEvent,
-  type SlackFile,
-} from "./normalize.js";
+} from "./message-change-normalizer.js";
+import { normalizeSlackBlockActions } from "./block-actions-normalizer.js";
+import {
+  normalizeSlackReactionAdded,
+  normalizeSlackReactionRemoved,
+} from "./reaction-normalizer.js";
+import { enrichNormalizedActor, slackBotContactNote } from "./actor.js";
+import type {
+  SlackBlockActionsPayload,
+  SlackDirectMessageEvent,
+  SlackChannelMessageEvent,
+  SlackAppMentionEvent,
+  SlackMessageChangedEvent,
+  SlackMessageDeletedEvent,
+  SlackFile,
+} from "./message-schemas.js";
 import type { GatewayConfig } from "../config.js";
 
 function makeConfig(overrides?: Partial<GatewayConfig>): GatewayConfig {

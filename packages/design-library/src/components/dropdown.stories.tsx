@@ -22,6 +22,7 @@ const meta: Meta<DropdownProps<string>> = {
   argTypes: {
     placeholder: { control: "text" },
     disabled: { control: "boolean" },
+    size: { control: "inline-radio", options: ["regular", "compact"] },
     menuAlign: { control: "select", options: ["start", "center", "end"] },
     menuMaxHeight: { control: "number" },
     menuMinWidth: { control: "number" },
@@ -191,6 +192,26 @@ export const WithSuffix: Story = {
         <Dropdown
           {...(args as DropdownProps<"small" | "medium" | "large">)}
           options={machineSizes}
+          value={value}
+          onChange={setValue}
+        />
+      </div>
+    );
+  },
+};
+
+export const Compact: Story = {
+  args: {
+    size: "compact",
+    "aria-label": "Fruit",
+  },
+  render: function CompactDropdown(args) {
+    const [value, setValue] = useState("apple");
+    return (
+      <div className="w-48">
+        <Dropdown
+          {...args}
+          options={fruits}
           value={value}
           onChange={setValue}
         />

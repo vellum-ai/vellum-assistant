@@ -512,6 +512,23 @@ const OUTCOME_BY_ACTION = {
   block: "block",
 } as const satisfies Record<ApprovalAction, IntroductionOutcome>;
 
+/**
+ * The introduction outcome a decision action resolves to for an access request.
+ * The generic decision pair folds onto the card outcomes (`reject` →
+ * `leave_unverified`, `approve_once` → `verify_code`); the introduction actions
+ * map to themselves. Every outcome is itself an `ApprovalAction`, so a caller
+ * that must reflect the resolved *outcome* rather than the raw button — the
+ * resolved-card projection, so a `reject` that parked the contact at
+ * `unverified` reads as the neutral "Left unverified" and not "Denied" — can
+ * normalize through this. It does not apply the bot handshake→trust coercion,
+ * which does not affect the park/deny distinction the card cares about.
+ */
+export function introductionOutcomeForAction(
+  action: ApprovalAction,
+): ApprovalAction {
+  return OUTCOME_BY_ACTION[action];
+}
+
 /** Derived access-request decision facts shared by `prepare` and `resolve`. */
 interface AccessRequestDerivation {
   channel: NotificationSourceChannel;

@@ -5,7 +5,7 @@ import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
 import * as schema from "../db/schema.js";
 import type { RuntimeInboundPayload } from "../runtime/client.js";
-import type { NormalizedSlackEvent } from "../slack/normalize.js";
+import type { NormalizedSlackEvent } from "../slack/message-schemas.js";
 import {
   SLACK_THREAD_ALREADY_MUTED,
   SLACK_THREAD_MUTE_SUCCESS,
@@ -81,7 +81,7 @@ mock.module("../verification/text-verification.js", () => ({
 
 const { SlackSocketModeClient } = await import("../slack/socket-mode.js");
 const { clearChannelInfoCache, clearUserInfoCache, resolveSlackUser } =
-  await import("../slack/normalize.js");
+  await import("../slack/user-directory.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
 const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
 const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =

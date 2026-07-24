@@ -29421,6 +29421,12 @@ paths:
                     description:
                       Guardian-facing reply from the resolver (e.g. verification code for access-request approvals). Present only
                       when applied is true and the resolver produced a reply.
+                  decidedAction:
+                    type: string
+                    description:
+                      The action to present on the resolved card — the resolved outcome, not necessarily the raw button (an
+                      access-request 'reject' resolves to the 'leave_unverified' park). Present only when applied is
+                      true; lets a client completing the card optimistically render the correct tone.
                 required:
                   - ok
                 additionalProperties: false

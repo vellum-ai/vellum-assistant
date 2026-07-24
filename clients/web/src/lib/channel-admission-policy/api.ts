@@ -48,8 +48,8 @@ export function isInternalChannel(channelType: string): boolean {
  * dropped, and unknown policy strings coerce to the default. Shared by
  * {@link fetchChannelPolicies} and by the TanStack `select` in the hooks
  * that spread the generated `assistantChannelAdmissionPolicyListOptions`
- * (`useChannelTrustFloors`, `useChannelProvenance`), so every reader keys
- * off the generated query key and one raw cache entry.
+ * (`useChannelTrustFloors`), so every reader keys off the generated query
+ * key and one raw cache entry.
  */
 export function toChannelPolicyViews(
   data: AssistantChannelAdmissionPolicyListResponse | undefined,

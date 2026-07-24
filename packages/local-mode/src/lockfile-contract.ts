@@ -115,6 +115,13 @@ export const LockfileAssistantSchema = z.object({
   platformBaseUrl: z.string().optional(),
   /** Platform organization UUID used for a self-hosted local assistant registration. */
   platformOrganizationId: z.string().optional(),
+  /**
+   * Public https URL a `vellum tunnel` provider recorded for this assistant
+   * (mirrored from the workspace ingress config). A public address, so it is
+   * renderer-safe: remote-web pairing surfaces (the CLI `--qr` flow, the web
+   * "Pair a device" card) default to it instead of asking the user to retype it.
+   */
+  ingressUrl: z.string().optional(),
   resources: LocalAssistantResourcesSchema.optional(),
 });
 
