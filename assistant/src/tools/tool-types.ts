@@ -240,6 +240,14 @@ export interface ToolContext {
    * equivalent instead of emitting a surface the channel silently drops.
    */
   supportsDynamicUi?: boolean;
+  /**
+   * Whether the current turn's channel can render inline tappable options
+   * (question option pickers, approval buttons) natively; `false`/absent on
+   * channels without an inline-button adapter. UI-dependent tools read this to
+   * deliver a channel-native option prompt instead of plain text. Distinct from
+   * `supportsDynamicUi` (the app's dynamic-UI surfaces).
+   */
+  supportsInlineOptions?: boolean;
   /** When true, tools with side effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
   /**

@@ -236,17 +236,23 @@ export const askQuestionTool = {
       };
     }
 
-    // The active channel can't render the interactive question card (e.g.
-    // Telegram, SMS). A broadcast question_request would reach app clients but
-    // never the channel the turn came from, so the user would see nothing.
-    // Degrade to text: hand the model the formatted question(s) and options to
-    // present in its reply — which IS what gets delivered to the channel — and
-    // wait for a free-text answer. Mirrors the isInteractive guard above:
-    // return immediately instead of parking on a prompt the surface can't
-    // answer. (UI surface tools like ui_show are instead dropped from the wire
-    // for these channels; ask_question stays available because a question with
-    // options reads cleanly as text.)
-    if (context.supportsDynamicUi === false) {
+    // Text fallback only when the turn has NEITHER an app dynamic-UI surface NOR
+    // an inline-button channel adapter (e.g. SMS, email, or a channel with no
+    // inline renderer). Hand the model the formatted question(s) to present in
+    // its reply and wait for a free-text answer — mirrors the isInteractive
+    // guard above.
+    //
+    // Otherwise park on the prompter below: the app (`supportsDynamicUi`)
+    // renders the SSE question card, and an inline-button channel
+    // (`supportsInlineOptions`, e.g. Telegram) has the pending question
+    // delivered as a native option wizard by the channel watcher
+    // (runtime/routes/inbound-stages/background-dispatch.ts) — a tap or a typed
+    // reply resolves it. On a channel turn the prompter's SSE broadcast is a
+    // harmless no-op (no SSE client), so the same park path serves both.
+    if (
+      context.supportsDynamicUi === false &&
+      context.supportsInlineOptions !== true
+    ) {
       return {
         content: formatQuestionsAsTextFallback(questions),
         isError: false,

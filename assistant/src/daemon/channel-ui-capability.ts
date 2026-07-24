@@ -8,8 +8,12 @@
 export interface DynamicUiCapabilityView {
   readonly currentTurnChannelCapabilities?: {
     readonly supportsDynamicUi: boolean;
+    readonly supportsInlineOptions?: boolean;
   };
-  readonly channelCapabilities?: { readonly supportsDynamicUi: boolean };
+  readonly channelCapabilities?: {
+    readonly supportsDynamicUi: boolean;
+    readonly supportsInlineOptions?: boolean;
+  };
 }
 
 /**
@@ -52,4 +56,20 @@ const INLINE_OPTIONS_CHANNELS: ReadonlySet<string> = new Set([
  */
 export function channelSupportsInlineOptions(channel: string): boolean {
   return INLINE_OPTIONS_CHANNELS.has(channel);
+}
+
+/**
+ * Whether the conversation's current-turn channel can render inline tappable
+ * options (question option pickers, approval buttons). Opt-in per channel:
+ * defaults to `false` when unset (unlike dynamic UI, which defaults to
+ * supported). Prefers the per-turn capabilities, falling back to the structural
+ * channel capabilities.
+ */
+export function conversationSupportsInlineOptions(
+  conversation: DynamicUiCapabilityView,
+): boolean {
+  const caps =
+    conversation.currentTurnChannelCapabilities ??
+    conversation.channelCapabilities;
+  return caps?.supportsInlineOptions === true;
 }

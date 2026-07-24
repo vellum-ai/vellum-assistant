@@ -27,6 +27,9 @@ export {
   ChannelDeliveryResultSchema,
   ChannelReplyPayloadSchema,
   PermissionRequestDetailsSchema,
+  QuestionUIEntrySchema,
+  QuestionUIMetadataSchema,
+  QuestionUIOptionSchema,
   SlackStreamOpSchema,
   SlackStreamTaskSchema,
 } from "./outbound-contract.js";
@@ -38,6 +41,9 @@ export type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
   PermissionRequestDetails,
+  QuestionUIEntry,
+  QuestionUIMetadata,
+  QuestionUIOption,
   SlackStreamOp,
   SlackStreamTask,
 } from "./outbound-contract.js";

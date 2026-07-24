@@ -5,7 +5,10 @@
  * and typing indicators by calling the Telegram Bot API directly via ./api.ts.
  */
 
-import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
+import type {
+  ApprovalUIMetadata,
+  QuestionUIMetadata,
+} from "@vellumai/gateway-client";
 
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
@@ -13,6 +16,7 @@ import { getLogger } from "../../../util/logger.js";
 import {
   callTelegramBotApi,
   callTelegramBotApiMultipart,
+  type TelegramMessage,
   TelegramNonRetryableError,
 } from "./api.js";
 import { renderTelegramHtml } from "./render.js";
@@ -91,8 +95,22 @@ function splitText(text: string, maxLen: number): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Inline keyboard (approval buttons)
+// Inline keyboards (approval + question buttons)
 // ---------------------------------------------------------------------------
+
+/** Telegram rejects a send whose callback_data exceeds 64 bytes; fail loudly at
+ *  build time rather than let the Bot API reject the whole message. */
+function assertCallbackDataWithinLimit(
+  callbackData: string,
+  label: string,
+): void {
+  const bytes = Buffer.byteLength(callbackData);
+  if (bytes > TELEGRAM_MAX_CALLBACK_DATA_BYTES) {
+    throw new Error(
+      `callback_data for ${label} is ${bytes} bytes, exceeding Telegram's ${TELEGRAM_MAX_CALLBACK_DATA_BYTES}-byte limit`,
+    );
+  }
+}
 
 function buildInlineKeyboard(approval: ApprovalUIMetadata): {
   inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
@@ -100,19 +118,35 @@ function buildInlineKeyboard(approval: ApprovalUIMetadata): {
   return {
     inline_keyboard: approval.actions.map((action) => {
       const callbackData = `apr:${approval.requestId}:${action.id}`;
-      if (Buffer.byteLength(callbackData) > TELEGRAM_MAX_CALLBACK_DATA_BYTES) {
-        throw new Error(
-          `callback_data for action "${action.id}" is ${Buffer.byteLength(callbackData)} bytes, exceeding Telegram's ${TELEGRAM_MAX_CALLBACK_DATA_BYTES}-byte limit`,
-        );
-      }
-      return [
-        {
-          text: action.label,
-          callback_data: callbackData,
-        },
-      ];
+      assertCallbackDataWithinLimit(callbackData, `action "${action.id}"`);
+      return [{ text: action.label, callback_data: callbackData }];
     }),
   };
+}
+
+/**
+ * Inline keyboard for the current step of a channel-native question wizard: one
+ * button per option, then a Skip button. The metadata carries a single question
+ * entry (the daemon delivers one wizard step at a time). Callbacks encode
+ * `qst:<requestId>:<questionId>:<optionIndex>` (or `:skip`) — the raw option id
+ * never crosses the wire; it is resolved server-side from the index.
+ */
+function buildQuestionKeyboard(question: QuestionUIMetadata): {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+} {
+  const entry = question.questions[0];
+  if (!entry) {
+    throw new Error("buildQuestionKeyboard requires a question entry");
+  }
+  const rows = entry.options.map((option, optIdx) => {
+    const callbackData = `qst:${question.requestId}:${entry.id}:${optIdx}`;
+    assertCallbackDataWithinLimit(callbackData, `option "${option.id}"`);
+    return [{ text: option.label, callback_data: callbackData }];
+  });
+  const skipData = `qst:${question.requestId}:${entry.id}:skip`;
+  assertCallbackDataWithinLimit(skipData, "skip");
+  rows.push([{ text: "Skip", callback_data: skipData }]);
+  return { inline_keyboard: rows };
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +247,55 @@ export async function sendTelegramRichReply(
     }
     throw err;
   }
+}
+
+/**
+ * Deliver one step of a channel-native question wizard. Without `messageTs`,
+ * send a fresh message and return its id so the wizard can edit it later; with
+ * `messageTs`, edit that message in place to advance to the next question. Both
+ * carry the option keyboard in a single Bot API call.
+ */
+export async function sendTelegramQuestion(
+  chatId: string,
+  text: string,
+  question: QuestionUIMetadata,
+  messageTs: string | undefined,
+  opts?: TelegramSendOptions,
+): Promise<string | undefined> {
+  const replyMarkup = buildQuestionKeyboard(question);
+  if (messageTs) {
+    await callTelegramBotApi("editMessageText", {
+      chat_id: chatId,
+      message_id: Number(messageTs),
+      text,
+      reply_markup: replyMarkup,
+    });
+    return messageTs;
+  }
+  const result = await callTelegramBotApi<TelegramMessage>("sendMessage", {
+    chat_id: chatId,
+    text,
+    reply_markup: replyMarkup,
+    ...threadIdPayloadFields(opts),
+  });
+  return String(result.message_id);
+}
+
+/**
+ * Edit an existing message's text and drop its inline keyboard in a single call
+ * — used to finalize a question wizard (show the recorded answers, remove the
+ * now-stale buttons). Omitting `reply_markup` on `editMessageText` clears it.
+ */
+export async function editTelegramMessageText(
+  chatId: string,
+  messageTs: string,
+  text: string,
+): Promise<void> {
+  await callTelegramBotApi("editMessageText", {
+    chat_id: chatId,
+    message_id: Number(messageTs),
+    text,
+  });
 }
 
 export type TelegramAttachmentResult = {

@@ -66,6 +66,50 @@ export const ApprovalUIMetadataSchema = z.object({
 export type ApprovalUIMetadata = z.infer<typeof ApprovalUIMetadataSchema>;
 
 // ---------------------------------------------------------------------------
+// Question UI types
+// ---------------------------------------------------------------------------
+
+/** One selectable option in a question. `id` is the LLM-supplied option id; it
+ *  is resolved server-side from a callback-carried index and never placed on
+ *  the wire in `callback_data`. */
+export const QuestionUIOptionSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+});
+
+export type QuestionUIOption = z.infer<typeof QuestionUIOptionSchema>;
+
+/** One question in a (possibly batched) `ask_question` prompt. `id` is the
+ *  daemon-assigned handle (`q1`..`q5`); the option set matches the tool's 2–4
+ *  bound with an always-available free-text path. */
+export const QuestionUIEntrySchema = z.object({
+  id: z.string(),
+  question: z.string(),
+  description: z.string().optional(),
+  options: z.array(QuestionUIOptionSchema).min(2).max(4),
+  freeTextPlaceholder: z.string().optional(),
+});
+
+export type QuestionUIEntry = z.infer<typeof QuestionUIEntrySchema>;
+
+/**
+ * Channel-native rendering payload for the `ask_question` tool — the "what" a
+ * per-adapter renderer turns into inline buttons (Telegram inline keyboard,
+ * Slack Block Kit). Carries the full batch (≤5); a channel adapter renders one
+ * entry at a time as an edit-in-place wizard and resolves the batch once every
+ * entry is answered or skipped. `plainTextFallback` is the text rendering used
+ * when inline delivery is unavailable.
+ */
+export const QuestionUIMetadataSchema = z.object({
+  requestId: z.string(),
+  questions: z.array(QuestionUIEntrySchema).min(1).max(5),
+  plainTextFallback: z.string(),
+});
+
+export type QuestionUIMetadata = z.infer<typeof QuestionUIMetadataSchema>;
+
+// ---------------------------------------------------------------------------
 // Slack streaming operations
 // ---------------------------------------------------------------------------
 
@@ -168,6 +212,10 @@ export const ChannelReplyPayloadSchema = z.object({
   assistantId: z.string().optional(),
   attachments: z.array(AttachmentMetadataSchema).optional(),
   approval: ApprovalUIMetadataSchema.optional(),
+  /** Channel-native `ask_question` prompt. Rendered as inline option buttons by
+   *  the per-adapter renderer; pair with `messageTs` to advance the wizard
+   *  in-place. */
+  question: QuestionUIMetadataSchema.optional(),
   chatAction: z.literal("typing").optional(),
   /**
    * When true, deliver via `chat.postEphemeral` so only the target `user`

@@ -7,7 +7,9 @@ import type {
 } from "../channel-transport.js";
 import type { TelegramSendOptions } from "./send.js";
 import {
+  editTelegramMessageText,
   sendTelegramAttachments,
+  sendTelegramQuestion,
   sendTelegramReply,
   sendTelegramRichReply,
   sendTelegramTypingIndicator,
@@ -28,8 +30,36 @@ export const telegramTransport: ChannelTransport = {
   channel: "telegram",
 
   async deliver(ctx, payload) {
-    const { chatId, text, attachments, approval } = payload;
+    const { chatId, text, attachments, approval, question } = payload;
     const opts = threadOptions(ctx);
+
+    // Channel-native question wizard step: send the first message (returning its
+    // id so the wizard can edit it later) or, with `messageTs`, edit in place to
+    // advance. Handled before the generic text path — a question payload also
+    // carries the step's display text.
+    if (question) {
+      const ts = await sendTelegramQuestion(
+        chatId,
+        text ?? question.plainTextFallback,
+        question,
+        payload.messageTs,
+        opts,
+      );
+      log.info(
+        { chatId, edit: !!payload.messageTs },
+        "Telegram question step delivered (direct)",
+      );
+      return { ok: true, ts };
+    }
+
+    // Wizard finalize: rewrite the message text and drop the inline keyboard in
+    // one edit. Telegram payloads only set `messageTs` for this today; honoring
+    // it matches the field's "update existing message" semantics.
+    if (payload.messageTs && text) {
+      await editTelegramMessageText(chatId, payload.messageTs, text);
+      log.info({ chatId }, "Telegram message edited in place (direct)");
+      return { ok: true, ts: payload.messageTs };
+    }
 
     if (text) {
       // `useBlocks` is the channel-neutral "render richly" intent set by the
