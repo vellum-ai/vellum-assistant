@@ -1098,23 +1098,23 @@ export function handleListMessages({
         .filter((block) => block.type !== "text" || block.text.length > 0);
     }
 
-    // Ensure every hydrated attachment has a corresponding content block.
-    // renderHistoryContent inlines attachment blocks only when it has
-    // file-block refs with matching DB rows; directives (assistant-authored
-    // <vellum-attachment/> tags) don't leave a file block after stripping,
-    // so their attachments end up in the flat `attachments` array but not in
-    // `contentBlocks`. Append any that are missing so the canonical
-    // projection is complete.
-    const existingAttachmentIds = new Set(
-      contentBlocks
-        .filter(
-          (b): b is Extract<ConversationContentBlock, { type: "attachment" }> =>
-            b.type === "attachment",
-        )
-        .map((b) => b.attachment.id),
-    );
+    // Ensure every hydrated attachment is represented in contentBlocks.
+    // File-block refs produce attachment blocks, while tool-result images
+    // carry their ids inside tool_use blocks. Directives (assistant-authored
+    // <vellum-attachment/> tags) leave neither representation after stripping,
+    // so append their linked rows as standalone attachment blocks.
+    const representedAttachmentIds = new Set<string>();
+    for (const block of contentBlocks) {
+      if (block.type === "attachment") {
+        representedAttachmentIds.add(block.attachment.id);
+      } else if (block.type === "tool_use") {
+        for (const attachmentId of block.toolCall.imageAttachmentIds ?? []) {
+          representedAttachmentIds.add(attachmentId);
+        }
+      }
+    }
     for (const att of msgAttachments) {
-      if (!existingAttachmentIds.has(att.id)) {
+      if (!representedAttachmentIds.has(att.id)) {
         contentBlocks.push({ type: "attachment", attachment: att });
       }
     }
