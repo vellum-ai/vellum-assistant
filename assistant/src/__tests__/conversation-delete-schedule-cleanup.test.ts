@@ -49,9 +49,9 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
     getMemorySqlite()!.run("DELETE FROM memory_graph_nodes");
-    getRawDb().run("DELETE FROM memory_segments");
+    getMemorySqlite()!.run("DELETE FROM memory_segments");
     getRawDb().run("DELETE FROM memory_summaries");
-    getRawDb().run("DELETE FROM memory_embeddings");
+    getMemorySqlite()!.run("DELETE FROM memory_embeddings");
     getMemorySqlite()!.run("DELETE FROM memory_jobs");
     getRawDb().run("DELETE FROM tool_invocations");
     getLogsSqlite()!.run("DELETE FROM llm_request_logs");

@@ -20,6 +20,11 @@ export const CONVERSATION_KEYED_MEMORY_TABLES: readonly string[] = [
   "conversation_graph_memory_state",
   "memory_v3_ever_injected",
   "memory_retrospective_state",
+  // Re-derivable, but moved with its conversation_id column, so a conversation
+  // delete purges it here. A single-message delete (conversation survives) is
+  // NOT covered by this conversation-keyed purge — those message-scoped segments
+  // are deleted explicitly in the message-delete paths, with no sweep backstop.
+  "memory_segments",
 ];
 
 /**

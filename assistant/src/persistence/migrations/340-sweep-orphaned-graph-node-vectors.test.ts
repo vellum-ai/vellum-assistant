@@ -107,6 +107,15 @@ beforeEach(() => {
     source_type TEXT NOT NULL DEFAULT 'inferred',
     scope_id TEXT NOT NULL DEFAULT 'default'
   )`);
+  // memory_embeddings also moved to the memory DB (a later migration); this
+  // migration reads it on the main connection too, so recreate its shape here.
+  raw.run(/*sql*/ `CREATE TABLE IF NOT EXISTS memory_embeddings (
+    id TEXT PRIMARY KEY, target_type TEXT NOT NULL, target_id TEXT NOT NULL,
+    provider TEXT NOT NULL, model TEXT NOT NULL, dimensions INTEGER NOT NULL,
+    vector_json TEXT, vector_blob BLOB, content_hash TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+    UNIQUE (target_type, target_id, provider, model)
+  )`);
   raw.run("DELETE FROM memory_embeddings");
   raw.run("DELETE FROM memory_graph_nodes");
   getMemorySqlite()!.run("DELETE FROM memory_jobs");

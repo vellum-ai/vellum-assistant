@@ -16,14 +16,19 @@ import {
   buildBatchDeleteScript,
   deleteConversationRowsInBatches,
 } from "../../../../persistence/conversation-row-batch-delete.js";
-import { getDb, getSqlite } from "../../../../persistence/db-connection.js";
+import {
+  getDb,
+  getMemorySqlite,
+  getSqlite,
+} from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
 
 await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
-  db.run("DELETE FROM memory_segments");
+  // memory_segments lives on the dedicated memory connection now.
+  getMemorySqlite()?.run("DELETE FROM memory_segments");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
 }
@@ -84,33 +89,11 @@ describe("deleteConversationRowsInBatches", () => {
     expect(countMessages(keep.id)).toBe(1);
   });
 
-  test("cascades to memory_segments when foreign keys are enabled", async () => {
-    const conv = createConversation("with-segments");
-    const msg = await addMessage(conv.id, "user", "segment me", {
-      skipIndexing: true,
-    });
-    const db = getDb();
-    const now = Date.now();
-    db.run(
-      `INSERT INTO memory_segments
-        (id, message_id, conversation_id, role, segment_index, text, token_estimate, created_at, updated_at)
-       VALUES ('seg-1', '${msg.id}', '${conv.id}', 'user', 0, 'segment me', 2, ${now}, ${now})`,
-    );
-    expect(
-      getSqlite().query("SELECT COUNT(*) AS c FROM memory_segments").get(),
-    ).toEqual({ c: 1 });
-
-    const result = await deleteConversationRowsInBatches({
-      conversationId: conv.id,
-      table: "messages",
-      enableForeignKeys: true,
-      forceInProcess: true,
-    });
-    expect(result.ok).toBe(true);
-    expect(
-      getSqlite().query("SELECT COUNT(*) AS c FROM memory_segments").get(),
-    ).toEqual({ c: 0 });
-  });
+  // The low-level batch delete no longer cascades to memory_segments: the table
+  // moved to the memory connection (a different database file), so the main-DB
+  // cascade cannot reach it. deleteConversationGently purges those rows through
+  // the conversation-deleted hook instead — covered by conversation-memory-purge
+  // and the deleteConversationGently test below.
 });
 
 describe("deleteConversationGently", () => {
@@ -123,22 +106,23 @@ describe("deleteConversationGently", () => {
     const msg = await addMessage(conv.id, "user", "bye", {
       skipIndexing: true,
     });
-    const db = getDb();
     const now = Date.now();
-    db.run(
+    // memory_segments lives on the memory connection now — seed it there.
+    getMemorySqlite()!.run(
       `INSERT INTO memory_segments
         (id, message_id, conversation_id, role, segment_index, text, token_estimate, created_at, updated_at)
        VALUES ('seg-gentle', '${msg.id}', '${conv.id}', 'user', 0, 'bye', 1, ${now}, ${now})`,
     );
 
     const result = await deleteConversationGently(conv.id);
+    // The ids are collected from the memory connection for the caller's Qdrant
+    // purge. The segment rows are purged by the conversation-deleted hook, which
+    // is disabled in this memory-off suite — that purge is covered by
+    // conversation-memory-purge instead.
     expect(result.segmentIds).toEqual(["seg-gentle"]);
     expect(countMessages(conv.id)).toBe(0);
     expect(
       getSqlite().query(`SELECT COUNT(*) AS c FROM conversations`).get(),
-    ).toEqual({ c: 0 });
-    expect(
-      getSqlite().query("SELECT COUNT(*) AS c FROM memory_segments").get(),
     ).toEqual({ c: 0 });
   });
 });
