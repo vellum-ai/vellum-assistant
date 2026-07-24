@@ -46,6 +46,7 @@ import {
 import { logHatchNextSteps } from "./hatch-next-steps.js";
 import { checkProviderApiKey } from "./api-key-check.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
+import { withLocalHatchLock } from "./local-hatch-lock.js";
 
 /**
  * Attempts to place a symlink at the given path pointing to cliBinary.
@@ -179,89 +180,109 @@ export async function hatchLocal(
     name ?? process.env.VELLUM_ASSISTANT_NAME,
   );
 
-  reporter.progress(1, 6, "Allocating resources...");
+  const { resources, runtimeUrl, loopbackUrl, bootstrapSecret } =
+    await withLocalHatchLock(async () => {
+      reporter.progress(1, 6, "Allocating resources...");
 
-  const existing = findAssistantByName(instanceName);
-  if (existing && (!existing.cloud || existing.cloud === "local")) {
-    throw new Error(
-      `An assistant named "${instanceName}" is already hatched.\n` +
-        `Run \`vellum wake\` to restart it, or \`vellum retire ${instanceName}\` to remove it first.`,
-    );
-  }
+      const existing = findAssistantByName(instanceName);
+      if (existing && (!existing.cloud || existing.cloud === "local")) {
+        throw new Error(
+          `An assistant named "${instanceName}" is already hatched.\n` +
+            `Run \`vellum wake\` to restart it, or \`vellum retire ${instanceName}\` to remove it first.`,
+        );
+      }
 
-  const resources = await allocateLocalResources(instanceName);
+      const resources = await allocateLocalResources(instanceName);
 
-  const logsDir = join(
-    resources.instanceDir,
-    ".vellum",
-    "workspace",
-    "data",
-    "logs",
-  );
-  archiveLogFile("hatch.log", logsDir);
-  resetLogFile("hatch.log");
+      const logsDir = join(
+        resources.instanceDir,
+        ".vellum",
+        "workspace",
+        "data",
+        "logs",
+      );
+      archiveLogFile("hatch.log", logsDir);
+      resetLogFile("hatch.log");
 
-  reporter.log(`🥚 Hatching local assistant: ${instanceName}`);
-  reporter.log(`   Species: ${species}`);
-  reporter.log("");
+      reporter.log(`🥚 Hatching local assistant: ${instanceName}`);
+      reporter.log(`   Species: ${species}`);
+      reporter.log("");
 
-  const apiKeyCheck = checkProviderApiKey();
-  if (!apiKeyCheck.hasKey) {
-    reporter.warn(
-      "Warning: No LLM provider API key is configured. The assistant will fail when you try to send a message.",
-    );
-    reporter.warn("  To fix, export your key before running vellum hatch:");
-    reporter.warn("  export ANTHROPIC_API_KEY=<your-key>");
-    reporter.warn("");
-  }
+      const apiKeyCheck = checkProviderApiKey();
+      if (!apiKeyCheck.hasKey) {
+        reporter.warn(
+          "Warning: No LLM provider API key is configured. The assistant will fail when you try to send a message.",
+        );
+        reporter.warn("  To fix, export your key before running vellum hatch:");
+        reporter.warn("  export ANTHROPIC_API_KEY=<your-key>");
+        reporter.warn("");
+      }
 
-  if (!process.env.APP_VERSION) {
-    process.env.APP_VERSION = cliPkg.version;
-  }
+      if (!process.env.APP_VERSION) {
+        process.env.APP_VERSION = cliPkg.version;
+      }
 
-  reporter.progress(2, 6, "Writing configuration...");
-  const hatchConfigValues = buildHatchConfigValues(configValues, provider);
-  const defaultWorkspaceConfigPath = writeInitialConfig(hatchConfigValues);
+      reporter.progress(2, 6, "Writing configuration...");
+      const hatchConfigValues = buildHatchConfigValues(configValues, provider);
+      const defaultWorkspaceConfigPath = writeInitialConfig(hatchConfigValues);
 
-  reporter.progress(3, 6, "Starting assistant...");
-  const signingKey = generateLocalSigningKey();
-  const bootstrapSecret = generateLocalSigningKey();
-  // Launch the CES sibling alongside the daemon, in parallel — matching the
-  // Docker topology. The assistant does not spawn its own CES, so a freshly
-  // hatched instance would otherwise come up with CES unavailable.
-  // startCes always launches the CES sibling.
-  await Promise.all([
-    startCes(watch, resources),
-    startLocalDaemon(watch, resources, {
-      defaultWorkspaceConfigPath,
-      signingKey,
-    }),
-  ]);
+      reporter.progress(3, 6, "Starting assistant...");
+      const signingKey = generateLocalSigningKey();
+      const bootstrapSecret = generateLocalSigningKey();
+      // Launch the CES sibling alongside the daemon, in parallel — matching the
+      // Docker topology. The assistant does not spawn its own CES, so a freshly
+      // hatched instance would otherwise come up with CES unavailable.
+      // startCes always launches the CES sibling.
+      await Promise.all([
+        startCes(watch, resources),
+        startLocalDaemon(watch, resources, {
+          defaultWorkspaceConfigPath,
+          signingKey,
+        }),
+      ]);
 
-  reporter.progress(4, 6, "Starting gateway...");
-  let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
-  try {
-    runtimeUrl = await startGateway(watch, resources, {
-      signingKey,
-      bootstrapSecret,
-      envOverrides: flagEnvVars,
+      reporter.progress(4, 6, "Starting gateway...");
+      let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
+      try {
+        runtimeUrl = await startGateway(watch, resources, {
+          signingKey,
+          bootstrapSecret,
+          envOverrides: flagEnvVars,
+        });
+      } catch (error) {
+        // Gateway failed — stop the daemon we just started so we don't leave
+        // orphaned processes with no lock file entry.
+        reporter.error(
+          `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
+        );
+        await stopLocalProcesses(resources);
+        throw error;
+      }
+
+      const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
+      const localEntry: AssistantEntry = {
+        assistantId: instanceName,
+        runtimeUrl,
+        localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
+        cloud: "local",
+        species,
+        hatchedAt: new Date().toISOString(),
+        resources: { ...resources, signingKey },
+        guardianBootstrapSecret: bootstrapSecret,
+      };
+
+      reporter.progress(5, 6, "Saving configuration...");
+      saveAssistantEntry(localEntry);
+      setActiveAssistant(instanceName);
+
+      return { resources, runtimeUrl, loopbackUrl, bootstrapSecret };
     });
-  } catch (error) {
-    // Gateway failed — stop the daemon we just started so we don't leave
-    // orphaned processes with no lock file entry.
-    reporter.error(
-      `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
-    );
-    await stopLocalProcesses(resources);
-    throw error;
-  }
 
   // Lease a guardian token so the desktop app can import it on first launch
   // instead of hitting /v1/guardian/init itself. Use loopback to satisfy
   // the daemon's local-only check — the mDNS runtimeUrl resolves to a LAN
   // IP which the daemon rejects as non-loopback.
-  reporter.progress(5, 6, "Securing connection...");
-  const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
+  reporter.progress(6, 6, "Securing connection...");
   const maxLeaseAttempts = 3;
   let guardianAccessToken: string | undefined;
   for (let attempt = 1; attempt <= maxLeaseAttempts; attempt++) {
@@ -289,22 +310,6 @@ export async function hatchLocal(
       }
     }
   }
-
-  // Auto-start ngrok if webhook integrations (e.g. Telegram, Twilio) are configured.
-  const localEntry: AssistantEntry = {
-    assistantId: instanceName,
-    runtimeUrl,
-    localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
-    cloud: "local",
-    species,
-    hatchedAt: new Date().toISOString(),
-    resources: { ...resources, signingKey },
-    guardianBootstrapSecret: bootstrapSecret,
-  };
-
-  reporter.progress(6, 6, "Saving configuration...");
-  saveAssistantEntry(localEntry);
-  setActiveAssistant(instanceName);
 
   if (process.env.VELLUM_DESKTOP_APP) {
     installCLISymlink();
