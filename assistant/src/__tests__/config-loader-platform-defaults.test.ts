@@ -76,9 +76,10 @@ function readConfig(): Record<string, unknown> {
 // Without IS_PLATFORM, services split by Zod schema default: google/notion-oauth
 // resolve to "managed" (per JARVIS-966), the rest resolve to "your-own".
 // web-search is deliberately absent: `provider` is its only axis, so the
-// platform context injects no mode for it.
+// platform context injects no mode for it. image-generation is also absent:
+// its managed axis is the provider ("vellum" proxies through the platform),
+// so the platform context fills `provider: "vellum"` rather than a mode.
 const MANAGED_SERVICES = [
-  "image-generation",
   "google-oauth",
   "outlook-oauth",
   "linear-oauth",
@@ -132,7 +133,7 @@ describe("platform-managed config defaults", () => {
     }
   });
 
-  test("IS_PLATFORM=true, no config file → all 7 managed service modes written as 'managed'", () => {
+  test("IS_PLATFORM=true, no config file → all 6 managed service modes written as 'managed', image-generation provider written as 'vellum'", () => {
     process.env.IS_PLATFORM = "true";
 
     loadConfig();
@@ -147,6 +148,15 @@ describe("platform-managed config defaults", () => {
     expect((services["web-search"] as { provider?: string })?.provider).toBe(
       "inference-provider-native",
     );
+    // image-generation's managed axis is its provider: the platform context
+    // fills "vellum" and never injects a managed mode (the persisted mode is
+    // the schema default).
+    const imageGen = services["image-generation"] as {
+      provider?: string;
+      mode?: string;
+    };
+    expect(imageGen?.provider).toBe("vellum");
+    expect(imageGen?.mode).not.toBe("managed");
   });
 
   test("IS_PLATFORM=false, no config file → service modes follow schema defaults (your-own except google/notion-oauth which are managed)", () => {
@@ -279,6 +289,8 @@ describe("platform-managed config defaults", () => {
           .mode,
       ).toBe("managed");
     }
+    // ...and for image-generation's provider, whose fill is "vellum".
+    expect(config.services["image-generation"].provider).toBe("vellum");
 
     // The on-disk file is NOT modified by the fill pass — disk reflects only
     // what was already there. Existing-file branch never re-writes config.json.
@@ -286,15 +298,13 @@ describe("platform-managed config defaults", () => {
     expect(onDisk["services"]).toBeUndefined();
   });
 
-  test("IS_PLATFORM=true, config file exists with a partial service subtree → preserves user fields, fills missing mode", () => {
+  test("IS_PLATFORM=true, config file exists with an explicit image-generation provider → provider wins over the vellum fill", () => {
     process.env.IS_PLATFORM = "true";
 
-    // User has an image-generation provider configured but never explicitly
-    // chose a mode for that service. The fill pass must apply
-    // `mode: "managed"` without clobbering the user-supplied provider.
-    // (The inference schema dropped per-service model/provider in
-    // migration 039 — image-generation still carries them, so it's the
-    // right schema to exercise the partial-subtree case.)
+    // User has an explicit BYOK image-generation provider on disk. The fill
+    // pass targets exactly that leaf (`provider: "vellum"`), so the explicit
+    // value must win and no mode is injected — the effective mode is the
+    // schema default.
     writeFileSync(
       CONFIG_PATH,
       JSON.stringify(
@@ -316,8 +326,8 @@ describe("platform-managed config defaults", () => {
         { mode: string; provider?: string }
       >
     )["image-generation"]!;
-    expect(imageGen.mode).toBe("managed");
     expect(imageGen.provider).toBe("openai");
+    expect(imageGen.mode).toBe("your-own");
   });
 
   test("IS_PLATFORM=false, config file exists without services key → in-memory config keeps schema defaults (your-own except google/notion-oauth which are managed)", () => {
@@ -404,11 +414,17 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
       string,
       unknown
     >;
-    const services = result["services"] as Record<string, { mode: string }>;
+    const services = result["services"] as Record<
+      string,
+      { mode?: string; provider?: string }
+    >;
     expect(services).toBeDefined();
     for (const svc of MANAGED_SERVICES) {
       expect(services[svc]!.mode).toBe("managed");
     }
+    // image-generation is filled by provider, not mode.
+    expect(services["image-generation"]!.provider).toBe("vellum");
+    expect(services["image-generation"]!.mode).toBeUndefined();
   });
 
   test("IS_PLATFORM=true, raw config has explicit services.image-generation.mode='your-own' → preserved", () => {
@@ -455,12 +471,12 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
     expect(result["services"]).toBeUndefined();
   });
 
-  test("IS_PLATFORM=true, raw config has partial services subtree → preserves user fields, fills missing mode", () => {
+  test("IS_PLATFORM=true, raw config has an explicit image-generation provider → preserved, no mode injected", () => {
     process.env.IS_PLATFORM = "true";
 
-    // User set image-generation.provider but never chose a mode.
-    // The fill pass adds the missing mode without clobbering the user-supplied
-    // provider.
+    // User set image-generation.provider explicitly. The fill targets that
+    // same leaf (`provider: "vellum"`), so the explicit value wins and no
+    // mode is injected.
     const raw: Record<string, unknown> = {
       services: {
         "image-generation": { provider: "openai" },
@@ -473,10 +489,10 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
     >;
     const services = result["services"] as Record<
       string,
-      { mode: string; provider?: string }
+      { mode?: string; provider?: string }
     >;
-    expect(services["image-generation"]!.mode).toBe("managed");
     expect(services["image-generation"]!.provider).toBe("openai");
+    expect(services["image-generation"]!.mode).toBeUndefined();
     // services.inference.mode is synthesized as a legacy wire-only field for
     // older macOS clients during the rollout window (Phase 1.2 schema removal
     // landed before the macOS Providers UI ships).
