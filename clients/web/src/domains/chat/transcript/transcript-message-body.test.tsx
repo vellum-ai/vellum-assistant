@@ -689,7 +689,7 @@ describe("TranscriptMessageBody", () => {
       imageDataList: ["img-a"],
       completedAt: 1,
     };
-    const { container, queryByText } = render(
+    const { container, getAllByRole, getByText, queryByText } = render(
       <TranscriptMessageBody
         message={{
           id: "completed-with-artifacts",
@@ -698,6 +698,7 @@ describe("TranscriptMessageBody", () => {
             textBlock("I will create that."),
             toolUseBlock(toolCall),
             surfaceBlock("result-surface"),
+            textBlock("I will summarize it."),
             textBlock("Here are the results."),
           ],
           toolCalls: [toolCall],
@@ -707,13 +708,60 @@ describe("TranscriptMessageBody", () => {
     );
 
     expect(queryByText("I will create that.")).toBeNull();
+    expect(queryByText("I will summarize it.")).toBeNull();
     expect(queryByText("Here are the results.")).not.toBeNull();
+    const image = container.querySelector("[data-testid='tool-result-image']");
+    const surface = container.querySelector(
+      "[data-surface-id='result-surface']",
+    );
+    expect(image).not.toBeNull();
+    expect(surface).not.toBeNull();
+
+    const triggers = getAllByRole("button", { name: "Earlier activity" });
+    expect(triggers.length).toBe(2);
+    triggers.forEach((trigger) => fireEvent.click(trigger));
+
+    const firstText = getByText("I will create that.");
+    const secondText = getByText("I will summarize it.");
+    const finalText = getByText("Here are the results.");
     expect(
-      container.querySelector("[data-testid='tool-result-image']"),
-    ).not.toBeNull();
+      firstText.compareDocumentPosition(image!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
     expect(
-      container.querySelector("[data-surface-id='result-surface']"),
-    ).not.toBeNull();
+      image!.compareDocumentPosition(surface!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    expect(
+      surface!.compareDocumentPosition(secondText) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    expect(
+      secondText.compareDocumentPosition(finalText) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+  });
+
+  test("keeps inline surfaces visible outside collapsed earlier text", () => {
+    const { container, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-inline-surface",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will build that."),
+            textBlock(
+              'Before surface<ui_show surface_type="card" template="task_progress"> {"title":"Result"} </ui_show>After surface',
+            ),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will build that.")).toBeNull();
+    expect(queryByText("Before surface")).not.toBeNull();
+    expect(queryByText("After surface")).not.toBeNull();
+    expect(container.querySelector("[data-testid='surface']")).not.toBeNull();
   });
 
   test("keeps running activity visible outside collapsed earlier text", () => {

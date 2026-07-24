@@ -1033,7 +1033,7 @@ export function TranscriptMessageBody({
       return [];
     }
     if (group.type === "text") {
-      return [groupIndex];
+      return parseInlineSurfaces(group.text) ? [] : [groupIndex];
     }
 
     const { toolCalls } = activityItemsToCardData(group.items);
@@ -1053,16 +1053,20 @@ export function TranscriptMessageBody({
     return hasVisibleOutputOrControl ? [] : [groupIndex];
   });
   const collapsibleGroupIndexSet = new Set(collapsibleGroupIndexes);
-  const firstCollapsibleGroupIndex = collapsibleGroupIndexes[0] ?? -1;
   const assistantContent =
-    !isStreaming && firstCollapsibleGroupIndex >= 0
+    !isStreaming && collapsibleGroupIndexes.length > 0
       ? renderedGroups.map((renderedGroup, groupIndex) => {
-          if (groupIndex === firstCollapsibleGroupIndex) {
+          if (
+            collapsibleGroupIndexSet.has(groupIndex) &&
+            !collapsibleGroupIndexSet.has(groupIndex - 1)
+          ) {
+            let runEndIndex = groupIndex + 1;
+            while (collapsibleGroupIndexSet.has(runEndIndex)) {
+              runEndIndex += 1;
+            }
             return (
-              <AssistantContentDisclosure key="earlier-activity">
-                {renderedGroups.filter((_, index) =>
-                  collapsibleGroupIndexSet.has(index),
-                )}
+              <AssistantContentDisclosure key={`earlier-activity-${groupIndex}`}>
+                {renderedGroups.slice(groupIndex, runEndIndex)}
               </AssistantContentDisclosure>
             );
           }
