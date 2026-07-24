@@ -14,6 +14,7 @@ import {
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
+import { readCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { isLocalMode } from "@/lib/local-mode";
 import {
     usePrivacyConsent,
@@ -70,6 +71,21 @@ export function PrivacyScreen() {
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
         userId,
       });
+    }
+
+    // A pricing-CTA signup stashes its chosen package (see navigation-resolver
+    // post-auth). With consent now recorded, resume checkout so payment happens
+    // after consent and before the assistant hatches. The checkout route owns
+    // the already-Pro case and re-stashes the intent, so leave the stash for its
+    // lifecycle to clear. Resuming only from this explicit Start click — never a
+    // render effect — keeps consent and checkout from looping.
+    const checkoutIntent = readCheckoutIntent();
+    if (checkoutIntent?.kind === "package") {
+      const params = new URLSearchParams({
+        package: checkoutIntent.packageKey,
+      });
+      void navigate(`${routes.checkout}?${params.toString()}`);
+      return;
     }
 
     const hostingParam = searchParams.get("hosting");

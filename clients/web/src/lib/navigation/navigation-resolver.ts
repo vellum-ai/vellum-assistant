@@ -1,5 +1,6 @@
 import type { PlatformSessionStatus } from "@/stores/session-status";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
+import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { routes } from "@/utils/routes";
 
 // ---------------------------------------------------------------------------
@@ -430,6 +431,22 @@ function isImportFunnelDestination(destination: string): boolean {
   );
 }
 
+// The `package` slug of a deep-link checkout destination
+// (`/assistant/checkout?package=`), or null when the destination is not a
+// checkout link or carries no package.
+function checkoutPackageFromDestination(destination: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(destination, "http://placeholder.invalid");
+  } catch {
+    return null;
+  }
+  if (url.pathname !== routes.checkout) {
+    return null;
+  }
+  return url.searchParams.get("package") || null;
+}
+
 function resolvePostAuth(
   authIntent: "login" | "signup",
   returnTo: string | null,
@@ -439,6 +456,14 @@ function resolvePostAuth(
     const destination = sanitizeReturnTo(returnTo, fallback);
     if (isImportFunnelDestination(destination)) {
       return { action: "redirect", to: destination };
+    }
+    // Preserve a pricing-CTA checkout destination across signup: stash the
+    // package, then still route through consent first. sessionStorage survives
+    // the same-tab OAuth round-trip and the redirect to privacy, so the consent
+    // screen can resume checkout afterward.
+    const packageKey = checkoutPackageFromDestination(destination);
+    if (packageKey) {
+      saveCheckoutIntent({ kind: "package", packageKey });
     }
     return { action: "redirect", to: routes.onboarding.privacy };
   }

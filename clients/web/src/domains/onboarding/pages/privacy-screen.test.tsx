@@ -30,6 +30,14 @@ mock.module("@/lib/consent/consent-persistence", () => ({
   saveConsent: saveConsentMock,
 }));
 
+// Pending checkout intent — a pricing-CTA signup stashes the chosen package
+// (see navigation-resolver post-auth). Mutable so individual tests can pre-seed
+// it or leave it absent.
+let checkoutIntentValue: unknown = null;
+mock.module("@/lib/billing/checkout-intent", () => ({
+  readCheckoutIntent: () => checkoutIntentValue,
+}));
+
 const emitFunnelStepCompletedMock = mock((..._args: unknown[]) => {});
 mock.module("@/domains/onboarding/funnel-events", () => ({
   emitOnboardingFunnelStepCompleted: emitFunnelStepCompletedMock,
@@ -103,11 +111,13 @@ describe("PrivacyScreen — Start navigation", () => {
     emitFunnelStepCompletedMock.mockClear();
     nativePlatform = false;
     localMode = false;
+    checkoutIntentValue = null;
   });
   afterEach(() => {
     cleanup();
     nativePlatform = false;
     localMode = false;
+    checkoutIntentValue = null;
   });
 
   test("preview mode no-ops on Start without persisting consent", () => {
@@ -174,6 +184,45 @@ describe("PrivacyScreen — Start navigation", () => {
     clickStart();
 
     expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
+  });
+
+  test("resumes checkout when a pending package intent is present", () => {
+    checkoutIntentValue = {
+      kind: "package",
+      packageKey: "super",
+      savedAt: Date.now(),
+    };
+    searchParamsValue = new URLSearchParams("hosting=managed");
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    // Consent is still recorded before checkout resumes — payment after consent.
+    expect(saveConsentMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith(
+      `${routes.checkout}?package=super`,
+    );
+  });
+
+  test("resume fires only on the Start click, not on render (no loop)", () => {
+    checkoutIntentValue = {
+      kind: "package",
+      packageKey: "super",
+      savedAt: Date.now(),
+    };
+    searchParamsValue = new URLSearchParams();
+    render(<PrivacyScreen />);
+
+    // Mounting the screen must never navigate — the resume is action-gated, so
+    // a consented user returning here cannot loop between consent and checkout.
+    expect(navigateMock).not.toHaveBeenCalled();
+
+    clickStart();
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      `${routes.checkout}?package=super`,
+    );
   });
 });
 
