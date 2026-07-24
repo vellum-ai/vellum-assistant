@@ -34,6 +34,7 @@ import type {
 import { readCheckoutIntent, saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import * as toastMod from "@vellumai/design-library/components/toast";
 
 import * as proOnboardingUtils from "./utils";
 
@@ -70,6 +71,19 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
     isLoading: false,
     invalidate: () => {},
   }),
+}));
+
+// Capture the escape toast so the exit-on-escape path can assert its message;
+// keep the real module's other methods intact.
+const toastInfoCalls: string[] = [];
+mock.module("@vellumai/design-library/components/toast", () => ({
+  ...toastMod,
+  toast: {
+    ...toastMod.toast,
+    info: (message: string) => {
+      toastInfoCalls.push(message);
+    },
+  },
 }));
 
 const realDateNow = Date.now.bind(Date);
@@ -326,6 +340,7 @@ beforeEach(() => {
   domainsFails = false;
   domainsHold = null;
   dateNowOffsetMs = 0;
+  toastInfoCalls.length = 0;
   sessionStorage.clear();
 });
 
@@ -612,89 +627,44 @@ describe("BillingOnboardingModal", () => {
   });
 
   test(
-    "a busy takeover past the escape grace with routing hung is dismissable via the backdrop",
+    "the stall shows the honest taking-longer copy — no Apply — and escaping kicks the reconcile, toasts, and closes",
     async () => {
-      // The purest dead-end: an active WAITING/RESIZING takeover whose
-      // post-confirm onboarding refetch is held open, so routing never settles
-      // and the in-content escape button (gated on routing) never appears.
-      // Once the watch runs past the escape grace, the fallback background
-      // dismiss must unlock — the takeover has no persistent close control, so
-      // this fallback is what keeps the user from being stranded.
-      onboardingHold = new Promise(() => {});
       subscriptionPlanId = "pro";
-      const { getByText, onClose } = renderModal();
+      const { getByText, getByTestId, queryByText, queryByTestId, onClose } =
+        renderModal();
 
       await waitFor(
         () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
         { timeout: 5000 },
       );
+      // The wizard reconciled once on the pro transition.
+      await waitFor(() => expect(ensureCalls).toBe(1));
 
-      // Past the escape grace (60s) but before the stall threshold (90s):
-      // escapeEligible latches while the state stays busy, not STALLED.
-      dateNowOffsetMs = 70_000;
-
-      // The X stays hidden throughout — the fallback exit is the backdrop.
-      expect(document.body.querySelector('[aria-label="Close"]')).toBeNull();
-
-      // The 1s clock tick re-derives escapeEligible; once it lands the backdrop
-      // unlocks, so re-click until the dismiss flows through to onClose.
+      // Jump the wall clock past the stall threshold; the hook's next clock
+      // tick re-derives the state as STALLED.
+      dateNowOffsetMs = 200_000;
       await waitFor(
-        () => {
-          const overlay = document.body.querySelector(
-            '[data-slot="modal-overlay"]',
-          );
-          expect(overlay).not.toBeNull();
-          fireEvent.click(overlay as Element);
-          expect(onClose).toHaveBeenCalled();
-        },
+        () =>
+          expect(getByText("This is taking longer than expected")).toBeTruthy(),
         { timeout: 5000 },
       );
+      // Apply & Restart is gone from the takeover.
+      expect(queryByTestId("provisioning-apply")).toBeNull();
 
-      // Still the busy takeover, not the stalled path (which has its own Apply).
-      expect(getByText("Upgrading your assistant…")).toBeTruthy();
+      // "Continue in the background" fires the idempotent reconcile as a
+      // fire-and-forget kick, toasts, and closes — it never advances the wizard.
+      fireEvent.click(getByTestId("provisioning-escape"));
+      await waitFor(() => expect(ensureCalls).toBe(2));
+      expect(onClose).toHaveBeenCalled();
+      expect(toastInfoCalls).toContain(
+        "Your upgrade continues in the background.",
+      );
+      // No advance to the email/All-set steps while the machine is busy.
+      expect(queryByText("Assistant Email")).toBeNull();
+      expect(queryByText("You're all set!")).toBeNull();
     },
     20_000,
   );
-
-  test("stall surfaces Apply & Restart; a successful apply resumes resizing through DONE", async () => {
-    subscriptionPlanId = "pro";
-    const { client, getByText, getByTestId } = renderModal();
-
-    await waitFor(
-      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-    // The wizard reconciled once on the pro transition.
-    await waitFor(() => expect(ensureCalls).toBe(1));
-
-    // Jump the wall clock past the stall threshold; the hook's next clock
-    // tick re-derives the state as STALLED.
-    dateNowOffsetMs = 200_000;
-    await waitFor(() => expect(getByText("We couldn't finish this automatically")).toBeTruthy(), {
-      timeout: 5000,
-    });
-
-    // The stalled button re-calls the same idempotent reconcile.
-    fireEvent.click(getByTestId("provisioning-apply"));
-    await waitFor(() => expect(ensureCalls).toBe(2));
-
-    // The successful apply resumes observation: back to the resizing UI…
-    await waitFor(
-      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-
-    // …and the resize landing completes the normal DONE → advance flow.
-    assistantResponse = makeAssistant("large", 50);
-    await client.invalidateQueries();
-    await waitFor(
-      () => expect(getByText("All done!")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
-      timeout: 5000,
-    });
-  });
 
   test("onboarding fetch failure after confirm shows the fetch-error state", async () => {
     subscriptionPlanId = "pro";
@@ -757,64 +727,20 @@ describe("BillingOnboardingModal", () => {
     );
   });
 
-  test("domain submit stays disabled while the machine is resizing", async () => {
-    subscriptionPlanId = "pro";
-    const { client, getByText, getByTestId, getByLabelText } = renderModal();
-
-    await waitFor(
-      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-
-    // The escape hatch is a late fallback: it appears only once the watch has
-    // run past the escape window (and the onboarding fetch has settled).
-    dateNowOffsetMs = 61_000;
-    await waitFor(
-      () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-    fireEvent.click(getByTestId("provisioning-escape"));
-    await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy());
-
-    expect(
-      getByText(
-        "Your assistant is restarting — you can set the domain in a moment.",
-      ),
-    ).toBeTruthy();
-    // Wait for the handle prefill: with an empty subdomain the submit would be
-    // disabled regardless, masking a missing machine-busy guard.
-    await waitFor(() =>
-      expect((getByLabelText("Handle (public)") as HTMLInputElement).value).toBe(
-        "casey",
-      ),
-    );
-    expect(
-      (getByTestId("onboarding-domain-set") as HTMLButtonElement).disabled,
-    ).toBe(true);
-
-    // The still-mounted hook sees the resize land and lifts the guard.
-    assistantResponse = makeAssistant("large", 50);
-    await client.invalidateQueries();
-    await waitFor(
-      () =>
-        expect(
-          (getByTestId("onboarding-domain-set") as HTMLButtonElement).disabled,
-        ).toBe(false),
-      { timeout: 5000 },
-    );
-  });
-
   test(
-    "escape advances to complete with the background-finishing line, which clears on DONE",
+    "escaping a busy takeover kicks the reconcile, toasts, and closes — it never advances to complete",
     async () => {
       subscriptionPlanId = "pro";
       onboardingResponse = makeOnboarding({ domain_setup_available: false });
-      const { client, getByText, getByTestId, queryByText } = renderModal();
+      const { getByText, getByTestId, queryByText, onClose } = renderModal();
 
       await waitFor(
         () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
         { timeout: 15_000 },
       );
+      // The wizard reconciled once on the pro transition.
+      await waitFor(() => expect(ensureCalls).toBe(1));
+
       dateNowOffsetMs = 61_000;
       await waitFor(
         () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
@@ -822,14 +748,15 @@ describe("BillingOnboardingModal", () => {
       );
       fireEvent.click(getByTestId("provisioning-escape"));
 
-      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy());
-      expect(getByText(BACKGROUND_LINE)).toBeTruthy();
-
-      assistantResponse = makeAssistant("large", 50);
-      await client.invalidateQueries();
-      await waitFor(() => expect(queryByText(BACKGROUND_LINE)).toBeNull(), {
-        timeout: 15_000,
-      });
+      // A fire-and-forget kick, an error-free toast, and a close — no advance to
+      // the All-set step, no background-finishing line.
+      await waitFor(() => expect(ensureCalls).toBe(2));
+      expect(onClose).toHaveBeenCalled();
+      expect(toastInfoCalls).toContain(
+        "Your upgrade continues in the background.",
+      );
+      expect(queryByText("You're all set!")).toBeNull();
+      expect(queryByText(BACKGROUND_LINE)).toBeNull();
     },
     30_000,
   );
@@ -858,184 +785,65 @@ describe("BillingOnboardingModal", () => {
     20_000,
   );
 
-  test("escape hatch waits for fresh routing data even once time-eligible", async () => {
-    let releaseOnboarding!: () => void;
-    onboardingHold = new Promise((resolve) => {
-      releaseOnboarding = resolve;
-    });
+  test("escape hatch appears once time-eligible even while routing is unsettled", async () => {
+    // The escape button is independent of routing — it's the always-available
+    // recovery for a hung routing refetch. Hold the onboarding fetch open so
+    // routing never settles; the hatch must still appear the moment the watch
+    // passes the escape window.
+    onboardingHold = new Promise(() => {});
     subscriptionPlanId = "pro";
-    const { getByText, getByTestId, queryByTestId } = renderModal();
+    const { getByText, getByTestId } = renderModal();
 
     await waitFor(
       () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
     dateNowOffsetMs = 61_000;
-    // Time-eligible, but domain_setup_available could still be stale — the
-    // hatch must wait for the onboarding fetch to settle.
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    expect(queryByTestId("provisioning-escape")).toBeNull();
-
-    releaseOnboarding();
     await waitFor(
       () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
       { timeout: 5000 },
     );
   });
 
-  test("a failed apply surfaces its error and a late-landing resize still recovers", async () => {
-    subscriptionPlanId = "pro";
-    const { client, getByText, getByTestId } = renderModal();
-
-    await waitFor(
-      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-    dateNowOffsetMs = 200_000;
-    await waitFor(() => expect(getByText("We couldn't finish this automatically")).toBeTruthy(), {
-      timeout: 5000,
-    });
-
-    // Only a user-initiated reconcile surfaces its failure — the automatic one
-    // on the pro transition degrades silently.
-    ensureError = { error: "provisioning_submission_failed" };
-    fireEvent.click(getByTestId("provisioning-apply"));
-    await waitFor(() => expect(ensureCalls).toBe(2));
-    await waitFor(() =>
-      expect(
-        getByText("We couldn't queue your upgrade just now. Try again in a moment."),
-      ).toBeTruthy(),
-    );
-    expect(getByText("We couldn't finish this automatically")).toBeTruthy();
-
-    // If a server-side resize was in fact still running, its landing is
-    // observed by the actuals polling and replaces the stalled UI.
-    assistantResponse = makeAssistant("large", 50);
-    await client.invalidateQueries();
-    await waitFor(
-      () => expect(getByText("All done!")).toBeTruthy(),
-      { timeout: 5000 },
-    );
-  });
-
   test(
-    "a stall after escaping to complete offers Apply & Restart there",
+    "a failed auto-reconcile shows the snag variant; escaping retries in the background and closes",
     async () => {
       subscriptionPlanId = "pro";
-      onboardingResponse = makeOnboarding({ domain_setup_available: false });
-      const { client, getByText, getByTestId, queryByText, queryByTestId } =
-        renderModal();
-
-      await waitFor(
-        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
-        { timeout: 15_000 },
-      );
-      dateNowOffsetMs = 61_000;
-      await waitFor(
-        () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
-        { timeout: 15_000 },
-      );
-      fireEvent.click(getByTestId("provisioning-escape"));
-      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy());
-      expect(getByText(BACKGROUND_LINE)).toBeTruthy();
-
-      // The backgrounded resize stalls: the finishing line swaps for a warning
-      // with a manual apply.
-      dateNowOffsetMs = 200_000;
-      await waitFor(
-        () => expect(getByTestId("complete-stalled-apply")).toBeTruthy(),
-        { timeout: 15_000 },
-      );
-      expect(queryByText(BACKGROUND_LINE)).toBeNull();
-
-      // Applying resumes observation — the finishing line returns…
-      fireEvent.click(getByTestId("complete-stalled-apply"));
-      await waitFor(() => expect(ensureCalls).toBe(2));
-      await waitFor(() => expect(getByText(BACKGROUND_LINE)).toBeTruthy(), {
-        timeout: 15_000,
-      });
-
-      // …and the resize landing clears it.
-      assistantResponse = makeAssistant("large", 50);
-      await client.invalidateQueries();
-      await waitFor(() => expect(queryByText(BACKGROUND_LINE)).toBeNull(), {
-        timeout: 15_000,
-      });
-      expect(queryByTestId("complete-stalled-apply")).toBeNull();
-    },
-    30_000,
-  );
-
-  test(
-    "a stall while the user is on the domain step offers the apply controls and keeps the submit locked",
-    async () => {
-      subscriptionPlanId = "pro";
-      const {
-        client,
-        getByText,
-        getByTestId,
-        getByLabelText,
-        queryByText,
-        queryByTestId,
-      } = renderModal();
+      // The automatic reconcile on the pro transition fails, so its error is
+      // held as kickError — the ≥90s stall then shows the "snag" variant.
+      ensureError = { error: "provisioning_submission_failed" };
+      const { getByText, getByTestId, queryByTestId, onClose } = renderModal();
 
       await waitFor(
         () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
         { timeout: 5000 },
       );
-      dateNowOffsetMs = 61_000;
-      await waitFor(
-        () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
-        { timeout: 5000 },
-      );
-      fireEvent.click(getByTestId("provisioning-escape"));
-      await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy());
-      await waitFor(() =>
-        expect((getByLabelText("Handle (public)") as HTMLInputElement).value).toBe(
-          "casey",
-        ),
-      );
+      await waitFor(() => expect(ensureCalls).toBe(1));
 
-      // The flow stalls while the user is on the domain step: the machine may
-      // still be mid-restart, so the guardian-channel submit stays locked and
-      // the neutral busy notice swaps for the stalled warning + manual apply.
       dateNowOffsetMs = 200_000;
-      await waitFor(
-        () => expect(getByTestId("domain-stalled-apply")).toBeTruthy(),
-        { timeout: 5000 },
-      );
-      expect(
-        queryByText(
-          "Your assistant is restarting — you can set the domain in a moment.",
-        ),
-      ).toBeNull();
-      expect(
-        (getByTestId("onboarding-domain-set") as HTMLButtonElement).disabled,
-      ).toBe(true);
-
-      // Applying resumes observation: the stalled controls give way to the
-      // neutral busy notice while the resize is re-observed…
-      fireEvent.click(getByTestId("domain-stalled-apply"));
-      await waitFor(() => expect(ensureCalls).toBe(2));
-      await waitFor(() =>
-        expect(
-          getByText(
-            "Your assistant is restarting — you can set the domain in a moment.",
-          ),
-        ).toBeTruthy(),
-      );
-      expect(queryByTestId("domain-stalled-apply")).toBeNull();
-
-      // …and the resize landing lifts the guard.
-      assistantResponse = makeAssistant("large", 50);
-      await client.invalidateQueries();
       await waitFor(
         () =>
           expect(
-            (getByTestId("onboarding-domain-set") as HTMLButtonElement)
-              .disabled,
-          ).toBe(false),
+            getByText("We hit a snag upgrading your assistant"),
+          ).toBeTruthy(),
         { timeout: 5000 },
+      );
+      // The mapped error is the caption, and Apply & Restart is gone.
+      expect(
+        getByText(
+          "We couldn't queue your upgrade just now. Try again in a moment.",
+        ),
+      ).toBeTruthy();
+      expect(queryByTestId("provisioning-apply")).toBeNull();
+
+      // The snag CTA reads "Retry in the background": it re-kicks the reconcile,
+      // toasts the error-aware line, and closes.
+      expect(getByText("Retry in the background")).toBeTruthy();
+      fireEvent.click(getByTestId("provisioning-escape"));
+      await waitFor(() => expect(ensureCalls).toBe(2));
+      expect(onClose).toHaveBeenCalled();
+      expect(toastInfoCalls).toContain(
+        "We'll retry your upgrade in the background.",
       );
     },
     20_000,

@@ -22,7 +22,7 @@ import type {
   ProvisioningDimensions,
   ProvisioningStateKind,
 } from "./provisioning-machine";
-import { SERIF_HEADING_STYLE, type StalledApplyAction } from "./primitives";
+import { SERIF_HEADING_STYLE } from "./primitives";
 import {
   buildResourceChanges,
   type ResourceChangeKey,
@@ -130,7 +130,11 @@ export interface ProvisioningStateProps {
   onEscape: () => void;
   /** Reports the phase actually on screen, which lags `state` by the hold. */
   onPhaseChange?: (phase: ProvisioningStateKind) => void;
-  stalledAction: StalledApplyAction;
+  /**
+   * ensure-provisioned failure held by the hook; with STALLED it selects the
+   * snag variant.
+   */
+  kickError?: unknown;
   confirm: { onRetry: () => void; onGoToBilling: () => void };
   /** Test hook — overrides the per-phase minimum; 0 disables the hold. */
   phaseMinMs?: number;
@@ -502,7 +506,7 @@ export function ProvisioningState({
   escapeAvailable,
   onEscape,
   onPhaseChange,
-  stalledAction,
+  kickError,
   confirm,
   dwellMs = PROVISION_MIN_DWELL_MS,
   phaseMinMs = PROVISION_PHASE_MIN_MS,
@@ -581,7 +585,7 @@ export function ProvisioningState({
     </div>
   );
 
-  function escapeButton() {
+  function escapeButton(label = "Continue in the background") {
     if (!escapeAvailable) {
       return null;
     }
@@ -591,7 +595,7 @@ export function ProvisioningState({
         data-testid="provisioning-escape"
         onClick={onEscape}
       >
-        Continue in the background
+        {label}
       </Button>
     );
   }
@@ -676,25 +680,33 @@ export function ProvisioningState({
     }
 
     if (heldState === "STALLED") {
+      // With no captured reconcile error the wait is just slow — say so
+      // honestly. Only an actual failure escalates to the "snag" variant with
+      // the mapped error and a retry-flavoured escape label.
+      const snag = kickError != null;
       return (
         <>
           <Copy
-            status="We couldn't finish this automatically"
-            caption={extractOnboardingErrorMessage(
-              stalledAction.error,
-              "Apply the changes below to finish setting up your upgrade.",
-            )}
+            status={
+              snag
+                ? "We hit a snag upgrading your assistant"
+                : "This is taking longer than expected"
+            }
+            caption={
+              snag
+                ? extractOnboardingErrorMessage(
+                    kickError,
+                    "Retry in the background — we'll keep working on your upgrade.",
+                  )
+                : "This may take a couple of minutes."
+            }
           />
-          <TargetChips targets={targets} fromSnapshot={fromSnapshot} />
-          <Button
-            variant="primary"
-            data-testid="provisioning-apply"
-            disabled={stalledAction.pending}
-            onClick={stalledAction.onApply}
-          >
-            Apply &amp; Restart
-          </Button>
-          {escapeButton()}
+          <ResourceChangeChips
+            intent={intent}
+            targets={targets}
+            fromSnapshot={fromSnapshot}
+          />
+          {snag ? escapeButton("Retry in the background") : escapeButton()}
         </>
       );
     }
