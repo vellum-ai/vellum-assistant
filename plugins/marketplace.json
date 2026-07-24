@@ -480,7 +480,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/octolens",
-        "ref": "d9117f5c6b97b3bff75dec1a04bedc32571c6538"
+        "ref": "15deb539ef0026bffb6092bb93fab960188b9f3e"
       },
       "description": "Social listening plugin for Octolens. Monitor brand mentions, competitor activity, and industry conversations across 13+ platforms. Query mentions, run analytics, manage keywords and feeds via REST API tools, or connect the Octolens MCP server for natural-language workflows.",
       "category": "growth",
