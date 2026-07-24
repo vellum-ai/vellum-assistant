@@ -179,6 +179,7 @@ function createSlackStore(): { rawDb: Database; store: SlackStore } {
 function createHarness(
   store: SlackStore,
   onEvent: (event: NormalizedSlackEvent) => void,
+  gatewayConfig: GatewayConfig = makeConfig(),
 ): SocketModeHarness {
   const harness = Object.create(
     SlackSocketModeClient.prototype,
@@ -189,7 +190,7 @@ function createHarness(
     botUserId: "UBOT",
     botUsername: "assistant",
     teamName: "Example Team",
-    gatewayConfig: makeConfig(),
+    gatewayConfig,
     threadMode: "mention_then_thread",
   };
   harness.onEvent = onEvent;
@@ -1928,13 +1929,35 @@ describe("SlackSocketModeClient thread tracking", () => {
 // routing, tracked thread, and unrouted/untracked). This locks the intricate
 // dispatch behavior before the discriminated-union classifier refactor.
 describe("SlackSocketModeClient event classification admit conditions", () => {
+  // A config whose only routes are actor_id entries for the event authors
+  // below. It routes those actors to an assistant regardless of channel
+  // subscription, so a reaction/edit/delete in an unsubscribed, non-DM channel
+  // WOULD route — leaving the dispatch filter's tracked-thread branch as the
+  // sole gate on the emit outcome. This is the "actor-routed Slack workspace"
+  // where the tracked-thread admit condition is observable.
+  function makeActorRoutedConfig(): GatewayConfig {
+    return {
+      ...makeConfig(),
+      routingEntries: [
+        { type: "actor_id", key: "U-reactor", assistantId: "ast-actor" },
+        { type: "actor_id", key: "U-editor", assistantId: "ast-actor" },
+        { type: "actor_id", key: "U-author", assistantId: "ast-actor" },
+      ],
+    };
+  }
+
   function emitFor(
     store: SlackStore,
     innerEvent: Record<string, unknown>,
     eventId: string,
+    gatewayConfig?: GatewayConfig,
   ): { emitted: NormalizedSlackEvent[]; run: () => Promise<void> } {
     const emitted: NormalizedSlackEvent[] = [];
-    const client = createHarness(store, (event) => emitted.push(event));
+    const client = createHarness(
+      store,
+      (event) => emitted.push(event),
+      gatewayConfig,
+    );
     const ws = makeOpenSocket();
     return {
       emitted,
@@ -2088,6 +2111,128 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
         store,
         del("C-random", "channel"),
         "Ev-del-drop",
+      );
+      await run();
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  // Tracked-thread branch. The emit outcome passes two gates in series: the
+  // dispatch filter (channel subscribed / DM / tracked-thread) AND the
+  // normalizer's routing (conversation_id / actor_id / DM-default). To pin the
+  // FILTER's tracked-thread branch specifically, these cases hold routing
+  // "would-pass" via an actor_id route (makeActorRoutedConfig) in an
+  // unsubscribed, non-DM channel; tracking the event's ts is then the only
+  // variable, so admit-when-tracked vs drop-when-untracked isolates the
+  // filter branch. Without this pairing a classifier regression that stopped
+  // admitting tracked-but-unsubscribed events would go unnoticed.
+  test("admits a reaction in an unsubscribed channel whose item is a tracked thread", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const trackedTs = "1700000000.010000";
+      store.trackThread(trackedTs, "C-random", 60_000);
+      const { emitted, run } = emitFor(
+        store,
+        reaction("C-random", trackedTs),
+        "Ev-rx-tracked",
+        makeActorRoutedConfig(),
+      );
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.callbackData).toBe("reaction:eyes");
+      expect(emitted[0].routing.assistantId).toBe("ast-actor");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("drops a reaction in an unsubscribed, untracked channel even when the actor is routable", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      // Same actor-routed config, same unsubscribed channel, but no tracked
+      // thread: routing would succeed, so the drop proves the filter — not
+      // routing — gates on the tracked-thread branch.
+      const { emitted, run } = emitFor(
+        store,
+        reaction("C-random"),
+        "Ev-rx-untracked",
+        makeActorRoutedConfig(),
+      );
+      await run();
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("admits a message edit in an unsubscribed channel whose message is a tracked thread", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      // The edit builder stamps message.ts = 1700000000.020000; tracking it
+      // makes hasThread(message.ts) admit despite the unsubscribed channel.
+      store.trackThread("1700000000.020000", "C-random", 60_000);
+      const { emitted, run } = emitFor(
+        store,
+        edit("C-random", "channel"),
+        "Ev-edit-tracked",
+        makeActorRoutedConfig(),
+      );
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.isEdit).toBe(true);
+      expect(emitted[0].routing.assistantId).toBe("ast-actor");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("drops a message edit in an unsubscribed, untracked channel even when the actor is routable", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        edit("C-random", "channel"),
+        "Ev-edit-untracked",
+        makeActorRoutedConfig(),
+      );
+      await run();
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("admits a message delete in an unsubscribed channel whose ts is a tracked thread", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      // The del builder stamps deleted_ts = 1700000000.030000; tracking it
+      // makes hasThread(deleted_ts) admit despite the unsubscribed channel.
+      store.trackThread("1700000000.030000", "C-random", 60_000);
+      const { emitted, run } = emitFor(
+        store,
+        del("C-random", "channel"),
+        "Ev-del-tracked",
+        makeActorRoutedConfig(),
+      );
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.callbackData).toBe("message_deleted");
+      expect(emitted[0].routing.assistantId).toBe("ast-actor");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("drops a message delete in an unsubscribed, untracked channel even when the actor is routable", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        del("C-random", "channel"),
+        "Ev-del-untracked",
+        makeActorRoutedConfig(),
       );
       await run();
       expect(emitted).toHaveLength(0);
