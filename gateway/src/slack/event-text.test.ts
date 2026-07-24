@@ -1,12 +1,13 @@
 import { describe, it, expect } from "bun:test";
 
-import { slackEventText, type SlackTextBearingEvent } from "./event-text.js";
+import { slackEventText } from "./event-text.js";
+import type { SlackInboundEvent } from "./envelope.js";
 
 // The static types declare `text` as a string, but Socket Mode payloads are
 // untrusted — a non-string reaches this code at runtime. Cast through unknown
 // to model that in the tests.
-function asEvent(value: unknown): SlackTextBearingEvent {
-  return value as SlackTextBearingEvent;
+function asEvent(value: unknown): SlackInboundEvent {
+  return value as SlackInboundEvent;
 }
 
 describe("slackEventText", () => {
