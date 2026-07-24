@@ -375,6 +375,117 @@ describe("migration 351: materialize historical inline message media", () => {
     expect(count(sqlite, "message_attachments")).toBe(3);
   });
 
+  test("skips linked attachment reads when recursive content has no inline media", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const content = [
+      {
+        type: "image",
+        source: {
+          type: "workspace_ref",
+          media_type: "image/png",
+          attachmentId: "attachment-existing",
+          sizeBytes: 1_000_000_000,
+        },
+      },
+      {
+        type: "tool_result",
+        tool_use_id: "tool-1",
+        content: "existing",
+        contentBlocks: [
+          {
+            type: "file",
+            source: {
+              type: "workspace_ref",
+              media_type: "application/octet-stream",
+              attachmentId: "attachment-existing",
+              sizeBytes: 1_000_000_000,
+            },
+          },
+        ],
+      },
+    ];
+    insertMessage(sqlite, "message-referenced", content);
+    insertAttachment(
+      sqlite,
+      "attachment-existing",
+      "",
+      "/unreadable/large-attachment.bin",
+    );
+    linkAttachment(sqlite, "message-referenced", "attachment-existing", 0);
+    const reads: string[] = [];
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+      ...options,
+      readLinkedAttachmentBytes: (attachmentId) => {
+        reads.push(attachmentId);
+        throw new Error("linked attachment must not be read");
+      },
+    });
+
+    expect(reads).toEqual([]);
+    expect(messageContent(sqlite, "message-referenced")).toEqual(content);
+  });
+
+  test("reads linked candidates lazily and skips all reads on an idempotent replay", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const inlineBytes = Buffer.from("matching-inline-file");
+    insertMessage(sqlite, "message-lazy-match", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/octet-stream",
+          data: inlineBytes.toString("base64"),
+          filename: "match.bin",
+        },
+      },
+    ]);
+    for (const [position, attachmentId] of [
+      "attachment-wrong",
+      "attachment-match",
+      "attachment-never-read",
+    ].entries()) {
+      insertAttachment(
+        sqlite,
+        attachmentId,
+        "",
+        `/candidate/${attachmentId}.bin`,
+      );
+      linkAttachment(sqlite, "message-lazy-match", attachmentId, position);
+    }
+    const candidateBytes = new Map<string, Buffer>([
+      ["attachment-wrong", Buffer.from("wrong")],
+      ["attachment-match", inlineBytes],
+      ["attachment-never-read", Buffer.from("unused")],
+    ]);
+    const reads: string[] = [];
+    const migrationOptions = {
+      ...options,
+      readLinkedAttachmentBytes: (attachmentId: string): Buffer | null => {
+        reads.push(attachmentId);
+        return candidateBytes.get(attachmentId) ?? null;
+      },
+    };
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    const content = messageContent(sqlite, "message-lazy-match") as Array<any>;
+    expect(reads).toEqual(["attachment-wrong", "attachment-match"]);
+    expect(content[0].source).toMatchObject({
+      type: "workspace_ref",
+      attachmentId: "attachment-match",
+      sizeBytes: inlineBytes.length,
+    });
+    expect(count(sqlite, "attachments")).toBe(3);
+    expect(count(sqlite, "message_attachments")).toBe(3);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    expect(reads).toEqual(["attachment-wrong", "attachment-match"]);
+    expect(count(sqlite, "attachments")).toBe(3);
+    expect(count(sqlite, "message_attachments")).toBe(3);
+  });
+
   test("materializes the inline bytes when a legacy attachment ID points at different media", async () => {
     const { sqlite, db, options } = createTestDb();
     const inlineBytes = Buffer.from("correct-media");

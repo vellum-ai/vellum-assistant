@@ -23,6 +23,7 @@ export interface HistoricalInlineMediaMigrationOptions {
     conversationCreatedAt: number,
   ) => string;
   writeFile?: (path: string, data: Buffer) => void;
+  readLinkedAttachmentBytes?: (attachmentId: string) => Buffer | null;
   yieldToEventLoop?: () => Promise<void>;
 }
 
@@ -42,14 +43,21 @@ interface AttachmentRow {
   mimeType: string;
 }
 
-interface LinkedAttachmentRow extends AttachmentRow {
+interface LinkedAttachmentRow {
+  id: string;
+  mimeType: string;
   linkId: string;
   position: number;
 }
 
 interface AttachmentMatch {
   kind: "exact" | "optimized";
-  storedBytes: Buffer;
+  storedSizeBytes: number;
+}
+
+interface ByteSignature {
+  digest: string;
+  sizeBytes: number;
 }
 
 interface SelectedAttachment {
@@ -113,36 +121,80 @@ function readableAttachmentBytes(row: AttachmentRow): Buffer | null {
   return decodeBase64(row.dataBase64);
 }
 
+function byteSignature(bytes: Buffer): ByteSignature {
+  return { digest: sha256(bytes), sizeBytes: bytes.length };
+}
+
+function signaturesMatch(left: ByteSignature, right: ByteSignature): boolean {
+  return left.sizeBytes === right.sizeBytes && left.digest === right.digest;
+}
+
+function hasInlineMediaToMaterialize(block: unknown): boolean {
+  if (!isRecord(block)) {
+    return false;
+  }
+  if (block.type === "image" || block.type === "file") {
+    return (
+      isRecord(block.source) &&
+      block.source.type === "base64" &&
+      typeof block.source.media_type === "string" &&
+      typeof block.source.data === "string"
+    );
+  }
+  return (
+    (block.type === "tool_result" || block.type === "web_search_tool_result") &&
+    Array.isArray(block.contentBlocks) &&
+    block.contentBlocks.some(hasInlineMediaToMaterialize)
+  );
+}
+
 function matchAttachmentToBlock(
-  row: AttachmentRow,
-  storedBytes: Buffer | null,
+  row: LinkedAttachmentRow,
+  readAttachmentBytes: (attachmentId: string) => Buffer | null,
   blockType: "image" | "file",
   mediaType: string,
-  inlineBytes: Buffer,
-  optimizedBytesCache: Map<string, Buffer | null>,
+  inlineSignature: ByteSignature,
+  attachmentSignatureCache: Map<string, ByteSignature | null>,
+  optimizedSignatureCache: Map<string, ByteSignature | null>,
 ): AttachmentMatch | null {
-  if (!storedBytes) {
+  let storedBytes: Buffer | null = null;
+  let storedSignature = attachmentSignatureCache.get(row.id);
+  if (storedSignature === undefined) {
+    storedBytes = readAttachmentBytes(row.id);
+    storedSignature = storedBytes ? byteSignature(storedBytes) : null;
+    attachmentSignatureCache.set(row.id, storedSignature);
+  }
+  if (!storedSignature) {
     return null;
   }
-  if (storedBytes.equals(inlineBytes)) {
-    return { kind: "exact", storedBytes };
+  if (signaturesMatch(storedSignature, inlineSignature)) {
+    return { kind: "exact", storedSizeBytes: storedSignature.sizeBytes };
   }
   if (blockType !== "image") {
     return null;
   }
   const cacheKey = `${row.id}\0${mediaType}`;
-  if (!optimizedBytesCache.has(cacheKey)) {
+  if (!optimizedSignatureCache.has(cacheKey)) {
+    storedBytes ??= readAttachmentBytes(row.id);
+    if (!storedBytes) {
+      optimizedSignatureCache.set(cacheKey, null);
+      return null;
+    }
     const optimized = optimizeImageForTransport(
       storedBytes.toString("base64"),
       row.mimeType,
     );
-    optimizedBytesCache.set(
+    const optimizedBytes =
+      optimized.mediaType === mediaType ? decodeBase64(optimized.data) : null;
+    optimizedSignatureCache.set(
       cacheKey,
-      optimized.mediaType === mediaType ? decodeBase64(optimized.data) : null,
+      optimizedBytes ? byteSignature(optimizedBytes) : null,
     );
   }
-  return optimizedBytesCache.get(cacheKey)?.equals(inlineBytes) === true
-    ? { kind: "optimized", storedBytes }
+  const optimizedSignature = optimizedSignatureCache.get(cacheKey);
+  return optimizedSignature &&
+    signaturesMatch(optimizedSignature, inlineSignature)
+    ? { kind: "optimized", storedSizeBytes: storedSignature.sizeBytes }
     : null;
 }
 
@@ -207,6 +259,21 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
     options.resolveAttachmentsDir ?? defaultResolveAttachmentsDir;
   const writeFile = options.writeFile ?? defaultWriteFile;
   const yieldToEventLoop = options.yieldToEventLoop ?? defaultYield;
+  const readLinkedAttachmentBytes =
+    options.readLinkedAttachmentBytes ??
+    ((attachmentId: string): Buffer | null => {
+      const attachment = raw
+        .query(
+          `SELECT
+             id,
+             data_base64 AS dataBase64,
+             file_path AS filePath,
+             mime_type AS mimeType
+           FROM attachments WHERE id = ?`,
+        )
+        .get(attachmentId) as AttachmentRow | null;
+      return attachment ? readableAttachmentBytes(attachment) : null;
+    });
 
   let lastRowid = 0;
   for (;;) {
@@ -241,6 +308,9 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
       if (!Array.isArray(parsed)) {
         continue;
       }
+      if (!parsed.some(hasInlineMediaToMaterialize)) {
+        continue;
+      }
 
       const linkedRows = raw
         .query(
@@ -248,8 +318,6 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
              ma.id AS linkId,
              ma.position,
              a.id,
-             a.data_base64 AS dataBase64,
-             a.file_path AS filePath,
              a.mime_type AS mimeType
            FROM message_attachments ma
            JOIN attachments a ON a.id = ma.attachment_id
@@ -258,10 +326,8 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
         )
         .all(row.id) as LinkedAttachmentRow[];
       const linkedById = new Map(linkedRows.map((item) => [item.id, item]));
-      const linkedBytes = new Map(
-        linkedRows.map((item) => [item.linkId, readableAttachmentBytes(item)]),
-      );
-      const optimizedBytesCache = new Map<string, Buffer | null>();
+      const attachmentSignatureCache = new Map<string, ByteSignature | null>();
+      const optimizedSignatureCache = new Map<string, ByteSignature | null>();
       const consumedLinkIds = new Set<string>();
       const pendingAttachments: PendingAttachment[] = [];
       const pendingLinks: PendingLink[] = [];
@@ -327,6 +393,7 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
         if (!inlineBytes) {
           return block;
         }
+        const inlineSignature = byteSignature(inlineBytes);
 
         let selected: SelectedAttachment | undefined;
         if (typeof block._attachmentId === "string") {
@@ -334,11 +401,12 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
           if (linked) {
             const match = matchAttachmentToBlock(
               linked,
-              linkedBytes.get(linked.linkId) ?? null,
+              readLinkedAttachmentBytes,
               block.type as "image" | "file",
               mediaType,
-              inlineBytes,
-              optimizedBytesCache,
+              inlineSignature,
+              attachmentSignatureCache,
+              optimizedSignatureCache,
             );
             if (match) {
               selected = { row: linked, match };
@@ -351,11 +419,12 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
             }
             const match = matchAttachmentToBlock(
               linked,
-              linkedBytes.get(linked.linkId) ?? null,
+              readLinkedAttachmentBytes,
               block.type as "image" | "file",
               mediaType,
-              inlineBytes,
-              optimizedBytesCache,
+              inlineSignature,
+              attachmentSignatureCache,
+              optimizedSignatureCache,
             );
             if (match) {
               selected = { row: linked, match };
@@ -365,7 +434,7 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
         }
 
         const jsonPath = path.join("/");
-        const contentHash = sha256(inlineBytes);
+        const contentHash = inlineSignature.digest;
         let attachmentId: string;
         if (selected) {
           attachmentId = selected.row.id;
@@ -429,7 +498,7 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
             : mediaType;
         const referenceSizeBytes =
           selected?.match.kind === "optimized"
-            ? selected.match.storedBytes.length
+            ? selected.match.storedSizeBytes
             : inlineBytes.length;
         const nextSource: Record<string, unknown> = {
           ...sourceMetadata,
