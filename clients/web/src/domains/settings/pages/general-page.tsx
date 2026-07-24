@@ -149,7 +149,7 @@ export function GeneralPage() {
           }
           onUpgradeStorage={
             infraGate === "full"
-              ? () => void navigate(`${routes.settings.usage}?tab=billing&adjust_plan=1`)
+              ? () => void navigate(routes.plans)
               : null
           }
         />
