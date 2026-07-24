@@ -95,13 +95,14 @@ export const Empty: Story = {
 };
 
 /**
- * `eng-releases` starts overridden to the Conservative tier — the row badge
- * reads "Conservative • custom" and expanding it shows the custom-access
- * callout with Reset to default (mirrors the ticket mockup's `releases`).
+ * `eng-releases` is pinned to Full access — its picker names that level with no
+ * "default" marker, while every cell-less row shows the resolved default
+ * ("Conservative · default"). Re-selecting the default-marked level clears the
+ * override.
  */
 export const OverriddenChannel: Story = {
   args: {
-    tierOverrides: { C003: "low" },
+    tierOverrides: { C003: "high" },
     onTierChange: () => {},
     onTierReset: () => {},
   },
@@ -152,18 +153,4 @@ export const ManyChannels: Story = {
       </div>
     ),
   ],
-};
-
-/**
- * The "Assistant Access levels" key expanded — each tier's behavior
- * description, folded into the foot of the presence card instead of a separate
- * card below it.
- */
-export const AccessLevelsOpen: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(
-      canvas.getByRole("button", { name: /assistant access levels/i }),
-    );
-  },
 };

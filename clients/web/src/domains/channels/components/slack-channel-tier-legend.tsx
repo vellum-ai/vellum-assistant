@@ -1,8 +1,5 @@
-import type { ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
 import { Link } from "react-router";
 
-import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import type { TagTone } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 
@@ -23,150 +20,116 @@ const TONE_DOT_COLOR: Record<TagTone, string> = {
 };
 
 /**
- * Per-tier help copy, framed around behavior toward the people in the
- * channel: what the assistant does on its own when responding, and what
- * waits for the owner. Lives here rather than in `CAPABILITY_TIER_META`
- * because it interpolates the assistant's name; the Trust Rules footnote
- * below the grid links out to the Privacy settings page.
+ * Full per-tier help copy, framed around behavior toward the people in the
+ * channel: what the assistant does on its own when responding, and what waits
+ * for the owner. Kept as plain text (not JSX) so it can ride each key entry's
+ * hover tooltip — the terse `CAPABILITY_TIER_META` sublabel is what shows
+ * inline, the full sentence appears on hover.
  *
  * Grounded in the live approval pipeline
- * (`assistant/src/permissions/checker.ts` → `approval-policy.ts`): each
- * call's risk is classified first — with the user's Trust Rules applied as
- * per-action risk re-classifications (low/medium/high) — and then compared
- * against this channel's tier. At `none` nothing is within threshold, so
- * every action prompts; Trust Rules move an action between levels (changing
- * when it asks) but cannot bypass Strict or hard-block at Full access,
- * which is why the footnote describes them as tuning, not overriding.
+ * (`assistant/src/permissions/checker.ts` → `approval-policy.ts`): each call's
+ * risk is classified first — with the user's Trust Rules applied as per-action
+ * risk re-classifications (low/medium/high) — and then compared against this
+ * channel's tier. At `none` nothing is within threshold, so every action
+ * prompts; Trust Rules move an action between levels (changing when it asks)
+ * but cannot bypass Strict or hard-block at Full access, which is why the
+ * footnote describes them as tuning, not overriding.
  *
- * Channel actors are non-guardians, so the sensitive-tool floor applies on
- * top of the tier: every side-effect tool (file writes, bash, sends —
- * `assistant/src/tools/side-effects.ts`) and all host execution escalates
- * to the owner without a scoped grant, at every tier
- * (`assistant/src/tools/tool-approval-handler.ts`). That's why the
- * examples here are read-only — the tier moves the line for what the
- * assistant looks up on its own, while actions keep coming to the owner —
- * and why this copy is intentionally narrower than the global preset
- * descriptions in `threshold-presets.ts`, which describe the guardian's
- * own conversations where the floor self-approves.
+ * Channel actors are non-guardians, so the sensitive-tool floor applies on top
+ * of the tier: every side-effect tool (file writes, bash, sends —
+ * `assistant/src/tools/side-effects.ts`) and all host execution escalates to
+ * the owner without a scoped grant, at every tier
+ * (`assistant/src/tools/tool-approval-handler.ts`). That's why the examples
+ * here are read-only — the tier moves the line for what the assistant looks up
+ * on its own, while actions keep coming to the owner — and why this copy is
+ * intentionally narrower than the global preset descriptions in
+ * `threshold-presets.ts`, which describe the guardian's own conversations where
+ * the floor self-approves.
  */
-function tierDescription(
-  tier: RiskThreshold,
-  assistantName: string,
-): ReactNode {
+function tierDescription(tier: RiskThreshold, assistantName: string): string {
   switch (tier) {
     case "none":
-      return (
-        <>
-          {assistantName} replies in this channel, but asks you before taking
-          any action.
-        </>
-      );
+      return `${assistantName} replies in this channel, but asks you before taking any action.`;
     case "low":
-      return (
-        <>
-          {assistantName} replies and runs safe, read-only actions on its own,
-          like web searches and reading files in its workspace. Anything that
-          writes, sends, or spends asks you first.
-        </>
-      );
+      return `${assistantName} replies and runs safe, read-only actions on its own, like web searches and reading files in its workspace. Anything that writes, sends, or spends asks you first.`;
     case "medium":
-      return (
-        <>
-          {assistantName} also handles medium-risk requests on its own, like
-          network requests that use your connected accounts. Anything that
-          writes, sends, or spends still asks you first.
-        </>
-      );
+      return `${assistantName} also handles medium-risk requests on its own, like network requests that use your connected accounts. Anything that writes, sends, or spends still asks you first.`;
     case "high":
-      return (
-        <>
-          {assistantName} answers any request on its own without asking. Tools
-          that take action — writing, sending, spending — still come to you
-          first.
-        </>
-      );
+      return `${assistantName} answers any request on its own without asking. Tools that take action — writing, sending, spending — still come to you first.`;
   }
 }
 
 export interface SlackChannelTierLegendProps {
   /** Trimmed assistant name with a "your assistant" fallback, for copy. */
   assistantName: string;
+  /**
+   * The tier the owner's global setting resolves to, marked "· default" in the
+   * key so it lines up with the rows (which name the same tier). `null` while
+   * unknown — no tier is marked.
+   */
+  defaultTier: RiskThreshold | null;
 }
 
 /**
- * Collapsible Assistant Access legend at the foot of the channel list card:
- * every tier with its behavior description, so the expanded rows don't repeat
- * the same paragraph per channel. Collapsed by default to stay out of the way.
+ * Always-visible Assistant Access key at the foot of the channel list card:
+ * every tier as a compact "label + what it does" pair, laid out side by side so
+ * the meaning is on screen without opening anything. The full behavior sentence
+ * rides each pair's hover tooltip. The tier the global default resolves to is
+ * marked "· default", matching the per-row picker so the two read together.
  */
 export function SlackChannelTierLegend({
   assistantName,
+  defaultTier,
 }: SlackChannelTierLegendProps) {
   return (
-    <Collapsible.Root type="single" collapsible>
-      <Collapsible.Item value="access-levels">
-        <Collapsible.Trigger className="group justify-between gap-2 px-4 py-3">
-          <Typography as="span" variant="body-small-emphasised">
-            Assistant Access levels
-          </Typography>
-          <ChevronDown
-            aria-hidden="true"
-            className="h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-180"
-          />
-        </Collapsible.Trigger>
-        <Collapsible.Content>
-          <div className="flex flex-col gap-3 px-4 pb-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              {CAPABILITY_TIER_VALUES.map((tier) => {
-                const meta = CAPABILITY_TIER_META[tier];
-                return (
-                  <div key={tier} className="flex flex-col gap-1">
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        aria-hidden="true"
-                        className="h-1.5 w-1.5 rounded-full"
-                        style={{ backgroundColor: TONE_DOT_COLOR[meta.tone] }}
-                      />
-                      <Typography as="span" variant="body-small-emphasised">
-                        {meta.label}
-                      </Typography>
-                    </span>
-                    <Typography
-                      as="p"
-                      variant="body-small-default"
-                      className="text-[color:var(--content-tertiary)]"
-                    >
-                      {tierDescription(tier, assistantName)}
-                    </Typography>
-                  </div>
-                );
-              })}
-            </div>
-            <Typography
-              as="p"
-              variant="body-small-default"
-              className="text-[color:var(--content-tertiary)]"
+    <div className="flex flex-col gap-2 px-4 py-3">
+      <Typography as="span" variant="body-small-emphasised">
+        Assistant Access levels
+      </Typography>
+      <ul className="flex flex-wrap gap-x-4 gap-y-1.5">
+        {CAPABILITY_TIER_VALUES.map((tier) => {
+          const meta = CAPABILITY_TIER_META[tier];
+          return (
+            <li
+              key={tier}
+              className="flex items-center gap-1.5"
+              title={tierDescription(tier, assistantName)}
             >
-              Writes, sends, and spends always come to you first — at every
-              level.
-            </Typography>
-            <Typography
-              as="p"
-              variant="body-small-default"
-              className="text-[color:var(--content-tertiary)]"
-            >
-              Your{" "}
-              <Link
-                to={routes.settings.privacy}
-                className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
+              <span
+                aria-hidden="true"
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: TONE_DOT_COLOR[meta.tone] }}
+              />
+              <Typography as="span" variant="body-small-emphasised">
+                {meta.label}
+              </Typography>
+              <Typography
+                as="span"
+                variant="body-small-default"
+                className="text-[color:var(--content-tertiary)]"
               >
-                Trust Rules
-              </Link>{" "}
-              fine-tune these levels: a rule raises or lowers how risky a
-              specific action is treated, which changes when it asks first.
-            </Typography>
-          </div>
-        </Collapsible.Content>
-      </Collapsible.Item>
-    </Collapsible.Root>
+                {meta.sublabel}
+                {tier === defaultTier ? " · default" : ""}
+              </Typography>
+            </li>
+          );
+        })}
+      </ul>
+      <Typography
+        as="p"
+        variant="body-small-default"
+        className="text-[color:var(--content-tertiary)]"
+      >
+        Writes, sends, and spends always come to you first — at every level.
+        Your{" "}
+        <Link
+          to={routes.settings.privacy}
+          className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
+        >
+          Trust Rules
+        </Link>{" "}
+        fine-tune when it asks.
+      </Typography>
+    </div>
   );
 }

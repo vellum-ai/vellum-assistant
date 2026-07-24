@@ -17,7 +17,6 @@ import { SlackChannelTierLegend } from "@/domains/channels/components/slack-chan
 import {
   CAPABILITY_TIER_META,
   CAPABILITY_TIER_VALUES,
-  resolveChannelTier,
 } from "@/domains/channels/slack-channel-overrides";
 import type { RiskThreshold } from "@/utils/threshold-presets";
 import type { SlackChannel } from "@/domains/channels/slack-channels-query";
@@ -334,7 +333,7 @@ export function SlackChannelList({
                     />
                   </div>
                 ) : (
-                  // Rows scroll within the card's flex area; the collapsed
+                  // Rows scroll within the card's flex area; the always-visible
                   // Assistant Access levels key stays pinned in the footer.
                   <div className="min-h-0 flex-1 overflow-y-auto">
                     {visibleChannels.map((channel) => (
@@ -362,7 +361,10 @@ export function SlackChannelList({
         !error &&
         allChannels.length > 0 ? (
           <Card.Footer className="p-0">
-            <SlackChannelTierLegend assistantName={assistantDisplayName} />
+            <SlackChannelTierLegend
+              assistantName={assistantDisplayName}
+              defaultTier={defaultTier}
+            />
           </Card.Footer>
         ) : null}
       </Card.Root>
@@ -370,20 +372,13 @@ export function SlackChannelList({
   );
 }
 
-/** Accent dot per tier, matching the collapsed Assistant Access levels key. */
+/** Accent dot per tier, matching the Assistant Access levels key. */
 const TIER_DOT_COLOR: Record<RiskThreshold, string> = {
   none: "var(--system-negative-strong)",
   low: "var(--system-mid-strong)",
   medium: "var(--system-info-strong)",
   high: "var(--system-positive-strong)",
 };
-
-/**
- * Sentinel picker value that clears a channel's stored cell so the room
- * follows the owner's global Assistant Access setting again.
- */
-const DEFAULT_CHOICE = "default";
-type TierChoice = RiskThreshold | typeof DEFAULT_CHOICE;
 
 function TierDot({ color }: { color: string }) {
   return (
@@ -423,7 +418,6 @@ function SlackChannelRow({
   }
   const Icon = CHANNEL_KIND_ICONS[kind];
   const metaLabel = slackChannelMetaLabel(channel);
-  const settings = resolveChannelTier(tierOverride);
   const rowClassName = "[&+&]:border-t [&+&]:border-[var(--border-base)]";
 
   // Older assistant without the channel-permission routes: a plain presence
@@ -445,32 +439,42 @@ function SlackChannelRow({
     );
   }
 
-  // A stored cell shows its tier; a cell-less row follows the resolved default
-  // via the sentinel, which clears the cell when re-selected.
-  const value: TierChoice = settings.tier ?? DEFAULT_CHOICE;
-  const defaultDotColor =
-    defaultTier !== null
-      ? TIER_DOT_COLOR[defaultTier]
-      : "var(--content-tertiary)";
-  const options: DropdownOption<TierChoice>[] = [
-    {
-      value: DEFAULT_CHOICE,
-      label: "Default",
-      icon: <TierDot color={defaultDotColor} />,
-    },
-    ...CAPABILITY_TIER_VALUES.map((tier) => ({
+  // The picker lists the four levels only — no separate "Default" option.
+  // The level that equals the resolved default carries a muted "default"
+  // marker; the row shows that level as the effective access. Selecting the
+  // marked level clears the channel's cell (follows the default); selecting any
+  // other level pins an override. Following the default and picking the level
+  // it resolves to are the same choice, so there is nothing to "change from
+  // default to Conservative" between.
+  //
+  // This is safe because resolution is most-specific-wins and value-only: a
+  // cell equal to the default and no cell behave identically until the global
+  // default later drifts, and treating "pick the default level" as "clear the
+  // cell" is the intended drift-following behavior (see slack-channel-overrides
+  // and the gateway's ChannelPermissionStore.resolve). While the default is
+  // still unknown (`null`) no level is marked and the trigger shows a plain
+  // "Default" placeholder.
+  const effectiveTier = tierOverride ?? defaultTier;
+  const options: DropdownOption<RiskThreshold>[] = CAPABILITY_TIER_VALUES.map(
+    (tier) => ({
       value: tier,
       label: CAPABILITY_TIER_META[tier].label,
       icon: <TierDot color={TIER_DOT_COLOR[tier]} />,
+      suffix:
+        tier === defaultTier ? (
+          <span className="text-[color:var(--content-tertiary)]">default</span>
+        ) : undefined,
       tooltip: CAPABILITY_TIER_META[tier].sublabel,
-    })),
-  ];
+    }),
+  );
 
-  const handleChange = (choice: TierChoice) => {
-    if (choice === DEFAULT_CHOICE) {
+  const handleChange = (tier: RiskThreshold) => {
+    // Picking the level the default resolves to means "follow the default",
+    // which is the absence of a cell — clear it rather than pinning an equal one.
+    if (tier === defaultTier) {
       onReset();
     } else {
-      onTierChange(choice);
+      onTierChange(tier);
     }
   };
 
@@ -486,12 +490,14 @@ function SlackChannelRow({
               {metaLabel}
             </span>
           ) : null}
-          <div className="w-44">
-            <Dropdown<TierChoice>
-              value={value}
+          <div className="w-48">
+            <Dropdown<RiskThreshold>
+              value={effectiveTier ?? ""}
               onChange={handleChange}
               options={options}
+              placeholder="Default"
               disabled={pending || overridesLoading || overridesError}
+              size="compact"
               menuAlign="end"
               aria-label={`Assistant Access in ${channel.name}`}
             />

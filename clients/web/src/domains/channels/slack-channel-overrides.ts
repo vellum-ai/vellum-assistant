@@ -117,30 +117,3 @@ export function tierOverridesFromCells(
   }
   return overrides;
 }
-
-/** The row's resolved tier plus whether a persisted cell backs it. */
-export interface SlackChannelTierSettings {
-  /**
-   * The persisted tier, or `null` when no cell exists — the runtime then
-   * falls through to broader-scope cells and the owner's global Assistant
-   * Access setting, so the UI must not present a tier as set.
-   */
-  tier: RiskThreshold | null;
-  /**
-   * True when a persisted cell backs the tier. A cell is an override by
-   * existing: it pins the channel above the global auto-approve cascade
-   * even when its tier matches the room default, so it must stay visible
-   * (badge, callout, reset).
-   */
-  overridden: boolean;
-}
-
-/** Resolves the row's tier from a persisted cell, if any. */
-export function resolveChannelTier(
-  override: RiskThreshold | undefined,
-): SlackChannelTierSettings {
-  return {
-    tier: override ?? null,
-    overridden: override !== undefined,
-  };
-}

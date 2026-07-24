@@ -5,33 +5,9 @@ import { THRESHOLD_PRESETS } from "@/utils/threshold-presets";
 import {
   CAPABILITY_TIER_META,
   CAPABILITY_TIER_VALUES,
-  resolveChannelTier,
   tierOverridesFromCells,
   type ChannelTierCell,
 } from "./slack-channel-overrides";
-
-describe("resolveChannelTier", () => {
-  test("no cell resolves to an unset tier — the global setting applies, not a hardcoded default", () => {
-    expect(resolveChannelTier(undefined)).toEqual({
-      tier: null,
-      overridden: false,
-    });
-  });
-
-  test("a persisted cell flags the row as custom", () => {
-    expect(resolveChannelTier("low")).toEqual({
-      tier: "low",
-      overridden: true,
-    });
-  });
-
-  test("a high cell is still an override — it pins the channel above the global cascade", () => {
-    expect(resolveChannelTier("high")).toEqual({
-      tier: "high",
-      overridden: true,
-    });
-  });
-});
 
 describe("tier ↔ preset parity", () => {
   test("tiers are the global presets' thresholds, in preset order", () => {
