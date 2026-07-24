@@ -115,6 +115,9 @@ function extractTrailingToolResultText(messages: Message[]): string {
   }
   const parts: string[] = [];
   for (const block of last.content) {
+    if (block.type === "web_search_tool_result") {
+      continue; // provider-encrypted payload — nothing inlineable
+    }
     if (block.type === "tool_result" && block.content.trim()) {
       parts.push(block.content);
     }
