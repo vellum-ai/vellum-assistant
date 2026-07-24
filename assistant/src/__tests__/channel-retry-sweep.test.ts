@@ -66,11 +66,15 @@ mock.module("../runtime/channel-reply-delivery.js", () => ({
       .orderBy(asc(messages.createdAt))
       .all();
     const userIndex = rows.findIndex((row) => row.id === userMessageId);
-    if (userIndex === -1) return undefined;
+    if (userIndex === -1) {
+      return undefined;
+    }
     let candidate: string | undefined;
     for (let i = userIndex + 1; i < rows.length; i++) {
       const row = rows[i];
-      if (row.role === "user") break;
+      if (row.role === "user") {
+        break;
+      }
       if (row.role === "assistant") {
         candidate = row.id;
       }
@@ -89,6 +93,11 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
+import type { Conversation } from "../daemon/conversation.js";
+import {
+  clearConversations,
+  setConversation,
+} from "../daemon/conversation-registry.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import * as deliveryCrud from "../persistence/delivery-crud.js";
@@ -177,6 +186,7 @@ function seedFailedEventWithActorRoleOnly(
 describe("channel-retry-sweep", () => {
   beforeEach(() => {
     resetTables();
+    clearConversations();
     deliveryCalls.length = 0;
     liveDeliveryCalls.length = 0;
     deliverReplyViaCallbackImpl = async () => {};
@@ -927,5 +937,77 @@ describe("channel-retry-sweep", () => {
       row?.rawPayload ? JSON.parse(row.rawPayload).replyMessageId : undefined,
     ).toBe("assistant-delivery-fallback");
     expect(row?.deliveryStatus).toBe("delivered");
+  });
+
+  test("defers a retry whose conversation is mid-turn instead of dead-lettering it", async () => {
+    const eventId = seedFailedEventWithTrustClass("guardian");
+    const conversationId = getDb()
+      .select({ conversationId: channelInboundEvents.conversationId })
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, eventId))
+      .get()!.conversationId;
+
+    // The conversation is mid-turn (e.g. the assistant's session is still
+    // running). Reprocessing would throw the busy error, which
+    // `recordProcessingFailure` classifies as fatal → dead_letter. The sweep
+    // must instead re-defer: skip the turn, keep the event retryable.
+    setConversation(conversationId, {
+      isProcessing: () => true,
+    } as unknown as Conversation);
+
+    let processMessageCalled = false;
+    await sweepFailedEvents(async () => {
+      processMessageCalled = true;
+      return { messageId: "should-not-run" };
+    });
+
+    // No wasted LLM turn while the conversation is busy.
+    expect(processMessageCalled).toBe(false);
+
+    const row = getDb()
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, eventId))
+      .get();
+    // Retryable (a later sweep reprocesses once idle) — never dead-lettered,
+    // and the defer does NOT burn a retry attempt, so a conversation that stays
+    // busy across many sweeps can never exhaust the budget and drop the reply.
+    expect(row?.processingStatus).toBe("failed");
+    expect(row?.processingAttempts).toBe(1); // seed value, unchanged by the defer
+    // retry_after was pushed into the future so it is not re-selected in a loop.
+    expect(row?.retryAfter).toBeGreaterThan(Date.now());
+  });
+
+  test("re-defers a mid-turn retry across many sweeps without ever dead-lettering", async () => {
+    const eventId = seedFailedEventWithTrustClass("guardian");
+    const conversationId = getDb()
+      .select({ conversationId: channelInboundEvents.conversationId })
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, eventId))
+      .get()!.conversationId;
+    setConversation(conversationId, {
+      isProcessing: () => true,
+    } as unknown as Conversation);
+
+    const noopProcess = async () => ({ messageId: "should-not-run" });
+    // Far more sweeps than RETRY_MAX_ATTEMPTS (8): the old attempt-burning defer
+    // would have dead-lettered the event long before this loop finishes.
+    for (let i = 0; i < 20; i++) {
+      // Each sweep only selects events whose retry_after has elapsed; force it.
+      getDb()
+        .update(channelInboundEvents)
+        .set({ retryAfter: Date.now() - 1 })
+        .where(eq(channelInboundEvents.id, eventId))
+        .run();
+      await sweepFailedEvents(noopProcess);
+    }
+
+    const row = getDb()
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, eventId))
+      .get();
+    expect(row?.processingStatus).toBe("failed"); // never dead_letter
+    expect(row?.processingAttempts).toBe(1); // still unburned
   });
 });

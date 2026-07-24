@@ -7,6 +7,8 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../channels/types.js";
+import { isConversationBusyError } from "../daemon/conversation-messaging.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
@@ -18,6 +20,7 @@ import {
   storeReplyMessageId,
 } from "../persistence/delivery-crud.js";
 import {
+  deferRetryUntilIdle,
   getRetryableDeliveryEvents,
   getRetryableEvents,
   markDeliveryDelivered,
@@ -306,6 +309,23 @@ export async function sweepFailedEvents(
       }
     };
 
+    // Defer — don't dead-letter — a retry whose conversation is mid-turn. The
+    // sweep runs turns directly (no admission gate), so reprocessing a busy
+    // conversation throws the busy error, and `recordProcessingFailure`
+    // classifies that as fatal → `dead_letter`. Re-schedule it without burning a
+    // retry attempt (`deferRetryUntilIdle`) so a long in-flight turn can never
+    // exhaust the budget and drop the reply; a later sweep reprocesses once the
+    // lock frees. This is the sweep-side counterpart to the inbound
+    // defer-until-idle admission in `channel-turn-admission.ts`.
+    if (findConversation(event.conversationId)?.isProcessing()) {
+      log.info(
+        { eventId: event.id, conversationId: event.conversationId },
+        "Channel retry deferred: conversation is mid-turn",
+      );
+      deferRetryUntilIdle(event.id);
+      continue;
+    }
+
     let userMessageId: string | undefined;
     try {
       const result = await processMessage(event.conversationId, content, {
@@ -336,6 +356,17 @@ export async function sweepFailedEvents(
         "Successfully replayed failed channel event",
       );
     } catch (err) {
+      if (isConversationBusyError(err)) {
+        // The conversation took its processing lock between the pre-check above
+        // and this call. Same treatment: re-schedule without burning an attempt,
+        // never a fatal dead-letter.
+        log.info(
+          { eventId: event.id, conversationId: event.conversationId },
+          "Channel retry hit the processing lock; deferring to a later sweep",
+        );
+        deferRetryUntilIdle(event.id);
+        continue;
+      }
       log.error({ err, eventId: event.id }, "Retry failed for channel event");
       recordProcessingFailure(event.id, err);
       continue;
