@@ -59,6 +59,7 @@ import {
 } from "../../../persistence/jobs-store.js";
 import type { JobHandler } from "../../types.js";
 import { sweepOrphanConversationMemoryTables } from "./conversation-memory-orphan-sweep.js";
+import { getDailyRunCount, recordDailyRun } from "./daily-run-counter.js";
 import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { getWorkspaceDir } from "./paths.js";
@@ -988,6 +989,16 @@ const CONSOLIDATION_BILLING_BACKOFF_BASE_MS = 60 * 60 * 1000;
 const CONSOLIDATION_BILLING_BACKOFF_MIN_CAP_MS = 6 * 60 * 60 * 1000;
 
 /**
+ * Namespace for the per-UTC-day automatic-consolidation run counter (see
+ * `daily-run-counter.ts`). Both the interval and size triggers count against
+ * this one namespace so the daily cap covers all automatic enqueues. Distinct
+ * from the sibling retrospective counter's namespace so the two never collide.
+ * Exported for tests that seed the counter directly.
+ */
+export const CONSOLIDATION_DAILY_RUN_NAMESPACE =
+  "memory_v2_consolidate_daily_runs";
+
+/**
  * Backoff window after `consecutiveFailures` failed consolidation runs.
  * Billing: `min(1h * 2^(n-1), max(6h, intervalMs))`. Transient:
  * `min(5min * 2^(n-1), 30min)`.
@@ -1108,6 +1119,23 @@ export function maybeEnqueueGraphMaintenanceJobs(
       // The checkpoint advances so the next check fires after the regular
       // interval. Manual "Run now" is unaffected (routes layer, not schedule).
       if (jobType === consolidateEntry.jobType) {
+        // Daily cap: at most `consolidation_max_runs_per_day` automatic runs
+        // per UTC day. Skip WITHOUT advancing the checkpoint so the first tick
+        // after UTC midnight (when the counter resets) re-fires promptly rather
+        // than waiting a full interval. Buffered memories keep accumulating in
+        // the append-only `memory/buffer.md` and drain on tomorrow's runs.
+        if (
+          getDailyRunCount(CONSOLIDATION_DAILY_RUN_NAMESPACE, nowMs) >=
+          config.memory.v2.consolidation_max_runs_per_day
+        ) {
+          log.debug(
+            {
+              maxRunsPerDay: config.memory.v2.consolidation_max_runs_per_day,
+            },
+            "Scheduled consolidation skipped: daily run cap reached",
+          );
+          continue;
+        }
         // Failure backoff: skip WITHOUT advancing the checkpoint so the
         // enqueue fires on the first tick after the window elapses instead
         // of a full interval later.
@@ -1148,6 +1176,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
       setMemoryCheckpoint(key, String(nowMs));
       if (jobType === consolidateEntry.jobType) {
         enqueuedConsolidate = true;
+        recordDailyRun(CONSOLIDATION_DAILY_RUN_NAMESPACE, nowMs);
       }
     }
   }
@@ -1171,21 +1200,32 @@ export function maybeEnqueueGraphMaintenanceJobs(
     !hasActiveJobOfType(consolidateEntry.jobType)
   ) {
     if (memoryBufferLineCount() >= maxLines) {
-      const backoffRemainingMs = consolidationBackoffRemainingMs(
-        consolidateEntry.intervalMs,
-        nowMs,
-      );
-      if (backoffRemainingMs > 0) {
+      if (
+        getDailyRunCount(CONSOLIDATION_DAILY_RUN_NAMESPACE, nowMs) >=
+        config.memory.v2.consolidation_max_runs_per_day
+      ) {
         log.debug(
-          { backoffRemainingMs },
-          "Size-triggered consolidation skipped: failure backoff active",
+          { maxRunsPerDay: config.memory.v2.consolidation_max_runs_per_day },
+          "Size-triggered consolidation skipped: daily run cap reached",
         );
       } else {
-        enqueueMemoryJob(
-          consolidateEntry.jobType,
-          AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD,
+        const backoffRemainingMs = consolidationBackoffRemainingMs(
+          consolidateEntry.intervalMs,
+          nowMs,
         );
-        setMemoryCheckpoint(consolidateEntry.key, String(nowMs));
+        if (backoffRemainingMs > 0) {
+          log.debug(
+            { backoffRemainingMs },
+            "Size-triggered consolidation skipped: failure backoff active",
+          );
+        } else {
+          enqueueMemoryJob(
+            consolidateEntry.jobType,
+            AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD,
+          );
+          setMemoryCheckpoint(consolidateEntry.key, String(nowMs));
+          recordDailyRun(CONSOLIDATION_DAILY_RUN_NAMESPACE, nowMs);
+        }
       }
     }
   }

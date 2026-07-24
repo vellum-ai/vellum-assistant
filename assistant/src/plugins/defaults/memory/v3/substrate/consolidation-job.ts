@@ -157,6 +157,25 @@ const CONSOLIDATION_ALLOWED_TOOLS: readonly string[] = [
 const CONSOLIDATION_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
+ * Per-run LLM-call governor for the consolidation run, reusing the shared
+ * agent-loop iteration budget (typed structurally against the
+ * `runBackgroundJob` option so the plugin does not import host loop
+ * internals). Consolidation is a mechanical local-file
+ * reorganization pass — read the buffer, rewrite a bounded set of pages, trim
+ * the buffer — so a healthy run settles in a handful of calls; the
+ * `consolidation_max_entries_per_run` cap bounds how much any one run reads.
+ * The soft nudge asks the run to write out its in-progress edits and wrap up
+ * before the hard cap stops a pathological loop (re-reading large memory files
+ * call after call) from spending unboundedly. When the cap is hit the run ends
+ * gracefully with completed edits kept, and the remaining buffer drains on the
+ * next scheduled run.
+ */
+const CONSOLIDATION_ITERATION_BUDGET = {
+  softNudgeAtCalls: 30,
+  maxCallsPerRun: 40,
+};
+
+/**
  * Age past which a lock held by an apparently-live PID is taken over anyway.
  *
  * The PID-liveness probe alone is not sufficient in containers: the daemon
@@ -475,6 +494,9 @@ export async function memoryV2ConsolidateJob(
       // Wire-scope the guardian-trust background run to local memory-file
       // tools only — no network egress, no host proxy. See the constant.
       allowedTools: CONSOLIDATION_ALLOWED_TOOLS,
+      // Bound the mechanical agentic loop so a pathological run can't spend
+      // unboundedly. See the constant.
+      iterationBudget: CONSOLIDATION_ITERATION_BUDGET,
       // The kickoff prompt is a static instruction manual; indexing it would
       // write near-identical memory segments, embeddings, and a lexical
       // entry on every run. The agent's replies still index normally.

@@ -8,6 +8,7 @@
 import { v7 as uuidv7 } from "uuid";
 
 import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
+import type { IterationBudget } from "../agent/loop.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -127,6 +128,14 @@ type ProcessMessageOptions = ConversationCreateOptions & {
    * {@link deriveIngressIdempotencyKey}).
    */
   clientMessageId?: string;
+  /**
+   * Per-run LLM-call governor for this turn's agent loop. Threaded from
+   * `runBackgroundJob` and on to `AgentLoop.run` as `iterationBudget` so a
+   * bounded mechanical background job (e.g. memory consolidation) can't spend
+   * unboundedly. Omitted = uncapped (behavior unchanged for every normal
+   * caller).
+   */
+  iterationBudget?: IterationBudget;
 };
 
 /**
@@ -716,6 +725,9 @@ export async function processMessage(
         ? { requestOrigin: options.requestOrigin }
         : {}),
       ...(options?.cronRunId ? { cronRunId: options.cronRunId } : {}),
+      ...(options?.iterationBudget
+        ? { iterationBudget: options.iterationBudget }
+        : {}),
     });
   } finally {
     restoreToolScope();

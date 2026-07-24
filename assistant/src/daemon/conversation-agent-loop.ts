@@ -13,6 +13,7 @@ import type {
   AgentEvent,
   AgentLoopExitReason,
   CheckpointDecision,
+  IterationBudget,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
 import type {
@@ -287,6 +288,15 @@ export async function runAgentLoopImpl(
      * scheduled execute turn attributes its LLM spend to that firing.
      */
     cronRunId?: string | null;
+    /**
+     * Per-run LLM-call governor for this turn, forwarded to
+     * {@link AgentLoop.run} as `iterationBudget`. Set by bounded mechanical
+     * background jobs (e.g. memory consolidation) so a runaway agentic loop
+     * can't spend unboundedly. Takes precedence over the call-site-derived
+     * subagent budget when both would apply. Unset = uncapped (normal turns,
+     * unless the call site is `subagentSpawn`).
+     */
+    iterationBudget?: IterationBudget;
   },
 ): Promise<void> {
   if (!ctx.abortController) {
@@ -1066,19 +1076,22 @@ export async function runAgentLoopImpl(
     const loopTrust =
       ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
 
-    // Per-run iteration budget, applied only to subagent spawns — the
-    // unattended runs whose tool-use loop can iterate LLM calls without a human
-    // in the loop. `subagentSpawn` is the exclusive call site for those runs
-    // (`resolveTurnCallSite` keeps subagent conversations on it), so gating here
-    // leaves interactive `mainAgent` turns and other background call sites
-    // (heartbeat, memory consolidation) uncapped.
-    const subagentIterationBudget =
+    // Per-run iteration budget. Subagent spawns — the unattended runs whose
+    // tool-use loop can iterate LLM calls without a human in the loop — derive
+    // one from config; `subagentSpawn` is the exclusive call site for those
+    // runs (`resolveTurnCallSite` keeps subagent conversations on it). A bounded
+    // mechanical background job (e.g. memory consolidation) instead passes an
+    // explicit budget through `options.iterationBudget`, which takes precedence.
+    // Interactive `mainAgent` turns and other background call sites pass neither
+    // and stay uncapped.
+    const subagentIterationBudget: IterationBudget | undefined =
       turnCallSite === "subagentSpawn"
         ? {
             softNudgeAtCalls: config.subagent.softNudgeAtCalls,
             maxCallsPerRun: config.subagent.maxCallsPerRun,
           }
         : undefined;
+    const iterationBudget = options?.iterationBudget ?? subagentIterationBudget;
 
     /**
      * Shared closure: runs the agent loop with the wrapper's turn context and
@@ -1112,9 +1125,7 @@ export async function runAgentLoopImpl(
           isNonInteractive,
           modelProfileKey,
           latencyTracker,
-          ...(subagentIterationBudget
-            ? { iterationBudget: subagentIterationBudget }
-            : {}),
+          ...(iterationBudget ? { iterationBudget } : {}),
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,

@@ -74,8 +74,13 @@ const { memoryJobs } = await import("../../../../persistence/schema/index.js");
 const { applyNestedDefaults } = await import("../../../../config/loader.js");
 const { getMemoryCheckpoint, setMemoryCheckpoint, deleteMemoryCheckpoint } =
   await import("../../../../persistence/checkpoints.js");
-const { maybeEnqueueGraphMaintenanceJobs, consolidationFailureBackoffMs } =
-  await import("../jobs-worker.js");
+const {
+  maybeEnqueueGraphMaintenanceJobs,
+  consolidationFailureBackoffMs,
+  CONSOLIDATION_DAILY_RUN_NAMESPACE,
+} = await import("../jobs-worker.js");
+const { getDailyRunCount, recordDailyRun } =
+  await import("../daily-run-counter.js");
 const { CONSOLIDATION_FAILURE_CHECKPOINT_KEY } =
   await import("../v3/substrate/consolidation-job.js");
 const CONSOLIDATE_CHECKPOINT_KEY = "memory_v2_consolidate_last_run";
@@ -85,6 +90,7 @@ function buildConfig(overrides: {
   v2Enabled?: boolean;
   intervalHours?: number;
   maxBufferLines?: number | null;
+  maxRunsPerDay?: number;
 }) {
   const partial = applyNestedDefaults({});
   if (overrides.memoryEnabled !== undefined) {
@@ -98,6 +104,9 @@ function buildConfig(overrides: {
   }
   if (overrides.maxBufferLines !== undefined) {
     partial.memory.v2.consolidation_max_buffer_lines = overrides.maxBufferLines;
+  }
+  if (overrides.maxRunsPerDay !== undefined) {
+    partial.memory.v2.consolidation_max_runs_per_day = overrides.maxRunsPerDay;
   }
   return partial;
 }
@@ -152,10 +161,12 @@ await initializeDb();
 getMemoryDb();
 
 beforeEach(() => {
-  // Clear job + checkpoint state so each test starts from zero rows. Other
-  // tables stay intact — the worker only inspects these two. memory_jobs lives
-  // in the dedicated memory connection; memory_checkpoints in main.
+  // Clear job, checkpoint, and daily-run-cap state so each test starts from
+  // zero rows. Other tables stay intact — the worker only inspects these.
+  // memory_jobs and memory_daily_run_count live in the dedicated memory
+  // connection; memory_checkpoints in main.
   getMemoryDb()!.run("DELETE FROM memory_jobs");
+  getMemoryDb()!.run("DELETE FROM memory_daily_run_count");
   resetTestTables("memory_checkpoints");
 });
 
@@ -793,5 +804,163 @@ describe("maybeEnqueueGraphMaintenanceJobs — min buffer lines noop", () => {
     // THEN nothing is enqueued (no work) and the checkpoint advances
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
     expect(getMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY)).toBe(String(now));
+  });
+});
+
+describe("maybeEnqueueGraphMaintenanceJobs — daily run cap", () => {
+  const HOUR_MS = 60 * 60 * 1000;
+  // Two distinct UTC calendar days at noon, so day-derivation is unambiguous
+  // regardless of the runner's local timezone.
+  const DAY1_NOON = Date.UTC(2026, 6, 22, 12, 0, 0);
+  const DAY2_NOON = Date.UTC(2026, 6, 23, 12, 0, 0);
+
+  test("interval trigger increments the counter and enqueues below the cap", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxRunsPerDay: 3,
+    });
+    setMemoryCheckpoint(
+      CONSOLIDATE_CHECKPOINT_KEY,
+      String(DAY1_NOON - 2 * HOUR_MS),
+    );
+    writeBuffer(15);
+
+    maybeEnqueueGraphMaintenanceJobs(config, DAY1_NOON);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+    expect(getDailyRunCount(CONSOLIDATION_DAILY_RUN_NAMESPACE, DAY1_NOON)).toBe(
+      1,
+    );
+  });
+
+  test("size trigger increments the counter and enqueues below the cap", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+      maxRunsPerDay: 3,
+    });
+    // Recent checkpoint so only the size trigger can fire.
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(DAY1_NOON - 60_000));
+    writeBuffer(10);
+
+    maybeEnqueueGraphMaintenanceJobs(config, DAY1_NOON);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+    expect(getDailyRunCount(CONSOLIDATION_DAILY_RUN_NAMESPACE, DAY1_NOON)).toBe(
+      1,
+    );
+  });
+
+  test("interval trigger is skipped once the cap is reached; checkpoint does not advance", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxRunsPerDay: 2,
+    });
+    const staleCheckpoint = String(DAY1_NOON - 2 * HOUR_MS);
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, staleCheckpoint);
+    writeBuffer(15);
+    // Two runs already counted today → at the cap.
+    recordDailyRun(CONSOLIDATION_DAILY_RUN_NAMESPACE, DAY1_NOON);
+    recordDailyRun(CONSOLIDATION_DAILY_RUN_NAMESPACE, DAY1_NOON);
+
+    maybeEnqueueGraphMaintenanceJobs(config, DAY1_NOON);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+    // Skip leaves the checkpoint alone so the first tick after UTC midnight
+    // re-fires rather than waiting a full interval.
+    expect(getMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY)).toBe(
+      staleCheckpoint,
+    );
+  });
+
+  test("size trigger is skipped once the cap is reached", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+      maxRunsPerDay: 2,
+    });
+    const recentCheckpoint = String(DAY1_NOON - 60_000);
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, recentCheckpoint);
+    writeBuffer(10);
+    recordDailyRun(CONSOLIDATION_DAILY_RUN_NAMESPACE, DAY1_NOON);
+    recordDailyRun(CONSOLIDATION_DAILY_RUN_NAMESPACE, DAY1_NOON);
+
+    maybeEnqueueGraphMaintenanceJobs(config, DAY1_NOON);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+    expect(getMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY)).toBe(
+      recentCheckpoint,
+    );
+  });
+
+  test("the cap resets at the UTC day boundary", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxRunsPerDay: 2,
+    });
+    writeBuffer(15);
+    // Cap reached on day 1.
+    recordDailyRun(CONSOLIDATION_DAILY_RUN_NAMESPACE, DAY1_NOON);
+    recordDailyRun(CONSOLIDATION_DAILY_RUN_NAMESPACE, DAY1_NOON);
+    setMemoryCheckpoint(
+      CONSOLIDATE_CHECKPOINT_KEY,
+      String(DAY1_NOON - 2 * HOUR_MS),
+    );
+
+    // Day 1: interval is due but the cap blocks the enqueue.
+    maybeEnqueueGraphMaintenanceJobs(config, DAY1_NOON);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+
+    // Day 2: the per-UTC-day counter reads zero, so the enqueue proceeds and
+    // starts the new day's tally at one.
+    maybeEnqueueGraphMaintenanceJobs(config, DAY2_NOON);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+    expect(getDailyRunCount(CONSOLIDATION_DAILY_RUN_NAMESPACE, DAY2_NOON)).toBe(
+      1,
+    );
+  });
+
+  test("both triggers count against one shared daily budget", () => {
+    // maxRunsPerDay=2: one interval run + one size run exhausts the budget,
+    // and a subsequent size trigger is blocked.
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+      maxRunsPerDay: 2,
+    });
+    writeBuffer(15);
+
+    // Run 1 — interval trigger (stale checkpoint).
+    setMemoryCheckpoint(
+      CONSOLIDATE_CHECKPOINT_KEY,
+      String(DAY1_NOON - 2 * HOUR_MS),
+    );
+    maybeEnqueueGraphMaintenanceJobs(config, DAY1_NOON);
+    expect(getDailyRunCount(CONSOLIDATION_DAILY_RUN_NAMESPACE, DAY1_NOON)).toBe(
+      1,
+    );
+
+    // Drain the pending job and recent-ify the checkpoint so only the size
+    // trigger can fire the next enqueue.
+    getMemoryDb()!.run("DELETE FROM memory_jobs");
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(DAY1_NOON - 60_000));
+
+    // Run 2 — size trigger. Reaches the cap.
+    maybeEnqueueGraphMaintenanceJobs(config, DAY1_NOON);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+    expect(getDailyRunCount(CONSOLIDATION_DAILY_RUN_NAMESPACE, DAY1_NOON)).toBe(
+      2,
+    );
+
+    // Run 3 — blocked by the shared cap.
+    getMemoryDb()!.run("DELETE FROM memory_jobs");
+    maybeEnqueueGraphMaintenanceJobs(config, DAY1_NOON);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
   });
 });

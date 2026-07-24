@@ -532,6 +532,13 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     });
     expect(typeof runnerLastArgs?.timeoutMs).toBe("number");
     expect((runnerLastArgs?.timeoutMs as number) > 0).toBe(true);
+    // The run is a bounded mechanical pass — pass the shared agent-loop
+    // iteration budget so a runaway loop can't spend unboundedly: a soft
+    // wrap-up nudge before the hard cap stops the run.
+    expect(runnerLastArgs?.iterationBudget).toEqual({
+      softNudgeAtCalls: 30,
+      maxCallsPerRun: 40,
+    });
 
     // The prompt must contain the rendered consolidation body with the
     // cutoff substituted in. Asserting the placeholder is GONE catches a

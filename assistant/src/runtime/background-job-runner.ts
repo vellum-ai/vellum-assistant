@@ -18,6 +18,7 @@
  * `suppressFailureNotifications`.
  */
 
+import type { IterationBudget } from "../agent/loop.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { SubagentToolGateMode } from "../daemon/tool-setup-types.js";
@@ -201,6 +202,14 @@ export interface RunBackgroundJobOptions {
    * all other messages index normally. Defaults to false.
    */
   skipPromptIndexing?: boolean;
+  /**
+   * Per-run LLM-call governor for the job's agent loop, forwarded to
+   * `processMessage` and on to `AgentLoop.run` as `iterationBudget`. Bounds a
+   * mechanical background run (e.g. memory consolidation) so a runaway agentic
+   * loop can't spend unboundedly; the run stops gracefully when the hard cap is
+   * hit. Omitted = uncapped except by {@link RunBackgroundJobOptions.timeoutMs}.
+   */
+  iterationBudget?: IterationBudget;
 }
 
 export interface RunBackgroundJobResult {
@@ -358,6 +367,7 @@ export async function runBackgroundJob(
       ...(opts.allowedTools ? { allowedTools: opts.allowedTools } : {}),
       ...(opts.toolGateMode ? { toolGateMode: opts.toolGateMode } : {}),
       ...(opts.skipPromptIndexing ? { skipUserMessageIndexing: true } : {}),
+      ...(opts.iterationBudget ? { iterationBudget: opts.iterationBudget } : {}),
     });
     // Absorb late rejections: if the timeout wins the race, `work` keeps
     // running and may eventually reject — swallow so it doesn't surface as

@@ -1,6 +1,7 @@
 import {
   blob,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -109,4 +110,21 @@ export const memoryRetrospectiveState = sqliteTable(
     // NULL for rows that predate migration 281 or have no saves yet.
     rememberedLog: text("remembered_log"),
   },
+);
+
+// Per-UTC-day run counter for memory background jobs, namespaced by `counter`
+// so independent daily caps (e.g. automatic consolidation) share one table
+// without colliding. One row per `(counter, day_key)`, where `day_key` is a UTC
+// `YYYY-MM-DD` string, spanning all conversations — not conversation-keyed, so
+// it survives conversation deletion. Lives in the dedicated memory database
+// (`assistant-memory.db`), not main — access it via the memory connection
+// (`getMemoryDb()` / `getMemorySqlite()`).
+export const memoryDailyRunCount = sqliteTable(
+  "memory_daily_run_count",
+  {
+    counter: text("counter").notNull(),
+    dayKey: text("day_key").notNull(),
+    runCount: integer("run_count").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.counter, table.dayKey] })],
 );
