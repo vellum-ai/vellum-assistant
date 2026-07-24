@@ -1,30 +1,24 @@
 /**
  * Tests for the route host daemon-lifecycle entry points.
  *
- * `startRouteHost` is gated on `userRoutes.host.enabled` (opt-in pre-warm);
- * `stopRouteHost` signals the host if running and never throws. The config,
- * spawn, and stop dependencies are mocked so the tests assert the wrappers'
- * gating and error-swallowing, not the underlying PID-file mechanics.
+ * `startRouteHost` pre-warms the host at boot (the host is now the sole path for
+ * `/x/*` handlers, so there is no enablement gate); `stopRouteHost` signals the
+ * host if running and never throws. The spawn and stop dependencies are mocked
+ * so the tests assert the wrappers' behaviour, not the underlying PID-file
+ * mechanics.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import * as realLoader from "../../config/loader.js";
 import * as realLogger from "../../util/logger.js";
 import * as realWorkerProcess from "../../util/worker-process.js";
 
-let enabled = false;
 let spawnArgs: Array<{ options?: { detached?: boolean } }> = [];
 let stopStatus: { status: "running" | "not_running"; pid?: number } = {
   status: "not_running",
 };
 let stopCalls = 0;
 let stopThrows: Error | null = null;
-
-mock.module("../../config/loader.js", () => ({
-  ...realLoader,
-  getConfigReadOnly: () => ({ userRoutes: { host: { enabled } } }),
-}));
 
 const noopLogger = {
   info: () => {},
@@ -56,7 +50,6 @@ mock.module("../../util/worker-process.js", () => ({
 const { startRouteHost, stopRouteHost } = await import("../control.js");
 
 beforeEach(() => {
-  enabled = false;
   spawnArgs = [];
   stopStatus = { status: "not_running" };
   stopCalls = 0;
@@ -64,15 +57,7 @@ beforeEach(() => {
 });
 
 describe("startRouteHost", () => {
-  test("is a no-op when the route host is disabled", async () => {
-    enabled = false;
-    startRouteHost();
-    await Promise.resolve();
-    expect(spawnArgs).toHaveLength(0);
-  });
-
-  test("spawns the host as a daemon child when enabled", async () => {
-    enabled = true;
+  test("pre-warms the host as a daemon child", async () => {
     startRouteHost();
     await Promise.resolve();
     expect(spawnArgs).toHaveLength(1);

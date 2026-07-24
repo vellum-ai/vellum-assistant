@@ -7,10 +7,11 @@
  * plugin of the same name overrides the default.
  *
  * These tests exercise the real `platform-hosted` default plugin (namespace
- * `default-platform-hosted`), which ships `routes/reengage.ts`, a POST-only
- * handler. A GET reaches the resolved source file and 405s — proving
- * resolution + source-tree module load without running the handler's heavy
- * background-turn logic.
+ * `default-platform-hosted`), which ships `routes/reengage.ts`. Dispatch
+ * resolves the handler file and forwards it to the (mocked) route host; the
+ * tests assert *which* file was resolved (or that the request 404'd before the
+ * host was touched), not the handler's execution — that is covered against the
+ * real worker in `routes/__tests__/route-host.test.ts`.
  */
 
 import {
@@ -21,14 +22,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   getDefaultPluginRouteRoots,
   getDefaultPluginRoutesDir,
 } from "../../../plugins/defaults/main.js";
+import type { RouteInvokeParams } from "../../../routes/route-host-protocol.js";
 import { getWorkspacePluginsDir } from "../../../util/platform.js";
-import { UserRouteDispatcher } from "../user-route-dispatcher.js";
 import {
   isRouteTestPath,
   listPluginRouteRoots,
@@ -36,10 +37,35 @@ import {
   resolveRouteLocation,
 } from "../user-route-resolution.js";
 
+// Mock the route host client to capture the resolved filePath the dispatcher
+// forwards, without spawning a subprocess.
+const invokeCalls: RouteInvokeParams[] = [];
+mock.module("../../../routes/route-host-client.js", () => ({
+  RouteHostClient: class {
+    async invoke(params: RouteInvokeParams) {
+      invokeCalls.push(params);
+      return { status: 200, headers: [], body: null };
+    }
+  },
+  RouteHostTimeoutError: class extends Error {},
+  RouteHostUnavailableError: class extends Error {},
+}));
+
+const { UserRouteDispatcher } = await import("../user-route-dispatcher.js");
+
 /** The default plugin's source directory name. */
 const DEFAULT_PLUGIN_DIR = "platform-hosted";
 /** Its route namespace = `default-<dir>` by convention. */
 const DEFAULT_PLUGIN = `default-${DEFAULT_PLUGIN_DIR}`;
+
+function makeDispatcher(): InstanceType<typeof UserRouteDispatcher> {
+  return new UserRouteDispatcher();
+}
+
+/** The filePath the dispatcher forwarded to the host on the most recent invoke. */
+function lastForwardedFile(): string | undefined {
+  return invokeCalls.at(-1)?.filePath;
+}
 
 /** Create a workspace plugin dir; returns its `routes/` dir. Cleaned up per test. */
 function writeWorkspacePluginHandler(
@@ -56,6 +82,10 @@ function writeWorkspacePluginHandler(
   mkdirSync(dirname(full), { recursive: true });
   writeFileSync(full, content);
 }
+
+beforeEach(() => {
+  invokeCalls.length = 0;
+});
 
 afterEach(() => {
   for (const name of [DEFAULT_PLUGIN, DEFAULT_PLUGIN_DIR]) {
@@ -131,16 +161,19 @@ describe("default plugin route source resolution", () => {
 });
 
 describe("default plugin route dispatch", () => {
-  test("serves the default plugin's source route (GET on a POST-only handler → 405)", async () => {
-    const dispatcher = new UserRouteDispatcher();
-    const response = await dispatcher.dispatch(
+  test("resolves the default plugin's source route and forwards it to the host", async () => {
+    const dispatcher = makeDispatcher();
+    await dispatcher.dispatch(
       `plugins/${DEFAULT_PLUGIN}/reengage`,
       new Request(`http://localhost/v1/x/plugins/${DEFAULT_PLUGIN}/reengage`, {
-        method: "GET",
+        method: "POST",
       }),
     );
-    expect(response.status).toBe(405);
-    expect(response.headers.get("Allow")).toBe("POST");
+    const forwarded = lastForwardedFile();
+    expect(forwarded?.endsWith(join("reengage.ts"))).toBe(true);
+    expect(
+      forwarded?.includes(join("defaults", DEFAULT_PLUGIN_DIR, "routes")),
+    ).toBe(true);
   });
 
   test("honors the manifest-name .disabled sentinel", async () => {
@@ -158,14 +191,14 @@ describe("default plugin route dispatch", () => {
       listPluginRouteRoots().some((r) => r.pluginName === DEFAULT_PLUGIN),
     ).toBe(false);
 
-    const dispatcher = new UserRouteDispatcher();
-    const response = await dispatcher.dispatch(
+    const response = await makeDispatcher().dispatch(
       `plugins/${DEFAULT_PLUGIN}/reengage`,
       new Request(`http://localhost/v1/x/plugins/${DEFAULT_PLUGIN}/reengage`, {
         method: "GET",
       }),
     );
     expect(response.status).toBe(404);
+    expect(invokeCalls).toHaveLength(0);
   });
 
   test("an installed workspace plugin overrides the default of the same namespace", async () => {
@@ -180,21 +213,23 @@ describe("default plugin route dispatch", () => {
       join(getWorkspacePluginsDir(), DEFAULT_PLUGIN, "routes"),
     );
 
-    const dispatcher = new UserRouteDispatcher();
-    const response = await dispatcher.dispatch(
+    await makeDispatcher().dispatch(
       `plugins/${DEFAULT_PLUGIN}/reengage`,
       new Request(`http://localhost/v1/x/plugins/${DEFAULT_PLUGIN}/reengage`, {
         method: "GET",
       }),
     );
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ source: "workspace" });
+    // The override resolves to the workspace copy, not the source-tree default.
+    const forwarded = lastForwardedFile();
+    expect(
+      forwarded?.startsWith(join(getWorkspacePluginsDir(), DEFAULT_PLUGIN)),
+    ).toBe(true);
   });
 
   test("never dispatches test files or __tests__ paths (mock.module containment)", async () => {
-    // Importing a test file into the live daemon executes its process-global
+    // Importing a test file into a live process executes its process-global
     // mock.module calls, replacing production modules. Dispatch must 404
-    // without importing the file.
+    // without resolving the file.
     writeWorkspacePluginHandler(
       DEFAULT_PLUGIN,
       "poison.test.ts",
@@ -220,6 +255,7 @@ describe("default plugin route dispatch", () => {
       );
       expect(response.status).toBe(404);
     }
+    expect(invokeCalls).toHaveLength(0);
   });
 
   test("tripwire: no default plugin ships test files under its routes/ dir", () => {

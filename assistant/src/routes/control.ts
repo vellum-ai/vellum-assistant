@@ -11,12 +11,11 @@
  *
  * The host may be brought up three ways, all sharing one PID file so they
  * cooperate (whoever loses a race sees `alreadyRunning`): pre-warmed at boot
- * when enabled ({@link startRouteHost}), started via the CLI, or lazily on the
- * first request ({@link RouteHostClient}). A `stop` is only a pause — the next
- * request respawns it.
+ * ({@link startRouteHost}), started via the CLI, or lazily on the first request
+ * ({@link RouteHostClient}). A `stop` is only a pause — the next request
+ * respawns it.
  */
 
-import { getConfigReadOnly } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { getProcPidPath } from "../util/platform.js";
 import {
@@ -30,15 +29,6 @@ import {
 import { ROUTE_HOST_PROC_NAME } from "./route-host-protocol.js";
 
 const log = getLogger("route-host-control");
-
-/**
- * Whether `/x/*` handlers should execute in the route host subprocess rather
- * than inline on the daemon's event loop. Read per-request so a `config.json`
- * edit (hot-reloaded by the config watcher) takes effect without a restart.
- */
-export function isRouteHostEnabled(): boolean {
-  return getConfigReadOnly().userRoutes.host.enabled;
-}
 
 function routeHostPidPath(): string {
   return getProcPidPath(ROUTE_HOST_PROC_NAME);
@@ -92,14 +82,10 @@ export function stopRouteHostWorkerProcess(): WorkerProcessStatus {
  * Daemon-lifecycle entry point: pre-warm the route host at boot, as a child of
  * the daemon (so it appears in `assistant ps` and is torn down on shutdown).
  *
- * Only when enabled — the host is opt-in, so a disabled config is a no-op here
- * (a request lazily spawns it if the flag is flipped on at runtime). Runs
- * fire-and-forget: a spawn failure must never block boot.
+ * Runs fire-and-forget: a spawn failure must never block boot (a request lazily
+ * respawns the host anyway).
  */
 export function startRouteHost(): void {
-  if (!isRouteHostEnabled()) {
-    return;
-  }
   void spawnRouteHostWorkerProcess({ detached: false })
     .then((r) =>
       log.info(

@@ -5,8 +5,9 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { RouteInvokeParams } from "../../../routes/route-host-protocol.js";
 import { getWorkspaceRoutesDir } from "../../../util/platform.js";
 
-// The dispatcher constructs the route host client inline and reads the enabled
-// flag from config, so both are mocked here (there is no injection seam).
+// The dispatcher constructs the route host client inline (there is no injection
+// seam), so the client is mocked here to observe the delegation without
+// spawning a real subprocess.
 interface RouteInvokeResponse {
   status: number;
   headers: [string, string][];
@@ -17,7 +18,6 @@ interface InvokeCall {
   body: Uint8Array | null;
 }
 
-let hostEnabled = false;
 let invokeImpl: (call: InvokeCall) => Promise<RouteInvokeResponse>;
 const invokeCalls: InvokeCall[] = [];
 const ctorOptions: ({ invokeTimeoutMs?: number } | undefined)[] = [];
@@ -29,9 +29,6 @@ class FakeTimeoutError extends Error {
 }
 class FakeUnavailableError extends Error {}
 
-mock.module("../../../routes/control.js", () => ({
-  isRouteHostEnabled: () => hostEnabled,
-}));
 mock.module("../../../routes/route-host-client.js", () => ({
   RouteHostClient: class {
     constructor(options?: { invokeTimeoutMs?: number }) {
@@ -67,7 +64,6 @@ function jsonResponse(status: number, value: unknown): RouteInvokeResponse {
 }
 
 beforeEach(() => {
-  hostEnabled = false;
   invokeImpl = async () => jsonResponse(200, { via: "host" });
   invokeCalls.length = 0;
   ctorOptions.length = 0;
@@ -78,14 +74,11 @@ afterEach(() => {
 });
 
 describe("UserRouteDispatcher — route host delegation", () => {
-  test("delegates to the host when enabled (in-band handler never runs)", async () => {
-    // If the in-band path ran it would return {via:"in-band"}; the host reply
-    // returns {via:"host"}, so the response distinguishes which path executed.
+  test("delegates a resolved handler to the host", async () => {
     writeHandler(
       "foo.ts",
-      `export function GET() { return Response.json({ via: "in-band" }); }`,
+      `export function GET() { return Response.json({ via: "host" }); }`,
     );
-    hostEnabled = true;
     const dispatcher = makeDispatcher();
 
     const res = await dispatcher.dispatch(
@@ -101,30 +94,11 @@ describe("UserRouteDispatcher — route host delegation", () => {
     expect(invokeCalls[0].params.url).toContain("/v1/x/foo");
   });
 
-  test("runs in-band when disabled (host never called)", async () => {
-    writeHandler(
-      "bar.ts",
-      `export function GET() { return Response.json({ via: "in-band" }); }`,
-    );
-    hostEnabled = false;
-    const dispatcher = makeDispatcher();
-
-    const res = await dispatcher.dispatch(
-      "bar",
-      new Request("http://localhost/v1/x/bar", { method: "GET" }),
-    );
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ via: "in-band" });
-    expect(invokeCalls).toHaveLength(0);
-  });
-
   test("forwards a POST body to the host", async () => {
     writeHandler(
       "echo.ts",
       `export function POST() { return new Response(); }`,
     );
-    hostEnabled = true;
     invokeImpl = async (call) =>
       jsonResponse(201, {
         received: new TextDecoder().decode(call.body ?? new Uint8Array()),
@@ -148,7 +122,6 @@ describe("UserRouteDispatcher — route host delegation", () => {
 
   test("maps a host timeout to 504", async () => {
     writeHandler("slow.ts", `export function GET() { return new Response(); }`);
-    hostEnabled = true;
     invokeImpl = async () => {
       throw new FakeTimeoutError(1000);
     };
@@ -163,7 +136,6 @@ describe("UserRouteDispatcher — route host delegation", () => {
 
   test("maps host unavailable (incl. failed startup) to 503", async () => {
     writeHandler("down.ts", `export function GET() { return new Response(); }`);
-    hostEnabled = true;
     invokeImpl = async () => {
       throw new FakeUnavailableError("route host failed to start");
     };
@@ -177,9 +149,8 @@ describe("UserRouteDispatcher — route host delegation", () => {
   });
 
   test("drives the host client's timeout from the dispatcher's handler timeout", async () => {
-    // The in-process and route-host paths must share one per-request deadline,
-    // so the host client's hard-kill timeout is the dispatcher's, not the
-    // client's own default.
+    // The host client's hard-kill timeout is the dispatcher's per-request
+    // deadline, not the client's own default.
     new UserRouteDispatcher();
     expect(ctorOptions.at(-1)?.invokeTimeoutMs).toBe(120_000);
 
@@ -188,7 +159,6 @@ describe("UserRouteDispatcher — route host delegation", () => {
   });
 
   test("unknown route 404s without touching the host", async () => {
-    hostEnabled = true;
     const dispatcher = makeDispatcher();
 
     const res = await dispatcher.dispatch(

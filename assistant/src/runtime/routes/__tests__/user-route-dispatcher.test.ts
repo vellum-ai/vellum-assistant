@@ -1,25 +1,50 @@
+/**
+ * Dispatcher resolution & guards.
+ *
+ * The dispatcher's own responsibility is resolving a `/x/*` path to a handler
+ * file (or 404), then handing it to the route host. These tests mock the host
+ * client so they can assert *which* file was resolved and forwarded (or that the
+ * request was rejected before the host was touched) without spawning a
+ * subprocess. Handler execution semantics (200/405/throw/stall) are covered
+ * end-to-end against the real worker in `routes/__tests__/route-host.test.ts`.
+ */
+
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
+import type { RouteInvokeParams } from "../../../routes/route-host-protocol.js";
 import {
   getWorkspacePluginsDir,
   getWorkspaceRoutesDir,
 } from "../../../util/platform.js";
-import { UserRouteDispatcher } from "../user-route-dispatcher.js";
+
+// ---------------------------------------------------------------------------
+// Mock the route host client: record the resolved filePath the dispatcher
+// forwards, and reply 200 so a resolved route is distinguishable from a 404.
+// ---------------------------------------------------------------------------
+
+const invokeCalls: RouteInvokeParams[] = [];
+
+mock.module("../../../routes/route-host-client.js", () => ({
+  RouteHostClient: class {
+    async invoke(params: RouteInvokeParams) {
+      invokeCalls.push(params);
+      return { status: 200, headers: [], body: null };
+    }
+  },
+  RouteHostTimeoutError: class extends Error {},
+  RouteHostUnavailableError: class extends Error {},
+}));
+
+const { UserRouteDispatcher } = await import("../user-route-dispatcher.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Create a dispatcher with optional overrides. */
-function makeDispatcher(options?: {
-  handlerTimeoutMs?: number;
-}): UserRouteDispatcher {
-  return new UserRouteDispatcher(options);
+function makeDispatcher() {
+  return new UserRouteDispatcher();
 }
 
 function makeRequest(
@@ -29,20 +54,28 @@ function makeRequest(
   return new Request(path, { method });
 }
 
-function writeHandler(relativePath: string, content: string): string {
+/** The filePath the dispatcher forwarded to the host on the most recent invoke. */
+function lastForwardedFile(): string | undefined {
+  return invokeCalls.at(-1)?.filePath;
+}
+
+function writeHandler(
+  relativePath: string,
+  content = "export function GET() {}",
+): string {
   const routesDir = getWorkspaceRoutesDir();
   const fullPath = join(routesDir, relativePath);
-  const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(fullPath.substring(0, fullPath.lastIndexOf("/")), {
+    recursive: true,
+  });
   writeFileSync(fullPath, content);
   return fullPath;
 }
 
-/** Write a route handler into a plugin's `routes/` directory. */
 function writePluginHandler(
   pluginName: string,
   relativePath: string,
-  content: string,
+  content = "export function GET() {}",
 ): string {
   const fullPath = join(
     getWorkspacePluginsDir(),
@@ -50,8 +83,9 @@ function writePluginHandler(
     "routes",
     relativePath,
   );
-  const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(fullPath.substring(0, fullPath.lastIndexOf("/")), {
+    recursive: true,
+  });
   writeFileSync(fullPath, content);
   return fullPath;
 }
@@ -62,11 +96,8 @@ async function readErrorBody(
   return response.json();
 }
 
-// ---------------------------------------------------------------------------
-// Setup / teardown
-// ---------------------------------------------------------------------------
-
 beforeEach(() => {
+  invokeCalls.length = 0;
   mkdirSync(getWorkspaceRoutesDir(), { recursive: true });
 });
 
@@ -76,26 +107,29 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Path traversal
+// Path traversal — rejected before resolution
 // ---------------------------------------------------------------------------
 
 describe("path traversal", () => {
-  test("rejects paths containing '..'", async () => {
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("../etc/passwd", makeRequest("GET"));
+  test("rejects paths containing '..' without touching the host", async () => {
+    const res = await makeDispatcher().dispatch(
+      "../etc/passwd",
+      makeRequest("GET"),
+    );
     expect(res.status).toBe(400);
     const body = await readErrorBody(res);
     expect(body.error.code).toBe("BAD_REQUEST");
     expect(body.error.message).toContain("Path traversal");
+    expect(invokeCalls).toHaveLength(0);
   });
 
   test("rejects embedded '..' segments", async () => {
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch(
+    const res = await makeDispatcher().dispatch(
       "foo/../../etc/passwd",
       makeRequest("GET"),
     );
     expect(res.status).toBe(400);
+    expect(invokeCalls).toHaveLength(0);
   });
 });
 
@@ -104,341 +138,65 @@ describe("path traversal", () => {
 // ---------------------------------------------------------------------------
 
 describe("missing handler", () => {
-  test("returns 404 when no handler file exists", async () => {
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("nonexistent", makeRequest("GET"));
+  test("404s when no handler file exists, without touching the host", async () => {
+    const res = await makeDispatcher().dispatch(
+      "nonexistent",
+      makeRequest("GET"),
+    );
     expect(res.status).toBe(404);
     const body = await readErrorBody(res);
     expect(body.error.code).toBe("NOT_FOUND");
     expect(body.error.message).toContain("/x/nonexistent");
+    expect(invokeCalls).toHaveLength(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Successful dispatch
+// Workspace route resolution — the resolved file is forwarded to the host
 // ---------------------------------------------------------------------------
 
-describe("successful dispatch", () => {
-  test("dispatches GET to handler exporting GET function", async () => {
-    writeHandler(
-      "hello.ts",
-      `export function GET(request) {
-        return Response.json({ greeting: "hello" });
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("hello", makeRequest("GET"));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.greeting).toBe("hello");
+describe("workspace route resolution", () => {
+  test("resolves a direct .ts file", async () => {
+    writeHandler("hello.ts");
+    await makeDispatcher().dispatch("hello", makeRequest("GET"));
+    expect(lastForwardedFile()?.endsWith("hello.ts")).toBe(true);
   });
 
-  test("dispatches POST to handler exporting POST function", async () => {
-    writeHandler(
-      "submit.ts",
-      `export async function POST(request) {
-        return Response.json({ received: true }, { status: 201 });
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("submit", makeRequest("POST"));
-    expect(res.status).toBe(201);
-    const body = await res.json();
-    expect(body.received).toBe(true);
+  test("resolves a .js file", async () => {
+    writeHandler("legacy.js");
+    await makeDispatcher().dispatch("legacy", makeRequest("GET"));
+    expect(lastForwardedFile()?.endsWith("legacy.js")).toBe(true);
   });
 
-  test("dispatches to .js handler files", async () => {
-    writeHandler(
-      "legacy.js",
-      `export function GET(request) {
-        return Response.json({ format: "js" });
-      }`,
+  test("resolves a directory to its index.ts", async () => {
+    writeHandler("my-app/index.ts");
+    await makeDispatcher().dispatch("my-app", makeRequest("GET"));
+    expect(lastForwardedFile()?.endsWith(join("my-app", "index.ts"))).toBe(
+      true,
     );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("legacy", makeRequest("GET"));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.format).toBe("js");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Index file convention
-// ---------------------------------------------------------------------------
-
-describe("index file convention", () => {
-  test("resolves directory to index.ts", async () => {
-    writeHandler(
-      "my-app/index.ts",
-      `export function GET(request) {
-        return Response.json({ index: true });
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("my-app", makeRequest("GET"));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.index).toBe(true);
   });
 
-  test("resolves directory to index.js when no index.ts", async () => {
-    writeHandler(
-      "fallback-app/index.js",
-      `export function GET(request) {
-        return Response.json({ index: "js" });
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("fallback-app", makeRequest("GET"));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.index).toBe("js");
+  test("resolves a directory to index.js when no index.ts", async () => {
+    writeHandler("fallback-app/index.js");
+    await makeDispatcher().dispatch("fallback-app", makeRequest("GET"));
+    expect(
+      lastForwardedFile()?.endsWith(join("fallback-app", "index.js")),
+    ).toBe(true);
   });
 
-  test("prefers direct file over index file", async () => {
-    writeHandler(
-      "dual.ts",
-      `export function GET(request) {
-        return Response.json({ source: "direct" });
-      }`,
-    );
-    writeHandler(
-      "dual/index.ts",
-      `export function GET(request) {
-        return Response.json({ source: "index" });
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("dual", makeRequest("GET"));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.source).toBe("direct");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 405 — method not allowed
-// ---------------------------------------------------------------------------
-
-describe("method not allowed", () => {
-  test("returns 405 with Allow header when method not exported", async () => {
-    writeHandler(
-      "get-only.ts",
-      `export function GET(request) {
-        return Response.json({ ok: true });
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("get-only", makeRequest("POST"));
-    expect(res.status).toBe(405);
-    expect(res.headers.get("Allow")).toBe("GET");
+  test("prefers a direct file over the directory index", async () => {
+    writeHandler("dual.ts");
+    writeHandler("dual/index.ts");
+    await makeDispatcher().dispatch("dual", makeRequest("GET"));
+    expect(lastForwardedFile()?.endsWith("dual.ts")).toBe(true);
   });
 
-  test("lists multiple allowed methods in Allow header", async () => {
-    writeHandler(
-      "multi.ts",
-      `export function GET(request) { return new Response("ok"); }
-       export function POST(request) { return new Response("ok"); }
-       export function DELETE(request) { return new Response("ok"); }`,
+  test("resolves nested subdirectory handlers", async () => {
+    writeHandler("api/v1/status.ts");
+    await makeDispatcher().dispatch("api/v1/status", makeRequest("GET"));
+    expect(lastForwardedFile()?.endsWith(join("api", "v1", "status.ts"))).toBe(
+      true,
     );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("multi", makeRequest("PUT"));
-    expect(res.status).toBe(405);
-    const allow = res.headers.get("Allow");
-    expect(allow).toContain("GET");
-    expect(allow).toContain("POST");
-    expect(allow).toContain("DELETE");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Handler timeout
-// ---------------------------------------------------------------------------
-
-describe("handler timeout", () => {
-  test("returns 504 when handler exceeds timeout", async () => {
-    writeHandler(
-      "slow.ts",
-      `export function GET(request) {
-        return new Promise(() => {});
-      }`,
-    );
-
-    // Use a very short timeout for testing
-    const dispatcher = makeDispatcher({ handlerTimeoutMs: 50 });
-    const res = await dispatcher.dispatch("slow", makeRequest("GET"));
-    expect(res.status).toBe(504);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("SERVICE_UNAVAILABLE");
-    expect(body.error.message).toContain("timed out");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Handler errors
-// ---------------------------------------------------------------------------
-
-describe("handler errors", () => {
-  test("returns 500 when handler throws synchronously", async () => {
-    writeHandler(
-      "throws.ts",
-      `export function GET(request) {
-        throw new Error("boom");
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("throws", makeRequest("GET"));
-    expect(res.status).toBe(500);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(body.error.message).toBe("boom");
-  });
-
-  test("returns 500 when handler rejects", async () => {
-    writeHandler(
-      "rejects.ts",
-      `export async function GET(request) {
-        throw new Error("async boom");
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("rejects", makeRequest("GET"));
-    expect(res.status).toBe(500);
-    const body = await readErrorBody(res);
-    expect(body.error.message).toBe("async boom");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Mtime-based cache invalidation
-// ---------------------------------------------------------------------------
-
-describe("mtime cache", () => {
-  test("serves updated content after file modification", async () => {
-    const filePath = writeHandler(
-      "mutable.ts",
-      `export function GET(request) {
-        return Response.json({ version: 1 });
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-
-    // First request — version 1
-    const res1 = await dispatcher.dispatch("mutable", makeRequest("GET"));
-    expect(res1.status).toBe(200);
-    const body1 = await res1.json();
-    expect(body1.version).toBe(1);
-
-    // Wait briefly to ensure mtime changes, then rewrite
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    writeFileSync(
-      filePath,
-      `export function GET(request) {
-        return Response.json({ version: 2 });
-      }`,
-    );
-
-    // Second request — should pick up version 2
-    const res2 = await dispatcher.dispatch("mutable", makeRequest("GET"));
-    expect(res2.status).toBe(200);
-    const body2 = await res2.json();
-    expect(body2.version).toBe(2);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Subdirectory routing
-// ---------------------------------------------------------------------------
-
-describe("subdirectory routing", () => {
-  test("dispatches to nested handler files", async () => {
-    writeHandler(
-      "api/v1/status.ts",
-      `export function GET(request) {
-        return Response.json({ nested: true });
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("api/v1/status", makeRequest("GET"));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.nested).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Description metadata
-// ---------------------------------------------------------------------------
-
-describe("description metadata", () => {
-  test("ignores non-handler exports without affecting dispatch", async () => {
-    writeHandler(
-      "with-meta.ts",
-      `export const description = "A test handler";
-       export function GET(request) {
-         return Response.json({ ok: true });
-       }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("with-meta", makeRequest("GET"));
-    expect(res.status).toBe(200);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Handler signature
-// ---------------------------------------------------------------------------
-
-describe("handler signature", () => {
-  test("passes the request and the deprecated context shim", async () => {
-    writeHandler(
-      "ctx-shape.ts",
-      `export function GET(request, context) {
-        return Response.json({
-          argCount: arguments.length,
-          method: request.method,
-          hasPublish: typeof context?.assistantEventHub?.publish === "function",
-          hasPostMessage:
-            typeof context?.conversations?.postMessage === "function",
-        });
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("ctx-shape", makeRequest("GET"));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.argCount).toBe(2);
-    expect(body.method).toBe("GET");
-    expect(body.hasPublish).toBe(true);
-    expect(body.hasPostMessage).toBe(true);
-  });
-
-  test("a handler that ignores the context still works", async () => {
-    writeHandler(
-      "req-only.ts",
-      `export function GET(request) {
-        return Response.json({ ok: true, method: request.method });
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("req-only", makeRequest("GET"));
-    expect(res.status).toBe(200);
-    expect((await res.json()).ok).toBe(true);
   });
 });
 
@@ -447,99 +205,74 @@ describe("handler signature", () => {
 // ---------------------------------------------------------------------------
 
 describe("plugin routes", () => {
-  test("dispatches to a plugin's routes/ directory", async () => {
-    writePluginHandler(
-      "my-plugin",
-      "status.ts",
-      `export function GET(request) {
-        return Response.json({ plugin: true });
-      }`,
-    );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch(
+  test("resolves a plugin's routes/ directory", async () => {
+    writePluginHandler("my-plugin", "status.ts");
+    await makeDispatcher().dispatch(
       "plugins/my-plugin/status",
       makeRequest("GET"),
     );
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.plugin).toBe(true);
+    expect(
+      lastForwardedFile()?.endsWith(
+        join("plugins", "my-plugin", "routes", "status.ts"),
+      ),
+    ).toBe(true);
   });
 
-  test("resolves nested paths and the index (namespace root)", async () => {
-    writePluginHandler(
-      "my-plugin",
-      "webhooks/incoming.ts",
-      `export function POST(request) { return Response.json({ nested: true }); }`,
-    );
-    writePluginHandler(
-      "my-plugin",
-      "index.ts",
-      `export function GET(request) { return Response.json({ root: true }); }`,
-    );
+  test("resolves nested paths and the namespace-root index", async () => {
+    writePluginHandler("my-plugin", "webhooks/incoming.ts");
+    writePluginHandler("my-plugin", "index.ts");
 
-    const dispatcher = makeDispatcher();
-
-    const nested = await dispatcher.dispatch(
+    await makeDispatcher().dispatch(
       "plugins/my-plugin/webhooks/incoming",
       makeRequest("POST"),
     );
-    expect(nested.status).toBe(200);
-    expect((await nested.json()).nested).toBe(true);
+    expect(
+      lastForwardedFile()?.endsWith(join("routes", "webhooks", "incoming.ts")),
+    ).toBe(true);
 
     // `/x/plugins/my-plugin` (no sub-path) maps to the plugin's routes/index.
-    const root = await dispatcher.dispatch(
-      "plugins/my-plugin",
-      makeRequest("GET"),
-    );
-    expect(root.status).toBe(200);
-    expect((await root.json()).root).toBe(true);
+    await makeDispatcher().dispatch("plugins/my-plugin", makeRequest("GET"));
+    expect(
+      lastForwardedFile()?.endsWith(join("my-plugin", "routes", "index.ts")),
+    ).toBe(true);
   });
 
   test("404s when the plugin route file does not exist", async () => {
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch(
+    const res = await makeDispatcher().dispatch(
       "plugins/ghost-plugin/status",
       makeRequest("GET"),
     );
     expect(res.status).toBe(404);
+    expect(invokeCalls).toHaveLength(0);
   });
 
   test("a plugin route is confined to its own plugin directory", async () => {
     // A workspace route literally named routes/plugins/foo must NOT answer a
     // request in the plugin namespace — the plugins/ prefix is reserved.
-    writeHandler(
-      "plugins/foo.ts",
-      `export function GET(request) { return Response.json({ workspace: true }); }`,
+    writeHandler("plugins/foo.ts");
+    const res = await makeDispatcher().dispatch(
+      "plugins/foo",
+      makeRequest("GET"),
     );
-
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("plugins/foo", makeRequest("GET"));
-    // Resolves against <workspace>/plugins/foo/routes/index (absent) → 404,
-    // never the workspace routes/plugins/foo.ts handler.
     expect(res.status).toBe(404);
+    expect(invokeCalls).toHaveLength(0);
   });
 
   test("404s a bare /x/plugins with no plugin name", async () => {
-    const dispatcher = makeDispatcher();
-    const res = await dispatcher.dispatch("plugins", makeRequest("GET"));
+    const res = await makeDispatcher().dispatch("plugins", makeRequest("GET"));
     expect(res.status).toBe(404);
+    expect(invokeCalls).toHaveLength(0);
   });
 
   test("404s a disabled plugin's routes even though the files exist", async () => {
-    writePluginHandler(
-      "off-plugin",
-      "status.ts",
-      `export function GET(request) { return Response.json({ ok: true }); }`,
-    );
-    const dispatcher = makeDispatcher();
+    writePluginHandler("off-plugin", "status.ts");
 
-    // Enabled: served.
-    const enabled = await dispatcher.dispatch(
+    // Enabled: resolved and forwarded.
+    await makeDispatcher().dispatch(
       "plugins/off-plugin/status",
       makeRequest("GET"),
     );
-    expect(enabled.status).toBe(200);
+    expect(lastForwardedFile()?.endsWith("status.ts")).toBe(true);
 
     // Drop the `.disabled` sentinel — the same toggle the CLI writes.
     writeFileSync(
@@ -547,28 +280,26 @@ describe("plugin routes", () => {
       "",
     );
 
-    const disabled = await dispatcher.dispatch(
+    const res = await makeDispatcher().dispatch(
       "plugins/off-plugin/status",
       makeRequest("GET"),
     );
-    expect(disabled.status).toBe(404);
+    expect(res.status).toBe(404);
   });
 
   test("one plugin cannot serve another plugin's namespace", async () => {
-    writePluginHandler(
-      "plugin-a",
-      "status.ts",
-      `export function GET(request) { return Response.json({ owner: "a" }); }`,
-    );
+    writePluginHandler("plugin-a", "status.ts");
 
-    const dispatcher = makeDispatcher();
-    const mine = await dispatcher.dispatch(
+    await makeDispatcher().dispatch(
       "plugins/plugin-a/status",
       makeRequest("GET"),
     );
-    expect(mine.status).toBe(200);
+    expect(lastForwardedFile()?.includes(join("plugin-a", "routes"))).toBe(
+      true,
+    );
+
     // plugin-b declared nothing, so its namespace 404s even for the same path.
-    const other = await dispatcher.dispatch(
+    const other = await makeDispatcher().dispatch(
       "plugins/plugin-b/status",
       makeRequest("GET"),
     );

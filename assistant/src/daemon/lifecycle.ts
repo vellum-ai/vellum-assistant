@@ -725,8 +725,8 @@ export async function runDaemon(): Promise<void> {
   // main event loop.
   startMonitoring();
 
-  // Pre-warm the route host subprocess when `userRoutes.host.enabled` is set
-  // (no-op otherwise). Fire-and-forget — never blocks boot.
+  // Pre-warm the route host subprocess (the sole execution path for `/x/*`
+  // handlers). Fire-and-forget — never blocks boot; a request respawns it.
   startRouteHost();
 
   // The runtime HTTP server is up; broadcast the fresh daemon status so
