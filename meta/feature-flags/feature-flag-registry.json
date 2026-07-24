@@ -6,8 +6,8 @@
       "scope": "client",
       "key": "in-chat-onboarding-tour",
       "label": "In-Chat Onboarding Tour",
-      "description": "Multivariate experiment for the eyes-led in-chat onboarding tour. control = straight to chat after research onboarding (current behavior); tour = the extended tour auto-plays on first workspace entry, and the header replay button shows. Desktop-only: phone-width viewports and the native shell get neither the tour nor its telemetry (not even the exposure event), so the funnel measures desktop sessions exclusively. Targeted via LaunchDarkly (planned 70% tour / 30% control).",
-      "defaultEnabled": "control",
+      "description": "Ships the eyes-led in-chat onboarding tour. tour (default) = the tour auto-plays on first workspace entry right after research onboarding; control = straight to chat, kept as a kill-switch arm. Desktop-only: phone-width viewports and the native shell get neither the tour nor its telemetry (not even the exposure event).",
+      "defaultEnabled": "tour",
       "values": ["control", "tour"]
     },
     {

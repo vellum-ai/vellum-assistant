@@ -12,7 +12,6 @@ import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
 import { NotificationsBell } from "@/domains/home/components/notifications-bell";
 import { InChatOnboardingController } from "@/domains/chat/in-chat-onboarding/in-chat-onboarding-controller";
-import { InChatOnboardingLaunchButton } from "@/domains/chat/in-chat-onboarding/in-chat-onboarding-launch-button";
 import { NotFound } from "@/components/not-found";
 import { RouteErrorBoundary } from "@/components/route-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
@@ -64,17 +63,10 @@ function AdvancedSettingsRedirect() {
 function ChatLayoutRoute() {
   return (
     <>
-      <ChatLayout
-        topBarAccessory={
-          <>
-            <InChatOnboardingLaunchButton />
-            <NotificationsBell />
-          </>
-        }
-      />
-      {/* SPIKE — in-chat onboarding prototype orchestrator. Renders only
-          portals (stage panel, avatar tour, narration takeover) over the
-          real chat; inert until the header's sparkles button activates it. */}
+      <ChatLayout topBarAccessory={<NotificationsBell />} />
+      {/* In-chat onboarding tour orchestrator. Renders only portals (avatar
+          tour, narration takeover) over the real chat; inert until the
+          post-onboarding hand-off starts the tour. */}
       <InChatOnboardingController />
     </>
   );

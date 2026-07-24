@@ -81,7 +81,6 @@ import { LetsChatTomorrowStep } from "@/domains/onboarding/screens/lets-chat-tom
 import {
   MeetingCreatedStep,
   LookingYouUpStep,
-  FinishingUpStep,
   ResearchResultsStep,
   SuggestionsStep,
   LetsChatReadyStep,
@@ -337,16 +336,6 @@ export function ResearchOnboardingRoute() {
   // a ref) so the snapshot persist effect below sees it — a refresh between
   // the results step and "Let's chat" must not regress to a blind greeting.
   const [keptFindings, setKeptFindings] = useState<string[] | null>(null);
-  // In-flight personality rewrite (if any), fired from the personality step. The
-  // chat handoff awaits it (alongside the plugin installs + removal correction)
-  // so the assistant's persona is fully rewritten BEFORE the first real chat is
-  // minted — otherwise the greeting could land in the old, unshaped voice.
-  // Resolves immediately when personality was never applied (never rejects).
-  const personalityAppliedRef = useRef<Promise<void>>(Promise.resolve());
-  // Mirrors the ref as render state so the looking-you-up loading stage can hold
-  // its "ready" reveal until the personality rewrite settles too — the carousel
-  // keeps cycling while this is true, same as an unsettled research turn.
-  const [personalityPending, setPersonalityPending] = useState(false);
   const researchLoading =
     research.status === "idle" || research.status === "running";
   // The research turn settled with nothing to show — skip the "this is what I
@@ -727,12 +716,12 @@ export function ResearchOnboardingRoute() {
   }
 
   // Final research-onboarding handoff: wait out any background capability
-  // installs (so the primed chat can discover their skills), any removal
-  // correction (so rejected claims can't leak in), and the personality rewrite
-  // (so the greeting lands in the configured persona), then drop into a fresh
-  // chat with the hidden kickoff. `personalityAppliedRef` usually resolves
-  // instantly here — the "finishing" step already held for it — but the await is
-  // kept as a backstop. Best-effort; none of these reject.
+  // installs (so the primed chat can discover their skills) and any removal
+  // correction (so rejected claims can't leak in), then drop into a fresh
+  // chat with the hidden kickoff. The personality rewrite is deliberately
+  // NOT awaited: the in-chat tour plays right after the hand-off and takes
+  // long enough for the rewrite to settle in the background, so a dedicated
+  // loading step would just be dead air. Best-effort; none of these reject.
   async function finishAndEnterChat() {
     // Only ever called from the terminal steps, which render under a
     // `formValues`-narrowed guard — but that narrowing doesn't reach this
@@ -741,7 +730,6 @@ export function ResearchOnboardingRoute() {
     await Promise.all([
       research.awaitPluginInstalls(),
       researchCorrectionRef.current,
-      personalityAppliedRef.current,
     ]);
     enterAssistant(
       formValues,
@@ -845,18 +833,16 @@ export function ResearchOnboardingRoute() {
     "looking",
     "results",
     "suggestions",
-    "finishing",
   ];
   if (tonedSteps.includes(step) && formValues) {
     // After the calendar, the background blends to black and the giant bottom
     // eyes collapse into the small avatar beside the text. Extra edge
     // characters are revealed by the looking-you-up carousel (see edgeAvatars).
-    const postCalendar = ["meeting", "looking", "results", "suggestions", "finishing"].includes(step);
+    const postCalendar = ["meeting", "looking", "results", "suggestions"].includes(step);
     // The edge crowd is gone from the pitch/setup steps — there it's just the
     // top team and the eyes. The crowd builds up one character per message
-    // during the looking-you-up carousel, then stays on for the result steps and
-    // the finishing hand-off.
-    const peekLevel = ["looking", "results", "suggestions", "finishing"].includes(step)
+    // during the looking-you-up carousel, then stays on for the result steps.
+    const peekLevel = ["looking", "results", "suggestions"].includes(step)
       ? edgeAvatars
       : 0;
     return (
@@ -897,20 +883,18 @@ export function ResearchOnboardingRoute() {
               // First continue applies the sliders to the assistant's persona on
               // a throwaway side thread (awaits hatch readiness internally, then
               // archives) and locks them — the prompt has been sent, so a later
-              // step-back can't silently diverge. The rewrite turn runs during
-              // the later steps; we track its promise (and pending flag) so the
-              // looking-you-up loader holds until it settles and the chat handoff
-              // awaits it, guaranteeing the persona is reshaped before the first
-              // real chat. Best-effort; it never rejects. A continue while
-              // already locked just advances.
+              // step-back can't silently diverge. The rewrite turn runs fully
+              // decoupled from here on: nothing in the flow waits for it, it
+              // settles while the remaining steps and the post-hand-off
+              // in-chat tour play. Best-effort; it never rejects. A continue
+              // while already locked just advances.
               if (!personalityLocked) {
-                setPersonalityPending(true);
-                personalityAppliedRef.current = applyPersonality({
+                void applyPersonality({
                   awaitAssistantId: awaitHatchReady,
                   values: personalityValues,
                   userName: formValues?.firstName?.trim() || undefined,
                   assistantName: faceValues?.name?.trim() || undefined,
-                }).finally(() => setPersonalityPending(false));
+                });
                 setPersonalityLocked(true);
               }
               goForwardTo("integration");
@@ -961,9 +945,9 @@ export function ResearchOnboardingRoute() {
             onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
             onForward={onForward}
             // Gate only on the web-search turn — the personality rewrite runs
-            // decoupled in the background and is finished off in its own step
-            // right before the chat handoff (see the "finishing" step), so this
-            // quick loading state isn't held hostage to the persona turn.
+            // decoupled in the background (it settles while the in-chat tour
+            // plays after the hand-off), so this quick loading state isn't
+            // held hostage to the persona turn.
             ready={!researchLoading}
           />
         )}
@@ -1039,16 +1023,8 @@ export function ResearchOnboardingRoute() {
                 RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
                 { userId, outcome: "completed" },
               );
-              // If the personality rewrite is still running, show the dedicated
-              // "finishing" carousel that holds until it settles, then enters
-              // chat — so the persona is fully written first without the invisible
-              // "Starting…" button stalling on a long turn. If it's already done,
-              // drop straight into chat.
-              if (personalityPending) {
-                setForwardStack([]);
-                setStep("finishing");
-                return;
-              }
+              // Straight into chat — a still-running personality rewrite
+              // settles in the background while the in-chat tour plays.
               await finishAndEnterChat();
             }}
             onBack={() => goBackTo(noClaims ? "looking" : "results")}
@@ -1093,15 +1069,6 @@ export function ResearchOnboardingRoute() {
             }}
             onBack={() => goBackTo(noClaims ? "looking" : "results")}
             onForward={onForward}
-          />
-        )}
-        {step === "finishing" && (
-          <FinishingUpStep
-            // Hold the carousel until the personality rewrite settles, then hand
-            // off. `finishAndEnterChat` also awaits the (usually already-resolved)
-            // plugin installs + correction before dropping into chat.
-            ready={!personalityPending}
-            onDone={() => void finishAndEnterChat()}
           />
         )}
         </OnboardingStageSizeProvider>

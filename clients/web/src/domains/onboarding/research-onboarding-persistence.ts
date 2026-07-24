@@ -57,7 +57,6 @@ export type ResearchStep =
   | "looking"
   | "results"
   | "suggestions"
-  | "finishing"
   // Established-assistant guard: the off-ramp offered when the flow would run
   // against an assistant that already has a life (see the route's guard).
   | "existing";
@@ -198,5 +197,9 @@ export function resolveResumeStep(
   // state that a snapshot can't restore, so a saved journey never resumes onto
   // it — land on the form and let a resubmit re-evaluate the guard.
   if (snapshot.step === "existing") return "form";
+  // Snapshots in the wild can carry the legacy "finishing" step, which the
+  // route no longer renders (the load path casts without validating) — land
+  // it on the terminal step instead.
+  if ((snapshot.step as string) === "finishing") return "suggestions";
   return snapshot.step;
 }
