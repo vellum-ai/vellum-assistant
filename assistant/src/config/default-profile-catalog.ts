@@ -64,70 +64,69 @@ export type DefaultProfileTemplate = Omit<
  * Overwritten in workspace config on every daemon boot so Vellum can push
  * model/config updates to customers in new releases.
  */
-const VELLUM_PROFILE_IMPLS: Record<ProfileMatrixKey, DefaultProfileTemplate> =
-  {
-    balanced: {
-      model: "accounts/fireworks/models/glm-5p2",
-      provider: "vellum",
-      source: "managed",
-      label: "Balanced",
-      description: "Good balance of quality, cost, and speed",
-      maxTokens: 32000,
-      effort: "high",
-      thinking: { enabled: true, streamThinking: true },
-      contextWindow: {
-        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
-      },
+const VELLUM_PROFILE_IMPLS: Record<ProfileMatrixKey, DefaultProfileTemplate> = {
+  balanced: {
+    model: "accounts/fireworks/models/glm-5p2",
+    provider: "vellum",
+    source: "managed",
+    label: "Balanced",
+    description: "Good balance of quality, cost, and speed",
+    maxTokens: 32000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: {
+      maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
     },
-    "quality-optimized": {
-      model: "claude-fable-5",
-      provider: "vellum",
-      source: "managed",
-      label: "Quality",
-      description: "High-quality results with the most capable model",
-      maxTokens: 32000,
-      effort: "high",
-      thinking: { enabled: true, streamThinking: true },
-      contextWindow: {
-        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
-      },
+  },
+  "quality-optimized": {
+    model: "claude-fable-5",
+    provider: "vellum",
+    source: "managed",
+    label: "Quality",
+    description: "High-quality results with the most capable model",
+    maxTokens: 32000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: {
+      maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
     },
-    "cost-optimized": {
-      model: "accounts/fireworks/models/deepseek-v4-flash",
-      provider: "vellum",
-      source: "managed",
-      label: "Speed",
-      description: "Fastest responses at lower cost (DeepSeek V4 Flash)",
-      maxTokens: 8192,
-      // Explicit reasoning opt-out. OpenAI-compat APIs default reasoning to
-      // "medium" when the field is omitted, and effort-driven providers encode
-      // disabled thinking through this same knob (see
-      // DISABLED_THINKING_USES_EFFORT_PROVIDERS in providers/retry.ts).
-      effort: "none",
-      thinking: { enabled: false, streamThinking: false },
-      contextWindow: {
-        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
-      },
+  },
+  "cost-optimized": {
+    model: "accounts/fireworks/models/deepseek-v4-flash",
+    provider: "vellum",
+    source: "managed",
+    label: "Speed",
+    description: "Fastest responses at lower cost (DeepSeek V4 Flash)",
+    maxTokens: 8192,
+    // Explicit reasoning opt-out. OpenAI-compat APIs default reasoning to
+    // "medium" when the field is omitted, and effort-driven providers encode
+    // disabled thinking through this same knob (see
+    // DISABLED_THINKING_USES_EFFORT_PROVIDERS in providers/retry.ts).
+    effort: "none",
+    thinking: { enabled: false, streamThinking: false },
+    contextWindow: {
+      maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
     },
-    "latency-optimized": {
-      // The managed latency class. `cost-optimized`'s upstream showed
-      // multi-second cross-session TTFT tails on live voice drives, which the
-      // front model's leading tokens cannot absorb — they ARE the turn-taking
-      // verdict. Replace only with a model whose managed credentials are
-      // provisioned in every environment.
-      model: "claude-haiku-4-5-20251001",
-      provider: "vellum",
-      source: "managed",
-      label: "Latency",
-      description: "Lowest time-to-first-token, for real-time call sites",
-      maxTokens: 8192,
-      effort: "low",
-      thinking: { enabled: false, streamThinking: false },
-      contextWindow: {
-        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
-      },
+  },
+  "latency-optimized": {
+    // The managed latency class. `cost-optimized`'s upstream showed
+    // multi-second cross-session TTFT tails on live voice drives, which the
+    // front model's leading tokens cannot absorb — they ARE the turn-taking
+    // verdict. Replace only with a model whose managed credentials are
+    // provisioned in every environment.
+    model: "claude-haiku-4-5-20251001",
+    provider: "vellum",
+    source: "managed",
+    label: "Latency",
+    description: "Lowest time-to-first-token, for real-time call sites",
+    maxTokens: 8192,
+    effort: "low",
+    thinking: { enabled: false, streamThinking: false },
+    contextWindow: {
+      maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
     },
-  };
+  },
+};
 
 /**
  * The BYOK implementation of each default profile intent, shared by every
@@ -412,6 +411,17 @@ function resolveAgainstBody(
 ): ProfileEntry | undefined {
   if (body == null) {
     return workspace;
+  }
+  // An internal profile's body is code-owned outright — no workspace overlay,
+  // not even a user-owned shadow. The shadow rule below exists so a user can
+  // deliberately replace a default they can see and select; an internal name
+  // was never selectable, so a same-named workspace entry (legal before the
+  // name was reserved) is unrelated state, not an override. Honoring it would
+  // silently hand a latency-class call site an arbitrary user model. The
+  // entry itself is untouched: it stays in `llm.profiles`, stays listed, and
+  // stays valid as an `activeProfile` reference.
+  if (isInternalProfileKey(name)) {
+    return { ...body };
   }
   if (workspace == null) {
     return name === OS_BETA_PROFILE_KEY ? undefined : { ...body };
