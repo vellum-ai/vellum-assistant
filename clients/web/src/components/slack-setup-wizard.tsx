@@ -65,9 +65,9 @@ export interface SlackSetupWizardProps {
 /**
  * Single-step guided setup for connecting a Slack app.
  *
- * Slack's new create-app modal ignores manifest deep links and mints both the
- * bot and app-level tokens itself on Create + Install, so the flow is: copy the
- * manifest, paste it into the modal's "From a manifest" tile, then bring both
+ * Slack's create-app modal ignores manifest deep links and mints both the bot
+ * and app-level tokens itself on Create and Install, so the flow is: copy the
+ * manifest, hand it to the modal's "From a manifest" option, then bring both
  * tokens back here. Settings for an already-connected Slack (thread behavior)
  * live in `SlackThreadBehavior`.
  */
@@ -208,16 +208,17 @@ export function SlackSetupWizard({
           </Typography>
           <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
             <li>
-              Pick the <strong>From a manifest</strong> tile in the{" "}
-              <strong>Create an app</strong> dialog
+              Under <strong>Or start your own way</strong>, pick{" "}
+              <strong>From a manifest</strong>, then <strong>Continue</strong>
             </li>
-            <li>Choose your workspace, then paste the manifest you copied</li>
+            <li>Choose your workspace and give it the manifest you copied</li>
             <li>
-              Click <strong>Create</strong>, then <strong>Install</strong> and
-              approve the permissions
+              Review the permissions, then click{" "}
+              <strong>Create and Install</strong>
             </li>
             <li>
-              Copy both tokens Slack shows you when the install finishes
+              Expand <strong>Your app credentials</strong> and copy both the{" "}
+              <strong>Bot token</strong> and <strong>App token</strong>
             </li>
           </ol>
 
@@ -264,7 +265,8 @@ export function SlackSetupWizard({
             variant="body-medium-lighter"
             className="text-[color:var(--content-default)]"
           >
-            Paste both tokens from Slack&apos;s install screen:
+            Paste both tokens from Slack&apos;s <strong>Your app
+            credentials</strong> panel:
           </Typography>
 
           <Input
