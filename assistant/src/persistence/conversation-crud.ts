@@ -3228,16 +3228,14 @@ export async function clearAll(): Promise<{
     "DELETE FROM telemetry_events WHERE name = 'skill_loaded'",
   );
 
-  // Delete in dependency order. The cascade handles tool_invocations;
-  // memory_summaries is still on the main DB, so it clears here.
-  await runOrThrow("DELETE FROM memory_summaries");
-  // memory_jobs, memory_segments, memory_embeddings, and llm_request_logs each
-  // live on a dedicated connection; clear them there rather than through a
-  // main-DB sqlite3 subprocess. memory_segments holds deleted message text, so
-  // clear it directly here instead of leaving it to the CONVERSATIONS_CLEARED
-  // hook below: that hook is a no-op when the memory plugin is disabled, which
-  // would keep the text searchable until the next startup sweep. memory_embeddings
-  // is polymorphic and cleared directly for the same reason.
+  // Delete in dependency order. The cascade handles tool_invocations. memory_jobs,
+  // memory_segments, memory_embeddings, and memory_summaries each live on a
+  // dedicated connection; clear them there rather than through a main-DB sqlite3
+  // subprocess. Clear all four directly rather than routing memory_segments
+  // through the CONVERSATIONS_CLEARED hook below: that hook is a no-op when the
+  // memory plugin is disabled, which would keep memory_segments' deleted message
+  // text searchable until the next startup sweep. memory_embeddings and
+  // memory_summaries are not conversation-keyed, so the hook never covered them.
   rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
   rawMemoryRun(
     "conversation:clearAll:memorySegments",
@@ -3246,6 +3244,10 @@ export async function clearAll(): Promise<{
   rawMemoryRun(
     "conversation:clearAll:memoryEmbeddings",
     "DELETE FROM memory_embeddings",
+  );
+  rawMemoryRun(
+    "conversation:clearAll:memorySummaries",
+    "DELETE FROM memory_summaries",
   );
   await runOrThrow("DELETE FROM memory_checkpoints");
   rawLogsRun(
