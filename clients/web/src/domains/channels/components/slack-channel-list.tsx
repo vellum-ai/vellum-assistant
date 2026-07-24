@@ -3,10 +3,6 @@ import { useMemo, useState } from "react";
 
 import { cn } from "@vellumai/design-library";
 import { Card } from "@vellumai/design-library/components/card";
-import {
-  Dropdown,
-  type DropdownOption,
-} from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -14,10 +10,7 @@ import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 
 import { EmptyState } from "@/components/empty-state";
 import { SlackChannelTierLegend } from "@/domains/channels/components/slack-channel-tier-legend";
-import {
-  CAPABILITY_TIER_META,
-  CAPABILITY_TIER_VALUES,
-} from "@/domains/channels/slack-channel-overrides";
+import { TierPicker } from "@/domains/channels/components/tier-picker";
 import type { RiskThreshold } from "@/utils/threshold-presets";
 import type { SlackChannel } from "@/domains/channels/slack-channels-query";
 
@@ -163,17 +156,24 @@ export interface SlackChannelListProps {
   onTierChange?: (channelId: string, tier: RiskThreshold) => void;
   /** Deletes the channel's persisted cells so the default wins again. */
   onTierReset?: (channelId: string) => void;
+  /**
+   * Whether to render the "Assistant Access levels" key in the footer. Off when
+   * the list sits under a primary card that already shows the key (the Slack
+   * sub-tab's default-access card). Defaults to on for standalone use.
+   */
+  showLegend?: boolean;
 }
 
 const EMPTY_PENDING_IDS: ReadonlySet<string> = new Set();
 
 /**
  * Presence channel list for the Slack sub-tab: every Slack channel the
- * assistant is a member of, with a per-row resolved-access badge. Rows
- * expand inline (single-open accordion; "Expand all" switches to multi-open)
- * to configure the channel's Assistant Access tier. Search and the kind chips
- * narrow the list client-side; the membership filter itself is server-side
- * (`?memberOnly=true`) with no toggle.
+ * assistant is a member of, each with an inline Assistant Access picker
+ * ({@link TierPicker}) that names the effective level and marks the one it
+ * inherits. Search and the kind chips narrow the list client-side; the
+ * membership filter itself is server-side (`?memberOnly=true`) with no toggle.
+ * The key sits in the footer unless {@link SlackChannelListProps.showLegend} is
+ * off (the default-access card owns it in the composed section).
  */
 export function SlackChannelList({
   assistantDisplayName,
@@ -189,6 +189,7 @@ export function SlackChannelList({
   pendingChannelIds = EMPTY_PENDING_IDS,
   onTierChange,
   onTierReset,
+  showLegend = true,
 }: SlackChannelListProps) {
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<SlackRoomKind | null>(null);
@@ -356,7 +357,8 @@ export function SlackChannelList({
             </>
           )}
         </Card.Body>
-        {accessControlsSupported &&
+        {showLegend &&
+        accessControlsSupported &&
         !loading &&
         !error &&
         allChannels.length > 0 ? (
@@ -369,16 +371,6 @@ export function SlackChannelList({
         ) : null}
       </Card.Root>
     </>
-  );
-}
-
-function TierDot({ color }: { color: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="h-1.5 w-1.5 rounded-full"
-      style={{ backgroundColor: color }}
-    />
   );
 }
 
@@ -431,45 +423,8 @@ function SlackChannelRow({
     );
   }
 
-  // The picker lists the four levels only — no separate "Default" option.
-  // The level that equals the resolved default carries a muted "default"
-  // marker; the row shows that level as the effective access. Selecting the
-  // marked level clears the channel's cell (follows the default); selecting any
-  // other level pins an override. Following the default and picking the level
-  // it resolves to are the same choice, so there is nothing to "change from
-  // default to Conservative" between.
-  //
-  // This is safe because resolution is most-specific-wins and value-only: a
-  // cell equal to the default and no cell behave identically until the global
-  // default later drifts, and treating "pick the default level" as "clear the
-  // cell" is the intended drift-following behavior (see slack-channel-overrides
-  // and the gateway's ChannelPermissionStore.resolve). While the default is
-  // still unknown (`null`) no level is marked and the trigger shows a plain
-  // "Default" placeholder.
-  const effectiveTier = tierOverride ?? defaultTier;
-  const options: DropdownOption<RiskThreshold>[] = CAPABILITY_TIER_VALUES.map(
-    (tier) => ({
-      value: tier,
-      label: CAPABILITY_TIER_META[tier].label,
-      icon: <TierDot color={CAPABILITY_TIER_META[tier].dotColor} />,
-      suffix:
-        tier === defaultTier ? (
-          <span className="text-[color:var(--content-tertiary)]">default</span>
-        ) : undefined,
-      tooltip: CAPABILITY_TIER_META[tier].sublabel,
-    }),
-  );
-
-  const handleChange = (tier: RiskThreshold) => {
-    // Picking the level the default resolves to means "follow the default",
-    // which is the absence of a cell — clear it rather than pinning an equal one.
-    if (tier === defaultTier) {
-      onReset();
-    } else {
-      onTierChange(tier);
-    }
-  };
-
+  // Per-channel override: the shared picker names the effective level and marks
+  // the one that follows the resolved default (see {@link TierPicker}).
   return (
     <ListRow
       className={rowClassName}
@@ -483,14 +438,12 @@ function SlackChannelRow({
             </span>
           ) : null}
           <div className="w-48">
-            <Dropdown<RiskThreshold>
-              value={effectiveTier ?? ""}
-              onChange={handleChange}
-              options={options}
-              placeholder="Default"
+            <TierPicker
+              tier={tierOverride}
+              defaultTier={defaultTier}
               disabled={pending || overridesLoading || overridesError}
-              size="compact"
-              menuAlign="end"
+              onTierChange={onTierChange}
+              onReset={onReset}
               aria-label={`Assistant Access in ${channel.name}`}
             />
           </div>

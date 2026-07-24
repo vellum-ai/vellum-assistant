@@ -3,8 +3,10 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  bucketDefaultFromCells,
   CHANNEL_TIER_CONTACT_TYPES,
   tierOverridesFromCells,
+  type ChannelDefaultBucket,
 } from "@/domains/channels/slack-channel-overrides";
 import type { RiskThreshold } from "@/utils/threshold-presets";
 import {
@@ -23,6 +25,7 @@ import { toastOnError } from "@/utils/mutation-error";
 type CellList = AssistantChannelPermissionOverridesListResponse;
 type Cell = CellList["cells"][number];
 type WireCell = Omit<Cell, "updatedAt">;
+type Selector = Cell["selector"];
 
 export interface ChannelPermissionOverridesController {
   /**
@@ -41,8 +44,16 @@ export interface ChannelPermissionOverridesController {
    * `undefined` while loading or unsupported.
    */
   defaultCellTier?: RiskThreshold | null;
+  /**
+   * The explicit tier for a channel-type default bucket, or `undefined` when the
+   * bucket has no cell (it follows the next tier up). `channels` is the
+   * adapter-scope default; `dm` is the direct-message default.
+   */
+  bucketTiers?: Record<ChannelDefaultBucket, RiskThreshold | undefined>;
   /** Channels with a cell write/delete in flight. */
   pendingChannelIds: ReadonlySet<string>;
+  /** Buckets with a default write/delete in flight. */
+  pendingBuckets: ReadonlySet<ChannelDefaultBucket>;
   /** True until the cells have loaded at least once. */
   isLoading: boolean;
   isError: boolean;
@@ -50,6 +61,10 @@ export interface ChannelPermissionOverridesController {
   onTierChange?: (channelExternalId: string, tier: RiskThreshold) => void;
   /** Delete the channel's cells so the next cascade tier up wins. */
   onTierReset?: (channelExternalId: string) => void;
+  /** Persist a channel-type default bucket's cells. */
+  onBucketChange?: (bucket: ChannelDefaultBucket, tier: RiskThreshold) => void;
+  /** Delete a bucket's cells so it follows the next tier up. */
+  onBucketReset?: (bucket: ChannelDefaultBucket) => void;
 }
 
 /** One channel-ID cell per non-guardian contact-type for the chosen tier. */
@@ -77,15 +92,49 @@ function isChannelCell(
   );
 }
 
+/** The selector for a channel-type default bucket: adapter-scope or channel_type:dm. */
+function bucketSelector(adapter: string, bucket: ChannelDefaultBucket): Selector {
+  return bucket === "channels"
+    ? { scope: "adapter", adapter }
+    : { scope: "channel_type", adapter, channelType: "dm" };
+}
+
+/** One bucket cell per non-guardian contact-type for the chosen tier. */
+function cellsForBucket(
+  adapter: string,
+  bucket: ChannelDefaultBucket,
+  tier: RiskThreshold,
+): WireCell[] {
+  const selector = bucketSelector(adapter, bucket);
+  return CHANNEL_TIER_CONTACT_TYPES.map((contactType) => ({
+    selector,
+    contactType,
+    threshold: tier,
+  }));
+}
+
+function isBucketCell(
+  cell: Cell,
+  adapter: string,
+  bucket: ChannelDefaultBucket,
+): boolean {
+  return bucket === "channels"
+    ? cell.selector.scope === "adapter" && cell.selector.adapter === adapter
+    : cell.selector.scope === "channel_type" &&
+        cell.selector.adapter === adapter &&
+        cell.selector.channelType === "dm";
+}
+
 /**
  * Per-channel capabilities-tier persistence for a channel adapter's room
  * list: reads the gateway's channel-permission cells and writes/deletes
- * channel-ID-tier cells (one per non-guardian contact-type). Optimistic —
- * the cell cache is patched immediately, rolled back and toasted on
- * failure, and revalidated on settle. Gated on the version gate in
- * `lib/backwards-compat/channel-access-controls.ts` (whether the connected
- * assistant can serve it); when off it reports `supported: false` with no
- * overrides or handlers.
+ * channel-ID-tier cells (one per non-guardian contact-type), plus the two
+ * broader-scope default buckets (`channels` → adapter cell, `dm` →
+ * channel_type:dm cell). Optimistic — the cell cache is patched immediately,
+ * rolled back and toasted on failure, and revalidated on settle. Gated on the
+ * version gate in `lib/backwards-compat/channel-access-controls.ts` (whether the
+ * connected assistant can serve it); when off it reports `supported: false` with
+ * no overrides or handlers.
  *
  * The adapter is a parameter so Telegram/Phone room lists reuse this hook
  * unchanged when they land.
@@ -113,8 +162,25 @@ export function useChannelPermissionOverrides({
   const query = useQuery({
     ...assistantChannelPermissionOverridesListOptions(pathOptions),
     enabled,
-    select: (data) => tierOverridesFromCells(data.cells, adapter),
   });
+
+  const cells = query.data?.cells;
+  const tierOverrides = useMemo(
+    () => (cells ? tierOverridesFromCells(cells, adapter) : undefined),
+    [cells, adapter],
+  );
+  const bucketTiers = useMemo<
+    Record<ChannelDefaultBucket, RiskThreshold | undefined> | undefined
+  >(
+    () =>
+      cells
+        ? {
+            channels: bucketDefaultFromCells(cells, adapter, "channels"),
+            dm: bucketDefaultFromCells(cells, adapter, "dm"),
+          }
+        : undefined,
+    [cells, adapter],
+  );
 
   // The default a cell-less room falls through to, resolved by the gateway
   // (the same resolver the runtime evaluator uses over IPC) with the same
@@ -140,19 +206,17 @@ export function useChannelPermissionOverrides({
     staleTime: 30_000,
   });
 
-  // Optimistically replace the channel's cells in the cached list, snapshot
-  // for rollback, and revalidate after the server settles either way.
+  // Optimistically replace the cells matching `matches` in the cached list,
+  // snapshot for rollback, and revalidate after the server settles either way.
   const applyOptimistic = (
-    channelExternalId: string,
+    matches: (cell: Cell) => boolean,
     nextCells: WireCell[],
   ): { previous: CellList | undefined } => {
     const previous = queryClient.getQueryData<CellList>(queryKey);
     const stampedAt = Date.now();
     queryClient.setQueryData<CellList>(queryKey, (old) => ({
       cells: [
-        ...(old?.cells ?? []).filter(
-          (cell) => !isChannelCell(cell, adapter, channelExternalId),
-        ),
+        ...(old?.cells ?? []).filter((cell) => !matches(cell)),
         ...nextCells.map((cell) => ({ ...cell, updatedAt: stampedAt })),
       ],
     }));
@@ -179,7 +243,7 @@ export function useChannelPermissionOverrides({
     },
     onMutate: ({ channelExternalId, tier }) =>
       applyOptimistic(
-        channelExternalId,
+        (cell) => isChannelCell(cell, adapter, channelExternalId),
         cellsForTier(adapter, channelExternalId, tier),
       ),
     onError: (err, _vars, context) => {
@@ -212,10 +276,66 @@ export function useChannelPermissionOverrides({
         ),
       );
     },
-    onMutate: ({ channelExternalId }) => applyOptimistic(channelExternalId, []),
+    onMutate: ({ channelExternalId }) =>
+      applyOptimistic(
+        (cell) => isChannelCell(cell, adapter, channelExternalId),
+        [],
+      ),
     onError: (err, _vars, context) => {
       queryClient.setQueryData(queryKey, context?.previous);
       toastOnError("Failed to reset channel settings")(err);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+  });
+
+  const bucketSetMutation = useMutation({
+    mutationFn: async ({
+      bucket,
+      tier,
+    }: {
+      bucket: ChannelDefaultBucket;
+      tier: RiskThreshold;
+    }) => {
+      await Promise.all(
+        cellsForBucket(adapter, bucket, tier).map((cell) =>
+          assistantChannelPermissionOverrideSet({
+            ...pathOptions,
+            body: cell,
+            throwOnError: true,
+          }),
+        ),
+      );
+    },
+    onMutate: ({ bucket, tier }) =>
+      applyOptimistic(
+        (cell) => isBucketCell(cell, adapter, bucket),
+        cellsForBucket(adapter, bucket, tier),
+      ),
+    onError: (err, _vars, context) => {
+      queryClient.setQueryData(queryKey, context?.previous);
+      toastOnError("Failed to save the default")(err);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+  });
+
+  const bucketDeleteMutation = useMutation({
+    mutationFn: async ({ bucket }: { bucket: ChannelDefaultBucket }) => {
+      const selector = bucketSelector(adapter, bucket);
+      await Promise.all(
+        CHANNEL_TIER_CONTACT_TYPES.map((contactType) =>
+          assistantChannelPermissionOverrideDelete({
+            ...pathOptions,
+            body: { selector, contactType },
+            throwOnError: true,
+          }),
+        ),
+      );
+    },
+    onMutate: ({ bucket }) =>
+      applyOptimistic((cell) => isBucketCell(cell, adapter, bucket), []),
+    onError: (err, _vars, context) => {
+      queryClient.setQueryData(queryKey, context?.previous);
+      toastOnError("Failed to reset the default")(err);
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey }),
   });
@@ -236,34 +356,64 @@ export function useChannelPermissionOverrides({
     deleteMutation.variables,
   ]);
 
+  const pendingBuckets = useMemo(() => {
+    const buckets = new Set<ChannelDefaultBucket>();
+    if (bucketSetMutation.isPending && bucketSetMutation.variables) {
+      buckets.add(bucketSetMutation.variables.bucket);
+    }
+    if (bucketDeleteMutation.isPending && bucketDeleteMutation.variables) {
+      buckets.add(bucketDeleteMutation.variables.bucket);
+    }
+    return buckets;
+  }, [
+    bucketSetMutation.isPending,
+    bucketSetMutation.variables,
+    bucketDeleteMutation.isPending,
+    bucketDeleteMutation.variables,
+  ]);
+
   if (!enabled) {
     return {
       supported: false,
       tierOverrides: undefined,
       defaultCellTier: undefined,
+      bucketTiers: undefined,
       pendingChannelIds: new Set(),
+      pendingBuckets: new Set(),
       isLoading: false,
       isError: false,
       onTierChange: undefined,
       onTierReset: undefined,
+      onBucketChange: undefined,
+      onBucketReset: undefined,
     };
   }
 
   return {
     supported: true,
-    tierOverrides: query.data,
+    tierOverrides,
     defaultCellTier: defaultQuery.data,
+    bucketTiers,
     pendingChannelIds,
+    pendingBuckets,
     isLoading: query.isPending,
     isError: query.isError,
     onTierChange: (channelExternalId, tier) =>
       setMutation.mutate({ channelExternalId, tier }),
     onTierReset: (channelExternalId) => {
       // Skip the round-trip when nothing is persisted for the channel.
-      if (query.data?.[channelExternalId] === undefined) {
+      if (tierOverrides?.[channelExternalId] === undefined) {
         return;
       }
       deleteMutation.mutate({ channelExternalId });
+    },
+    onBucketChange: (bucket, tier) => bucketSetMutation.mutate({ bucket, tier }),
+    onBucketReset: (bucket) => {
+      // Skip the round-trip when the bucket has no cell.
+      if (bucketTiers?.[bucket] === undefined) {
+        return;
+      }
+      bucketDeleteMutation.mutate({ bucket });
     },
   };
 }

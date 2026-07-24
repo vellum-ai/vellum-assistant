@@ -128,3 +128,42 @@ export function tierOverridesFromCells(
   }
   return overrides;
 }
+
+/**
+ * The two broader-scope default "buckets" the channel-type UI exposes:
+ * `"channels"` writes an `adapter`-scope cell (the default for every room of
+ * this adapter), `"dm"` writes a `channel_type: dm` cell (the default for direct
+ * messages, which overrides the adapter default for DMs). Public/private are not
+ * split — the gateway forwards Slack public and private rooms identically, so a
+ * `channel_type: public|private` cell would never match at tool time.
+ */
+export type ChannelDefaultBucket = "channels" | "dm";
+
+/**
+ * The persisted tier for a bucket's cell, if any — the `trusted_contact` cell is
+ * the representative when non-guardian contact-type cells diverge (the write
+ * path keeps them aligned). `undefined` when the bucket has no cell (it then
+ * follows the next tier up the cascade).
+ */
+export function bucketDefaultFromCells(
+  cells: ChannelTierCell[],
+  adapter: string,
+  bucket: ChannelDefaultBucket,
+): RiskThreshold | undefined {
+  let tier: RiskThreshold | undefined;
+  for (const cell of cells) {
+    const matches =
+      bucket === "channels"
+        ? cell.selector.scope === "adapter" && cell.selector.adapter === adapter
+        : cell.selector.scope === "channel_type" &&
+          cell.selector.adapter === adapter &&
+          cell.selector.channelType === "dm";
+    if (!matches) {
+      continue;
+    }
+    if (cell.contactType === "trusted_contact" || tier === undefined) {
+      tier = cell.threshold;
+    }
+  }
+  return tier;
+}

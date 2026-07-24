@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { THRESHOLD_PRESETS } from "@/utils/threshold-presets";
 
 import {
+  bucketDefaultFromCells,
   CAPABILITY_TIER_META,
   CAPABILITY_TIER_VALUES,
   tierOverridesFromCells,
@@ -97,5 +98,60 @@ describe("tierOverridesFromCells", () => {
       "slack",
     );
     expect(overrides).toEqual({ C1: "high" });
+  });
+});
+
+describe("bucketDefaultFromCells", () => {
+  const adapterCell = (
+    adapter: string,
+    threshold: ChannelTierCell["threshold"],
+    contactType = "trusted_contact",
+  ): ChannelTierCell => ({
+    selector: { scope: "adapter", adapter },
+    contactType,
+    threshold,
+  });
+
+  const dmCell = (
+    adapter: string,
+    threshold: ChannelTierCell["threshold"],
+    contactType = "trusted_contact",
+  ): ChannelTierCell => ({
+    selector: { scope: "channel_type", adapter, channelType: "dm" },
+    contactType,
+    threshold,
+  });
+
+  test("reads the adapter-scope cell as the 'channels' default", () => {
+    const cells = [adapterCell("slack", "medium")];
+    expect(bucketDefaultFromCells(cells, "slack", "channels")).toBe("medium");
+    expect(bucketDefaultFromCells(cells, "slack", "dm")).toBeUndefined();
+  });
+
+  test("reads the channel_type:dm cell as the 'dm' default", () => {
+    const cells = [dmCell("slack", "none")];
+    expect(bucketDefaultFromCells(cells, "slack", "dm")).toBe("none");
+    expect(bucketDefaultFromCells(cells, "slack", "channels")).toBeUndefined();
+  });
+
+  test("ignores other adapters and non-dm channel types", () => {
+    const cells: ChannelTierCell[] = [
+      adapterCell("telegram", "high"),
+      {
+        selector: { scope: "channel_type", adapter: "slack", channelType: "private" },
+        contactType: "trusted_contact",
+        threshold: "high",
+      },
+    ];
+    expect(bucketDefaultFromCells(cells, "slack", "channels")).toBeUndefined();
+    expect(bucketDefaultFromCells(cells, "slack", "dm")).toBeUndefined();
+  });
+
+  test("trusted_contact is representative when contact types diverge", () => {
+    const cells = [
+      adapterCell("slack", "none", "unknown"),
+      adapterCell("slack", "medium", "trusted_contact"),
+    ];
+    expect(bucketDefaultFromCells(cells, "slack", "channels")).toBe("medium");
   });
 });
