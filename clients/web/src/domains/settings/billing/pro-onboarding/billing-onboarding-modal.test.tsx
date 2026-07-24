@@ -786,7 +786,7 @@ describe("BillingOnboardingModal", () => {
   );
 
   test("escape hatch appears once time-eligible even while routing is unsettled", async () => {
-    // The escape button no longer waits on routing — it's the always-available
+    // The escape button is independent of routing — it's the always-available
     // recovery for a hung routing refetch. Hold the onboarding fetch open so
     // routing never settles; the hatch must still appear the moment the watch
     // passes the escape window.

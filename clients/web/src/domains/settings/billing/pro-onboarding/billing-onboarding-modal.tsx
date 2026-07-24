@@ -324,9 +324,9 @@ export function BillingOnboardingModal({
 
   // Lock Esc/backdrop while provisioning is active. The takeover exposes no
   // persistent close control, but the in-content "Continue in the background"
-  // button becomes available the moment the escape window elapses (no longer
-  // gated on routing), so a hung routing refetch can't strand the user. Only a
-  // terminal ready state unlocks the backdrop itself.
+  // button is independent of routing freshness — it needs only the machine busy
+  // and the escape window elapsed — so a hung routing refetch can't strand the
+  // user. Only a terminal ready state unlocks the backdrop itself.
   const lockTakeover = isTakeover && !onScreenSettled;
 
   // Full-bleed dark content that fills the viewport for the takeover.
