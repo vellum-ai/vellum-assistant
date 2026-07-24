@@ -113,6 +113,15 @@ describe("classifyWorkOrigin", () => {
       }),
       expected: "user_created_schedule",
     },
+    {
+      name: "manually-run schedule (schedule source, standard type) → user_created_schedule",
+      input: input({
+        conversationType: "standard",
+        conversationSource: "schedule",
+        callSite: "mainAgent",
+      }),
+      expected: "user_created_schedule",
+    },
     // 3a. Heartbeat.
     {
       name: "heartbeat call site → heartbeat",

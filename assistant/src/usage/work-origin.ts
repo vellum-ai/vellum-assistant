@@ -117,7 +117,8 @@ export interface WorkOriginInput {
  *      call site, so a retrospective fork's memory work is attributed to its
  *      delegating turn rather than the memory-maintenance bucket even after
  *      the fork is GC'd,
- *   2. scheduled conversation,
+ *   2. scheduled conversation (by type, or by the "schedule" source a
+ *      manually-triggered run stamps without a conversation type),
  *   3. heartbeat / memory-maintenance call sites (dedicated system origins that
  *      run with or without a conversation),
  *   4. standard conversation the user created,
@@ -145,7 +146,10 @@ export function classifyWorkOrigin(input: WorkOriginInput): WorkOrigin {
   ) {
     return "delegated_child";
   }
-  if (conversationType === "scheduled") {
+  if (conversationType === "scheduled" || conversationSource === "schedule") {
+    // A manually-triggered schedule run bootstraps its conversation with
+    // source "schedule" but no conversation type, so the source is the only
+    // signal that the work is schedule-origin.
     return "user_created_schedule";
   }
   if (callSite === "heartbeatAgent") {
