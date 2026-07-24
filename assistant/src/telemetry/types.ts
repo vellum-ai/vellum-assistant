@@ -583,6 +583,15 @@ export type AuthFallbackTelemetryEvent = EventMap["auth_fallback"];
  */
 export type ConfigSettingTelemetryEvent = EventMap["config_setting"];
 
+/**
+ * Assistant-result-seen event — one per seen signal that newly advanced the
+ * conversation's attention cursor to cover an assistant message. Metadata only
+ * (no evidence text or attention metadata). 1:1 with the wire contract
+ * (`AssistantResultSeenTelemetryEventSerializer`).
+ */
+export type AssistantResultSeenTelemetryEvent =
+  EventMap["assistant_result_seen"];
+
 // ---- Compile-time drift guards ----
 // Each `Overrides` entry is pinned to its wire type in BOTH directions, so a
 // wire sync PR that moves the platform contract turns red here instead of

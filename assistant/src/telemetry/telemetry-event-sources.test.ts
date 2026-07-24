@@ -46,6 +46,7 @@ describe("telemetry event source partition", () => {
       "watchdog",
       "config_setting",
       "onboarding_research",
+      "assistant_result_seen",
       ORPHAN_OUTBOX_DRAIN_SOURCE_ID,
     ]);
   });

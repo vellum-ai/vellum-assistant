@@ -29949,6 +29949,65 @@ paths:
                   required:
                     - type
                     - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: assistant_result_seen
+                    fields:
+                      type: object
+                      properties:
+                        conversation_id:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                        assistant_message_id:
+                          type: string
+                          minLength: 1
+                          maxLength: 128
+                        assistant_message_recorded_at:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                        signal_type:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                        confidence:
+                          type: string
+                          minLength: 1
+                          maxLength: 32
+                        source_channel:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 64
+                            - type: "null"
+                        source_interface:
+                          anyOf:
+                            - type: string
+                              minLength: 1
+                              maxLength: 64
+                            - type: "null"
+                      required:
+                        - conversation_id
+                        - assistant_message_id
+                        - assistant_message_recorded_at
+                        - signal_type
+                        - confidence
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
               type: object
       responses:
         "200":
