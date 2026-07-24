@@ -49,6 +49,7 @@ export * from "./message-types/workspace.js";
 // Import domain-level union aliases for composition
 import type { DiskPressureStatusChangedEvent } from "../api/events/disk-pressure-status-changed.js";
 import type { HookEvent } from "../api/events/hook-event.js";
+import type { SubagentEventEvent } from "../api/events/subagent-event.js";
 import type { _AcpServerMessages } from "./message-types/acp.js";
 import type { _AppsServerMessages } from "./message-types/apps.js";
 import type { _BackgroundToolsServerMessages } from "./message-types/background-tools.js";
@@ -89,10 +90,7 @@ import type {
 import type { _SchedulesServerMessages } from "./message-types/schedules.js";
 import type { _SettingsServerMessages } from "./message-types/settings.js";
 import type { _SkillsServerMessages } from "./message-types/skills.js";
-import type {
-  _SubagentsClientMessages,
-  _SubagentsServerMessages,
-} from "./message-types/subagents.js";
+import type { _SubagentsServerMessages } from "./message-types/subagents.js";
 import type { _SurfacesServerMessages } from "./message-types/surfaces.js";
 import type { _SyncInvalidationServerMessages } from "./message-types/sync.js";
 import type { _UpgradesServerMessages } from "./message-types/upgrades.js";
@@ -102,16 +100,6 @@ import type {
   _WorkspaceServerMessages,
 } from "./message-types/workspace.js";
 
-// === SubagentEvent -- defined here because it references ServerMessage ===
-
-/** Wraps any ServerMessage emitted by a subagent conversation for routing to the client. */
-export interface SubagentEvent {
-  type: "subagent_event";
-  subagentId: string;
-  conversationId: string;
-  event: ServerMessage;
-}
-
 // === Client -> Server aggregate union ===
 
 export type ClientMessage =
@@ -119,7 +107,6 @@ export type ClientMessage =
   | _IntegrationsClientMessages
   | _ComputerUseClientMessages
   | _HostBrowserClientMessages
-  | _SubagentsClientMessages
   | _WorkspaceClientMessages
   | _DiagnosticsClientMessages
   | _NotificationsClientMessages;
@@ -159,7 +146,7 @@ export type ServerMessage =
   | _WorkflowsServerMessages
   | DiskPressureStatusChangedEvent
   | HookEvent
-  | SubagentEvent;
+  | SubagentEventEvent;
 
 // === Contract schema ===
 
