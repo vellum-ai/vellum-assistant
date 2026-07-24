@@ -51,17 +51,22 @@ export interface ResolvedVisionProvider {
  * can distinguish "no vision model configured" from "captioning failed" without
  * resolving a provider. {@link resolve} walks the ranked candidates cheapest
  * first and returns the first one whose provider actually resolves — so a
- * cheapest profile with a dangling connection or an unavailable credential
- * falls through to the next usable one rather than silently breaking
- * captioning. Resolution is lazy (never runs for an all-cache-hit sweep) and
- * memoized (one resolution per sweep, reused across every image).
+ * cheapest profile that resolves to `null` (dangling connection, unavailable
+ * credential) or that *throws* a hard config error (missing/mismatched
+ * `provider_connection`) falls through to the next usable one rather than
+ * silently breaking captioning. Resolution is lazy (never runs for an
+ * all-cache-hit sweep) and memoized (one resolution per sweep, reused across
+ * every image).
  */
 export interface VisionProviderResolver {
   /** Whether any enabled vision-capable profile exists to caption with. */
   hasCandidates(): boolean;
   /**
    * The first usable vision provider in cheapest-first order, or `null` when no
-   * candidate resolves. Resolves lazily on first call and memoizes the result
+   * candidate resolves. A candidate that throws during resolution is treated
+   * exactly like a `null` resolution — logged and skipped — so `resolve()`
+   * never rejects; it settles to `null` only after every candidate is
+   * exhausted. Resolves lazily on first call and memoizes the settled result
    * for the rest of the sweep.
    */
   resolve(): Promise<ResolvedVisionProvider | null>;
@@ -130,12 +135,28 @@ export function createVisionProviderResolver(
 
   const attempt = async (): Promise<ResolvedVisionProvider | null> => {
     for (const profileKey of rankedKeys) {
-      const provider = await getConfiguredProvider("vision", {
-        overrideProfile: profileKey,
-        forceOverrideProfile: true,
-      });
-      if (provider) {
-        return { profileKey, provider };
+      try {
+        const provider = await getConfiguredProvider("vision", {
+          overrideProfile: profileKey,
+          forceOverrideProfile: true,
+        });
+        if (provider) {
+          return { profileKey, provider };
+        }
+      } catch (err) {
+        // A hard config error (missing/mismatched `provider_connection`) throws
+        // rather than resolving `null`. Treat it exactly like a `null`
+        // resolution: log it and fall through to the next ranked candidate so
+        // one broken profile can't sink captioning for the whole sweep. This
+        // also keeps the memoized promise from caching a rejection.
+        logger.warn(
+          {
+            plugin: "image-fallback",
+            profileKey,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          "Vision provider candidate threw during resolution; trying next",
+        );
       }
     }
     if (rankedKeys.length > 0) {

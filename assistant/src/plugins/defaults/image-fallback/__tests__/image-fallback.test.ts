@@ -669,6 +669,112 @@ describe("vision provider resilience", () => {
       restorePluginApiMock();
     }
   });
+
+  test("captions via the next-cheapest profile when the cheapest throws a hard config error", async () => {
+    twoRankedVisionProfiles();
+    const resolutionAttempts: string[] = [];
+    let ranProfile: string | undefined;
+    const capturingProvider = {
+      name: "mock-vision-provider",
+      async sendMessage(
+        _messages: unknown,
+        opts: { config: { overrideProfile: string } },
+      ) {
+        ranProfile = opts.config.overrideProfile;
+        return sendMessageResponse;
+      },
+    };
+    // The cheapest profile names a missing/mismatched provider_connection, so
+    // resolution THROWS rather than returning null; only premium resolves.
+    setPluginApiMock(async (_callSite, opts) => {
+      resolutionAttempts.push(opts.overrideProfile);
+      if (opts.overrideProfile === "cheap-vision") {
+        throw new Error("provider_connection 'ghost' not found");
+      }
+      return capturingProvider;
+    });
+    try {
+      const ctx = makeCtx({ latestMessages: [imageMsg("img1")] });
+      // No rejection escapes the sweep despite the cheapest candidate throwing.
+      await userPromptSubmit(ctx);
+
+      // Tried cheapest first (it threw), then fell through to the next usable.
+      expect(resolutionAttempts).toEqual(["cheap-vision", "premium-vision"]);
+      // Captioning ran on premium and succeeded — not a fail-open placeholder.
+      expect(ranProfile).toBe("premium-vision");
+      expect(ctx.latestMessages[0].content[0].type).toBe("text");
+      expect((ctx.latestMessages[0].content[0] as { text: string }).text).toBe(
+        "[Image auto-described for text-only model: A red chart showing Q3 revenue.]",
+      );
+    } finally {
+      restorePluginApiMock();
+    }
+  });
+
+  test("falls open to the failed-description placeholder when every candidate throws", async () => {
+    twoRankedVisionProfiles();
+    const resolutionAttempts: string[] = [];
+    setPluginApiMock(async (_callSite, opts) => {
+      resolutionAttempts.push(opts.overrideProfile);
+      throw new Error(`provider_connection for ${opts.overrideProfile} broken`);
+    });
+    try {
+      const ctx = makeCtx({ latestMessages: [imageMsg("img1")] });
+      // Every candidate throwing must not reject out of the hook.
+      await userPromptSubmit(ctx);
+
+      // Exhausted every ranked candidate, cheapest-first, despite each throwing.
+      expect(resolutionAttempts).toEqual(["cheap-vision", "premium-vision"]);
+      // Vision profiles exist but none resolve → "failed", not "no model".
+      expect(ctx.latestMessages[0].content[0].type).toBe("text");
+      const text = (ctx.latestMessages[0].content[0] as { text: string }).text;
+      expect(text).toContain("auto-description failed");
+      expect(text).not.toContain("no vision-capable model");
+    } finally {
+      restorePluginApiMock();
+    }
+  });
+
+  test("memoizes the settled resolution when the cheapest throws — no rejection cached, no per-image re-attempt", async () => {
+    twoRankedVisionProfiles();
+    const resolutionAttempts: string[] = [];
+    let sendCount = 0;
+    const countingProvider = {
+      name: "mock-vision-provider",
+      async sendMessage(
+        _messages: unknown,
+        opts: { config: { overrideProfile: string } },
+      ) {
+        sendCount++;
+        // The cheapest threw, so premium is the settled resolution for the sweep.
+        expect(opts.config.overrideProfile).toBe("premium-vision");
+        return sendMessageResponse;
+      },
+    };
+    setPluginApiMock(async (_callSite, opts) => {
+      resolutionAttempts.push(opts.overrideProfile);
+      if (opts.overrideProfile === "cheap-vision") {
+        throw new Error("provider_connection 'ghost' not found");
+      }
+      return countingProvider;
+    });
+    try {
+      // Two distinct (uncached) images in a single sweep.
+      const ctx = makeCtx({
+        latestMessages: [imageMsg("img-a"), imageMsg("img-b")],
+      });
+      await userPromptSubmit(ctx);
+
+      // Resolution ran exactly once (cheap threw, premium won) and the settled
+      // result — not the rejection — was memoized for the second image.
+      expect(resolutionAttempts).toEqual(["cheap-vision", "premium-vision"]);
+      expect(sendCount).toBe(2);
+      expect(ctx.latestMessages[0].content[0].type).toBe("text");
+      expect(ctx.latestMessages[1].content[0].type).toBe("text");
+    } finally {
+      restorePluginApiMock();
+    }
+  });
 });
 
 describe("image-fallback post-tool-use hook", () => {
