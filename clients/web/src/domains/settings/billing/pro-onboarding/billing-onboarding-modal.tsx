@@ -317,6 +317,16 @@ export function BillingOnboardingModal({
     setBackgroundConfirmOpen(false);
   }, []);
 
+  // A resize that settles while the confirm is open dismisses it: the moment
+  // provisioning stops being busy the wizard advances to the domain or complete
+  // step, so a lingering confirm would cover that step — and its "Continue"
+  // would force-close the wizard over it.
+  useEffect(() => {
+    if (!machineBusy && backgroundConfirmOpen) {
+      setBackgroundConfirmOpen(false);
+    }
+  }, [machineBusy, backgroundConfirmOpen]);
+
   // The fetch-error variant of the provisioning step is a standard dismissible
   // card, not the locked full-bleed takeover — otherwise the light error UI is
   // marooned in the dark full-screen viewport and the user can't act on it.
@@ -423,7 +433,10 @@ export function BillingOnboardingModal({
       {/* Stacks over the locked full-bleed takeover as its own Modal.Root; its
           Escape/backdrop closes only this confirm, never the takeover behind. */}
       <ConfirmDialog
-        open={backgroundConfirmOpen}
+        // Gated on the live machine state too: a resize that settles while the
+        // confirm is open closes it declaratively, so its buttons can't act
+        // after the wizard has advanced past provisioning.
+        open={backgroundConfirmOpen && machineBusy}
         title="Continue in the background?"
         message="Your assistant is still upgrading. Chatting won't be available until it finishes — you can keep waiting here, or continue and we'll let you know when it's ready."
         confirmLabel="Continue"

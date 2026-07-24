@@ -702,6 +702,61 @@ describe("BillingOnboardingModal", () => {
     20_000,
   );
 
+  test(
+    "a resize settling while the background confirm is open dismisses it without force-closing the advanced step",
+    async () => {
+      subscriptionPlanId = "pro";
+      // Route to complete so the dialog's own "Continue"/"Wait" are the only
+      // ones on screen — the domain step renders its own "Continue" button.
+      onboardingResponse = makeOnboarding({ domain_setup_available: false });
+      const { client, getByText, getByTestId, queryByText, onClose } =
+        renderModal();
+
+      await waitFor(
+        () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      await waitFor(() => expect(ensureCalls).toBe(1));
+      // Wait for the pre-resize actuals to land (the "from" card) before
+      // mutating, mirroring the other DONE-transition tests.
+      await waitFor(() => expect(getByText("10 GB")).toBeTruthy(), {
+        timeout: 5000,
+      });
+
+      // Elapse the escape window so the background CTA surfaces while busy, then
+      // open the confirm.
+      dateNowOffsetMs = 61_000;
+      await waitFor(
+        () => expect(getByTestId("provisioning-escape")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      fireEvent.click(getByTestId("provisioning-escape"));
+      expect(getByText("Continue in the background?")).toBeTruthy();
+
+      // The resize finishes while the confirm is still open: actuals meet the
+      // targets, so the machine settles and the wizard advances to complete.
+      assistantResponse = makeAssistant("large", 50);
+      await client.invalidateQueries();
+      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+
+      // The confirm auto-dismissed the moment provisioning stopped being busy,
+      // so its "Continue" can't fire and force-close the wizard over the
+      // now-uncovered complete step.
+      expect(queryByText("Continue in the background?")).toBeNull();
+      expect(
+        queryByText(
+          "Your assistant is still upgrading. Chatting won't be available until it finishes — you can keep waiting here, or continue and we'll let you know when it's ready.",
+        ),
+      ).toBeNull();
+      expect(queryByText("Continue")).toBeNull();
+      expect(queryByText("Wait")).toBeNull();
+      expect(onClose).not.toHaveBeenCalled();
+    },
+    20_000,
+  );
+
   test("onboarding fetch failure after confirm shows the fetch-error state", async () => {
     subscriptionPlanId = "pro";
     onboardingFails = true;
