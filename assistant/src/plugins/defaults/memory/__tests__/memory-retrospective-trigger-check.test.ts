@@ -489,4 +489,33 @@ describe("maybeEnqueueRetrospective — daily runaway cap", () => {
     ]);
     expect(readDailyCount()).toBe(6);
   });
+
+  test("a trigger that coalesces into a pending job consumes no budget; a fresh job after it completes consumes one", () => {
+    const conv = createConversation("conv");
+    insertMessage(conv.id, { createdAt: 2_000 });
+    seedDailyCount(5);
+    const config = makeConfig({ maxRunsPerAssistantPerDay: 40 });
+
+    // First qualifying turn creates the pending job → one unit consumed.
+    enqueueResult = true;
+    maybeEnqueueRetrospective(conv.id, config);
+    expect(readDailyCount()).toBe(6);
+
+    // Subsequent qualifying turns while that job is still pending only
+    // coalesce (helper returns false). A slow/stopped worker could repeat this
+    // arbitrarily many times — none of them may drain the day's budget.
+    enqueueResult = false;
+    insertMessage(conv.id, { createdAt: 3_000 });
+    maybeEnqueueRetrospective(conv.id, config);
+    insertMessage(conv.id, { createdAt: 4_000 });
+    maybeEnqueueRetrospective(conv.id, config);
+    expect(readDailyCount()).toBe(6);
+
+    // Once the pending job completes, the next turn creates a genuinely new
+    // job → one more unit consumed.
+    enqueueResult = true;
+    insertMessage(conv.id, { createdAt: 5_000 });
+    maybeEnqueueRetrospective(conv.id, config);
+    expect(readDailyCount()).toBe(7);
+  });
 });

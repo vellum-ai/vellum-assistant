@@ -107,9 +107,10 @@ export function maybeEnqueueRetrospective(
     }
 
     // Runaway backstop: skip once the assistant's daily budget for this UTC day
-    // is exhausted. The budget is consumed only when an enqueue actually lands
-    // (below), so a source the enqueue helper skips (scheduled thread,
-    // consolidation source, recursion guard) costs nothing. Pre-compaction
+    // is exhausted. The budget is consumed only when a NEW pending job is
+    // created (below), so a source the enqueue helper skips (scheduled thread,
+    // consolidation source, recursion guard) — and a trigger that merely
+    // coalesces into an already-pending job — costs nothing. Pre-compaction
     // enqueues route around this path entirely, so they bypass the cap exactly
     // as they bypass the cooldown gate above.
     const maxRunsPerDay = config.memory.retrospective.maxRunsPerAssistantPerDay;

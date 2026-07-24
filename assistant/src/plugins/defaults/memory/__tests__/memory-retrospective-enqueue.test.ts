@@ -7,6 +7,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let sourceTag: string | null = null;
 let convType = "standard";
 let convSource = "user";
+// Simulates whether the real `upsertMemoryRetrospectiveJob` inserted a NEW row
+// (true) or coalesced into an already-pending one (false). The enqueue helper
+// must propagate this verbatim so budget-metered callers only count creations.
+let upsertCreated = true;
 const upsertCalls: Array<{
   payload: { conversationId: string };
   runAfter: number;
@@ -27,6 +31,7 @@ mock.module("../../../../persistence/jobs-store.js", () => ({
     runAfter: number,
   ) => {
     upsertCalls.push({ payload, runAfter });
+    return upsertCreated;
   },
 }));
 
@@ -41,6 +46,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     sourceTag = null;
     convType = "standard";
     convSource = "user";
+    upsertCreated = true;
     upsertCalls.length = 0;
   });
 
@@ -70,6 +76,21 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     expect(upsertCalls).toHaveLength(1);
     const call = upsertCalls[0]!;
     expect(call.runAfter).toBeGreaterThan(before + 100);
+  });
+
+  test("coalesced upsert (existing pending job) — reports false even for an eligible source", () => {
+    // The source is eligible, so the upsert IS attempted, but it coalesces into
+    // an already-pending row rather than inserting a new one. The helper must
+    // report false so budget-metered callers do not count a run that cannot
+    // spawn a second retrospective.
+    upsertCreated = false;
+    const enqueued = enqueueMemoryRetrospectiveIfEnabled({
+      conversationId: "c1",
+      trigger: "interval",
+    });
+    expect(enqueued).toBe(false);
+    // The upsert still ran (the runAfter-min pull is its responsibility).
+    expect(upsertCalls).toHaveLength(1);
   });
 
   test("recursion guard — source = 'memory-retrospective' skips enqueue and reports false", () => {

@@ -49,10 +49,12 @@ const COMPACTION_DEBOUNCE_MS = 500;
 
 /**
  * Enqueue a retrospective job for `conversationId`, applying the recursion and
- * low-yield source guards. Returns `true` only when a job is actually queued —
- * `false` on any skip (memory disabled, recursion guard, low-yield source) or an
- * upsert failure. Budget-metered callers reserve one unit of the daily cap only
- * on a `true` return, so a skipped source never consumes budget.
+ * low-yield source guards. Returns `true` only when a NEW pending job is
+ * created — `false` on any skip (memory disabled, recursion guard, low-yield
+ * source), an upsert failure, OR a coalesce into an already-pending row for the
+ * conversation. Budget-metered callers reserve one unit of the daily cap only
+ * on a `true` return, so neither a skipped source nor a coalesced trigger (which
+ * cannot spawn a second retrospective) consumes budget.
  */
 export function enqueueMemoryRetrospectiveIfEnabled(args: {
   conversationId: string;
@@ -84,8 +86,7 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
     trigger === "compaction" ? Date.now() + COMPACTION_DEBOUNCE_MS : Date.now();
 
   try {
-    upsertMemoryRetrospectiveJob({ conversationId }, runAfter);
-    return true;
+    return upsertMemoryRetrospectiveJob({ conversationId }, runAfter);
   } catch (err) {
     log.warn(
       { err, conversationId, trigger },

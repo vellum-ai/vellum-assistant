@@ -204,9 +204,10 @@ export async function runRetrospectiveSweep(
 
       // Runaway backstop: stop scanning once the assistant's daily budget
       // (shared with the responsive trigger-check path) is exhausted. The budget
-      // is consumed only when an enqueue actually lands, so a source the enqueue
-      // helper skips costs nothing. The compaction path never routes through
-      // here, so it bypasses the cap.
+      // is consumed only when a NEW pending job is created, so a source the
+      // enqueue helper skips — and a conversation already queued by an event
+      // trigger, whose sweep enqueue merely coalesces — costs nothing. The
+      // compaction path never routes through here, so it bypasses the cap.
       if (isDailyRetrospectiveBudgetExhausted(maxRunsPerDay, now)) {
         log.debug(
           { scanned, enqueued },

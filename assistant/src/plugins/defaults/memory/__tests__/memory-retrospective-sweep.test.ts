@@ -307,6 +307,41 @@ describe("runRetrospectiveSweep", () => {
     expect(readDailyCount(now)).toBe(6);
   });
 
+  test("a sweep enqueue that coalesces into a pending job consumes no budget; a fresh creation after it completes consumes one", async () => {
+    const now = Date.now();
+    const conv = createConversation({ id: "conv-a" });
+    insertMessage(conv.id, { createdAt: 1_000 });
+    seedDailyCount(now, 5);
+
+    // A conversation already queued by an event trigger: the sweep's enqueue
+    // coalesces into the pending row (helper returns false). No matter how many
+    // sweep passes run while that job stays pending, none may drain the budget.
+    enqueueResult = false;
+    let result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+      now,
+    );
+    expect(result).toEqual({ scanned: 1, enqueued: 0 });
+    expect(readDailyCount(now)).toBe(5);
+
+    result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+      now,
+    );
+    expect(result.enqueued).toBe(0);
+    expect(readDailyCount(now)).toBe(5);
+
+    // Once that job completes, a later pass creates a genuinely new job → one
+    // unit consumed.
+    enqueueResult = true;
+    result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+      now,
+    );
+    expect(result.enqueued).toBe(1);
+    expect(readDailyCount(now)).toBe(6);
+  });
+
   test("a source the enqueue helper skips consumes no budget and is not counted", async () => {
     const now = Date.now();
     const conv = createConversation({ id: "conv-a" });
