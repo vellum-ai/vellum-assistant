@@ -292,8 +292,11 @@ export function SlackChannelList({
               No channels match.
             </Typography>
           ) : visibleChannels.length > VIRTUALIZE_THRESHOLD ? (
-            // Virtuoso sizes its scroller to 100% of the wrapper, so the
-            // wrapper needs a bounded height to scroll within the collapsible.
+            // Virtuoso sizes its scroller to 100% of the wrapper, so the wrapper
+            // needs a bounded height. h-96 (~24rem) is tall enough to show a
+            // useful run of rows while the list scrolls within the collapsible
+            // rather than stretching the panel; the plain branch below caps at
+            // the same height.
             <div className="h-96">
               <VirtualList
                 items={visibleChannels}

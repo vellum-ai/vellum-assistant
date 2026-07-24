@@ -69,7 +69,7 @@ export const CAPABILITY_TIER_META: Record<RiskThreshold, CapabilityTierMeta> = {
   },
   high: {
     label: presetFromThreshold("high").label,
-    sublabel: "researches on its own",
+    sublabel: "answers on its own",
     tone: "positive",
     dotColor: "var(--system-positive-strong)",
   },
@@ -142,6 +142,24 @@ export function tierOverridesFromCells(
 export type ChannelDefaultBucket = "channels" | "dm";
 
 /**
+ * Whether a cell is the broader-scope default cell for `bucket`: `"channels"` is
+ * the adapter-scope cell, `"dm"` is the `channel_type: dm` cell. Shared by the
+ * read path here and the write/optimistic path in
+ * `use-channel-permission-overrides` so the two can't drift.
+ */
+export function isBucketCell(
+  cell: Pick<ChannelTierCell, "selector">,
+  adapter: string,
+  bucket: ChannelDefaultBucket,
+): boolean {
+  return bucket === "channels"
+    ? cell.selector.scope === "adapter" && cell.selector.adapter === adapter
+    : cell.selector.scope === "channel_type" &&
+        cell.selector.adapter === adapter &&
+        cell.selector.channelType === "dm";
+}
+
+/**
  * The persisted tier for a bucket's cell, if any — the `trusted_contact` cell is
  * the representative when non-guardian contact-type cells diverge (the write
  * path keeps them aligned). `undefined` when the bucket has no cell (it then
@@ -154,13 +172,7 @@ export function bucketDefaultFromCells(
 ): RiskThreshold | undefined {
   let tier: RiskThreshold | undefined;
   for (const cell of cells) {
-    const matches =
-      bucket === "channels"
-        ? cell.selector.scope === "adapter" && cell.selector.adapter === adapter
-        : cell.selector.scope === "channel_type" &&
-          cell.selector.adapter === adapter &&
-          cell.selector.channelType === "dm";
-    if (!matches) {
+    if (!isBucketCell(cell, adapter, bucket)) {
       continue;
     }
     if (cell.contactType === "trusted_contact" || tier === undefined) {

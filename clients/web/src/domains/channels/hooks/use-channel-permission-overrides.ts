@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   bucketDefaultFromCells,
   CHANNEL_TIER_CONTACT_TYPES,
+  isBucketCell,
   tierOverridesFromCells,
   type ChannelDefaultBucket,
 } from "@/domains/channels/slack-channel-overrides";
@@ -113,18 +114,6 @@ function cellsForBucket(
   }));
 }
 
-function isBucketCell(
-  cell: Cell,
-  adapter: string,
-  bucket: ChannelDefaultBucket,
-): boolean {
-  return bucket === "channels"
-    ? cell.selector.scope === "adapter" && cell.selector.adapter === adapter
-    : cell.selector.scope === "channel_type" &&
-        cell.selector.adapter === adapter &&
-        cell.selector.channelType === "dm";
-}
-
 /**
  * Per-channel capabilities-tier persistence for a channel adapter's room
  * list: reads the gateway's channel-permission cells and writes/deletes
@@ -136,8 +125,8 @@ function isBucketCell(
  * connected assistant can serve it); when off it reports `supported: false` with
  * no overrides or handlers.
  *
- * The adapter is a parameter so Telegram/Phone room lists reuse this hook
- * unchanged when they land.
+ * `adapter` filters the gateway's cell list, which returns every adapter's
+ * cells (only caller today is Slack).
  */
 export function useChannelPermissionOverrides({
   assistantId,
@@ -323,9 +312,13 @@ export function useChannelPermissionOverrides({
       queryClient.setQueryData(queryKey, context?.previous);
       toastOnError("Failed to save the default")(err);
     },
-    onSettled: () => {
+    onSettled: (_data, _err, { bucket }) => {
       queryClient.invalidateQueries({ queryKey });
-      queryClient.invalidateQueries({ queryKey: resolveQueryKey });
+      // Only the adapter-scope `channels` cell feeds the resolve query; a `dm`
+      // write leaves the room-list fall-through unchanged.
+      if (bucket === "channels") {
+        queryClient.invalidateQueries({ queryKey: resolveQueryKey });
+      }
     },
   });
 
@@ -348,9 +341,13 @@ export function useChannelPermissionOverrides({
       queryClient.setQueryData(queryKey, context?.previous);
       toastOnError("Failed to reset the default")(err);
     },
-    onSettled: () => {
+    onSettled: (_data, _err, { bucket }) => {
       queryClient.invalidateQueries({ queryKey });
-      queryClient.invalidateQueries({ queryKey: resolveQueryKey });
+      // Only the adapter-scope `channels` cell feeds the resolve query; a `dm`
+      // reset leaves the room-list fall-through unchanged.
+      if (bucket === "channels") {
+        queryClient.invalidateQueries({ queryKey: resolveQueryKey });
+      }
     },
   });
 
