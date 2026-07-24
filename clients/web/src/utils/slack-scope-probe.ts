@@ -1,0 +1,123 @@
+import { SLACK_MANIFEST_BOT_SCOPES } from "./slack-manifest";
+
+const AUTH_TEST_URL = "https://slack.com/api/auth.test";
+
+/** Fallback when `auth.test` doesn't tell us which app the token belongs to. */
+const SLACK_APPS_URL = "https://api.slack.com/apps";
+
+/**
+ * Outcome of the post-install scope check.
+ *
+ * `unknown` is a first-class result, not a failure: the browser cannot always
+ * read `x-oauth-scopes` off a cross-origin response, and a probe that can't see
+ * the granted scopes must stay quiet rather than accuse Slack of dropping them.
+ */
+export type SlackScopeProbeStatus = "complete" | "incomplete" | "unknown";
+
+export interface SlackScopeProbeResult {
+  status: SlackScopeProbeStatus;
+  /** Scopes Slack reports on the token, empty when `status` is `unknown`. */
+  grantedScopes: string[];
+  /** Expected scopes absent from the grant, empty unless `incomplete`. */
+  missingScopes: string[];
+  appId: string | null;
+  /** Where to send the user to reinstall and pick up the missing scopes. */
+  reinstallUrl: string;
+}
+
+/**
+ * The slice of `fetch` this probe uses. Narrower than `typeof fetch` so a
+ * plain stub satisfies it without restating the platform's overloads.
+ */
+export type FetchLike = (
+  input: string,
+  init?: RequestInit,
+) => Promise<Response>;
+
+export interface ProbeSlackScopesOptions {
+  fetchImpl?: FetchLike;
+  expectedScopes?: readonly string[];
+}
+
+function reinstallUrlFor(appId: string | null): string {
+  return appId ? `${SLACK_APPS_URL}/${appId}/oauth` : SLACK_APPS_URL;
+}
+
+function unknown(appId: string | null = null): SlackScopeProbeResult {
+  return {
+    status: "unknown",
+    grantedScopes: [],
+    missingScopes: [],
+    appId,
+    reinstallUrl: reinstallUrlFor(appId),
+  };
+}
+
+/** Slack returns `x-oauth-scopes` as a comma-separated list on every response. */
+function parseScopeHeader(raw: string | null): string[] | null {
+  if (raw === null) {return null;}
+  const scopes = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return scopes.length > 0 ? scopes : null;
+}
+
+/**
+ * Check what Slack actually granted against what the manifest asked for.
+ *
+ * Slack's install flow can hand back a token carrying only a fraction of the
+ * requested scopes while still reporting a healthy `auth.test` — the install
+ * looks clean and the app quietly can't do its job (LUM-2830). Reinstalling
+ * from the app's OAuth page fixes the same token, so the payoff for catching
+ * this at setup time is a single click.
+ *
+ * Never throws: a probe failure resolves to `unknown` so it can't block or
+ * falsely fail a setup that otherwise succeeded.
+ */
+export async function probeSlackScopes(
+  botToken: string,
+  {
+    fetchImpl = fetch,
+    expectedScopes = SLACK_MANIFEST_BOT_SCOPES,
+  }: ProbeSlackScopesOptions = {},
+): Promise<SlackScopeProbeResult> {
+  let response: Response;
+  try {
+    response = await fetchImpl(AUTH_TEST_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${botToken.trim()}` },
+    });
+  } catch {
+    // Network failure or a CORS preflight rejection.
+    return unknown();
+  }
+
+  let body: { ok?: boolean; app_id?: string } = {};
+  try {
+    body = (await response.json()) as typeof body;
+  } catch {
+    return unknown();
+  }
+
+  // `app_id` is not a guaranteed field on `auth.test`. When it's absent we can
+  // still report drift, just without deep-linking to the specific app.
+  const appId = typeof body.app_id === "string" ? body.app_id : null;
+
+  // A rejected token is the save path's problem to report, not the probe's.
+  if (body.ok !== true) {return unknown(appId);}
+
+  const granted = parseScopeHeader(response.headers.get("x-oauth-scopes"));
+  if (granted === null) {return unknown(appId);}
+
+  const grantedSet = new Set(granted);
+  const missingScopes = expectedScopes.filter((s) => !grantedSet.has(s));
+
+  return {
+    status: missingScopes.length > 0 ? "incomplete" : "complete",
+    grantedScopes: granted,
+    missingScopes,
+    appId,
+    reinstallUrl: reinstallUrlFor(appId),
+  };
+}
