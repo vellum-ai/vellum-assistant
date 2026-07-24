@@ -113,8 +113,15 @@ export function ProviderCreateForm({
     : provider === "ollama"
       ? "none"
       : "api_key";
+  // Custom providers get per-connection credential slots: keying the ref by
+  // the provider type would share ONE vault slot across every custom
+  // endpoint, so saving any endpoint's key overwrites the others'.
   const [credential, setCredential] = useState(() =>
-    initialProvider === "ollama" ? "" : `credential/${initialProvider}/api_key`,
+    initialProvider === "ollama"
+      ? ""
+      : initialProvider === "openai-compatible"
+        ? `credential/${initialDefaults.key}/api_key`
+        : `credential/${initialProvider}/api_key`,
   );
   const [baseUrl, setBaseUrl] = useState("");
   const [connectionModels, setConnectionModels] = useState("");
@@ -194,7 +201,8 @@ export function ProviderCreateForm({
 
       if (authType === "api_key") {
         const effectiveCredential =
-          credential.trim() || `credential/${provider}/api_key`;
+          credential.trim() ||
+          `credential/${isOpenAICompatible ? name : provider}/api_key`;
         const trimmedKey = apiKeyValue.trim();
 
         if (trimmedKey) {
@@ -389,7 +397,9 @@ export function ProviderCreateForm({
             setCredential(
               newSelected === "ollama"
                 ? ""
-                : `credential/${newSelected}/api_key`,
+                : newSelected === "openai-compatible"
+                  ? `credential/${seedKey}/api_key`
+                  : `credential/${newSelected}/api_key`,
             );
             // Credential ref changes above trigger a new TQ query key,
             // so the presence check auto-refetches for the new provider.

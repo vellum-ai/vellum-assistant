@@ -807,6 +807,54 @@ describe("ProviderCreateForm submit sequence", () => {
     );
   });
 
+  test("custom endpoints get per-connection credential slots", async () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={["openai-compatible-personal"]}
+          defaultProviderType="openai-compatible"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.change(getInputByPlaceholder("xAI"), {
+      target: { value: "xAI Two" },
+    });
+    fireEvent.change(getInputByPlaceholder("https://api.x.ai/v1"), {
+      target: { value: "https://api.x.ai/v1" },
+    });
+    fireEvent.change(getInputByPlaceholder("model-1, model-2"), {
+      target: { value: "grok-4" },
+    });
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "sk-oc-key" },
+    });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => {
+      expect(createConnectionCalls.length).toBe(1);
+    });
+    // The vault slot and the row's ref are keyed by the connection name —
+    // a provider-keyed slot would be shared by every custom endpoint, so
+    // saving one endpoint's key would overwrite the others'.
+    expect(secretsPostCalls.length).toBe(1);
+    expect(secretsPostCalls[0].body).toEqual({
+      type: "credential",
+      name: "openai-compatible-personal-2:api_key",
+      value: "sk-oc-key",
+    });
+    expect(createConnectionCalls[0].body).toMatchObject({
+      name: "openai-compatible-personal-2",
+      auth: {
+        type: "api_key",
+        credential: "credential/openai-compatible-personal-2/api_key",
+      },
+    });
+  });
+
   test("clicking Cancel invokes onCancel", () => {
     let cancelled = false;
     render(
