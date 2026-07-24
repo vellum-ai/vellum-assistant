@@ -6,5 +6,6 @@
 
 export {
   PREFIX_PATTERNS,
+  REDACTION_PREFIX_PATTERNS,
   type SecretPrefixPattern,
 } from "@vellumai/service-contracts/secret-detection";

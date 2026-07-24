@@ -18,7 +18,7 @@ const UNKNOWN_SLOT: CredentialSlot = { service: "", field: "" };
 /**
  * Suggested vault slot per detection label from the shared secret-detection
  * patterns (`@vellumai/service-contracts/secret-detection`). Labels without
- * an entry — including "Token-shaped message" and "Private Key", where the
+ * an entry — including the token-shape label and "Private Key", where the
  * owning service is unknowable — fall back to empty fields for the user to
  * fill in. Suggestions only; every field stays editable in the dialog.
  */
