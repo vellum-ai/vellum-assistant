@@ -45,6 +45,53 @@ export interface UIContext {
 // ---------------------------------------------------------------------------
 
 /**
+ * The daemon's authoritative CLOSE-gate, shared by every processing-derived
+ * selector so the rule lives in exactly one place.
+ *
+ * `snapshotProcessing === false` is the rolling snapshot's verdict that the
+ * turn is over — trusted even when the local `phase` or the conversation-row
+ * `isProcessing` flag was left stale by a dropped terminal SSE event. The
+ * `hasPendingAssistantResponse` guard exempts the just-sent window (before the
+ * first token, where the snapshot still reads the prior idle) so a fresh send
+ * isn't closed early. `undefined` processing (pre-0.8.8 / cold snapshot) never
+ * closes the turn, leaving phase-driven behavior untouched.
+ */
+export function isTurnClosedBySnapshot(
+  ctx: Pick<UIContext, "snapshotProcessing" | "hasPendingAssistantResponse">,
+): boolean {
+  return ctx.snapshotProcessing === false && !ctx.hasPendingAssistantResponse;
+}
+
+/**
+ * Whether the active conversation is processing, reconciled against the
+ * authoritative snapshot close-gate.
+ *
+ * The conversation-row `isProcessing` flag (`activeConversationIsProcessing`)
+ * and the rolling-snapshot `processing` flag are two server-derived views of
+ * the same turn arriving on different channels. The row flag can latch `true`
+ * when a terminal SSE event is dropped and the row query hasn't refetched yet;
+ * once the snapshot has authoritatively closed the turn
+ * ({@link isTurnClosedBySnapshot}) the conversation is done regardless.
+ *
+ * Reconciling here keeps the row flag from disagreeing with the snapshot the
+ * indicator selectors already honor — the disagreement is what produces the
+ * "impossible" triple (`activeConversationIsProcessing: true` while both
+ * `isAssistantBusy` and `shouldShowThinkingIndicator` are suppressed) and what
+ * strands the last assistant message in its streaming look through
+ * `liveAssistantRowId`.
+ */
+export function isConversationProcessing(
+  ctx: Pick<
+    UIContext,
+    | "activeConversationIsProcessing"
+    | "snapshotProcessing"
+    | "hasPendingAssistantResponse"
+  >,
+): boolean {
+  return ctx.activeConversationIsProcessing === true && !isTurnClosedBySnapshot(ctx);
+}
+
+/**
  * Whether the "Thinking..." indicator should be visible.
  *
  * Mirrors macOS TranscriptProjector.wouldShowThinking:
@@ -86,7 +133,7 @@ export function shouldShowThinkingIndicator(
   // right after a send — before the first token, where the snapshot still
   // legitimately reads the prior idle — keeps showing the dots. `undefined`
   // (older daemons / cold snapshot) leaves the phase-driven behavior untouched.
-  if (ctx.snapshotProcessing === false && !ctx.hasPendingAssistantResponse) {
+  if (isTurnClosedBySnapshot(ctx)) {
     return false;
   }
 
@@ -134,7 +181,7 @@ export function isAssistantBusy(
   phase: TurnPhase,
   ctx: UIContext,
 ): boolean {
-  if (ctx.snapshotProcessing === false && !ctx.hasPendingAssistantResponse) {
+  if (isTurnClosedBySnapshot(ctx)) {
     return false;
   }
 

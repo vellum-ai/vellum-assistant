@@ -17,6 +17,7 @@ import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import {
   isAssistantBusy as isAssistantBusySelector,
+  isConversationProcessing,
   isSendDisabled,
   shouldShowThinkingIndicator,
   type UIContext,
@@ -92,12 +93,27 @@ export function useChatUIState(): ChatUIState {
   // Conversation processing. The daemon's `isProcessing` flag is the single
   // source of truth on 0.8.8+; older daemons fall back to the client
   // optimistic mirror. See `lib/backwards-compat/conversation-processing-state`.
-  const activeConversationIsProcessing = useActiveConversationIsProcessing();
+  const conversationRowIsProcessing = useActiveConversationIsProcessing();
 
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(transcript),
     [transcript],
   );
+
+  // Reconcile the conversation-row flag against the daemon's authoritative
+  // snapshot close-gate. The row flag can latch `true` when a terminal SSE
+  // event is dropped and the row query hasn't refetched yet; when the rolling
+  // snapshot has closed the turn the conversation is done. Without this the row
+  // flag disagrees with the snapshot the indicator selectors already honor,
+  // producing the "impossible" triple (`activeConversationIsProcessing: true`
+  // while both the busy spinner and the thinking dots are suppressed) and
+  // stranding the last assistant message in its streaming look via
+  // `liveAssistantRowId`.
+  const activeConversationIsProcessing = isConversationProcessing({
+    activeConversationIsProcessing: conversationRowIsProcessing,
+    snapshotProcessing,
+    hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
+  });
 
   // `liveAssistantRowId` operates on raw (unsanitized) messages. This is
   // correct: sanitisation only removes blank user rows and sorts — it never

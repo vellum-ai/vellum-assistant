@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   isAssistantBusy,
+  isConversationProcessing,
+  isTurnClosedBySnapshot,
   shouldShowThinkingIndicator,
   type UIContext,
 } from "@/domains/chat/turn-selectors";
@@ -18,6 +20,85 @@ const ctx = (over: Partial<UIContext> = {}): UIContext => ({
   activeConversationIsProcessing: false,
   hasPendingAssistantResponse: false,
   ...over,
+});
+
+describe("isTurnClosedBySnapshot — the shared close-gate", () => {
+  test("closes the turn when the snapshot reports idle and no reply is pending", () => {
+    expect(
+      isTurnClosedBySnapshot(ctx({ snapshotProcessing: false })),
+    ).toBe(true);
+  });
+
+  test("does NOT close during the just-sent window (a reply is pending)", () => {
+    expect(
+      isTurnClosedBySnapshot(
+        ctx({ snapshotProcessing: false, hasPendingAssistantResponse: true }),
+      ),
+    ).toBe(false);
+  });
+
+  test("undefined processing (pre-0.8.8 / cold snapshot) never closes the turn", () => {
+    expect(
+      isTurnClosedBySnapshot(ctx({ snapshotProcessing: undefined })),
+    ).toBe(false);
+  });
+
+  test("processing:true never closes the turn", () => {
+    expect(isTurnClosedBySnapshot(ctx({ snapshotProcessing: true }))).toBe(false);
+  });
+});
+
+describe("isConversationProcessing — row flag reconciled with the close-gate", () => {
+  test("the impossible triple can't survive: a snapshot-closed turn reads not-processing", () => {
+    // The reported state: the conversation-row `isProcessing` flag is latched
+    // true (dropped terminal SSE event, row query not yet refetched) while the
+    // rolling snapshot has authoritatively closed the turn. The reconciled flag
+    // must agree with the suppressed indicators, not with the stale row.
+    const c = ctx({
+      activeConversationIsProcessing: true,
+      snapshotProcessing: false,
+    });
+    expect(isConversationProcessing(c)).toBe(false);
+    // ...and it lines up with the indicator selectors on the same context.
+    expect(isAssistantBusy("thinking", c)).toBe(false);
+    expect(shouldShowThinkingIndicator("thinking", 0, c)).toBe(false);
+  });
+
+  test("stays processing while the row flag is set and the snapshot hasn't closed", () => {
+    expect(
+      isConversationProcessing(
+        ctx({ activeConversationIsProcessing: true, snapshotProcessing: true }),
+      ),
+    ).toBe(true);
+  });
+
+  test("stays processing in the just-sent window even when the snapshot still reads idle", () => {
+    expect(
+      isConversationProcessing(
+        ctx({
+          activeConversationIsProcessing: true,
+          snapshotProcessing: false,
+          hasPendingAssistantResponse: true,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("not processing when the row flag itself is false", () => {
+    expect(
+      isConversationProcessing(
+        ctx({ activeConversationIsProcessing: false, snapshotProcessing: true }),
+      ),
+    ).toBe(false);
+  });
+
+  test("pre-0.8.8 (undefined snapshot) trusts the row flag unchanged", () => {
+    expect(
+      isConversationProcessing(
+        ctx({ activeConversationIsProcessing: true, snapshotProcessing: undefined }),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("shouldShowThinkingIndicator — authoritative processing close-gate", () => {
