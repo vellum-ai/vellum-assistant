@@ -75,4 +75,38 @@ describe("remapWorkspaceRefAttachmentIds", () => {
     expect(remapped).toBe(content);
     expect(remapped[0]).toBe(content[0]);
   });
+
+  test("preserves malformed root and nested media blocks by identity", () => {
+    const malformedBlocks = [
+      { type: "image" },
+      { type: "file", source: null },
+      { type: "image", source: "workspace_ref" },
+      { type: "file", source: { type: "workspace_ref" } },
+      {
+        type: "image",
+        source: { type: "workspace_ref", attachmentId: 42 },
+      },
+    ] as unknown as ContentBlock[];
+    const nestedTool = {
+      type: "tool_result",
+      tool_use_id: "tool-malformed",
+      content: "historical media",
+      contentBlocks: malformedBlocks,
+    } as unknown as ContentBlock;
+    const content = [...malformedBlocks, nestedTool];
+
+    const remapped = remapWorkspaceRefAttachmentIds(
+      content,
+      new Map([["source-attachment", "fork-attachment"]]),
+    );
+
+    expect(remapped).toBe(content);
+    for (const [index, block] of remapped.entries()) {
+      expect(block).toBe(content[index]);
+    }
+    expect(
+      (remapped.at(-1) as unknown as { contentBlocks?: ContentBlock[] })
+        .contentBlocks,
+    ).toBe(malformedBlocks);
+  });
 });

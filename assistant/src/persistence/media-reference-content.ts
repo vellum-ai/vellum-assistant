@@ -4,22 +4,31 @@ type NestedContentBlock = ContentBlock & {
   contentBlocks?: ContentBlock[];
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function remapWorkspaceRefAttachmentId(
   block: ContentBlock,
   attachmentIdMap: ReadonlyMap<string, string>,
 ): ContentBlock {
-  if (
-    (block.type === "image" || block.type === "file") &&
-    block.source.type === "workspace_ref"
-  ) {
-    const attachmentId = attachmentIdMap.get(block.source.attachmentId);
-    if (!attachmentId || attachmentId === block.source.attachmentId) {
+  if (block.type === "image" || block.type === "file") {
+    const source: unknown = block.source;
+    if (
+      !isRecord(source) ||
+      source.type !== "workspace_ref" ||
+      typeof source.attachmentId !== "string"
+    ) {
+      return block;
+    }
+    const attachmentId = attachmentIdMap.get(source.attachmentId);
+    if (!attachmentId || attachmentId === source.attachmentId) {
       return block;
     }
     return {
       ...block,
-      source: { ...block.source, attachmentId },
-    };
+      source: { ...source, attachmentId },
+    } as ContentBlock;
   }
 
   if (block.type !== "tool_result" && block.type !== "web_search_tool_result") {
