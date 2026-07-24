@@ -54,6 +54,7 @@ import {
   backfillMessageIdOnLogs,
   recordSyntheticAgentErrorMessageLog,
 } from "../persistence/llm-request-log-store.js";
+import { countRealUserTurns } from "../persistence/llm-usage-store.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
@@ -358,18 +359,23 @@ export async function runAgentLoopImpl(
   // Immutable record-time usage attribution for every LLM call this turn emits,
   // carrying the same work-origin classification the `llm_usage` telemetry
   // derives so managed billing rows and usage telemetry share one vocabulary.
-  // `turnIndex` is the current turn's 1-based position (`turnCount` holds the
-  // count of prior turns until incremented at turn end, matching the read
-  // path's "1-indexed position of the user turn this call belongs to").
-  // `parentConversationId` is the subagent-spawn parent; precise parent-turn
-  // attribution is resolved by the telemetry flush, so it rides null here.
+  // `turnIndex` is derived from the same real-user-turn population the telemetry
+  // read path counts (via `countRealUserTurns`), not `ctx.turnCount`: a coalesced
+  // batch persists N user messages before this single run, and `turnCount`
+  // increments once per run — so `turnCount + 1` would under-count a batch by
+  // N-1 and disagree with the billed row. Spawn linkage passes the subagent
+  // parent plus the fork parent; `buildUsageOriginSnapshot` resolves the
+  // subagent/background-fork precedence to match the telemetry `parentIdSql`, so
+  // retrospective forks classify as `delegated_child` on both paths. Precise
+  // parent-turn attribution is resolved by the telemetry flush, so it rides null.
   const usageOriginSnapshot = buildUsageOriginSnapshot({
     conversationType: ctx.conversationType ?? null,
     conversationSource: ctx.source ?? null,
     callSite: turnCallSite,
     conversationId: ctx.conversationId,
-    turnIndex: ctx.turnCount + 1,
+    turnIndex: countRealUserTurns(ctx.conversationId),
     parentConversationId: ctx.parentConversationId ?? null,
+    forkParentConversationId: ctx.forkParentConversationId ?? null,
     parentTurnIndex: null,
   });
 

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildUsageOriginSnapshot,
   classifyWorkOrigin,
+  resolveSpawnParentConversationId,
   type WorkOrigin,
   type WorkOriginInput,
 } from "./work-origin.js";
@@ -223,4 +225,113 @@ describe("classifyWorkOrigin", () => {
       expect(classifyWorkOrigin(c.input)).toBe(c.expected);
     });
   }
+});
+
+describe("resolveSpawnParentConversationId", () => {
+  test("subagent parent wins over a fork parent", () => {
+    expect(
+      resolveSpawnParentConversationId({
+        parentConversationId: "parent-1",
+        conversationType: "background",
+        forkParentConversationId: "source-1",
+      }),
+    ).toBe("parent-1");
+  });
+
+  test("background fork falls back to the fork parent", () => {
+    expect(
+      resolveSpawnParentConversationId({
+        parentConversationId: null,
+        conversationType: "background",
+        forkParentConversationId: "source-1",
+      }),
+    ).toBe("source-1");
+  });
+
+  test("standard (user-initiated) fork does NOT resolve the fork parent", () => {
+    expect(
+      resolveSpawnParentConversationId({
+        parentConversationId: null,
+        conversationType: "standard",
+        forkParentConversationId: "source-1",
+      }),
+    ).toBeNull();
+  });
+
+  test("no parent and no fork → null", () => {
+    expect(
+      resolveSpawnParentConversationId({
+        parentConversationId: null,
+        conversationType: "standard",
+        forkParentConversationId: null,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("buildUsageOriginSnapshot — spawn-parent resolution", () => {
+  // A retrospective-fork background conversation: no live subagent parent, but
+  // its `fork_parent_conversation_id` points back at the source. The snapshot
+  // must resolve the fork parent and classify `delegated_child`, matching the
+  // telemetry read path's `parentIdSql` fallback + `classifyWorkOrigin` for the
+  // same conversation (see the "parent linkage falls back to
+  // fork_parent_conversation_id" case in llm-usage-store.test.ts).
+  test("retrospective fork carries the fork parent and classifies delegated_child", () => {
+    const snapshot = buildUsageOriginSnapshot({
+      conversationType: "background",
+      conversationSource: "memory-retrospective",
+      callSite: "memoryRetrospective",
+      conversationId: "retro-1",
+      turnIndex: 1,
+      parentConversationId: null,
+      forkParentConversationId: "source-1",
+      parentTurnIndex: null,
+    });
+    expect(snapshot.parentConversationId).toBe("source-1");
+    expect(snapshot.workOrigin).toBe("delegated_child");
+    // Telemetry resolves the identical parent for the same row and runs the
+    // same classifier, so the two agree.
+    expect(
+      classifyWorkOrigin({
+        conversationType: "background",
+        conversationSource: "memory-retrospective",
+        callSite: "memoryRetrospective",
+        parentConversationId: resolveSpawnParentConversationId({
+          parentConversationId: null,
+          conversationType: "background",
+          forkParentConversationId: "source-1",
+        }),
+      }),
+    ).toBe("delegated_child");
+  });
+
+  test("subagent spawn keeps the live parent (fork parent unset)", () => {
+    const snapshot = buildUsageOriginSnapshot({
+      conversationType: "background",
+      conversationSource: "subagent",
+      callSite: "subagentSpawn",
+      conversationId: "child-1",
+      turnIndex: 1,
+      parentConversationId: "parent-1",
+      forkParentConversationId: null,
+      parentTurnIndex: null,
+    });
+    expect(snapshot.parentConversationId).toBe("parent-1");
+    expect(snapshot.workOrigin).toBe("delegated_child");
+  });
+
+  test("standard user fork keeps itself (no delegated attribution)", () => {
+    const snapshot = buildUsageOriginSnapshot({
+      conversationType: "standard",
+      conversationSource: "user",
+      callSite: "mainAgent",
+      conversationId: "user-fork-1",
+      turnIndex: 2,
+      parentConversationId: null,
+      forkParentConversationId: "source-1",
+      parentTurnIndex: null,
+    });
+    expect(snapshot.parentConversationId).toBeNull();
+    expect(snapshot.workOrigin).toBe("user_interactive");
+  });
 });

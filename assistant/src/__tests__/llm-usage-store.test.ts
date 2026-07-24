@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { getDb, getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
+  countRealUserTurns,
   getUsageDayBuckets,
   getUsageGroupBreakdown,
   getUsageGroupedSeries,
@@ -1672,6 +1673,97 @@ describe("getUsageGroupedSeries", () => {
 // ---------------------------------------------------------------------------
 // queryUnreportedUsageEvents tests
 // ---------------------------------------------------------------------------
+
+describe("countRealUserTurns", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+  });
+
+  test("returns 0 for a conversation with no real user turns", () => {
+    expect(countRealUserTurns("conv-empty")).toBe(0);
+  });
+
+  // The billing-origin snapshot stamps `turnIndex = countRealUserTurns(...)` at
+  // agent-loop start, when a coalesced batch has already persisted all N user
+  // messages. It must equal the `turn_index` the telemetry read path computes
+  // for an LLM call fired during the same run — both count real user turns via
+  // `realUserTurnContentFilter`, so a batch of 3 reads 3 on both paths (not the
+  // 1 that `ctx.turnCount + 1` would have produced for the single run).
+  test("a batch of 3 user messages counts 3, matching telemetry's turn_index", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-batch', 'standard', ${now}, ${now})`,
+    );
+    // The coalesced batch: three real user messages persisted before the
+    // single agent-loop run's first LLM call.
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('b1', 'conv-batch', 'user', 'one', 1000)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('b2', 'conv-batch', 'user', 'two', 1001)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('b3', 'conv-batch', 'user', 'three', 1002)`,
+    );
+    // The run's LLM call lands after the whole batch is persisted.
+    insertEventAt(2000, { conversationId: "conv-batch" });
+
+    expect(countRealUserTurns("conv-batch")).toBe(3);
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    // Snapshot turnIndex (countRealUserTurns) agrees with the telemetry row.
+    expect(events[0].turnIndex).toBe(3);
+    expect(events[0].turnIndex).toBe(countRealUserTurns("conv-batch"));
+  });
+
+  test("prior single turns plus a batch of 2 count as 3, matching telemetry", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-mix', 'standard', ${now}, ${now})`,
+    );
+    // One prior completed turn, then a 2-message batch.
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('p1', 'conv-mix', 'user', 'prior', 1000)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('c1', 'conv-mix', 'user', 'batch a', 2000)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('c2', 'conv-mix', 'user', 'batch b', 2001)`,
+    );
+    insertEventAt(3000, { conversationId: "conv-mix" });
+
+    expect(countRealUserTurns("conv-mix")).toBe(3);
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events[0].turnIndex).toBe(3);
+  });
+
+  test("skips tool_result continuation rows, matching telemetry", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-tr2', 'standard', ${now}, ${now})`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('r1', 'conv-tr2', 'user', 'real text', 1000)`,
+    );
+    // Tool-result row persisted with role='user' — a continuation, not a turn.
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('t1', 'conv-tr2', 'user', '[{"type":"tool_result","tool_use_id":"x","content":""}]', 1500)`,
+    );
+    insertEventAt(2000, { conversationId: "conv-tr2" });
+
+    expect(countRealUserTurns("conv-tr2")).toBe(1);
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events[0].turnIndex).toBe(1);
+  });
+});
 
 describe("queryUnreportedUsageEvents", () => {
   beforeEach(() => {
