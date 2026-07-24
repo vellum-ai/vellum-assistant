@@ -45,7 +45,8 @@ export async function embedSummaryJob(job: MemoryJob): Promise<void> {
   if (!summaryId) {
     return;
   }
-  const db = getDb();
+  const db = memoryDbOrNull("embedSummaryJob");
+  if (!db) return;
   const summary = db
     .select()
     .from(memorySummaries)

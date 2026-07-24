@@ -33,15 +33,14 @@ export async function rebuildIndexJob(): Promise<void> {
   const db = getDb();
   const memoryDb = memoryDbOrNull("rebuildIndexJob");
 
-  // memory_embeddings and memory_segments now live on the memory connection;
-  // wipe embeddings there and re-enqueue segments from there. Summaries and
-  // media stay on the main handle.
+  // memory_embeddings, memory_segments, and memory_summaries now live on the
+  // memory connection; wipe embeddings and re-enqueue segments/summaries from
+  // there. Media stays on the main handle.
   memoryDb?.delete(memoryEmbeddings).run();
 
-  const summaries = db
-    .select({ id: memorySummaries.id })
-    .from(memorySummaries)
-    .all();
+  const summaries =
+    memoryDb?.select({ id: memorySummaries.id }).from(memorySummaries).all() ??
+    [];
   for (const summary of summaries) {
     enqueueMemoryJob("embed_summary", { summaryId: summary.id });
   }

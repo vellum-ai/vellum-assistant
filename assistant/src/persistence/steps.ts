@@ -459,6 +459,7 @@ import { migrateMemorySummariesScopeUpdatedIndex } from "./migrations/348-memory
 import { migrateMoveMemoryGraphTablesToMemoryDb } from "./migrations/349-move-memory-graph-tables-to-memory-db.js";
 import { migrateMoveMemorySegmentsToMemoryDb } from "./migrations/351-move-memory-segments-to-memory-db.js";
 import { migrateMoveMemoryEmbeddingsToMemoryDb } from "./migrations/352-move-memory-embeddings-to-memory-db.js";
+import { migrateMoveMemorySummariesToMemoryDb } from "./migrations/353-move-memory-summaries-to-memory-db.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1503,6 +1504,22 @@ export const migrationSteps: MigrationStep[] = [
       "migrateDropSimplifiedMemory",
       "migrateDeletePrivateConversations",
       "migrateSweepOrphanedGraphNodeVectors",
+    ],
+  },
+  {
+    name: "migrateMoveMemorySummariesToMemoryDb",
+    run: migrateMoveMemorySummariesToMemoryDb,
+    // Gate on every migration that creates, alters, indexes, or clears
+    // memory_summaries on main. migrateDeletePrivateConversations deletes
+    // private-scoped summaries by scope_id directly (a real column, though the
+    // Drizzle schema does not map it), so it must land before the move.
+    dependsOn: [
+      "migrateCoreTables",
+      "migrateRemainingTableIndexes",
+      "addCoreColumns",
+      "createCoreIndexes",
+      "migrateDeletePrivateConversations",
+      "migrateMemorySummariesScopeUpdatedIndex",
     ],
   },
 ];

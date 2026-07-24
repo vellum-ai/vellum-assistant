@@ -74,6 +74,7 @@ describe("memory database connection", () => {
     "memory_graph_node_edits",
     "memory_segments",
     "memory_embeddings",
+    "memory_summaries",
   ])("%s lives in the memory connection, not main", (table) => {
     const inMemory = getMemorySqlite()!
       .query<

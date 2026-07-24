@@ -55,6 +55,8 @@ const { MEMORY_SEGMENTS_RELOCATION } =
   await import("../../../../persistence/migrations/351-move-memory-segments-to-memory-db.js");
 const { MEMORY_EMBEDDINGS_RELOCATION } =
   await import("../../../../persistence/migrations/352-move-memory-embeddings-to-memory-db.js");
+const { MEMORY_SUMMARIES_RELOCATION } =
+  await import("../../../../persistence/migrations/353-move-memory-summaries-to-memory-db.js");
 
 await initializeDb();
 
@@ -1012,6 +1014,65 @@ describe("memory_embeddings drain", () => {
         dimensions: 3,
         vector_json: "[0.4,0.5,0.6]",
         content_hash: null,
+      },
+    ]);
+  });
+});
+
+describe("memory_summaries drain", () => {
+  test("copies every row (full copy, including the unmapped scope_id) and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    memory.exec(`DELETE FROM memory_summaries`);
+    sqlite.exec(`DROP TABLE IF EXISTS main."memory_summaries__relocating"`);
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_summaries__relocating" (
+        id TEXT PRIMARY KEY, scope TEXT NOT NULL, scope_key TEXT NOT NULL,
+        summary TEXT NOT NULL, token_estimate INTEGER NOT NULL,
+        start_at INTEGER NOT NULL, end_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        scope_id TEXT NOT NULL DEFAULT 'default',
+        UNIQUE (scope, scope_key)
+      )
+    `);
+    const insert = sqlite.prepare(
+      `INSERT INTO main."memory_summaries__relocating"
+         (id, scope, scope_key, summary, token_estimate, start_at, end_at,
+          created_at, updated_at, version, scope_id)
+       VALUES (?, 'conversation', ?, ?, 10, 0, 0, 0, ?, ?, ?)`,
+    );
+    insert.run("sum-1", "conv-1", "first summary", 100, 2, "scope-a");
+    insert.run("sum-2", "conv-2", "second summary", 200, 1, "default");
+
+    await drainStagedTable(sqlite, MEMORY_SUMMARIES_RELOCATION);
+
+    expect(existsInMain("memory_summaries__relocating")).toBe(false);
+    const kept = memory
+      .query(
+        `SELECT id, scope, scope_key, summary, updated_at, version, scope_id
+           FROM memory_summaries ORDER BY id`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        id: "sum-1",
+        scope: "conversation",
+        scope_key: "conv-1",
+        summary: "first summary",
+        updated_at: 100,
+        version: 2,
+        scope_id: "scope-a",
+      },
+      {
+        id: "sum-2",
+        scope: "conversation",
+        scope_key: "conv-2",
+        summary: "second summary",
+        updated_at: 200,
+        version: 1,
+        scope_id: "default",
       },
     ]);
   });
