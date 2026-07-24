@@ -13,6 +13,9 @@ import {
   isPlaceholderContext,
   isPlaceholderValue,
   TOKEN_SHAPE,
+  TOKEN_SHAPE_LABEL,
+  TOKEN_SHAPE_MAX_LENGTH,
+  TOKEN_SHAPE_MIN_LENGTH,
 } from "@vellumai/service-contracts/secret-detection";
 
 import { getConfig } from "../config/loader.js";
@@ -61,9 +64,6 @@ const getGlobalPatterns = memoizePluginPatternDerivation(
 // ---------------------------------------------------------------------------
 // Token-shape heuristic (whole-message only)
 // ---------------------------------------------------------------------------
-
-const TOKEN_SHAPE_MIN_LENGTH = 20;
-const TOKEN_SHAPE_MAX_LENGTH = 512;
 
 /**
  * Check whether the entire message content is a single token-shaped value
@@ -151,7 +151,7 @@ export function checkIngressForSecrets(content: string): IngressCheckResult {
     secretDetection.blockTokenShapedMessages &&
     isBlockedTokenShapedMessage(content)
   ) {
-    detectedTypes.push("Token-shaped value");
+    detectedTypes.push(TOKEN_SHAPE_LABEL);
   }
 
   if (detectedTypes.length === 0) {

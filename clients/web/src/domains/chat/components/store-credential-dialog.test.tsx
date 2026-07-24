@@ -32,7 +32,12 @@ import {
   waitFor,
 } from "@testing-library/react";
 
-import type { DetectedSecret } from "@vellumai/service-contracts/secret-detection";
+import {
+  PREFIX_PATTERNS,
+  PRIVATE_KEY_LABEL,
+  TOKEN_SHAPE_LABEL,
+  type DetectedSecret,
+} from "@vellumai/service-contracts/secret-detection";
 
 import { useComposerStore } from "@/domains/chat/composer-store";
 import type { StoreCredentialDialogProps } from "@/domains/chat/components/store-credential-dialog";
@@ -190,13 +195,30 @@ describe("suggestCredentialSlot", () => {
 
   test.each([
     // Owning service unknowable — the user names the slot.
-    ["Token-shaped message"],
-    ["Private Key"],
+    [TOKEN_SHAPE_LABEL],
+    [PRIVATE_KEY_LABEL],
     // Future/unmapped detector labels degrade to empty suggestions.
     ["Some Future Vendor Key"],
     [""],
   ])("%p suggests empty fields", (label) => {
     expect(suggestCredentialSlot(label)).toEqual({ service: "", field: "" });
+  });
+
+  // Guard: the slot map is keyed by hardcoded label strings with no static
+  // binding to the shared PREFIX_PATTERNS label set, so a label rename in the
+  // shared module would silently degrade that pattern to an empty prefill.
+  // Every prefix label except the intentionally-unmapped private key (owning
+  // service unknowable) must resolve to a non-empty slot, so a rename fails
+  // here instead of shipping a broken suggestion.
+  test.each(
+    PREFIX_PATTERNS.map((p) => p.label).filter(
+      (label) => label !== PRIVATE_KEY_LABEL,
+    ),
+  )("%s has a slot-map entry", (label) => {
+    expect(suggestCredentialSlot(label)).not.toEqual({
+      service: "",
+      field: "",
+    });
   });
 });
 
@@ -368,7 +390,7 @@ describe("StoreCredentialDialog", () => {
   test("unknown detection label opens with empty service/field for the user to fill", () => {
     renderDialog({
       secret: {
-        label: "Token-shaped message",
+        label: TOKEN_SHAPE_LABEL,
         value: SYNTHETIC_PROJECT_KEY,
         start: 0,
         end: SYNTHETIC_PROJECT_KEY.length,

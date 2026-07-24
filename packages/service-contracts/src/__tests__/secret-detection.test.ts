@@ -8,7 +8,11 @@ import {
   detectSecretsInText,
   isCompletePrivateKeyBlock,
   PREFIX_PATTERNS,
+  PRIVATE_KEY_HEADER_REGEX,
+  REDACTION_PREFIX_PATTERNS,
   TOKEN_SHAPE,
+  TOKEN_SHAPE_LABEL,
+  TOKEN_SHAPE_MAX_LENGTH,
 } from "../secret-detection.js";
 
 // All fixtures below are synthetic lookalike tokens — never real key material.
@@ -171,7 +175,7 @@ describe("detectSecretsInText — whole-message token shape", () => {
     expect(TOKEN_SHAPE.test(token)).toBe(true);
     expect(detectSecretsInText(token)).toEqual([
       {
-        label: "Token-shaped message",
+        label: TOKEN_SHAPE_LABEL,
         value: token,
         start: 0,
         end: token.length,
@@ -184,7 +188,7 @@ describe("detectSecretsInText — whole-message token shape", () => {
     const token = `acme_secret_${filler(18)}`;
     expect(detectSecretsInText(`  ${token} \n`)).toEqual([
       {
-        label: "Token-shaped message",
+        label: TOKEN_SHAPE_LABEL,
         value: token,
         start: 2,
         end: 2 + token.length,
@@ -205,6 +209,70 @@ describe("detectSecretsInText — whole-message token shape", () => {
     const results = detectSecretsInText(key);
     expect(results).toHaveLength(1);
     expect(results[0]!.label).toBe("GitLab Token");
+  });
+
+  test("a token-shaped value over the max length is not matched", () => {
+    // Same shape as a valid token but a tail longer than the shared max — the
+    // daemon ingress caps the whole-message heuristic here, so the client must
+    // too or a >512-char paste would warn client-side yet pass server-side.
+    const tail = filler(TOKEN_SHAPE_MAX_LENGTH + 1);
+    const token = `virlo_tkn_${tail}`;
+    expect(token.length).toBeGreaterThan(TOKEN_SHAPE_MAX_LENGTH);
+    expect(TOKEN_SHAPE.test(token)).toBe(true);
+    expect(detectSecretsInText(token)).toEqual([]);
+  });
+
+  test("a token-shaped value exactly at the max length is still matched", () => {
+    const prefix = "virlo_tkn_";
+    const token = `${prefix}${filler(TOKEN_SHAPE_MAX_LENGTH - prefix.length)}`;
+    expect(token.length).toBe(TOKEN_SHAPE_MAX_LENGTH);
+    const results = detectSecretsInText(token);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.label).toBe(TOKEN_SHAPE_LABEL);
+  });
+});
+
+describe("REDACTION_PREFIX_PATTERNS — header-only private key", () => {
+  const FAKE_PEM_BODY =
+    "MIIFAKEfakefakefakefakefakefakefakefakefake\n" +
+    "FAKEfakefakefakefakefakefakefakefakefake==";
+  const FULL_PEM_BLOCK = `-----BEGIN RSA PRIVATE KEY-----\n${FAKE_PEM_BODY}\n-----END RSA PRIVATE KEY-----`;
+
+  function redactionPrivateKeyRegex(): RegExp {
+    const entry = REDACTION_PREFIX_PATTERNS.find(
+      (p) => p.label === "Private Key",
+    );
+    expect(entry).toBeDefined();
+    return new RegExp(entry!.regex.source, "g");
+  }
+
+  test("the redaction variant matches the PEM header only, not the whole block", () => {
+    const regex = redactionPrivateKeyRegex();
+    const match = regex.exec(FULL_PEM_BLOCK);
+    expect(match).not.toBeNull();
+    expect(match![0]).toBe("-----BEGIN RSA PRIVATE KEY-----");
+  });
+
+  test("PRIVATE_KEY_HEADER_REGEX matches a footerless header", () => {
+    expect(
+      PRIVATE_KEY_HEADER_REGEX.test("-----BEGIN OPENSSH PRIVATE KEY-----"),
+    ).toBe(true);
+  });
+
+  test("every non-private-key pattern is shared verbatim with PREFIX_PATTERNS", () => {
+    for (let i = 0; i < PREFIX_PATTERNS.length; i++) {
+      if (PREFIX_PATTERNS[i]!.label === "Private Key") {
+        continue;
+      }
+      expect(REDACTION_PREFIX_PATTERNS[i]).toBe(PREFIX_PATTERNS[i]);
+    }
+  });
+
+  test("detectSecretsInText still captures the whole block (P1 stays fixed)", () => {
+    const results = detectSecretsInText(FULL_PEM_BLOCK);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.label).toBe("Private Key");
+    expect(results[0]!.value).toBe(FULL_PEM_BLOCK);
   });
 });
 

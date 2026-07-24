@@ -7,9 +7,17 @@
  *
  * This module is intentionally data-only: no imports, no entropy logic,
  * no config — safe for hot-path consumers like log serializers, and
- * browser-safe so web clients can bundle it directly.  The pattern values
- * are shared verbatim by the daemon and web clients so client and server
- * detection can never disagree.
+ * browser-safe so web clients can bundle it directly.
+ *
+ * The exported `PATTERNS`/constants are shared verbatim by the daemon and the
+ * web clients, so the two sides agree on what a secret *looks like*. The web
+ * composer scanner is a conservative superset pre-filter of the daemon ingress
+ * check, not an identical twin: the daemon additionally applies a per-user
+ * secret allowlist and config gating (`secretDetection.enabled` /
+ * `blockIngress`) on top of these shared patterns, so the client may warn on a
+ * few values the server would accept (e.g. an allowlisted token). Only the
+ * shared patterns and length bounds in this module are guaranteed identical
+ * across client and server.
  */
 
 // ---------------------------------------------------------------------------
@@ -52,6 +60,20 @@ const PEM_BEGIN = String.raw`-----BEGIN ${PEM_KEY_TYPE}-----`;
 const PEM_END = String.raw`-----END ${PEM_KEY_TYPE}-----`;
 
 const PEM_COMPLETE_BLOCK = new RegExp(`${PEM_END}$`);
+
+/**
+ * Header-only private-key matcher: matches just the `-----BEGIN … PRIVATE
+ * KEY-----` header, with no optional block-body capture.
+ *
+ * Detect/redact-only consumers (log serializers, the tool-output scanner) use
+ * this instead of the whole-block {@link PREFIX_PATTERNS} entry: they only need
+ * to KNOW a private key is present and mask it — they never store or rewrite
+ * the block — so they must not pay the O(n²) cost the whole-block matcher incurs
+ * on large serialized strings, where every footerless header rescans to EOF
+ * looking for a footer. `detectSecretsInText` (chat) keeps the whole-block
+ * matcher, which the store/rewrite path relies on to capture the full key.
+ */
+export const PRIVATE_KEY_HEADER_REGEX = new RegExp(PEM_BEGIN);
 
 /**
  * True when a `Private Key` match is a complete PEM block — it ends at an
@@ -179,6 +201,22 @@ export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
   { label: "Firecrawl API Key", regex: /fc-[A-Za-z0-9]{20,}/ },
 ];
 
+/**
+ * {@link PREFIX_PATTERNS} variant for detect/redact-only consumers (log
+ * serializers, the tool-output scanner). Identical to `PREFIX_PATTERNS` except
+ * the private-key entry matches the PEM header alone
+ * ({@link PRIVATE_KEY_HEADER_REGEX}): those consumers only DETECT or REDACT a
+ * private key — they never store or rewrite the block — so they route here to
+ * avoid the whole-block matcher's O(n²) worst case on large serialized strings.
+ * `detectSecretsInText` (chat) uses `PREFIX_PATTERNS` for full-block capture.
+ */
+export const REDACTION_PREFIX_PATTERNS: SecretPrefixPattern[] =
+  PREFIX_PATTERNS.map((p) =>
+    p.label === PRIVATE_KEY_LABEL
+      ? { label: PRIVATE_KEY_LABEL, regex: PRIVATE_KEY_HEADER_REGEX }
+      : p,
+  );
+
 // ---------------------------------------------------------------------------
 // Token-shape heuristic (whole-message only)
 // ---------------------------------------------------------------------------
@@ -193,6 +231,21 @@ export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
  */
 export const TOKEN_SHAPE =
   /^[A-Za-z0-9][A-Za-z0-9_-]*[_-](?:tkn|token|key|secret|api|pat|sk|auth)[_-]([A-Za-z0-9_-]{16,})$/i;
+
+/**
+ * Length bounds for the whole-message token-shape heuristic, shared by the
+ * daemon ingress check and the web composer scanner so both accept and reject
+ * the same whole-message tokens. Below the min a "token" is too short to be a
+ * plausible secret; above the max it is almost certainly a paste of something
+ * else (a base64 blob, a minified line) rather than a single credential.
+ */
+export const TOKEN_SHAPE_MIN_LENGTH = 20;
+export const TOKEN_SHAPE_MAX_LENGTH = 512;
+
+/** Detection label for a whole-message token-shape match, shared by the daemon
+ * ingress check and the web composer scanner so both report the same
+ * user-facing type. */
+export const TOKEN_SHAPE_LABEL = "Token-shaped value";
 
 // ---------------------------------------------------------------------------
 // Placeholder suppression (ingress semantics: user-typed input, near-zero
@@ -364,7 +417,11 @@ export function detectSecretsInText(text: string): DetectedSecret[] {
 
   if (matches.length === 0) {
     const trimmed = text.trim();
-    const shapeMatch = TOKEN_SHAPE.exec(trimmed);
+    const shapeMatch =
+      trimmed.length >= TOKEN_SHAPE_MIN_LENGTH &&
+      trimmed.length <= TOKEN_SHAPE_MAX_LENGTH
+        ? TOKEN_SHAPE.exec(trimmed)
+        : null;
     if (
       shapeMatch !== null &&
       !isPlaceholderValue(trimmed) &&
@@ -372,7 +429,7 @@ export function detectSecretsInText(text: string): DetectedSecret[] {
     ) {
       const start = text.length - text.trimStart().length;
       matches.push({
-        label: "Token-shaped message",
+        label: TOKEN_SHAPE_LABEL,
         value: trimmed,
         start,
         end: start + trimmed.length,
