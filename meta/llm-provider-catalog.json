@@ -2164,7 +2164,7 @@
         "url": "https://poolside.ai",
         "linkLabel": "Open Poolside"
       },
-      "supportsPlatformAuth": true,
+      "supportsPlatformAuth": false,
       "defaultModel": "poolside/laguna-s-2.1",
       "models": [
         {

@@ -986,7 +986,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   atlascloud: false,
   litellm: false,
   baseten: false,
-  poolside: true,
+  poolside: false,
 };
 
 export const MANAGED_MODELS = MODELS_BY_PROVIDER.anthropic;
@@ -1003,7 +1003,6 @@ export const VELLUM_SERVED_PROVIDERS = [
   "gemini",
   "fireworks",
   "together",
-  "poolside",
 ] as const;
 
 /**
