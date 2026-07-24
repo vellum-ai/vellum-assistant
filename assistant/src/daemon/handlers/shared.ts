@@ -323,6 +323,7 @@ function collectToolResultImages(
   blocks: unknown[],
   imageDataList: string[],
   imageAttachmentIds: string[],
+  includeMediaData: boolean,
 ): void {
   for (const block of blocks) {
     if (!isRecord(block)) {
@@ -334,9 +335,11 @@ function collectToolResultImages(
         imageAttachmentIds.push(source.attachmentId);
         continue;
       }
-      const resolved = resolveMediaSourceData(source);
-      if (resolved) {
-        imageDataList.push(resolved.data);
+      if (includeMediaData) {
+        const resolved = resolveMediaSourceData(source);
+        if (resolved) {
+          imageDataList.push(resolved.data);
+        }
       }
       continue;
     }
@@ -349,6 +352,7 @@ function collectToolResultImages(
         block.contentBlocks,
         imageDataList,
         imageAttachmentIds,
+        includeMediaData,
       );
     }
   }
@@ -360,6 +364,7 @@ export function renderHistoryContent(
     ConversationMessageAttachment | null | undefined
   >,
   messageId?: string,
+  options?: { includeMediaData?: boolean },
 ): RenderedHistoryContent {
   if (!Array.isArray(content)) {
     let text: string;
@@ -743,6 +748,7 @@ export function renderHistoryContent(
           block.contentBlocks,
           imageDataList,
           imageAttachmentIds,
+          options?.includeMediaData !== false,
         );
       }
       const matched = toolUseId ? pendingToolUses.get(toolUseId) : null;

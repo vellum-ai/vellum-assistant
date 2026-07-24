@@ -1705,7 +1705,9 @@ paths:
     get:
       operationId: attachments_by_id_content_get
       summary: Get attachment content
-      description: Serve raw file bytes for an attachment. Supports Range headers.
+      description:
+        Serve original attachment bytes by default. Set representation=display for browser-displayable image bytes;
+        display representations do not support Range requests.
       tags:
         - attachments
       parameters:
@@ -1714,6 +1716,17 @@ paths:
           required: true
           schema:
             type: string
+        - name: representation
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - original
+              - display
+          description:
+            Content representation. 'original' preserves stored bytes and Range behavior; 'display' returns
+            browser-displayable bytes and rejects Range requests.
       responses:
         "200":
           description: Successful response
@@ -1722,6 +1735,10 @@ paths:
               schema:
                 type: string
                 format: binary
+        "400":
+          description: Invalid representation
+        "415":
+          description: Display representation unavailable
         "416":
           description: Range Not Satisfiable
   /v1/attachments/lookup:
@@ -18163,6 +18180,14 @@ paths:
           schema:
             type: integer
           description: Maximum number of messages to return.
+        - name: attachmentContent
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - metadata
+          description: Set to 'metadata' to omit attachment and tool-image bytes while retaining stable references and metadata.
       responses:
         "200":
           description: Successful response

@@ -49,6 +49,7 @@ function createTestArgs(conversationId: string) {
 }
 
 interface AttachmentPayload {
+  id?: string;
   data?: string;
   filename?: string;
   mimeType: string;
@@ -191,6 +192,168 @@ describe("handleListMessages attachments", () => {
     const docAtt = attachments.find((a) => a.mimeType === "application/pdf");
     expect(imgAtt!.data).toBe(IMAGE_BASE64);
     expect(docAtt!.data).toBeUndefined();
+  });
+
+  test("metadata mode retains attachment shapes without media bytes", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "large image" }]),
+    );
+    const largeImageBase64 = "A".repeat(1024 * 1024);
+    const stored = uploadAttachment("large.png", "image/png", largeImageBase64);
+    const attachmentId = linkAttachmentToMessage(msg.id, stored.id, 0);
+    rawRun(
+      "test:addLargeThumbnail",
+      "UPDATE attachments SET thumbnail_base64 = ? WHERE id = ?",
+      "B".repeat(256 * 1024),
+      attachmentId,
+    );
+
+    const defaultResponse = handleListMessages(createTestArgs(conv.id));
+    const metadataResponse = handleListMessages({
+      queryParams: {
+        conversationId: conv.id,
+        attachmentContent: "metadata",
+      },
+    });
+    const defaultJson = JSON.stringify(defaultResponse);
+    const metadataJson = JSON.stringify(metadataResponse);
+    const body = metadataResponse as {
+      messages: Array<{
+        attachments: AttachmentPayload[];
+        contentBlocks?: Array<{
+          type: string;
+          attachment?: AttachmentPayload;
+        }>;
+      }>;
+    };
+
+    expect(defaultJson.length).toBeGreaterThan(1024 * 1024);
+    expect(metadataJson.length).toBeLessThan(10_000);
+    expect(body.messages[0].attachments).toEqual([
+      expect.objectContaining({
+        id: attachmentId,
+        filename: "large.png",
+        mimeType: "image/png",
+        kind: "image",
+        fileBacked: true,
+      }),
+    ]);
+    expect(body.messages[0].attachments[0].data).toBeUndefined();
+    expect(body.messages[0].attachments[0].thumbnailData).toBeUndefined();
+    const attachmentBlock = body.messages[0].contentBlocks?.find(
+      (block) => block.type === "attachment",
+    );
+    expect(attachmentBlock?.attachment?.id).toBe(attachmentId);
+    expect(attachmentBlock?.attachment?.data).toBeUndefined();
+    expect(attachmentBlock?.attachment?.thumbnailData).toBeUndefined();
+  });
+
+  test("metadata mode omits nested tool image data and retains references", async () => {
+    const conv = createConversation();
+    const referenced = uploadAttachment(
+      "referenced.png",
+      "image/png",
+      "AQIDBA==",
+    );
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([
+        {
+          type: "tool_use",
+          id: "tool-with-images",
+          name: "browser_screenshot",
+          input: {},
+        },
+      ]),
+    );
+    const legacyToolResultContent = JSON.stringify([
+      {
+        type: "tool_result",
+        tool_use_id: "tool-with-images",
+        content: "captured",
+        contentBlocks: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: "A".repeat(512 * 1024),
+            },
+          },
+          {
+            type: "tool_result",
+            tool_use_id: "nested-tool",
+            content: "nested",
+            contentBlocks: [
+              {
+                type: "image",
+                source: {
+                  type: "workspace_ref",
+                  media_type: "image/png",
+                  attachmentId: referenced.id,
+                  sizeBytes: 4,
+                  width: 2,
+                  height: 2,
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    const resultMessage = await addMessage(
+      conv.id,
+      "assistant",
+      legacyToolResultContent,
+    );
+    rawRun(
+      "test:restoreLegacyInlineToolMedia",
+      "UPDATE messages SET content = ? WHERE id = ?",
+      legacyToolResultContent,
+      resultMessage.id,
+    );
+    linkAttachmentToMessage(resultMessage.id, referenced.id, 0);
+
+    const defaultResponse = handleListMessages(createTestArgs(conv.id)) as {
+      messages: Array<{
+        toolCalls?: Array<{
+          imageData?: string;
+          imageDataList?: string[];
+          imageAttachmentIds?: string[];
+        }>;
+      }>;
+    };
+    const metadataResponse = handleListMessages({
+      queryParams: {
+        conversationId: conv.id,
+        attachmentContent: "metadata",
+      },
+    }) as typeof defaultResponse;
+
+    expect(defaultResponse.messages[0].toolCalls?.[0].imageData).toHaveLength(
+      512 * 1024,
+    );
+    const metadataToolCall = metadataResponse.messages[0].toolCalls?.[0];
+    expect(metadataToolCall?.imageData).toBeUndefined();
+    expect(metadataToolCall?.imageDataList).toBeUndefined();
+    expect(metadataToolCall?.imageAttachmentIds).toEqual([referenced.id]);
+    expect(JSON.stringify(metadataResponse)).not.toContain("AAAA");
+  });
+
+  test("rejects unknown attachment content modes", () => {
+    const conv = createConversation();
+    expect(() =>
+      handleListMessages({
+        queryParams: {
+          conversationId: conv.id,
+          attachmentContent: "inline",
+        },
+      }),
+    ).toThrow("attachmentContent must be 'metadata' when provided");
   });
 
   test("attachment-only assistant message synthesizes contentBlocks", async () => {

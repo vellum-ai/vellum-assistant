@@ -34,14 +34,27 @@ function resetTables() {
   clearConversations();
 }
 
+interface QueuedAttachmentPayload {
+  id: string;
+  filename: string;
+  kind: string;
+  sizeBytes?: number;
+  data?: string;
+  thumbnailData?: string;
+}
+
 interface MessagePayload {
   id: string;
   role: string;
-  contentBlocks?: Array<{ type: string; text?: string }>;
+  contentBlocks?: Array<{
+    type: string;
+    text?: string;
+    attachment?: QueuedAttachmentPayload;
+  }>;
   clientMessageId?: string;
   queueStatus?: "queued" | "processing";
   queuePosition?: number;
-  attachments?: Array<{ id: string; filename: string; kind: string }>;
+  attachments?: QueuedAttachmentPayload[];
 }
 
 /** Register a live conversation whose in-memory queue holds `queued`. */
@@ -165,6 +178,48 @@ describe("handleListMessages in-memory queue", () => {
     expect(att?.filename).toBe("diagram.png");
     expect(att?.kind).toBe("image");
     expect(att?.id).toBe("req-att:attachment:0");
+  });
+
+  test("metadata mode omits queued image bytes while retaining derived size", () => {
+    const conv = createConversation();
+    registerLiveConversation(conv.id, [
+      makeQueued({
+        requestId: "req-lightweight-att",
+        content: "see attached",
+        attachments: [
+          {
+            filename: "diagram.png",
+            mimeType: "image/png",
+            data: "AAAA",
+            thumbnailData: "BBBB",
+          },
+        ],
+      }),
+    ]);
+
+    const response = handleListMessages({
+      queryParams: {
+        conversationId: conv.id,
+        attachmentContent: "metadata",
+      },
+    });
+    const body = response as { messages: MessagePayload[] };
+    const attachment = body.messages[0].attachments?.[0];
+
+    expect(attachment).toEqual(
+      expect.objectContaining({
+        id: "req-lightweight-att:attachment:0",
+        filename: "diagram.png",
+        kind: "image",
+        sizeBytes: 3,
+      }),
+    );
+    expect(attachment?.data).toBeUndefined();
+    expect(attachment?.thumbnailData).toBeUndefined();
+    expect(body.messages[0].contentBlocks?.[1]).toEqual({
+      type: "attachment",
+      attachment,
+    });
   });
 
   test("filters hidden queued messages from the snapshot, keeping positions contiguous", async () => {
