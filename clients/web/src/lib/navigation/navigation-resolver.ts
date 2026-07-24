@@ -286,6 +286,12 @@ function allowSetupRoutes(
 ): NavigationDecision | null {
   if (path === routes.reviewTerms) return { action: "allow" };
 
+  // The marketing pricing CTAs deep-link a brand-new user (no assistant yet)
+  // straight into Stripe checkout for a chosen package. Exempt that route from
+  // the no-assistant funnel redirect the same way onboarding paths are —
+  // `requireAuth` above still gates it, so only a signed-in user reaches here.
+  if (path === routes.checkout) return { action: "allow" };
+
   if (isOnboardingPath(path)) {
     if (path === routes.onboarding.hatching && !hasCompletedOnboarding(state)) {
       return { action: "redirect", to: onboardingEntrypoint(state.isLocalMode) };
