@@ -99,6 +99,17 @@ describe("AssistantConfigSchema", () => {
     expect(result.auditLog).toEqual({ retentionDays: 0 });
   });
 
+  test("accepts vellum as an image generation provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        "image-generation": { provider: "vellum", model: "gpt-image-2" },
+      },
+    });
+
+    expect(result.services["image-generation"].provider).toBe("vellum");
+    expect(result.services["image-generation"].model).toBe("gpt-image-2");
+  });
+
   test("accepts Tavily as a web search provider", () => {
     const result = AssistantConfigSchema.parse({
       services: {

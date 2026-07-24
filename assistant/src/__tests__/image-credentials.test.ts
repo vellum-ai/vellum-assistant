@@ -21,7 +21,10 @@ mock.module("../providers/platform-proxy/context.js", () => ({
 }));
 
 // Import after mocks
-import { resolveImageGenCredentials } from "../media/image-credentials.js";
+import {
+  resolveImageGenCredentials,
+  resolveImageGenRouting,
+} from "../media/image-credentials.js";
 
 describe("resolveImageGenCredentials", () => {
   beforeEach(() => {
@@ -133,5 +136,73 @@ describe("resolveImageGenCredentials", () => {
       expect(result.errorHint).toBeDefined();
       expect(result.errorHint).toContain("OpenAI API key");
     });
+  });
+});
+
+describe("resolveImageGenRouting", () => {
+  test("provider vellum is managed with a gemini backend for gemini models", () => {
+    expect(
+      resolveImageGenRouting({
+        provider: "vellum",
+        model: "gemini-3.1-flash-image-preview",
+      }),
+    ).toEqual({ backendProvider: "gemini", managed: true });
+  });
+
+  test("provider vellum derives an openai backend from a gpt model", () => {
+    expect(
+      resolveImageGenRouting({ provider: "vellum", model: "gpt-image-2" }),
+    ).toEqual({ backendProvider: "openai", managed: true });
+  });
+
+  test("a model override wins over the stored model under vellum", () => {
+    expect(
+      resolveImageGenRouting(
+        { provider: "vellum", model: "gemini-3.1-flash-image-preview" },
+        "gpt-image-2",
+      ),
+    ).toEqual({ backendProvider: "openai", managed: true });
+  });
+
+  test("a legacy managed mode routes managed for BYOK providers", () => {
+    expect(
+      resolveImageGenRouting({
+        provider: "gemini",
+        model: "gemini-3.1-flash-image-preview",
+        mode: "managed",
+      }),
+    ).toEqual({ backendProvider: "gemini", managed: true });
+  });
+
+  test("BYOK providers keep the override re-routing without managed", () => {
+    expect(
+      resolveImageGenRouting(
+        {
+          provider: "gemini",
+          model: "gemini-3.1-flash-image-preview",
+          mode: "your-own",
+        },
+        "gpt-image-2",
+      ),
+    ).toEqual({ backendProvider: "openai", managed: false });
+  });
+
+  test("vellum with an unavailable platform is a hard error, not a BYOK fallback", async () => {
+    // Billing rule: an explicit vellum choice never silently spends a stored
+    // provider key.
+    mockProviderKey = "gemini-key-should-not-be-used";
+    mockPlatformBaseUrl = "";
+
+    const routing = resolveImageGenRouting({
+      provider: "vellum",
+      model: "gemini-3.1-flash-image-preview",
+    });
+    const result = await resolveImageGenCredentials({
+      provider: routing.backendProvider,
+      mode: routing.managed ? "managed" : "your-own",
+    });
+
+    expect(result.credentials).toBeUndefined();
+    expect(result.errorHint).toContain("Managed proxy is not available");
   });
 });

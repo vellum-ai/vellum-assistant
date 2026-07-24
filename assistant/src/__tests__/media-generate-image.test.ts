@@ -30,7 +30,8 @@ let lastGenerateCredentials: unknown = null;
 function seedImageGenService(
   overrides: {
     mode?: "your-own" | "managed";
-    provider?: "gemini" | "openai";
+    provider?: "vellum" | "gemini" | "openai";
+    model?: string;
   } = {},
 ): void {
   setConfig("services", { "image-generation": overrides });
@@ -170,6 +171,57 @@ describe("image-studio skill script wrapper", () => {
       assistantApiKey: "managed-key-123",
       baseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
     });
+  });
+
+  test("provider vellum routes managed to the gemini proxy for gemini models", async () => {
+    seedImageGenService({ provider: "vellum" });
+    mockManagedProxyContext = {
+      enabled: true,
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "managed-key-123",
+    };
+
+    const result = await run({ prompt: "a hippo" }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(lastGenerateProvider).toBe("gemini");
+    expect(lastGenerateCredentials).toEqual({
+      type: "managed-proxy",
+      assistantApiKey: "managed-key-123",
+      baseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
+    });
+  });
+
+  test("provider vellum routes a gpt model to the openai proxy", async () => {
+    seedImageGenService({ provider: "vellum", model: "gpt-image-2" });
+    mockManagedProxyContext = {
+      enabled: true,
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "managed-key-123",
+    };
+
+    const result = await run({ prompt: "a hippo" }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(lastGenerateProvider).toBe("openai");
+    expect(lastGenerateCredentials).toEqual({
+      type: "managed-proxy",
+      assistantApiKey: "managed-key-123",
+      baseUrl: "https://platform.example.com/v1/runtime-proxy/openai",
+    });
+  });
+
+  test("provider vellum with no platform is a hard error, not a BYOK fallback", async () => {
+    // Billing rule: an explicit vellum choice never silently spends a stored
+    // provider key.
+    seedImageGenService({ provider: "vellum" });
+    mockGeminiKey = "gemini-key-should-not-be-used";
+
+    const result = await run({ prompt: "a hippo" }, fakeContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Managed proxy is not available");
+    expect(lastGenerateProvider).toBeNull();
   });
 
   test("managed mode returns error when managed proxy is unavailable", async () => {

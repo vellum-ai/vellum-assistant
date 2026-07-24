@@ -20,7 +20,9 @@ export const VALID_INFERENCE_PROVIDERS = [
   "openrouter",
 ] as const;
 
-const VALID_IMAGE_GEN_PROVIDERS = ["gemini", "openai"] as const;
+// `vellum` generates through the platform runtime proxy; the backend
+// (gemini/openai) derives from the selected model's prefix at request time.
+const VALID_IMAGE_GEN_PROVIDERS = ["vellum", "gemini", "openai"] as const;
 
 /**
  * Derived from `SEARCH_PROVIDER_CATALOG`. Adding a new web-search provider
