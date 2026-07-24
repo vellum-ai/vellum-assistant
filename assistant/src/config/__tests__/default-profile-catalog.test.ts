@@ -165,6 +165,32 @@ describe("resolver integration", () => {
     }
   });
 
+  test("memoryV3SelectL2 pins the haiku model over a managed route so its 1h cache breakpoint engages", () => {
+    // The selector's ~30k-token card-corpus prefix carries a 1h `cache_control`
+    // breakpoint that only an Anthropic-protocol model honors. The call-site
+    // default pins `claude-haiku-4-5-20251001` as a bare model pin: on a
+    // managed install the balanced winner is the `vellum` routing identity, and
+    // the managed route serves the anthropic-catalog model, so the pin keeps
+    // the provider-agnostic managed connection and just swaps the model.
+    const llm = LLMSchema.parse({
+      activeProfile: "balanced",
+      profiles: managedStubs(),
+    });
+    const resolved = resolveCallSiteConfig("memoryV3SelectL2", llm);
+    expect(String(resolved.provider)).toBe("vellum");
+    expect(resolved.model).toBe("claude-haiku-4-5-20251001");
+    expect(resolved.provider_connection).toBeUndefined();
+    // Sampling/thinking tweaks from the call-site default survive the pin.
+    expect(resolved.temperature).toBe(0);
+    expect(resolved.thinking.enabled).toBe(false);
+    expect(resolved.thinking.streamThinking).toBe(false);
+    // The managed route dispatches the pinned model to its Anthropic upstream —
+    // this is what makes the Anthropic `cache_control` breakpoint effective.
+    const identity = resolveRoutingIdentity(resolved.provider, resolved.model);
+    expect(identity?.connectionName).toBe("vellum");
+    expect(identity?.expectedProvider).toBe("anthropic");
+  });
+
   test("thin managed stubs and fully seeded bodies resolve identically at every call site", () => {
     const seededProfiles = Object.fromEntries(
       Object.entries(CODE_DEFAULT_PROFILE_ENTRIES).filter(

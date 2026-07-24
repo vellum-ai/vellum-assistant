@@ -47,6 +47,20 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   },
   memoryV3SelectL2: {
     profile: "balanced",
+    // The selector's ~30k-token card-corpus prefix is emitted as its own
+    // content block carrying a 1h `cache_control` breakpoint, which only an
+    // Anthropic-protocol model honors — the balanced profile's managed model
+    // is Fireworks-served, where the Anthropic breakpoint is inert and the
+    // implicit cache misses because calls are spaced one per user turn. Pin a
+    // latency-class Anthropic model so the breakpoint engages; the bare model
+    // pin lets the catalog imply the provider, which preserves the
+    // provider-agnostic managed connection (the managed route dispatches the
+    // model to its Anthropic upstream). Production shows ~81% of selector
+    // calls land within the 1h TTL, so the pin converts the recurring prefix
+    // from full-price input into cache reads. Same managed-credential caveat
+    // as the voice pins below — replace only with a model whose managed
+    // credentials are provisioned in every environment.
+    model: "claude-haiku-4-5-20251001",
     temperature: 0,
     thinking: { enabled: false, streamThinking: false },
   },
