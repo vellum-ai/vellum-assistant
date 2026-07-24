@@ -95,10 +95,7 @@ import type { _SurfacesServerMessages } from "./message-types/surfaces.js";
 import type { _SyncInvalidationServerMessages } from "./message-types/sync.js";
 import type { _UpgradesServerMessages } from "./message-types/upgrades.js";
 import type { _WorkflowsServerMessages } from "./message-types/workflows.js";
-import type {
-  _WorkspaceClientMessages,
-  _WorkspaceServerMessages,
-} from "./message-types/workspace.js";
+import type { _WorkspaceServerMessages } from "./message-types/workspace.js";
 
 // === Client -> Server aggregate union ===
 
@@ -107,7 +104,6 @@ export type ClientMessage =
   | _IntegrationsClientMessages
   | _ComputerUseClientMessages
   | _HostBrowserClientMessages
-  | _WorkspaceClientMessages
   | _DiagnosticsClientMessages
   | _NotificationsClientMessages;
 
