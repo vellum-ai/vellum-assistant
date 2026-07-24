@@ -8,7 +8,11 @@ import {
   DEFAULT_PROFILE_PROVIDERS,
   type DefaultProfileKey,
   type DefaultProfileProvider,
+  INTERNAL_PROFILE_KEYS,
+  type InternalProfileKey,
   OS_BETA_PROFILE_KEY,
+  PROFILE_MATRIX_KEYS,
+  type ProfileMatrixKey,
 } from "./default-profile-names.js";
 import { resolveDefaultConnectionName } from "./default-provider-resolution.js";
 import {
@@ -60,7 +64,7 @@ export type DefaultProfileTemplate = Omit<
  * Overwritten in workspace config on every daemon boot so Vellum can push
  * model/config updates to customers in new releases.
  */
-const VELLUM_PROFILE_IMPLS: Record<DefaultProfileKey, DefaultProfileTemplate> =
+const VELLUM_PROFILE_IMPLS: Record<ProfileMatrixKey, DefaultProfileTemplate> =
   {
     balanced: {
       model: "accounts/fireworks/models/glm-5p2",
@@ -105,6 +109,24 @@ const VELLUM_PROFILE_IMPLS: Record<DefaultProfileKey, DefaultProfileTemplate> =
         maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
       },
     },
+    "latency-optimized": {
+      // The managed latency class. `cost-optimized`'s upstream showed
+      // multi-second cross-session TTFT tails on live voice drives, which the
+      // front model's leading tokens cannot absorb — they ARE the turn-taking
+      // verdict. Replace only with a model whose managed credentials are
+      // provisioned in every environment.
+      model: "claude-haiku-4-5-20251001",
+      provider: "vellum",
+      source: "managed",
+      label: "Latency",
+      description: "Lowest time-to-first-token, for real-time call sites",
+      maxTokens: 8192,
+      effort: "low",
+      thinking: { enabled: false, streamThinking: false },
+      contextWindow: {
+        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+      },
+    },
   };
 
 /**
@@ -115,7 +137,7 @@ const VELLUM_PROFILE_IMPLS: Record<DefaultProfileKey, DefaultProfileTemplate> =
  * chosen provider).
  */
 const BYOK_PROFILE_IMPLS: Record<
-  DefaultProfileKey,
+  ProfileMatrixKey,
   Omit<DefaultProfileTemplate, "provider">
 > = {
   balanced: {
@@ -148,6 +170,16 @@ const BYOK_PROFILE_IMPLS: Record<
     thinking: { enabled: false, streamThinking: false },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
+  "latency-optimized": {
+    intent: "latency-optimized",
+    source: "user",
+    label: "Latency",
+    description: "Lowest time-to-first-token, for real-time call sites",
+    maxTokens: 8192,
+    effort: "low",
+    thinking: { enabled: false, streamThinking: false },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
 };
 
 /**
@@ -155,10 +187,10 @@ const BYOK_PROFILE_IMPLS: Record<
  * implementation of default profile `key` on `provider`.
  */
 export const PROFILE_IMPLS: Record<
-  DefaultProfileKey,
+  ProfileMatrixKey,
   Record<DefaultProfileProvider, DefaultProfileTemplate>
 > = Object.fromEntries(
-  DEFAULT_PROFILE_KEYS.map((key) => [
+  PROFILE_MATRIX_KEYS.map((key) => [
     key,
     Object.fromEntries(
       DEFAULT_PROFILE_PROVIDERS.map((provider) => [
@@ -170,14 +202,16 @@ export const PROFILE_IMPLS: Record<
     ) as Record<DefaultProfileProvider, DefaultProfileTemplate>,
   ]),
 ) as Record<
-  DefaultProfileKey,
+  ProfileMatrixKey,
   Record<DefaultProfileProvider, DefaultProfileTemplate>
 >;
 
 /**
  * Managed profiles, i.e. the `vellum` column keyed by profile name. Seeded
  * into workspace config on every daemon boot; platform overlays
- * (`preserveProfileNames`) take precedence when present.
+ * (`preserveProfileNames`) take precedence when present. Keyed by the
+ * user-facing defaults only — an internal profile is code-resolved and never
+ * materialized into workspace config.
  */
 export const MANAGED_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   Object.fromEntries(
@@ -224,6 +258,7 @@ export const OS_BETA_PROFILE_TEMPLATE: DefaultProfileTemplate = {
 // the on-disk entry's `source` being `managed`.
 export const INVARIANT_PROFILE_NAMES = new Set<string>([
   ...DEFAULT_PROFILE_KEYS,
+  ...INTERNAL_PROFILE_KEYS,
   OS_BETA_PROFILE_KEY,
 ]);
 
@@ -236,6 +271,7 @@ export const INVARIANT_PROFILE_NAMES = new Set<string>([
 // same-named user profile.
 export const MANAGED_PROFILE_NAMES = new Set<string>([
   ...DEFAULT_PROFILE_KEYS,
+  ...INTERNAL_PROFILE_KEYS,
   OS_BETA_PROFILE_KEY,
 ]);
 
@@ -271,7 +307,7 @@ export function materializeProfile(
 // `PROVIDER_MODEL_INTENTS`' own check): exactly one of `intent`/`model` is
 // set, and every pinned model id exists in PROVIDER_CATALOG for its
 // underlying provider — catching drift when a model is renamed or removed.
-for (const key of DEFAULT_PROFILE_KEYS) {
+for (const key of PROFILE_MATRIX_KEYS) {
   for (const provider of DEFAULT_PROFILE_PROVIDERS) {
     const impl = PROFILE_IMPLS[key][provider];
     if ((impl.model == null) === (impl.intent == null)) {
@@ -303,7 +339,7 @@ for (const key of DEFAULT_PROFILE_KEYS) {
 
 function buildDefaultProfileEntries(): Record<string, ProfileEntry> {
   const entries: Record<string, ProfileEntry> = {};
-  for (const key of DEFAULT_PROFILE_KEYS) {
+  for (const key of PROFILE_MATRIX_KEYS) {
     const impl = PROFILE_IMPLS[key].vellum;
     entries[key] = materializeProfile(impl, impl.provider);
   }
@@ -423,11 +459,27 @@ export function isDefaultProfileKey(name: string): name is DefaultProfileKey {
   return (DEFAULT_PROFILE_KEYS as readonly string[]).includes(name);
 }
 
+/**
+ * Whether a name is implemented by the intent × provider matrix — the
+ * user-facing defaults plus the internal call-site-only profiles. This is the
+ * predicate resolution uses: an internal profile must resolve through the
+ * default provider's column exactly like a default, even though it is never
+ * listed or seeded.
+ */
+export function isMatrixProfileKey(name: string): name is ProfileMatrixKey {
+  return (PROFILE_MATRIX_KEYS as readonly string[]).includes(name);
+}
+
+/** Whether a name is a code-owned profile that must never be listed to users. */
+export function isInternalProfileKey(name: string): name is InternalProfileKey {
+  return (INTERNAL_PROFILE_KEYS as readonly string[]).includes(name);
+}
+
 function defaultProfileBodyForProvider(
   name: string,
   defaultProvider: DefaultProviderConfig | null,
 ): ProfileEntry | undefined {
-  if (defaultProvider == null || !isDefaultProfileKey(name)) {
+  if (defaultProvider == null || !isMatrixProfileKey(name)) {
     return CODE_DEFAULT_PROFILE_ENTRIES[name];
   }
   const impl = PROFILE_IMPLS[name][defaultProvider.provider];
@@ -446,6 +498,12 @@ function defaultProfileBodyForProvider(
  * available code default, merged per `getEffectiveProfile`. This is the
  * record all runtime readers of `llm.profiles` should consume; the raw
  * workspace record is a write-path concern.
+ *
+ * Internal profiles are omitted: they exist only to be named by a call-site
+ * default, so listing them would offer them as selectable models and let
+ * `activeProfile`/`overrideProfile` validation accept them. Resolution
+ * reaches them by name through `resolveDefaultProfileForProvider`, which
+ * does not go through this record.
  */
 export function getEffectiveProfiles(
   workspaceProfiles: Record<string, ProfileEntry> | undefined,
@@ -457,6 +515,9 @@ export function getEffectiveProfiles(
     ...(workspaceProfiles ?? {}),
   };
   for (const name of Object.keys(catalogEntries)) {
+    if (isInternalProfileKey(name)) {
+      continue;
+    }
     const entry = getEffectiveProfile(workspaceProfiles, name, catalogEntries);
     if (entry != null) {
       effective[name] = entry;
@@ -481,6 +542,9 @@ export function getEffectiveProfilesForProvider(
     ...(workspaceProfiles ?? {}),
   };
   for (const name of Object.keys(CODE_DEFAULT_PROFILE_ENTRIES)) {
+    if (isInternalProfileKey(name)) {
+      continue;
+    }
     const entry = resolveDefaultProfileForProvider(
       workspaceProfiles,
       name,
