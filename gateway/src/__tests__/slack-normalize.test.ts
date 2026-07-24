@@ -3,8 +3,8 @@ import {
   normalizeSlackAppMention,
   normalizeSlackChannelMessage,
   normalizeSlackDirectMessage,
-  normalizeSlackMessageEdit,
-} from "../slack/normalize.js";
+} from "../slack/message-normalizer.js";
+import { normalizeSlackMessageEdit } from "../slack/message-change-normalizer.js";
 import type {
   SlackAppMentionEvent,
   SlackChannelMessageEvent,

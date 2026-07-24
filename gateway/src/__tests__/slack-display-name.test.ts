@@ -40,7 +40,8 @@ mock.module("../runtime/client.js", () => ({
     forwardToRuntimeMock(...args),
 }));
 
-const { normalizeSlackAppMention } = await import("../slack/normalize.js");
+const { normalizeSlackAppMention } =
+  await import("../slack/message-normalizer.js");
 const {
   resolveSlackChannel,
   resolveSlackUser,

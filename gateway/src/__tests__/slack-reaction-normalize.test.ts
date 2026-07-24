@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeSlackReactionAdded } from "../slack/normalize.js";
+import { normalizeSlackReactionAdded } from "../slack/reaction-normalizer.js";
 import type { SlackReactionEvent } from "../slack/message-schemas.js";
 import type { GatewayConfig } from "../config.js";
 
