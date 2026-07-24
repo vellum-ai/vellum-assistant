@@ -276,9 +276,6 @@ const { TAKEOVER_SURFACE, TAKEOVER_SURFACE_VAR } = await import(
   "./provisioning-state"
 );
 
-const BACKGROUND_LINE =
-  "Assistant will go offline briefly while it resizes. Chat might not work during that time.";
-
 /**
  * Fast celebration dwell. Long enough for waitFor (50ms polls) to reliably
  * observe the transient DONE / NOT_APPLICABLE copy before it auto-advances.
@@ -413,7 +410,6 @@ describe("BillingOnboardingModal", () => {
       timeout: 5000,
     });
     expect(queryByText("Assistant Email")).toBeNull();
-    expect(queryByText(BACKGROUND_LINE)).toBeNull();
     expect(readCheckoutIntent()).toBeNull();
     // Checkout mode never fires the modal-level domains query.
     expect(domainsCalls).toBe(0);
@@ -756,7 +752,6 @@ describe("BillingOnboardingModal", () => {
         "Your upgrade continues in the background.",
       );
       expect(queryByText("You're all set!")).toBeNull();
-      expect(queryByText(BACKGROUND_LINE)).toBeNull();
     },
     30_000,
   );

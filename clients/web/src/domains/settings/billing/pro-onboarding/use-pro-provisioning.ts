@@ -91,9 +91,9 @@ export interface UseProProvisioningOptions {
 }
 
 /**
- * Stalled-state recovery affordance, shaped for `StalledApplyAction`. `error`
- * mirrors `ensureError`: a reconcile failure from any source (auto, manual, or
- * the fire-and-forget escape kick), cleared by a later success.
+ * Stalled-state recovery affordance. `error` mirrors `ensureError`: a reconcile
+ * failure from any source (auto, manual, or the fire-and-forget escape kick),
+ * cleared by a later success.
  */
 export interface ProvisioningRetryAction {
   onApply: () => void;
