@@ -1,11 +1,12 @@
+
 import { Loader2, Mic, Square } from "lucide-react";
 import {
-  forwardRef,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useSyncExternalStore,
+    forwardRef,
+    useCallback,
+    useEffect,
+    useImperativeHandle,
+    useRef,
+    useSyncExternalStore,
 } from "react";
 import * as Sentry from "@sentry/react";
 
@@ -19,9 +20,9 @@ import {
   type StopNativeDictationPartials,
 } from "@/runtime/native-dictation-partials";
 import {
-  postSttTranscribe,
-  prefersMacosNativeStt,
-  type SttFailureReason,
+    postSttTranscribe,
+    prefersMacosNativeStt,
+    type SttFailureReason,
 } from "@/domains/chat/voice/stt-api";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -44,7 +45,7 @@ import { Button, cn } from "@vellumai/design-library";
  * Returns null if MediaRecorder is unavailable or no supported type is found.
  */
 export function getBestMimeType(): string | null {
-  if (typeof MediaRecorder === "undefined") {return null;}
+  if (typeof MediaRecorder === "undefined") return null;
   const candidates = [
     "audio/webm;codecs=opus",
     "audio/ogg;codecs=opus",
@@ -116,7 +117,7 @@ interface SpeechRecognitionWindow {
  * Exported for unit testing.
  */
 export function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null {
-  if (typeof window === "undefined") {return null;}
+  if (typeof window === "undefined") return null;
   const w = window as unknown as SpeechRecognitionWindow;
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
@@ -140,7 +141,7 @@ export function getSpeechRecognitionCtor(): SpeechRecognitionConstructor | null 
  * signal inside React code.
  */
 export function isBatchSttSupported(): boolean {
-  if (typeof window === "undefined") {return false;}
+  if (typeof window === "undefined") return false;
   return (
     typeof MediaRecorder !== "undefined" &&
     typeof navigator !== "undefined" &&
@@ -191,7 +192,11 @@ export function errorCodeForReason(reason: SttFailureReason): string {
 // ---------------------------------------------------------------------------
 
 type DictationSessionOutcome =
-  "completed" | "empty" | "error" | "cancelled" | "aborted";
+  | "completed"
+  | "empty"
+  | "error"
+  | "cancelled"
+  | "aborted";
 
 interface NativeFinalResult {
   text: string | null;
@@ -321,8 +326,9 @@ export const VoiceInputButton = forwardRef<
   const nativePartialsStopRef = useRef<StopNativeDictationPartials | null>(
     null,
   );
-  const nativePartialsStartRef =
-    useRef<Promise<StopNativeDictationPartials | null> | null>(null);
+  const nativePartialsStartRef = useRef<
+    Promise<StopNativeDictationPartials | null> | null
+  >(null);
   const nativePartialsTextRef = useRef("");
   // Resolves with the recognizer's final transcript of the whole utterance
   // after stopNativePartials — short dictations end before the first
@@ -384,7 +390,7 @@ export const VoiceInputButton = forwardRef<
     const stop = nativePartialsStopRef.current;
     nativePartialsStopRef.current = null;
     const pendingStart = nativePartialsStartRef.current;
-    if (!stop && !pendingStart) {return;}
+    if (!stop && !pendingStart) return;
     // The promise resolves once the helper's recognizer drains the session
     // (dictation.finalized); recorder.onstop awaits it alongside batch STT.
     const final = stop
@@ -393,7 +399,7 @@ export const VoiceInputButton = forwardRef<
           stopRan: true,
         }))
       : pendingStart!.then(async (readyStop) => {
-          if (!readyStop) {return { text: null, stopRan: false };}
+          if (!readyStop) return { text: null, stopRan: false };
           return {
             text: (await readyStop()) ?? null,
             stopRan: true,
@@ -444,7 +450,7 @@ export const VoiceInputButton = forwardRef<
     )
       .then((stop) => {
         // The unavailable case logs its reason in native-dictation-partials.
-        if (!stop) {return null;}
+        if (!stop) return null;
         console.info("dictation: native partials running");
         // The session may have ended while the helper call was in flight.
         if (
@@ -474,7 +480,7 @@ export const VoiceInputButton = forwardRef<
     stopDictationStream();
     stopNativePartials();
     const recorder = mediaRecorderRef.current;
-    if (!recorder) {return;}
+    if (!recorder) return;
     if (recorder.state !== "inactive") {
       try {
         recorder.stop();
@@ -497,7 +503,7 @@ export const VoiceInputButton = forwardRef<
    */
   const cancelRecording = useCallback(() => {
     const recorder = mediaRecorderRef.current;
-    if (!recorder) {return;}
+    if (!recorder) return;
     discardedRef.current = true;
     stopSpeechRecognition();
     stopDictationStream();
@@ -510,7 +516,12 @@ export const VoiceInputButton = forwardRef<
       }
     }
     vsReset();
-  }, [stopSpeechRecognition, stopDictationStream, stopNativePartials, vsReset]);
+  }, [
+    stopSpeechRecognition,
+    stopDictationStream,
+    stopNativePartials,
+    vsReset,
+  ]);
 
   // Esc during recording discards the partial result. Capture phase so it
   // wins over composer/modal Escape handlers while a recording is live. Two
@@ -518,10 +529,10 @@ export const VoiceInputButton = forwardRef<
   // push-to-talk fallback) and both see the shared store phase; the
   // recorder-ownership guard keeps the non-recording instance inert.
   useEffect(() => {
-    if (!recording) {return;}
+    if (!recording) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {return;}
-      if (!mediaRecorderRef.current) {return;}
+      if (event.key !== "Escape") return;
+      if (!mediaRecorderRef.current) return;
       event.preventDefault();
       event.stopPropagation();
       cancelRecording();
@@ -538,7 +549,7 @@ export const VoiceInputButton = forwardRef<
   // same recorder-ownership guard applies.
   useVellumCommands({
     cancelDictation: () => {
-      if (!mediaRecorderRef.current) {return;}
+      if (!mediaRecorderRef.current) return;
       cancelRecording();
     },
   });
@@ -580,7 +591,7 @@ export const VoiceInputButton = forwardRef<
   ]);
 
   const startRecording = useCallback(async () => {
-    if (mediaRecorderRef.current) {return;}
+    if (mediaRecorderRef.current) return;
     cancelledStartRef.current = false;
     discardedRef.current = false;
     const sessionId = ++sessionIdRef.current;
@@ -631,7 +642,7 @@ export const VoiceInputButton = forwardRef<
           let accumulated = "";
           for (let i = 0; i < event.results.length; i += 1) {
             const result = event.results[i];
-            if (!result?.[0]) {continue;}
+            if (!result?.[0]) continue;
             if (result.isFinal) {
               accumulated += result[0].transcript;
             } else {
@@ -682,7 +693,7 @@ export const VoiceInputButton = forwardRef<
 
     if (cancelledStartRef.current) {
       stopSpeechRecognition();
-      for (const track of stream.getTracks()) {track.stop();}
+      for (const track of stream.getTracks()) track.stop();
       return;
     }
 
@@ -769,8 +780,7 @@ export const VoiceInputButton = forwardRef<
         return;
       }
 
-      const audioBlob =
-        chunks.length > 0 ? new Blob(chunks, { type: mimeType }) : null;
+      const audioBlob = chunks.length > 0 ? new Blob(chunks, { type: mimeType }) : null;
       const abortCtrl = new AbortController();
       transcribeAbortRef.current = abortCtrl;
 
@@ -787,10 +797,7 @@ export const VoiceInputButton = forwardRef<
         let daemonFailure: SttFailureReason | null = null;
         try {
           if (audioBlob && assistantId && !nativeSttForced) {
-            if (
-              typeof navigator !== "undefined" &&
-              navigator.onLine === false
-            ) {
+            if (typeof navigator !== "undefined" && navigator.onLine === false) {
               // Provably offline — don't burn the provider timeout to learn
               // what we already know.
               console.info("dictation: skipping batch STT (offline)");
@@ -861,7 +868,7 @@ export const VoiceInputButton = forwardRef<
 
         // A newer session started while we were awaiting — don't
         // overwrite its voice state with this stale completion.
-        if (sessionIdRef.current !== sessionId) {return;}
+        if (sessionIdRef.current !== sessionId) return;
 
         try {
           if (text) {
@@ -977,12 +984,12 @@ export const VoiceInputButton = forwardRef<
     ref,
     () => ({
       start: () => {
-        if (disabled || !assistantId || !supported) {return;}
+        if (disabled || !assistantId || !supported) return;
         // Refuse to start while the previous session is still transcribing.
         // Mirrors the visual `disabled` + `aria-busy` state on the button
         // and prevents push-to-talk from silently dropping the in-flight
         // transcript by incrementing the session id mid-flight.
-        if (useVoiceRecordingStore.getState().phase === "processing") {return;}
+        if (useVoiceRecordingStore.getState().phase === "processing") return;
         startRecording();
       },
       stop: stopRecording,
@@ -992,7 +999,7 @@ export const VoiceInputButton = forwardRef<
 
   const isNative = useIsNativePlatform();
 
-  if (!renderButton || !supported || !assistantId) {return null;}
+  if (!renderButton || !supported || !assistantId) return null;
 
   // The button has three visible states:
   //   - idle:       mic icon, click to start
@@ -1030,7 +1037,7 @@ export const VoiceInputButton = forwardRef<
         recording ? "[&_svg]:size-5 touch-mobile:[&_svg]:size-5" : undefined
       }
       onClick={() => {
-        if (processing) {return;}
+        if (processing) return;
         if (recording) {
           stopRecording();
         } else {
