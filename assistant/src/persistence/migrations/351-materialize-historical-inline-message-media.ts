@@ -1,11 +1,15 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 import { optimizeImageForTransport } from "../../agent/image-optimize.js";
 import { parseImageDimensions } from "../../context/image-dimensions.js";
-import { getWorkspaceDir } from "../../util/platform.js";
+import { getConversationsDir } from "../../util/platform.js";
 import { classifyKind } from "../attachments-store.js";
+import {
+  getConversationAttachmentsDirPath,
+  isFilesystemSafeConversationId,
+} from "../conversation-directories.js";
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
 
@@ -14,7 +18,10 @@ const ATTACHMENT_ID_PREFIX = "historical-inline-media-";
 const LINK_ID_PREFIX = "historical-inline-media-link-";
 
 export interface HistoricalInlineMediaMigrationOptions {
-  attachmentsDir?: string;
+  resolveAttachmentsDir?: (
+    conversationId: string,
+    conversationCreatedAt: number,
+  ) => string;
   writeFile?: (path: string, data: Buffer) => void;
   yieldToEventLoop?: () => Promise<void>;
 }
@@ -24,6 +31,8 @@ interface MessageRow {
   id: string;
   content: string;
   createdAt: number;
+  conversationId: string;
+  conversationCreatedAt: number;
 }
 
 interface AttachmentRow {
@@ -155,6 +164,22 @@ function defaultYield(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function defaultResolveAttachmentsDir(
+  conversationId: string,
+  conversationCreatedAt: number,
+): string {
+  const conversationsDir = resolve(getConversationsDir());
+  const attachmentsDir = resolve(
+    getConversationAttachmentsDirPath(conversationId, conversationCreatedAt),
+  );
+  if (!attachmentsDir.startsWith(`${conversationsDir}${sep}`)) {
+    throw new Error(
+      `Historical inline media conversation ID escapes the conversations directory: ${conversationId}`,
+    );
+  }
+  return attachmentsDir;
+}
+
 /**
  * Materialize base64 media from finalized inline message content into stable
  * attachment references. Each message's attachment rows, links, and content
@@ -166,20 +191,26 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
   options: HistoricalInlineMediaMigrationOptions = {},
 ): Promise<void> {
   const raw = getSqliteFrom(database);
-  const attachmentsDir =
-    options.attachmentsDir ?? join(getWorkspaceDir(), "data", "attachments");
+  const resolveAttachmentsDir =
+    options.resolveAttachmentsDir ?? defaultResolveAttachmentsDir;
   const writeFile = options.writeFile ?? defaultWriteFile;
   const yieldToEventLoop = options.yieldToEventLoop ?? defaultYield;
-  mkdirSync(attachmentsDir, { recursive: true });
 
   let lastRowid = 0;
   for (;;) {
     const rows = raw
       .query(
-        `SELECT rowid, id, content, created_at AS createdAt
-         FROM messages
-         WHERE finalized = 1 AND rowid > ?
-         ORDER BY rowid
+        `SELECT
+           m.rowid AS rowid,
+           m.id,
+           m.content,
+           m.created_at AS createdAt,
+           m.conversation_id AS conversationId,
+           c.created_at AS conversationCreatedAt
+         FROM messages m
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.finalized = 1 AND m.rowid > ?
+         ORDER BY m.rowid
          LIMIT ?`,
       )
       .all(lastRowid, BATCH_SIZE) as MessageRow[];
@@ -222,9 +253,27 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
       const consumedLinkIds = new Set<string>();
       const pendingAttachments: PendingAttachment[] = [];
       const pendingLinks: PendingLink[] = [];
+      let attachmentsDir: string | null = null;
       let nextPosition =
         linkedRows.reduce((max, item) => Math.max(max, item.position), -1) + 1;
       let changed = false;
+
+      const getAttachmentsDir = (): string => {
+        if (attachmentsDir) {
+          return attachmentsDir;
+        }
+        if (!isFilesystemSafeConversationId(row.conversationId)) {
+          throw new Error(
+            `Historical inline media has an unsafe conversation ID: ${row.conversationId}`,
+          );
+        }
+        attachmentsDir = resolveAttachmentsDir(
+          row.conversationId,
+          row.conversationCreatedAt,
+        );
+        mkdirSync(attachmentsDir, { recursive: true });
+        return attachmentsDir;
+      };
 
       const convert = (
         block: unknown,
@@ -234,7 +283,8 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
           return block;
         }
         if (
-          block.type === "tool_result" &&
+          (block.type === "tool_result" ||
+            block.type === "web_search_tool_result") &&
           Array.isArray(block.contentBlocks)
         ) {
           const contentBlocks = block.contentBlocks;
@@ -269,11 +319,20 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
         let selected: LinkedAttachmentRow | undefined;
         if (typeof block._attachmentId === "string") {
           const linked = linkedById.get(block._attachmentId);
-          if (linked && (linkedBytes.get(linked.linkId)?.length ?? 0) > 0) {
+          if (
+            linked &&
+            attachmentMatchesBlock(
+              linked,
+              linkedBytes.get(linked.linkId) ?? null,
+              block.type as "image" | "file",
+              mediaType,
+              inlineBytes,
+              optimizedBytesCache,
+            )
+          ) {
             selected = linked;
           }
-        }
-        if (!selected) {
+        } else {
           selected = linkedRows.find(
             (linked) =>
               !consumedLinkIds.has(linked.linkId) &&
@@ -298,7 +357,7 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
           attachmentId = `${ATTACHMENT_ID_PREFIX}${sha256(
             `${row.id}\0${jsonPath}\0${contentHash}`,
           )}`;
-          const filePath = join(attachmentsDir, attachmentId);
+          const filePath = join(getAttachmentsDir(), attachmentId);
           ensureDeterministicFile(filePath, inlineBytes, writeFile);
           const recovered = raw
             .query(
