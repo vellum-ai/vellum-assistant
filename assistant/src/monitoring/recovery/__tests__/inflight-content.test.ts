@@ -24,11 +24,13 @@ import {
 import {
   createConversation,
   finalizeMessageContent,
+  forkConversationForRetrospective,
   getMessageById,
   reserveMessage,
 } from "../../../persistence/conversation-crud.js";
 import { getDb, getSqliteFrom } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
+import { migrateMaterializeHistoricalInlineMessageMedia } from "../../../persistence/migrations/351-materialize-historical-inline-message-media.js";
 import type { ContentBlock } from "../../../providers/types.js";
 import { recoverInflightContent } from "../inflight-content.js";
 
@@ -117,6 +119,64 @@ describe("recoverInflightContent — folding stranded rows", () => {
 
     expect(rawRow(messageId).finalized).toBe(1);
     expect(getMessageById(messageId, conversationId)?.content).toEqual([]);
+  });
+
+  test("detaches a finalized retrospective fork before recovering its shared pending ref", async () => {
+    const source = await reserveInflight();
+    const content = [textBlock("shared pending content")];
+    appendInflightSnapshot(source.writer, content, 1, rlog);
+    const sourceRefContent = rawRow(source.messageId).content;
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.conversationId,
+    });
+    const forkRow = db()
+      .query(
+        `SELECT id, content, finalized FROM messages
+         WHERE conversation_id = ?`,
+      )
+      .get(fork.id) as { id: string; content: string; finalized: number };
+    expect(forkRow.content).toBe(sourceRefContent);
+    expect(forkRow.finalized).toBe(1);
+    const preparedMessageIds: string[] = [];
+    const releasedMessageIds: string[] = [];
+
+    await migrateMaterializeHistoricalInlineMessageMedia(getDb(), {
+      prepareLexicalReindex: (messageId) => {
+        preparedMessageIds.push(messageId);
+        return {
+          jobId: `prepared-${messageId}`,
+          messageId,
+          fallbackRunAfter: Number.MAX_SAFE_INTEGER,
+        };
+      },
+      releaseLexicalReindex: (prepared) => {
+        releasedMessageIds.push(prepared.messageId);
+      },
+      yieldToEventLoop: async () => {},
+    });
+
+    expect(rawRow(source.messageId).finalized).toBe(0);
+    expect(rawRow(source.messageId).content).toBe(sourceRefContent);
+    expect(rawRow(forkRow.id)).toEqual({
+      content: JSON.stringify(content),
+      finalized: 1,
+    });
+    expect(preparedMessageIds).toContain(forkRow.id);
+    expect(preparedMessageIds).not.toContain(source.messageId);
+    expect(releasedMessageIds).toContain(forkRow.id);
+    expect(existsSync(source.writer.absPath)).toBe(true);
+    backdateDeltaFile(source.writer.absPath);
+
+    recoverInflightContent({ minAgeMs: 0 });
+
+    expect(rawRow(source.messageId)).toEqual({
+      content: JSON.stringify(content),
+      finalized: 1,
+    });
+    expect(existsSync(source.writer.absPath)).toBe(false);
+    expect(
+      getMessageById(source.messageId, source.conversationId)?.content,
+    ).toEqual(getMessageById(forkRow.id, fork.id)?.content);
   });
 });
 

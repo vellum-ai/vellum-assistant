@@ -299,11 +299,12 @@ function defaultResolveAttachmentsDir(
 
 /**
  * Materialize base64 media from inline and file-backed message content into
- * stable attachment references. Readable content refs are folded into the
- * atomic database rewrite, and touched pending rows become finalized. Each
- * message's attachment rows, links, and content rewrite commit together;
- * deterministic files are written and verified first so an interrupted run
- * can safely reuse them.
+ * stable attachment references. Readable finalized refs are detached into an
+ * inline atomic rewrite even when they contain no media, while pending refs
+ * remain available to recovery unless their media is migrated. Each message's
+ * attachment rows, links, and content rewrite commit together; deterministic
+ * files are written and verified first so an interrupted run can safely reuse
+ * them.
  */
 export async function migrateMaterializeHistoricalInlineMessageMedia(
   database: DrizzleDb,
@@ -385,23 +386,28 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
         }
         parsed = inline;
       }
-      if (!parsed.some(hasInlineMediaToMaterialize)) {
+      const hasInlineMedia = parsed.some(hasInlineMediaToMaterialize);
+      const shouldDetachFinalizedRef =
+        contentRef !== null && row.finalized === 1;
+      if (!hasInlineMedia && !shouldDetachFinalizedRef) {
         continue;
       }
 
-      const linkedRows = raw
-        .query(
-          `SELECT
-             ma.id AS linkId,
-             ma.position,
-             a.id,
-             a.mime_type AS mimeType
-           FROM message_attachments ma
-           JOIN attachments a ON a.id = ma.attachment_id
-           WHERE ma.message_id = ?
-           ORDER BY ma.position, ma.rowid`,
-        )
-        .all(row.id) as LinkedAttachmentRow[];
+      const linkedRows = hasInlineMedia
+        ? (raw
+            .query(
+              `SELECT
+                 ma.id AS linkId,
+                 ma.position,
+                 a.id,
+                 a.mime_type AS mimeType
+               FROM message_attachments ma
+               JOIN attachments a ON a.id = ma.attachment_id
+               WHERE ma.message_id = ?
+               ORDER BY ma.position, ma.rowid`,
+            )
+            .all(row.id) as LinkedAttachmentRow[])
+        : [];
       const linkedById = new Map(linkedRows.map((item) => [item.id, item]));
       const attachmentSignatureCache = new Map<string, ByteSignature | null>();
       const optimizedSignatureCache = new Map<string, ByteSignature | null>();
@@ -411,7 +417,7 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
       let attachmentsDir: string | null = null;
       let nextPosition =
         linkedRows.reduce((max, item) => Math.max(max, item.position), -1) + 1;
-      let changed = false;
+      let changed = shouldDetachFinalizedRef;
 
       function* attachmentCandidates(
         hintedAttachmentId: unknown,

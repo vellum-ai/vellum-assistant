@@ -585,7 +585,7 @@ describe("migration 351: materialize historical inline message media", () => {
     expect(count(sqlite, "message_attachments")).toBe(1);
   });
 
-  test("leaves media-free pending refs unchanged without reading attachments", async () => {
+  test("detaches media-free finalized refs without touching pending shared refs", async () => {
     const { sqlite, db, options, workspaceDir } = createTestDb();
     const ref = "conversations/conversation-test/inflight/message-ref.jsonl";
     writeMessageContentFile(workspaceDir, ref, [
@@ -615,23 +615,75 @@ describe("migration 351: materialize historical inline message media", () => {
       JSON.stringify(storedRef),
       0,
     );
+    insertMessage(
+      sqlite,
+      "message-ref-no-inline-finalized",
+      JSON.stringify(storedRef),
+    );
     insertAttachment(sqlite, "attachment-existing", "");
     linkAttachment(sqlite, "message-ref-no-inline", "attachment-existing", 0);
     const reads: string[] = [];
-
-    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+    const preparedMessageIds: string[] = [];
+    const releasedMessageIds: string[] = [];
+    const migrationOptions = {
       ...options,
-      readLinkedAttachmentBytes: (attachmentId) => {
+      resolveAttachmentsDir: (): never => {
+        throw new Error("media-free refs must not resolve attachment storage");
+      },
+      readLinkedAttachmentBytes: (attachmentId: string): never => {
         reads.push(attachmentId);
         throw new Error("media-free refs must not read linked attachments");
       },
-    });
+      prepareLexicalReindex: (messageId: string) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(messageId);
+      },
+      releaseLexicalReindex: (prepared: { messageId: string }): void => {
+        releasedMessageIds.push(prepared.messageId);
+      },
+    };
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
 
     expect(reads).toEqual([]);
     expect(messageContent(sqlite, "message-ref-no-inline")).toEqual(storedRef);
     expect(messageFinalized(sqlite, "message-ref-no-inline")).toBe(0);
+    expect(messageContent(sqlite, "message-ref-no-inline-finalized")).toEqual([
+      { type: "text", text: "Already externalized" },
+      {
+        type: "image",
+        source: {
+          type: "workspace_ref",
+          media_type: "image/png",
+          attachmentId: "attachment-existing",
+          sizeBytes: 10,
+        },
+      },
+    ]);
+    expect(messageFinalized(sqlite, "message-ref-no-inline-finalized")).toBe(1);
+    expect(preparedMessageIds).toEqual(["message-ref-no-inline-finalized"]);
+    expect(releasedMessageIds).toEqual(preparedMessageIds);
     expect(count(sqlite, "attachments")).toBe(1);
     expect(count(sqlite, "message_attachments")).toBe(1);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    expect(preparedMessageIds).toEqual(["message-ref-no-inline-finalized"]);
+    expect(releasedMessageIds).toEqual(preparedMessageIds);
+  });
+
+  test("detaches a readable empty finalized ref", async () => {
+    const { sqlite, db, options, workspaceDir } = createTestDb();
+    const ref = "conversations/conversation-test/inflight/empty-ref.jsonl";
+    writeMessageContentFile(workspaceDir, ref, []);
+    insertMessage(sqlite, "message-ref-empty", JSON.stringify({ ref }));
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    expect(messageContent(sqlite, "message-ref-empty")).toEqual([]);
+    expect(messageFinalized(sqlite, "message-ref-empty")).toBe(1);
+    expect(count(sqlite, "attachments")).toBe(0);
+    expect(count(sqlite, "message_attachments")).toBe(0);
   });
 
   test("leaves missing and malformed content refs unchanged", async () => {
