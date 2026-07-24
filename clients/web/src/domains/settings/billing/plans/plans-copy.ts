@@ -30,7 +30,7 @@ export const PLAN_TIER_COPY: Record<PlanTierKey, PlanTierCopy> = {
     priceCaption: "Forever",
   },
   mighty: {
-    tagline: "More capacity for consistent user.",
+    tagline: "More capacity for consistent use.",
     cta: "Power Up",
     priceCaption: "Billed monthly",
     recommended: true,
@@ -42,7 +42,7 @@ export const PLAN_TIER_COPY: Record<PlanTierKey, PlanTierCopy> = {
     extraFeatures: ["Assistant email and subdomain"],
   },
   ultra: {
-    tagline: "Our highest level of power and capacity.",
+    tagline: "Built for sustained, high-demand work.",
     cta: "Unleash Ultra",
     priceCaption: "Billed monthly",
     extraFeatures: ["Assistant email and subdomain"],
