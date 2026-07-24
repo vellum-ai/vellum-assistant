@@ -50,7 +50,6 @@ import {
   extractMutationError,
   isPackageSwitchEligible,
 } from "./adjust-plan-utils";
-import { formatMonthly } from "./tier-pricing";
 
 interface PlanDisplay {
   actionLabel: string;
@@ -175,16 +174,18 @@ function RecommendedUpgrade({
       multiline: true,
     },
   ];
-  const deltaCents =
-    recommended.total_price_cents - (currentPackage?.total_price_cents ?? 0);
   // A Custom (customized or unpinned) sub's real tiers can diverge from any
-  // stock package, so the stock price delta and stock resource chips would
-  // misstate the direction and size of the change. The neutral "switch"
-  // relation drops the delta framing and offers the named plan by itself.
+  // stock package, so a stock price delta could misstate the change; the neutral
+  // "switch" relation offers the named plan by itself.
   const isNeutralSwitch = relation === "switch";
+  // Keep the CTA short ("Upgrade") so it sits inline in the card header beside
+  // the plan name, matching the mock. A longer label ("Upgrade for $X/mo more")
+  // overflows the header and wraps onto its own line below the name. The value
+  // prop is the summary chip below, and the prorated charge is confirmed in the
+  // switch dialog.
   const upgradeLabel = isNeutralSwitch
     ? `Switch to ${recommended.name}`
-    : `Upgrade for ${formatMonthly(deltaCents)} more`;
+    : "Upgrade";
   const isPending = pending || upgradeMutation.isPending || changePending;
 
   // Pro users change their package in place: confirm the prorated charge, then
@@ -414,7 +415,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   return (
     <Card padding="md">
       <div className="flex flex-col gap-4">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
             <PlanHeading />
             {showRenewal && (
@@ -450,7 +451,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             {display.actionLabel}
           </Button>
         </div>
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
           <PlanSpecCard
             tone="light"
             tierKey={currentTier}

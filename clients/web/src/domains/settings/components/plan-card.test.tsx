@@ -426,13 +426,14 @@ describe("PlanCard", () => {
     expect(html).not.toContain("more credits");
   });
 
-  test("a base user's banner keeps the directional upgrade framing", () => {
+  test("a base user's banner keeps the upgrade CTA (not a switch)", () => {
     // Base → Pro is a genuine Stripe-checkout upgrade, so the recommended card
-    // keeps its "Recommended" tag and the "Upgrade for … more" CTA.
+    // keeps its "Recommended" tag and a compact "Upgrade" CTA (no "Switch").
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("Recommended");
-    expect(html).toContain("Upgrade for");
+    expect(html).toContain("Upgrade");
     expect(html).not.toContain("Switch plan");
+    expect(html).not.toContain("Switch to");
   });
 
   test("current-plan row labels a customized package as custom", () => {
