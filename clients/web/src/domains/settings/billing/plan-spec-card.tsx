@@ -90,7 +90,11 @@ export function PlanSpecCard({
       </div>
       {hasSpecs ? (
         <>
-          <div className="h-px w-full bg-[var(--border-base)]" />
+          {/* mt-auto anchors the divider + chips to the bottom of the card, so
+              the chip rows align across the two cards even when one card is
+              taller (e.g. a wrapped tagline) and `items-stretch` stretches the
+              other — matching the mock, where chips sit near the card bottom. */}
+          <div className="mt-auto h-px w-full bg-[var(--border-base)]" />
           <div className="flex flex-wrap items-center gap-2">
             {specs.map((spec) => (
               <SpecChip

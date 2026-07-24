@@ -451,7 +451,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             {display.actionLabel}
           </Button>
         </div>
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
           <PlanSpecCard
             tone="light"
             tierKey={currentTier}
