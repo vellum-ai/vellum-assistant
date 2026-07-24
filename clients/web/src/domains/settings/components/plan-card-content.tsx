@@ -109,7 +109,10 @@ export function PlanCardContent({
   const showProTierChange = isProCard && isCurrent && proTierChangeMode;
 
   return (
-    <Card padding="lg" className="flex flex-col bg-[var(--surface-base)]">
+    <Card
+      padding="lg"
+      className="flex flex-col bg-[var(--surface-base)] max-sm:[&_[data-slot=card-body]]:p-4"
+    >
       <div className="flex flex-col gap-4">
         <span
           aria-hidden
