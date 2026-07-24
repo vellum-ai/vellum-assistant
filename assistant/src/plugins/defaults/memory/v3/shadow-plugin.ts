@@ -53,6 +53,7 @@ import type { EntityIndex } from "./entity-lane.js";
 import { buildEntityIndex } from "./entity-lane.js";
 import { getActiveSlugs } from "./ever-injected-store.js";
 import { computeFreshSet } from "./fresh-set.js";
+import { calibrateBm25NormK } from "./gate.js";
 import { isMemoryV3InjectionGateEnabled } from "./gate-flag.js";
 import { computeHotSet } from "./hot-set.js";
 import { bumpLanesVersion, readLanesVersion } from "./lanes-version-store.js";
@@ -745,10 +746,18 @@ export async function observeTurn(
         getWorkspaceDir(),
       ),
       // Per-turn injection gate: the `memory.v3.gate` tuning with the raw
-      // config `enabled` overwritten by the effective enable (flag AND config).
-      // The spread is the compile-time drift guard — if the gate schema and
-      // `V3GateConfig` diverge, this stops typechecking.
-      gateConfig: { ...v3.gate, enabled: gateEnabled },
+      // config `enabled` overwritten by the effective enable (flag AND config),
+      // and `bm25NormK` resolved to a corpus-calibrated value when the user has
+      // not set an explicit override (null). The spread is the compile-time
+      // drift guard — if the gate schema and `V3GateConfig` diverge, this
+      // stops typechecking.
+      gateConfig: {
+        ...v3.gate,
+        enabled: gateEnabled,
+        bm25NormK:
+          v3.gate.bm25NormK ??
+          calibrateBm25NormK(lanes.sectionIndex.sections.length),
+      },
     });
 
     // A zero-selection turn over a non-trivial pool is unusual enough to be

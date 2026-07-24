@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import type { DenseHitScored } from "../dense.js";
 import {
+  calibrateBm25NormK,
   checkV3Gate,
   DEFAULT_BM25_NORM_K,
   type V3GateConfig,
@@ -179,5 +180,49 @@ describe("checkV3Gate", () => {
       config: baseConfig({ bypassForCore: true }),
     });
     expect(on).toEqual(off);
+  });
+});
+
+describe("calibrateBm25NormK", () => {
+  test("empty corpus falls back to DEFAULT_BM25_NORM_K", () => {
+    expect(calibrateBm25NormK(0)).toBe(DEFAULT_BM25_NORM_K);
+    expect(calibrateBm25NormK(-1)).toBe(DEFAULT_BM25_NORM_K);
+  });
+
+  test("~33 sections calibrates near DEFAULT_BM25_NORM_K", () => {
+    // DEFAULT_BM25_NORM_K=9 was tuned for ~33 sections; the formula should
+    // land close to that value for this section count.
+    const k = calibrateBm25NormK(33);
+    expect(k).toBeGreaterThan(8.5);
+    expect(k).toBeLessThan(10.5);
+  });
+
+  test("small corpus produces smaller k than DEFAULT_BM25_NORM_K", () => {
+    expect(calibrateBm25NormK(5)).toBeLessThan(DEFAULT_BM25_NORM_K);
+  });
+
+  test("large corpus produces larger k than DEFAULT_BM25_NORM_K", () => {
+    expect(calibrateBm25NormK(500)).toBeGreaterThan(DEFAULT_BM25_NORM_K);
+  });
+
+  test("k grows monotonically with section count", () => {
+    const counts = [1, 5, 10, 33, 100, 500, 1000];
+    const ks = counts.map(calibrateBm25NormK);
+    for (let i = 1; i < ks.length; i++) {
+      expect(ks[i]).toBeGreaterThan(ks[i - 1]!);
+    }
+  });
+
+  test("clamped to minimum of 3 for a single section", () => {
+    // 3 * ln(1 + 0.5/1.5) ≈ 0.86, which is below the 3 floor.
+    expect(calibrateBm25NormK(1)).toBe(3);
+  });
+
+  test("very large corpus produces a finite result below 50", () => {
+    // The formula is logarithmic; 1M sections yields ~40, well below any
+    // practical ceiling. No upper clamp is applied.
+    const k = calibrateBm25NormK(1_000_000);
+    expect(k).toBeGreaterThan(DEFAULT_BM25_NORM_K);
+    expect(k).toBeLessThan(50);
   });
 });

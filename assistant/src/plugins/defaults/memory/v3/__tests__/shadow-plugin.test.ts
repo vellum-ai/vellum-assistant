@@ -31,6 +31,7 @@ import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
+import { DEFAULT_BM25_NORM_K } from "../gate.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
 import { MEMORY_V3_FULL_PROFILE_MIN_PAGES } from "../tuning-profile.js";
@@ -274,7 +275,9 @@ mock.module("../hot-set.js", () => ({
   computeHotSet: (
     ...args: Parameters<typeof realHotSet.computeHotSet>
   ): HotSetEntry[] => {
-    if (!shadowMockActive) return realHotSet.computeHotSet(...args);
+    if (!shadowMockActive) {
+      return realHotSet.computeHotSet(...args);
+    }
     hotSetOpts = args[0];
     return hotSetResult;
   },
@@ -397,7 +400,9 @@ mock.module("../sections.js", () => ({
   buildSectionIndex: async (
     ...args: Parameters<typeof realSections.buildSectionIndex>
   ) => {
-    if (!shadowMockActive) return realSections.buildSectionIndex(...args);
+    if (!shadowMockActive) {
+      return realSections.buildSectionIndex(...args);
+    }
     sectionBuilds++;
     // Capture the `pageBody` resolver so a test can exercise the capability
     // branch directly. Returning the FAKE index keeps the other tests cheap.
@@ -411,7 +416,9 @@ mock.module("../section-needle.js", () => ({
   buildSectionNeedle: (
     ...args: Parameters<typeof realSectionNeedle.buildSectionNeedle>
   ) => {
-    if (!shadowMockActive) return realSectionNeedle.buildSectionNeedle(...args);
+    if (!shadowMockActive) {
+      return realSectionNeedle.buildSectionNeedle(...args);
+    }
     needleBuilds++;
     return { query: () => [], bestSection: () => -1 };
   },
@@ -422,7 +429,9 @@ mock.module("../edge.js", () => ({
   buildEdgeGraph: async (
     ...args: Parameters<typeof realEdge.buildEdgeGraph>
   ) => {
-    if (!shadowMockActive) return realEdge.buildEdgeGraph(...args);
+    if (!shadowMockActive) {
+      return realEdge.buildEdgeGraph(...args);
+    }
     edgeBuilds++;
     return { adjacency: new Map(), hubs: new Set(), slugs: new Set() };
   },
@@ -433,8 +442,9 @@ mock.module("../learned-edges.js", () => ({
   computeLearnedEdgeGraph: (
     ...args: Parameters<typeof realLearnedEdges.computeLearnedEdgeGraph>
   ) => {
-    if (!shadowMockActive)
+    if (!shadowMockActive) {
       return realLearnedEdges.computeLearnedEdgeGraph(...args);
+    }
     learnedGraphBuilds++;
     return { adjacency: new Map(), hubs: new Set(), slugs: new Set() };
   },
@@ -449,7 +459,9 @@ mock.module("../section-dense-store.js", () => ({
       return realSectionDenseStore.ensureSectionCollection(...args);
     }
     ensureCollectionCalls++;
-    if (ensureCollectionThrows) throw new Error("qdrant unavailable");
+    if (ensureCollectionThrows) {
+      throw new Error("qdrant unavailable");
+    }
   },
 }));
 
@@ -565,7 +577,9 @@ async function produce(conversationId: string, turnIndex: number) {
     trust: {} as never,
   });
   const commit = block?.meta?.[MEMORY_V3_COMMIT_META_KEY];
-  if (typeof commit === "function") (commit as () => void)();
+  if (typeof commit === "function") {
+    (commit as () => void)();
+  }
   return block;
 }
 
@@ -783,8 +797,13 @@ describe("memory-v3 engine", () => {
       orchestrateSpy.mock.calls as unknown as unknown[][]
     )[0]![1] as { gateConfig?: unknown };
     // The spread is the live gate config: the `memory.v3.gate` tuning with the
-    // flag-derived `enabled` folded in.
-    expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: true });
+    // flag-derived `enabled` folded in, and bm25NormK resolved from null to the
+    // calibrated default (empty section index → DEFAULT_BM25_NORM_K).
+    expect(deps.gateConfig).toEqual({
+      ...GATE_DEFAULTS,
+      enabled: true,
+      bm25NormK: DEFAULT_BM25_NORM_K,
+    });
   });
 
   test("flag off (default) → gate config threads inert (enabled:false, schema-default tuning)", async () => {
@@ -793,11 +812,16 @@ describe("memory-v3 engine", () => {
 
     const deps = (
       orchestrateSpy.mock.calls as unknown as unknown[][]
-    )[0]![1] as { gateConfig?: { enabled?: boolean } };
+    )[0]![1] as { gateConfig?: { enabled?: boolean; [k: string]: unknown } };
     // Flag off → the gate is wired in but inert, and the tuning fields are the
-    // schema defaults the config carries.
+    // schema defaults the config carries. bm25NormK is resolved from null to the
+    // calibrated default (empty section index → DEFAULT_BM25_NORM_K).
     expect(deps.gateConfig?.enabled).toBe(false);
-    expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: false });
+    expect(deps.gateConfig).toEqual({
+      ...GATE_DEFAULTS,
+      enabled: false,
+      bm25NormK: DEFAULT_BM25_NORM_K,
+    });
   });
 
   test("flag on + gate.enabled:false config kill-switch → gate threads inert", async () => {
@@ -809,8 +833,13 @@ describe("memory-v3 engine", () => {
       orchestrateSpy.mock.calls as unknown as unknown[][]
     )[0]![1] as { gateConfig?: unknown };
     // The config kill-switch wins over the flag: the effective `enabled` is
-    // false, so selection always runs.
-    expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: false });
+    // false, so selection always runs. bm25NormK is resolved from null to the
+    // calibrated default (empty section index → DEFAULT_BM25_NORM_K).
+    expect(deps.gateConfig).toEqual({
+      ...GATE_DEFAULTS,
+      enabled: false,
+      bm25NormK: DEFAULT_BM25_NORM_K,
+    });
   });
 
   test("initLanes filters core to existing pages and excludes core from the hot set", async () => {
