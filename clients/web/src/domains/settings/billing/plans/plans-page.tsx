@@ -12,6 +12,7 @@ import {
   tierRelation,
 } from "@/domains/settings/billing/package-types";
 import { machineLabel } from "@/domains/settings/billing/plan-spec";
+import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
 import {
   FREE_CREDITS_USD,
   FREE_STORAGE_GIB,
@@ -61,6 +62,7 @@ import {
 } from "@/hooks/use-platform-gate";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
+import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
@@ -105,6 +107,30 @@ function packageFeatures(pkg: ProPackage, extra: readonly string[]): string[] {
     `${formatDollars(credits * 100)} in credits included`,
     ...extra,
   ];
+}
+
+/**
+ * A one-line recap of a custom sub's current tiers for the Custom row, e.g.
+ * "Medium machine · 30 GB · $50 credits". The machine reads from the tier
+ * label map, storage from the resolved GiB, and credits from the live catalog;
+ * a dimension with no value is dropped.
+ */
+function customCurrentSummary(current: CurrentTiers, proPlan: ProPlan): string {
+  const machine = current.machineTier
+    ? (MACHINE_TIER_LABEL[current.machineTier] ?? current.machineTier)
+    : "Small";
+  const parts = [`${machine} machine`];
+  if (current.storageGib != null) {
+    parts.push(`${current.storageGib} GB`);
+  }
+  const credits = current.creditTier
+    ? proPlan.credit_tiers?.find((t) => t.tier === current.creditTier)
+        ?.credits_usd
+    : null;
+  if (credits != null) {
+    parts.push(`$${credits} credits`);
+  }
+  return parts.join(" · ");
 }
 
 /**
@@ -287,6 +313,16 @@ export function PlansPage() {
         : isCleanPin(subscription.package)
           ? subscription.package.key
           : null;
+
+    // A Pro sub with no clean pin (unpinned, customized, or legacy) — exactly
+    // the subs `currentTierKey` leaves null — is represented by the Custom row,
+    // not any named card. Mark that row as their current plan and summarize its
+    // tiers, once the current tiers have loaded.
+    const isCustomCurrent = isProUser && currentTierKey === null;
+    const currentSummary =
+      isCustomCurrent && currentReady
+        ? customCurrentSummary(current, proPlan)
+        : undefined;
 
     const selectTier = (tierKey: string) => {
       // A billing action is already in flight (checkout / package switch /
@@ -522,6 +558,8 @@ export function PlansPage() {
           className="mt-10"
           onConfigure={handleConfigure}
           configureDisabled={(isProUser && !currentReady) || billingActionPending}
+          isCurrent={isCustomCurrent}
+          currentSummary={currentSummary}
         />
 
         <CustomPlanModal
