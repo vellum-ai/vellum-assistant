@@ -93,7 +93,9 @@ export function parseSlackEnvelope(raw: string): SlackEnvelope | null {
     return null;
   }
   const parsed = slackEnvelopeSchema.safeParse(json);
-  if (!parsed.success) return null;
+  if (!parsed.success) {
+    return null;
+  }
   // The schema validates the frame; `event` is confirmed to be an object and
   // typed as the inbound union for the (already-guarded) dispatch, which each
   // normalizer then re-validates.

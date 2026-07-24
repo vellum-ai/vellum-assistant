@@ -659,7 +659,9 @@ export class SlackSocketModeClient {
         // Slack Socket Mode delivers text frames; ignore any non-string frame
         // rather than casting untrusted WebSocket data to `string`.
         const frame = messageEvent.data;
-        if (typeof frame !== "string") return;
+        if (typeof frame !== "string") {
+          return;
+        }
         this.handleMessage(frame, ws);
       });
 
@@ -1556,8 +1558,8 @@ export class SlackSocketModeClient {
     if (payload.type !== "block_actions") return;
 
     // The envelope id lives on the envelope wrapper, not the interaction
-    // payload; thread it through as the update id so block_actions correlate
-    // with their frame instead of always falling back to "unknown".
+    // payload, so it is threaded in as the update id to correlate the
+    // block_actions event with its frame.
     const normalized = normalizeSlackBlockActions(
       payload,
       envelopeId ?? "unknown",
