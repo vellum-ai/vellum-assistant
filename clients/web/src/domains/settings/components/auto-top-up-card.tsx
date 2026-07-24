@@ -171,11 +171,13 @@ export function AutoTopUpCard() {
   }, [showAddPm, configQuery.data?.has_payment_method]);
 
   // Arriving with `?configure_top_up=1` (deeplinked from the Add Credits
-  // modal) replays the toggle-on path once — reveal the configure form, or the
-  // add-card gate with no usable PM — then strips the param. Never mutates the
-  // server; persistence still requires Save. Must sit before the loading/error
-  // guards below (rules-of-hooks); `handleToggleChange` is only reached once
-  // `configQuery.data` is loaded, i.e. after its declaration ran this render.
+  // modal) replays the toggle-on path once, then strips the param. Never
+  // mutates the server; persistence still requires Save. Must sit before the
+  // loading/error guards below (rules-of-hooks), so — like the no-PM effect
+  // above — it reads through `configQuery.data` instead of the post-guard
+  // `config`/handlers, reproducing the disabled→on branch of
+  // `handleToggleChange`: reveal the add-card gate with no usable PM, else open
+  // the configure form (the two `reset()`s match `enterFormMode`).
   const configureTopUpRequested =
     searchParams.get("configure_top_up") === "1";
   useEffect(() => {
@@ -185,18 +187,32 @@ export function AutoTopUpCard() {
     const next = new URLSearchParams(searchParams);
     next.delete("configure_top_up");
     setSearchParams(next, { replace: true });
-    if (configQuery.data.enabled !== true) {
-      handleToggleChange(true);
-      const reduceMotion =
-        typeof window !== "undefined" &&
-        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ===
-          true;
-      cardRef.current?.scrollIntoView({
-        behavior: reduceMotion ? "auto" : "smooth",
-        block: "center",
-      });
+    const cfg = configQuery.data;
+    if (cfg.enabled === true) {
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per arrival; `handleToggleChange`/`searchParams` excluded to avoid re-runs and pre-guard TDZ
+    setPendingEnable(true);
+    // `cfg.enabled` is false here, so this matches `disabledAfterDeclines`.
+    if (
+      !cfg.has_payment_method ||
+      cfg.disabled_due_to_repeated_failures === true
+    ) {
+      setShowAddPm(true);
+      setBannerDismissed(false);
+    } else {
+      setShowAddPm(false);
+      updateMutation.reset();
+      disableMutation.reset();
+      setMode("form");
+    }
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+    cardRef.current?.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "center",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per arrival; setters/mutations and `searchParams` intentionally excluded
   }, [configureTopUpRequested, configQuery.data]);
 
   if (configQuery.isLoading) {
