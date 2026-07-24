@@ -8,7 +8,7 @@ import {
 import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import type {
   EventTargeting,
   ReplaySubscriber,
@@ -26,7 +26,9 @@ import {
 
 const CONV = "conv_test";
 
-function mkEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
+function mkEvent(
+  overrides: Partial<AssistantEventEnvelope> = {},
+): AssistantEventEnvelope {
   const conversationId =
     "conversationId" in overrides ? overrides.conversationId : CONV;
   return {
@@ -39,7 +41,7 @@ function mkEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
       text: "x",
     },
     ...overrides,
-  } as AssistantEvent;
+  } as AssistantEventEnvelope;
 }
 
 describe("assistant-stream-state", () => {

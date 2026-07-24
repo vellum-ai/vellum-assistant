@@ -14,7 +14,7 @@
  * `sync_changed`) so subscribed clients re-fetch the data that changed.
  */
 
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import {
   pluginAssistantEventHub,
   type PluginEventHub,
@@ -32,7 +32,7 @@ export type PublishEventOptions = NonNullable<
  * host-proxy control event, which plugins may not publish.
  */
 export function publishEvent(
-  event: AssistantEvent,
+  event: AssistantEventEnvelope,
   options?: PublishEventOptions,
 ): Promise<void> {
   return pluginAssistantEventHub.publish(event, options);

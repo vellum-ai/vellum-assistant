@@ -14,14 +14,14 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import {
   AssistantEventHub,
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
 
-function makeSyncChangedEvent(originClientId?: string): AssistantEvent {
+function makeSyncChangedEvent(originClientId?: string): AssistantEventEnvelope {
   return {
     id: "evt_test_sync",
     conversationId: undefined,
@@ -37,9 +37,9 @@ function makeSyncChangedEvent(originClientId?: string): AssistantEvent {
 describe("AssistantEventHub — self-echo suppression (excludeClientId)", () => {
   test("skips the named client and delivers to every other client", async () => {
     const hub = new AssistantEventHub();
-    const receivedA: AssistantEvent[] = [];
-    const receivedB: AssistantEvent[] = [];
-    const receivedC: AssistantEvent[] = [];
+    const receivedA: AssistantEventEnvelope[] = [];
+    const receivedB: AssistantEventEnvelope[] = [];
+    const receivedC: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "client",
@@ -82,8 +82,8 @@ describe("AssistantEventHub — self-echo suppression (excludeClientId)", () => 
 
   test("delivers to every subscriber when excludeClientId is omitted", async () => {
     const hub = new AssistantEventHub();
-    const receivedA: AssistantEvent[] = [];
-    const receivedB: AssistantEvent[] = [];
+    const receivedA: AssistantEventEnvelope[] = [];
+    const receivedB: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "client",
@@ -112,7 +112,7 @@ describe("AssistantEventHub — self-echo suppression (excludeClientId)", () => 
 
   test("excludeClientId does not match process-type subscribers", async () => {
     const hub = new AssistantEventHub();
-    const receivedProcess: AssistantEvent[] = [];
+    const receivedProcess: AssistantEventEnvelope[] = [];
 
     // A process subscriber sits in the same hub as a client whose id
     // matches `excludeClientId`. It must never be suppressed because
@@ -134,8 +134,8 @@ describe("AssistantEventHub — self-echo suppression (excludeClientId)", () => 
 
   test("excludeClientId composes with conversation-scoped subscribers", async () => {
     const hub = new AssistantEventHub();
-    const receivedA: AssistantEvent[] = [];
-    const receivedB: AssistantEvent[] = [];
+    const receivedA: AssistantEventEnvelope[] = [];
+    const receivedB: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "client",
@@ -159,7 +159,7 @@ describe("AssistantEventHub — self-echo suppression (excludeClientId)", () => 
     });
 
     // Scoped event for sess_x; both clients filter to sess_x; exclude A.
-    const event: AssistantEvent = {
+    const event: AssistantEventEnvelope = {
       id: "evt_scoped",
       conversationId: "sess_x",
       emittedAt: "2026-05-03T00:00:00.000Z",
@@ -179,8 +179,8 @@ describe("AssistantEventHub — self-echo suppression (excludeClientId)", () => 
 
 describe("broadcastMessage — derives excludeClientId from sync_changed.originClientId", () => {
   test("skips the originating client when originClientId is present", async () => {
-    const receivedA: AssistantEvent[] = [];
-    const receivedB: AssistantEvent[] = [];
+    const receivedA: AssistantEventEnvelope[] = [];
+    const receivedB: AssistantEventEnvelope[] = [];
 
     const subA = assistantEventHub.subscribe({
       type: "client",
@@ -221,8 +221,8 @@ describe("broadcastMessage — derives excludeClientId from sync_changed.originC
   });
 
   test("fans out to every client when originClientId is absent", async () => {
-    const receivedA: AssistantEvent[] = [];
-    const receivedB: AssistantEvent[] = [];
+    const receivedA: AssistantEventEnvelope[] = [];
+    const receivedB: AssistantEventEnvelope[] = [];
 
     const subA = assistantEventHub.subscribe({
       type: "client",
@@ -260,7 +260,7 @@ describe("broadcastMessage — derives excludeClientId from sync_changed.originC
   });
 
   test("ignores an empty-string originClientId (treats as absent)", async () => {
-    const receivedA: AssistantEvent[] = [];
+    const receivedA: AssistantEventEnvelope[] = [];
 
     const subA = assistantEventHub.subscribe({
       type: "client",

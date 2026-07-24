@@ -93,7 +93,7 @@ import {
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getConversationPersistedSeq } from "../persistence/conversation-crud.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   getCurrentSeq,
@@ -394,7 +394,7 @@ describe("tool preview lifecycle", () => {
       const deps = createMockDeps({
         onEvent: (msg: ServerMessage) => {
           collector.events.push(msg);
-          stampAndBuffer(msg as unknown as AssistantEvent);
+          stampAndBuffer(msg as unknown as AssistantEventEnvelope);
         },
         ctx: {
           ...createMockDeps().ctx,
@@ -408,12 +408,12 @@ describe("tool preview lifecycle", () => {
         type: "assistant_text_delta",
         text: "hello",
         conversationId,
-      } as unknown as AssistantEvent);
+      } as unknown as AssistantEventEnvelope);
       stampAndBuffer({
         type: "assistant_text_delta",
         text: " world",
         conversationId,
-      } as unknown as AssistantEvent);
+      } as unknown as AssistantEventEnvelope);
 
       // WHEN a tool_use is handled (its block is already durable)
       handleToolUse(state, deps, {
@@ -430,7 +430,7 @@ describe("tool preview lifecycle", () => {
       expect(toolUseStart).toBeDefined();
       expect(getConversationPersistedSeq(conversationId)).toBe(getCurrentSeq());
       expect(getConversationPersistedSeq(conversationId)).toBe(
-        (toolUseStart as unknown as AssistantEvent).seq ?? null,
+        (toolUseStart as unknown as AssistantEventEnvelope).seq ?? null,
       );
     });
   });
@@ -451,7 +451,7 @@ describe("tool preview lifecycle", () => {
       const deps = createMockDeps({
         onEvent: (msg: ServerMessage) => {
           events.push(msg);
-          stampAndBuffer(msg as unknown as AssistantEvent);
+          stampAndBuffer(msg as unknown as AssistantEventEnvelope);
         },
         ctx: {
           ...createMockDeps().ctx,
@@ -494,7 +494,7 @@ describe("tool preview lifecycle", () => {
         },
       ]);
       expect(state.lastStreamedContentSeq).toBe(
-        (thinkingDelta as unknown as AssistantEvent).seq ?? undefined,
+        (thinkingDelta as unknown as AssistantEventEnvelope).seq ?? undefined,
       );
     });
 
@@ -531,7 +531,7 @@ describe("tool preview lifecycle", () => {
       expect(thinkingDelta).toBeDefined();
       expect(getConversationPersistedSeq(conversationId)).toBe(getCurrentSeq());
       expect(getConversationPersistedSeq(conversationId)).toBe(
-        (thinkingDelta as unknown as AssistantEvent).seq ?? null,
+        (thinkingDelta as unknown as AssistantEventEnvelope).seq ?? null,
       );
     });
 
@@ -562,7 +562,7 @@ describe("tool preview lifecycle", () => {
       expect(toolResult).toBeDefined();
       expect(getConversationPersistedSeq(conversationId)).toBe(getCurrentSeq());
       expect(getConversationPersistedSeq(conversationId)).toBe(
-        (toolResult as unknown as AssistantEvent).seq ?? null,
+        (toolResult as unknown as AssistantEventEnvelope).seq ?? null,
       );
     });
 
@@ -617,7 +617,7 @@ describe("tool preview lifecycle", () => {
       const deps = createMockDeps({
         onEvent: (msg: ServerMessage) => {
           events.push(msg);
-          stampAndBuffer(msg as unknown as AssistantEvent);
+          stampAndBuffer(msg as unknown as AssistantEventEnvelope);
         },
         ctx: {
           ...createMockDeps().ctx,

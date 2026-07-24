@@ -127,7 +127,7 @@ export { RiskLevel } from "./types.js";
 // Workspace-local plugins resolve these via the boot-time shim, which
 // re-binds each from the assistant's globalThis-parked namespace so they
 // share module identity with the assistant's own singletons.
-export type { AssistantEvent } from "../runtime/assistant-event.js";
+export type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 export type {
   AssistantEventCallback,
   AssistantEventFilter,

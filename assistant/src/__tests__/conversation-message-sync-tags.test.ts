@@ -4,7 +4,7 @@ import {
   conversationMessagesSyncTag,
   type SyncChangedEvent,
 } from "../daemon/message-types/sync.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import {
   assistantEventHub,
   broadcastMessage,
@@ -15,8 +15,8 @@ import { waitFor } from "./helpers/wait-for.js";
 async function captureEvents(
   action: () => void | Promise<unknown>,
   expectedCount: number,
-): Promise<AssistantEvent[]> {
-  const received: AssistantEvent[] = [];
+): Promise<AssistantEventEnvelope[]> {
+  const received: AssistantEventEnvelope[] = [];
   const subscription = assistantEventHub.subscribe({
     type: "process",
     callback: (event) => {
@@ -34,7 +34,7 @@ async function captureEvents(
   }
 }
 
-function syncMessages(events: AssistantEvent[]): SyncChangedEvent[] {
+function syncMessages(events: AssistantEventEnvelope[]): SyncChangedEvent[] {
   return events
     .map((event) => event.message)
     .filter(

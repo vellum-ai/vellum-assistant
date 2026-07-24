@@ -13,10 +13,12 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 
-function makeEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
+function makeEvent(
+  overrides: Partial<AssistantEventEnvelope> = {},
+): AssistantEventEnvelope {
   return {
     id: "evt_test",
     conversationId: "sess_web",
@@ -35,8 +37,8 @@ function makeEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
 describe("AssistantEventHub — targeted delivery (targetClientId)", () => {
   test("delivers only to the named client, bypassing conversation filter", async () => {
     const hub = new AssistantEventHub();
-    const receivedA: AssistantEvent[] = [];
-    const receivedB: AssistantEvent[] = [];
+    const receivedA: AssistantEventEnvelope[] = [];
+    const receivedB: AssistantEventEnvelope[] = [];
 
     // client-a is subscribed to "sess_macos" — different from the event's "sess_web"
     hub.subscribe({
@@ -75,8 +77,8 @@ describe("AssistantEventHub — targeted delivery (targetClientId)", () => {
 
   test("does not deliver to a client with a different clientId", async () => {
     const hub = new AssistantEventHub();
-    const receivedA: AssistantEvent[] = [];
-    const receivedB: AssistantEvent[] = [];
+    const receivedA: AssistantEventEnvelope[] = [];
+    const receivedB: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "client",
@@ -106,7 +108,7 @@ describe("AssistantEventHub — targeted delivery (targetClientId)", () => {
 
   test("targeted delivery with wrong capability does not deliver", async () => {
     const hub = new AssistantEventHub();
-    const receivedA: AssistantEvent[] = [];
+    const receivedA: AssistantEventEnvelope[] = [];
 
     // client-a only has host_file capability, NOT host_bash
     hub.subscribe({
@@ -130,7 +132,7 @@ describe("AssistantEventHub — targeted delivery (targetClientId)", () => {
 
   test("targeted delivery with matching capability delivers", async () => {
     const hub = new AssistantEventHub();
-    const receivedA: AssistantEvent[] = [];
+    const receivedA: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "client",
@@ -152,7 +154,7 @@ describe("AssistantEventHub — targeted delivery (targetClientId)", () => {
 
   test("process-type subscriber is never matched by targetClientId", async () => {
     const hub = new AssistantEventHub();
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "process",
@@ -173,8 +175,8 @@ describe("AssistantEventHub — targeted delivery (targetClientId)", () => {
 describe("AssistantEventHub — untargeted capability targeting is unchanged", () => {
   test("targetCapability without targetClientId still applies conversation scoping", async () => {
     const hub = new AssistantEventHub();
-    const receivedA: AssistantEvent[] = [];
-    const receivedB: AssistantEvent[] = [];
+    const receivedA: AssistantEventEnvelope[] = [];
+    const receivedB: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "client",

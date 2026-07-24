@@ -97,17 +97,18 @@ export function formatSseHeartbeat(): string {
 
 // -- Daemon-side specialization ------------------------------------------------
 
-/**
- * Daemon-side event envelope: the canonical `AssistantEventEnvelope` wrapping
- * an `AssistantEvent` message payload.
- */
-export type AssistantEvent = AssistantEventEnvelope;
+// Re-export the canonical envelope so daemon callers import it alongside the
+// builder below.
+export type { AssistantEventEnvelope };
 
-/** Build a daemon event envelope around an `AssistantEvent` message payload. */
+/**
+ * Build a daemon event envelope (`AssistantEventEnvelope`) around an
+ * `AssistantEvent` message payload.
+ */
 export function buildAssistantEvent(
   message: AssistantEventMessage,
   conversationId?: string,
-): AssistantEvent {
+): AssistantEventEnvelope {
   return baseBuildAssistantEvent<AssistantEventMessage>(
     message,
     conversationId,

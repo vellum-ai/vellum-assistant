@@ -25,7 +25,7 @@ import {
 import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { getSignalsDir } from "../util/platform.js";
 
 // ── Write side (daemon) ──────────────────────────────────────────────
@@ -85,7 +85,7 @@ let sequence = 0;
  */
 export function appendEventToStream(
   conversationId: string,
-  event: AssistantEvent,
+  event: AssistantEventEnvelope,
 ): void {
   if (getIsContainerized()) return;
 
@@ -120,7 +120,7 @@ export interface EventStreamWatcher {
 
 /**
  * Register as a subscriber for a conversation's event stream and
- * invoke `callback` for each new {@link AssistantEvent} written.
+ * invoke `callback` for each new {@link AssistantEventEnvelope} written.
  *
  * Creates a subscriber directory at
  * `signals/events/<conversationId>.<pid>/`. The daemon writes each
@@ -131,7 +131,7 @@ export interface EventStreamWatcher {
  */
 export function watchEventStream(
   conversationId: string,
-  callback: (event: AssistantEvent) => void,
+  callback: (event: AssistantEventEnvelope) => void,
 ): EventStreamWatcher {
   if (getIsContainerized()) {
     return { dispose() {} };
@@ -160,7 +160,7 @@ export function watchEventStream(
       processedFiles.add(file);
       try {
         const data = readFileSync(join(subDir, file), "utf-8");
-        const event = JSON.parse(data) as AssistantEvent;
+        const event = JSON.parse(data) as AssistantEventEnvelope;
         callback(event);
       } catch {
         // Skip unreadable or malformed event files.

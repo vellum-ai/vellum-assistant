@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import {
   formatSseFrame,
   formatSseHeartbeat,
@@ -8,9 +8,9 @@ import {
 
 // ── Type / shape tests ────────────────────────────────────────────────────────
 
-describe("AssistantEvent shape", () => {
+describe("AssistantEventEnvelope shape", () => {
   test("accepts a minimal valid event", () => {
-    const event: AssistantEvent = {
+    const event: AssistantEventEnvelope = {
       id: "evt_001",
       emittedAt: "2026-02-18T21:20:00.000Z",
       message: {
@@ -27,7 +27,7 @@ describe("AssistantEvent shape", () => {
   });
 
   test("accepts a full event with conversationId", () => {
-    const event: AssistantEvent = {
+    const event: AssistantEventEnvelope = {
       id: "evt_002",
       conversationId: "conv_456",
       emittedAt: "2026-02-18T21:20:00.000Z",
@@ -45,7 +45,7 @@ describe("AssistantEvent shape", () => {
 // ── SSE framing tests ─────────────────────────────────────────────────────────
 
 describe("formatSseFrame", () => {
-  const baseEvent: AssistantEvent = {
+  const baseEvent: AssistantEventEnvelope = {
     id: "evt_003",
     conversationId: "sess_xyz",
     emittedAt: "2026-02-18T00:00:00.000Z",
@@ -73,7 +73,7 @@ describe("formatSseFrame", () => {
     const dataLine = frame.split("\n").find((l) => l.startsWith("data: "))!;
     const parsed = JSON.parse(
       dataLine.slice("data: ".length),
-    ) as AssistantEvent;
+    ) as AssistantEventEnvelope;
 
     expect(parsed.id).toBe(baseEvent.id);
     expect(parsed.conversationId).toBe(baseEvent.conversationId);
@@ -82,13 +82,16 @@ describe("formatSseFrame", () => {
   });
 
   test("id line uses the event id verbatim", () => {
-    const event: AssistantEvent = { ...baseEvent, id: "unique-evt-id-xyz" };
+    const event: AssistantEventEnvelope = {
+      ...baseEvent,
+      id: "unique-evt-id-xyz",
+    };
     const frame = formatSseFrame(event);
     expect(frame).toContain("id: unique-evt-id-xyz\n");
   });
 
   test("strips newline characters from event.id to prevent SSE frame injection", () => {
-    const event: AssistantEvent = {
+    const event: AssistantEventEnvelope = {
       ...baseEvent,
       id: 'foo\ndata: {"injected":true}',
     };
@@ -113,7 +116,7 @@ describe("formatSseFrame", () => {
   });
 
   test("seq lands in the JSON payload (envelope) when set, never in SSE id", () => {
-    const event: AssistantEvent = {
+    const event: AssistantEventEnvelope = {
       ...baseEvent,
       id: "uuid-event-id",
       seq: 42,

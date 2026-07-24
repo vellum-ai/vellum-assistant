@@ -42,7 +42,7 @@ export function capabilityForMessageType(
 }
 import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
-import type { AssistantEvent } from "./assistant-event.js";
+import type { AssistantEventEnvelope } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
 import { stampAndBuffer } from "./assistant-stream-state.js";
 
@@ -57,7 +57,7 @@ export type AssistantEventFilter = {
 };
 
 export type AssistantEventCallback = (
-  event: AssistantEvent,
+  event: AssistantEventEnvelope,
 ) => void | Promise<void>;
 
 /** Opaque handle returned by `subscribe`. Call `dispose()` to remove the subscription. */
@@ -138,7 +138,7 @@ type SubscriberInput = DistributiveOmit<
 // ── Hub ───────────────────────────────────────────────────────────────────────
 
 /**
- * Lightweight pub/sub hub for `AssistantEvent` messages.
+ * Lightweight pub/sub hub for `AssistantEventEnvelope` messages.
  *
  * Filtering is applied at subscription level:
  *   - `conversationId`: scoped events match subscribers with same conversationId
@@ -301,7 +301,7 @@ export class AssistantEventHub {
    * delivery to remaining subscribers.
    */
   async publish(
-    event: AssistantEvent,
+    event: AssistantEventEnvelope,
     options?: {
       targetCapability?: HostProxyCapability;
       targetClientId?: string;
@@ -430,7 +430,7 @@ export class AssistantEventHub {
    * event based on the same conversation matching rules as publish().
    */
   hasSubscribersForEvent(
-    event: Pick<AssistantEvent, "conversationId">,
+    event: Pick<AssistantEventEnvelope, "conversationId">,
   ): boolean {
     for (const entry of this.subscribers) {
       if (!entry.active) continue;
@@ -563,7 +563,7 @@ export class AssistantEventHub {
  */
 export const assistantEventHub = new AssistantEventHub({ maxSubscribers: 100 });
 
-// ── Convenience: ServerMessage → AssistantEvent publish ───────────────────────
+// ── Convenience: ServerMessage → AssistantEventEnvelope publish ───────────────────────
 
 /**
  * Promise chain that serializes publishes so subscribers always observe
@@ -572,7 +572,7 @@ export const assistantEventHub = new AssistantEventHub({ maxSubscribers: 100 });
 let _hubChain = Promise.resolve();
 
 /**
- * Wraps a `ServerMessage` in an `AssistantEvent` envelope and publishes it
+ * Wraps a `ServerMessage` in an `AssistantEventEnvelope` envelope and publishes it
  * to the process-level hub.
  *
  * When `conversationId` is omitted, it is auto-extracted from the message

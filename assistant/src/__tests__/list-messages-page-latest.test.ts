@@ -31,7 +31,7 @@ import {
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { messages } from "../persistence/schema/index.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   getCurrentSeq,
@@ -130,7 +130,7 @@ function advanceGlobalSeq(count: number): void {
         conversationId: "seq-bump-conv",
         text: "x",
       },
-    } as AssistantEvent);
+    } as AssistantEventEnvelope);
   }
 }
 

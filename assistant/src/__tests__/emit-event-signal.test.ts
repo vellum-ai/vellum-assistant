@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
 import { getSignalsDir } from "../util/platform.js";
@@ -40,7 +40,7 @@ describe("handleEmitEventSignal", () => {
 
     writeFileSync(signalPath(), JSON.stringify(payload), "utf-8");
 
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     let resolveDelivered: (() => void) | null = null;
     const delivered = new Promise<void>((resolve) => {
       resolveDelivered = resolve;

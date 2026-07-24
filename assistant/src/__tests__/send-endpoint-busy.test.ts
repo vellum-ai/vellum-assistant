@@ -100,7 +100,7 @@ mock.module(
 import { __resetGuardianDeliveryCacheForTest } from "../contacts/guardian-delivery-reader.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import type { ApprovalConversationGenerator } from "../runtime/http-types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -375,7 +375,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   });
 
   test("publishes events to assistantEventHub when conversation is idle", async () => {
-    const publishedEvents: AssistantEvent[] = [];
+    const publishedEvents: AssistantEventEnvelope[] = [];
 
     await startServer(() => makeCompletingConversation());
 
@@ -384,7 +384,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       await import("../runtime/assistant-event-hub.js");
     routeEventHub.subscribe({
       type: "process",
-      callback: (event: AssistantEvent) => {
+      callback: (event: AssistantEventEnvelope) => {
         publishedEvents.push(event);
       },
     });

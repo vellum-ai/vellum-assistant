@@ -1,6 +1,6 @@
 /**
  * Tests that daemon outbound messages are mirrored into the
- * assistant-events hub as AssistantEvent objects.
+ * assistant-events hub as AssistantEventEnvelope objects.
  *
  * Tests:
  *   - send()      → one mirrored assistant event per message
@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 
@@ -54,7 +54,7 @@ describe("buildAssistantEvent", () => {
 describe("daemon send → one mirrored assistant event", () => {
   test("publishing a single event to the hub delivers exactly one event", async () => {
     const hub = new AssistantEventHub();
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "process",
@@ -78,7 +78,7 @@ describe("daemon send → one mirrored assistant event", () => {
 
   test("conversationId falls back to explicit parameter when message lacks it", async () => {
     const hub = new AssistantEventHub();
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "process",
@@ -100,7 +100,7 @@ describe("daemon send → one mirrored assistant event", () => {
 describe("daemon broadcast → one mirrored event per message (not per socket)", () => {
   test("one broadcast publish produces exactly one hub event regardless of subscriber count", async () => {
     const hub = new AssistantEventHub();
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
 
     // Two subscribers (simulating two wire clients)
     hub.subscribe({
@@ -130,7 +130,7 @@ describe("daemon broadcast → one mirrored event per message (not per socket)",
 
   test("broadcast publishes once; single send publishes once — not additive", async () => {
     const hub = new AssistantEventHub();
-    const publishedEvents: AssistantEvent[] = [];
+    const publishedEvents: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "process",

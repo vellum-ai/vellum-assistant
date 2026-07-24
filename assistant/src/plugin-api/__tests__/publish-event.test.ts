@@ -7,11 +7,11 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { AssistantEvent } from "../../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../../runtime/assistant-event.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { publishEvent } from "../publish-event.js";
 
-function syncEvent(): AssistantEvent {
+function syncEvent(): AssistantEventEnvelope {
   return {
     id: "evt-1",
     conversationId: "conv-1",
@@ -19,13 +19,13 @@ function syncEvent(): AssistantEvent {
     message: {
       type: "sync_changed",
       tags: ["my-app:items"],
-    } as unknown as AssistantEvent["message"],
+    } as unknown as AssistantEventEnvelope["message"],
   };
 }
 
 describe("publishEvent", () => {
   test("delivers a plain event to hub subscribers", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const sub = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {
@@ -42,12 +42,12 @@ describe("publishEvent", () => {
   });
 
   test("rejects a host-proxy control event", async () => {
-    const hostEvent: AssistantEvent = {
+    const hostEvent: AssistantEventEnvelope = {
       id: "evt-2",
       emittedAt: "2026-01-01T00:00:00.000Z",
       message: {
         type: "host_bash_request",
-      } as unknown as AssistantEvent["message"],
+      } as unknown as AssistantEventEnvelope["message"],
     };
     await expect(publishEvent(hostEvent)).rejects.toThrow(/host-proxy/);
   });

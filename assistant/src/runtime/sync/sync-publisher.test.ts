@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { SYNC_TAGS } from "../../daemon/message-types/sync.js";
-import type { AssistantEvent } from "../assistant-event.js";
+import type { AssistantEventEnvelope } from "../assistant-event.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { publishSyncInvalidation } from "./sync-publisher.js";
 
@@ -18,7 +18,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 
 describe("sync publisher", () => {
   test("publishes a deduped sync_changed event", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {
@@ -104,7 +104,7 @@ describe("sync publisher", () => {
   });
 
   test("forwards originClientId when provided", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {
@@ -132,7 +132,7 @@ describe("sync publisher", () => {
   });
 
   test("omits originClientId when not provided", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {
@@ -141,7 +141,9 @@ describe("sync publisher", () => {
     });
 
     try {
-      const message = await publishSyncInvalidation([SYNC_TAGS.assistantAvatar]);
+      const message = await publishSyncInvalidation([
+        SYNC_TAGS.assistantAvatar,
+      ]);
 
       await waitFor(() => received.length === 1);
 
