@@ -287,10 +287,10 @@ export function BillingOnboardingModal({
     );
   }, [domainSetupAvailable, isResize, hasExistingDomain]);
 
-  // "Continue in the background" no longer advances the wizard while the
-  // machine is busy — it kicks the idempotent ensure-provisioned reconcile,
-  // toasts (error-aware), and closes the takeover so the user is handed back to
-  // the app rather than parked on the email/All-set steps mid-provisioning.
+  // "Continue in the background" kicks the idempotent ensure-provisioned
+  // reconcile, shows an error-aware toast, and closes the takeover so the user
+  // is handed back to the app rather than parked on the email/All-set steps
+  // mid-provisioning.
   const escapeProvisioning = useCallback(() => {
     provisioning.kickProvisioning();
     toast.info(
@@ -350,7 +350,9 @@ export function BillingOnboardingModal({
     <Modal.Root
       open={open}
       onOpenChange={(o) => {
-        if (!o) onClose();
+        if (!o) {
+          onClose();
+        }
       }}
     >
       <Modal.Content
