@@ -223,8 +223,8 @@ export class ConversationGraphMemory {
       }
 
       // Resolve each candidate conversation's type. A summary whose conversation
-      // row is gone is dropped, matching the old innerJoin. Chunk the id list
-      // under SQLite's bound-parameter limit.
+      // row is gone is skipped (only summaries for a live conversation count).
+      // Chunk the id list under SQLite's bound-parameter limit.
       const typeByConversation = new Map<string, string>();
       const CHUNK = 500;
       for (let i = 0; i < candidateKeys.length; i += CHUNK) {
@@ -251,14 +251,18 @@ export class ConversationGraphMemory {
       for (const scopeKey of candidateKeys) {
         const type = typeByConversation.get(scopeKey);
         if (type === undefined) {
-          continue; // orphan summary — the old innerJoin dropped it
+          continue; // its conversation row is gone — skip it
         }
         if (type === "background" || type === "scheduled") {
-          if (backgroundKeys.length < 1) backgroundKeys.push(scopeKey);
+          if (backgroundKeys.length < 1) {
+            backgroundKeys.push(scopeKey);
+          }
         } else if (selectedKeys.length < 3) {
           selectedKeys.push(scopeKey);
         }
-        if (selectedKeys.length >= 3) break;
+        if (selectedKeys.length >= 3) {
+          break;
+        }
       }
       if (selectedKeys.length < 3) {
         selectedKeys.push(
