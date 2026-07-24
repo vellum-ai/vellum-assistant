@@ -889,6 +889,40 @@ describe("ProviderCreateForm submit sequence", () => {
     expect(getSubmitButton().disabled).toBe(true);
   });
 
+  test("a stored label with surrounding whitespace still blocks its trimmed duplicate", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={["openai-compatible-personal"]}
+          connections={[
+            {
+              name: "openai-compatible-personal",
+              provider: "openai-compatible",
+              label: " xAI ",
+              auth: {
+                type: "api_key",
+                credential: "credential/openai-compatible-personal/api_key",
+              },
+              models: [{ id: "model-1" }],
+            } as unknown as ProviderConnection,
+          ]}
+          defaultProviderType="openai-compatible"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.change(getInputByPlaceholder("xAI"), {
+      target: { value: "xAI" },
+    });
+    expect(document.body.textContent).toContain(
+      "A custom provider with this name already exists.",
+    );
+    expect(getSubmitButton().disabled).toBe(true);
+  });
+
   test("clicking Cancel invokes onCancel", () => {
     let cancelled = false;
     render(

@@ -49,8 +49,9 @@ export function customProviderNameConflict(
     (c) =>
       c.provider === OPENAI_COMPATIBLE_PROVIDER &&
       c.name !== selfName &&
-      (c.label && c.label.trim() !== "" ? c.label : c.name).toLowerCase() ===
-        lower,
+      // Same identity rule as the daemon's assertValidCustomProviderIdentity:
+      // trimmed label falling back to name.
+      (c.label?.trim() || c.name).toLowerCase() === lower,
   );
   return duplicate ? "duplicate" : null;
 }
