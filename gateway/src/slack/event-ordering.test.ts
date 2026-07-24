@@ -5,8 +5,7 @@ import type {
   SlackAppMentionEvent,
   SlackMessageChangedEvent,
   SlackMessageDeletedEvent,
-  SlackReactionAddedEvent,
-  SlackReactionRemovedEvent,
+  SlackReactionEvent,
 } from "./normalize.js";
 
 const CHANNEL = "C0ABCDEF";
@@ -20,7 +19,7 @@ describe("slackEventOrderingKey — well-formed events", () => {
       user: "U1",
       reaction: "thumbsup",
       item: { type: "message", channel: CHANNEL, ts: TS },
-    } as SlackReactionAddedEvent;
+    } as SlackReactionEvent;
     expect(slackEventOrderingKey(event, EVENT_ID)).toBe(`${CHANNEL}:${TS}`);
   });
 
@@ -30,7 +29,7 @@ describe("slackEventOrderingKey — well-formed events", () => {
       user: "U1",
       reaction: "thumbsup",
       item: { type: "message", channel: CHANNEL, ts: TS },
-    } as SlackReactionRemovedEvent;
+    } as SlackReactionEvent;
     expect(slackEventOrderingKey(event, EVENT_ID)).toBe(`${CHANNEL}:${TS}`);
   });
 
@@ -76,7 +75,7 @@ describe("slackEventOrderingKey — malformed events do not crash the emit path"
       type: "reaction_added",
       user: "U1",
       reaction: "thumbsup",
-    } as unknown as SlackReactionAddedEvent;
+    } as unknown as SlackReactionEvent;
     expect(() => slackEventOrderingKey(event, EVENT_ID)).not.toThrow();
     expect(slackEventOrderingKey(event, EVENT_ID)).toBe(
       `${EVENT_ID}:${EVENT_ID}`,

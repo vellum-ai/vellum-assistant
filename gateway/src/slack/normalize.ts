@@ -984,11 +984,12 @@ const slackReactionEventSchema = z.object({
   item_user: optionalString(),
   event_ts: optionalString(),
 });
-type SlackReactionEvent = z.infer<typeof slackReactionEventSchema>;
-
-/** Kept for `socket-mode.ts`'s narrowing casts; both are one payload shape. */
-export type SlackReactionAddedEvent = SlackReactionEvent;
-export type SlackReactionRemovedEvent = SlackReactionEvent;
+/**
+ * Slack `reaction_added` / `reaction_removed` share this one payload shape;
+ * the add-vs-remove distinction is the runtime `type` discriminator (and the
+ * explicit `op` the caller passes), not the type.
+ */
+export type SlackReactionEvent = z.infer<typeof slackReactionEventSchema>;
 
 // Compile-time cross-check against the official Slack event types, via the
 // shared `webhook-crosscheck` helpers. `@slack/types` is a types-only
