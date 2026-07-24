@@ -1,13 +1,20 @@
 import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
 
+interface FetchAttachmentContentOptions {
+  representation?: "original" | "display";
+  signal?: AbortSignal;
+}
+
 /**
  * Fetch an attachment's stored bytes from the daemon content endpoint.
  * Returns null when the id can never resolve (synthetic `rehydrated:` ids
- * from the text-parsing history fallback) or the fetch fails.
+ * from the text-parsing history fallback) or the fetch fails. Aborted requests
+ * reject so TanStack Query can classify cancellation correctly.
  */
 export async function fetchAttachmentContentBlob(
   assistantId: string,
   attachmentId: string,
+  options: FetchAttachmentContentOptions = {},
 ): Promise<Blob | null> {
   if (!attachmentId || attachmentId.startsWith("rehydrated:")) {
     return null;
@@ -16,14 +23,21 @@ export async function fetchAttachmentContentBlob(
   try {
     const { data, error } = await attachmentsByIdContentGet({
       path: { assistant_id: assistantId, id: attachmentId },
+      query: options.representation
+        ? { representation: options.representation }
+        : undefined,
       parseAs: "blob",
+      signal: options.signal,
       throwOnError: false,
     });
     if (!error && data instanceof Blob) {
       return data;
     }
     return null;
-  } catch {
+  } catch (error) {
+    if (options.signal?.aborted) {
+      throw error;
+    }
     // Network failure, assistant offline, etc.
     return null;
   }

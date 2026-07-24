@@ -122,9 +122,11 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   const { data: blob, isError } = useQuery({
     // The attachment id is stable and unique, so it is the cache key — reopening
     // the same attachment reuses the fetched blob instead of refetching.
-    queryKey: ["attachmentContent", assistantId, attachment.id],
-    queryFn: async () => {
-      const data = await fetchAttachmentContentBlob(assistantId!, attachment.id);
+    queryKey: ["attachmentContent", "original", assistantId, attachment.id],
+    queryFn: async ({ signal }) => {
+      const data = await fetchAttachmentContentBlob(assistantId!, attachment.id, {
+        signal,
+      });
       if (!data) {
         throw new Error("Failed to load file");
       }

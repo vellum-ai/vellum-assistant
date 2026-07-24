@@ -62,9 +62,9 @@ export interface ChatSessionState {
   snapshot: PaginatedHistoryResult | null;
   // Optimistic user sends overlaid on the snapshot. Held apart from `snapshot`
   // so it's clear they're client-owned: the `user_message_echo` handler retires
-  // a text-only send (or upgrades an attachment-carrying one, whose blob-URL
-  // previews only this list holds), and the reseed prunes whatever the server
-  // snapshot already represents.
+  // a text-only send or upgrades an attachment-carrying one. A metadata reseed
+  // transfers its client-only preview URLs into the materialized snapshot, then
+  // prunes whatever the server snapshot already represents.
   optimisticSends: DisplayMessage[];
 
   error: ChatError | null;
@@ -264,6 +264,90 @@ function applyUpdater<T>(current: T, updater: T | ((prev: T) => T)): T {
 }
 
 /**
+ * Preserve client-only attachment preview URLs when a metadata-only history
+ * snapshot replaces the materialized transcript. Messages match by the same
+ * identity keys used by optimistic overlay/pruning; attachments match by their
+ * stable storage id. Only missing preview fields are copied, so authoritative
+ * non-null server values and all other message/attachment metadata stay intact.
+ */
+function enrichSnapshotAttachmentPreviews(
+  snapshot: PaginatedHistoryResult,
+  sourceMessages: DisplayMessage[],
+): PaginatedHistoryResult {
+  if (sourceMessages.length === 0) {
+    return snapshot;
+  }
+
+  const sourcesByMessageKey = new Map<string, DisplayMessage[]>();
+  for (const source of sourceMessages) {
+    for (const key of messageMatchKeys(source)) {
+      const matches = sourcesByMessageKey.get(key);
+      if (matches) {
+        if (!matches.includes(source)) {
+          matches.push(source);
+        }
+      } else {
+        sourcesByMessageKey.set(key, [source]);
+      }
+    }
+  }
+
+  let messagesChanged = false;
+  const messages = snapshot.messages.map((message) => {
+    if (!message.attachments?.length) {
+      return message;
+    }
+    const matchingSources = new Set<DisplayMessage>();
+    for (const key of messageMatchKeys(message)) {
+      for (const source of sourcesByMessageKey.get(key) ?? []) {
+        matchingSources.add(source);
+      }
+    }
+    if (matchingSources.size === 0) {
+      return message;
+    }
+
+    let attachmentsChanged = false;
+    const attachments = message.attachments.map((attachment) => {
+      let previewUrl = attachment.previewUrl;
+      let thumbnailUrl = attachment.thumbnailUrl;
+      for (const source of matchingSources) {
+        const sourceAttachment = source.attachments?.find(
+          (candidate) => candidate.id === attachment.id,
+        );
+        if (!sourceAttachment) {
+          continue;
+        }
+        if (previewUrl == null && sourceAttachment.previewUrl != null) {
+          previewUrl = sourceAttachment.previewUrl;
+        }
+        if (thumbnailUrl == null && sourceAttachment.thumbnailUrl != null) {
+          thumbnailUrl = sourceAttachment.thumbnailUrl;
+        }
+        if (previewUrl != null && thumbnailUrl != null) {
+          break;
+        }
+      }
+      if (
+        previewUrl === attachment.previewUrl &&
+        thumbnailUrl === attachment.thumbnailUrl
+      ) {
+        return attachment;
+      }
+      attachmentsChanged = true;
+      return { ...attachment, previewUrl, thumbnailUrl };
+    });
+    if (!attachmentsChanged) {
+      return message;
+    }
+    messagesChanged = true;
+    return { ...message, attachments };
+  });
+
+  return messagesChanged ? { ...snapshot, messages } : snapshot;
+}
+
+/**
  * Drop optimistic sends the (re)seeded snapshot already represents.
  *
  * On a reconnect / replay-gap path the `user_message_echo` (or dequeue) that
@@ -274,12 +358,10 @@ function applyUpdater<T>(current: T, updater: T | ((prev: T) => T)): T {
  * match keys `selectTranscriptMessages` overlays on keeps the two in lockstep.
  *
  * An attachment-carrying send is only pruned once its snapshot twin also
- * carries attachments. The send holds the only copy of the user's previews
- * (blob URLs for pasted images); a matching snapshot row without attachments
- * is a tail-replayed text-only echo — e.g. a stale in-flight `/messages`
- * fetch that committed after the echo — not the hydrated server row, and
- * pruning against it would drop the previews until the next refetch. The
- * overlay keeps rendering the retained copy over the unhydrated twin.
+ * carries attachments. A matching snapshot row without attachments is a
+ * tail-replayed text-only echo rather than the hydrated server row. Metadata
+ * twins are enriched with client-only preview URLs before this function runs,
+ * so they can safely retire the optimistic copy without a visual gap.
  */
 function pruneConfirmedOptimisticSends(
   optimisticSends: DisplayMessage[],
@@ -370,13 +452,19 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       return;
     }
     const resolved = resolveSnapshot(snapshot, tail);
-    set((s) => ({
-      snapshot: resolved,
-      optimisticSends: pruneConfirmedOptimisticSends(
-        s.optimisticSends,
-        resolved.messages,
-      ),
-    }));
+    set((s) => {
+      const enriched = enrichSnapshotAttachmentPreviews(resolved, [
+        ...s.optimisticSends,
+        ...(current?.messages ?? []),
+      ]);
+      return {
+        snapshot: enriched,
+        optimisticSends: pruneConfirmedOptimisticSends(
+          s.optimisticSends,
+          enriched.messages,
+        ),
+      };
+    });
   },
 
   applyEnvelopeToSnapshot: (envelope) =>

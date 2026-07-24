@@ -47,6 +47,8 @@ export const MessageAttachments: FC<MessageAttachmentsProps> = ({
         {attachments.map((att) => (
           <MessageAttachmentSquare
             key={att.id}
+            attachmentId={att.id}
+            assistantId={assistantId}
             filename={att.filename}
             mimeType={att.mimeType}
             sizeBytes={att.sizeBytes}

@@ -13,7 +13,7 @@ import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { getSeqGeneration } from "@/lib/streaming/reconnect-cursor";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
-import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
+import { conversationHistoryQueryPrefix } from "@/domains/chat/transcript/use-history-pagination";
 import { patchConversation } from "@/utils/conversation-cache";
 import {
   serverHasAssistantProgress,
@@ -172,7 +172,7 @@ export function useMessageReconciliation({
           useStreamStore.getState().streamContext?.assistantId ?? null;
         if (assistantId) {
           void queryClient.invalidateQueries({
-            queryKey: conversationHistoryQueryKey(assistantId, conversationId),
+            queryKey: conversationHistoryQueryPrefix(assistantId, conversationId),
           });
           if (serverClearedProcessing) {
             // Mirror the terminal handlers' cache patch so the conversation-row

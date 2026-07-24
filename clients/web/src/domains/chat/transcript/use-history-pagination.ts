@@ -27,6 +27,7 @@ import { useCallback, useMemo } from "react";
 import {
   fetchLatestHistoryPage,
   fetchOlderHistoryPage,
+  type AttachmentHistoryContent,
 } from "@/domains/chat/api/history";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
@@ -40,7 +41,8 @@ import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 
 export const CONVERSATION_HISTORY_QUERY_KEY = "conversation-history" as const;
 
-export function conversationHistoryQueryKey(
+/** Prefix shared by both inline and metadata attachment-history caches. */
+export function conversationHistoryQueryPrefix(
   assistantId: string | null,
   conversationId: string | null,
 ) {
@@ -48,6 +50,18 @@ export function conversationHistoryQueryKey(
     CONVERSATION_HISTORY_QUERY_KEY,
     assistantId ?? "",
     conversationId ?? "",
+  ] as const;
+}
+
+/** Exact cache key for one conversation and attachment payload policy. */
+export function conversationHistoryQueryKey(
+  assistantId: string | null,
+  conversationId: string | null,
+  attachmentContent: AttachmentHistoryContent = "inline",
+) {
+  return [
+    ...conversationHistoryQueryPrefix(assistantId, conversationId),
+    attachmentContent,
   ] as const;
 }
 
@@ -95,6 +109,7 @@ interface UseHistoryPaginationParams {
   assistantId: string | null;
   conversationId: string | null;
   enabled: boolean;
+  attachmentContent?: AttachmentHistoryContent;
 }
 
 export interface HistoryPaginationResult {
@@ -146,12 +161,18 @@ export function useHistoryPagination({
   assistantId,
   conversationId,
   enabled,
+  attachmentContent = "inline",
 }: UseHistoryPaginationParams): HistoryPaginationResult {
   const queryClient = useQueryClient();
 
   const queryKey = useMemo(
-    () => conversationHistoryQueryKey(assistantId, conversationId),
-    [assistantId, conversationId],
+    () =>
+      conversationHistoryQueryKey(
+        assistantId,
+        conversationId,
+        attachmentContent,
+      ),
+    [assistantId, conversationId, attachmentContent],
   );
 
   const query = useInfiniteQuery({
@@ -167,6 +188,7 @@ export function useHistoryPagination({
           pageParam,
           undefined,
           signal,
+          attachmentContent,
         );
       }
       return fetchLatestHistoryPage(
@@ -174,6 +196,7 @@ export function useHistoryPagination({
         conversationId,
         undefined,
         signal,
+        attachmentContent,
       );
     },
     initialPageParam: null as number | null,

@@ -1,14 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
-import { Download, Loader2 } from "lucide-react";
+import { Download } from "lucide-react";
 import type { FC } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 
 import { Tooltip } from "@vellumai/design-library";
 
-import {
-  downloadAttachment,
-  fetchAttachmentContentBlob,
-} from "@/domains/chat/components/chat-attachments/download-attachment";
+import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
+import { LazyAttachmentImage } from "@/domains/chat/components/chat-attachments/lazy-attachment-image";
 import { estimateBase64Bytes } from "@/domains/chat/components/chat-attachments/utils";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -42,7 +39,9 @@ const DATA_URI_RE = /^data:(image\/[a-z0-9.+-]+);base64,/i;
  * a `data:` URL `src`. Data URIs carry their MIME type in the prefix; raw
  * payloads fall back to magic-byte sniffing.
  */
-function normalizeToolResultImage(imageData: string): {
+function normalizeToolResultImage(
+  imageData: string,
+): {
   mimeType: string;
   base64: string;
   src: string;
@@ -88,11 +87,11 @@ function toolNameToFilePrefix(toolName?: string): string {
  * Two shapes flow in. A tool-result image persisted as a workspace reference
  * arrives as an entry in `imageAttachmentIds` — a real attachment id with no
  * inline bytes, so the attachment carries `previewUrl: null` and the strip
- * fetches the content by id on render (mirroring the preview modal's lazy
- * fetch). Legacy inline base64 (`imageDataList` / the deprecated `imageData`)
- * is embedded directly as a data-URL `previewUrl`, rendered without a daemon
- * fetch. A daemon emits ids for referenced media and base64 for legacy rows,
- * never both for the same image.
+ * fetches its display representation by id near the viewport. Legacy inline
+ * base64 (`imageDataList` / the deprecated `imageData`) is embedded directly
+ * as a data-URL `previewUrl`, rendered without a daemon fetch. A daemon emits
+ * ids for referenced media and base64 for legacy rows, never both for the same
+ * image.
  *
  * Filenames use the server's `<tool-prefix>.<ext>` naming; a tool that emits
  * more than one image additionally gets an index suffix so the names stay
@@ -111,8 +110,8 @@ function buildToolResultAttachments(
     const base64Images = tc.imageDataList?.length
       ? tc.imageDataList
       : tc.imageData
-        ? [tc.imageData]
-        : [];
+      ? [tc.imageData]
+      : [];
     const total = refIds.length + base64Images.length;
     const prefix = toolNameToFilePrefix(tc.name);
     let localIndex = 0;
@@ -149,98 +148,26 @@ function buildToolResultAttachments(
   return attachments;
 }
 
-const IMAGE_CLASS =
-  "max-h-72 max-w-full rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] object-contain sm:max-w-[28rem]";
-
 /**
- * Renders the inline `<img>` for one tool-result image. An attachment with an
- * inline `previewUrl` (legacy base64) renders straight from that data URL with
- * no daemon round-trip — and, crucially, without depending on a React Query
- * context. A workspace-referenced attachment (`previewUrl: null` + a real id)
- * defers to {@link ReferencedToolResultImage}, which owns the lazy fetch.
+ * Renders the stable preview slot for one tool-result image. An attachment
+ * with an inline `previewUrl` (legacy base64) renders straight from that data
+ * URL with no daemon round-trip — and, crucially, without depending on a React
+ * Query context. A workspace-referenced attachment (`previewUrl: null` + a
+ * real id) loads a display representation near the viewport. Both paths
+ * reserve the same geometry so image resolution does not move the transcript.
  */
 const ToolResultImageThumb: FC<{
   attachment: DisplayAttachment;
   assistantId?: string | null;
 }> = ({ attachment, assistantId }) => {
-  if (attachment.previewUrl) {
-    return (
-      <img
-        data-testid="tool-result-image"
-        src={attachment.previewUrl}
-        alt={attachment.filename}
-        className={IMAGE_CLASS}
-      />
-    );
-  }
   return (
-    <ReferencedToolResultImage attachment={attachment} assistantId={assistantId} />
-  );
-};
-
-/**
- * Lazily fetches a workspace-referenced tool-result image by attachment id and
- * renders it from an object URL, revoked on unmount. Uses the same fetch/cache
- * key as the preview modal, so opening the modal reuses the already-fetched
- * blob. Until the fetch resolves (or when no assistant id is available to fetch
- * with), a spinner placeholder holds the slot.
- */
-const ReferencedToolResultImage: FC<{
-  attachment: DisplayAttachment;
-  assistantId?: string | null;
-}> = ({ attachment, assistantId }) => {
-  const shouldFetch = !!assistantId && !!attachment.id;
-
-  const { data: blob, isError } = useQuery({
-    queryKey: ["attachmentContent", assistantId, attachment.id],
-    queryFn: async () => {
-      const data = await fetchAttachmentContentBlob(
-        assistantId!,
-        attachment.id,
-      );
-      if (!data) {
-        throw new Error("Failed to load image");
-      }
-      return data;
-    },
-    enabled: shouldFetch,
-    staleTime: Infinity,
-    retry: false,
-  });
-
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!blob) {
-      setObjectUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(blob);
-    setObjectUrl(url);
-    return () => {
-      URL.revokeObjectURL(url);
-      setObjectUrl(null);
-    };
-  }, [blob]);
-
-  if (!objectUrl) {
-    return (
-      <div
-        data-testid="tool-result-image-placeholder"
-        className={`flex h-40 w-40 items-center justify-center ${IMAGE_CLASS}`}
-      >
-        {!isError && (
-          <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <img
-      data-testid="tool-result-image"
-      src={objectUrl}
-      alt={attachment.filename}
-      className={IMAGE_CLASS}
+    <LazyAttachmentImage
+      assistantId={assistantId}
+      attachmentId={attachment.id}
+      filename={attachment.filename}
+      inlinePreviewUrl={attachment.previewUrl}
+      size="inline"
+      testId="tool-result-image"
     />
   );
 };
@@ -259,8 +186,8 @@ interface ToolResultImagesProps {
  * full-screen {@link AttachmentPreviewModal} on click and exposes a hover
  * download affordance — the same interactivity end-of-turn attachments get via
  * {@link MessageAttachmentSquare}. Referenced images (from `imageAttachmentIds`)
- * are daemon-id-backed and fetch their bytes by id on render; legacy inline
- * base64 images render straight from their data URL.
+ * are daemon-id-backed and load display representations near the viewport;
+ * legacy inline base64 images render straight from their data URL.
  */
 export const ToolResultImages: FC<ToolResultImagesProps> = ({
   toolCalls,
