@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
 import type { Conversation } from "../daemon/conversation.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
@@ -143,7 +143,7 @@ function makeCompletingConversation(): Conversation {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      options?: { onEvent?: (msg: ServerMessage) => void },
+      options?: { onEvent?: (msg: AssistantEvent) => void },
     ) => {
       const onEvent = options?.onEvent ?? (() => {});
       onEvent({ type: "assistant_text_delta", text: "Hello!" });
@@ -162,7 +162,7 @@ function makeHangingConversation(): Conversation {
   const messages: unknown[] = [];
   const enqueuedMessages: Array<{
     content: string;
-    onEvent?: (msg: ServerMessage) => void;
+    onEvent?: (msg: AssistantEvent) => void;
     requestId?: string;
   }> = [];
   return {
@@ -191,7 +191,7 @@ function makeHangingConversation(): Conversation {
     getQueueDepth: () => enqueuedMessages.length,
     enqueueMessage: (options: {
       content: string;
-      onEvent?: (msg: ServerMessage) => void;
+      onEvent?: (msg: AssistantEvent) => void;
       requestId?: string;
     }) => {
       enqueuedMessages.push({

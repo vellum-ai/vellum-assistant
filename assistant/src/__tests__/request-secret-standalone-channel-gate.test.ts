@@ -8,16 +8,16 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { setConfig } from "./helpers/set-config.js";
 
 // A short permission timeout keeps a leaked prompt from lingering; the default
 // `secretDetection.allowOneTimeSend` (false) drives the broadcast field.
 setConfig("timeouts", { permissionTimeoutSec: 0.01 });
 
-let broadcastMessages: ServerMessage[] = [];
+let broadcastMessages: AssistantEvent[] = [];
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: ServerMessage) => broadcastMessages.push(msg),
+  broadcastMessage: (msg: AssistantEvent) => broadcastMessages.push(msg),
 }));
 
 const _piStore = new Map<string, { rpcResolve?: (value: unknown) => void }>();

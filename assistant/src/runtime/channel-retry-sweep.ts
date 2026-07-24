@@ -12,7 +12,7 @@ import { isConversationBusyError } from "../daemon/conversation-messaging.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { updateDeliveredSegmentCount } from "../persistence/delivery-channels.js";
 import {
@@ -368,7 +368,7 @@ export async function sweepFailedEvents(
         ? payload.slackStreamMessageTs
         : undefined;
     let replyMessageId: string | undefined;
-    const observeAgentEvent = (msg: ServerMessage): void => {
+    const observeAgentEvent = (msg: AssistantEvent): void => {
       if (
         msg.type === "message_complete" &&
         (msg.source === undefined || msg.source === "main") &&

@@ -16,7 +16,7 @@ import {
   queueConversationNotice,
   resetConversationNoticesForTests,
 } from "../daemon/conversation-notices.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getConversationDirName } from "../persistence/conversation-directories.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -1017,7 +1017,7 @@ describe("session-agent-loop", () => {
         },
       });
 
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
       const runSpy = spyOn(ctx.agentLoop, "run");
 
@@ -1041,7 +1041,7 @@ describe("session-agent-loop", () => {
 
   describe("conversation notices", () => {
     test("emits queued billing notices after a successful turn", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
       queueConversationNotice(ctx.conversationId, "memory-v3-test", {
         source: "memory_v3",
@@ -1078,7 +1078,7 @@ describe("session-agent-loop", () => {
       resolveAssistantAttachmentsMock.mockImplementation(async () => {
         throw new Error("attachment resolution failed");
       });
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
       queueConversationNotice(ctx.conversationId, "memory-v3-test", {
         source: "memory_v3",
@@ -1289,7 +1289,7 @@ describe("session-agent-loop", () => {
         action: "block",
         reason: "trusted-contact",
       };
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const activityStates: unknown[][] = [];
       const ctx = makeCtx({
         emitActivityState: (...args: unknown[]) => {
@@ -1361,7 +1361,7 @@ describe("session-agent-loop", () => {
 
   describe("tool execution errors via agent loop", () => {
     test("error events from agent loop are classified and emitted", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // The model calls a tool whose executor throws, surfacing an `error`
       // event from the loop's catch handler.
@@ -1380,7 +1380,7 @@ describe("session-agent-loop", () => {
     });
 
     test("non-error agent loop completion does not emit conversation_error", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx({
         providerResponses: [textResponse("All good")],
@@ -1398,7 +1398,7 @@ describe("session-agent-loop", () => {
 
   describe("LLM request log persistence", () => {
     test("record request log captures the actual provider name", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const rawRequest = {
         model: "gpt-4.1",
         messages: [{ role: "user", content: "Hello" }],
@@ -1508,7 +1508,7 @@ describe("session-agent-loop", () => {
     });
 
     test("record request log handles Responses API shaped payloads", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const rawRequest = {
         model: "gpt-5.4",
         instructions: "Be helpful.",
@@ -1571,7 +1571,7 @@ describe("session-agent-loop", () => {
 
   describe("usage accounting", () => {
     test("records the actual provider for usage accounting", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx({
         providerResponses: [
@@ -1627,7 +1627,7 @@ describe("session-agent-loop", () => {
     });
 
     test("persists the served model onto the assistant row's metadata at finalize", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx({
         providerResponses: [
@@ -1654,7 +1654,7 @@ describe("session-agent-loop", () => {
 
   describe("checkpoint handoff (infinite loop prevention)", () => {
     test("yields at checkpoint when canHandoffAtCheckpoint returns true", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // A tool turn drives the loop to its first mid-loop checkpoint, where the
       // orchestrator yields for a queued handoff.
@@ -1682,7 +1682,7 @@ describe("session-agent-loop", () => {
     });
 
     test("continues when canHandoffAtCheckpoint returns false", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // The tool turn reaches a checkpoint, but with handoff disabled the loop
       // continues to the next turn and completes normally.
@@ -1717,7 +1717,7 @@ describe("session-agent-loop", () => {
 
   describe("user cancellation", () => {
     test("emits generation_cancelled when abort signal fires", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const abortController = new AbortController();
 
       // The provider completes its response but the user cancels mid-turn, so
@@ -1739,7 +1739,7 @@ describe("session-agent-loop", () => {
     });
 
     test("handles AbortError thrown from agent loop as user cancellation", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const abortController = new AbortController();
 
       // The provider rejects with an AbortError after the user cancels.
@@ -1764,7 +1764,7 @@ describe("session-agent-loop", () => {
     });
 
     test("skips resolveAssistantAttachments when cancelled", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const abortController = new AbortController();
       resolveAssistantAttachmentsMock.mockClear();
 
@@ -1821,7 +1821,7 @@ describe("session-agent-loop", () => {
 
     test("clears state and surfaces a processing error when the provider call fails", async () => {
       // GIVEN a real loop whose provider rejects with an unexpected error
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const ctx = makeCtx({
         loopProvider: {
           name: "mock-provider",
@@ -1868,7 +1868,7 @@ describe("session-agent-loop", () => {
       // GIVEN a provider whose call wedges: it acknowledges the user cancel
       // (aborts the signal) but its promise never settles and never observes
       // the signal — the exact condition that latched `processing` true.
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const abortController = new AbortController();
       let drainReason: string | undefined;
       // The provider's call wedges on this promise. It settles only on test
@@ -1925,7 +1925,7 @@ describe("session-agent-loop", () => {
 
   describe("stale pending surface cleanup", () => {
     test("auto-completes non-dynamic_page pending surfaces on regular user message", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx();
       // Pre-populate a stale pending table surface
@@ -1956,7 +1956,7 @@ describe("session-agent-loop", () => {
     });
 
     test("does not auto-complete surfaces when request is a surface action", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx();
       ctx.pendingSurfaceActions.set("active-table-1", { surfaceType: "table" });
@@ -1982,7 +1982,7 @@ describe("session-agent-loop", () => {
     });
 
     test("no-op when no pending surfaces exist", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx();
       // No pending surfaces
@@ -1998,7 +1998,7 @@ describe("session-agent-loop", () => {
     });
 
     test("does not auto-complete surfaces for internal/subagent turns (no isUserMessage)", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx();
       ctx.pendingSurfaceActions.set("active-table-1", { surfaceType: "table" });
@@ -2024,7 +2024,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx();
       ctx.pendingSurfaceActions.set("stale-table-1", { surfaceType: "table" });
 
-      const throwingOnEvent = (msg: ServerMessage) => {
+      const throwingOnEvent = (msg: AssistantEvent) => {
         _eventCount++;
         if (msg.type === "ui_surface_complete") {
           throw new Error("onEvent sink failed");
@@ -2130,7 +2130,7 @@ describe("session-agent-loop", () => {
         throw new Error("simulated DB failure");
       });
 
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const ctx = makeCtx();
 
       // Should not throw; agent loop continues and emits message_complete.
@@ -2145,7 +2145,7 @@ describe("session-agent-loop", () => {
 
   describe("error-only response with no assistant text", () => {
     test("synthesizes error assistant message when provider returns no response", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // GIVEN a real loop whose provider rejects with a generic error
       // (non-ordering, non-context-too-large) so the loop emits `error` and
@@ -2179,7 +2179,7 @@ describe("session-agent-loop", () => {
       // its `llm_request_logs` row orphaned. Without the backfill call in
       // the synthetic-message branch, a later turn's `handleMessageComplete`
       // sweep would wrong-attach this row to the wrong assistant message.
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // GIVEN a real loop whose provider rejects: the loop emits
       // `provider_error` (writing an `llm_request_logs` row with
@@ -2225,7 +2225,7 @@ describe("session-agent-loop", () => {
         retryable: false,
         errorCategory: "managed_key_invalid",
       };
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx({
         loopProvider: {
@@ -2351,7 +2351,7 @@ describe("session-agent-loop", () => {
         metadata: null,
       };
 
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       let messageCompleteSeenWhenIndexed: boolean | undefined;
       indexMessageNowMock.mockImplementationOnce(async () => {
         messageCompleteSeenWhenIndexed = events.some(
@@ -3370,7 +3370,7 @@ describe("session-agent-loop", () => {
 
     test("applyCompactionResult records Slack timestamp watermark when provided", async () => {
       const ctx = makeCtx();
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       await applyCompactionResult(
         ctx,

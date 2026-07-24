@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SecretRequestEvent } from "../api/events/secret-request.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { setConfig } from "./helpers/set-config.js";
 
 // Capture all logger calls so we can verify secret values never appear
@@ -30,9 +30,9 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // Capture broadcastMessage calls
-const broadcastedMessages: ServerMessage[] = [];
+const broadcastedMessages: AssistantEvent[] = [];
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: ServerMessage) => {
+  broadcastMessage: (msg: AssistantEvent) => {
     broadcastedMessages.push(msg);
   },
 }));

@@ -81,7 +81,7 @@ import {
   shouldAttachHostProxyForCapability,
 } from "../../daemon/host-proxy-preactivation.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
   NonHostProxyTransportMetadata,
@@ -494,7 +494,7 @@ async function tryConsumeGuardianReply(params: {
     filePath?: string;
   }>;
   conversation: Conversation;
-  onEvent: (msg: ServerMessage) => void;
+  onEvent: (msg: AssistantEvent) => void;
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Verified actor identity from actor-token middleware. */
   verifiedActorExternalUserId?: string;

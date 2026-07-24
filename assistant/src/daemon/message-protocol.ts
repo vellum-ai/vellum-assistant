@@ -5,8 +5,8 @@
  * each exports a `_<Domain>ClientMessages` alias that this file composes into
  * the aggregate `ClientMessage` union.
  *
- * The server->client union `ServerMessage` is single-sourced from the canonical
- * `AssistantEventSchema` in `../api` -- `ServerMessage` is `z.infer` of that
+ * The server->client union `AssistantEvent` is single-sourced from the canonical
+ * `AssistantEventSchema` in `../api` -- `AssistantEvent` is `z.infer` of that
  * schema, so every hub-published event type appears in it automatically.
  */
 
@@ -24,8 +24,11 @@ export * from "./message-types/surfaces.js";
 export * from "./message-types/sync.js";
 export * from "./message-types/web-activity.js";
 
-// Canonical server->client event union.
-import type { AssistantEvent } from "../api/index.js";
+// Canonical server->client event union: every message the daemon can send to a
+// client, single-sourced from `AssistantEventSchema` (`z.infer`). Re-exported
+// here so daemon code can import it alongside the ClientMessage union.
+export type { AssistantEvent } from "../api/index.js";
+
 // Client-message domain aliases for the ClientMessage union.
 import type { _ComputerUseClientMessages } from "./message-types/computer-use.js";
 import type { _DiagnosticsClientMessages } from "./message-types/diagnostics.js";
@@ -41,12 +44,3 @@ export type ClientMessage =
   | _HostBrowserClientMessages
   | _DiagnosticsClientMessages
   | _NotificationsClientMessages;
-
-// === Server -> Client aggregate union ===
-
-/**
- * Every message the daemon can send to a client. Single-sourced from the
- * canonical `AssistantEventSchema` (`z.infer`), so this stays in lock-step
- * with the published wire contract.
- */
-export type ServerMessage = AssistantEvent;

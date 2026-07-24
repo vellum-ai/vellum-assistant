@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { VellumAcpClientHandler } from "../acp/client-handler.js";
 import { AcpSessionManager } from "../acp/session-manager.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 // ---------------------------------------------------------------------------
@@ -10,8 +10,8 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 // ---------------------------------------------------------------------------
 
 describe("VellumAcpClientHandler", () => {
-  let sent: ServerMessage[];
-  let sendToVellum: (msg: ServerMessage) => void;
+  let sent: AssistantEvent[];
+  let sendToVellum: (msg: AssistantEvent) => void;
   let handler: VellumAcpClientHandler;
 
   beforeEach(() => {

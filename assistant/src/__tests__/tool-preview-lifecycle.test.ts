@@ -48,9 +48,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
   provenanceFromTrustContext: () => ({}),
   reserveMessage: reserveMessageMock,
   recordConversationPersistedSeq: (id: string, seq: number) => {
-    if (!Number.isFinite(seq) || seq <= 0) return;
+    if (!Number.isFinite(seq) || seq <= 0) {return;}
     const prev = persistedSeqByConversation.get(id);
-    if (prev == null || prev < seq) persistedSeqByConversation.set(id, seq);
+    if (prev == null || prev < seq) {persistedSeqByConversation.set(id, seq);}
   },
   getConversationPersistedSeq: (id: string) =>
     persistedSeqByConversation.get(id) ?? null,
@@ -91,7 +91,7 @@ import {
   handleToolUse,
   handleToolUsePreviewStart,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getConversationPersistedSeq } from "../persistence/conversation-crud.js";
 import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import {
@@ -105,7 +105,7 @@ import {
 function createMockDeps(
   overrides: Partial<EventHandlerDeps> = {},
 ): EventHandlerDeps {
-  const emittedEvents: ServerMessage[] = [];
+  const emittedEvents: AssistantEvent[] = [];
   const emittedActivityStates: Array<{
     phase: string;
     reason: string;
@@ -135,7 +135,7 @@ function createMockDeps(
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
     } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (msg: ServerMessage) => {
+    onEvent: (msg: AssistantEvent) => {
       emittedEvents.push(msg);
     },
     reqId: "test-req-id",
@@ -158,7 +158,7 @@ function createMockDeps(
 
 /** Collect events by wrapping onEvent. */
 function createEventCollector(): {
-  events: ServerMessage[];
+  events: AssistantEvent[];
   activityStates: Array<{
     phase: string;
     reason: string;
@@ -166,14 +166,14 @@ function createEventCollector(): {
     requestId?: string;
     statusText?: string;
   }>;
-  onEvent: (msg: ServerMessage) => void;
+  onEvent: (msg: AssistantEvent) => void;
   emitActivityState: (
     phase: string,
     reason: string,
     options?: { anchor?: string; requestId?: string; statusText?: string },
   ) => void;
 } {
-  const events: ServerMessage[] = [];
+  const events: AssistantEvent[] = [];
   const activityStates: Array<{
     phase: string;
     reason: string;
@@ -184,7 +184,7 @@ function createEventCollector(): {
   return {
     events,
     activityStates,
-    onEvent: (msg: ServerMessage) => events.push(msg),
+    onEvent: (msg: AssistantEvent) => events.push(msg),
     emitActivityState: (phase, reason, options) =>
       activityStates.push({
         phase,
@@ -392,7 +392,7 @@ describe("tool preview lifecycle", () => {
       const collector = createEventCollector();
       const conversationId = "test-session-id";
       const deps = createMockDeps({
-        onEvent: (msg: ServerMessage) => {
+        onEvent: (msg: AssistantEvent) => {
           collector.events.push(msg);
           stampAndBuffer(msg as unknown as AssistantEventEnvelope);
         },
@@ -446,10 +446,10 @@ describe("tool preview lifecycle", () => {
     /** onEvent that stamps conversation-scoped events like the runtime hub. */
     function makeStampingDeps(
       overrides: Partial<EventHandlerDeps["ctx"]> = {},
-    ): { deps: EventHandlerDeps; events: ServerMessage[] } {
-      const events: ServerMessage[] = [];
+    ): { deps: EventHandlerDeps; events: AssistantEvent[] } {
+      const events: AssistantEvent[] = [];
       const deps = createMockDeps({
-        onEvent: (msg: ServerMessage) => {
+        onEvent: (msg: AssistantEvent) => {
           events.push(msg);
           stampAndBuffer(msg as unknown as AssistantEventEnvelope);
         },
@@ -611,11 +611,11 @@ describe("tool preview lifecycle", () => {
     /** onEvent that stamps conversation-scoped events like the runtime hub. */
     function makeStampingDeps(): {
       deps: EventHandlerDeps;
-      events: ServerMessage[];
+      events: AssistantEvent[];
     } {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const deps = createMockDeps({
-        onEvent: (msg: ServerMessage) => {
+        onEvent: (msg: AssistantEvent) => {
           events.push(msg);
           stampAndBuffer(msg as unknown as AssistantEventEnvelope);
         },
@@ -803,7 +803,7 @@ describe("tool preview lifecycle", () => {
     /** Deps wired to a fresh collector. */
     function makeCollectingDeps(): {
       deps: EventHandlerDeps;
-      events: ServerMessage[];
+      events: AssistantEvent[];
     } {
       const collector = createEventCollector();
       const deps = createMockDeps({
@@ -817,7 +817,7 @@ describe("tool preview lifecycle", () => {
     }
 
     function emittedToolResult(
-      events: ServerMessage[],
+      events: AssistantEvent[],
     ): Record<string, unknown> {
       const toolResult = events.find((e) => e.type === "tool_result");
       expect(toolResult).toBeDefined();

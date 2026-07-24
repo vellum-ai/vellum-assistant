@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 
-import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../daemon/message-protocol.js";
 import { VellumAcpClientHandler } from "../client-handler.js";
 
 const ACP_SESSION_ID = "acp-session-abc";
@@ -10,9 +10,9 @@ const PARENT_CONVERSATION_ID = "conv-xyz";
 
 function makeHandler(): {
   handler: VellumAcpClientHandler;
-  sent: ServerMessage[];
+  sent: AssistantEvent[];
 } {
-  const sent: ServerMessage[] = [];
+  const sent: AssistantEvent[] = [];
   const handler = new VellumAcpClientHandler(
     ACP_SESSION_ID,
     (msg) => {

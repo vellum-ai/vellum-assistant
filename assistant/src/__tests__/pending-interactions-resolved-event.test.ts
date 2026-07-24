@@ -10,14 +10,14 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 
 // Capture every broadcast emitted by the tracker. The real hub is replaced
 // with a thin recorder so we can assert payloads deterministically.
-const publishedMessages: ServerMessage[] = [];
+const publishedMessages: AssistantEvent[] = [];
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: ServerMessage) => {
+  broadcastMessage: (msg: AssistantEvent) => {
     publishedMessages.push(msg);
   },
   capabilityForMessageType: () => undefined,
@@ -41,7 +41,7 @@ afterEach(() => {
 function lastResolvedEvent() {
   const evt = publishedMessages.find((m) => m.type === "interaction_resolved");
   expect(evt).toBeDefined();
-  return evt as Extract<ServerMessage, { type: "interaction_resolved" }>;
+  return evt as Extract<AssistantEvent, { type: "interaction_resolved" }>;
 }
 
 describe("pendingInteractions.resolve emits interaction_resolved", () => {
@@ -181,7 +181,7 @@ describe("removeByConversation emits interaction_resolved per entry", () => {
 
     const events = publishedMessages.filter(
       (m) => m.type === "interaction_resolved",
-    ) as Extract<ServerMessage, { type: "interaction_resolved" }>[];
+    ) as Extract<AssistantEvent, { type: "interaction_resolved" }>[];
     expect(events).toHaveLength(2);
     expect(events.every((e) => e.state === "superseded")).toBe(true);
     const requestIds = new Set(events.map((e) => e.requestId));
@@ -207,7 +207,7 @@ describe("removeByConversation emits interaction_resolved per entry", () => {
     );
     expect(events).toHaveLength(1);
     expect(
-      (events[0] as Extract<ServerMessage, { type: "interaction_resolved" }>)
+      (events[0] as Extract<AssistantEvent, { type: "interaction_resolved" }>)
         .state,
     ).toBe("cancelled");
   });

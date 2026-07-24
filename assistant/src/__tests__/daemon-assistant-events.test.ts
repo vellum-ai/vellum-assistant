@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -20,7 +20,7 @@ import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 
 describe("buildAssistantEvent", () => {
   test("returns event with correct shape", () => {
-    const msg: ServerMessage = {
+    const msg: AssistantEvent = {
       type: "assistant_text_delta",
       conversationId: "sess_1",
       text: "hi",
@@ -36,14 +36,14 @@ describe("buildAssistantEvent", () => {
   });
 
   test("generates unique ids for each call", () => {
-    const msg: ServerMessage = { type: "message_complete" };
+    const msg: AssistantEvent = { type: "message_complete" };
     const a = buildAssistantEvent(msg);
     const b = buildAssistantEvent(msg);
     expect(a.id).not.toBe(b.id);
   });
 
   test("conversationId is undefined when omitted", () => {
-    const msg: ServerMessage = { type: "message_complete" };
+    const msg: AssistantEvent = { type: "message_complete" };
     const event = buildAssistantEvent(msg);
     expect(event.conversationId).toBeUndefined();
   });
@@ -63,7 +63,7 @@ describe("daemon send → one mirrored assistant event", () => {
       },
     });
 
-    const msg: ServerMessage = {
+    const msg: AssistantEvent = {
       type: "assistant_text_delta",
       conversationId: "sess_a",
       text: "hello",
@@ -87,7 +87,7 @@ describe("daemon send → one mirrored assistant event", () => {
       },
     });
 
-    const msg: ServerMessage = { type: "message_complete" }; // no conversationId field
+    const msg: AssistantEvent = { type: "message_complete" }; // no conversationId field
     const event = buildAssistantEvent(msg, "sess_explicit");
 
     await hub.publish(event);
@@ -117,7 +117,7 @@ describe("daemon broadcast → one mirrored event per message (not per socket)",
     });
 
     // Simulate broadcast: server calls publishAssistantEvent once
-    const msg: ServerMessage = {
+    const msg: AssistantEvent = {
       type: "message_complete",
       conversationId: "sess_b",
     };
@@ -139,12 +139,12 @@ describe("daemon broadcast → one mirrored event per message (not per socket)",
       },
     });
 
-    const msgA: ServerMessage = {
+    const msgA: AssistantEvent = {
       type: "assistant_text_delta",
       conversationId: "s1",
       text: "a",
     };
-    const msgB: ServerMessage = {
+    const msgB: AssistantEvent = {
       type: "message_complete",
       conversationId: "s1",
     };

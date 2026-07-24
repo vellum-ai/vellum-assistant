@@ -69,14 +69,14 @@ import {
   preactivateHostProxySkills,
   shouldAttachHostProxyForCapability,
 } from "./host-proxy-preactivation.js";
-import type { ServerMessage } from "./message-protocol.js";
+import type { AssistantEvent } from "./message-protocol.js";
 import type { SubagentToolGateMode } from "./tool-setup-types.js";
 
 const log = getLogger("process-message");
 
 type ProcessMessageOptions = ConversationCreateOptions & {
   /** Per-turn observer for live agent-loop events. Does not replace SSE broadcast. */
-  onEvent?: (msg: ServerMessage) => void;
+  onEvent?: (msg: AssistantEvent) => void;
   /** IDs of user-uploaded attachments to resolve and include in the turn. */
   attachmentIds?: string[];
   /** Originating channel (e.g. "slack", "telegram"). Defaults to "vellum". */
@@ -152,9 +152,9 @@ export function deriveIngressIdempotencyKey(options?: {
 }
 
 function buildEventEmitter(
-  observer?: (msg: ServerMessage) => void,
-): (msg: ServerMessage) => void {
-  if (!observer) return broadcastMessage;
+  observer?: (msg: AssistantEvent) => void,
+): (msg: AssistantEvent) => void {
+  if (!observer) {return broadcastMessage;}
   return (msg) => {
     broadcastMessage(msg);
     try {

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 
 // Analytics consent is granted so recordActivationEvent writes rows.
 let shareAnalytics = true;
@@ -9,11 +9,11 @@ mock.module("../platform/consent-cache.js", () => ({
   getRawShareAnalytics: () => shareAnalytics,
 }));
 
-let broadcastedMessages: ServerMessage[] = [];
+let broadcastedMessages: AssistantEvent[] = [];
 const realEventHub = await import("../runtime/assistant-event-hub.js");
 mock.module("../runtime/assistant-event-hub.js", () => ({
   ...realEventHub,
-  broadcastMessage: (msg: ServerMessage) => broadcastedMessages.push(msg),
+  broadcastMessage: (msg: AssistantEvent) => broadcastedMessages.push(msg),
 }));
 
 // Stub the child-conversation launcher so the launch_conversation commit path
@@ -60,14 +60,14 @@ interface ProcessMessageCall {
 
 function makeContext(
   conversationId: string,
-  sent: ServerMessage[] = [],
+  sent: AssistantEvent[] = [],
 ): SurfaceConversationContext & {
   processMessageCalls: ProcessMessageCall[];
 } {
   const processMessageCalls: ProcessMessageCall[] = [];
   return {
     conversationId,
-    sendToClient: (msg: ServerMessage) => sent.push(msg),
+    sendToClient: (msg: AssistantEvent) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<
       string,
@@ -103,7 +103,7 @@ function resetTables(): void {
 /** Render a choice surface tagged (or not) with an activation_moment. */
 async function showTaggedChoice(
   ctx: SurfaceConversationContext,
-  sent: ServerMessage[],
+  sent: AssistantEvent[],
   activationMoment?: string,
 ): Promise<string> {
   await surfaceProxyResolver(ctx, "ui_show", {
@@ -134,7 +134,7 @@ describe("activation moment emission from ui_show surface commits", () => {
     markActivationSession("conv-marked");
     expect(isActivationSession("conv-marked")).toBe(true);
 
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext("conv-marked", sent);
     const surfaceId = await showTaggedChoice(ctx, sent, "moment_2");
 
@@ -152,7 +152,7 @@ describe("activation moment emission from ui_show surface commits", () => {
 
   test("a queue-rejected commit does NOT emit; the tag survives for the retry", async () => {
     markActivationSession("conv-rejected");
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext("conv-rejected", sent);
     const surfaceId = await showTaggedChoice(ctx, sent, "moment_2");
 
@@ -183,7 +183,7 @@ describe("activation moment emission from ui_show surface commits", () => {
 
   test("first_wow_executed records at SHOW time (no commit) and never double-emits", async () => {
     markActivationSession("conv-wow");
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext("conv-wow", sent);
 
     // A display-only result surface tagged with the execution moment.
@@ -211,7 +211,7 @@ describe("activation moment emission from ui_show surface commits", () => {
   });
 
   test("first_wow_executed in an UNMARKED session writes no row at show time", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext("conv-wow-unmarked", sent);
     await surfaceProxyResolver(ctx, "ui_show", {
       surface_type: "card",
@@ -224,7 +224,7 @@ describe("activation moment emission from ui_show surface commits", () => {
 
   test("does not forward the daemon-only tag to the client", async () => {
     markActivationSession("conv-marked-2");
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext("conv-marked-2", sent);
     await showTaggedChoice(ctx, sent, "moment_2");
 
@@ -239,7 +239,7 @@ describe("activation moment emission from ui_show surface commits", () => {
 
   test("untagged surface writes no row", async () => {
     markActivationSession("conv-untagged");
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext("conv-untagged", sent);
     const surfaceId = await showTaggedChoice(ctx, sent, undefined);
 
@@ -252,7 +252,7 @@ describe("activation moment emission from ui_show surface commits", () => {
   });
 
   test("tagged surface in an UNMARKED session writes no row", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext("conv-not-rail", sent);
     const surfaceId = await showTaggedChoice(ctx, sent, "moment_2");
 
@@ -266,7 +266,7 @@ describe("activation moment emission from ui_show surface commits", () => {
 
   test("an invalid activation_moment token is ignored (no row)", async () => {
     markActivationSession("conv-bad-tag");
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext("conv-bad-tag", sent);
     const surfaceId = await showTaggedChoice(ctx, sent, "bogus_moment");
 
@@ -280,7 +280,7 @@ describe("activation moment emission from ui_show surface commits", () => {
 
   test("FIX 1: launch_conversation commit on a tagged surface records exactly one row", async () => {
     markActivationSession("conv-launch");
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext("conv-launch", sent);
 
     // A launcher card tagged with a commit-timing moment. The committed action
@@ -312,7 +312,7 @@ describe("activation moment emission from ui_show surface commits", () => {
 
   test("FIX 2: commit-timing tag survives a surfaceState restore from history", async () => {
     markActivationSession("conv-restore");
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext("conv-restore", sent);
     const surfaceId = await showTaggedChoice(ctx, sent, "moment_2");
 
@@ -361,7 +361,7 @@ describe("activation moment emission from ui_show surface commits", () => {
 
   test("intermediate selection_changed does NOT emit; the terminal commit does", async () => {
     markActivationSession("conv-table");
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext("conv-table", sent);
 
     // A table surface stays pending across selection_changed (non-terminal).

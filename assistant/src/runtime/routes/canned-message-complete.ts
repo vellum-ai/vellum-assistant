@@ -1,5 +1,5 @@
 import { createAssistantMessage } from "../../agent/message-types.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../daemon/message-protocol.js";
 import {
   addMessage,
   recordConversationPersistedSeq,
@@ -28,7 +28,7 @@ import { publishConversationMessagesChanged } from "../sync/resource-sync-events
 // `state.assistantTurnId` directly, grep for `emitCannedMessageComplete` to
 // find every call site and inline-then-delete.
 export function emitCannedMessageComplete(
-  send: (msg: ServerMessage) => void,
+  send: (msg: AssistantEvent) => void,
   conversationId: string,
   persistedAssistantId: string,
 ): void {

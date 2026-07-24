@@ -20,7 +20,7 @@ mock.module("../helpers.js", () => ({
 }));
 
 import type { Conversation } from "../../../../daemon/conversation.js";
-import type { ServerMessage } from "../../../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../../../daemon/message-protocol.js";
 import { RouteError } from "../../errors.js";
 import { ROUTES } from "../index.js";
 
@@ -33,7 +33,7 @@ interface FakeConversationState {
 
 interface FakeConversation {
   conversation: Conversation;
-  sent: ServerMessage[];
+  sent: AssistantEvent[];
   state: FakeConversationState;
 }
 
@@ -47,7 +47,7 @@ function makeFakeConversation(
     contextCompactedAt: null,
     ...overrides,
   };
-  const sent: ServerMessage[] = [];
+  const sent: AssistantEvent[] = [];
   const compactionCircuit = {
     get consecutiveCompactionFailures(): number {
       return state.consecutiveCompactionFailures;
@@ -72,7 +72,7 @@ function makeFakeConversation(
       return state.contextCompactedAt;
     },
     getMessages: () => [],
-    sendToClient: (msg: ServerMessage) => {
+    sendToClient: (msg: AssistantEvent) => {
       sent.push(msg);
     },
   } as unknown as Conversation;
@@ -84,7 +84,7 @@ function findRoute() {
   const route = ROUTES.find(
     (r) => r.operationId === "playgroundResetCompactionCircuit",
   );
-  if (!route) throw new Error("reset-circuit route not registered");
+  if (!route) {throw new Error("reset-circuit route not registered");}
   return route;
 }
 

@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 
-let broadcastImpl: (msg: ServerMessage) => void = () => {};
+let broadcastImpl: (msg: AssistantEvent) => void = () => {};
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: ServerMessage) => broadcastImpl(msg),
+  broadcastMessage: (msg: AssistantEvent) => broadcastImpl(msg),
 }));
 
 import {
@@ -30,11 +30,11 @@ function createMockContext(
     channel: string;
   }>,
 ): SurfaceConversationContext & {
-  sentMessages: ServerMessage[];
+  sentMessages: AssistantEvent[];
   enqueuedMessages: Array<{ content: string; requestId: string }>;
 } {
-  const sentMessages: ServerMessage[] = [];
-  broadcastImpl = (msg: ServerMessage) => sentMessages.push(msg);
+  const sentMessages: AssistantEvent[] = [];
+  broadcastImpl = (msg: AssistantEvent) => sentMessages.push(msg);
   const enqueuedMessages: Array<{ content: string; requestId: string }> = [];
 
   return {
@@ -47,7 +47,7 @@ function createMockContext(
           supportsDynamicUi: overrides.supportsDynamicUi ?? true,
         }
       : undefined,
-    sendToClient: (msg: ServerMessage) => sentMessages.push(msg),
+    sendToClient: (msg: AssistantEvent) => sentMessages.push(msg),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
     surfaceState: new Map(),
@@ -128,7 +128,7 @@ describe("showStandaloneSurface", () => {
 
   afterEach(() => {
     // Safety cleanup of any lingering timers
-    for (const t of timers) clearTimeout(t);
+    for (const t of timers) {clearTimeout(t);}
   });
 
   test("fails closed when no client is connected", async () => {
@@ -299,7 +299,7 @@ describe("showStandaloneSurface", () => {
   test("timeout still resolves when emit throws", async () => {
     const ctx = createMockContext();
     let showEmitted = false;
-    broadcastImpl = (msg: ServerMessage) => {
+    broadcastImpl = (msg: AssistantEvent) => {
       const type = (msg as unknown as Record<string, unknown>).type;
       if (type === "ui_surface_show") {
         showEmitted = true;
@@ -478,7 +478,7 @@ describe("cleanupStandaloneSurface", () => {
     clearTimeout(timer);
     const tombstoneTimer =
       ctx.recentlyCompletedStandaloneSurfaces!.get("surf-c1");
-    if (tombstoneTimer) clearTimeout(tombstoneTimer);
+    if (tombstoneTimer) {clearTimeout(tombstoneTimer);}
   });
 
   test("is idempotent — safe to call multiple times", () => {
@@ -530,7 +530,7 @@ describe("standalone surface cleanup on conversation dispose", () => {
         type: "ui_surface_dismiss",
         conversationId: ctx.conversationId,
         surfaceId,
-      } as ServerMessage);
+      } as AssistantEvent);
       entry.resolve({ status: "cancelled", surfaceId });
     }
     ctx.pendingStandaloneSurfaces!.clear();
@@ -579,7 +579,7 @@ describe("standalone surface cleanup on conversation dispose", () => {
         type: "ui_surface_dismiss",
         conversationId: ctx.conversationId,
         surfaceId,
-      } as ServerMessage);
+      } as AssistantEvent);
       entry.resolve({ status: "cancelled", surfaceId });
     }
     ctx.pendingStandaloneSurfaces!.clear();

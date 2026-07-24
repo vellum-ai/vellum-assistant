@@ -14,7 +14,7 @@
  */
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
 import type { ContentBlock, MediaSource } from "../providers/types.js";
 
@@ -144,9 +144,9 @@ export async function runConversationTurn(
   const { resolveMediaSourceData } =
     await import("../providers/media-resolve.js");
   const { getConversation, getMessageById, getMessages } =
-      await import("../persistence/conversation-crud.js");
+    await import("../persistence/conversation-crud.js");
   const { publishConversationListAndMetadataChanged } =
-      await import("../runtime/sync/resource-sync-events.js");
+    await import("../runtime/sync/resource-sync-events.js");
 
   // Plugin-driven turns run as the guardian: plugins are installed by the
   // guardian, so their conversations inherit guardian trust. This lets the
@@ -193,7 +193,7 @@ export async function runConversationTurn(
   // buildEventEmitter pattern from process-message.ts so plugin-driven
   // turns reach the same subscribers as HTTP-driven turns.
   let assistantMessageId: string | undefined;
-  const onEvent = (msg: ServerMessage): void => {
+  const onEvent = (msg: AssistantEvent): void => {
     broadcastMessage(msg, conversationId);
     if (msg.type === "message_complete" && msg.messageId) {
       assistantMessageId = msg.messageId;

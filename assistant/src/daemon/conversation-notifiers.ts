@@ -23,7 +23,7 @@ import {
   provenanceFromTrustContext,
 } from "../persistence/conversation-crud.js";
 import type { Message } from "../providers/types.js";
-import type { ServerMessage } from "./message-protocol.js";
+import type { AssistantEvent } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context-types.js";
 
 /**
@@ -31,7 +31,7 @@ import type { TrustContext } from "./trust-context-types.js";
  * invocation time. Properties are read lazily from this reference.
  */
 export interface NotifierConversationContext {
-  sendToClient: (msg: ServerMessage) => void;
+  sendToClient: (msg: AssistantEvent) => void;
   messages: Message[];
   trustContext?: TrustContext;
 }

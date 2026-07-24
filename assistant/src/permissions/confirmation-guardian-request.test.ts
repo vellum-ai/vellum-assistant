@@ -50,7 +50,7 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
   },
 }));
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { createGuardianRequestForConfirmation } from "./confirmation-guardian-request.js";
 
 const MSG = {
@@ -59,7 +59,7 @@ const MSG = {
   toolName: "Bash",
   input: { command: "ls" },
   riskLevel: "medium",
-} as unknown as ServerMessage & { type: "confirmation_request" };
+} as unknown as AssistantEvent & { type: "confirmation_request" };
 
 describe("createGuardianRequestForConfirmation", () => {
   beforeEach(() => {

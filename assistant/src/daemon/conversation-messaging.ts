@@ -64,7 +64,7 @@ import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type {
-  ServerMessage,
+  AssistantEvent,
   UserMessageAttachment,
 } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
@@ -187,10 +187,10 @@ function resolveIngressSecretTarget(
   for (const detectedType of detectedTypes) {
     const normalizedType = normalizeIngressSecretTypeLabel(detectedType);
     const mapped = INGRESS_SECRET_TARGETS[normalizedType];
-    if (!mapped) continue;
+    if (!mapped) {continue;}
     mappedTargets.set(`${mapped.service}:${mapped.field}`, mapped);
   }
-  if (mappedTargets.size === 1) return mappedTargets.values().next().value!;
+  if (mappedTargets.size === 1) {return mappedTargets.values().next().value!;}
 
   return {
     service: "detected",
@@ -275,7 +275,7 @@ function computeReferenceImageDimensions(
   mediaType: string,
 ): { width: number; height: number } | null {
   const bytes = getAttachmentContent(attachmentId);
-  if (!bytes) return null;
+  if (!bytes) {return null;}
   const optimized = optimizeImageForTransport(
     bytes.toString("base64"),
     mediaType,
@@ -330,7 +330,7 @@ function materializeUserAttachment(
       );
       return stored ? { kind: "stored", stored } : { kind: "transient" };
     }
-    if (!a.data) return { kind: "rejected" };
+    if (!a.data) {return { kind: "rejected" };}
     const validation = validateAttachmentUpload(a.filename, a.mimeType);
     if (!validation.ok) {
       log.warn(
@@ -395,7 +395,7 @@ function referenceBlockForAttachment(
 function inlineBlockForAttachment(
   a: MessageAttachmentInput,
 ): ContentBlock | null {
-  if (!a.data) return null;
+  if (!a.data) {return null;}
   return attachmentsToContentBlocks([a])[0] ?? null;
 }
 
@@ -431,7 +431,7 @@ function prepareUserAttachmentReferences(
       });
       continue;
     }
-    if (outcome.kind === "rejected") continue;
+    if (outcome.kind === "rejected") {continue;}
     // transient: keep the upload by inlining its bytes (dropped only when the
     // recoverable failure left us with no bytes to inline).
     const inline = inlineBlockForAttachment(a);
@@ -450,24 +450,24 @@ function prepareUserAttachmentReferences(
 function extractTurnChannelContext(
   metadata?: Record<string, unknown>,
 ): TurnChannelContext | null {
-  if (!metadata) return null;
+  if (!metadata) {return null;}
   const userMessageChannel = parseChannelId(metadata.userMessageChannel);
   const assistantMessageChannel = parseChannelId(
     metadata.assistantMessageChannel,
   );
-  if (!userMessageChannel || !assistantMessageChannel) return null;
+  if (!userMessageChannel || !assistantMessageChannel) {return null;}
   return { userMessageChannel, assistantMessageChannel };
 }
 
 function extractTurnInterfaceContext(
   metadata?: Record<string, unknown>,
 ): TurnInterfaceContext | null {
-  if (!metadata) return null;
+  if (!metadata) {return null;}
   const userMessageInterface = parseInterfaceId(metadata.userMessageInterface);
   const assistantMessageInterface = parseInterfaceId(
     metadata.assistantMessageInterface,
   );
-  if (!userMessageInterface || !assistantMessageInterface) return null;
+  if (!userMessageInterface || !assistantMessageInterface) {return null;}
   return { userMessageInterface, assistantMessageInterface };
 }
 
@@ -530,7 +530,7 @@ export function buildSlackMetaForPersistence(params: {
 export interface EnqueueMessageOptions {
   content: string;
   attachments?: UserMessageAttachment[];
-  onEvent?: (msg: ServerMessage) => void;
+  onEvent?: (msg: AssistantEvent) => void;
   requestId?: string;
   activeSurfaceId?: string;
   currentPage?: string;
@@ -890,7 +890,7 @@ export async function persistQueuedMessageBody(
     // though the store anchor was lost, then persist the corrected content.
     let repairedBlocks: ContentBlock[] | null = null;
     preparedAttachments.forEach((p, idx) => {
-      if (!p.link) return;
+      if (!p.link) {return;}
       try {
         const scopedAttachmentId = linkAttachmentToMessage(
           persistedUserMessage.id,
@@ -982,7 +982,7 @@ export function redirectToSecurePrompt(
       conversationId,
     )
     .then(async (result): Promise<void> => {
-      if (!result.value) return;
+      if (!result.value) {return;}
 
       const { setSecureKeyAsync } = await import("../security/secure-keys.js");
       const { upsertCredentialMetadata } =

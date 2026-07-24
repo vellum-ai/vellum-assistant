@@ -48,9 +48,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
     id: role === "user" ? "tool-result-row" : "assistant-row",
   }),
   recordConversationPersistedSeq: (id: string, seq: number) => {
-    if (!Number.isFinite(seq) || seq <= 0) return;
+    if (!Number.isFinite(seq) || seq <= 0) {return;}
     const prev = persistedSeqByConversation.get(id);
-    if (prev == null || prev < seq) persistedSeqByConversation.set(id, seq);
+    if (prev == null || prev < seq) {persistedSeqByConversation.set(id, seq);}
   },
   getConversationPersistedSeq: (id: string) =>
     persistedSeqByConversation.get(id) ?? null,
@@ -86,7 +86,7 @@ import {
   createEventHandlerState,
   handleMessageComplete,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getConversationPersistedSeq } from "../persistence/conversation-crud.js";
 
 const CONVERSATION_ID = "test-session-id";
@@ -101,7 +101,7 @@ function createMockDeps(): EventHandlerDeps {
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
     } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (_msg: ServerMessage) => {},
+    onEvent: (_msg: AssistantEvent) => {},
     reqId: "test-req-id",
     isFirstMessage: false,
     shouldGenerateTitle: false,

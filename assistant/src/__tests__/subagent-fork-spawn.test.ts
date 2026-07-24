@@ -5,7 +5,7 @@ import {
   findConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { Message } from "../providers/types.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentConfig, SubagentState } from "../subagent/types.js";
@@ -16,7 +16,7 @@ interface FakeManagedSubagent {
     abort: () => void;
     dispose: () => void;
     messages: Message[];
-    sendToClient: (msg: ServerMessage) => void;
+    sendToClient: (msg: AssistantEvent) => void;
     persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
     enqueueMessage?: () => { rejected: boolean; queued: boolean };
@@ -31,7 +31,7 @@ interface FakeManagedSubagent {
     subagentDeniedToolNames: Set<string>;
   } | null;
   state: SubagentState;
-  parentSendToClient: (msg: ServerMessage) => void;
+  parentSendToClient: (msg: AssistantEvent) => void;
   retainedUntil?: number;
   hadEnqueuedMessages?: boolean;
 }
@@ -66,7 +66,7 @@ function injectFakeSubagent(
   manager: SubagentManager,
   subagentId: string,
   state: SubagentState,
-  parentSendToClient?: (msg: ServerMessage) => void,
+  parentSendToClient?: (msg: AssistantEvent) => void,
   conversation?: FakeManagedSubagent["conversation"],
 ): void {
   const internals = asInternals(manager);

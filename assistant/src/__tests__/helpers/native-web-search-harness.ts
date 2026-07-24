@@ -4,7 +4,7 @@
  *
  * Both `native-web-search.test.ts` and `web-search-backend-failure.test.ts`
  * exercise the same handler the same way: build a set of mocked
- * `EventHandlerDeps` (capturing emitted `ServerMessage`s and `rlog.warn`
+ * `EventHandlerDeps` (capturing emitted `AssistantEvent`s and `rlog.warn`
  * records), then drive a `server_tool_start` → `server_tool_complete` pair.
  * This module is the single source of truth for that harness so the two suites
  * cannot drift apart.
@@ -19,10 +19,10 @@ import type {
   EventHandlerState,
 } from "../../daemon/conversation-agent-loop-handlers.js";
 import { dispatchAgentEvent } from "../../daemon/conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../daemon/message-protocol.js";
 
-/** A `tool_result` `ServerMessage` emitted by the handler. */
-export type ToolResultEvent = Extract<ServerMessage, { type: "tool_result" }>;
+/** A `tool_result` `AssistantEvent` emitted by the handler. */
+export type ToolResultEvent = Extract<AssistantEvent, { type: "tool_result" }>;
 
 /** A captured `rlog.warn(obj, msg)` call. */
 export interface LogRecord {
@@ -32,15 +32,15 @@ export interface LogRecord {
 
 export interface HandlerHarness {
   deps: EventHandlerDeps;
-  /** Every `ServerMessage` the handler emitted via `onEvent`. */
-  events: ServerMessage[];
+  /** Every `AssistantEvent` the handler emitted via `onEvent`. */
+  events: AssistantEvent[];
   /** Every `rlog.warn(obj, msg)` call the handler made. */
   warnings: LogRecord[];
 }
 
 /** Build mocked handler deps that capture emitted events and warn logs. */
 export function createHandlerDeps(reqId = "req-web-search"): HandlerHarness {
-  const events: ServerMessage[] = [];
+  const events: AssistantEvent[] = [];
   const warnings: LogRecord[] = [];
   const rlog = {
     warn: (obj: Record<string, unknown>, msg?: string) =>
@@ -60,7 +60,7 @@ export function createHandlerDeps(reqId = "req-web-search"): HandlerHarness {
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
     } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (msg: ServerMessage) => events.push(msg),
+    onEvent: (msg: AssistantEvent) => events.push(msg),
     reqId,
     isFirstMessage: false,
     shouldGenerateTitle: false,
@@ -110,13 +110,13 @@ export async function completeNativeWebSearch(
 }
 
 /** All `tool_result` events emitted so far, in order. */
-export function toolResults(events: ServerMessage[]): ToolResultEvent[] {
+export function toolResults(events: AssistantEvent[]): ToolResultEvent[] {
   return events.filter((e): e is ToolResultEvent => e.type === "tool_result");
 }
 
 /** The most recent `tool_result` event, if any. */
 export function lastToolResult(
-  events: ServerMessage[],
+  events: AssistantEvent[],
 ): ToolResultEvent | undefined {
   const results = toolResults(events);
   return results[results.length - 1];

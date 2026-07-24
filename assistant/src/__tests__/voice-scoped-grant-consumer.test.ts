@@ -66,7 +66,7 @@ import {
   revokeScopedApprovalGrantsForContext,
 } from "../approvals/scoped-approval-grants.js";
 import { startVoiceTurn } from "../calls/voice-session-bridge.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { scopedApprovalGrants } from "../persistence/schema/index.js";
@@ -100,7 +100,7 @@ function createMockSession(opts?: {
   const toolName = opts?.toolName ?? TOOL_NAME;
   const toolInput = opts?.toolInput ?? TOOL_INPUT;
 
-  let clientCallback: ((msg: ServerMessage) => void) | null = null;
+  let clientCallback: ((msg: AssistantEvent) => void) | null = null;
   let confirmationDecision: {
     requestId: string;
     decision: string;
@@ -118,7 +118,7 @@ function createMockSession(opts?: {
     currentRequestId: requestId,
     abort: () => {},
     persistUserMessage: async () => ({ id: "msg-1", deduplicated: false }),
-    updateClient: (cb: (msg: ServerMessage) => void, _reset?: boolean) => {
+    updateClient: (cb: (msg: AssistantEvent) => void, _reset?: boolean) => {
       clientCallback = cb;
     },
     handleConfirmationResponse: (
@@ -136,7 +136,7 @@ function createMockSession(opts?: {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      options?: { onEvent?: (msg: ServerMessage) => void },
+      options?: { onEvent?: (msg: AssistantEvent) => void },
     ) => {
       // Emit a confirmation_request through the client callback
       if (clientCallback) {
@@ -148,10 +148,10 @@ function createMockSession(opts?: {
           riskLevel: "medium",
           allowlistOptions: [],
           scopeOptions: [],
-        } as ServerMessage);
+        } as AssistantEvent);
       }
       // Then complete the turn
-      options?.onEvent?.({ type: "message_complete" } as ServerMessage);
+      options?.onEvent?.({ type: "message_complete" } as AssistantEvent);
     },
   };
 

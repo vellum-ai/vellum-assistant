@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { VellumAdapter } from "../notifications/adapters/macos.js";
 import type {
   ChannelDeliveryPayload,
@@ -30,9 +30,9 @@ function makeDestination(
 
 function captureBroadcast(): {
   adapter: VellumAdapter;
-  sent: ServerMessage[];
+  sent: AssistantEvent[];
 } {
-  const sent: ServerMessage[] = [];
+  const sent: AssistantEvent[] = [];
   const adapter = new VellumAdapter((msg) => sent.push(msg));
   return { adapter, sent };
 }
@@ -48,7 +48,7 @@ describe("VellumAdapter silent flag", () => {
     expect(result.success).toBe(true);
     expect(sent).toHaveLength(1);
     const intent = sent[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "notification_intent" }
     >;
     expect(intent.type).toBe("notification_intent");
@@ -60,7 +60,7 @@ describe("VellumAdapter silent flag", () => {
     await adapter.send(makePayload({ urgency: "medium" }), makeDestination());
 
     const intent = sent[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "notification_intent" }
     >;
     expect(intent.silent).toBe(true);
@@ -71,7 +71,7 @@ describe("VellumAdapter silent flag", () => {
     await adapter.send(makePayload({ urgency: "high" }), makeDestination());
 
     const intent = sent[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "notification_intent" }
     >;
     expect(intent.silent).toBe(false);
@@ -82,7 +82,7 @@ describe("VellumAdapter silent flag", () => {
     await adapter.send(makePayload({ urgency: "critical" }), makeDestination());
 
     const intent = sent[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "notification_intent" }
     >;
     expect(intent.silent).toBe(false);
@@ -101,7 +101,7 @@ describe("VellumAdapter silent flag", () => {
     );
 
     const intent = sent[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "notification_intent" }
     >;
     expect(intent.deliveryId).toBe("delivery-xyz");

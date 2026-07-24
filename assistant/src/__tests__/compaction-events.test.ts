@@ -12,7 +12,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
@@ -233,7 +233,7 @@ function makeProvider() {
 }
 
 function makeConversation(
-  collected: ServerMessage[],
+  collected: AssistantEvent[],
   id = "conv-compact-events",
 ): Conversation {
   return new Conversation(
@@ -254,7 +254,7 @@ function makeConversation(
 
 describe("forceCompact event emission", () => {
   test("emits context_compacted and a usage_update without contextWindow when compacted", async () => {
-    const collected: ServerMessage[] = [];
+    const collected: AssistantEvent[] = [];
     mockCompactResult = {
       messages: [],
       compacted: true,
@@ -279,7 +279,7 @@ describe("forceCompact event emission", () => {
     );
     expect(compactedEvents.length).toBe(1);
     const compactedEvent = compactedEvents[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "context_compacted" }
     >;
     expect(compactedEvent.conversationId).toBe("conv-compact-events");
@@ -298,7 +298,7 @@ describe("forceCompact event emission", () => {
     const usageEvents = collected.filter((m) => m.type === "usage_update");
     expect(usageEvents.length).toBe(1);
     const usageEvent = usageEvents[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "usage_update" }
     >;
     // `context_compacted` is now the single source of truth for the UI
@@ -312,7 +312,7 @@ describe("forceCompact event emission", () => {
   });
 
   test("emits context_compacted even when summary LLM was skipped (truncation-only path)", async () => {
-    const collected: ServerMessage[] = [];
+    const collected: AssistantEvent[] = [];
     mockCompactResult = {
       messages: [],
       compacted: true,
@@ -342,7 +342,7 @@ describe("forceCompact event emission", () => {
     );
     expect(compactedEvents.length).toBe(1);
     const compactedEvent = compactedEvents[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "context_compacted" }
     >;
     expect(compactedEvent.conversationId).toBe("conv-compact-trunc");
@@ -356,7 +356,7 @@ describe("forceCompact event emission", () => {
   });
 
   test("skips emission when compacted is false", async () => {
-    const collected: ServerMessage[] = [];
+    const collected: AssistantEvent[] = [];
     mockCompactResult = {
       messages: [],
       compacted: false,
