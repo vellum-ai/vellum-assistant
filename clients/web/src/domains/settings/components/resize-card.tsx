@@ -392,11 +392,10 @@ export function ResizeCard({
       >
         <Modal.Content size="sm">
           <Modal.Header>
-            <Modal.Title>Upgrade to Pro</Modal.Title>
+            <Modal.Title>Upgrade your plan</Modal.Title>
             <Modal.Description>
-              {upgradeModalOpen === "storage"
-                ? "Upgrade to the Pro plan to increase your storage allocation and get more space for your assistant."
-                : "Upgrade to the Pro plan to unlock larger machine sizes with more CPU and memory for your assistant."}
+              Move to a higher plan for more power, more storage, and a larger
+              credit bundle.
             </Modal.Description>
           </Modal.Header>
           <Modal.Footer>
@@ -406,7 +405,7 @@ export function ResizeCard({
             <Button
               onClick={() => {
                 setUpgradeModalOpen(null);
-                void navigate(`${routes.settings.usage}?tab=billing&adjust_plan=1`);
+                void navigate(routes.plans);
               }}
             >
               Upgrade
@@ -475,7 +474,7 @@ export function ResizeCard({
             <span className="text-label-small-default text-[var(--content-tertiary)]">
               Need more?{" "}
               <Link
-                to={`${routes.settings.usage}?tab=billing&adjust_plan=1`}
+                to={routes.plans}
                 className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
                 onClick={() => setResizeModalOpen(false)}
               >

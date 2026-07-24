@@ -256,9 +256,15 @@ export function PlansPage() {
     notPlatformHosted || subscriptionQuery.isError || catalogEmpty;
   useEffect(() => {
     if (cannotResolve) {
-      navigate(routes.settings.usageBilling, { replace: true });
+      // Platform-hosted but catalog-empty (pro-packages off) or a failed
+      // subscription read still has an upgrade path via the billing adjust-plan
+      // modal; self-hosted / no session does not.
+      const target = notPlatformHosted
+        ? routes.settings.usageBilling
+        : `${routes.settings.usageBilling}&adjust_plan`;
+      navigate(target, { replace: true });
     }
-  }, [cannotResolve, navigate]);
+  }, [cannotResolve, notPlatformHosted, navigate]);
 
   const handleBack = () => {
     const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
