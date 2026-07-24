@@ -2,6 +2,7 @@ import { CheckCircle, CircleSlash, Loader2, XCircle } from "lucide-react";
 import { type ComponentType, type ReactNode, useState } from "react";
 
 import { Button } from "@vellumai/design-library";
+import { inferCompletionTone } from "@/domains/chat/completion-tone";
 import type { Surface, SurfaceCompletionTone } from "@/domains/chat/types/types";
 import { cn } from "@/utils/misc";
 
@@ -18,7 +19,7 @@ interface SurfaceContainerProps {
  * Icon + color for each completion tone. `success` is the affirmative green
  * check; `danger` is a red rejection glyph (denied / blocked); `neutral` is a
  * muted "voided" glyph for terminal states that are not a success and not an
- * active rejection (expired / cancelled / timed out).
+ * active rejection (left unverified / expired / cancelled / timed out).
  */
 const COMPLETION_TONE_STYLE: Record<
   SurfaceCompletionTone,
@@ -37,24 +38,6 @@ const COMPLETION_TONE_STYLE: Record<
     colorClass: "text-[var(--content-quiet)]",
   },
 };
-
-/**
- * Infer a completion tone from the summary text. Used when no explicit
- * `completionTone` was set (the SSE `ui_surface_complete` path and
- * history-restored surfaces carry only the summary string). Covers the
- * daemon's terminal-status labels ("Denied", "Expired", "Cancelled", …) and
- * the guardian-decision reason labels; anything unrecognized stays `success`
- * so ordinary completed cards keep their affirmative check.
- */
-function inferCompletionTone(summary: string | undefined): SurfaceCompletionTone {
-  if (!summary) {return "success";}
-  const s = summary.toLowerCase();
-  if (/denied|declined|rejected|blocked/.test(s)) {return "danger";}
-  if (/expired|cancel|timed out|resolved|not applied|not authorized|not found|failed/.test(s)) {
-    return "neutral";
-  }
-  return "success";
-}
 
 export function SurfaceContainer({ surface, onAction, hideTitle, className, children }: SurfaceContainerProps) {
   const [submittingAction, setSubmittingAction] = useState<string | null>(null);

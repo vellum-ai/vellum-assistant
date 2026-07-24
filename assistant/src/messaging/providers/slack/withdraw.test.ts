@@ -228,4 +228,38 @@ describe("withdrawSlackApprovalCard", () => {
       callSlackApi.mock.calls.some((c) => c[0] === "chat.postMessage"),
     ).toBe(false);
   });
+
+  test("renders a leave-unverified park neutrally as 'Left unverified', not a denial", async () => {
+    getSlackMessageBlocks.mockImplementationOnce(async () => null);
+
+    await withdrawSlackApprovalCard({
+      channel: "C1",
+      messageTs: "1.0",
+      status: "denied",
+      decidedAction: "leave_unverified",
+    });
+
+    const serialized = JSON.stringify(callSlackApi.mock.calls[0][1].blocks);
+    // A park is a neutral hold — the card must not read as a denial.
+    expect(serialized).toContain("Left unverified");
+    expect(serialized).not.toContain("Denied");
+    expect(serialized).not.toContain(":x:");
+    expect(serialized).toContain(":pause_button:");
+  });
+
+  test("a block deny still renders as 'Denied' with the denial glyph", async () => {
+    getSlackMessageBlocks.mockImplementationOnce(async () => null);
+
+    await withdrawSlackApprovalCard({
+      channel: "C1",
+      messageTs: "1.0",
+      status: "denied",
+      decidedAction: "block",
+    });
+
+    const serialized = JSON.stringify(callSlackApi.mock.calls[0][1].blocks);
+    expect(serialized).toContain("Denied");
+    expect(serialized).toContain(":x:");
+    expect(serialized).not.toContain("Left unverified");
+  });
 });
