@@ -52,7 +52,6 @@ function makeConfig(): ProvidersConfig {
     services: {
       inference: {},
       "image-generation": {
-        mode: "your-own",
         provider: "gemini",
         model: "gemini-3.1-flash-image-preview",
       },

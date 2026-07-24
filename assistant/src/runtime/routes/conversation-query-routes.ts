@@ -703,7 +703,10 @@ const ConfigGetResponseSchema = z
           .passthrough()
           .optional(),
         "image-generation": z
-          .object({ mode: ServiceModeSchema.optional() })
+          .object({
+            provider: z.string().optional(),
+            model: z.string().optional(),
+          })
           .passthrough()
           .optional(),
         inference: z
@@ -807,7 +810,10 @@ const ConfigPatchRequestSchema = z
           .nullable()
           .optional(),
         "image-generation": z
-          .object({ mode: ServiceModeSchema.optional() })
+          .object({
+            provider: z.string().optional(),
+            model: z.string().optional(),
+          })
           .passthrough()
           .nullable()
           .optional(),
