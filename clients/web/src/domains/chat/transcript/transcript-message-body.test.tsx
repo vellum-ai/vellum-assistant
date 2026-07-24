@@ -697,7 +697,6 @@ describe("TranscriptMessageBody", () => {
           contentBlocks: [
             textBlock("I will create that."),
             toolUseBlock(toolCall),
-            surfaceBlock("result-surface"),
             textBlock("I will summarize it."),
             textBlock("Here are the results."),
           ],
@@ -711,11 +710,7 @@ describe("TranscriptMessageBody", () => {
     expect(queryByText("I will summarize it.")).toBeNull();
     expect(queryByText("Here are the results.")).not.toBeNull();
     const image = container.querySelector("[data-testid='tool-result-image']");
-    const surface = container.querySelector(
-      "[data-surface-id='result-surface']",
-    );
     expect(image).not.toBeNull();
-    expect(surface).not.toBeNull();
 
     const triggers = getAllByRole("button", { name: "Earlier activity" });
     expect(triggers.length).toBe(2);
@@ -728,16 +723,37 @@ describe("TranscriptMessageBody", () => {
       firstText.compareDocumentPosition(image!) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
     expect(
-      image!.compareDocumentPosition(surface!) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).not.toBe(0);
-    expect(
-      surface!.compareDocumentPosition(secondText) &
+      image!.compareDocumentPosition(secondText) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
     expect(
       secondText.compareDocumentPosition(finalText) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
+  });
+
+  test("keeps surface lead-in text visible as part of the final response", () => {
+    const { container, queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-surface-lead-in",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Here is the chart:"),
+            surfaceBlock("result-surface"),
+            textBlock("The totals increased."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("Here is the chart:")).not.toBeNull();
+    expect(queryByText("The totals increased.")).not.toBeNull();
+    expect(
+      container.querySelector("[data-surface-id='result-surface']"),
+    ).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
   });
 
   test("keeps inline surfaces visible outside collapsed earlier text", () => {

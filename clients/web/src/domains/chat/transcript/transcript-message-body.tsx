@@ -1033,7 +1033,12 @@ export function TranscriptMessageBody({
       return [];
     }
     if (group.type === "text") {
-      return parseInlineSurfaces(group.text) ? [] : [groupIndex];
+      const isSurfaceAdjacent =
+        groups[groupIndex - 1]?.type === "surface" ||
+        groups[groupIndex + 1]?.type === "surface";
+      return parseInlineSurfaces(group.text) || isSurfaceAdjacent
+        ? []
+        : [groupIndex];
     }
 
     const { toolCalls } = activityItemsToCardData(group.items);
