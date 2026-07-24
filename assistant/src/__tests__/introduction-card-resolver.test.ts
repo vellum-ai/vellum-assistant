@@ -225,6 +225,12 @@ describe("introduction card decisions", () => {
       });
 
       expect(result.applied).toBe(true);
+      if (!result.applied) {
+        continue;
+      }
+      // The primitive returns the resolved outcome so a caller completing the
+      // card optimistically (the in-app path) renders the park, not a denial.
+      expect(result.decidedAction).toBe("leave_unverified");
       expect(sim.getRequest(req.id)?.status).toBe("denied");
       expect(outcomesOfType("seed_unverified")).toHaveLength(1);
       expect(outcomesOfType("block")).toHaveLength(0);
@@ -250,6 +256,11 @@ describe("introduction card decisions", () => {
     });
 
     expect(result.applied).toBe(true);
+    if (!result.applied) {
+      return;
+    }
+    // Block stays an active denial in the returned outcome too.
+    expect(result.decidedAction).toBe("block");
     expect(sim.getRequest(req.id)?.status).toBe("denied");
     const blocks = outcomesOfType("block");
     expect(blocks).toHaveLength(1);

@@ -23,6 +23,25 @@ describe("guardianDecisionTone", () => {
     );
   });
 
+  it("prefers the server-resolved outcome over the raw action id", () => {
+    // The daemon folds an access-request `reject` onto the `leave_unverified`
+    // park; when it reports that resolved action, the optimistic completion must
+    // render the neutral park even though the raw button was `reject`.
+    expect(
+      guardianDecisionTone("apr:req1:reject", {
+        applied: true,
+        decidedAction: "leave_unverified",
+      }),
+    ).toBe("neutral");
+    // A resolved block stays a denial.
+    expect(
+      guardianDecisionTone("apr:req1:reject", {
+        applied: true,
+        decidedAction: "block",
+      }),
+    ).toBe("danger");
+  });
+
   it("marks approve and trust as success", () => {
     expect(
       guardianDecisionTone("apr:req1:approve_once", { applied: true }),
