@@ -22,8 +22,9 @@ import { providerForImageModelPrefix, providerForModel } from "./types.js";
  * anything else proxies Gemini), so one managed provider spans both runtime
  * proxies. Managed routing never falls back to a stored BYOK key, and a BYOK
  * provider never falls back to the proxy — billing follows the explicit
- * provider choice. Other providers keep today's behavior: the caller's key,
- * with an explicit model override re-routing to the model's backend.
+ * provider choice. Other providers use the caller's key, with an explicit
+ * model override re-routing to the model's backend. A legacy
+ * `mode: "managed"` also routes managed.
  */
 export function resolveImageGenRouting(
   svc: { provider: string; model: string; mode?: string },
