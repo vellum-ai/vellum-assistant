@@ -98,15 +98,37 @@ export function resolveOpenRouterEffectiveModel(
   return override ?? fallbackModel;
 }
 
+// OpenRouter provider-preferences keys that themselves express a routing
+// priority (which upstream is tried first). When a caller supplies one of
+// these directly on `config.provider`, they have already stated an explicit
+// routing intent, so the catalog default `order` must not be injected on top —
+// doing so would override an explicit `provider.order` or fight an explicit
+// `provider.sort`. A bare `only` allowlist is NOT a priority key: it restricts
+// which upstreams are eligible but states no preference among them, so the
+// catalog default still applies. See OpenRouter's provider-routing docs
+// (https://openrouter.ai/docs/features/provider-routing).
+const PROVIDER_ROUTING_PRIORITY_KEYS = ["order", "sort"] as const;
+
+function providerHasRoutingPriority(
+  provider: Record<string, unknown>,
+): boolean {
+  return PROVIDER_ROUTING_PRIORITY_KEYS.some(
+    (key) => provider[key] !== undefined,
+  );
+}
+
 /**
  * Build OpenRouter's `provider` routing body object from a per-call config and
  * the effective model. Composes any caller-set `provider` fields with
  * `openrouter.only` (upstream allowlist), `openrouter.order` (upstream
  * preference — defaulting from the model catalog's `openrouterPreferredUpstreams`
- * when the config sets none), and `openrouter.allowFallbacks` (serialized as
- * OpenRouter's snake_case `allow_fallbacks`). Config-set values always win over
- * catalog defaults. Returns `undefined` when nothing applies so callers can omit
- * the field entirely. Exported for tests.
+ * when neither `openrouter.order` nor an explicit caller `provider` routing
+ * priority is present), and `openrouter.allowFallbacks` (serialized as
+ * OpenRouter's snake_case `allow_fallbacks`). Explicit caller routing always
+ * wins: a caller-supplied `provider.order` or `provider.sort` suppresses the
+ * catalog default order (a bare `provider.only` allowlist does not). Returns
+ * `undefined` when nothing applies so callers can omit the field entirely.
+ * Exported for tests.
  */
 export function buildOpenRouterProviderField(
   config: unknown,
@@ -115,13 +137,20 @@ export function buildOpenRouterProviderField(
   const only = extractOnlyList(config);
   const configOrder = extractOrderList(config);
   const allowFallbacks = extractAllowFallbacks(config);
-  const order =
-    configOrder.length > 0
-      ? configOrder
-      : [...(OPENROUTER_MODEL_PREFERRED_UPSTREAMS.get(effectiveModel) ?? [])];
 
   const existingProvider = ((config as Record<string, unknown> | undefined)
     ?.provider ?? {}) as Record<string, unknown>;
+
+  // The catalog default order is a fallback, applied only when the caller has
+  // stated no routing priority of their own — neither `openrouter.order` nor an
+  // explicit `provider.{order,sort}`.
+  const order =
+    configOrder.length > 0
+      ? configOrder
+      : providerHasRoutingPriority(existingProvider)
+        ? []
+        : [...(OPENROUTER_MODEL_PREFERRED_UPSTREAMS.get(effectiveModel) ?? [])];
+
   const provider: Record<string, unknown> = { ...existingProvider };
   let hasField = Object.keys(existingProvider).length > 0;
   if (only.length > 0) {

@@ -131,13 +131,36 @@ describe("OpenRouter provider.only plumbing", () => {
       ).toEqual({ only: ["DeepSeek"], order: ["deepseek"] });
     });
 
-    test("preserves a caller-set provider object", () => {
+    test("a caller-set provider.sort suppresses the catalog default order", () => {
+      // An explicit routing-priority strategy (`sort`) is the caller's stated
+      // intent; injecting the catalog default `order` alongside it would fight
+      // that choice.
       expect(
         buildOpenRouterProviderField(
           { provider: { sort: "throughput" } },
           "deepseek/deepseek-v4-flash",
         ),
-      ).toEqual({ sort: "throughput", order: ["deepseek"] });
+      ).toEqual({ sort: "throughput" });
+    });
+
+    test("a caller-set provider.order suppresses the catalog default order", () => {
+      expect(
+        buildOpenRouterProviderField(
+          { provider: { order: ["fireworks"] } },
+          "deepseek/deepseek-v4-flash",
+        ),
+      ).toEqual({ order: ["fireworks"] });
+    });
+
+    test("a bare caller-set provider.only does not suppress the catalog default order", () => {
+      // `only` is an allowlist, not a routing priority, so the catalog default
+      // still fills the preference among the allowed upstreams.
+      expect(
+        buildOpenRouterProviderField(
+          { provider: { only: ["deepseek"] } },
+          "deepseek/deepseek-v4-flash",
+        ),
+      ).toEqual({ only: ["deepseek"], order: ["deepseek"] });
     });
 
     test("does not mutate the shared catalog default array across calls", () => {
