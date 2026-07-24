@@ -74,10 +74,7 @@ import type { _HostCuServerMessages } from "./message-types/host-cu.js";
 import type { _HostFileServerMessages } from "./message-types/host-file.js";
 import type { _HostTransferServerMessages } from "./message-types/host-transfer.js";
 import type { _HostUiSnapshotServerMessages } from "./message-types/host-ui-snapshot.js";
-import type {
-  _IntegrationsClientMessages,
-  _IntegrationsServerMessages,
-} from "./message-types/integrations.js";
+import type { _IntegrationsServerMessages } from "./message-types/integrations.js";
 import type { _MemoryServerMessages } from "./message-types/memory.js";
 import type {
   _MessagesClientMessages,
@@ -101,7 +98,6 @@ import type { _WorkspaceServerMessages } from "./message-types/workspace.js";
 
 export type ClientMessage =
   | _MessagesClientMessages
-  | _IntegrationsClientMessages
   | _ComputerUseClientMessages
   | _HostBrowserClientMessages
   | _DiagnosticsClientMessages
