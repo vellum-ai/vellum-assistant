@@ -1,6 +1,8 @@
 import { Button, Notice } from "@vellumai/design-library";
 import type { DetectedSecret } from "@vellumai/service-contracts/secret-detection";
 
+import { isStorableSecret } from "@/domains/chat/components/store-credential-dialog";
+
 /** Leading characters of the detected value kept visible in the masked preview. */
 const MASK_VISIBLE_CHARS = 6;
 const MASK_BULLETS = "•".repeat(8);
@@ -31,6 +33,12 @@ export interface ComposerSecretNoticeProps {
    * the daemon's per-message `bypassSecretCheck` override.
    */
   onSendAnyway: () => void;
+  /**
+   * Both states: opens the store-credential dialog for the previewed
+   * (first) detected secret so the user can vault it and have the draft
+   * rewritten instead of sending the plaintext key.
+   */
+  onStoreSecurely: () => void;
 }
 
 /**
@@ -41,8 +49,11 @@ export interface ComposerSecretNoticeProps {
  *   control, shown while typing.
  * - Blocked (`sendBlocked` true): the pre-send gate intercepted a submit;
  *   the draft is untouched and the user chooses "Send anyway" (single-use
- *   bypass + resubmit) or "Dismiss". Follow-up actions (e.g. storing the
- *   credential securely) slot in as additional buttons alongside these.
+ *   bypass + resubmit) or "Dismiss".
+ *
+ * Both states lead with "Store securely" — the recommended path — which
+ * opens the store-credential dialog for the previewed secret. The action is
+ * omitted for a non-storable match (see {@link isStorableSecret}).
  *
  * The copy is deliberately generic — the detection label (which names the
  * vendor) stays internal and is never rendered. The detected value appears
@@ -59,11 +70,20 @@ export function ComposerSecretNotice({
   sendBlocked,
   onDismiss,
   onSendAnyway,
+  onStoreSecurely,
 }: ComposerSecretNoticeProps) {
   const first = matches[0];
   if (!first) {
     return null;
   }
+  // A non-storable match (a private key detected by its header alone — the
+  // END footer never arrived) gets no "Store securely" action: the store +
+  // rewrite would remove only the header and leave the key body behind.
+  const storeSecurelyButton = isStorableSecret(first) ? (
+    <Button variant="primary" size="compact" onClick={onStoreSecurely}>
+      Store securely
+    </Button>
+  ) : null;
   return (
     <div className="mb-2">
       <Notice
@@ -77,6 +97,7 @@ export function ComposerSecretNotice({
         actions={
           sendBlocked ? (
             <>
+              {storeSecurelyButton}
               <Button variant="outlined" size="compact" onClick={onSendAnyway}>
                 Send anyway
               </Button>
@@ -84,7 +105,9 @@ export function ComposerSecretNotice({
                 Dismiss
               </Button>
             </>
-          ) : undefined
+          ) : (
+            storeSecurelyButton
+          )
         }
       >
         <span className="font-mono">{maskSecretValue(first.value)}</span>

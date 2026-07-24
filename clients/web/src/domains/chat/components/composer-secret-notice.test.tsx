@@ -1,8 +1,9 @@
 /**
  * Tests for `ComposerSecretNotice` — masked display, generic copy, and
  * dismissal in the passive state, plus the blocked-send state's exact copy
- * and "Send anyway" / "Dismiss" actions. The token is a synthetic value
- * invented for these tests.
+ * and "Send anyway" / "Dismiss" actions, and the "Store securely" action
+ * offered in both states. The token is a synthetic value invented for
+ * these tests.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -37,6 +38,7 @@ function renderNotice(overrides: Partial<ComposerSecretNoticeProps> = {}) {
       sendBlocked={false}
       onDismiss={() => {}}
       onSendAnyway={() => {}}
+      onStoreSecurely={() => {}}
       {...overrides}
     />,
   );
@@ -83,6 +85,56 @@ describe("ComposerSecretNotice (passive)", () => {
     const { container } = renderNotice({ matches: [] });
     expect(container.innerHTML).toBe("");
   });
+
+  test("Store securely action is offered and invokes onStoreSecurely", () => {
+    const onStoreSecurely = mock(() => {});
+    renderNotice({ onStoreSecurely });
+    fireEvent.click(screen.getByRole("button", { name: "Store securely" }));
+    expect(onStoreSecurely).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ComposerSecretNotice (non-storable match)", () => {
+  // A private key detected by its header alone — the END footer never
+  // arrived, so storing would leave the key body in the draft.
+  const headerOnlyPem: DetectedSecret = {
+    label: "Private Key",
+    value: "-----BEGIN RSA PRIVATE KEY-----",
+    start: 0,
+    end: "-----BEGIN RSA PRIVATE KEY-----".length,
+    wholeMessage: false,
+  };
+
+  test("passive state omits Store securely for a header-only private key", () => {
+    renderNotice({ matches: [headerOnlyPem] });
+    expect(
+      screen.queryByRole("button", { name: "Store securely" }),
+    ).toBeNull();
+  });
+
+  test("blocked state omits Store securely but keeps Send anyway / Dismiss", () => {
+    renderNotice({ matches: [headerOnlyPem], sendBlocked: true });
+    expect(
+      screen.queryByRole("button", { name: "Store securely" }),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Send anyway" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+  });
+
+  test("a complete PEM block still offers Store securely", () => {
+    const fullBlock: DetectedSecret = {
+      label: "Private Key",
+      value:
+        "-----BEGIN RSA PRIVATE KEY-----\nMIIFAKEfakefakefake==\n-----END RSA PRIVATE KEY-----",
+      start: 0,
+      end: 92,
+      wholeMessage: false,
+    };
+    renderNotice({ matches: [fullBlock] });
+    expect(
+      screen.getByRole("button", { name: "Store securely" }),
+    ).toBeTruthy();
+  });
 });
 
 describe("ComposerSecretNotice (blocked send)", () => {
@@ -99,6 +151,14 @@ describe("ComposerSecretNotice (blocked send)", () => {
       screen.getByRole("button", { name: "Send anyway" }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Store securely" })).toBeTruthy();
+  });
+
+  test("Store securely action invokes onStoreSecurely while blocked", () => {
+    const onStoreSecurely = mock(() => {});
+    renderNotice({ sendBlocked: true, onStoreSecurely });
+    fireEvent.click(screen.getByRole("button", { name: "Store securely" }));
+    expect(onStoreSecurely).toHaveBeenCalledTimes(1);
   });
 
   test("Send anyway invokes the bypass-and-resubmit handler once", () => {

@@ -6,6 +6,7 @@ import * as subpathExport from "@vellumai/service-contracts/secret-detection";
 
 import {
   detectSecretsInText,
+  isCompletePrivateKeyBlock,
   PREFIX_PATTERNS,
   TOKEN_SHAPE,
 } from "../secret-detection.js";
@@ -204,6 +205,101 @@ describe("detectSecretsInText — whole-message token shape", () => {
     const results = detectSecretsInText(key);
     expect(results).toHaveLength(1);
     expect(results[0]!.label).toBe("GitLab Token");
+  });
+});
+
+describe("detectSecretsInText — PEM private-key blocks", () => {
+  // Clearly fake PEM material — never a real key.
+  const FAKE_PEM_BODY =
+    "MIIFAKEfakefakefakefakefakefakefakefakefake\n" +
+    "FAKEfakefakefakefakefakefakefakefakefake==";
+  const FULL_PEM_BLOCK = `-----BEGIN RSA PRIVATE KEY-----\n${FAKE_PEM_BODY}\n-----END RSA PRIVATE KEY-----`;
+
+  test("a complete PEM block is one match spanning header through footer", () => {
+    const text = `here is my key\n${FULL_PEM_BLOCK}\nplease use it`;
+    const start = text.indexOf(FULL_PEM_BLOCK);
+    expect(detectSecretsInText(text)).toEqual([
+      {
+        label: "Private Key",
+        value: FULL_PEM_BLOCK,
+        start,
+        end: start + FULL_PEM_BLOCK.length,
+        wholeMessage: false,
+      },
+    ]);
+  });
+
+  test("a PGP private-key block with the BLOCK suffix is captured whole", () => {
+    const block = `-----BEGIN PGP PRIVATE KEY BLOCK-----\n${FAKE_PEM_BODY}\n-----END PGP PRIVATE KEY BLOCK-----`;
+    const results = detectSecretsInText(block);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.value).toBe(block);
+  });
+
+  test("a header with a body but no END footer still fires — header-only span", () => {
+    // Truncated / partially pasted key: detection must not regress, the
+    // daemon ingress relies on the header alone to block.
+    const text = `-----BEGIN RSA PRIVATE KEY-----\n${FAKE_PEM_BODY}`;
+    const results = detectSecretsInText(text);
+    expect(results).toEqual([
+      {
+        label: "Private Key",
+        value: "-----BEGIN RSA PRIVATE KEY-----",
+        start: 0,
+        end: "-----BEGIN RSA PRIVATE KEY-----".length,
+        wholeMessage: false,
+      },
+    ]);
+    expect(isCompletePrivateKeyBlock(results[0]!.value)).toBe(false);
+  });
+
+  test("adjacent complete blocks match separately, not as one giant span", () => {
+    const text = `${FULL_PEM_BLOCK}\n\n${FULL_PEM_BLOCK}`;
+    const results = detectSecretsInText(text);
+    expect(results).toHaveLength(2);
+    expect(results[0]!.value).toBe(FULL_PEM_BLOCK);
+    expect(results[1]!.value).toBe(FULL_PEM_BLOCK);
+    expect(results[1]!.start).toBeGreaterThanOrEqual(results[0]!.end);
+  });
+
+  test("a footerless header never swallows a later complete block", () => {
+    // The body is tempered — it cannot cross another BEGIN header — so the
+    // truncated first key matches header-only and the second key matches
+    // as its own complete block.
+    const text = `-----BEGIN EC PRIVATE KEY-----\ntruncated\n\n${FULL_PEM_BLOCK}`;
+    const results = detectSecretsInText(text);
+    expect(results.map((r) => r.value)).toEqual([
+      "-----BEGIN EC PRIVATE KEY-----",
+      FULL_PEM_BLOCK,
+    ]);
+  });
+
+  test("a token-lookalike run inside the block body loses to the block", () => {
+    // Base64 can legally contain an AKIA + 16-uppercase run; the Private
+    // Key pattern is first in PREFIX_PATTERNS so the whole-block span wins
+    // the overlap dedupe instead of being fragmented by the AWS pattern.
+    const block = `-----BEGIN RSA PRIVATE KEY-----\nAKIAABCDEFGHIJKLMNOP\n${FAKE_PEM_BODY}\n-----END RSA PRIVATE KEY-----`;
+    const results = detectSecretsInText(block);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.label).toBe("Private Key");
+    expect(results[0]!.value).toBe(block);
+  });
+});
+
+describe("isCompletePrivateKeyBlock", () => {
+  test("true for a value ending at the END footer", () => {
+    expect(
+      isCompletePrivateKeyBlock(
+        "-----BEGIN OPENSSH PRIVATE KEY-----\nMIIFAKEfake==\n-----END OPENSSH PRIVATE KEY-----",
+      ),
+    ).toBe(true);
+  });
+
+  test("false for a header-only match and for non-PEM values", () => {
+    expect(
+      isCompletePrivateKeyBlock("-----BEGIN OPENSSH PRIVATE KEY-----"),
+    ).toBe(false);
+    expect(isCompletePrivateKeyBlock(`ghp_${filler(36)}`)).toBe(false);
   });
 });
 

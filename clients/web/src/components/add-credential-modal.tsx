@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Loader2 } from "lucide-react";
 import {
   useEffect,
@@ -13,6 +14,15 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
+
+/**
+ * Cache key of the credentials list shown on Settings → Credentials. The
+ * modal invalidates it after every save; other credential mutations (e.g.
+ * delete) invalidate it from their own call sites.
+ */
+export function credentialsListQueryKey(assistantId: string) {
+  return ["credentials-list", assistantId] as const;
+}
 
 /** Identity of a credential that was just saved to the vault. */
 export interface SavedCredentialMeta {
@@ -34,24 +44,29 @@ export interface AddCredentialModalProps {
   /** Called when the modal closes — dismissal, Cancel, or a completed save. */
   onClose: () => void;
   /** Called after the credential is persisted to the vault. */
-  onSaved: (meta: SavedCredentialMeta) => void;
+  onSaved?: (meta: SavedCredentialMeta) => void;
   initialValues?: AddCredentialInitialValues;
+  /** Success toast copy; defaults to a generic "Credential saved." */
+  successToastMessage?: string;
 }
 
 /**
  * Modal form that stores a credential (service / field / secret value /
  * optional label) in the assistant's credential vault via the credentials-set
- * endpoint. Owns validation, the save mutation, and success/error toasts so
- * every call site shares identical behavior; callers handle what happens
- * after a save (e.g. invalidating their credentials list) in `onSaved`.
+ * endpoint. Owns validation, the save mutation, success/error toasts, and the
+ * credentials-list cache invalidation so every call site shares identical
+ * behavior; callers hook flow-specific follow-ups (e.g. rewriting a chat
+ * draft) into `onSaved`.
  */
 export function AddCredentialModal({
   open,
   onClose,
   onSaved,
   initialValues,
+  successToastMessage = "Credential saved.",
 }: AddCredentialModalProps) {
   const assistantId = useActiveAssistantId();
+  const queryClient = useQueryClient();
 
   const [service, setService] = useState(initialValues?.service ?? "");
   const [field, setField] = useState(initialValues?.field ?? "");
@@ -116,8 +131,11 @@ export function AddCredentialModal({
       },
       {
         onSuccess: () => {
-          toast.success("Credential saved.");
-          onSaved({
+          void queryClient.invalidateQueries({
+            queryKey: credentialsListQueryKey(assistantId),
+          });
+          toast.success(successToastMessage);
+          onSaved?.({
             service: trimmedService,
             field: trimmedField,
             label: trimmedLabel,

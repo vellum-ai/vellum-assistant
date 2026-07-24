@@ -26,7 +26,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 
-import type { AddCredentialModalProps } from "@/domains/settings/credentials/add-credential-modal";
+import type { AddCredentialModalProps } from "@/components/add-credential-modal";
 
 const ASSISTANT_ID = "asst-test";
 mock.module("@/assistant/use-active-assistant-id", () => ({
@@ -73,19 +73,25 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     }),
 }));
 
-const { AddCredentialModal } =
-  await import("@/domains/settings/credentials/add-credential-modal");
+const { AddCredentialModal, credentialsListQueryKey } =
+  await import("@/components/add-credential-modal");
 
 function renderModal(props: Partial<AddCredentialModalProps> = {}) {
   const queryClient = new QueryClient();
+  const invalidateQueries = mock(
+    queryClient.invalidateQueries.bind(queryClient),
+  );
+  queryClient.invalidateQueries = invalidateQueries;
   const onClose = mock<AddCredentialModalProps["onClose"]>(() => {});
-  const onSaved = mock<AddCredentialModalProps["onSaved"]>(() => {});
+  const onSaved = mock<NonNullable<AddCredentialModalProps["onSaved"]>>(
+    () => {},
+  );
   render(
     <QueryClientProvider client={queryClient}>
       <AddCredentialModal open onClose={onClose} onSaved={onSaved} {...props} />
     </QueryClientProvider>,
   );
-  return { onClose, onSaved };
+  return { onClose, onSaved, invalidateQueries };
 }
 
 function input(label: string): HTMLInputElement {
@@ -110,7 +116,7 @@ describe("AddCredentialModal", () => {
   });
 
   test("saves the entered fields — service/field trimmed, value verbatim — then fires onSaved and onClose", async () => {
-    const { onClose, onSaved } = renderModal();
+    const { onClose, onSaved, invalidateQueries } = renderModal();
 
     fireEvent.change(input("Service"), { target: { value: "  github  " } });
     fireEvent.change(input("Field"), { target: { value: "api_token " } });
@@ -139,6 +145,11 @@ describe("AddCredentialModal", () => {
     ]);
     expect(onClose.mock.calls.length).toBe(1);
     expect(toasts).toEqual([{ kind: "success", message: "Credential saved." }]);
+    // The modal owns the credentials-list refresh so every consumer's
+    // Settings → Credentials view reflects the new entry.
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: credentialsListQueryKey(ASSISTANT_ID),
+    });
   });
 
   test("omits an empty label from the payload and the onSaved meta", async () => {

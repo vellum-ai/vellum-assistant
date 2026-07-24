@@ -3,6 +3,10 @@ import { Copy, KeyRound, Link2, Loader2, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import {
+  AddCredentialModal,
+  credentialsListQueryKey,
+} from "@/components/add-credential-modal";
 import { DetailCard } from "@/components/detail-card";
 import { NotFound } from "@/components/not-found";
 import { useCredentialsDeletePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -22,7 +26,6 @@ import {
 import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { AddCredentialModal } from "./add-credential-modal";
 import { CredentialRow, type StoredCredential } from "./credential-row";
 import {
   createCredentialRequest,
@@ -44,10 +47,6 @@ interface GeneratedLink {
   url: string;
   /** Epoch (seconds or ms) the link expires at, when the daemon reports it. */
   expiresAt: number | null;
-}
-
-function credentialsListQueryKey(assistantId: string) {
-  return ["credentials-list", assistantId] as const;
 }
 
 /** Below this count, scanning the list beats typing — so we hide the search. */
@@ -401,9 +400,6 @@ function CredentialsPageInner() {
       <AddCredentialModal
         open={isShowingAddForm}
         onClose={() => setIsShowingAddForm(false)}
-        onSaved={() => {
-          void queryClient.invalidateQueries({ queryKey: listQueryKey });
-        }}
       />
 
       <Modal.Root

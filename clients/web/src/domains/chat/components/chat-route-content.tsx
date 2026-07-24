@@ -65,7 +65,9 @@ import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-pr
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
 import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
+import { StoreCredentialDialog } from "@/domains/chat/components/store-credential-dialog";
 import { SuggestionDetailPanel } from "@/domains/chat/components/suggestion-detail-panel";
+import type { DetectedSecret } from "@vellumai/service-contracts/secret-detection";
 import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { BottomSheet } from "@vellumai/design-library";
@@ -574,7 +576,9 @@ export function ChatMainPanel({
 
   const sendDisabled = isSendDisabledFromTurn || typingDisabled;
 
-  const handleQuoteAddedToChat = useCallback(() => {
+  // rAF: modal/popover teardown restores focus on close, so the composer
+  // must claim it afterwards.
+  const focusComposer = useCallback(() => {
     requestAnimationFrame(() => {
       inputRef.current?.focus();
     });
@@ -823,6 +827,22 @@ export function ChatMainPanel({
     void submitMessage(undefined, { bypassSecretCheck: true });
   }, [allowSecretSendOnce, submitMessage]);
 
+  // "Store securely" on the notice: stage the previewed (first) detected
+  // secret and open the store-credential dialog for it. The dialog saves the
+  // key to the vault and rewrites the draft to reference the vault slot; the
+  // detection hook's draft subscription then clears the notice/blocked state
+  // on its own once the plaintext leaves the draft. Cancel just unstages —
+  // notice, blocked state, and draft all stay as they were.
+  const [secretToStore, setSecretToStore] = useState<DetectedSecret | null>(
+    null,
+  );
+  const handleStoreSecretSecurely = useCallback(() => {
+    setSecretToStore(draftSecretDetection.matches[0] ?? null);
+  }, [draftSecretDetection.matches]);
+  const handleStoreSecretClose = useCallback(() => {
+    setSecretToStore(null);
+  }, []);
+
   const handleSelectStarter = useCallback((starter: { prompt: string }) => {
     useComposerStore.getState().setInput(starter.prompt);
     void submitMessage(starter.prompt);
@@ -1041,6 +1061,7 @@ export function ChatMainPanel({
                 sendBlocked={draftSecretDetection.sendBlocked}
                 onDismiss={draftSecretDetection.dismiss}
                 onSendAnyway={handleSecretSendAnyway}
+                onStoreSecurely={handleStoreSecretSecurely}
               />
             )}
           <ComposerNotices
@@ -1224,8 +1245,21 @@ export function ChatMainPanel({
       />
       {sendErrorModalNode}
       {ruleEditorModalNode}
+      {/* Mounted only while a secret is staged: ChatMainPanel renders outside
+          ActiveAssistantGate, and the dialog's vault mutation requires the
+          active assistant id — which a detected draft secret implies. */}
+      {secretToStore !== null && (
+        <StoreCredentialDialog
+          secret={secretToStore}
+          open
+          onClose={handleStoreSecretClose}
+          // Leave the rewritten draft focused for the user to review and
+          // send — never auto-send.
+          onStored={focusComposer}
+        />
+      )}
       <TextSelectionPopover containerRef={transcriptContainerRef} />
-      <QuoteReplyBubble onAddToChat={handleQuoteAddedToChat} />
+      <QuoteReplyBubble onAddToChat={focusComposer} />
     </>
   );
 }
