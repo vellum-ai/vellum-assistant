@@ -543,7 +543,9 @@ export class SlackSocketModeClient {
    */
   private extractEventUser(event: SlackInboundEvent): string | undefined {
     const classified = classifySlackEvent(event);
-    if (!classified) return undefined;
+    if (!classified) {
+      return undefined;
+    }
     switch (classified.kind) {
       // message_changed: the author is on the inner `message` object.
       case "message_changed":
@@ -564,16 +566,24 @@ export class SlackSocketModeClient {
    * filter.
    */
   private maybeTrackBotOwnThreadReply(event: SlackInboundEvent): void {
-    if (this.config.threadMode !== "mention_then_thread") return;
+    if (this.config.threadMode !== "mention_then_thread") {
+      return;
+    }
 
     // Only a plain thread reply arms tracking — app_mentions, edits, deletes,
     // and reactions do not.
     const classified = classifySlackEvent(event);
-    if (!classified || classified.kind !== "message") return;
+    if (!classified || classified.kind !== "message") {
+      return;
+    }
     const { channel, thread_ts: threadTs } = classified.event;
-    if (!threadTs || !channel) return;
+    if (!threadTs || !channel) {
+      return;
+    }
 
-    if (!this.shouldTrackBotOwnThreadReply(channel)) return;
+    if (!this.shouldTrackBotOwnThreadReply(channel)) {
+      return;
+    }
 
     if (this.store.isThreadDetached(threadTs)) {
       log.info(
