@@ -177,6 +177,9 @@ declare global {
       dock: {
         setBadge(count: number): void;
       };
+      share?: {
+        shareFile(bytes: Uint8Array, filename: string): Promise<void>;
+      };
       menu: {
         setPlatformSession(has: boolean): Promise<void>;
       };
