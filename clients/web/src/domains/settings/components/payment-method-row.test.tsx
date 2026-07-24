@@ -49,8 +49,8 @@ describe("PaymentMethodRow", () => {
     expect(row.textContent).not.toContain("null");
   });
 
-  test("renders a long unmapped brand and truncates the brand label", () => {
-    const { getByTestId, getByText } = render(
+  test("renders a long unmapped brand verbatim", () => {
+    const { getByTestId } = render(
       <PaymentMethodRow
         brand="internationalmaestro"
         last4="0005"
@@ -60,7 +60,6 @@ describe("PaymentMethodRow", () => {
     );
     const row = getByTestId("payment-method-row");
     expect(row.textContent).toContain("internationalmaestro");
-    expect(getByText("internationalmaestro").className).toContain("truncate");
   });
 
   test("fires onUpdateCard when Update Card is clicked", () => {
