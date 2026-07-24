@@ -319,12 +319,52 @@ function renderFileBlockForHistory(
   )}`;
 }
 
+function collectToolResultImages(
+  blocks: unknown[],
+  imageDataList: string[],
+  imageAttachmentIds: string[],
+  includeMediaData: boolean,
+): void {
+  for (const block of blocks) {
+    if (!isRecord(block)) {
+      continue;
+    }
+    if (block.type === "image" && isRecord(block.source)) {
+      const source = block.source as unknown as MediaSource;
+      if (source.type === "workspace_ref" && source.attachmentId) {
+        imageAttachmentIds.push(source.attachmentId);
+        continue;
+      }
+      if (includeMediaData) {
+        const resolved = resolveMediaSourceData(source);
+        if (resolved) {
+          imageDataList.push(resolved.data);
+        }
+      }
+      continue;
+    }
+    if (
+      (block.type === "tool_result" ||
+        block.type === "web_search_tool_result") &&
+      Array.isArray(block.contentBlocks)
+    ) {
+      collectToolResultImages(
+        block.contentBlocks,
+        imageDataList,
+        imageAttachmentIds,
+        includeMediaData,
+      );
+    }
+  }
+}
+
 export function renderHistoryContent(
   content: unknown,
   attachmentBlocks?: ReadonlyArray<
     ConversationMessageAttachment | null | undefined
   >,
   messageId?: string,
+  options?: { includeMediaData?: boolean },
 ): RenderedHistoryContent {
   if (!Array.isArray(content)) {
     let text: string;
@@ -704,19 +744,12 @@ export function renderHistoryContent(
       const imageDataList: string[] = [];
       const imageAttachmentIds: string[] = [];
       if (Array.isArray(block.contentBlocks)) {
-        for (const cb of block.contentBlocks) {
-          if (isRecord(cb) && cb.type === "image" && isRecord(cb.source)) {
-            const source = cb.source as unknown as MediaSource;
-            if (source.type === "workspace_ref" && source.attachmentId) {
-              imageAttachmentIds.push(source.attachmentId);
-              continue;
-            }
-            const resolved = resolveMediaSourceData(source);
-            if (resolved) {
-              imageDataList.push(resolved.data);
-            }
-          }
-        }
+        collectToolResultImages(
+          block.contentBlocks,
+          imageDataList,
+          imageAttachmentIds,
+          options?.includeMediaData !== false,
+        );
       }
       const matched = toolUseId ? pendingToolUses.get(toolUseId) : null;
       if (matched) {

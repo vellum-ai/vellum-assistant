@@ -18,6 +18,7 @@ import {
 interface CapturedRequest {
   url: string;
   init: RequestInit | undefined;
+  signal: AbortSignal | null | undefined;
 }
 
 function makeJsonResponse(
@@ -46,7 +47,8 @@ beforeEach(() => {
         : input instanceof URL
           ? input.toString()
           : input.url;
-    captured.push({ url, init });
+    const signal = input instanceof Request ? input.signal : init?.signal;
+    captured.push({ url, init, signal });
     if (!nextResponse) {
       throw new Error("test setup forgot to set nextResponse");
     }
@@ -80,6 +82,7 @@ describe("fetchLatestHistoryPage URL construction", () => {
     expect(url.searchParams.get("conversationKey")).toBeNull();
     expect(url.searchParams.get("page")).toBe("latest");
     expect(url.searchParams.get("limit")).toBe("50");
+    expect(url.searchParams.get("attachmentContent")).toBeNull();
   });
 
   test("honours a custom limit", async () => {
@@ -94,6 +97,48 @@ describe("fetchLatestHistoryPage URL construction", () => {
 
     const url = new URL(captured[0]!.url, "http://localhost");
     expect(url.searchParams.get("limit")).toBe("25");
+  });
+
+  test("requests metadata attachments only when explicitly enabled", async () => {
+    nextResponse = makeJsonResponse({ messages: [], hasMore: false });
+
+    await fetchLatestHistoryPage(
+      "asst-1",
+      "K",
+      undefined,
+      undefined,
+      "metadata",
+    );
+
+    const url = new URL(captured[0]!.url, "http://localhost");
+    expect(url.searchParams.get("attachmentContent")).toBe("metadata");
+  });
+
+  test("threads an AbortSignal into the history request", async () => {
+    const controller = new AbortController();
+    const abortReason = new DOMException("Obsolete history", "AbortError");
+    nextResponse = new Promise<Response>((_resolve, reject) => {
+      controller.signal.addEventListener(
+        "abort",
+        () => reject(abortReason),
+        { once: true },
+      );
+    });
+
+    const pending = fetchLatestHistoryPage(
+      "asst-1",
+      "K",
+      undefined,
+      controller.signal,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.signal?.aborted).toBe(false);
+    controller.abort(abortReason);
+
+    await expect(pending).rejects.toBe(abortReason);
+    expect(captured[0]!.signal?.aborted).toBe(true);
   });
 });
 
@@ -116,6 +161,7 @@ describe("fetchOlderHistoryPage URL construction", () => {
     expect(url.searchParams.get("beforeTimestamp")).toBe("1700000000000");
     expect(url.searchParams.get("limit")).toBe("50");
     expect(url.searchParams.get("page")).toBeNull();
+    expect(url.searchParams.get("attachmentContent")).toBeNull();
   });
 
   test("honours a custom limit", async () => {
@@ -130,6 +176,44 @@ describe("fetchOlderHistoryPage URL construction", () => {
 
     const url = new URL(captured[0]!.url, "http://localhost");
     expect(url.searchParams.get("limit")).toBe("10");
+  });
+
+  test("threads metadata attachment mode through older-page requests", async () => {
+    nextResponse = makeJsonResponse({ messages: [], hasMore: false });
+
+    await fetchOlderHistoryPage(
+      "asst-1",
+      "K",
+      1_700_000_000_000,
+      undefined,
+      undefined,
+      "metadata",
+    );
+
+    const url = new URL(captured[0]!.url, "http://localhost");
+    expect(url.searchParams.get("attachmentContent")).toBe("metadata");
+  });
+
+  test("threads an AbortSignal into an older-page request", async () => {
+    const controller = new AbortController();
+    nextResponse = makeJsonResponse({
+      messages: [],
+      hasMore: false,
+      oldestTimestamp: null,
+      oldestMessageId: null,
+    });
+
+    await fetchOlderHistoryPage(
+      "asst-1",
+      "K",
+      1_700_000_000_000,
+      undefined,
+      controller.signal,
+    );
+
+    expect(captured[0]!.signal?.aborted).toBe(false);
+    controller.abort();
+    expect(captured[0]!.signal?.aborted).toBe(true);
   });
 });
 

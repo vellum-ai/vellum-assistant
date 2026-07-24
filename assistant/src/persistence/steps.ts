@@ -458,6 +458,10 @@ import { migrateDeleteStrayGreetingConversation } from "./migrations/347-delete-
 import { migrateMemorySummariesScopeUpdatedIndex } from "./migrations/348-memory-summaries-scope-updated-index.js";
 import { migrateMoveMemoryGraphTablesToMemoryDb } from "./migrations/349-move-memory-graph-tables-to-memory-db.js";
 import { migrateConversationsTotalInputTokensNullable } from "./migrations/350-conversations-total-input-tokens-nullable.js";
+import {
+  migrateMaterializeHistoricalInlineMessageMedia,
+  migrateMaterializeHistoricalInlineMessageMediaDown,
+} from "./migrations/351-materialize-historical-inline-message-media.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1473,4 +1477,16 @@ export const migrationSteps: MigrationStep[] = [
     ],
   },
   migrateConversationsTotalInputTokensNullable,
+  {
+    name: "migrateMaterializeHistoricalInlineMessageMedia",
+    run: migrateMaterializeHistoricalInlineMessageMedia,
+    rollback: [
+      {
+        version: 58,
+        description:
+          "Materialize historical inline message media as durable attachment references",
+        down: migrateMaterializeHistoricalInlineMessageMediaDown,
+      },
+    ],
+  },
 ];

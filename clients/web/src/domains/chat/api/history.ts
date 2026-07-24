@@ -35,6 +35,9 @@ const DEFAULT_OLDER_LIMIT = 50;
 
 type HistoryQuery = NonNullable<MessagesGetData["query"]>;
 
+/** Attachment payload policy for paginated transcript requests. */
+export type AttachmentHistoryContent = "inline" | "metadata";
+
 function parsePaginatedResponse(
   body: MessagesGetResponse | undefined,
 ): PaginatedHistoryResult {
@@ -90,6 +93,7 @@ function parsePaginatedResponse(
 async function fetchPaginatedHistory(
   assistantId: string,
   query: HistoryQuery,
+  signal?: AbortSignal,
 ): Promise<PaginatedHistoryResult> {
   // Capture the seq generation at request-ISSUE time: if the daemon's counter
   // resets while this fetch is in flight, the watermark it returns belongs to
@@ -100,6 +104,7 @@ async function fetchPaginatedHistory(
   const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query,
+    signal,
     throwOnError: false,
   });
 
@@ -145,12 +150,21 @@ export async function fetchLatestHistoryPage(
   assistantId: string,
   conversationId: string,
   limit: number = DEFAULT_LATEST_LIMIT,
+  signal?: AbortSignal,
+  attachmentContent: AttachmentHistoryContent = "inline",
 ): Promise<PaginatedHistoryResult> {
-  return fetchPaginatedHistory(assistantId, {
-    conversationId,
-    page: "latest",
-    limit,
-  });
+  return fetchPaginatedHistory(
+    assistantId,
+    {
+      conversationId,
+      page: "latest",
+      limit,
+      ...(attachmentContent === "metadata"
+        ? { attachmentContent: "metadata" as const }
+        : {}),
+    },
+    signal,
+  );
 }
 
 /**
@@ -164,10 +178,19 @@ export async function fetchOlderHistoryPage(
   conversationId: string,
   beforeTimestamp: number,
   limit: number = DEFAULT_OLDER_LIMIT,
+  signal?: AbortSignal,
+  attachmentContent: AttachmentHistoryContent = "inline",
 ): Promise<PaginatedHistoryResult> {
-  return fetchPaginatedHistory(assistantId, {
-    conversationId,
-    beforeTimestamp,
-    limit,
-  });
+  return fetchPaginatedHistory(
+    assistantId,
+    {
+      conversationId,
+      beforeTimestamp,
+      limit,
+      ...(attachmentContent === "metadata"
+        ? { attachmentContent: "metadata" as const }
+        : {}),
+    },
+    signal,
+  );
 }

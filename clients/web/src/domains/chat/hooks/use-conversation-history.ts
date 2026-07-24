@@ -38,6 +38,10 @@ import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { getSeqGeneration } from "@/lib/streaming/reconnect-cursor";
 import { anchorColdStartReplay } from "@/lib/streaming/cold-anchor";
 import { useConversationStore } from "@/stores/conversation-store";
+import {
+  type ProgressiveAttachmentLoadingPolicy,
+  useProgressiveAttachmentLoadingPolicy,
+} from "@/lib/backwards-compat/use-supports-progressive-attachment-loading";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
@@ -75,6 +79,7 @@ interface UseConversationHistoryParams {
 
 export interface ConversationHistoryResult {
   pagination: HistoryPaginationResult;
+  progressiveAttachmentLoadingPolicy: ProgressiveAttachmentLoadingPolicy;
 }
 
 type HistoryCache = InfiniteData<PaginatedHistoryResult>;
@@ -104,11 +109,21 @@ export function useConversationHistory({
   activeConversationId,
 }: UseConversationHistoryParams): ConversationHistoryResult {
   const queryClient = useQueryClient();
+  const progressiveAttachmentLoadingPolicy =
+    useProgressiveAttachmentLoadingPolicy(assistantId);
+  const attachmentContent = progressiveAttachmentLoadingPolicy === "metadata"
+    ? "metadata"
+    : "inline";
 
   const pagination = useHistoryPagination({
     assistantId,
     conversationId: activeConversationId,
-    enabled: assistantStateKind === "active" && !!assistantId && !!activeConversationId,
+    enabled:
+      progressiveAttachmentLoadingPolicy !== "pending" &&
+      assistantStateKind === "active" &&
+      !!assistantId &&
+      !!activeConversationId,
+    attachmentContent,
   });
 
   const setIsLoadingHistory = useChatSessionStore.use.setIsLoadingHistory();
@@ -140,7 +155,11 @@ export function useConversationHistory({
       registerHistoryCachePatcher(null);
       return;
     }
-    const key = conversationHistoryQueryKey(assistantId, activeConversationId);
+    const key = conversationHistoryQueryKey(
+      assistantId,
+      activeConversationId,
+      attachmentContent,
+    );
     registerHistoryCachePatcher((updater: MessagesUpdater) => {
       queryClient.setQueryData<HistoryCache>(key, (old) => {
         if (!old) return old;
@@ -159,7 +178,7 @@ export function useConversationHistory({
       });
     });
     return () => registerHistoryCachePatcher(null);
-  }, [assistantId, activeConversationId, queryClient]);
+  }, [assistantId, activeConversationId, attachmentContent, queryClient]);
 
   // -------------------------------------------------------------------------
   // React to a newly committed snapshot. Keyed on `dataUpdatedAt` so it runs
@@ -280,6 +299,7 @@ export function useConversationHistory({
             conversationHistoryQueryKey(
               assistantId,
               requestedConversationForSurfaces,
+              attachmentContent,
             ),
             (old) => {
               if (!old) return old;
@@ -399,7 +419,12 @@ export function useConversationHistory({
     // update together on a committed result, and listing the volatile ones (e.g.
     // `isFetchingOlderPages`) would re-run these side effects on older-page loads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pagination.dataUpdatedAt, assistantId, activeConversationId]);
+  }, [
+    pagination.dataUpdatedAt,
+    assistantId,
+    activeConversationId,
+    attachmentContent,
+  ]);
 
   // -------------------------------------------------------------------------
   // Turn-end reseed. When a turn finishes, the persisted copy is authoritative,
@@ -489,5 +514,5 @@ export function useConversationHistory({
     }
   }, [pagination.isError, pagination.isSuccess, pagination.error, setIsLoadingHistory, setError]);
 
-  return { pagination };
+  return { pagination, progressiveAttachmentLoadingPolicy };
 }

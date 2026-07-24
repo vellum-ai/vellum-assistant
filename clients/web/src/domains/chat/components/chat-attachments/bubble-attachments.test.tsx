@@ -67,8 +67,10 @@ describe("BubbleAttachments", () => {
       <BubbleAttachments attachments={[imageWithPreview]} />,
     );
 
-    const img = getByRole("button", { name: "photo.png" });
-    expect(img.getAttribute("src")).toBe("https://example.com/photo.png");
+    const button = getByRole("button", { name: "photo.png" });
+    const img = button.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute("src")).toBe("https://example.com/photo.png");
     expect(queryByText("photo.png")).toBeNull();
     expect(queryByText("12 KB")).toBeNull();
   });
@@ -80,12 +82,22 @@ describe("BubbleAttachments", () => {
     expect(getByText("2.0 KB")).toBeTruthy();
   });
 
-  test("falls back to the square chip for an image without a preview", () => {
-    const { getByText } = render(
+  test("reserves a large stable placeholder for an image without inline content", () => {
+    const { getByRole, getByTestId, queryByText } = render(
       <BubbleAttachments attachments={[imageWithoutPreview]} />,
     );
 
-    expect(getByText("scan.jpg")).toBeTruthy();
+    expect(getByRole("button", { name: "scan.jpg" })).toBeTruthy();
+    expect(getByTestId("lazy-attachment-image-slot").className).toContain(
+      "h-64",
+    );
+    expect(getByTestId("lazy-attachment-image-slot").className).toContain(
+      "max-w-full",
+    );
+    expect(
+      getByRole("button", { name: "scan.jpg" }).className,
+    ).toContain("max-w-full");
+    expect(queryByText("scan.jpg")).toBeNull();
   });
 
   test("opens the preview modal when an attachment is clicked", () => {
@@ -95,9 +107,9 @@ describe("BubbleAttachments", () => {
 
     fireEvent.click(getByRole("button", { name: "photo.png" }));
 
-    expect(getByTestId("preview-modal").getAttribute("data-attachment-id")).toBe(
-      "img-1",
-    );
+    expect(
+      getByTestId("preview-modal").getAttribute("data-attachment-id"),
+    ).toBe("img-1");
   });
 
   test("preserves the original attachment order for a mixed list", () => {
@@ -111,8 +123,7 @@ describe("BubbleAttachments", () => {
     // The pdf chip must appear before the image preview in document order,
     // matching the input order [pdf, image].
     expect(
-      pdfEl.compareDocumentPosition(imgEl) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      pdfEl.compareDocumentPosition(imgEl) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
@@ -129,11 +140,11 @@ describe("BubbleAttachments", () => {
       sizeBytes: 1_024,
       previewUrl: "blob:undecodable-heic",
     };
-    const { container, getByRole, getByText } = render(
+    const { container, getByAltText, getByText } = render(
       <BubbleAttachments attachments={[undecodable]} />,
     );
 
-    fireEvent.error(getByRole("button", { name: "IMG_5487.HEIC" }));
+    fireEvent.error(getByAltText("IMG_5487.HEIC"));
 
     // The browser's broken-image glyph is replaced by the chip: the filename
     // becomes visible and no <img> remains mounted.
@@ -149,12 +160,12 @@ describe("BubbleAttachments", () => {
       sizeBytes: 2_048,
       previewUrl: "blob:undecodable-heic",
     };
-    const { getByRole, getByTestId } = render(
+    const { getByAltText, getByRole, getByTestId } = render(
       <BubbleAttachments attachments={[undecodable]} />,
     );
 
     // Decode fails -> falls back to the chip.
-    fireEvent.error(getByRole("button", { name: "IMG_9999.HEIC" }));
+    fireEvent.error(getByAltText("IMG_9999.HEIC"));
     // Clicking the fallback chip opens the modal with the dead previewUrl
     // stripped, so the modal fetches stored bytes instead of the broken blob.
     fireEvent.click(getByRole("button", { name: "IMG_9999.HEIC" }));
@@ -172,12 +183,12 @@ describe("BubbleAttachments", () => {
       sizeBytes: 3_072,
       previewUrl: "blob:undecodable-heic",
     };
-    const { getByRole, getByTestId } = render(
+    const { getByAltText, getByRole, getByTestId } = render(
       <BubbleAttachments attachments={[undecodable, imageWithPreview]} />,
     );
 
     // The HEIC renders inline first; its decode fails and it's marked failed.
-    fireEvent.error(getByRole("button", { name: "IMG_1234.HEIC" }));
+    fireEvent.error(getByAltText("IMG_1234.HEIC"));
 
     // Open the preview from the still-good sibling. The modal's gallery array
     // (siblingAttachments) must carry the failed image with a null previewUrl,

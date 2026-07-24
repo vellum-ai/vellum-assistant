@@ -21,10 +21,11 @@ import {
   spyOn,
   test,
 } from "bun:test";
-import { cleanup, renderHook } from "@testing-library/react";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createElement } from "react";
+import type { ProgressiveAttachmentLoadingPolicy } from "@/lib/backwards-compat/use-supports-progressive-attachment-loading";
 
 // Isolate the processing-flag gate: force "no new content" and "assistant
 // produced output" so `changed`/`assistantProgress` never drive invalidation.
@@ -48,7 +49,10 @@ const fetchSpy = spyOn(
   messagesApi,
   "fetchConversationMessages",
 ).mockImplementation(async () => fetchResult as never);
-spyOn(eventsTailApi, "ingestServerEventsTail").mockImplementation(
+const ingestTailSpy = spyOn(
+  eventsTailApi,
+  "ingestServerEventsTail",
+).mockImplementation(
   async (...args: unknown[]) => {
     reconcileTrace.push({ step: "ingest-tail", args });
   },
@@ -96,8 +100,39 @@ function seedServerFetch(processing: boolean | undefined): void {
   };
 }
 
+function mockPendingServerFetch(): AbortSignal[] {
+  const signals: AbortSignal[] = [];
+  fetchSpy.mockImplementation(
+    async (_assistantId, _conversationId, options) =>
+      new Promise<never>((_resolve, reject) => {
+        const signal = options?.signal;
+        if (!signal) {
+          reject(new Error("expected reconciliation signal"));
+          return;
+        }
+        signals.push(signal);
+        signal.addEventListener(
+          "abort",
+          () => reject(signal.reason),
+          { once: true },
+        );
+      }),
+  );
+  return signals;
+}
+
 /** Render the hook against a spied query client; returns the invalidate spy. */
-function renderReconciliation() {
+function renderReconciliation(
+  initialProps: {
+    assistantId: string | null;
+    activeConversationId: string | null;
+    progressiveAttachmentLoadingPolicy: ProgressiveAttachmentLoadingPolicy;
+  } = {
+    assistantId: ASSISTANT_ID,
+    activeConversationId: CONV_ID,
+    progressiveAttachmentLoadingPolicy: "inline",
+  },
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
@@ -107,15 +142,25 @@ function renderReconciliation() {
   function wrapper({ children }: { children: ReactNode }) {
     return createElement(QueryClientProvider, { client }, children);
   }
-  const { result } = renderHook(
-    () => useMessageReconciliation({ latestPageOldestTimestamp: null }),
-    { wrapper },
+  const view = renderHook(
+    (props) =>
+      useMessageReconciliation({
+        ...props,
+        latestPageOldestTimestamp: null,
+      }),
+    { wrapper, initialProps },
   );
-  return { result, invalidateSpy };
+  return { ...view, invalidateSpy };
 }
 
 beforeEach(() => {
   reconcileTrace.length = 0;
+  ingestTailSpy.mockImplementation(async (...args: unknown[]) => {
+    reconcileTrace.push({ step: "ingest-tail", args });
+  });
+  ingestTailSpy.mockClear();
+  fetchSpy.mockImplementation(async () => fetchResult as never);
+  fetchSpy.mockClear();
   __resetLocalSeqForTesting();
   useStreamStore.getState().setStreamContext({
     assistantId: ASSISTANT_ID,
@@ -194,13 +239,192 @@ describe("useMessageReconciliation — server event-tail catch-up", () => {
 
     // THEN the tail was fetched from the snapshot's anchor ...
     const ingest = reconcileTrace.find((t) => t.step === "ingest-tail");
-    expect(ingest?.args).toEqual([ASSISTANT_ID, CONV_ID, 11]);
+    expect(ingest?.args?.slice(0, 3)).toEqual([ASSISTANT_ID, CONV_ID, 11]);
+    expect(ingest?.args?.[3]).toBe(
+      fetchSpy.mock.calls[0]?.[2]?.signal,
+    );
     // ... and ingested BEFORE the history invalidation, so the reseed
     // replay reads a primed event ring.
     expect(reconcileTrace.map((t) => t.step)).toEqual([
       "ingest-tail",
       "invalidate",
     ]);
+  });
+});
+
+describe("useMessageReconciliation — attachment policy and cancellation", () => {
+  test("uses metadata for supported assistants and skips unresolved identity", async () => {
+    seedServerFetch(false);
+    const metadataView = renderReconciliation({
+      assistantId: ASSISTANT_ID,
+      activeConversationId: CONV_ID,
+      progressiveAttachmentLoadingPolicy: "metadata",
+    });
+
+    await metadataView.result.current.reconcileActiveConversation();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]?.[2]).toMatchObject({
+      latestPageLimit: messagesApi.RECONCILE_LATEST_PAGE_LIMIT,
+      attachmentContent: "metadata",
+      signal: expect.any(AbortSignal),
+    });
+    metadataView.unmount();
+    fetchSpy.mockClear();
+
+    const pendingView = renderReconciliation({
+      assistantId: ASSISTANT_ID,
+      activeConversationId: CONV_ID,
+      progressiveAttachmentLoadingPolicy: "pending",
+    });
+    const outcome =
+      await pendingView.result.current.reconcileActiveConversation();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(outcome).toEqual({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    });
+  });
+
+  test("superseding reconciles abort the obsolete request without rejecting", async () => {
+    const signals = mockPendingServerFetch();
+    const view = renderReconciliation();
+
+    const first = view.result.current.reconcileActiveConversation();
+    await waitFor(() => expect(signals).toHaveLength(1));
+    const second = view.result.current.reconcileActiveConversation();
+    await waitFor(() => expect(signals).toHaveLength(2));
+
+    expect(signals[0]?.aborted).toBe(true);
+    await expect(first).resolves.toEqual({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    });
+
+    view.unmount();
+    expect(signals[1]?.aborted).toBe(true);
+    await expect(second).resolves.toEqual({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    });
+  });
+
+  test("public live cancellation leaves an active one-shot reconcile running", async () => {
+    const signals = mockPendingServerFetch();
+    const view = renderReconciliation();
+
+    const request = view.result.current.reconcileActiveConversation();
+    await waitFor(() => expect(signals).toHaveLength(1));
+    view.result.current.cancelReconciliation();
+
+    expect(signals[0]?.aborted).toBe(false);
+    view.unmount();
+    expect(signals[0]?.aborted).toBe(true);
+    await expect(request).resolves.toEqual({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    });
+  });
+
+  test("epoch cancellation aborts a pending tail without reconciliation effects", async () => {
+    seedSnapshotProcessing(true);
+    seedServerFetch(false);
+    let tailSignal: AbortSignal | undefined;
+    ingestTailSpy.mockImplementation(
+      async (_assistantId, _conversationId, _serverSeq, signal) => {
+        tailSignal = signal;
+        return await new Promise<void>((_resolve, reject) => {
+          tailSignal?.addEventListener(
+            "abort",
+            () => reject(tailSignal?.reason),
+            { once: true },
+          );
+        });
+      },
+    );
+    const { result, invalidateSpy } = renderReconciliation();
+
+    const request = result.current.reconcileActiveConversation();
+    await waitFor(() => expect(tailSignal).toBeDefined());
+    expect(tailSignal).toBe(fetchSpy.mock.calls[0]?.[2]?.signal);
+    useStreamStore.getState().bumpEpoch();
+
+    expect(tailSignal?.aborted).toBe(true);
+    await expect(request).resolves.toEqual({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    });
+    expect(invalidateSpy).not.toHaveBeenCalled();
+    expect(reconcileTrace).toHaveLength(0);
+  });
+
+  test("epoch and assistant-scope changes abort in-flight reconciliation", async () => {
+    const signals = mockPendingServerFetch();
+    const view = renderReconciliation();
+
+    const epochRequest = view.result.current.reconcileActiveConversation();
+    await waitFor(() => expect(signals).toHaveLength(1));
+    useStreamStore.getState().bumpEpoch();
+
+    expect(signals[0]?.aborted).toBe(true);
+    await expect(epochRequest).resolves.toEqual({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    });
+
+    const scopeRequest = view.result.current.reconcileActiveConversation();
+    await waitFor(() => expect(signals).toHaveLength(2));
+    view.rerender({
+      assistantId: "asst-2",
+      activeConversationId: CONV_ID,
+      progressiveAttachmentLoadingPolicy: "metadata",
+    });
+
+    expect(signals[1]?.aborted).toBe(true);
+    await expect(scopeRequest).resolves.toEqual({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    });
+  });
+
+  test("drops a response when stream scope changes without an epoch bump", async () => {
+    const deferred: { resolve?: () => void } = {};
+    fetchSpy.mockImplementation(
+      async () =>
+        new Promise<never>((resolve) => {
+          deferred.resolve = () => resolve(fetchResult as never);
+        }),
+    );
+    const { result, invalidateSpy } = renderReconciliation();
+
+    const request = result.current.reconcileActiveConversation();
+    await waitFor(() => expect(deferred.resolve).toBeDefined());
+    useStreamStore.getState().setStreamContext({
+      assistantId: "asst-2",
+      conversationId: CONV_ID,
+    });
+    fetchResult = {
+      messages: [{ id: "a1", role: "assistant" }],
+      seq: 11,
+      processing: false,
+    };
+    deferred.resolve?.();
+
+    await expect(request).resolves.toEqual({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    });
+    expect(invalidateSpy).not.toHaveBeenCalled();
+    expect(reconcileTrace).toHaveLength(0);
   });
 });
 
@@ -227,7 +451,7 @@ describe("startReconciliationLoop — off above the floor, poll loop below", () 
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  test("tail-capable daemon: cancelReconciliation is fully off", () => {
+  test("tail-capable daemon: cancelReconciliation is safe without active work", () => {
     // GIVEN a daemon at/above the events-tail floor
     useAssistantIdentityStore.getState().setIdentity("Ada", TAIL_CAPABLE_VERSION);
     const { result } = renderReconciliation();

@@ -265,6 +265,8 @@ export function ActiveChatView() {
     activeConversationId,
     conversationExistsOnServer,
     latestPageOldestTimestamp: historyResult.pagination.latestPageOldestTimestamp,
+    progressiveAttachmentLoadingPolicy:
+      historyResult.progressiveAttachmentLoadingPolicy,
     reachability,
     setAssetsRefreshKey,
   });

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import {
   attachInlineAttachmentToMessage,
@@ -10,6 +10,8 @@ import {
   deleteOrphanAttachments,
   getAttachmentById,
   getAttachmentContent,
+  getAttachmentMetadataById,
+  getAttachmentMetadataForMessage,
   getAttachmentsByIds,
   getAttachmentsForMessage,
   getFilePathForAttachment,
@@ -224,6 +226,94 @@ describe("getAttachmentContent", () => {
 
     const content = getAttachmentContent(stored.id);
     expect(content).toBeNull();
+  });
+});
+
+describe("getAttachmentMetadataForMessage", () => {
+  beforeEach(resetTables);
+
+  test("lightweight projection selects neither content nor thumbnail columns", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "user", "Image");
+    const stored = uploadAttachment("image.png", "image/png", "AAAA");
+    const attachmentId = linkAttachmentToMessage(msg.id, stored.id, 0);
+    rawRun(
+      "test:setAttachmentThumbnail",
+      "UPDATE attachments SET thumbnail_base64 = ? WHERE id = ?",
+      "BBBB",
+      attachmentId,
+    );
+
+    const db = getDb();
+    const selectSpy = spyOn(db, "select");
+    try {
+      const result = getAttachmentMetadataForMessage(msg.id, {
+        includeThumbnail: false,
+      });
+      expect(result).toEqual([
+        expect.objectContaining({
+          id: attachmentId,
+          originalFilename: "image.png",
+          thumbnailBase64: null,
+        }),
+      ]);
+
+      expect(selectSpy).toHaveBeenCalledTimes(1);
+      const projection = selectSpy.mock.calls[0]?.[0] as
+        | Record<string, unknown>
+        | undefined;
+      expect(Object.keys(projection ?? {})).toEqual([
+        "id",
+        "originalFilename",
+        "mimeType",
+        "sizeBytes",
+        "kind",
+        "createdAt",
+      ]);
+      expect(projection).not.toHaveProperty("dataBase64");
+      expect(projection).not.toHaveProperty("thumbnailBase64");
+    } finally {
+      selectSpy.mockRestore();
+    }
+  });
+
+  test("single-attachment metadata reuses the lightweight projection", () => {
+    const stored = uploadAttachment("image.png", "image/png", "AAAA");
+    rawRun(
+      "test:setSingleAttachmentThumbnail",
+      "UPDATE attachments SET thumbnail_base64 = ? WHERE id = ?",
+      "BBBB",
+      stored.id,
+    );
+
+    const db = getDb();
+    const selectSpy = spyOn(db, "select");
+    try {
+      expect(getAttachmentMetadataById(stored.id)).toEqual(
+        expect.objectContaining({
+          id: stored.id,
+          originalFilename: "image.png",
+          thumbnailBase64: null,
+        }),
+      );
+
+      expect(selectSpy).toHaveBeenCalledTimes(1);
+      const projection = selectSpy.mock.calls[0]?.[0] as
+        | Record<string, unknown>
+        | undefined;
+      expect(Object.keys(projection ?? {})).toEqual([
+        "id",
+        "originalFilename",
+        "mimeType",
+        "sizeBytes",
+        "kind",
+        "createdAt",
+      ]);
+      expect(projection).not.toHaveProperty("dataBase64");
+      expect(projection).not.toHaveProperty("thumbnailBase64");
+    } finally {
+      selectSpy.mockRestore();
+    }
   });
 });
 

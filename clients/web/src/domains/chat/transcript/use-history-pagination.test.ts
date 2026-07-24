@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   aggregateBackgroundToolCompletions,
   aggregateSubagentNotifications,
+  conversationHistoryQueryKey,
+  conversationHistoryQueryPrefix,
 } from "@/domains/chat/transcript/use-history-pagination";
 import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
 import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
@@ -39,6 +41,24 @@ function page(
     ...(backgroundToolCompletions ? { backgroundToolCompletions } : {}),
   };
 }
+
+describe("conversationHistoryQueryKey", () => {
+  test("separates legacy inline pages from metadata-only pages", () => {
+    const inline = conversationHistoryQueryKey("asst-1", "conv-1", "inline");
+    const metadata = conversationHistoryQueryKey(
+      "asst-1",
+      "conv-1",
+      "metadata",
+    );
+
+    expect(inline).not.toEqual(metadata);
+    expect(inline.at(-1)).toBe("inline");
+    expect(metadata.at(-1)).toBe("metadata");
+    expect(inline.slice(0, -1)).toEqual([
+      ...conversationHistoryQueryPrefix("asst-1", "conv-1"),
+    ]);
+  });
+});
 
 describe("aggregateSubagentNotifications", () => {
   test("returns undefined for no pages", () => {

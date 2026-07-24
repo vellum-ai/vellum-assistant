@@ -26,6 +26,7 @@ import { parseConversationSyncTag } from "@/lib/sync/types";
 import { useConversationStore } from "@/stores/conversation-store";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
+import type { ProgressiveAttachmentLoadingPolicy } from "@/lib/backwards-compat/use-supports-progressive-attachment-loading";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -37,6 +38,7 @@ export interface UseMessageLifecycleParams {
   activeConversationId: string | null;
   conversationExistsOnServer: boolean;
   latestPageOldestTimestamp: number | null;
+  progressiveAttachmentLoadingPolicy: ProgressiveAttachmentLoadingPolicy;
   reachability: UseAssistantReachabilityResult;
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
 }
@@ -61,6 +63,7 @@ export function useMessageLifecycle({
   activeConversationId,
   conversationExistsOnServer,
   latestPageOldestTimestamp,
+  progressiveAttachmentLoadingPolicy,
   reachability,
   setAssetsRefreshKey,
 }: UseMessageLifecycleParams): UseMessageLifecycleReturn {
@@ -80,7 +83,10 @@ export function useMessageLifecycle({
     cancelReconciliation,
     reconcileActiveConversation,
   } = useMessageReconciliation({
+    assistantId,
+    activeConversationId,
     latestPageOldestTimestamp,
+    progressiveAttachmentLoadingPolicy,
   });
 
   // 2. Stream event handler — routes incoming SSE events to domain

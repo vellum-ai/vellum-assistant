@@ -509,13 +509,24 @@ describe("getChatHistory", () => {
 });
 
 describe("fetchConversationMessages — request shape", () => {
-  function captureQuery(): { current: Record<string, unknown> | null } {
-    const captured: { current: Record<string, unknown> | null } = {
-      current: null,
+  function captureRequest(): {
+    query: Record<string, unknown> | null;
+    signal: AbortSignal | null;
+  } {
+    const captured: {
+      query: Record<string, unknown> | null;
+      signal: AbortSignal | null;
+    } = {
+      query: null,
+      signal: null,
     };
     daemonClient.get = mock(
-      async (options: { query?: Record<string, unknown> }) => {
-        captured.current = options.query ?? null;
+      async (options: {
+        query?: Record<string, unknown>;
+        signal?: AbortSignal | null;
+      }) => {
+        captured.query = options.query ?? null;
+        captured.signal = options.signal ?? null;
         return {
           data: { messages: [], seq: 7 },
           error: null,
@@ -527,24 +538,25 @@ describe("fetchConversationMessages — request shape", () => {
   }
 
   test("downloads the full conversation when no page limit is given", async () => {
-    const captured = captureQuery();
+    const captured = captureRequest();
 
     await fetchConversationMessages("assistant-1", "conv-1");
 
-    expect(captured.current).toEqual({ conversationId: "conv-1" });
+    expect(captured.query).toEqual({ conversationId: "conv-1" });
     // Full-snapshot callers (the inspector) must not page.
-    expect(captured.current).not.toHaveProperty("page");
-    expect(captured.current).not.toHaveProperty("limit");
+    expect(captured.query).not.toHaveProperty("page");
+    expect(captured.query).not.toHaveProperty("limit");
+    expect(captured.query).not.toHaveProperty("attachmentContent");
   });
 
   test("requests only the latest page when a page limit is given", async () => {
-    const captured = captureQuery();
+    const captured = captureRequest();
 
     const result = await fetchConversationMessages("assistant-1", "conv-1", {
       latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT,
     });
 
-    expect(captured.current).toEqual({
+    expect(captured.query).toEqual({
       conversationId: "conv-1",
       page: "latest",
       limit: RECONCILE_LATEST_PAGE_LIMIT,
@@ -552,6 +564,25 @@ describe("fetchConversationMessages — request shape", () => {
     // The paginated response still carries the snapshot watermark the
     // reconcile/seq callers depend on.
     expect(result?.seq).toBe(7);
+  });
+
+  test("opts into metadata attachments and threads cancellation explicitly", async () => {
+    const captured = captureRequest();
+    const controller = new AbortController();
+
+    await fetchConversationMessages("assistant-1", "conv-1", {
+      latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT,
+      attachmentContent: "metadata",
+      signal: controller.signal,
+    });
+
+    expect(captured.query).toEqual({
+      conversationId: "conv-1",
+      page: "latest",
+      limit: RECONCILE_LATEST_PAGE_LIMIT,
+      attachmentContent: "metadata",
+    });
+    expect(captured.signal).toBe(controller.signal);
   });
 });
 

@@ -131,6 +131,7 @@ import { speechModeToProviderMigration } from "./130-speech-mode-to-provider.js"
 import { dropWebFetchModeMigration } from "./131-drop-web-fetch-mode.js";
 import { webSearchModeToProviderMigration } from "./132-web-search-mode-to-provider.js";
 import { collapseProviderConnectionsMigration } from "./133-collapse-provider-connections.js";
+import { rebuildHistoricalInlineMediaDiskViewMigration } from "./134-rebuild-historical-inline-media-disk-view.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -277,4 +278,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   dropWebFetchModeMigration,
   webSearchModeToProviderMigration,
   collapseProviderConnectionsMigration,
+  rebuildHistoricalInlineMediaDiskViewMigration,
 ];
