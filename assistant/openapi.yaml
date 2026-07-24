@@ -19356,6 +19356,12 @@ paths:
                     - low
                     - medium
                     - high
+                bypassSecretCheck:
+                  description:
+                    When true, skip the secret-ingress scan for this message only. Set exclusively when the user explicitly
+                    confirms a client-side blocked send (the composer's "Send anyway" action); it is per-message and
+                    never persisted.
+                  type: boolean
                 hidden:
                   description:
                     "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history

@@ -26,6 +26,8 @@ import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
+import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-detection";
+import type { SendChatMessageOptions } from "@/domains/chat/hooks/use-send-message";
 import { DiskPressureBannerSlot } from "@/domains/chat/components/disk-pressure-banner-slot";
 import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge";
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
@@ -54,6 +56,7 @@ import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices";
+import { ComposerSecretNotice } from "@/domains/chat/components/composer-secret-notice";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
@@ -62,7 +65,9 @@ import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-pr
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
 import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
+import { StoreCredentialDialog } from "@/domains/chat/components/store-credential-dialog";
 import { SuggestionDetailPanel } from "@/domains/chat/components/suggestion-detail-panel";
+import type { DetectedSecret } from "@vellumai/service-contracts/secret-detection";
 import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { BottomSheet } from "@vellumai/design-library";
@@ -128,7 +133,11 @@ import { useConversationStore } from "@/stores/conversation-store";
 
 export interface ChatMainPanelProps {
   // Send message (orchestration owns the SSE / queue lifecycle)
-  sendMessage: (content: string, attachments?: DisplayAttachment[]) => Promise<void>;
+  sendMessage: (
+    content: string,
+    attachments?: DisplayAttachment[],
+    opts?: SendChatMessageOptions,
+  ) => Promise<void>;
   handleStopGenerating: () => Promise<void>;
   queuedMessages: DisplayMessage[];
   handleCancelQueuedMessage: (messageId: string) => void;
@@ -453,6 +462,14 @@ export function ChatMainPanel({
   const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
 
   // -------------------------------------------------------------------------
+  // Draft secret detection (flag-gated) — owns the composer warning's
+  // matches/dismissal plus the pre-send gate state.
+  // -------------------------------------------------------------------------
+  const draftSecretDetection = useDraftSecretDetection({
+    conversationId: activeConversationId,
+  });
+
+  // -------------------------------------------------------------------------
   // Onboarding choice card
   // -------------------------------------------------------------------------
   const isNative = useIsNativePlatform();
@@ -559,7 +576,9 @@ export function ChatMainPanel({
 
   const sendDisabled = isSendDisabledFromTurn || typingDisabled;
 
-  const handleQuoteAddedToChat = useCallback(() => {
+  // rAF: modal/popover teardown restores focus on close, so the composer
+  // must claim it afterwards.
+  const focusComposer = useCallback(() => {
     requestAnimationFrame(() => {
       inputRef.current?.focus();
     });
@@ -789,7 +808,40 @@ export function ChatMainPanel({
     typingDisabled,
     assistantId,
     activeConversationId,
+    // Synchronous pre-send gate: re-scans the outgoing content so pastes
+    // sent inside the detection debounce window are still caught. Flag off
+    // or no secrets → returns true, fully inert.
+    beforeSend: draftSecretDetection.checkBeforeSend,
   });
+
+  // "Send anyway" on the blocked notice: arm the single-use client bypass
+  // (bound to the exact intercepted content), then resubmit carrying the
+  // daemon-side `bypassSecretCheck` override so the explicit confirmation
+  // is honored end to end instead of resurfacing as a server
+  // `secret_blocked` error. The `beforeSend` gate still runs: if the draft
+  // changed since the block, the content-bound bypass misses, the send
+  // re-blocks, and the override never reaches the wire.
+  const { allowOnce: allowSecretSendOnce } = draftSecretDetection;
+  const handleSecretSendAnyway = useCallback(() => {
+    allowSecretSendOnce();
+    void submitMessage(undefined, { bypassSecretCheck: true });
+  }, [allowSecretSendOnce, submitMessage]);
+
+  // "Store securely" on the notice: stage the previewed (first) detected
+  // secret and open the store-credential dialog for it. The dialog saves the
+  // key to the vault and rewrites the draft to reference the vault slot; the
+  // detection hook's draft subscription then clears the notice/blocked state
+  // on its own once the plaintext leaves the draft. Cancel just unstages —
+  // notice, blocked state, and draft all stay as they were.
+  const [secretToStore, setSecretToStore] = useState<DetectedSecret | null>(
+    null,
+  );
+  const handleStoreSecretSecurely = useCallback(() => {
+    setSecretToStore(draftSecretDetection.matches[0] ?? null);
+  }, [draftSecretDetection.matches]);
+  const handleStoreSecretClose = useCallback(() => {
+    setSecretToStore(null);
+  }, []);
 
   const handleSelectStarter = useCallback((starter: { prompt: string }) => {
     useComposerStore.getState().setInput(starter.prompt);
@@ -998,41 +1050,56 @@ export function ChatMainPanel({
         />
       }
       noticesAboveFormSlot={
-        <ComposerNotices
-          voiceError={voiceError}
-          onClearVoiceError={clearVoiceError}
-          onRetryMicPermission={handleRetryMicPermission}
-          onOpenMicSettings={handleOpenMicSettings}
-          onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
-          billingBannerSlot={
-            billingBannerDecision === "daily_limit" ? (
-              <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
-            ) : billingBannerDecision === "managed_credits" ? (
-              <CreditsExhaustedBanner
-                mode={creditPaywallMode}
-                onAddCredits={() => setShowAddCreditsModal(true)}
-                onUpgrade={pushToPlansTakeover}
+        <>
+          {draftSecretDetection.matches.length > 0 &&
+            // A blocked send always surfaces the notice — even when the
+            // passive warning for these values was previously dismissed.
+            (!draftSecretDetection.dismissed ||
+              draftSecretDetection.sendBlocked) && (
+              <ComposerSecretNotice
+                matches={draftSecretDetection.matches}
+                sendBlocked={draftSecretDetection.sendBlocked}
+                onDismiss={draftSecretDetection.dismiss}
+                onSendAnyway={handleSecretSendAnyway}
+                onStoreSecurely={handleStoreSecretSecurely}
               />
-            ) : billingBannerDecision === "provider_billing" ? (
-              <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
-            ) : null
-          }
-          diskPressureBanner={diskPressureBannerSlot}
-          showMissingApiKeyBanner={
-            error?.code === "PROVIDER_NOT_CONFIGURED"
-          }
-          onOpenAiSettings={pushToAiSettings}
-          onDismissApiKeyError={handleDismissApiKeyError}
-          compactionCircuitOpenUntil={compactionCircuitOpenUntil}
-          onCompactionCircuitExpired={handleCompactionCircuitExpired}
-          showMaintenanceBanner={
-            assistantState.kind === "active" &&
-            assistantState.maintenanceMode?.enabled === true
-          }
-          showMaintenanceExitAction={!statusBannerVisible}
-          assistantId={assistantId}
-          onMaintenanceExited={handleMaintenanceExited}
-        />
+            )}
+          <ComposerNotices
+            voiceError={voiceError}
+            onClearVoiceError={clearVoiceError}
+            onRetryMicPermission={handleRetryMicPermission}
+            onOpenMicSettings={handleOpenMicSettings}
+            onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
+            billingBannerSlot={
+              billingBannerDecision === "daily_limit" ? (
+                <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
+              ) : billingBannerDecision === "managed_credits" ? (
+                <CreditsExhaustedBanner
+                  mode={creditPaywallMode}
+                  onAddCredits={() => setShowAddCreditsModal(true)}
+                  onUpgrade={pushToPlansTakeover}
+                />
+              ) : billingBannerDecision === "provider_billing" ? (
+                <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
+              ) : null
+            }
+            diskPressureBanner={diskPressureBannerSlot}
+            showMissingApiKeyBanner={
+              error?.code === "PROVIDER_NOT_CONFIGURED"
+            }
+            onOpenAiSettings={pushToAiSettings}
+            onDismissApiKeyError={handleDismissApiKeyError}
+            compactionCircuitOpenUntil={compactionCircuitOpenUntil}
+            onCompactionCircuitExpired={handleCompactionCircuitExpired}
+            showMaintenanceBanner={
+              assistantState.kind === "active" &&
+              assistantState.maintenanceMode?.enabled === true
+            }
+            showMaintenanceExitAction={!statusBannerVisible}
+            assistantId={assistantId}
+            onMaintenanceExited={handleMaintenanceExited}
+          />
+        </>
       }
     />
   );
@@ -1178,8 +1245,25 @@ export function ChatMainPanel({
       />
       {sendErrorModalNode}
       {ruleEditorModalNode}
+      {/* Mounted only while a secret is staged: ChatMainPanel renders outside
+          ActiveAssistantGate, and the dialog's vault mutation requires the
+          active assistant id — which a detected draft secret implies. */}
+      {secretToStore !== null && (
+        <StoreCredentialDialog
+          secret={secretToStore}
+          // Routing-truth id: binds the staged secret to the conversation it
+          // was detected in, so a mid-save conversation switch cancels the
+          // store action instead of rewriting the wrong thread's draft.
+          conversationId={activeConversationId}
+          open
+          onClose={handleStoreSecretClose}
+          // Leave the rewritten draft focused for the user to review and
+          // send — never auto-send.
+          onStored={focusComposer}
+        />
+      )}
       <TextSelectionPopover containerRef={transcriptContainerRef} />
-      <QuoteReplyBubble onAddToChat={handleQuoteAddedToChat} />
+      <QuoteReplyBubble onAddToChat={focusComposer} />
     </>
   );
 }
