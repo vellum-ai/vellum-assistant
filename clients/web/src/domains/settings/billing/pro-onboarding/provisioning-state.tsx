@@ -66,8 +66,8 @@ const AVATAR_GROWTH = 1.414;
 
 // The stage reserves the grown height from first paint, so the takeover needs
 // `size * AVATAR_GROWTH + 309` of viewport before the phase block underneath —
-// which carries the escape hatch and the stalled retry — starts to clip. Step
-// the creature down instead of pushing those actions off a short screen.
+// which carries the escape hatch — starts to clip. Step the creature down
+// instead of pushing that control off a short screen.
 const AVATAR_SIZE_STEPS: Array<{ minHeight: number; size: number }> = [
   { minHeight: 680, size: AVATAR_SIZE },
   { minHeight: 600, size: 184 },
