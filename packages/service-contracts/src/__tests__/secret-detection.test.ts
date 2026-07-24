@@ -7,8 +7,9 @@ import * as subpathExport from "@vellumai/service-contracts/secret-detection";
 import {
   detectSecretsInText,
   isCompletePrivateKeyBlock,
+  PEM_REDACTION_MAX_BODY_LENGTH,
   PREFIX_PATTERNS,
-  PRIVATE_KEY_HEADER_REGEX,
+  PRIVATE_KEY_REDACTION_REGEX,
   REDACTION_PREFIX_PATTERNS,
   TOKEN_SHAPE,
   TOKEN_SHAPE_LABEL,
@@ -232,7 +233,7 @@ describe("detectSecretsInText — whole-message token shape", () => {
   });
 });
 
-describe("REDACTION_PREFIX_PATTERNS — header-only private key", () => {
+describe("REDACTION_PREFIX_PATTERNS — bounded whole-block private key", () => {
   const FAKE_PEM_BODY =
     "MIIFAKEfakefakefakefakefakefakefakefakefake\n" +
     "FAKEfakefakefakefakefakefakefakefakefake==";
@@ -246,17 +247,68 @@ describe("REDACTION_PREFIX_PATTERNS — header-only private key", () => {
     return new RegExp(entry!.regex.source, "g");
   }
 
-  test("the redaction variant matches the PEM header only, not the whole block", () => {
+  test("the redaction private-key entry is the bounded whole-block matcher", () => {
+    const entry = REDACTION_PREFIX_PATTERNS.find(
+      (p) => p.label === "Private Key",
+    );
+    expect(entry!.regex.source).toBe(PRIVATE_KEY_REDACTION_REGEX.source);
+  });
+
+  test("the redaction variant matches the WHOLE block, not just the header", () => {
     const regex = redactionPrivateKeyRegex();
     const match = regex.exec(FULL_PEM_BLOCK);
+    expect(match).not.toBeNull();
+    // The full header→body→footer span, so an in-place replace removes the
+    // key body and footer, not only the BEGIN line.
+    expect(match![0]).toBe(FULL_PEM_BLOCK);
+  });
+
+  test("an in-place replace with the redaction regex leaves no body or footer", () => {
+    const regex = redactionPrivateKeyRegex();
+    const text = `before\n${FULL_PEM_BLOCK}\nafter`;
+    const redacted = text.replace(regex, "[REDACTED]");
+    expect(redacted).toBe("before\n[REDACTED]\nafter");
+    // The base64 body and the END footer are gone.
+    expect(redacted).not.toContain("MIIFAKE");
+    expect(redacted).not.toContain("-----END");
+    expect(redacted).not.toContain("-----BEGIN");
+  });
+
+  test("a footerless key still redacts header-only (truncated-key fallback)", () => {
+    const regex = redactionPrivateKeyRegex();
+    const text = `-----BEGIN RSA PRIVATE KEY-----\n${FAKE_PEM_BODY}`;
+    const match = regex.exec(text);
+    expect(match).not.toBeNull();
+    // No END within the bound → optional footer group fails → header-only
+    // match, preserving the detection-fires guarantee.
+    expect(match![0]).toBe("-----BEGIN RSA PRIVATE KEY-----");
+  });
+
+  test("a body longer than the bound falls back to header-only, not a hang", () => {
+    const regex = redactionPrivateKeyRegex();
+    // Footer sits just past the body bound, so the whole-block branch can't
+    // reach it and the match degrades to the header (fail-open on redaction:
+    // an unbounded key is not a realistic PEM).
+    const overlongBody = "a".repeat(PEM_REDACTION_MAX_BODY_LENGTH + 100);
+    const text = `-----BEGIN RSA PRIVATE KEY-----\n${overlongBody}\n-----END RSA PRIVATE KEY-----`;
+    const match = regex.exec(text);
     expect(match).not.toBeNull();
     expect(match![0]).toBe("-----BEGIN RSA PRIVATE KEY-----");
   });
 
-  test("PRIVATE_KEY_HEADER_REGEX matches a footerless header", () => {
-    expect(
-      PRIVATE_KEY_HEADER_REGEX.test("-----BEGIN OPENSSH PRIVATE KEY-----"),
-    ).toBe(true);
+  test("many footerless BEGIN headers redact fast (bounded, no O(n²) hang)", () => {
+    const regex = redactionPrivateKeyRegex();
+    // A pathological paste: thousands of footerless headers, each followed by
+    // filler that an unbounded matcher would rescan hunting for a footer. The
+    // body bound caps each rescan, so the whole sweep stays linear.
+    const chunk = `-----BEGIN RSA PRIVATE KEY-----\n${filler(200)}\n`;
+    const text = chunk.repeat(5000);
+    const startedAt = Date.now();
+    const redacted = text.replace(regex, "[REDACTED]");
+    const elapsedMs = Date.now() - startedAt;
+    expect(redacted).toContain("[REDACTED]");
+    expect(redacted).not.toContain("-----BEGIN");
+    expect(elapsedMs).toBeLessThan(2000);
   });
 
   test("every non-private-key pattern is shared verbatim with PREFIX_PATTERNS", () => {
