@@ -12,7 +12,8 @@
  * Covers:
  * - Happy path: model writes valid JSON → structured subject/body, file cleaned up
  * - Runs in a fresh background conversation
- * - Returns the most recent standard conversation to re-open (or null)
+ * - Offers standard conversations as candidates; returns the assistant's chosen
+ *   id, drops hallucinated ids, excludes surfaced background rows
  * - Fenced JSON in the file → still parsed
  * - Model writes nothing → 502
  * - Model writes JSON missing a field → 502
@@ -33,15 +34,29 @@ import type { RunConversationTurnOptions } from "@vellumai/plugin-api";
 // prompt).
 // ---------------------------------------------------------------------------
 
+interface ConversationRowStub {
+  id: string;
+  title: string | null;
+  conversationType: string;
+}
+
+/** JSON the assistant "writes", including its chosen conversation id. */
+function draftJson(conversation: string | null): string {
+  return JSON.stringify({
+    subject: "Ready when you are",
+    body: "Just picking up where we left off.",
+    conversation,
+  });
+}
+
 let workspaceDir = mkdtempSync(join(tmpdir(), "reengage-test-"));
-let fileContents: string | null = JSON.stringify({
-  subject: "Ready when you are",
-  body: "Just picking up where we left off.",
-});
+let fileContents: string | null = draftJson("conv-42");
 let lastOptions: RunConversationTurnOptions | undefined;
-// Rows the mocked `listConversations` returns, newest-first — the route reads
-// the first row's id as the conversation to re-open.
-let conversationRows: { id: string }[] = [{ id: "conv-42" }];
+// Rows the mocked `listConversations` returns, newest-first — the route filters
+// these to genuine `standard` rows and offers them as link candidates.
+let conversationRows: ConversationRowStub[] = [
+  { id: "conv-42", title: "Roadmap planning", conversationType: "standard" },
+];
 let lastListArgs: unknown[] | undefined;
 
 function extractInjectedPath(prompt: string): string {
@@ -82,12 +97,19 @@ describe("platform-hosted /reengage POST", () => {
     workspaceDir = mkdtempSync(join(tmpdir(), "reengage-test-"));
     lastOptions = undefined;
     lastListArgs = undefined;
-    conversationRows = [{ id: "conv-42" }];
-    fileContents = JSON.stringify({
-      subject: "Ready when you are",
-      body: "Just picking up where we left off.",
-    });
+    conversationRows = [
+      {
+        id: "conv-42",
+        title: "Roadmap planning",
+        conversationType: "standard",
+      },
+    ];
+    fileContents = draftJson("conv-42");
   });
+
+  function promptText(): string {
+    return (lastOptions?.content[0] as { text: string }).text;
+  }
 
   test("returns the structured subject/body the model wrote, and cleans up", async () => {
     const response = await POST(postRequest());
@@ -101,9 +123,7 @@ describe("platform-hosted /reengage POST", () => {
     expect(json.body).toBe("Just picking up where we left off.");
 
     // The injected file is removed after the handler returns.
-    const injectedPath = extractInjectedPath(
-      (lastOptions?.content[0] as { text: string }).text,
-    );
+    const injectedPath = extractInjectedPath(promptText());
     expect(existsSync(injectedPath)).toBe(false);
   });
 
@@ -118,21 +138,61 @@ describe("platform-hosted /reengage POST", () => {
     expect(lastOptions?.callSite).toBe("inference");
   });
 
-  test("returns the most recent standard conversation to re-open", async () => {
-    conversationRows = [{ id: "conv-42" }, { id: "older" }];
+  test("offers the standard conversations as candidates and returns the chosen id", async () => {
+    conversationRows = [
+      {
+        id: "conv-42",
+        title: "Roadmap planning",
+        conversationType: "standard",
+      },
+      { id: "older", title: "Trip notes", conversationType: "standard" },
+    ];
+    fileContents = draftJson("conv-42");
     const response = await POST(postRequest());
     const json = (await response.json()) as { conversation: string | null };
+
     expect(json.conversation).toBe("conv-42");
-    // Only the standard bucket is queried (background/scheduled/subagent rows
-    // — including the drafting turn's own — are excluded), limited to one row.
-    expect(lastListArgs).toEqual([1, "standard"]);
+    // The candidates are offered to the model in the prompt (id + title).
+    expect(promptText()).toContain("conv-42: Roadmap planning");
+    expect(promptText()).toContain("older: Trip notes");
+    // The standard bucket is queried (subagent/background excluded there).
+    expect(lastListArgs).toEqual([20, "standard"]);
   });
 
-  test("conversation is null when the owner has no standard conversations", async () => {
-    conversationRows = [];
+  test("drops a chosen id that isn't among the offered candidates", async () => {
+    // A hallucinated / stale id the assistant made up is never trusted.
+    fileContents = draftJson("made-up-id");
     const response = await POST(postRequest());
     const json = (await response.json()) as { conversation: string | null };
     expect(json.conversation).toBeNull();
+  });
+
+  test("null conversation is returned when the assistant declines to pick", async () => {
+    fileContents = draftJson(null);
+    const response = await POST(postRequest());
+    const json = (await response.json()) as { conversation: string | null };
+    expect(json.conversation).toBeNull();
+  });
+
+  test("excludes surfaced background/scheduled rows from the candidates", async () => {
+    // `listConversations(…, "standard")` can surface promoted background rows;
+    // they are not real chats to re-open, so they are filtered out — never
+    // offered, and rejected even if the model somehow names one.
+    conversationRows = [
+      { id: "surfaced-bg", title: "Heartbeat", conversationType: "background" },
+      {
+        id: "conv-42",
+        title: "Roadmap planning",
+        conversationType: "standard",
+      },
+    ];
+    fileContents = draftJson("surfaced-bg");
+    const response = await POST(postRequest());
+    const json = (await response.json()) as { conversation: string | null };
+
+    expect(json.conversation).toBeNull();
+    expect(promptText()).not.toContain("surfaced-bg");
+    expect(promptText()).toContain("conv-42: Roadmap planning");
   });
 
   test("tolerates JSON wrapped in a code fence", async () => {

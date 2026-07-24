@@ -16,9 +16,10 @@
  * chats.
  *
  * The response also carries `conversation` — the id of the conversation the
- * email's "jump back in" link should re-open (the owner's most recent standard
- * conversation, or `null`). It is resolved server-side rather than asked of the
- * model; see {@link conversationToReopen}.
+ * email's "jump back in" link should re-open, or `null`. The assistant chooses
+ * it: the prompt offers a list of the owner's recent conversations and asks it
+ * to name the one its email is about, and the route returns that id only after
+ * validating it against the offered set. See {@link conversationCandidates}.
  */
 
 import { mkdir, readFile, rm } from "node:fs/promises";
@@ -43,7 +44,15 @@ function pluginDataDir(): string {
 // Prompt
 // ---------------------------------------------------------------------------
 
-function buildPrompt(outputPath: string): string {
+function buildPrompt(
+  outputPath: string,
+  candidates: ConversationCandidate[],
+): string {
+  const conversationList =
+    candidates.length > 0
+      ? candidates.map((c) => `- ${c.id}: ${c.title}`).join("\n")
+      : "(you have no recent conversations)";
+
   return `Compose a short re-engagement email to me, in your own voice as my assistant, to gently draw me back into our work together.
 
 Draw on what you know about me and our recent conversations to make it personal and specific — reference something concrete we have been working on, or a next step that is waiting on me, rather than a generic "just checking in." Keep it warm, brief, and low-pressure: a few sentences at most, with no pushy or salesy language.
@@ -52,22 +61,38 @@ When the email is ready, use your file-writing tool to write it to exactly this 
 
 \`${outputPath}\`
 
-Write ONLY a raw JSON object to that file — no markdown, no code fence, no surrounding prose — with exactly these two string fields:
-{"subject": "<the subject line>", "body": "<the plain-text email body>"}
+Write ONLY a raw JSON object to that file — no markdown, no code fence, no surrounding prose — with exactly these fields:
+{"subject": "<the subject line>", "body": "<the plain-text email body>", "conversation": "<id or null>"}
 
-The subject should be short and specific. The body is the email itself, written as if you are speaking directly to me. The file is the deliverable; do not include the email in your chat reply.`;
+The subject should be short and specific. The body is the email itself, written as if you are speaking directly to me.
+
+For "conversation", choose the one conversation below that your email is about — the thread I should re-open to pick up where we left off — and use its id exactly as written. If none of them fit what your email references, use null. Never invent an id; only use one from this list:
+${conversationList}
+
+The file is the deliverable; do not include the email in your chat reply.`;
 }
 
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
 
+interface ParsedEmail {
+  subject: string;
+  body: string;
+  /** The conversation id the assistant chose, or `null` for none. */
+  conversation: string | null;
+}
+
 /**
- * Read `{ subject, body }` out of the JSON the assistant wrote. The instruction
- * asks for a bare object, but tolerate a stray code fence or surrounding prose
- * by falling back to the first brace-delimited span.
+ * Read `{ subject, body, conversation }` out of the JSON the assistant wrote.
+ * The instruction asks for a bare object, but tolerate a stray code fence or
+ * surrounding prose by falling back to the first brace-delimited span.
+ *
+ * `conversation` is optional and the id it names is not trusted here — the
+ * handler validates it against the offered candidates. A missing value, JSON
+ * `null`, or the literal string `"null"` all normalize to `null`.
  */
-function parseEmail(raw: string): { subject: string; body: string } | null {
+function parseEmail(raw: string): ParsedEmail | null {
   const candidates = [raw.trim()];
   const brace = raw.match(/\{[\s\S]*\}/);
   if (brace?.[0]) {
@@ -82,7 +107,12 @@ function parseEmail(raw: string): { subject: string; body: string } | null {
           typeof record.subject === "string" ? record.subject.trim() : "";
         const body = typeof record.body === "string" ? record.body.trim() : "";
         if (subject && body) {
-          return { subject, body };
+          const raw =
+            typeof record.conversation === "string"
+              ? record.conversation.trim()
+              : "";
+          const conversation = raw && raw !== "null" ? raw : null;
+          return { subject, body, conversation };
         }
       }
     } catch {
@@ -97,25 +127,39 @@ function jsonError(message: string, status: number): Response {
 }
 
 // ---------------------------------------------------------------------------
-// Conversation to re-open
+// Conversation candidates for the "jump back in" link
 // ---------------------------------------------------------------------------
 
+/** A conversation the assistant may choose to link the email back to. */
+interface ConversationCandidate {
+  id: string;
+  title: string;
+}
+
+/** How many recent conversations to offer the assistant to choose from. */
+const CANDIDATE_LIMIT = 10;
+
 /**
- * The conversation the email's "jump back in" link should target: the owner's
- * most recent standard (user-facing) conversation, or `null` when there is
- * none yet.
+ * Recent, genuinely-standard conversations the assistant can pick from for the
+ * email's "jump back in" link.
  *
- * Server-derived on purpose. The email body is drafted by the model, but the
- * assistant has no reliable handle on conversation ids — there is no
- * list/search-conversations tool and ids are not in its context — so asking it
- * to name one in the JSON would invite a hallucinated id. The `standard`
- * listing already excludes background/scheduled/subagent rows (so the drafting
- * turn's own background conversation is never selected) and is ordered by most
- * recent activity, which is exactly "where we left off".
+ * The assistant chooses which conversation the email is about (see
+ * {@link buildPrompt}), but it has no reliable handle on raw conversation ids —
+ * there is no list/search-conversations tool and ids are not in its context —
+ * so we hand it real candidates to choose among and validate its pick against
+ * this set, rather than trusting a free-formed (hallucinatable) id.
+ *
+ * `listConversations(…, "standard")` also surfaces background/scheduled rows
+ * that were promoted via `surfaced_at`, which are not real chats to re-open, so
+ * the result is filtered to rows whose type is actually `"standard"`. That also
+ * excludes the drafting turn's own background conversation.
  */
-async function conversationToReopen(): Promise<string | null> {
-  const [recent] = await listConversations(1, "standard");
-  return recent?.id ?? null;
+async function conversationCandidates(): Promise<ConversationCandidate[]> {
+  const rows = await listConversations(CANDIDATE_LIMIT * 2, "standard");
+  return rows
+    .filter((row) => row.conversationType === "standard")
+    .slice(0, CANDIDATE_LIMIT)
+    .map((row) => ({ id: row.id, title: row.title?.trim() || "Untitled" }));
 }
 
 // ---------------------------------------------------------------------------
@@ -127,9 +171,13 @@ export const POST = async (request: Request): Promise<Response> => {
   await mkdir(dir, { recursive: true });
   const outputPath = join(dir, `reengage-${crypto.randomUUID()}.json`);
 
+  // Offer the assistant real conversations to choose the "jump back in" link
+  // from, so the id it writes can be validated against actual chats.
+  const candidates = await conversationCandidates();
+
   try {
     await runConversationTurn({
-      content: [{ type: "text", text: buildPrompt(outputPath) }],
+      content: [{ type: "text", text: buildPrompt(outputPath, candidates) }],
       conversationType: "background",
       // Drafting a short email is latency-bound, not depth-bound, so run it on
       // the fast model rather than the balanced main-agent default. `inference`
@@ -158,10 +206,20 @@ export const POST = async (request: Request): Promise<Response> => {
       );
     }
 
-    // The platform wraps `body` in a template whose CTA deep-links to this
-    // conversation when present, or the assistant root when null.
-    const conversation = await conversationToReopen();
-    return Response.json({ ...email, conversation });
+    // Trust the assistant's choice only if it names one of the conversations we
+    // offered — never a free-formed id. The platform wraps `body` in a template
+    // whose CTA deep-links to this conversation when present, else the
+    // assistant root.
+    const candidateIds = new Set(candidates.map((c) => c.id));
+    const conversation =
+      email.conversation && candidateIds.has(email.conversation)
+        ? email.conversation
+        : null;
+    return Response.json({
+      subject: email.subject,
+      body: email.body,
+      conversation,
+    });
   } finally {
     await rm(outputPath, { force: true });
   }
