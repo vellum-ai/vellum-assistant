@@ -76,7 +76,7 @@ const PLAN_DISPLAY: Record<string, PlanDisplay> = {
   },
 };
 
-const DEFAULT_DISPLAY: PlanDisplay = PLAN_DISPLAY.base;
+const DEFAULT_DISPLAY: PlanDisplay = PLAN_DISPLAY.pro;
 
 export interface PlanCardProps {
   onManage: () => void;

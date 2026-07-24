@@ -1,6 +1,6 @@
 /**
- * Tests for the AutoTopUpCard enabled-state layout and the repeated-decline
- * cutoff notice:
+ * Tests for the AutoTopUpCard enabled-state layout, the repeated-decline
+ * cutoff notice, and the `configure_top_up` deeplink:
  *  - The enabled view renders the payment-method row above two summary chips
  *    (spend rule + monthly-cap progress) and Adjust swaps the chips for the
  *    inline form.
@@ -11,24 +11,30 @@
  *    renders no such notice; the notice is suppressed when `enabled`.
  *  - Toggling Enable on while cut off (even with a saved PM) does NOT open the
  *    form.
+ *  - Arriving with `?configure_top_up=1` replays the toggle-on path (reveal the
+ *    form, or the add-card gate with no PM), no-ops while enabled, and never
+ *    fires an update mutation.
  *
  * Strategy: the render-only cases pre-populate the React Query cache so the
  * card's `useQuery` resolves synchronously — `renderToStaticMarkup` is
  * single-pass, so a pending query would otherwise report `isLoading`. The
  * interaction cases use @testing-library/react (happy-dom via the test
  * preload). The remove flow mocks the SDK boundary so the mutation and the
- * follow-up GET are deterministic.
+ * follow-up GET are deterministic. Every render is wrapped in a MemoryRouter
+ * because the card reads `useSearchParams`.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 
 let removeCalls: Array<Record<string, unknown>> = [];
+let updateCalls: Array<Record<string, unknown>> = [];
 let removeShouldFail = false;
 let retrieveResponse: AutoTopUpConfigResponse;
 
@@ -55,6 +61,12 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
+  // Record any auto-top-up update (the PUT that persists a config). The
+  // `configure_top_up` deeplink must never trigger this on mount.
+  organizationsBillingAutoTopUpUpdate: (opts: Record<string, unknown>) => {
+    updateCalls.push(opts);
+    return Promise.resolve({ data: retrieveResponse, response: { ok: true } });
+  },
   organizationsBillingAutoTopUpRetrieve: () =>
     Promise.resolve({ data: retrieveResponse, response: { ok: true } }),
 }));
@@ -74,12 +86,22 @@ function makeClient(config: AutoTopUpConfigResponse): QueryClient {
   return client;
 }
 
-function renderCard(config: AutoTopUpConfigResponse): string {
-  return renderToStaticMarkup(
+/**
+ * Wrap the card in a QueryClientProvider (cache pre-seeded from `config`) and a
+ * MemoryRouter at `route`, so both `useQuery` and `useSearchParams` resolve.
+ */
+function wrap(config: AutoTopUpConfigResponse, route = "/") {
+  return (
     <QueryClientProvider client={makeClient(config)}>
-      <AutoTopUpCard />
-    </QueryClientProvider>,
+      <MemoryRouter initialEntries={[route]}>
+        <AutoTopUpCard />
+      </MemoryRouter>
+    </QueryClientProvider>
   );
+}
+
+function renderCard(config: AutoTopUpConfigResponse, route = "/"): string {
+  return renderToStaticMarkup(wrap(config, route));
 }
 
 const ENABLED_WITH_CARD: AutoTopUpConfigResponse = {
@@ -104,6 +126,7 @@ const DISABLED_WITH_CARD: AutoTopUpConfigResponse = {
 
 beforeEach(() => {
   removeCalls = [];
+  updateCalls = [];
   removeShouldFail = false;
   retrieveResponse = { ...DISABLED_CONFIG };
 });
@@ -113,11 +136,7 @@ afterEach(cleanup);
 describe("AutoTopUpCard enabled-state layout", () => {
   test("renders both summary chips and Adjust swaps them for the form", () => {
     retrieveResponse = { ...ENABLED_WITH_CARD };
-    const { container, getByTestId } = render(
-      <QueryClientProvider client={makeClient(ENABLED_WITH_CARD)}>
-        <AutoTopUpCard />
-      </QueryClientProvider>,
-    );
+    const { container, getByTestId } = render(wrap(ENABLED_WITH_CARD));
 
     expect(getByTestId("auto-top-up-summary").textContent).toContain(
       "Add $200 when balance falls under $50",
@@ -158,11 +177,7 @@ describe("AutoTopUpCard enabled-state layout", () => {
 describe("AutoTopUpCard remove card", () => {
   test("confirming Remove calls the endpoint and disables Extra Usage", async () => {
     retrieveResponse = { ...ENABLED_WITH_CARD };
-    const { container, getByLabelText } = render(
-      <QueryClientProvider client={makeClient(ENABLED_WITH_CARD)}>
-        <AutoTopUpCard />
-      </QueryClientProvider>,
-    );
+    const { container, getByLabelText } = render(wrap(ENABLED_WITH_CARD));
 
     // Precondition: the card is on file and Extra Usage is on.
     expect(
@@ -215,9 +230,7 @@ describe("AutoTopUpCard remove card", () => {
   test("removing while in Adjust form mode exits the form and disables Extra Usage", async () => {
     retrieveResponse = { ...ENABLED_WITH_CARD };
     const { container, getByLabelText, getByTestId } = render(
-      <QueryClientProvider client={makeClient(ENABLED_WITH_CARD)}>
-        <AutoTopUpCard />
-      </QueryClientProvider>,
+      wrap(ENABLED_WITH_CARD),
     );
 
     // Enter Adjust form mode: the inline form (Save) mounts.
@@ -265,11 +278,7 @@ describe("AutoTopUpCard remove card", () => {
   test("a failed removal closes the confirm dialog and surfaces the error notice", async () => {
     removeShouldFail = true;
     retrieveResponse = { ...ENABLED_WITH_CARD };
-    const { container } = render(
-      <QueryClientProvider client={makeClient(ENABLED_WITH_CARD)}>
-        <AutoTopUpCard />
-      </QueryClientProvider>,
-    );
+    const { container } = render(wrap(ENABLED_WITH_CARD));
 
     fireEvent.click(
       container.querySelector('[data-testid="payment-method-remove"]')!,
@@ -326,11 +335,7 @@ describe("AutoTopUpCard disabled with a saved card", () => {
 
   test("confirming Remove from the disabled state calls the endpoint and clears the card", async () => {
     retrieveResponse = { ...DISABLED_WITH_CARD };
-    const { container, getByLabelText } = render(
-      <QueryClientProvider client={makeClient(DISABLED_WITH_CARD)}>
-        <AutoTopUpCard />
-      </QueryClientProvider>,
-    );
+    const { container, getByLabelText } = render(wrap(DISABLED_WITH_CARD));
 
     // Precondition: Extra Usage is off but the card row is on file.
     expect(getByLabelText("Enable Extra Usage").getAttribute("aria-checked")).toBe(
@@ -438,11 +443,7 @@ describe("AutoTopUpCard enable gate", () => {
       disabled_due_to_repeated_failures: true,
     };
 
-    const { container, getByLabelText } = render(
-      <QueryClientProvider client={makeClient(config)}>
-        <AutoTopUpCard />
-      </QueryClientProvider>,
-    );
+    const { container, getByLabelText } = render(wrap(config));
     const form = () =>
       container.querySelector('[data-testid="auto-top-up-save-button"]');
 
@@ -468,11 +469,7 @@ describe("AutoTopUpCard enable gate", () => {
       disabled_due_to_repeated_failures: false,
     };
 
-    const { container, getByLabelText } = render(
-      <QueryClientProvider client={makeClient(config)}>
-        <AutoTopUpCard />
-      </QueryClientProvider>,
-    );
+    const { container, getByLabelText } = render(wrap(config));
     const form = () =>
       container.querySelector('[data-testid="auto-top-up-save-button"]');
 
@@ -494,11 +491,7 @@ describe("AutoTopUpCard enable gate", () => {
       disabled_due_to_repeated_failures: false,
     };
 
-    const { container, getByLabelText } = render(
-      <QueryClientProvider client={makeClient(config)}>
-        <AutoTopUpCard />
-      </QueryClientProvider>,
-    );
+    const { container, getByLabelText } = render(wrap(config));
     const form = () =>
       container.querySelector('[data-testid="auto-top-up-save-button"]');
     const addPmButton = () =>
@@ -527,11 +520,7 @@ describe("AutoTopUpCard enable gate", () => {
       disabled_due_to_repeated_failures: false,
     };
 
-    const { container, getByLabelText } = render(
-      <QueryClientProvider client={makeClient(config)}>
-        <AutoTopUpCard />
-      </QueryClientProvider>,
-    );
+    const { container, getByLabelText } = render(wrap(config));
 
     fireEvent.click(getByLabelText("Enable Extra Usage"));
 
@@ -539,5 +528,88 @@ describe("AutoTopUpCard enable gate", () => {
       "Extra usage requires you to connect a credit card.",
     );
     expect(container.textContent).not.toContain("ACTION");
+  });
+});
+
+describe("AutoTopUpCard configure_top_up deeplink", () => {
+  test("arriving with ?configure_top_up=1 (disabled, PM on file) reveals the configure form", () => {
+    const config: AutoTopUpConfigResponse = {
+      ...DISABLED_CONFIG,
+      enabled: false,
+      has_payment_method: true,
+      disabled_due_to_repeated_failures: false,
+    };
+
+    const { container, getByLabelText } = render(
+      wrap(config, "/?configure_top_up=1"),
+    );
+
+    // The toggle-on path ran: the toggle flipped and the configure form opened,
+    // exactly as clicking the toggle would — with no update mutation.
+    expect(getByLabelText("Enable Extra Usage").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    expect(
+      container.querySelector('[data-testid="auto-top-up-save-button"]'),
+    ).not.toBeNull();
+    expect(updateCalls.length).toBe(0);
+  });
+
+  test("arriving with ?configure_top_up=1 and no PM shows the Add a Credit Card gate", () => {
+    const config: AutoTopUpConfigResponse = {
+      ...DISABLED_CONFIG,
+      enabled: false,
+      has_payment_method: false,
+      disabled_due_to_repeated_failures: false,
+    };
+
+    const { container, getByLabelText } = render(
+      wrap(config, "/?configure_top_up=1"),
+    );
+
+    // No PM on file → the add-card gate is shown instead of the form.
+    expect(getByLabelText("Enable Extra Usage").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    expect(
+      container.querySelector('[data-testid="auto-top-up-add-pm-button"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="auto-top-up-save-button"]'),
+    ).toBeNull();
+    expect(updateCalls.length).toBe(0);
+  });
+
+  test("arriving with ?configure_top_up=1 while already enabled is a no-op", () => {
+    retrieveResponse = { ...ENABLED_WITH_CARD };
+    const { container } = render(wrap(ENABLED_WITH_CARD, "/?configure_top_up=1"));
+
+    // Already enabled: the effect strips the param but does not enter the form
+    // or fire a mutation — the enabled summary stays put.
+    expect(
+      container.querySelector('[data-testid="auto-top-up-summary"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="auto-top-up-save-button"]'),
+    ).toBeNull();
+    expect(updateCalls.length).toBe(0);
+  });
+
+  test("without the param the card stays disabled and closed (no auto-open)", () => {
+    const config: AutoTopUpConfigResponse = {
+      ...DISABLED_CONFIG,
+      enabled: false,
+      has_payment_method: true,
+    };
+
+    const { container, getByLabelText } = render(wrap(config, "/"));
+
+    expect(getByLabelText("Enable Extra Usage").getAttribute("aria-checked")).toBe(
+      "false",
+    );
+    expect(
+      container.querySelector('[data-testid="auto-top-up-save-button"]'),
+    ).toBeNull();
+    expect(updateCalls.length).toBe(0);
   });
 });
