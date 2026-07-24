@@ -905,10 +905,19 @@ function stripWireOnlyProfileKeys(patch: unknown): void {
  * effort bounds. Enforce the same invariant here: when a patch creates an
  * entry, copy in any shipped tuning key the patch doesn't set itself.
  *
- * `profile` is never backfilled — it is the selection discriminator, and
- * stamping it onto a custom provider/model entry would change winner
- * selection. Existing on-disk entries are never touched: deep-merge already
- * preserves their keys, and their values may be deliberate customization.
+ * Neither `profile` nor `model` is backfilled — both are selection, not
+ * tuning. `profile` is the winner discriminator; a shipped `model` pin (e.g.
+ * `memoryV3SelectL2`/`voiceFront*`' haiku cache-latency pin) is a best-effort
+ * optimization the resolver honors only for the shipped default, dropping it
+ * when the implied provider is unroutable. Stamping either onto a user's
+ * profile-based override would let the shipped model override the user's chosen
+ * one — and because the resolver treats a model pin on a user entry
+ * (`userSite != null`) as an explicit override honored as written, it would
+ * route a BYOK user's profile to that model's provider with no connection. A
+ * `model` the user sets in the patch itself is preserved untouched (it is
+ * already `in entry`). Existing on-disk entries are never touched: deep-merge
+ * already preserves their keys, and their values may be deliberate
+ * customization.
  */
 function backfillNewCallSiteEntries(
   raw: Record<string, unknown>,
@@ -931,7 +940,7 @@ function backfillNewCallSiteEntries(
       continue;
     }
     for (const [key, shippedValue] of Object.entries(shipped)) {
-      if (key === "profile" || key in entry) {
+      if (key === "profile" || key === "model" || key in entry) {
         continue;
       }
       entry[key] = structuredClone(shippedValue);
