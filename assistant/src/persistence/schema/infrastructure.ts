@@ -286,6 +286,17 @@ export const llmUsageEvents = sqliteTable(
      * telemetry read path falls back to the JOIN for those).
      */
     conversationType: text("conversation_type"),
+    /**
+     * `conversations.source` of the parent conversation (`"user"`,
+     * `"subagent"`, `"schedule"`, `"memory-retrospective"`, ...), captured at
+     * RECORD time for the same deletion-survival reason as
+     * `conversation_type`: the parent conversation can be deleted before the
+     * telemetry flush joins against it, so a flush-time JOIN alone loses the
+     * source. Null when the call has no parent conversation and for rows
+     * persisted before migration 354 ran (the telemetry read path falls back
+     * to the JOIN for those).
+     */
+    conversationSource: text("conversation_source"),
   },
   (table) => [
     index("idx_llm_usage_events_conversation_id").on(table.conversationId),

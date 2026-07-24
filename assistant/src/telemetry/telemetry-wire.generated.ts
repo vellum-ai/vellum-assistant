@@ -95,6 +95,8 @@ export const llmUsageTelemetryEventSchema = z.object({
     .nullable()
     .optional(),
   parent_turn_index: z.number().int().min(0).nullable().optional(),
+  conversation_source: z.string().trim().min(1).max(64).nullable().optional(),
+  work_origin: z.string().trim().min(1).max(64).nullable().optional(),
 });
 export type LlmUsageTelemetryEvent = z.infer<
   typeof llmUsageTelemetryEventSchema
