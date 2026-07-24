@@ -33,6 +33,32 @@ describe("spanChunksOf", () => {
     expect(spanChunksOf("  \n\n  ")).toEqual([]);
   });
 
+  test("fullwidth CJK terminators split without trailing whitespace", () => {
+    const chunks = spanChunksOf(
+      "这是消息里的第一句完整的话。这是紧跟着的第二句完整的话！第三句也一样长够十五个字符？",
+    );
+    expect(chunks).toEqual([
+      "这是消息里的第一句完整的话。",
+      "这是紧跟着的第二句完整的话！",
+      "第三句也一样长够十五个字符？",
+    ]);
+  });
+
+  test("non-ASCII spaced terminators split like ASCII ones", () => {
+    const chunks = spanChunksOf(
+      "पहला वाक्य यहाँ लिखा गया है। दूसरा वाक्य भी यहाँ मौजूद है।",
+    );
+    expect(chunks).toEqual([
+      "पहला वाक्य यहाँ लिखा गया है।",
+      "दूसरा वाक्य भी यहाँ मौजूद है।",
+    ]);
+  });
+
+  test("ASCII periods still do not split decimals or dotted numbers", () => {
+    expect(spanChunksOf("the value came out to 3.14159 in the final run.")) //
+      .toEqual(["the value came out to 3.14159 in the final run."]);
+  });
+
   test("a message at the cap is returned unchanged", () => {
     const sentences = Array.from(
       { length: MAX_SPAN_CHUNKS },

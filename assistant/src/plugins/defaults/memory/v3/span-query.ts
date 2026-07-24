@@ -9,7 +9,7 @@
  * at full strength.
  *
  * Chunking is pure text processing: split at newlines and sentence
- * punctuation, drop sub-{@link MIN_SPAN_CHARS} fragments. A message yielding
+ * punctuation, drop fragments below {@link MIN_SPAN_WEIGHT}. A message yielding
  * more than {@link MAX_SPAN_CHUNKS} spans is NOT truncated to its head — all
  * spans are partitioned into {@link MAX_SPAN_CHUNKS} contiguous near-equal
  * groups, so the whole message stays covered and long messages are simply
@@ -20,9 +20,24 @@
  *  `MAX_SPAN_CHUNKS × spanQueryK` extra candidates and as many embed calls. */
 export const MAX_SPAN_CHUNKS = 8;
 
-/** Spans shorter than this carry no retrieval signal ("ok.", bare emoji
- *  lines) and are dropped before chunking. */
-const MIN_SPAN_CHARS = 15;
+/** Spans weighing less than this carry no retrieval signal ("ok.", bare emoji
+ *  lines) and are dropped before chunking. Weight, not raw length — see
+ *  {@link spanWeight}. */
+const MIN_SPAN_WEIGHT = 15;
+
+/** Dense CJK scripts pack roughly a clause into the character budget English
+ *  needs for a few words, so a raw char floor tuned for spaced scripts would
+ *  drop nearly every realistic Chinese/Japanese/Korean sentence. Weigh those
+ *  chars at 3× so the floor measures comparable information content. */
+const DENSE_SCRIPT = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
+
+function spanWeight(span: string): number {
+  let weight = 0;
+  for (const ch of span) {
+    weight += DENSE_SCRIPT.test(ch) ? 3 : 1;
+  }
+  return weight;
+}
 
 /**
  * Split `message` into at most {@link MAX_SPAN_CHUNKS} contiguous clause
@@ -31,10 +46,16 @@ const MIN_SPAN_CHARS = 15;
  * whole message. Deterministic; returns `[]` for empty/whitespace input.
  */
 export function spanChunksOf(message: string): string[] {
+  // Boundaries: newlines; any Unicode sentence terminator (`\p{STerm}` covers
+  // ASCII `.!?` plus CJK `。！？`, Arabic `؟`, Devanagari `।`, …) or ellipsis
+  // followed by whitespace; and a zero-width split after fullwidth CJK
+  // terminators, which conventionally have NO trailing space. The whitespace
+  // requirement on the general arm keeps ASCII `.` from splitting decimals
+  // and dotted abbreviations; fullwidth terminators never appear there.
   const spans = message
-    .split(/\n+|(?<=[.!?…])\s+/)
+    .split(/\n+|(?<=[\p{STerm}…])\s+|(?<=[。！？｡])/u)
     .map((s) => s.trim())
-    .filter((s) => s.length >= MIN_SPAN_CHARS);
+    .filter((s) => spanWeight(s) >= MIN_SPAN_WEIGHT);
   if (spans.length <= MAX_SPAN_CHUNKS) {
     return spans;
   }
