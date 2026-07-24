@@ -49,7 +49,10 @@ const fetchSpy = spyOn(
   messagesApi,
   "fetchConversationMessages",
 ).mockImplementation(async () => fetchResult as never);
-spyOn(eventsTailApi, "ingestServerEventsTail").mockImplementation(
+const ingestTailSpy = spyOn(
+  eventsTailApi,
+  "ingestServerEventsTail",
+).mockImplementation(
   async (...args: unknown[]) => {
     reconcileTrace.push({ step: "ingest-tail", args });
   },
@@ -152,6 +155,10 @@ function renderReconciliation(
 
 beforeEach(() => {
   reconcileTrace.length = 0;
+  ingestTailSpy.mockImplementation(async (...args: unknown[]) => {
+    reconcileTrace.push({ step: "ingest-tail", args });
+  });
+  ingestTailSpy.mockClear();
   fetchSpy.mockImplementation(async () => fetchResult as never);
   fetchSpy.mockClear();
   __resetLocalSeqForTesting();
@@ -232,7 +239,10 @@ describe("useMessageReconciliation — server event-tail catch-up", () => {
 
     // THEN the tail was fetched from the snapshot's anchor ...
     const ingest = reconcileTrace.find((t) => t.step === "ingest-tail");
-    expect(ingest?.args).toEqual([ASSISTANT_ID, CONV_ID, 11]);
+    expect(ingest?.args?.slice(0, 3)).toEqual([ASSISTANT_ID, CONV_ID, 11]);
+    expect(ingest?.args?.[3]).toBe(
+      fetchSpy.mock.calls[0]?.[2]?.signal,
+    );
     // ... and ingested BEFORE the history invalidation, so the reseed
     // replay reads a primed event ring.
     expect(reconcileTrace.map((t) => t.step)).toEqual([
@@ -319,6 +329,39 @@ describe("useMessageReconciliation — attachment policy and cancellation", () =
       messagesAdded: 0,
       assistantProgress: false,
     });
+  });
+
+  test("epoch cancellation aborts a pending tail without reconciliation effects", async () => {
+    seedSnapshotProcessing(true);
+    seedServerFetch(false);
+    let tailSignal: AbortSignal | undefined;
+    ingestTailSpy.mockImplementation(
+      async (_assistantId, _conversationId, _serverSeq, signal) => {
+        tailSignal = signal;
+        return await new Promise<void>((_resolve, reject) => {
+          tailSignal?.addEventListener(
+            "abort",
+            () => reject(tailSignal?.reason),
+            { once: true },
+          );
+        });
+      },
+    );
+    const { result, invalidateSpy } = renderReconciliation();
+
+    const request = result.current.reconcileActiveConversation();
+    await waitFor(() => expect(tailSignal).toBeDefined());
+    expect(tailSignal).toBe(fetchSpy.mock.calls[0]?.[2]?.signal);
+    useStreamStore.getState().bumpEpoch();
+
+    expect(tailSignal?.aborted).toBe(true);
+    await expect(request).resolves.toEqual({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    });
+    expect(invalidateSpy).not.toHaveBeenCalled();
+    expect(reconcileTrace).toHaveLength(0);
   });
 
   test("epoch and assistant-scope changes abort in-flight reconciliation", async () => {

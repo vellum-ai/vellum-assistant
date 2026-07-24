@@ -30,23 +30,32 @@ import { ingestReplayedEnvelopes } from "@/lib/streaming/stream-debug";
  * client event ring, so an immediately following history reseed folds the
  * events the live connection never delivered.
  *
- * No-ops when the snapshot carried no anchor or the assistant predates
- * the endpoint. Never throws — the tail is an upgrade to the reconcile,
- * not a prerequisite.
+ * No-ops when the snapshot carried no anchor, the assistant predates the
+ * endpoint, or the request is cancelled. Never throws — the tail is an
+ * upgrade to the reconcile, not a prerequisite.
  */
 export async function ingestServerEventsTail(
   assistantId: string,
   conversationId: string,
   fromSeq: number | null,
+  signal?: AbortSignal,
 ): Promise<void> {
-  if (fromSeq == null) return;
-  if (!supportsEventsTail()) return;
+  if (fromSeq == null || signal?.aborted) {
+    return;
+  }
+  if (!supportsEventsTail()) {
+    return;
+  }
   try {
     const { data, response } = await eventsTailGet({
       path: { assistant_id: assistantId },
       query: { conversationId, fromSeq: String(fromSeq) },
+      signal,
       throwOnError: false,
     });
+    if (signal?.aborted) {
+      return;
+    }
     if (!response?.ok || !data) {
       recordDiagnostic("events_tail_fetch_failed", {
         conversationId,
@@ -71,6 +80,9 @@ export async function ingestServerEventsTail(
       frontier: data.frontier,
     });
   } catch (err) {
+    if (signal?.aborted) {
+      return;
+    }
     recordDiagnostic("events_tail_fetch_failed", {
       conversationId,
       fromSeq,

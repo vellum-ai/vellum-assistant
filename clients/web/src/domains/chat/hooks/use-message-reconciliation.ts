@@ -461,6 +461,7 @@ export function useMessageReconciliation({
           ctx.assistantId,
           ctx.conversationId,
           serverSeq,
+          controller.signal,
         );
         if (controller.signal.aborted) {
           return empty;
