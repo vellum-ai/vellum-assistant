@@ -673,6 +673,33 @@ describe("PlanCard action button", () => {
     });
     expect(onManage).not.toHaveBeenCalled();
   });
+
+  test("an unpaid custom Pro sub's Manage stays on the manage fallback", async () => {
+    const onManage = mock(() => {});
+    // A custom sub in a non-entitlement status (e.g. unpaid) is switch-ineligible,
+    // so it keeps the manage modal — the takeover would bounce every CTA back to
+    // the manage surface.
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "mighty",
+      name: "Mighty",
+      version: 1,
+      customized: true,
+    };
+    subscription.status = "unpaid";
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
+    expect(navigateArgs).toEqual([]);
+  });
 });
 
 describe("PlanCard recommended upgrade — change-package", () => {

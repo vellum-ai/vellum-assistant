@@ -372,20 +372,19 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   const packages = proPlan?.packages ?? [];
   const currentKey = subscription.package?.key ?? null;
   const currentTier = currentKey ?? "free";
-  // A live packages catalog opens the plans takeover for base and every Pro sub
-  // — a clean pin, a customized pin, and an unpinned (legacy Custom) sub alike;
-  // the takeover's own CTAs handle each state's transitions. One exception: a
-  // custom/unpinned sub that is pending cancellation keeps the manage modal,
-  // which surfaces the cancellation state and the "Keep your Plan" action — the
-  // takeover can't act on a cancelling sub (every change is rejected), and a
-  // clean pin already reaches the manage surface through its package CTA. An
-  // empty catalog (the `pro-packages` flag off) has no takeover to open, so
+  // A live packages catalog opens the plans takeover for base and clean-pinned
+  // Pro subs, and for a custom/unpinned Pro sub that is switch-eligible. An
+  // ineligible custom sub — pending cancellation, or a non-entitlement status
+  // such as `unpaid` — keeps the manage modal, which surfaces its state and the
+  // recovery actions; the takeover can't act on it (every change is rejected),
+  // and a clean pin already reaches the manage surface through its package CTA.
+  // An empty catalog (the `pro-packages` flag off) has no takeover to open, so
   // Manage falls back to the manage modal.
   const canOpenPlansTakeover =
     packages.length > 0 &&
     (currentPlan.id === "base" ||
       isCleanPin(subscription.package) ||
-      !isCancelling);
+      isPackageSwitchEligible(subscription));
   // The banner's one-click switch is offered to any switch-eligible Pro sub —
   // a clean pin, a customized pin, or an unpinned (Custom) sub — inheriting the
   // shared eligibility gate. The confirm copy adapts to the sub's state via
