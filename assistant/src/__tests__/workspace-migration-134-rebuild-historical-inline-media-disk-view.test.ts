@@ -100,6 +100,25 @@ function markDbMigrationComplete(value = "1"): void {
   ).run(value);
 }
 
+function historicalRepairBlocks(source: string): unknown[] {
+  return [
+    { type: "text", text: 42 },
+    {
+      type: "tool_result",
+      tool_use_id: "tool-malformed",
+      content: { answer: 42 },
+    },
+    { payload: source },
+    "bare value",
+    { type: "text", text: "Valid text", marker: "preserved" },
+    {
+      type: "tool_result",
+      tool_use_id: "tool-valid",
+      content: "Valid result",
+    },
+  ];
+}
+
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "workspace-migration-134-"));
   const dbDir = join(workspaceDir, "data", "db");
@@ -211,11 +230,9 @@ describe("workspace migration 134: historical inline-media disk view", () => {
           seq: 1,
           block: { type: "text", text: "Older text" },
         }),
-        JSON.stringify({
-          i: 0,
-          seq: 2,
-          block: { type: "text", text: "File-backed text" },
-        }),
+        ...historicalRepairBlocks("file-backed").map((block, index) =>
+          JSON.stringify({ i: index, seq: index + 2, block }),
+        ),
       ].join("\n"),
     );
     db.query(
@@ -236,8 +253,64 @@ describe("workspace migration 134: historical inline-media disk view", () => {
     expect(records).toHaveLength(2);
     expect(records[1]).toMatchObject({
       role: "assistant",
-      content: "File-backed text",
+      content: '42\n{"payload":"file-backed"}\n"bare value"\nValid text',
+      toolResults: [{ content: '{"answer":42}' }, { content: "Valid result" }],
     });
+  });
+
+  test("repairs malformed inline blocks without erasing their payloads", () => {
+    markDbMigrationComplete();
+    const target = seedConversation();
+    db.query(
+      `INSERT INTO messages (
+         id, conversation_id, role, content, created_at, metadata, finalized
+       ) VALUES ('message-malformed-inline', 'conversation-134', 'assistant', ?, ?, NULL, 1)`,
+    ).run(JSON.stringify(historicalRepairBlocks("inline")), 1_700_000_000_010);
+
+    rebuildHistoricalInlineMediaDiskViewMigration.run(workspaceDir);
+
+    const records = readFileSync(target.messagesPath, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records).toHaveLength(2);
+    expect(records[1]).toMatchObject({
+      role: "assistant",
+      content: '42\n{"payload":"inline"}\n"bare value"\nValid text',
+      toolResults: [{ content: '{"answer":42}' }, { content: "Valid result" }],
+    });
+  });
+
+  test("preserves web search tool results while rebuilding the conversation", () => {
+    markDbMigrationComplete();
+    const target = seedConversation();
+    const webSearchContent = [
+      {
+        type: "web_search_result",
+        url: "https://example.com/result",
+        title: "Example result",
+        encrypted_content: "opaque-result",
+      },
+    ];
+    db.query(
+      `INSERT INTO messages (
+         id, conversation_id, role, content, created_at, metadata, finalized
+       ) VALUES ('message-web-search', 'conversation-134', 'user', ?, ?, NULL, 1)`,
+    ).run(
+      JSON.stringify([
+        { type: "web_search_tool_result", content: webSearchContent },
+      ]),
+      1_700_000_000_010,
+    );
+
+    rebuildHistoricalInlineMediaDiskViewMigration.run(workspaceDir);
+
+    const records = readFileSync(target.messagesPath, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records).toHaveLength(2);
+    expect(records[1]?.toolResults).toEqual([{ content: webSearchContent }]);
   });
 
   test("retries a failed projection after attachment storage recovers", async () => {

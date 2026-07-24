@@ -50,6 +50,9 @@ interface ContentBlock {
   name?: string;
   input?: unknown;
   content?: unknown;
+  tool_use_id?: string;
+  is_error?: boolean;
+  contentBlocks?: unknown[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -89,7 +92,67 @@ function conversationDir(
   return existsSync(legacy) ? legacy : canonical;
 }
 
-function foldContentFile(workspaceDir: string, ref: string): ContentBlock[] {
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return String(value);
+  }
+}
+
+function coerceLegacyBlock(block: unknown): ContentBlock {
+  if (isRecord(block)) {
+    if (block.type === "text") {
+      if (typeof block.text === "string") {
+        return block as unknown as ContentBlock;
+      }
+      return { type: "text", text: safeJson(block.text) };
+    }
+    if (
+      block.type === "tool_result" ||
+      block.type === "web_search_tool_result"
+    ) {
+      const toolUseId =
+        typeof block.tool_use_id === "string" ? block.tool_use_id : "";
+      if (block.type === "web_search_tool_result") {
+        if (typeof block.tool_use_id === "string") {
+          return block as unknown as ContentBlock;
+        }
+        return {
+          type: "web_search_tool_result",
+          tool_use_id: toolUseId,
+          content: block.content,
+        };
+      }
+      if (
+        typeof block.tool_use_id === "string" &&
+        typeof block.content === "string" &&
+        (block.is_error === undefined || typeof block.is_error === "boolean") &&
+        (block.contentBlocks === undefined ||
+          Array.isArray(block.contentBlocks))
+      ) {
+        return block as unknown as ContentBlock;
+      }
+      return {
+        type: "tool_result",
+        tool_use_id: toolUseId,
+        content:
+          typeof block.content === "string"
+            ? block.content
+            : safeJson(block.content),
+        ...(typeof block.is_error === "boolean"
+          ? { is_error: block.is_error }
+          : {}),
+      };
+    }
+    if (typeof block.type === "string") {
+      return block as unknown as ContentBlock;
+    }
+  }
+  return { type: "text", text: safeJson(block) };
+}
+
+function foldContentFile(workspaceDir: string, ref: string): unknown[] {
   if (!/^conversations\/.+\.jsonl$/.test(ref)) {
     return [];
   }
@@ -104,18 +167,18 @@ function foldContentFile(workspaceDir: string, ref: string): ContentBlock[] {
   } catch {
     return [];
   }
-  const byIndex = new Map<number, { seq: number; block: ContentBlock }>();
+  const byIndex = new Map<number, { seq: number; block: unknown }>();
   for (const line of text.split("\n")) {
     if (!line) {
       continue;
     }
     try {
-      const parsed = JSON.parse(line) as Record<string, unknown>;
+      const parsed: unknown = JSON.parse(line);
       if (
+        !isRecord(parsed) ||
         !Number.isInteger(parsed.i) ||
         typeof parsed.seq !== "number" ||
-        !isRecord(parsed.block) ||
-        typeof parsed.block.type !== "string"
+        !("block" in parsed)
       ) {
         continue;
       }
@@ -124,7 +187,7 @@ function foldContentFile(workspaceDir: string, ref: string): ContentBlock[] {
       if (!existing || parsed.seq > existing.seq) {
         byIndex.set(index, {
           seq: parsed.seq,
-          block: parsed.block as unknown as ContentBlock,
+          block: parsed.block,
         });
       }
     } catch {
@@ -147,13 +210,10 @@ function resolveContentBlocks(
     return [{ type: "text", text: rawContent }];
   }
   if (Array.isArray(parsed)) {
-    return parsed.filter(
-      (block): block is ContentBlock =>
-        isRecord(block) && typeof block.type === "string",
-    );
+    return parsed.map(coerceLegacyBlock);
   }
   if (isRecord(parsed) && typeof parsed.ref === "string") {
-    return foldContentFile(workspaceDir, parsed.ref);
+    return foldContentFile(workspaceDir, parsed.ref).map(coerceLegacyBlock);
   }
   if (typeof parsed === "string") {
     return [{ type: "text", text: parsed }];
@@ -174,7 +234,10 @@ function flattenContent(blocks: ContentBlock[]): {
       text.push(block.text);
     } else if (block.type === "tool_use" && typeof block.name === "string") {
       toolCalls.push({ name: block.name, input: block.input });
-    } else if (block.type === "tool_result") {
+    } else if (
+      block.type === "tool_result" ||
+      block.type === "web_search_tool_result"
+    ) {
       toolResults.push({ content: block.content });
     }
   }
