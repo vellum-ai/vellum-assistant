@@ -34,15 +34,17 @@ import {
   normalizeSlackBlockActions,
   normalizeSlackReactionAdded,
   normalizeSlackReactionRemoved,
-  enrichNormalizedActor,
-  type SlackAppMentionEvent,
-  type SlackChannelMessageEvent,
-  type SlackMessageChangedEvent,
-  type SlackMessageDeletedEvent,
-  type SlackReactionEvent,
-  type NormalizedSlackEvent,
-  type SlackTextRenderContext,
 } from "./normalize.js";
+import { enrichNormalizedActor } from "./actor.js";
+import type {
+  SlackAppMentionEvent,
+  SlackChannelMessageEvent,
+  SlackMessageChangedEvent,
+  SlackMessageDeletedEvent,
+  SlackReactionEvent,
+  NormalizedSlackEvent,
+} from "./message-schemas.js";
+import type { SlackTextRenderContext } from "./render-text.js";
 import { resolveSlackChannel, resolveSlackUser } from "./user-directory.js";
 
 const log = getLogger("slack-socket-mode");

@@ -55,7 +55,7 @@ const { handleInbound } = await import("../handlers/handle-inbound.js");
 const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
 const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
   await import("../risk/admission-policy-cache.js");
-import type { SlackAppMentionEvent } from "../slack/normalize.js";
+import type { SlackAppMentionEvent } from "../slack/message-schemas.js";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {

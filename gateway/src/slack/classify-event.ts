@@ -4,7 +4,7 @@ import type {
   SlackMessageChangedEvent,
   SlackMessageDeletedEvent,
   SlackReactionEvent,
-} from "./normalize.js";
+} from "./message-schemas.js";
 
 /**
  * A Slack inbound event narrowed to exactly one dispatch kind, with the event
