@@ -131,8 +131,7 @@ export function buildStoragePolyfill(): string {
  * Two categories of links are intercepted:
  *
  * 1. **`vellum://` deep links** (`vellum://workspace/...`,
- *    `vellum://host/...`, `vellum://open/...`) — forwarded to the parent
- *    window via
+ *    `vellum://host/...`) — forwarded to the parent window via
  *    `postMessage({ type: 'vellum_open_link', ... })` so the host app can
  *    perform in-app navigation (open a workspace file, launch a host app,
  *    etc.). These are checked **before** external schemes because
@@ -168,7 +167,7 @@ export function buildLinkInterceptorScript(frameId: string): string {
           // navigation. Checked before external schemes because
           // window.open() cannot handle custom schemes (a vellum:// URL
           // would be silently dropped or open a broken tab).
-          if (/^vellum:\\/\\/(workspace|host|open)\\//i.test(rawHref)) {
+          if (/^vellum:\\/\\/(workspace|host)\\//i.test(rawHref)) {
             e.preventDefault();
             window.parent.postMessage({
               type: 'vellum_open_link',
