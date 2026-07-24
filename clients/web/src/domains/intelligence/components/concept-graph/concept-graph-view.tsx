@@ -8,7 +8,14 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { VIRTUAL_CENTER } from "@/domains/intelligence/components/constellation-view/constants";
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
@@ -69,6 +76,12 @@ const SELECTION_DIM_EDGE = 0.03;
 
 // Below this node count the graph is small enough to scan by eye — no search box.
 const SEARCH_MIN_NODES = 12;
+
+// How long a just-created memory announces itself: expanding rings around the
+// node after the camera lands on it (a static highlight ring under reduced
+// motion). Long enough to register, short enough that rapid consecutive
+// creates don't feel noisy.
+const BORN_PULSE_MS = 2600;
 
 interface Projected {
   id: string;
@@ -140,6 +153,14 @@ function makeEgoTest(
     selectedId != null && (id === selectedId || (neighbors?.has(id) ?? false));
 }
 
+export interface ConceptGraphViewHandle {
+  /** Fly the camera to a node and run the short "born" pulse marking where it
+   * landed. An id the current layout doesn't know yet (the usual case right
+   * after a create, while the graph refetch is in flight) is parked and
+   * applied as soon as a layout containing it arrives. */
+  focusNode(id: string): void;
+}
+
 export interface ConceptGraphViewProps {
   assistantId: string;
   className?: string;
@@ -153,6 +174,10 @@ export interface ConceptGraphViewProps {
    * flex sibling of the stats/search cluster and cannot overlap it at any
    * container width. */
   headerAction?: React.ReactNode;
+  /** Imperative surface for page-driven navigation (fly-to-node after a
+   * create). A plain prop rather than forwardRef so callers that don't need
+   * it never see a ref signature. */
+  handleRef?: React.Ref<ConceptGraphViewHandle>;
 }
 
 function CenteredMessage({ title, detail }: { title: string; detail?: string }) {
@@ -183,6 +208,7 @@ export function ConceptGraphView({
   onToggleFullscreen,
   onOpenThread,
   headerAction,
+  handleRef,
 }: ConceptGraphViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -310,6 +336,12 @@ export function ConceptGraphView({
   // Set on dismiss so the 60fps loop eases the camera back out to the overview
   // framing (zoom + pitch), then clears itself once settled.
   const resetViewRef = useRef(false);
+  // A just-created memory announcing itself: the render loop draws expanding
+  // rings around this node for BORN_PULSE_MS after the camera lands on it.
+  const bornRef = useRef<{ id: string; start: number } | null>(null);
+  // A focusNode() request for an id the current layout doesn't know yet —
+  // applied by the layout effect once the post-create refetch delivers it.
+  const pendingFocusRef = useRef<string | null>(null);
 
   // Bumped only when the focused node changes, so the DOM tooltip re-renders.
   // The canvas itself never needs React state.
@@ -488,6 +520,43 @@ export function ConceptGraphView({
     },
     [openNodeDetail, focusOn],
   );
+
+  // Fly to a node and start its "born" pulse. Under reduced motion the loop
+  // only redraws on input, so schedule the redraw that retires the static
+  // highlight ring once the window ends.
+  const applyBorn = useCallback(
+    (id: string) => {
+      bornRef.current = { id, start: performance.now() };
+      focusOn(id);
+      window.setTimeout(() => {
+        view.current.dirty = true;
+      }, BORN_PULSE_MS + 60);
+    },
+    [focusOn],
+  );
+
+  const focusNode = useCallback(
+    (id: string) => {
+      if (layout.nodes.some((n) => n.id === id)) {
+        applyBorn(id);
+      } else {
+        pendingFocusRef.current = id;
+      }
+    },
+    [layout.nodes, applyBorn],
+  );
+
+  // Apply a parked focusNode() request once a layout containing the node
+  // lands (the post-create refetch resolving).
+  useEffect(() => {
+    const id = pendingFocusRef.current;
+    if (id && layout.nodes.some((n) => n.id === id)) {
+      pendingFocusRef.current = null;
+      applyBorn(id);
+    }
+  }, [layout.nodes, applyBorn]);
+
+  useImperativeHandle(handleRef, () => ({ focusNode }), [focusNode]);
 
   // Fully dismiss the detail drawer back to the overview: empty the trail
   // (closing the drawer), clear any active search (the box hides behind the
@@ -925,6 +994,35 @@ export function ConceptGraphView({
         ctx.setLineDash(isPending ? [3, 3] : []);
         ctx.stroke();
         ctx.setLineDash([]);
+
+        // Born pulse: a just-created memory announces itself with staggered
+        // expanding rings for BORN_PULSE_MS after the camera lands on it —
+        // a single static highlight ring under reduced motion.
+        const born = bornRef.current;
+        if (born && born.id === node.id) {
+          const bornElapsed = t - born.start;
+          if (bornElapsed > BORN_PULSE_MS) {
+            bornRef.current = null;
+          } else if (reduceMotion) {
+            ctx.globalAlpha = 0.7;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(p.sx, p.sy, p.sr + 7, 0, Math.PI * 2);
+            ctx.stroke();
+          } else {
+            for (let ring = 0; ring < 3; ring++) {
+              const prog = (bornElapsed - ring * 320) / 1100;
+              if (prog <= 0 || prog >= 1) {
+                continue;
+              }
+              ctx.globalAlpha = (1 - prog) * 0.8;
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.arc(p.sx, p.sy, p.sr + prog * 46 * p.depth, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+          }
+        }
       }
       ctx.shadowBlur = 0;
 

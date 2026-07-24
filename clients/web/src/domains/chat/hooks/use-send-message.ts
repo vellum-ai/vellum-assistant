@@ -72,6 +72,7 @@ import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
+import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { postChatMessage } from "@/domains/chat/api/messages";
@@ -707,8 +708,25 @@ export function useSendMessage({
             }
             return;
           }
-          if (postResult.requestId) {
-            useChatSessionStore.getState().setRequestIdMapping(postResult.requestId, userMessage.id);
+          const requestId = postResult.requestId;
+          if (requestId) {
+            const sessionStore = useChatSessionStore.getState();
+            sessionStore.setRequestIdMapping(requestId, userMessage.id);
+            if (sessionStore.consumePendingLocalDeletion(userMessage.id)) {
+              await confirmQueuedMessageDeletion({
+                assistantId,
+                conversationId: activeConversationId,
+                requestId,
+                messageId: userMessage.id,
+                setOptimisticSends,
+                onDeleted: () => {
+                  useChatSessionStore
+                    .getState()
+                    .popRequestIdMapping(requestId);
+                  useTurnStore.getState().deleteQueuedMessage();
+                },
+              });
+            }
           }
         } catch (err) {
           captureError(err, { context: "send_message_queue" });

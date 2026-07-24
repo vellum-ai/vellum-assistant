@@ -36,7 +36,11 @@ import {
 } from "@/domains/chat/components/thread-status-indicator";
 import type { DragReorderItemProps } from "@/domains/chat/hooks/use-drag-reorder";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
-import { isConversationPinned } from "@/domains/chat/utils/group-conversations";
+import {
+  buildMoveToGroupTargets,
+  isConversationPinned,
+  isInCustomGroup,
+} from "@/domains/chat/utils/group-conversations";
 import type { Conversation } from "@/types/conversation-types";
 import { canMarkRead, canMarkUnread } from "@/utils/conversation-predicates";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -89,6 +93,21 @@ export function buildMenuProps(
         ? () => ctx.onMarkUnread?.(conversation)
         : undefined,
     isMarkUnreadDisabled: !canMarkUnread(conversation),
+    // Only build the targets list when the move action is wired, so a surface
+    // that doesn't provide it skips the per-row allocation.
+    moveToGroups: ctx.onMoveToGroup
+      ? buildMoveToGroupTargets(conversation, ctx.conversationGroups)
+      : undefined,
+    onMoveToGroup: ctx.onMoveToGroup
+      ? (groupId) => ctx.onMoveToGroup?.(conversation, groupId)
+      : undefined,
+    onCreateGroupInto: ctx.onCreateGroupInto
+      ? () => ctx.onCreateGroupInto?.(conversation)
+      : undefined,
+    onRemoveFromGroup:
+      ctx.onRemoveFromGroup && isInCustomGroup(conversation)
+        ? () => ctx.onRemoveFromGroup?.(conversation)
+        : undefined,
     onOpenInNewWindow:
       ctx.onOpenInNewWindow && hasId
         ? () => ctx.onOpenInNewWindow?.(conversation)

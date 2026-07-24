@@ -1,22 +1,5 @@
-import type {
-  SlackAppMentionEvent,
-  SlackChannelMessageEvent,
-  SlackDirectMessageEvent,
-  SlackMessageChangedEvent,
-  SlackMessageDeletedEvent,
-  SlackReactionAddedEvent,
-  SlackReactionRemovedEvent,
-} from "./normalize.js";
-
-/** The Slack event shapes that flow through ordered normalization. */
-export type SlackOrderableEvent =
-  | SlackAppMentionEvent
-  | SlackDirectMessageEvent
-  | SlackChannelMessageEvent
-  | SlackMessageChangedEvent
-  | SlackMessageDeletedEvent
-  | SlackReactionAddedEvent
-  | SlackReactionRemovedEvent;
+import type { SlackInboundEvent } from "./envelope.js";
+import { classifySlackEvent } from "./classify-event.js";
 
 /**
  * Ordering key that groups related Slack events onto a single sequential lane,
@@ -30,35 +13,29 @@ export type SlackOrderableEvent =
  * unique `eventId` so ordering never crashes.
  */
 export function slackEventOrderingKey(
-  event: SlackOrderableEvent,
+  event: SlackInboundEvent,
   eventId: string,
 ): string {
-  if (event.type === "reaction_added" || event.type === "reaction_removed") {
-    const reaction = event as
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent;
-    return `${reaction.item?.channel ?? eventId}:${reaction.item?.ts ?? eventId}`;
+  const classified = classifySlackEvent(event);
+  switch (classified?.kind) {
+    case "reaction_added":
+    case "reaction_removed": {
+      const { item } = classified.event;
+      return `${item?.channel ?? eventId}:${item?.ts ?? eventId}`;
+    }
+    case "message_changed": {
+      const changed = classified.event;
+      return `${changed.channel}:${changed.message?.thread_ts ?? changed.message?.ts ?? eventId}`;
+    }
+    case "message_deleted": {
+      const deleted = classified.event;
+      return `${deleted.channel}:${deleted.previous_message?.thread_ts ?? deleted.deleted_ts ?? eventId}`;
+    }
+    default: {
+      // app_mention / plain message (or an unclassifiable event): key on the
+      // message's own thread, falling back to its ts then the eventId.
+      const message = classified?.event;
+      return `${message?.channel}:${message?.thread_ts ?? message?.ts ?? eventId}`;
+    }
   }
-
-  if (
-    event.type === "message" &&
-    (event as SlackMessageChangedEvent).subtype === "message_changed"
-  ) {
-    const changed = event as SlackMessageChangedEvent;
-    return `${changed.channel}:${changed.message?.thread_ts ?? changed.message?.ts ?? eventId}`;
-  }
-
-  if (
-    event.type === "message" &&
-    (event as SlackMessageDeletedEvent).subtype === "message_deleted"
-  ) {
-    const deleted = event as SlackMessageDeletedEvent;
-    return `${deleted.channel}:${deleted.previous_message?.thread_ts ?? deleted.deleted_ts ?? eventId}`;
-  }
-
-  const message = event as
-    | SlackAppMentionEvent
-    | SlackDirectMessageEvent
-    | SlackChannelMessageEvent;
-  return `${message.channel}:${message.thread_ts ?? message.ts ?? eventId}`;
 }

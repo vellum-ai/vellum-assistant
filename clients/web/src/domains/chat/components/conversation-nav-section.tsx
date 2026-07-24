@@ -84,6 +84,8 @@ export interface ConversationNavSectionProps extends ConversationRowListProps {
   icon?: LucideIcon;
   trailing?: ReactNode;
   contextMenuContent?: ReactNode;
+  /** Activity dot shown in the header only while the section is collapsed. */
+  collapsedIndicator?: ReactNode;
 }
 
 export function ConversationNavSection({
@@ -92,6 +94,7 @@ export function ConversationNavSection({
   icon,
   trailing,
   contextMenuContent,
+  collapsedIndicator,
   ...listProps
 }: ConversationNavSectionProps) {
   return (
@@ -101,6 +104,7 @@ export function ConversationNavSection({
       label={label}
       trailing={trailing}
       contextMenuContent={contextMenuContent}
+      collapsedIndicator={collapsedIndicator}
     >
       <ConversationRowList {...listProps} />
     </CollapsibleNavSection.Section>

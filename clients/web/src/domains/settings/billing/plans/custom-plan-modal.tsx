@@ -59,11 +59,12 @@ export interface CustomPlanModalProps {
   currentStorageGib?: number | null;
   /**
    * The Pro subscriber's current tiers, when reconfiguring an existing Pro
-   * plan. Pre-fills every dimension so the default is a no-op and an unrelated
-   * edit can't force re-picking — and dropping — a tier the user still holds.
-   * A null `machineTier` (baseline "Small") seeds storage/credit and leaves the
-   * machine picker empty. Leave null/undefined for base checkout, which starts
-   * every dimension empty.
+   * plan. Pre-fills every dimension; the seeded default is a no-op, so Continue
+   * stays disabled until a dimension changes, and an unrelated edit can't force
+   * re-picking — and dropping — a tier the user still holds. A null
+   * `machineTier` (baseline "Small") seeds storage/credit and leaves the machine
+   * picker empty. Leave null/undefined for base checkout, which starts every
+   * dimension empty.
    */
   initialSelection?: CustomPlanSeed | null;
   onClose: () => void;
@@ -84,7 +85,8 @@ function priceSuffix(cents: number) {
  * white dialog over the dark takeover in the pricing mocks. The three pickers
  * render as dropdowns and start unselected for base checkout (or seeded from
  * the current plan for a Pro reconfigure); Continue stays disabled until every
- * dimension has an explicit choice ("No extra credits" counts).
+ * dimension has an explicit choice ("No extra credits" counts) and, for a Pro
+ * reconfigure, until at least one dimension differs from the seeded plan.
  */
 export function CustomPlanModal({
   open,
@@ -228,6 +230,18 @@ export function CustomPlanModal({
     submittableStorage != null &&
     submittableCredit != null;
 
+  // Reconfiguring an existing Pro plan opens seeded to the current tiers, so
+  // submitting them unchanged is a no-op — hold Continue disabled until at least
+  // one dimension differs from the seed. Base checkout has no seed, so a
+  // complete selection is always submittable. Compared against the raw seed
+  // values (not the priced diff) so a seed tier the catalog dropped still reads
+  // as changed once the user picks a live replacement.
+  const matchesSeed =
+    initialSelection != null &&
+    machineTier === (initialSelection.machineTier ?? "") &&
+    storageTier === initialSelection.storageTier &&
+    creditChoice === (initialSelection.creditTier ?? NO_EXTRA_CREDITS);
+
   const diff = useMemo(
     () =>
       computeCustomPlanDiff({
@@ -241,7 +255,7 @@ export function CustomPlanModal({
   );
 
   const handleContinue = () => {
-    if (!complete || pending) {
+    if (!complete || matchesSeed || pending) {
       return;
     }
     onContinue({
@@ -398,7 +412,7 @@ export function CustomPlanModal({
                 <Button
                   variant="primary"
                   fullWidth
-                  disabled={!complete || pending}
+                  disabled={!complete || matchesSeed || pending}
                   onClick={handleContinue}
                 >
                   Continue

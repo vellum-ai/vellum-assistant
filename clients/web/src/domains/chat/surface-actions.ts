@@ -20,18 +20,26 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { completeSubmittedSurface } from "@/domains/chat/utils/send-message-utils";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
+import { guardianDecisionTone } from "@/domains/chat/completion-tone";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
+// Guardian-decision failure reasons (applied === false) → guardian-facing
+// label. Covers every reason `processGuardianDecision` can return; anything
+// unmapped falls back to the generic "Not applied". None of these is a
+// requester-facing string — the requester's notice is delivered by the daemon
+// resolver, and a decline is deliberately distinct from an expiry there.
 const DECISION_REASON_LABELS: Record<string, string> = {
   already_resolved: "Already resolved",
   expired: "Request expired",
   identity_mismatch: "Not authorized",
   not_found: "Request not found",
+  request_misconfigured: "Couldn't be processed",
+  invalid_action: "Not applied",
   resolver_failed: "Action failed",
 };
 
 function formatDecisionReason(reason?: string): string {
-  if (!reason) return "Not applied";
+  if (!reason) {return "Not applied";}
   return DECISION_REASON_LABELS[reason] ?? "Not applied";
 }
 
@@ -45,7 +53,7 @@ function formatDecisionReason(reason?: string): string {
  */
 function emitFirstRunScopeTelemetry(data?: Record<string, unknown>): void {
   const scope = data?.[FIRST_RUN_SCOPE_DATA_KEY];
-  if (!isFirstRunScope(scope)) return;
+  if (!isFirstRunScope(scope)) {return;}
   try {
     // Same auth source `active-chat-view.tsx` derives `authUserId` from, read
     // non-reactively; an absent user id emits as null rather than blocking.
@@ -110,6 +118,11 @@ export async function handleSurfaceAction(
       : result.replyText;
 
   patchTranscriptMessages((prev: DisplayMessage[]) =>
-    completeSubmittedSurface(prev, surfaceId, actionId, completionText),
+    completeSubmittedSurface(prev, surfaceId, actionId, completionText, {
+      isGuardianDecision,
+      ...(isGuardianDecision
+        ? { tone: guardianDecisionTone(actionId, result) }
+        : {}),
+    }),
   );
 }

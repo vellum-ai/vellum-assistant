@@ -5,33 +5,9 @@ import { THRESHOLD_PRESETS } from "@/utils/threshold-presets";
 import {
   CAPABILITY_TIER_META,
   CAPABILITY_TIER_VALUES,
-  resolveChannelTier,
   tierOverridesFromCells,
   type ChannelTierCell,
 } from "./slack-channel-overrides";
-
-describe("resolveChannelTier", () => {
-  test("no cell resolves to an unset tier — the global setting applies, not a hardcoded default", () => {
-    expect(resolveChannelTier(undefined)).toEqual({
-      tier: null,
-      overridden: false,
-    });
-  });
-
-  test("a persisted cell flags the row as custom", () => {
-    expect(resolveChannelTier("low")).toEqual({
-      tier: "low",
-      overridden: true,
-    });
-  });
-
-  test("a high cell is still an override — it pins the channel above the global cascade", () => {
-    expect(resolveChannelTier("high")).toEqual({
-      tier: "high",
-      overridden: true,
-    });
-  });
-});
 
 describe("tier ↔ preset parity", () => {
   test("tiers are the global presets' thresholds, in preset order", () => {
@@ -57,15 +33,11 @@ describe("CAPABILITY_TIER_META", () => {
     expect(CAPABILITY_TIER_META.high.tone).toBe("positive");
   });
 
-  test("sublabels use the behavior framing, not tool inventory", () => {
-    expect(CAPABILITY_TIER_META.none.sublabel).toBe("ask before every action");
-    expect(CAPABILITY_TIER_META.low.sublabel).toBe(
-      "low-risk actions, ask for the rest",
-    );
-    expect(CAPABILITY_TIER_META.medium.sublabel).toBe(
-      "beyond its workspace too",
-    );
-    expect(CAPABILITY_TIER_META.high.sublabel).toBe("acts freely");
+  test("sublabels frame each tier's read/answer depth, not free action", () => {
+    expect(CAPABILITY_TIER_META.none.sublabel).toBe("asks before acting");
+    expect(CAPABILITY_TIER_META.low.sublabel).toBe("safe reads only");
+    expect(CAPABILITY_TIER_META.medium.sublabel).toBe("broader lookups");
+    expect(CAPABILITY_TIER_META.high.sublabel).toBe("answers on its own");
   });
 });
 

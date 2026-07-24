@@ -50,7 +50,6 @@ import {
   extractMutationError,
   isPackageSwitchEligible,
 } from "./adjust-plan-utils";
-import { formatMonthly } from "./tier-pricing";
 
 interface PlanDisplay {
   actionLabel: string;
@@ -175,16 +174,18 @@ function RecommendedUpgrade({
       multiline: true,
     },
   ];
-  const deltaCents =
-    recommended.total_price_cents - (currentPackage?.total_price_cents ?? 0);
   // A Custom (customized or unpinned) sub's real tiers can diverge from any
-  // stock package, so the stock price delta and stock resource chips would
-  // misstate the direction and size of the change. The neutral "switch"
-  // relation drops the delta framing and offers the named plan by itself.
+  // stock package, so a stock price delta could misstate the change; the neutral
+  // "switch" relation offers the named plan by itself.
   const isNeutralSwitch = relation === "switch";
+  // Keep the CTA short ("Upgrade") so it sits inline in the card header beside
+  // the plan name, matching the mock. A longer label ("Upgrade for $X/mo more")
+  // overflows the header and wraps onto its own line below the name. The value
+  // prop is the summary chip below, and the prorated charge is confirmed in the
+  // switch dialog.
   const upgradeLabel = isNeutralSwitch
     ? `Switch to ${recommended.name}`
-    : `Upgrade for ${formatMonthly(deltaCents)} more`;
+    : "Upgrade";
   const isPending = pending || upgradeMutation.isPending || changePending;
 
   // Pro users change their package in place: confirm the prorated charge, then
@@ -372,14 +373,19 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   const packages = proPlan?.packages ?? [];
   const currentKey = subscription.package?.key ?? null;
   const currentTier = currentKey ?? "free";
-  // The plans takeover derives the current tier from the pinned package key
-  // alone, so a Pro sub without a package (legacy) or with a customized one
-  // (its tiers differ from the stock package) would be misrepresented there.
-  // Those stay on the manage modal; only base and clean packaged-Pro subs open
-  // the takeover.
+  // A live packages catalog opens the plans takeover for base and clean-pinned
+  // Pro subs, and for a custom/unpinned Pro sub that is switch-eligible. An
+  // ineligible custom sub — pending cancellation, or a non-entitlement status
+  // such as `unpaid` — keeps the manage modal, which surfaces its state and the
+  // recovery actions; the takeover can't act on it (every change is rejected),
+  // and a clean pin already reaches the manage surface through its package CTA.
+  // An empty catalog (the `pro-packages` flag off) has no takeover to open, so
+  // Manage falls back to the manage modal.
   const canOpenPlansTakeover =
     packages.length > 0 &&
-    (currentPlan.id === "base" || isCleanPin(subscription.package));
+    (currentPlan.id === "base" ||
+      isCleanPin(subscription.package) ||
+      isPackageSwitchEligible(subscription));
   // The banner's one-click switch is offered to any switch-eligible Pro sub —
   // a clean pin, a customized pin, or an unpinned (Custom) sub — inheriting the
   // shared eligibility gate. The confirm copy adapts to the sub's state via
@@ -414,7 +420,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   return (
     <Card padding="md">
       <div className="flex flex-col gap-4">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
             <PlanHeading />
             {showRenewal && (
@@ -450,7 +456,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             {display.actionLabel}
           </Button>
         </div>
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
           <PlanSpecCard
             tone="light"
             tierKey={currentTier}

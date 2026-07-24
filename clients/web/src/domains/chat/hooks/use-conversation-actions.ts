@@ -337,6 +337,17 @@ export function useConversationActions({
     [assistantId, prePinGroupIdsRef, moveToGroupMutation],
   );
 
+  /**
+   * Remove a conversation from its current custom group, returning it to
+   * Recents (`"system:all"`). Reuses the move-to-group optimistic path.
+   */
+  const handleRemoveFromGroup = useCallback(
+    (conversation: Conversation) => {
+      handleMoveToGroup(conversation, "system:all");
+    },
+    [handleMoveToGroup],
+  );
+
   const handleTogglePinConversation = useCallback(
     (conversation: Conversation) => {
       const currentlyPinned =
@@ -495,6 +506,8 @@ export function useConversationActions({
     handleMarkConversationUnread,
     handleMarkConversationRead,
     handleTogglePinConversation,
+    handleMoveToGroup,
+    handleRemoveFromGroup,
     handleRenameConversation,
     handleReorderConversations,
     handleMarkAllReadInGroup,

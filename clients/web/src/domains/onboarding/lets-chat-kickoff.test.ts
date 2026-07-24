@@ -37,6 +37,13 @@ describe("buildLetsChatKickoffMessage", () => {
     }
   });
 
+  test("keeps options title-only so the chips scan in a glance", () => {
+    const msg = buildLetsChatKickoffMessage("Quill");
+    expect(msg).toContain("six words or fewer");
+    expect(msg).toContain("never set `description`");
+    expect(msg).not.toContain("one-sentence `description`");
+  });
+
   test("frames the options as starters, not a menu", () => {
     const msg = buildLetsChatKickoffMessage("Quill");
     expect(msg).toContain("conversation starters, not a menu");

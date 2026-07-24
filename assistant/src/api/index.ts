@@ -5,6 +5,7 @@ import { AcpSessionErrorEventSchema } from "./events/acp-session-error.js";
 import { AcpSessionSpawnedEventSchema } from "./events/acp-session-spawned.js";
 import { AcpSessionUpdateEventSchema } from "./events/acp-session-update.js";
 import { AcpSessionUsageEventSchema } from "./events/acp-session-usage.js";
+import { AppFilesChangedEventSchema } from "./events/app-files-changed.js";
 import { AssistantActivityStateEventSchema } from "./events/assistant-activity-state.js";
 import { AssistantStatusEventSchema } from "./events/assistant-status.js";
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
@@ -118,6 +119,7 @@ import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
+import { UISurfaceUndoResultEventSchema } from "./events/ui-surface-undo-result.js";
 import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
 import { UsageProgressEventSchema } from "./events/usage-progress.js";
 import { UsageUpdateEventSchema } from "./events/usage-update.js";
@@ -161,6 +163,10 @@ export {
   type AcpSessionUsageEvent,
   AcpSessionUsageEventSchema,
 } from "./events/acp-session-usage.js";
+export {
+  type AppFilesChangedEvent,
+  AppFilesChangedEventSchema,
+} from "./events/app-files-changed.js";
 export {
   type AssistantActivityAnchor,
   AssistantActivityAnchorSchema,
@@ -603,6 +609,10 @@ export {
   UISurfaceShowEventSchema,
 } from "./events/ui-surface-show.js";
 export {
+  type UISurfaceUndoResultEvent,
+  UISurfaceUndoResultEventSchema,
+} from "./events/ui-surface-undo-result.js";
+export {
   type UISurfaceUpdateEvent,
   UISurfaceUpdateEventSchema,
 } from "./events/ui-surface-update.js";
@@ -860,6 +870,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   AcpSessionSpawnedEventSchema,
   AcpSessionUpdateEventSchema,
   AcpSessionUsageEventSchema,
+  AppFilesChangedEventSchema,
   AssistantActivityStateEventSchema,
   AssistantStatusEventSchema,
   AssistantTextDeltaEventSchema,
@@ -957,6 +968,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,
+  UISurfaceUndoResultEventSchema,
   UISurfaceUpdateEventSchema,
   UsageProgressEventSchema,
   UsageUpdateEventSchema,

@@ -12,10 +12,16 @@ let gatewayPath: string | undefined = "/assistant/__gateway/20100";
 let supportsPairingRoutes = true;
 let webRemoteIngressOn = true;
 let flagsHydrated = true;
+let selectedAssistant: {
+  assistantId: string;
+  cloud: string;
+  name?: string;
+  ingressUrl?: string;
+} = { assistantId: "self", cloud: "local" };
 
 mock.module("@/lib/local-mode", () => ({
   getLocalGatewayUrl: () => gatewayPath,
-  getSelectedAssistant: () => ({ assistantId: "self", cloud: "local" }),
+  getSelectedAssistant: () => selectedAssistant,
 }));
 
 mock.module("@/lib/backwards-compat/remote-web-pairing-gate", () => ({
@@ -104,6 +110,7 @@ beforeEach(() => {
   supportsPairingRoutes = true;
   webRemoteIngressOn = true;
   flagsHydrated = true;
+  selectedAssistant = { assistantId: "self", cloud: "local" };
   requests = [];
   localStorage.clear();
 });
@@ -242,5 +249,75 @@ describe("PairDeviceCard", () => {
       ),
     ).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("prefills the URL field from the assistant's recorded tunnel URL", () => {
+    selectedAssistant = {
+      assistantId: "self",
+      cloud: "local",
+      ingressUrl: "https://tunnel.example.ts.net",
+    };
+    render(<PairDeviceCard />);
+
+    const input = screen.getByLabelText("Public URL") as HTMLInputElement;
+    expect(input.value).toBe("https://tunnel.example.ts.net");
+    // Helper text explains the prefilled address came from `vellum tunnel`.
+    expect(screen.getByText(/comes from/)).toBeTruthy();
+    // A recorded tunnel URL suppresses the no-tunnel empty state.
+    expect(screen.queryByText("No tunnel detected")).toBeNull();
+  });
+
+  test("shows honest no-tunnel guidance when no ingress URL and no stored value", () => {
+    render(<PairDeviceCard />);
+
+    expect(screen.getByText("No tunnel detected")).toBeTruthy();
+    expect(screen.getByText(/vellum tunnel --provider tailscale/)).toBeTruthy();
+    // The manual field stays available beneath the guidance.
+    expect(screen.getByLabelText("Public URL")).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Public URL") as HTMLInputElement).value,
+    ).toBe("");
+  });
+
+  test("rejects a tunnel-provider website URL (Tailscale admin invite) with a service-website message", () => {
+    const fetchMock = installFetch(() => jsonResponse(challengeBody()));
+    render(<PairDeviceCard />);
+    typeUrl("https://login.tailscale.com/admin/invite/abc123");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Generate pairing QR" }),
+    );
+
+    expect(
+      screen.getByText(
+        "This is Tailscale's website, not your assistant's address. Run `vellum tunnel` on the host to get one.",
+      ),
+    ).toBeTruthy();
+    // The bad URL is refused client-side — no challenge is ever minted.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("names the assistant it pairs in the subtitle", () => {
+    selectedAssistant = {
+      assistantId: "self",
+      cloud: "local",
+      name: "My Assistant",
+    };
+    render(<PairDeviceCard />);
+
+    expect(
+      screen.getByText(
+        "Scan from your phone's camera to open My Assistant on it.",
+      ),
+    ).toBeTruthy();
+  });
+
+  test("falls back to generic copy when the assistant has no name", () => {
+    render(<PairDeviceCard />);
+
+    expect(
+      screen.getByText(
+        "Scan from your phone's camera to open this assistant on it.",
+      ),
+    ).toBeTruthy();
   });
 });

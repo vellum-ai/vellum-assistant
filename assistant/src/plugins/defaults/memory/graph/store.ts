@@ -5,7 +5,10 @@
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../../../../persistence/db-connection.js";
+import {
+  type DrizzleDb,
+  getMemoryDb,
+} from "../../../../persistence/db-connection.js";
 import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
 import {
   memoryGraphEdges,
@@ -28,6 +31,24 @@ import type {
   NewTrigger,
   SourceType,
 } from "./types.js";
+
+/**
+ * The memory graph cluster lives in the dedicated memory database
+ * (`assistant-memory.db`). This store is the hub for all graph reads and writes,
+ * including non-nullable-return writes and the `applyDiff` transaction, so it
+ * resolves a guaranteed connection and throws when the memory database cannot be
+ * opened — the same posture the main `getDb()` had before the relocation, rather
+ * than fabricating rows for an absent connection.
+ */
+function memoryDb(): DrizzleDb {
+  const db = getMemoryDb();
+  if (!db) {
+    throw new Error(
+      "memory database unavailable — memory graph store cannot proceed",
+    );
+  }
+  return db;
+}
 
 // ---------------------------------------------------------------------------
 // Row ↔ Domain conversion helpers
@@ -174,7 +195,7 @@ export function deduplicateParagraphs(content: string): string {
 // ---------------------------------------------------------------------------
 
 export function createNode(node: NewNode): MemoryNode {
-  const db = getDb();
+  const db = memoryDb();
   const id = uuid();
   const cleanContent = deduplicateParagraphs(node.content);
   db.insert(memoryGraphNodes)
@@ -184,7 +205,7 @@ export function createNode(node: NewNode): MemoryNode {
 }
 
 export function getNode(id: string): MemoryNode | null {
-  const db = getDb();
+  const db = memoryDb();
   const row = db
     .select()
     .from(memoryGraphNodes)
@@ -195,7 +216,7 @@ export function getNode(id: string): MemoryNode | null {
 
 export function getNodesByIds(ids: string[]): MemoryNode[] {
   if (ids.length === 0) return [];
-  const db = getDb();
+  const db = memoryDb();
   const rows = db
     .select()
     .from(memoryGraphNodes)
@@ -208,7 +229,7 @@ export function updateNode(
   id: string,
   changes: Partial<Omit<MemoryNode, "id">>,
 ): void {
-  const db = getDb();
+  const db = memoryDb();
   const updates: Record<string, unknown> = {};
 
   if (changes.content !== undefined)
@@ -267,7 +288,7 @@ export function updateNode(
 }
 
 export function deleteNode(id: string): void {
-  const db = getDb();
+  const db = memoryDb();
   db.update(memoryGraphNodes)
     .set({ fidelity: "gone", lastAccessed: Date.now() })
     .where(eq(memoryGraphNodes.id, id))
@@ -295,7 +316,7 @@ export interface NodeQueryFilters {
 }
 
 export function queryNodes(filters: NodeQueryFilters): MemoryNode[] {
-  const db = getDb();
+  const db = memoryDb();
   const conditions = [];
 
   if (filters.types && filters.types.length > 0) {
@@ -364,7 +385,7 @@ export function queryNodes(filters: NodeQueryFilters): MemoryNode[] {
  * prevents organic procedural memories from crowding out real capabilities.
  */
 export function queryCapabilityNodes(limit: number): MemoryNode[] {
-  const db = getDb();
+  const db = memoryDb();
   const rows = db
     .select()
     .from(memoryGraphNodes)
@@ -390,7 +411,7 @@ export function queryCapabilityNodes(limit: number): MemoryNode[] {
 
 /** Count all non-gone nodes in the workspace memory pool. */
 export function countNodes(): number {
-  const db = getDb();
+  const db = memoryDb();
   const result = db
     .select({ count: sql<number>`count(*)` })
     .from(memoryGraphNodes)
@@ -404,7 +425,7 @@ export function countNodes(): number {
 // ---------------------------------------------------------------------------
 
 export function createEdge(edge: NewEdge): MemoryEdge {
-  const db = getDb();
+  const db = memoryDb();
   const id = uuid();
   db.insert(memoryGraphEdges)
     .values({
@@ -420,7 +441,7 @@ export function createEdge(edge: NewEdge): MemoryEdge {
 }
 
 export function deleteEdge(id: string): void {
-  const db = getDb();
+  const db = memoryDb();
   db.delete(memoryGraphEdges).where(eq(memoryGraphEdges.id, id)).run();
 }
 
@@ -428,7 +449,7 @@ export function getEdgesForNode(
   nodeId: string,
   direction?: "incoming" | "outgoing",
 ): MemoryEdge[] {
-  const db = getDb();
+  const db = memoryDb();
   const dirCondition =
     direction === "outgoing"
       ? eq(memoryGraphEdges.sourceNodeId, nodeId)
@@ -459,7 +480,7 @@ export function getEdgesForNode(
 // ---------------------------------------------------------------------------
 
 export function createTrigger(trigger: NewTrigger): MemoryTrigger {
-  const db = getDb();
+  const db = memoryDb();
   const id = uuid();
   db.insert(memoryGraphTriggers)
     .values({
@@ -485,7 +506,7 @@ export function createTrigger(trigger: NewTrigger): MemoryTrigger {
 }
 
 export function deleteTrigger(id: string): void {
-  const db = getDb();
+  const db = memoryDb();
   db.delete(memoryGraphTriggers).where(eq(memoryGraphTriggers.id, id)).run();
 }
 
@@ -493,7 +514,7 @@ export function updateTrigger(
   id: string,
   updates: Partial<MemoryTrigger>,
 ): void {
-  const db = getDb();
+  const db = memoryDb();
   const values: Record<string, unknown> = {};
   if (updates.consumed !== undefined) values.consumed = updates.consumed;
   if (updates.lastFired !== undefined) values.lastFired = updates.lastFired;
@@ -514,7 +535,7 @@ export function updateTrigger(
 }
 
 export function getTriggersForNode(nodeId: string): MemoryTrigger[] {
-  const db = getDb();
+  const db = memoryDb();
   return db
     .select()
     .from(memoryGraphTriggers)
@@ -526,7 +547,7 @@ export function getTriggersForNode(nodeId: string): MemoryTrigger[] {
 export function getActiveTriggersByType(
   type: MemoryTrigger["type"],
 ): MemoryTrigger[] {
-  const db = getDb();
+  const db = memoryDb();
   const conditions = [
     eq(memoryGraphTriggers.type, type),
     eq(memoryGraphTriggers.consumed, false),
@@ -559,7 +580,7 @@ const REINFORCEMENT_STABILITY_MULTIPLIER = 1.5;
  * and optionally boosts significance back toward peak.
  */
 export function reinforceNode(id: string): void {
-  const db = getDb();
+  const db = memoryDb();
   const now = Date.now();
   db.update(memoryGraphNodes)
     .set({
@@ -627,7 +648,7 @@ export function applyDiff(
     source?: "extraction" | "consolidation" | "manual";
   },
 ): ApplyDiffResult {
-  const db = getDb();
+  const db = memoryDb();
   const result: ApplyDiffResult = {
     nodesCreated: 0,
     nodesUpdated: 0,
@@ -850,7 +871,7 @@ export function recordNodeEdit(opts: {
   source: "extraction" | "consolidation" | "manual";
   conversationId?: string;
 }): void {
-  const db = getDb();
+  const db = memoryDb();
   db.insert(memoryGraphNodeEdits)
     .values({
       id: uuid(),
@@ -876,7 +897,7 @@ export function getNodeEditHistory(
   conversationId: string | null;
   created: number;
 }> {
-  const db = getDb();
+  const db = memoryDb();
   return db
     .select()
     .from(memoryGraphNodeEdits)
@@ -968,7 +989,7 @@ export function computeGraphStats(): GraphStats {
   }
 
   // Live edge count: both endpoints must be non-gone.
-  const db = getDb();
+  const db = memoryDb();
   const edgeResult = db
     .select({ count: sql<number>`count(*)` })
     .from(memoryGraphEdges)

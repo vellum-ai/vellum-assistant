@@ -31,6 +31,7 @@ import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
+import { repairSharedCredentialSlots } from "../providers/inference/credential-slot-repair.js";
 import { initializeProviders } from "../providers/registry.js";
 import { startRouteHost } from "../routes/control.js";
 import { floorSeqAbove } from "../runtime/assistant-stream-state.js";
@@ -316,6 +317,13 @@ export async function runDaemon(): Promise<void> {
         "provider_connections backfill failed — continuing startup",
       );
     }
+
+    // Repoint openai-compatible connections sharing the legacy provider-keyed
+    // credential slot onto per-connection slots. Vault-dependent, so it runs
+    // fire-and-forget with per-row deferral rather than blocking startup.
+    void repairSharedCredentialSlots(getDb()).catch((err) => {
+      log.warn({ err }, "credential slot repair failed — continuing startup");
+    });
 
     // Profiler retention sweep — prune completed profiler runs to stay
     // within configured byte-count, run-count, and free-space budgets.

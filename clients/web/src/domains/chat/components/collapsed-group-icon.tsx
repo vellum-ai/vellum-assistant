@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 
 import type { Conversation } from "@/types/conversation-types";
 import { Popover, Tooltip } from "@vellumai/design-library";
+import { cn } from "@vellumai/design-library/utils/cn";
 
 // ---------------------------------------------------------------------------
 // Indicator state
@@ -54,6 +55,33 @@ const INDICATOR_CLASS: Record<Exclude<GroupIndicatorState, null>, string> = {
   processing: "bg-[var(--primary-base)] animate-pulse",
   unread: "bg-[var(--system-mid-strong)]",
 };
+
+/**
+ * The colored activity dot for a group of conversations. Renders nothing when
+ * there's no activity. Callers position it — the collapsed rail overlays it on
+ * the icon corner; the expanded section header renders it inline.
+ */
+export function GroupIndicatorDot({
+  state,
+  className,
+}: {
+  state: GroupIndicatorState;
+  className?: string;
+}) {
+  if (state == null) {
+    return null;
+  }
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "h-2.5 w-2.5 rounded-full",
+        INDICATOR_CLASS[state],
+        className,
+      )}
+    />
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -126,12 +154,10 @@ export function CollapsedGroupIcon({
             className="relative flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-[6px] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-default)]"
           >
             <Icon size={14} />
-            {indicatorState != null ? (
-              <span
-                aria-hidden
-                className={`absolute right-0 top-0 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-overlay)] ${INDICATOR_CLASS[indicatorState]}`}
-              />
-            ) : null}
+            <GroupIndicatorDot
+              state={indicatorState}
+              className="absolute right-0 top-0 border-2 border-[var(--surface-overlay)]"
+            />
           </button>
         </Popover.Trigger>
       </Tooltip>

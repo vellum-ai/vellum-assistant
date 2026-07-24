@@ -11,7 +11,11 @@ import {
   type SwitchRelation,
   tierRelation,
 } from "@/domains/settings/billing/package-types";
-import { machineLabel } from "@/domains/settings/billing/plan-spec";
+import {
+  machineLabel,
+  STANDARD_MACHINE_LABEL,
+} from "@/domains/settings/billing/plan-spec";
+import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
 import {
   FREE_CREDITS_USD,
   FREE_STORAGE_GIB,
@@ -22,6 +26,7 @@ import {
   type CustomPlanSelection,
 } from "@/domains/settings/billing/plans/custom-plan-modal";
 import { CustomPlanRow } from "@/domains/settings/billing/plans/custom-plan-row";
+import { FreeDowngradeConfirmModal } from "@/domains/settings/billing/plans/free-downgrade-confirm-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
 import {
@@ -29,6 +34,7 @@ import {
   getPlanTierCopy,
 } from "@/domains/settings/billing/plans/plans-copy";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
+import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
@@ -37,6 +43,10 @@ import {
   isPackageSwitchEligible,
 } from "@/domains/settings/components/adjust-plan-utils";
 import { formatDollars } from "@/domains/settings/components/tier-pricing";
+import {
+  buildPortalReturnSnapshot,
+  useBillingPortalSession,
+} from "@/domains/settings/hooks/use-billing-portal-session";
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingPlansRetrieveQueryKey,
@@ -56,6 +66,7 @@ import {
 } from "@/hooks/use-platform-gate";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
+import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
@@ -97,9 +108,37 @@ function packageFeatures(pkg: ProPackage, extra: readonly string[]): string[] {
   return [
     machineComputerLabel(pkg),
     `${pkg.storage_gib} GB Storage`,
-    `${formatDollars(credits * 100)} in credits per month`,
+    `${formatDollars(credits * 100)} in credits included`,
     ...extra,
   ];
+}
+
+/**
+ * A one-line recap of a custom sub's current tiers for the Custom row, e.g.
+ * "Medium Machine · 30 GB · 50 credits". The machine reads from the tier label
+ * map (or the standard-machine baseline), storage from the resolved GiB, and
+ * the credit label from the live catalog's `CreditTier.label`; a dimension with
+ * no value is dropped. The wording mirrors `packageSpecs` in `plan-spec.ts`.
+ */
+function customCurrentSummary(current: CurrentTiers, proPlan: ProPlan): string {
+  const machine = current.machineTier
+    ? (MACHINE_TIER_LABEL[current.machineTier] ?? current.machineTier)
+    : STANDARD_MACHINE_LABEL;
+  const parts = [`${machine} Machine`];
+  if (current.storageGib != null) {
+    parts.push(`${current.storageGib} GB`);
+  }
+  if (current.creditTier != null) {
+    // A held/deprecated credit tier absent from the catalog can't resolve to a
+    // catalog label; derive the amount from the tier key (credits_<usd>) so the
+    // paid bundle still shows instead of being silently dropped.
+    const usd = current.creditTier.match(/^credits_(\d+)$/)?.[1];
+    parts.push(
+      findCreditTier(proPlan, current.creditTier)?.label ??
+        (usd != null ? `${usd} credits` : "Credit bundle"),
+    );
+  }
+  return parts.join(" · ");
 }
 
 /**
@@ -144,6 +183,8 @@ export function PlansPage() {
   useCheckoutDismissRefresh();
   const [pending, setPending] = useState(false);
   const [customPlanOpen, setCustomPlanOpen] = useState(false);
+  // Whether the Pro → Free cancellation confirm dialog is open.
+  const [freeDowngradeOpen, setFreeDowngradeOpen] = useState(false);
   // The package a Pro user is switching to, awaiting reconfirm; null when the
   // dialog is closed.
   const [switchTarget, setSwitchTarget] = useState<ProPackage | null>(null);
@@ -165,6 +206,28 @@ export function PlansPage() {
   const packages = proPlan?.packages ?? [];
   const hasPackages = packages.length > 0;
   const isProUser = subscription?.plan_id === "pro";
+
+  // Pro → Free is a cancellation: after a confirm step it opens the Stripe
+  // billing portal (the same destination as the adjust-plan modal's "Downgrade
+  // to Base") so the user can cancel there. Snapshot the pre-redirect state for
+  // the post-return toast.
+  const portalMutation = useBillingPortalSession(
+    buildPortalReturnSnapshot(subscription),
+  );
+
+  // Pro features lost by downgrading to Free — the confirm dialog lists these.
+  const baseFeatureSet = new Set(
+    plansQuery.data?.plans.find((p) => p.id === "base")?.included_features ?? [],
+  );
+  const freeDowngradeLostFeatures = (proPlan?.included_features ?? []).filter(
+    (f) => !baseFeatureSet.has(f),
+  );
+
+  // Any billing action in flight — a checkout, a package switch, or the Stripe
+  // portal opening — disables every plan CTA (and Configure) so a second click
+  // can't start a competing billing operation before the first resolves.
+  const billingActionPending =
+    pending || changePackagePending || portalMutation.isPending;
 
   // Seed the custom-plan modal with the Pro sub's current tiers so an unrelated
   // edit (e.g. only the machine) doesn't force re-picking — and dropping — the
@@ -259,14 +322,36 @@ export function PlansPage() {
           ? subscription.package.key
           : null;
 
+    // A Pro sub with no clean pin (unpinned, customized, or legacy) — exactly
+    // the subs `currentTierKey` leaves null — is represented by the Custom row,
+    // not any named card. Mark that row as their current plan and summarize its
+    // tiers, once the current tiers have loaded.
+    const isCustomCurrent = isProUser && currentTierKey === null;
+    // Mark the row current only once the real current tiers have loaded.
+    // `currentReady` also flips true when the onboarding read settles with an
+    // error (tiers null), so require the provisioned storage as the loaded
+    // signal — otherwise the row is marked current next to a degraded summary.
+    const showCurrentPlan =
+      isCustomCurrent && currentReady && current.storageGib != null;
+    const currentSummary = showCurrentPlan
+      ? customCurrentSummary(current, proPlan)
+      : undefined;
+
     const selectTier = (tierKey: string) => {
+      // A billing action is already in flight (checkout / package switch /
+      // portal opening) — ignore the click. The CTAs are also disabled; this
+      // guards against a race between the click and the disabled re-render.
+      if (billingActionPending) {
+        return;
+      }
       if (isProUser) {
         if (tierKey === "free") {
-          // Pro → Free is a subscription cancellation, not a package switch;
-          // route to the billing manage/cancel surface rather than the
-          // (package-only) change-package endpoint, which 400s on non-package
-          // keys.
-          navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
+          // Pro → Free is a subscription cancellation, not a package switch.
+          // Confirm first (which Pro features are lost), then open the Stripe
+          // billing portal — the same destination as the adjust-plan modal's
+          // "Downgrade to Base" — where the user actually cancels. The
+          // package-only change-package endpoint 400s on non-package keys.
+          setFreeDowngradeOpen(true);
           return;
         }
         // Active Pro orgs switch packages in place via the change-package
@@ -300,6 +385,13 @@ export function PlansPage() {
         package: tierKey,
         confirm: true,
       });
+    };
+
+    // Confirmed Pro → Free cancellation: close the confirm and hand off to the
+    // Stripe billing portal, where the actual cancellation happens.
+    const confirmFreeDowngrade = () => {
+      setFreeDowngradeOpen(false);
+      portalMutation.mutate({});
     };
 
     const confirmSwitch = async () => {
@@ -377,6 +469,11 @@ export function PlansPage() {
     };
 
     const handleConfigure = () => {
+      // Don't open the configurator while another billing action is in flight
+      // (the CTA is also disabled — see `configureDisabled`).
+      if (billingActionPending) {
+        return;
+      }
       // A Pro sub's current tiers load after the page renders; the modal seeds
       // from them, so hold the click until that first load settles (the CTA is
       // also held disabled meanwhile — see `configureDisabled`).
@@ -412,10 +509,10 @@ export function PlansPage() {
               letterSpacing: "1.2px",
             }}
           >
-            Plans designed to empower you
+            Give your assistant more power
           </h1>
           <p className="text-[20px] font-medium text-[var(--content-tertiary)]">
-            Start free. Upgrade when you actually need more.
+            Choose the level that matches how much you want it to take on.
           </p>
         </header>
 
@@ -439,7 +536,7 @@ export function PlansPage() {
             tone="dark"
             isCurrent={currentTierKey === "free"}
             intent={freeRelation}
-            pending={pending || changePackagePending}
+            pending={billingActionPending}
             onCta={() => selectTier("free")}
           />
           {orderedPackages.map((pkg) => {
@@ -463,7 +560,7 @@ export function PlansPage() {
                 tone={copy?.recommended ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}
                 intent={relation}
-                pending={pending || changePackagePending}
+                pending={billingActionPending}
                 onCta={() => selectTier(pkg.key)}
               />
             );
@@ -473,7 +570,9 @@ export function PlansPage() {
         <CustomPlanRow
           className="mt-10"
           onConfigure={handleConfigure}
-          configureDisabled={isProUser && !currentReady}
+          configureDisabled={(isProUser && !currentReady) || billingActionPending}
+          isCurrent={showCurrentPlan}
+          currentSummary={currentSummary}
         />
 
         <CustomPlanModal
@@ -499,6 +598,14 @@ export function PlansPage() {
           pending={changePackagePending}
           onCancel={() => setSwitchTarget(null)}
           onConfirm={() => void confirmSwitch()}
+        />
+
+        <FreeDowngradeConfirmModal
+          open={freeDowngradeOpen}
+          lostFeatures={freeDowngradeLostFeatures}
+          pending={portalMutation.isPending}
+          onCancel={() => setFreeDowngradeOpen(false)}
+          onConfirm={confirmFreeDowngrade}
         />
 
         <BillingOnboardingModal

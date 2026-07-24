@@ -17,6 +17,7 @@ import {
 } from "../channels/gateway-guardian-requests.js";
 import type { ChannelId } from "../channels/types.js";
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
+import { isKeptOutStatus } from "../contacts/member-status.js";
 import type { ChannelStatus } from "../contacts/types.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
@@ -24,6 +25,7 @@ import {
   recordGuardianRequestDeliveries,
 } from "../notifications/guardian-delivery-recorder.js";
 import type { GuardianResolutionSource } from "../notifications/signal.js";
+import { getConversation } from "../persistence/conversation-crud.js";
 import { IntegrityError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { resolveAnchoredGuardian } from "./anchored-guardian.js";
@@ -63,6 +65,15 @@ export interface AccessRequestParams {
   messageTs?: string;
   /** Defaults to `denied` — see {@link AccessRequestTrigger}. */
   trigger?: AccessRequestTrigger;
+  /**
+   * Internal conversation the in-app (vellum) approval card should be attached
+   * to, instead of minting a fresh standalone "Chat". Set by ingress paths that
+   * already created a conversation for the inbound message (e.g. the admission
+   * floor deny path, which records the originating Slack/Telegram conversation)
+   * so the card lands inside the originating conversation and its
+   * `guardian_request_deliveries.destination_conversation_id` points there.
+   */
+  destinationConversationId?: string;
 }
 
 export type AccessRequestResult =
@@ -71,19 +82,19 @@ export type AccessRequestResult =
       notified: false;
       reason:
         | "no_sender_id"
-        | "already_denied"
+        | "contact_kept_out"
         | "already_introduced"
+        | "already_decided"
         | "approval_pending_verification";
     };
 
 // ---------------------------------------------------------------------------
-// Terminal-deny lookup
+// Access-request conversation id
 // ---------------------------------------------------------------------------
 
 /**
  * Assistant-scoped conversation id for an actor's access requests. Stable key
- * that dedupes pending prompts and detects a prior terminal deny for the same
- * (assistant, channel, actor).
+ * that dedupes pending prompts for the same (assistant, channel, actor).
  */
 export function accessRequestConversationId(
   canonicalAssistantId: string,
@@ -91,37 +102,6 @@ export function accessRequestConversationId(
   actorExternalId: string,
 ): string {
   return `access-req-${canonicalAssistantId}-${sourceChannel}-${actorExternalId}`;
-}
-
-/**
- * Whether the guardian has already terminally denied an access request from
- * this actor on this channel. Callers use it to suppress re-engagement — both
- * the guardian prompt and the self-verify challenge — for a sender the guardian
- * explicitly rejected. Reads the retained `denied` guardian request scoped by
- * the assistant-scoped conversation id.
- *
- * Gateway-unreachable degrades to `false` (no suppression data): callers then
- * proceed toward creation, where the fail-closed create throw is the backstop
- * against prompting without a persisted request.
- */
-export async function isAccessRequestDenied(params: {
-  canonicalAssistantId: string;
-  sourceChannel: string;
-  actorExternalId: string;
-}): Promise<boolean> {
-  const conversationId = accessRequestConversationId(
-    params.canonicalAssistantId,
-    params.sourceChannel,
-    params.actorExternalId,
-  );
-  const denied = await listGuardianRequestsOrEmpty({
-    status: "denied",
-    requesterExternalUserId: params.actorExternalId,
-    sourceChannel: params.sourceChannel,
-    kind: "access_request",
-    sourceConversationId: conversationId,
-  });
-  return denied.length > 0;
 }
 
 /**
@@ -203,6 +183,7 @@ export async function notifyGuardianOfAccessRequest(
     isStranger,
     isRestricted,
     messageTs,
+    destinationConversationId,
   } = params;
   const trigger: AccessRequestTrigger = params.trigger ?? "denied";
 
@@ -267,26 +248,19 @@ export async function notifyGuardianOfAccessRequest(
     };
   }
 
-  // Terminal-deny suppression: once the guardian has denied an access request
-  // for this sender on this channel, subsequent inbound must not re-prompt.
-  // The denied decision persists the sender as an unverified_contact (see the
-  // accessRequestResolver deny path); re-surfacing the same request the
-  // guardian already rejected would be noise. The guardian can still verify the
-  // contact manually — that path does not go through here. Checked before the
-  // handshake window below so a standing deny always wins over an earlier
-  // approval.
-  if (
-    await isAccessRequestDenied({
-      canonicalAssistantId,
-      sourceChannel,
-      actorExternalId,
-    })
-  ) {
+  // Terminal keep-out suppression: re-prompting is suppressed only for a
+  // contact the guardian deliberately kept out — `revoked` (the block action)
+  // or `blocked`. The contact's durable channel status is the source of truth
+  // for standing; a parked `unverified` contact is NOT kept out, so a later
+  // inbound that needs trust must re-fire the flow and is intentionally not
+  // suppressed here. Checked before the handshake window below so a standing
+  // keep-out always wins over an earlier approval.
+  if (isKeptOutStatus(previousMemberStatus)) {
     log.debug(
-      { sourceChannel, actorExternalId },
-      "Suppressing access request notification — guardian already denied this sender",
+      { sourceChannel, actorExternalId, previousMemberStatus },
+      "Suppressing access request notification — contact was kept out (revoked/blocked)",
     );
-    return { notified: false, reason: "already_denied" };
+    return { notified: false, reason: "contact_kept_out" };
   }
 
   // Handshake-in-progress suppression: within the verification-code window
@@ -358,11 +332,27 @@ export async function notifyGuardianOfAccessRequest(
     TEXT_CHANNELS_WITH_DELIVERY.has(sourceChannel) &&
     guardianResolutionSource === "source-channel-contact";
 
+  // Pin the in-app (vellum) card to the originating conversation when the caller
+  // supplied one, so the card lands inside it instead of a fresh standalone
+  // "Chat". `pairDeliveryWithConversation` reuses a conversation only when its
+  // source matches the signal's, so mirror the target's source (inbound
+  // conversations default to "user"); a stale/missing target falls back to a
+  // new conversation via the same pairing path.
+  const vellumConversationAffinity = destinationConversationId
+    ? {
+        conversationAffinityHint: { vellum: destinationConversationId },
+        conversationMetadata: {
+          source: getConversation(destinationConversationId)?.source ?? "user",
+        },
+      }
+    : undefined;
+
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request",
     sourceChannel,
     sourceContextId: `access-req-${sourceChannel}-${actorExternalId}`,
     requiresConversation: true,
+    ...(vellumConversationAffinity ?? {}),
     ...(sameChannelOnly ? { routingIntent: "single_channel" as const } : {}),
     attentionHints: {
       requiresAction: true,
@@ -464,11 +454,12 @@ export async function notifyGuardianOfAccessRequest(
  * (a Slack channel or DM, a Telegram chat), deliberately coarser than the
  * per-thread internal conversation rows: threads in one Slack channel share
  * one nudge, so a busy channel cannot mint a card per thread. A prior
- * request from a *different* chat does not suppress (a channel poster who
- * later DMs the assistant is new context worth one more nudge); the
- * actor-level pending-dedupe, terminal-deny, and handshake-window
- * suppressions inside {@link notifyGuardianOfAccessRequest} still apply, so
- * two live cards are never minted for the same actor.
+ * request from a *different* chat does not suppress a fresh nudge unless the
+ * guardian already decided the contact (see the already-decided guard below);
+ * an undecided prior card that merely expired still allows one more nudge. The
+ * actor-level pending-dedupe, keep-out, and handshake-window suppressions
+ * inside {@link notifyGuardianOfAccessRequest} also still apply, so two live
+ * cards are never minted for the same actor.
  */
 export async function maybeNotifyGuardianOfAdmittedContact(
   params: Omit<AccessRequestParams, "trigger">,
@@ -503,6 +494,28 @@ export async function maybeNotifyGuardianOfAdmittedContact(
       "Suppressing admitted-contact introduction nudge — prior request exists for this conversation",
     );
     return { notified: false, reason: "already_introduced" };
+  }
+
+  // Already-decided suppression (nudge-only): once the guardian has decided a
+  // card for this contact (a `denied` request — leave-unverified or block),
+  // the contact is classified, so a new conversation must not re-nudge to set
+  // their trust. This lives here, not in `notifyGuardianOfAccessRequest`,
+  // precisely because the deny-path access request must still RE-FIRE for a
+  // parked `unverified` contact who later tries to reach past a floor — only
+  // the low-stakes "set trust level" nudge is quieted after a decision. An
+  // `expired` (undecided) card does not count, so a lapsed nudge can re-fire.
+  const alreadyDecided = priorRequests.some(
+    (request) => request.status === "denied",
+  );
+  if (alreadyDecided) {
+    log.debug(
+      {
+        sourceChannel: params.sourceChannel,
+        actorExternalId: params.actorExternalId,
+      },
+      "Suppressing admitted-contact introduction nudge — guardian already decided this contact",
+    );
+    return { notified: false, reason: "already_decided" };
   }
 
   return notifyGuardianOfAccessRequest({ ...params, trigger: "admitted" });

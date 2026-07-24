@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 
-import { getDb } from "../../../../persistence/db-connection.js";
+import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
@@ -99,7 +99,10 @@ export async function executePlaybookUpdate(
     const content = `${subject}\n${statement}`;
 
     // Check for duplicate content among other playbook nodes
-    const db = getDb();
+    const db = getMemoryDb();
+    if (!db) {
+      return { content: "Error: memory database unavailable.", isError: true };
+    }
     const collision = db
       .select({ id: memoryGraphNodes.id })
       .from(memoryGraphNodes)

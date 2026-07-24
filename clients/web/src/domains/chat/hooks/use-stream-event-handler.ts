@@ -330,6 +330,11 @@ export function useStreamEventHandler(
         case "ui_surface_complete":
           handleUISurfaceComplete(event, ctx);
           break;
+        // Surface undo result. The chat handler is a no-op — the undo is driven
+        // through the `surfaces/:id/undo` HTTP route and its response; the web
+        // does not render the broadcast result.
+        case "ui_surface_undo_result":
+          break;
         case "tool_use_start":
           handleToolUseStart(event, ctx);
           break;
@@ -525,6 +530,10 @@ export function useStreamEventHandler(
         // Skill state-change broadcast. The chat handler is a no-op; the skills
         // surfaces refetch through their own query invalidation.
         case "skills_state_changed":
+          break;
+        // App source-file change broadcast. The chat handler is a no-op; app
+        // surfaces re-read the app through their own refresh path.
+        case "app_files_changed":
           break;
         // Settings/config broadcasts. The chat handler is a no-op — these target
         // the desktop client or are handled by config-sync consumers.

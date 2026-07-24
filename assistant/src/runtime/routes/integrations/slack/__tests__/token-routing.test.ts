@@ -5,14 +5,12 @@
  * each handler is actually wired to the identity slack/auth.ts resolves — a
  * class of bug the mocked-client handler tests can't catch.
  *
- * Verifies which Slack identity each route acts as (see slack/auth.ts):
- * - Channel enumeration (`channels.ts`, GET /v1/slack/channels) prefers the
- *   user_token when present so the picker surfaces channels the user is in but
- *   the bot isn't.
- * - Channel sharing (`share.ts`, POST /v1/slack/share) is a human-initiated
- *   action: it posts as the user (user_token) when one is present so the
- *   message reads as the person who shared, falling back to the bot_token when
- *   no user token is stored or it can't post (401, or missing chat:write).
+ * Both routes act as the BOT, and these tests are the regression guard for why:
+ * `GET /v1/slack/channels` and `POST /v1/slack/share` are exposed at the gateway
+ * with generic edge auth and the daemon never sees the calling actor, so acting
+ * as the single stored installer `user_token` would let any caller read the
+ * installer's channel list (picker) or post as them (share). So even when a
+ * user_token IS stored, neither route may put it on the wire.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -62,11 +60,6 @@ type CapturedRequest = {
 const captured: CapturedRequest[] = [];
 const originalFetch = globalThis.fetch;
 
-// When set, chat.postMessage requests carrying this exact Authorization header
-// respond with `missing_scope`, so a share as the user falls through to the
-// bot token on the wire.
-let failPostMessageForAuth: string | null = null;
-
 function installFetchStub() {
   globalThis.fetch = (async (
     input: RequestInfo | URL,
@@ -80,16 +73,9 @@ function installFetchStub() {
           : input.url;
     const method = (init?.method ?? "GET").toUpperCase();
     const headers = new Headers(init?.headers ?? {});
-    const authorization = headers.get("authorization");
-    captured.push({ url, method, authorization });
+    captured.push({ url, method, authorization: headers.get("authorization") });
 
-    const body =
-      url.includes("/chat.postMessage") &&
-      failPostMessageForAuth !== null &&
-      authorization === failPostMessageForAuth
-        ? { ok: false, error: "missing_scope" }
-        : fakeSlackResponse(url);
-    return new Response(JSON.stringify(body), {
+    return new Response(JSON.stringify(fakeSlackResponse(url)), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
@@ -111,10 +97,23 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
 const BOT_TOKEN = "xoxb-test-bot-token";
 const USER_TOKEN = "xoxp-test-user-token";
 
+/** Stores both tokens, so a test asserting the bot token proves the stored
+ *  user_token was deliberately NOT put on the wire. */
+function storeBothTokens() {
+  getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
+    if (key === credentialKey("slack_channel", "bot_token")) {
+      return BOT_TOKEN;
+    }
+    if (key === credentialKey("slack_channel", "user_token")) {
+      return USER_TOKEN;
+    }
+    return null;
+  });
+}
+
 describe("Slack route token routing (channels + share)", () => {
   beforeEach(() => {
     captured.length = 0;
-    failPostMessageForAuth = null;
     getSecureKeyAsyncMock.mockReset();
     installFetchStub();
   });
@@ -123,17 +122,12 @@ describe("Slack route token routing (channels + share)", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("GET /v1/slack/channels: bot-only install reads with bot token", async () => {
-    getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-      if (key === credentialKey("slack_channel", "bot_token")) {
-        return BOT_TOKEN;
-      }
-      return null;
-    });
+  test("GET /v1/slack/channels: bot-only install reads with the bot token", async () => {
+    getSecureKeyAsyncMock.mockImplementation(async (key: string) =>
+      key === credentialKey("slack_channel", "bot_token") ? BOT_TOKEN : null,
+    );
 
-    const result = (await handleListSlackChannels()) as {
-      channels: unknown[];
-    };
+    const result = (await handleListSlackChannels()) as { channels: unknown[] };
     expect(result).toHaveProperty("channels");
 
     const listCall = captured.find((c) =>
@@ -143,74 +137,33 @@ describe("Slack route token routing (channels + share)", () => {
     expect(listCall!.authorization).toBe(`Bearer ${BOT_TOKEN}`);
   });
 
-  test("GET /v1/slack/channels: bot + user tokens prefer user_token for reads", async () => {
-    getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-      if (key === credentialKey("slack_channel", "bot_token")) {
-        return BOT_TOKEN;
-      }
-      if (key === credentialKey("slack_channel", "user_token")) {
-        return USER_TOKEN;
-      }
-      return null;
-    });
+  test("GET /v1/slack/channels: a stored user_token is NOT used — reads stay on the bot token", async () => {
+    storeBothTokens();
 
-    const result = (await handleListSlackChannels()) as {
-      channels: unknown[];
-    };
+    const result = (await handleListSlackChannels()) as { channels: unknown[] };
     expect(result).toHaveProperty("channels");
 
+    // Security guard: this edge-reachable route must not read as the installer.
     const listCall = captured.find((c) =>
       c.url.includes("/conversations.list"),
     );
     expect(listCall).toBeDefined();
-    expect(listCall!.authorization).toBe(`Bearer ${USER_TOKEN}`);
+    expect(listCall!.authorization).toBe(`Bearer ${BOT_TOKEN}`);
   });
 
-  test("POST /v1/slack/share: bot + user tokens post as the user", async () => {
-    getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-      if (key === credentialKey("slack_channel", "bot_token")) {
-        return BOT_TOKEN;
-      }
-      if (key === credentialKey("slack_channel", "user_token")) {
-        return USER_TOKEN;
-      }
-      return null;
-    });
+  test("POST /v1/slack/share: posts with the bot token even when a user_token is stored", async () => {
+    storeBothTokens();
 
     const result = (await handleShareToSlackChannel({
       body: { appId: FAKE_APP.id, channelId: "C123" },
     })) as { ok: boolean };
     expect(result.ok).toBe(true);
 
-    // Sharing is a human action — it posts as the user, not the bot.
+    // Security guard: shares must come from the neutral app identity, never the
+    // installer's user_token — the daemon can't verify the caller is the owner.
     const postCall = captured.find((c) => c.url.includes("/chat.postMessage"));
     expect(postCall).toBeDefined();
-    expect(postCall!.authorization).toBe(`Bearer ${USER_TOKEN}`);
-  });
-
-  test("POST /v1/slack/share: falls back to the bot token when the user token can't post", async () => {
-    getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-      if (key === credentialKey("slack_channel", "bot_token")) {
-        return BOT_TOKEN;
-      }
-      if (key === credentialKey("slack_channel", "user_token")) {
-        return USER_TOKEN;
-      }
-      return null;
-    });
-    // The user token lacks chat:write; the bot token can post.
-    failPostMessageForAuth = `Bearer ${USER_TOKEN}`;
-
-    const result = (await handleShareToSlackChannel({
-      body: { appId: FAKE_APP.id, channelId: "C123" },
-    })) as { ok: boolean };
-    expect(result.ok).toBe(true);
-
-    // It tries the user token first, then retries on the wire as the bot.
-    const postAuths = captured
-      .filter((c) => c.url.includes("/chat.postMessage"))
-      .map((c) => c.authorization);
-    expect(postAuths).toEqual([`Bearer ${USER_TOKEN}`, `Bearer ${BOT_TOKEN}`]);
+    expect(postCall!.authorization).toBe(`Bearer ${BOT_TOKEN}`);
   });
 
   test("no tokens configured: both handlers throw ServiceUnavailableError", async () => {

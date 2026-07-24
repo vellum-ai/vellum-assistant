@@ -12,6 +12,7 @@ const callSlackApi = mock(
 mock.module("./api.js", () => ({ getSlackMessageBlocks, callSlackApi }));
 
 import {
+  APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX,
   stripApprovalActionBlocks,
   withdrawSlackApprovalCard,
 } from "./withdraw.js";
@@ -64,6 +65,42 @@ describe("stripApprovalActionBlocks", () => {
       { type: "section" },
     ]);
     expect(result).toHaveLength(3);
+  });
+
+  test("drops instruction/CTA blocks tagged with the approval-instruction prefix, keeping audit content", () => {
+    const blocks = [
+      { type: "card", body: { type: "mrkdwn", text: "Alice wants in" } },
+      {
+        type: "context",
+        elements: [{ type: "mrkdwn", text: "Source: Slack — #general" }],
+      },
+      {
+        type: "context",
+        block_id: `${APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX}:invite`,
+        elements: [
+          {
+            type: "mrkdwn",
+            text: 'Reply "open invite flow" to start Trusted Contacts invite flow.',
+          },
+        ],
+      },
+      {
+        type: "context",
+        block_id: `${APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX}:verify`,
+        elements: [
+          { type: "mrkdwn", text: "You haven't verified your identity yet." },
+        ],
+      },
+    ];
+    const result = stripApprovalActionBlocks(blocks) as Array<
+      Record<string, unknown>
+    >;
+    // Card + source context survive; both tagged instruction blocks are dropped.
+    expect(result.map((b) => b.type)).toEqual(["card", "context"]);
+    const serialized = JSON.stringify(result);
+    expect(serialized).toContain("Source: Slack");
+    expect(serialized).not.toContain("open invite flow");
+    expect(serialized).not.toContain("verified your identity");
   });
 });
 
@@ -190,5 +227,39 @@ describe("withdrawSlackApprovalCard", () => {
     expect(
       callSlackApi.mock.calls.some((c) => c[0] === "chat.postMessage"),
     ).toBe(false);
+  });
+
+  test("renders a leave-unverified park neutrally as 'Left unverified', not a denial", async () => {
+    getSlackMessageBlocks.mockImplementationOnce(async () => null);
+
+    await withdrawSlackApprovalCard({
+      channel: "C1",
+      messageTs: "1.0",
+      status: "denied",
+      decidedAction: "leave_unverified",
+    });
+
+    const serialized = JSON.stringify(callSlackApi.mock.calls[0][1].blocks);
+    // A park is a neutral hold — the card must not read as a denial.
+    expect(serialized).toContain("Left unverified");
+    expect(serialized).not.toContain("Denied");
+    expect(serialized).not.toContain(":x:");
+    expect(serialized).toContain(":pause_button:");
+  });
+
+  test("a block deny still renders as 'Denied' with the denial glyph", async () => {
+    getSlackMessageBlocks.mockImplementationOnce(async () => null);
+
+    await withdrawSlackApprovalCard({
+      channel: "C1",
+      messageTs: "1.0",
+      status: "denied",
+      decidedAction: "block",
+    });
+
+    const serialized = JSON.stringify(callSlackApi.mock.calls[0][1].blocks);
+    expect(serialized).toContain("Denied");
+    expect(serialized).toContain(":x:");
+    expect(serialized).not.toContain("Left unverified");
   });
 });

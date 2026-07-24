@@ -50,10 +50,7 @@ export * from "./message-types/workspace.js";
 import type { DiskPressureStatusChangedEvent } from "../api/events/disk-pressure-status-changed.js";
 import type { HookEvent } from "../api/events/hook-event.js";
 import type { _AcpServerMessages } from "./message-types/acp.js";
-import type {
-  _AppsClientMessages,
-  _AppsServerMessages,
-} from "./message-types/apps.js";
+import type { _AppsServerMessages } from "./message-types/apps.js";
 import type { _BackgroundToolsServerMessages } from "./message-types/background-tools.js";
 import type { _BookmarksServerMessages } from "./message-types/bookmarks.js";
 import type {
@@ -99,10 +96,7 @@ import type {
   _SubagentsClientMessages,
   _SubagentsServerMessages,
 } from "./message-types/subagents.js";
-import type {
-  _SurfacesClientMessages,
-  _SurfacesServerMessages,
-} from "./message-types/surfaces.js";
+import type { _SurfacesServerMessages } from "./message-types/surfaces.js";
 import type { _SyncInvalidationServerMessages } from "./message-types/sync.js";
 import type { _UpgradesServerMessages } from "./message-types/upgrades.js";
 import type { _WorkflowsServerMessages } from "./message-types/workflows.js";
@@ -126,8 +120,6 @@ export interface SubagentEvent {
 export type ClientMessage =
   | _ConversationsClientMessages
   | _MessagesClientMessages
-  | _SurfacesClientMessages
-  | _AppsClientMessages
   | _IntegrationsClientMessages
   | _ComputerUseClientMessages
   | _HostBrowserClientMessages
