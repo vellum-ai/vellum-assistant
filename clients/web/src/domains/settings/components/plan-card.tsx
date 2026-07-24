@@ -294,9 +294,11 @@ function RecommendedUpgrade({
     }
   };
 
-  // Active Pro orgs edit their tiers in place via the change-tier endpoints;
-  // mirrors plans-page's `applyCustomTierChange`. On success the billing page
-  // opens its own resize takeover (via `onTierUpgraded`).
+  // Active Pro orgs edit their tiers in place via the change-tier endpoints,
+  // mirroring AdjustPlanModal's billing-page semantics (not plans-page's). The
+  // billing-page resize takeover is credit-agnostic — `onTierUpgraded` is
+  // argument-less and opens a resize-only takeover with no credit prop — so a
+  // credit-only change must toast instead of popping a blank takeover.
   const applyCustomTierChange = async (selection: CustomPlanSelection) => {
     const result = await changeTiers(selection);
     if (!result) {
@@ -304,10 +306,14 @@ function RecommendedUpgrade({
       return;
     }
     setCustomPlanOpen(false);
-    if (result.needsResize || result.creditChanged) {
+    // Only a real machine/storage resize hands off to the takeover; a
+    // credit-only change toasts, like AdjustPlanModal.
+    if (result.needsResize) {
       onTierUpgraded?.();
     } else {
-      toast.success("Plan updated.");
+      toast.success(
+        result.creditChanged ? "Credit bundle updated." : "Plan updated.",
+      );
     }
   };
 

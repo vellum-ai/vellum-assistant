@@ -31,11 +31,13 @@ import {
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
+  CreditTier,
   PackageChangeResponse,
   PlanListResponse,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import * as runtimeBrowser from "@/runtime/browser";
+import * as toastModule from "@vellumai/design-library/components/toast";
 import { PLAN_TIER_COPY } from "@/domains/settings/billing/plans/plans-copy";
 import { routes } from "@/utils/routes";
 
@@ -77,6 +79,16 @@ let changePackageImpl: () => Promise<{
 });
 let currentSub: SubscriptionResponse = baseSubscription();
 let currentPlans: PlanListResponse = basePlansResponse();
+// Change-tier mutation captures for the customize (CustomPlanModal) flow. Each
+// records the request body so a test can assert which dimension(s) a
+// `changeTiers` dispatch actually posted.
+let changeCreditTierCall: Captured | null = null;
+let changeMachineTierCall: Captured | null = null;
+let changeStorageTierCall: Captured | null = null;
+// The onboarding retrieve carries the current machine/storage tiers that seed
+// the CustomPlanModal. Defaults to empty (no seed) so existing tests are
+// unaffected; the customize tests set it to seed a starting configuration.
+let onboardingResponse: Record<string, unknown> = {};
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -93,7 +105,39 @@ mock.module("@/generated/api/sdk.gen", () => ({
   organizationsBillingPlansRetrieve: () =>
     Promise.resolve({ data: currentPlans, response: { ok: true } }),
   organizationsBillingSubscriptionOnboardingRetrieve: () =>
-    Promise.resolve({ data: {}, response: { ok: true } }),
+    Promise.resolve({ data: onboardingResponse, response: { ok: true } }),
+  // The three change-tier endpoints back the customize flow's `changeTiers`.
+  organizationsBillingSubscriptionChangeCreditTierCreate: (opts: Captured) => {
+    changeCreditTierCall = opts;
+    return Promise.resolve({
+      data: { status: "ok", credit_tier: null },
+      response: { ok: true },
+    });
+  },
+  organizationsBillingSubscriptionChangeMachineTierCreate: (opts: Captured) => {
+    changeMachineTierCall = opts;
+    return Promise.resolve({ data: { status: "ok" }, response: { ok: true } });
+  },
+  organizationsBillingSubscriptionChangeStorageTierCreate: (opts: Captured) => {
+    changeStorageTierCall = opts;
+    return Promise.resolve({ data: { status: "ok" }, response: { ok: true } });
+  },
+}));
+
+// Capture success toasts so the customize flow's credit-only vs resize branch
+// can be asserted (the resize takeover is opened via `onTierUpgraded`, not a
+// toast, so a credit-only change is the only one that toasts here).
+let toastSuccessCalls: string[] = [];
+mock.module("@vellumai/design-library/components/toast", () => ({
+  ...toastModule,
+  toast: Object.assign((..._args: unknown[]) => {}, {
+    success: (message: string) => {
+      toastSuccessCalls.push(String(message));
+    },
+    error: () => {},
+    info: () => {},
+    warning: () => {},
+  }),
 }));
 
 // Capture the Stripe checkout redirect instead of opening a browser.
@@ -250,6 +294,97 @@ function proUltraSubscription(): SubscriptionResponse {
   };
 }
 
+const CUSTOMIZE_CREDIT_TIERS: CreditTier[] = [
+  {
+    tier: "credits_25",
+    label: "$25 in credits",
+    credits_usd: 25,
+    price_cents: 2500,
+    lookup_key: "credits_25_lk",
+    legacy: false,
+  },
+  {
+    tier: "credits_45",
+    label: "$45 in credits",
+    credits_usd: 45,
+    price_cents: 4500,
+    lookup_key: "credits_45_lk",
+    legacy: false,
+  },
+];
+
+/**
+ * A Pro catalog whose machine/storage/credit tier LISTS are populated (the
+ * package-only fixtures leave them empty), so a seeded CustomPlanModal can drive
+ * a real tier change through `changeTiers`. Extends `plansWithSuper()` so the
+ * sub stays switch-eligible (Mighty → Super) and the customize card renders.
+ */
+function plansForCustomize(): PlanListResponse {
+  const plans = plansWithSuper();
+  const pro = plans.plans.find((p) => p.id === "pro");
+  if (pro && "machine_tiers" in pro) {
+    pro.machine_tiers = [
+      {
+        tier: "medium",
+        label: "Medium",
+        description: "Medium machine",
+        price_cents: 3500,
+        lookup_key: "machine_medium_lk",
+        cpu_limit: "2",
+        memory_gib: 4,
+      },
+      {
+        tier: "large",
+        label: "Large",
+        description: "Large machine",
+        price_cents: 7000,
+        lookup_key: "machine_large_lk",
+        cpu_limit: "4",
+        memory_gib: 8,
+      },
+    ];
+    pro.storage_tiers = [
+      {
+        tier: "xs",
+        label: "10 GB storage",
+        storage_gib: 10,
+        price_cents: 0,
+        lookup_key: "storage_xs_lk",
+        legacy: false,
+      },
+      {
+        tier: "s",
+        label: "30 GB storage",
+        storage_gib: 30,
+        price_cents: 1000,
+        lookup_key: "storage_s_lk",
+        legacy: false,
+      },
+    ];
+    pro.credit_tiers = CUSTOMIZE_CREDIT_TIERS;
+  }
+  return plans;
+}
+
+/**
+ * A customized (switch-eligible) Pro sub seeded on the Mighty package with an
+ * existing credit bundle, so the CustomPlanModal opens pre-filled.
+ */
+function proCustomizeSubscription(): SubscriptionResponse {
+  return {
+    ...proMightySubscription(),
+    package: { key: "mighty", name: "Mighty", version: 1, customized: true },
+    selected_credit_tier: "credits_25",
+  };
+}
+
+/** The onboarding response that seeds the CustomPlanModal's current tiers. */
+const CUSTOMIZE_ONBOARDING: Record<string, unknown> = {
+  max_machine_tier: "medium",
+  selected_storage_tier: "xs",
+  selected_storage_gib: 10,
+};
+
 /** A catalog with the `pro-packages` flag off — the Pro plan has no packages. */
 function emptyCatalogPlans(): PlanListResponse {
   const plans = basePlansResponse();
@@ -316,6 +451,28 @@ function renderCardInteractive(
   );
 }
 
+/** Opens a CustomPlanModal dropdown by its combobox aria-label. */
+function getDropdownTrigger(label: string): HTMLButtonElement {
+  const trigger = document.querySelector<HTMLButtonElement>(
+    `button[role="combobox"][aria-label="${label}"]`,
+  );
+  if (!trigger) {
+    throw new Error(`expected a ${label} dropdown trigger`);
+  }
+  return trigger;
+}
+
+/** Clicks the first open dropdown option whose text starts with `prefix`. */
+function clickOptionStartingWith(prefix: string): void {
+  const option = Array.from(
+    document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((o) => o.textContent?.trim().startsWith(prefix));
+  if (!option) {
+    throw new Error(`expected option starting with "${prefix}"`);
+  }
+  fireEvent.click(option);
+}
+
 /** Waits for the PackageSwitchConfirmModal (portaled) to open. */
 async function findConfirmDialogButton(): Promise<HTMLButtonElement> {
   return await waitFor(() => {
@@ -345,6 +502,11 @@ beforeEach(() => {
     response: { ok: true },
   });
   openedUrl = null;
+  changeCreditTierCall = null;
+  changeMachineTierCall = null;
+  changeStorageTierCall = null;
+  onboardingResponse = {};
+  toastSuccessCalls = [];
 });
 
 afterEach(() => {
@@ -990,6 +1152,85 @@ describe("PlanCard recommended upgrade — change-package", () => {
     // No configurator opened, no navigation.
     expect(document.querySelector("[data-testid='confirm-package-switch-button']")).toBeNull();
     expect(navigateArgs).toEqual([]);
+  });
+
+  test("a customize credit-only change toasts and does NOT open the resize takeover", async () => {
+    const onManage = mock(() => {});
+    const onTierUpgraded = mock(() => {});
+    // The billing-page resize takeover is credit-agnostic (`onTierUpgraded` is
+    // argument-less), so a credit-only change must toast "Credit bundle updated."
+    // — like AdjustPlanModal — instead of popping a blank takeover.
+    onboardingResponse = CUSTOMIZE_ONBOARDING;
+    const { findByTestId, findByText, findByRole } = renderCardInteractive(
+      proCustomizeSubscription(),
+      plansForCustomize(),
+      onManage,
+      onTierUpgraded,
+    );
+
+    const cta = (await findByTestId(
+      "recommended-customize-button",
+    )) as HTMLButtonElement;
+    await waitFor(() => expect(cta.disabled).toBe(false));
+    fireEvent.click(cta);
+    await findByText("Just better.");
+
+    // Swap ONLY the credit bundle, then Continue — a credit-only change.
+    fireEvent.click(getDropdownTrigger("Credit bundle"));
+    clickOptionStartingWith("$45 in credits");
+    fireEvent.click(await findByRole("button", { name: "Continue" }));
+
+    await waitFor(() => {
+      if (!changeCreditTierCall) {
+        throw new Error("credit-tier change not called");
+      }
+    });
+    // Only the credit dimension posts...
+    expect(
+      (changeCreditTierCall!.body as Record<string, unknown>).credit_tier,
+    ).toBe("credits_45");
+    expect(changeMachineTierCall).toBeNull();
+    expect(changeStorageTierCall).toBeNull();
+    // ...and it toasts rather than opening the credit-agnostic resize takeover.
+    await waitFor(() => {
+      expect(toastSuccessCalls).toContain("Credit bundle updated.");
+    });
+    expect(onTierUpgraded).not.toHaveBeenCalled();
+  });
+
+  test("a customize storage upgrade opens the resize takeover", async () => {
+    const onManage = mock(() => {});
+    const onTierUpgraded = mock(() => {});
+    // A real machine/storage resize DOES hand off to the takeover via
+    // `onTierUpgraded` (and does not toast the credit-bundle message).
+    onboardingResponse = CUSTOMIZE_ONBOARDING;
+    const { findByTestId, findByText, findByRole } = renderCardInteractive(
+      proCustomizeSubscription(),
+      plansForCustomize(),
+      onManage,
+      onTierUpgraded,
+    );
+
+    const cta = (await findByTestId(
+      "recommended-customize-button",
+    )) as HTMLButtonElement;
+    await waitFor(() => expect(cta.disabled).toBe(false));
+    fireEvent.click(cta);
+    await findByText("Just better.");
+
+    // Bump storage to a larger tier — a real resize.
+    fireEvent.click(getDropdownTrigger("Storage"));
+    clickOptionStartingWith("30 GB storage");
+    fireEvent.click(await findByRole("button", { name: "Continue" }));
+
+    await waitFor(() => {
+      expect(onTierUpgraded).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      (changeStorageTierCall!.body as Record<string, unknown>).storage_tier,
+    ).toBe("s");
+    // A resize hands off to the takeover — no credit-bundle toast.
+    expect(toastSuccessCalls).not.toContain("Credit bundle updated.");
   });
 
   test("a cancelling Pro sub's recommended upgrade stays on the manage path", async () => {
