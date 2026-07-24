@@ -389,6 +389,13 @@ export type AgentLoopExitReason =
   | "budget_yield_unrecovered"
   /** Provider stopped because the configured output-token limit was reached. */
   | "max_tokens_reached"
+  /**
+   * A subagent run reached its configured per-run LLM-call ceiling
+   * (`subagent.maxCallsPerRun`) and the loop stopped gracefully as a cost
+   * backstop. The run completes normally with the agent's last output plus a
+   * truncation notice surfaced to the parent — not an error path.
+   */
+  | "iteration_budget_reached"
   /** User cancellation landed after a non-terminal checkpoint yield. */
   | "aborted_after_checkpoint"
   /** User cancellation observed while the catch handler synthesized an error turn. */

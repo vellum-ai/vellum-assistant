@@ -155,6 +155,12 @@ export function buildSubagentTerminalMessage(opts: {
   deferred?: boolean;
   /** Tools the subagent attempted but that its role allowlist denied. */
   deniedTools?: string[];
+  /**
+   * The run stopped by reaching its per-run LLM-call ceiling
+   * (`subagent.maxCallsPerRun`), so the result is whatever it had produced when
+   * the budget ran out — potentially incomplete.
+   */
+  iterationBudgetReached?: boolean;
 }): string {
   const {
     label,
@@ -166,8 +172,16 @@ export function buildSubagentTerminalMessage(opts: {
     error,
     deferred,
     deniedTools,
+    iterationBudgetReached,
   } = opts;
   const prefix = isFork ? "Fork" : "Subagent";
+
+  // The run hit its iteration budget and stopped early, so the result may be a
+  // partial answer. Tell the parent explicitly so it can decide whether to
+  // respawn the subagent to continue rather than treating the output as final.
+  const truncationNote = iterationBudgetReached
+    ? `\n\nNote: this ${prefix.toLowerCase()} reached its iteration budget and was stopped before it signaled completion — the result above may be incomplete. If more work is needed, re-spawn it to continue from here.`
+    : "";
 
   // When the subagent reached for tools its role does not permit, tell the
   // parent so it re-spawns with a capable role instead of blindly retrying (a
@@ -194,7 +208,8 @@ export function buildSubagentTerminalMessage(opts: {
       (silent
         ? `(Use these findings internally; do not relay the raw ${prefix.toLowerCase()} output to the user.)`
         : `(Incorporate this into your reply to the user as appropriate.)`) +
-      deniedNote
+      deniedNote +
+      truncationNote
     );
   }
 
@@ -209,7 +224,8 @@ export function buildSubagentTerminalMessage(opts: {
     `[${prefix} "${label}" completed]\n\n` +
     `${reason}. Use subagent_read with subagent_id "${subagentId}"${lastN} for the latest output.` +
     (silent ? ` Keep the result internal.` : ``) +
-    deniedNote
+    deniedNote +
+    truncationNote
   );
 }
 
@@ -798,6 +814,10 @@ export class SubagentManager {
       // Capture any tools the subagent reached for but its role denied, before a
       // release nulls the conversation reference, so we can tell the parent.
       const deniedTools = [...conversation.subagentDeniedToolNames];
+      // Whether the run stopped by reaching its per-run LLM-call ceiling. Read
+      // before a release nulls the conversation reference so the parent-facing
+      // terminal message can carry a truncation notice.
+      const iterationBudgetReached = conversation.lastRunIterationBudgetReached;
       // Copy usage stats from the conversation before sending status (which includes usage).
       managed.state.usage = { ...conversation.usageStats };
       // Only update state + notify if still non-terminal (guards against abort race).
@@ -805,7 +825,7 @@ export class SubagentManager {
         managed.state.completedAt = Date.now();
         this.setStatus(subagentId, "completed", getSender());
 
-        log.info({ subagentId }, "Subagent completed");
+        log.info({ subagentId, iterationBudgetReached }, "Subagent completed");
 
         // Notify the parent conversation, inlining the subagent's final
         // synthesis so the LLM acts on the result without a subagent_read
@@ -817,6 +837,7 @@ export class SubagentManager {
             "completed",
             finalText,
             deniedTools,
+            iterationBudgetReached,
           );
         }
       }
@@ -1429,6 +1450,7 @@ export class SubagentManager {
     outcome: "completed" | "failed",
     finalText?: string,
     deniedTools?: string[],
+    iterationBudgetReached?: boolean,
   ): void {
     const { config } = managed.state;
     const isFork = managed.state.isFork;
@@ -1450,6 +1472,7 @@ export class SubagentManager {
       // read pointer so the parent picks up the queued turn's output instead.
       deferred: managed.hadEnqueuedMessages === true,
       deniedTools,
+      iterationBudgetReached,
     });
 
     const notification: SubagentNotificationInfo = {

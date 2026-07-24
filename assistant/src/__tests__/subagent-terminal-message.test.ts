@@ -146,4 +146,52 @@ describe("buildSubagentTerminalMessage", () => {
     expect(msg).not.toContain("does not permit");
     expect(msg).not.toContain("re-spawn");
   });
+
+  test("appends a truncation notice when the run reached its iteration budget", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "long-run",
+      subagentId: "sa-10",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "Partial progress so far.",
+      iterationBudgetReached: true,
+    });
+
+    // The partial result is still inlined for the parent to use...
+    expect(msg).toContain("Partial progress so far.");
+    // ...but flagged as possibly incomplete with a respawn hint so the parent
+    // can continue rather than treating it as final.
+    expect(msg).toContain("reached its iteration budget");
+    expect(msg).toContain("may be incomplete");
+    expect(msg).toContain("re-spawn it to continue");
+  });
+
+  test("attaches the truncation notice to the read-pointer path too", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "long-empty",
+      subagentId: "sa-11",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "   ",
+      iterationBudgetReached: true,
+    });
+
+    expect(msg).toContain('subagent_read with subagent_id "sa-11"');
+    expect(msg).toContain("reached its iteration budget");
+  });
+
+  test("omits the truncation notice on a normally-completed run", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "normal",
+      subagentId: "sa-12",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "Done cleanly.",
+    });
+
+    expect(msg).not.toContain("iteration budget");
+  });
 });

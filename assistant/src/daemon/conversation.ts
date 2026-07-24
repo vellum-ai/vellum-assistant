@@ -354,6 +354,15 @@ export class Conversation {
    */
   subagentDeniedToolNames = new Set<string>();
   /**
+   * True when the most recent agent-loop run ended by reaching the subagent
+   * per-run LLM-call ceiling (`subagent.maxCallsPerRun`), exiting with
+   * `iteration_budget_reached`. Read by the subagent manager after the run
+   * resolves so it attaches a truncation notice to the parent-facing terminal
+   * message. Reset at the start of every run. Ephemeral, never persisted.
+   * @internal
+   */
+  lastRunIterationBudgetReached = false;
+  /**
    * How {@link subagentAllowedTools} is enforced — see
    * {@link SubagentToolGateMode}. Set and restored alongside the allowlist
    * by `scopeWakeAllowedTools`.
