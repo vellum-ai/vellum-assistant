@@ -2,6 +2,15 @@
   "version": 1,
   "flags": [
     {
+      "id": "in-chat-onboarding-tour",
+      "scope": "client",
+      "key": "in-chat-onboarding-tour",
+      "label": "In-Chat Onboarding Tour",
+      "description": "Multivariate experiment for the eyes-led in-chat onboarding tour. control = straight to chat after research onboarding (current behavior); tour = the extended tour auto-plays on first workspace entry, and the header replay button shows. Targeted via LaunchDarkly (planned 70% tour / 30% control).",
+      "defaultEnabled": "control",
+      "values": ["control", "tour"]
+    },
+    {
       "id": "user-hosted-enabled",
       "scope": "client",
       "key": "user-hosted-enabled",
@@ -112,7 +121,7 @@
       "scope": "assistant",
       "key": "voice-triage-escalate",
       "label": "Voice Triage & Escalate",
-      "description": "Front phone-call turns with a fast model that answers simple turns and escalates tricky ones to the quality model, cutting perceived latency",
+      "description": "Front each live-voice turn with a fast model that answers simple turns and escalates tricky ones to the quality model, cutting perceived latency. The same leg decides the endpoint: its first token holds a mid-thought pause, escalates, or begins the answer, replacing the separate endpoint-decider call",
       "defaultEnabled": false
     },
     {
@@ -145,14 +154,6 @@
       "key": "apple-container",
       "label": "Apple Container",
       "description": "Enable assistant sandboxing via Apple Containers on macOS 26+, providing a lightweight native sandbox without third-party dependencies",
-      "defaultEnabled": false
-    },
-    {
-      "id": "bookmarks",
-      "scope": "client",
-      "key": "bookmarks",
-      "label": "Message Bookmarks",
-      "description": "Show the bookmark icon on messages and enable the Bookmarks tab in Settings",
       "defaultEnabled": false
     },
     {
@@ -298,14 +299,6 @@
       "label": "Memory v3 injection gate",
       "description": "Per-turn injection gate for memory v3: after the BM25F needle + dense cosine finder lanes run, skip the selectPool LLM call (inject nothing) when finder-lane scores fall below the configured thresholds (memory.v3.gate). Default on (flipped remotely July 2026); this registry value is the fallback when no platform snapshot is available.",
       "defaultEnabled": true
-    },
-    {
-      "id": "memory-concept-graph",
-      "scope": "assistant",
-      "key": "memory-concept-graph",
-      "label": "Memory concept graph",
-      "description": "Gates the Obsidian-style memory concept graph on its own Memory tab (/assistant/memory) and the backend-agnostic /memory-graph + /memory-graph-node routes that feed it. When off, the Memory tab is hidden; the identity page keeps the skills constellation. Only produces a graph on memory-v3 backends. Default off.",
-      "defaultEnabled": false
     },
     {
       "id": "self-intro-greeting",

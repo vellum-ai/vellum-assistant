@@ -15,20 +15,26 @@
  * a call into `backend.getGraph()` — the contract and its route do not change.
  */
 
-import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
+import { isMemoryGraphSupported } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getWorkspaceDir } from "../paths.js";
-import { getPageIndex, type PageIndexEntry } from "../v2/page-index.js";
-import { readPage, renderPageContent } from "../v2/page-store.js";
-import { isSkillSlug } from "../v2/skill-store.js";
 import {
   isCapabilitySlug,
   renderCapabilityContent,
 } from "../v3/capabilities.js";
 import { buildEdgeGraph } from "../v3/edge.js";
-import { computeLearnedEdgeGraph } from "../v3/learned-edges.js";
+import {
+  getPageIndex,
+  type PageIndexEntry,
+} from "../v3/substrate/page-index.js";
+import { readPage, renderPageContent } from "../v3/substrate/page-store.js";
+import { isSkillSlug } from "../v3/substrate/skill-store.js";
 import type { Slug } from "../v3/types.js";
-import { isMemoryConceptGraphEnabled } from "./flag.js";
+import {
+  buildPendingGraph,
+  PENDING_NODE_ID_PREFIX,
+  readPendingBufferEntries,
+} from "./pending-buffer.js";
 import type {
   MemoryGraph,
   MemoryGraphEdge,
@@ -36,9 +42,6 @@ import type {
   MemoryGraphNodeDetail,
 } from "./types.js";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-/** Matches the selection window the v3 shadow lanes read for learned edges. */
-const LEARNED_EDGES_WINDOW_DAYS = 90;
 /** Backend identifier stamped onto graphs produced from memory-v3. */
 const BACKEND_MEMORY_V3 = "memory-v3";
 /**
@@ -47,18 +50,6 @@ const BACKEND_MEMORY_V3 = "memory-v3";
  * are kept and `truncated` is set.
  */
 const DEFAULT_MAX_NODES = 750;
-/**
- * Viz-density scaling of the retrieval lane's learned-edges thresholds. The
- * graph deliberately admits weaker co-selection associations than retrieval
- * (half the pair-count requirement, 40% of the NPMI floor, and at least
- * {@link GRAPH_LEARNED_MIN_MAX_PER_PAGE} neighbors per page) so it reads as a
- * connected web instead of scattered orphans. Retuning
- * `memory.v3.learnedEdges` for retrieval quality therefore also shifts graph
- * density — by these factors.
- */
-const GRAPH_LEARNED_MIN_COUNT_FACTOR = 0.5;
-const GRAPH_LEARNED_NPMI_FLOOR_FACTOR = 0.4;
-const GRAPH_LEARNED_MIN_MAX_PER_PAGE = 14;
 
 /** Adjacency as produced by `buildEdgeGraph` / `computeLearnedEdgeGraph`:
  * source → (target → curated description | undefined). */
@@ -244,7 +235,7 @@ export function assembleMemoryGraph(input: AssembleMemoryGraphInput): {
 export async function getMemoryGraph(
   config: AssistantConfig,
 ): Promise<MemoryGraph> {
-  if (!isMemoryConceptGraphEnabled(config) || !isMemoryV3Live(config)) {
+  if (!isMemoryGraphSupported(config)) {
     return { backend: null, supported: false, nodes: [], edges: [] };
   }
 
@@ -272,28 +263,30 @@ export async function getMemoryGraph(
     hubDegree: config.memory.v3.edge.hubDegree,
   });
 
-  // Viz-tuned learned edges (see the GRAPH_LEARNED_* constants): this endpoint
-  // is visualization-only, so surfacing weaker co-selection associations (and a
-  // little extra edge noise) is a fair trade. Floors keep the thresholds sane
-  // even when the retrieval config is aggressive or disables the lane.
-  const learned = config.memory.v3.learnedEdges;
-  const learnedGraph = computeLearnedEdgeGraph({
-    halfLifeMs: learned.halfLifeDays * DAY_MS,
-    minCount: Math.max(1, learned.minCount * GRAPH_LEARNED_MIN_COUNT_FACTOR),
-    npmiFloor: Math.max(0, learned.npmiFloor * GRAPH_LEARNED_NPMI_FLOOR_FACTOR),
-    maxPerPage: Math.max(learned.maxPerPage, GRAPH_LEARNED_MIN_MAX_PER_PAGE),
-    now: Date.now(),
-    windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
-    knownSlugs: new Set(entries.map((e) => e.slug)),
-  });
-
+  // The graph surfaces only authored `link` edges; learned (co-selection)
+  // associations are intentionally omitted here. assembleMemoryGraph accepts an
+  // optional learned adjacency, but this endpoint does not build one.
   const assembled = assembleMemoryGraph({
     entries,
     staticAdjacency: staticGraph.adjacency,
-    learnedAdjacency: learnedGraph.adjacency,
   });
 
-  return { backend: BACKEND_MEMORY_V3, supported: true, ...assembled };
+  // Buffer entries awaiting consolidation ride along as `pending` nodes so a
+  // just-remembered fact appears on the map immediately instead of after the
+  // next consolidation pass. Appended after assembly (and its node cap) so
+  // fresh memories are never truncated away.
+  const pending = buildPendingGraph(
+    await readPendingBufferEntries(workspaceDir),
+    new Set(entries.map((e) => e.slug)),
+  );
+
+  return {
+    backend: BACKEND_MEMORY_V3,
+    supported: true,
+    ...assembled,
+    nodes: [...assembled.nodes, ...pending.nodes],
+    edges: [...assembled.edges, ...pending.edges],
+  };
 }
 
 /**
@@ -306,8 +299,23 @@ export async function getMemoryGraphNode(
   config: AssistantConfig,
   id: string,
 ): Promise<MemoryGraphNodeDetail> {
-  if (!isMemoryConceptGraphEnabled(config) || !isMemoryV3Live(config) || !id) {
+  if (!isMemoryGraphSupported(config) || !id) {
     return { found: false };
+  }
+  // Pending buffer entries: resolve the id back to its buffer fact. `found:
+  // false` when the entry is gone — consolidation filed it since the graph
+  // payload was fetched, and the refreshed graph will show its concept page.
+  if (id.startsWith(PENDING_NODE_ID_PREFIX)) {
+    const entries = await readPendingBufferEntries(getWorkspaceDir());
+    const entry = entries.find((e) => e.id === id);
+    if (!entry) {
+      return { found: false };
+    }
+    return {
+      found: true,
+      title: "Pending memory",
+      content: `${entry.text}\n\n_Saved to your memory buffer — the next consolidation pass files it into your concept pages._`,
+    };
   }
   // Seeded skill/CLI capabilities take precedence over any on-disk page at the
   // same slug: the page index drops a colliding page and lets the synthetic win

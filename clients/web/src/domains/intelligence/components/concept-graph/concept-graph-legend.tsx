@@ -19,7 +19,11 @@ interface ConceptGraphLegendProps {
   coloredByTheme?: boolean;
   /** Named themes (hub concept + cluster color), largest first. When present
    * with `coloredByTheme`, the legend lists them so color maps to a theme. */
-  themes?: readonly { color: string; name: string }[];
+  themes?: readonly {
+    color: string;
+    name: string;
+    concepts?: readonly string[];
+  }[];
   hasLinks: boolean;
   hasLearned: boolean;
   /** When provided (both edge kinds present), the Link / Learned rows become
@@ -78,7 +82,7 @@ export function ConceptGraphLegend({
                 <span
                   className="max-w-[9rem] truncate text-[11px]"
                   style={{ color: "var(--content-tertiary)" }}
-                  title={theme.name}
+                  title={theme.concepts?.join(" · ") ?? theme.name}
                 >
                   {theme.name}
                 </span>

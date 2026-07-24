@@ -184,8 +184,24 @@ export const MODELS_BY_PROVIDER = {
   ],
   gemini: [
     {
+      id: "gemini-3.6-flash",
+      displayName: "Gemini 3.6 Flash",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 65_536,
+      supportsThinking: true,
+    },
+    {
       id: "gemini-3.5-flash",
       displayName: "Gemini 3.5 Flash",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 65_536,
+      supportsThinking: true,
+    },
+    {
+      id: "gemini-3.5-flash-lite",
+      displayName: "Gemini 3.5 Flash-Lite",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
@@ -844,6 +860,7 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
+  litellm: [],
   baseten: [
     {
       id: "thinkingmachines/inkling",
@@ -870,6 +887,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   "vercel-ai-gateway": "anthropic/claude-sonnet-4.6",
   minimax: "MiniMax-M2.7",
   atlascloud: "deepseek-ai/deepseek-v4-pro",
+  litellm: "",
   baseten: "thinkingmachines/inkling",
   "openai-compatible": "",
 };
@@ -896,6 +914,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   "openai-compatible": "OpenAI-compatible",
   minimax: "MiniMax",
   atlascloud: "Atlas Cloud",
+  litellm: "LiteLLM",
   baseten: "Baseten",
 };
 
@@ -918,6 +937,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   "openai-compatible": false,
   minimax: false,
   atlascloud: false,
+  litellm: false,
   baseten: false,
 };
 

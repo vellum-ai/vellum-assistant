@@ -8,11 +8,17 @@ mock.module("@/hooks/use-is-mobile", () => ({
 
 const isNativeRef = { value: false };
 const openUrlMock = mock((_url: string) => Promise.resolve());
+// Include every export other same-process test files consume — bun's
+// mock.module is process-global, so an incomplete factory breaks sibling
+// suites that import the unmocked names.
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNativeRef.value,
+  useIsNativePlatform: () => isNativeRef.value,
 }));
 mock.module("@/runtime/browser", () => ({
   openUrl: openUrlMock,
+  openUrlInNewTab: openUrlMock,
+  openExternalUrl: openUrlMock,
 }));
 
 const { ChannelSourceLinkPill } = await import("./channel-source-link-pill");

@@ -9,24 +9,32 @@
 
 import { eq } from "drizzle-orm";
 
-import type { DrizzleDb } from "../../../../persistence/db-connection.js";
 import { activationState } from "../../../../persistence/schema/index.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import {
   type ActivationState,
   ActivationStateSchema,
   type EverInjectedEntry,
-} from "./types.js";
+} from "../v3/substrate/types.js";
 
 /**
  * Load the activation state for a conversation, or `null` if no row exists.
- * Validates the on-disk JSON columns through `ActivationStateSchema`.
+ * Validates the on-disk JSON columns through `ActivationStateSchema`. Reads the
+ * dedicated memory connection; an unavailable memory database reports no state.
  */
 export async function hydrate(
-  database: DrizzleDb,
   conversationId: string,
 ): Promise<ActivationState | null> {
-  const row = database
-    .select()
+  const mdb = memoryDbOrNull("hydrateActivationState");
+  if (!mdb) return null;
+  const row = mdb
+    .select({
+      messageId: activationState.messageId,
+      stateJson: activationState.stateJson,
+      everInjectedJson: activationState.everInjectedJson,
+      currentTurn: activationState.currentTurn,
+      updatedAt: activationState.updatedAt,
+    })
     .from(activationState)
     .where(eq(activationState.conversationId, conversationId))
     .get();
@@ -43,16 +51,18 @@ export async function hydrate(
 
 /**
  * Upsert the activation state for a conversation. The `updatedAt` field of
- * `state` is persisted as-is — callers control the timestamp.
+ * `state` is persisted as-is — callers control the timestamp. Writes the
+ * dedicated memory connection; an unavailable memory database no-ops.
  */
 export async function save(
-  database: DrizzleDb,
   conversationId: string,
   state: ActivationState,
 ): Promise<void> {
+  const mdb = memoryDbOrNull("saveActivationState");
+  if (!mdb) return;
   const stateJson = JSON.stringify(state.state);
   const everInjectedJson = JSON.stringify(state.everInjected);
-  database
+  mdb
     .insert(activationState)
     .values({
       conversationId,
@@ -83,32 +93,33 @@ export async function save(
  * not re-injected on the child's first turn — matching the v1 semantics where
  * a fork carries over all in-context memories.
  *
- * Synchronous so it can run inside the bun:sqlite transaction that wraps
- * `forkConversation()` — keeping the state copy atomic with the message and
- * attachment copies.
+ * Synchronous so it can run inside the fork's copy path. Writes the dedicated
+ * memory connection, which is a separate database file from the main-DB fork
+ * transaction, so the copy is not atomic with the message and attachment
+ * copies; an unavailable memory database no-ops.
  */
 export function forkActivationState(
-  database: DrizzleDb,
   parentConversationId: string,
   newConversationId: string,
 ): void {
-  const row = database
-    .select()
+  const mdb = memoryDbOrNull("forkActivationState");
+  if (!mdb) return;
+  const row = mdb
+    .select({
+      messageId: activationState.messageId,
+      stateJson: activationState.stateJson,
+      everInjectedJson: activationState.everInjectedJson,
+      currentTurn: activationState.currentTurn,
+      updatedAt: activationState.updatedAt,
+    })
     .from(activationState)
     .where(eq(activationState.conversationId, parentConversationId))
     .get();
   if (!row) return;
 
-  database
+  mdb
     .insert(activationState)
-    .values({
-      conversationId: newConversationId,
-      messageId: row.messageId,
-      stateJson: row.stateJson,
-      everInjectedJson: row.everInjectedJson,
-      currentTurn: row.currentTurn,
-      updatedAt: row.updatedAt,
-    })
+    .values({ conversationId: newConversationId, ...row })
     .onConflictDoUpdate({
       target: activationState.conversationId,
       set: {
@@ -141,20 +152,29 @@ export function forkActivationState(
  * only) and compaction clears the list wholesale.
  *
  * No-op when the child inherited no memory attachments. Synchronous so it can
- * run inside the transaction that wraps `forkConversation()`.
+ * run inside the fork's copy path. Writes the dedicated memory connection; an
+ * unavailable memory database no-ops.
+ *
+ * The insert ignores a conflicting row rather than failing. This memory-DB
+ * write is not part of the main-DB fork transaction, so a transient main-DB
+ * error that rolls back the fork leaves this row behind; the retrospective
+ * fork retry then re-runs with the same fork id and would collide on the
+ * primary key. A retried fork re-inserts the same inherited slugs, so ignoring
+ * the conflict is safe.
  */
 export function seedForkActivationState(
-  database: DrizzleDb,
   newConversationId: string,
   inheritedSlugs: string[],
 ): void {
   if (inheritedSlugs.length === 0) return;
+  const mdb = memoryDbOrNull("seedForkActivationState");
+  if (!mdb) return;
 
   const everInjected: EverInjectedEntry[] = inheritedSlugs.map((slug) => ({
     slug,
     turn: 0,
   }));
-  database
+  mdb
     .insert(activationState)
     .values({
       conversationId: newConversationId,
@@ -164,6 +184,7 @@ export function seedForkActivationState(
       currentTurn: 0,
       updatedAt: Date.now(),
     })
+    .onConflictDoNothing({ target: activationState.conversationId })
     .run();
 }
 

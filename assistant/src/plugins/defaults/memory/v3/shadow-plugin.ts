@@ -7,10 +7,13 @@
  * and returns it at v2's dynamic-memory placement (`after-memory-prefix`).
  *
  * On each live turn:
- *   1. Lazy-init the v3 lanes ONCE across the whole process (section index,
- *      section-grain BM25 needle, dense lane config, link-graph edge graph,
- *      curated core set, frecency hot set), memoizing the init promise so
- *      concurrent first turns share a single build.
+ *   1. Lazy-init the v3 lanes (section index, section-grain BM25 needle,
+ *      dense lane config, link-graph edge graph, curated core set, frecency
+ *      hot set), memoizing the init promise so concurrent first turns share a
+ *      single build. The memo lives until the persisted lanes-version token
+ *      changes ({@link LANES_VERSION_CHECKPOINT_KEY}) — writers in any
+ *      process bump it via {@link invalidateLanes}, and {@link getLanes}
+ *      observes the change and rebuilds.
  *   2. Build a {@link MemoryRoutingTurn} from the conversation's recent messages.
  *   3. Run {@link orchestrate} and record its selection set to
  *      `memory_v3_selections` with a best-effort lane attribution.
@@ -34,13 +37,18 @@ import {
   recordLatencySubSpan,
   timeLatencySubSpan,
 } from "../../../../daemon/turn-latency-sub-spans.js";
+import {
+  getMemoryCheckpoint,
+  setMemoryCheckpoint,
+} from "../../../../persistence/checkpoints.js";
 import { stripCommentLines } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../paths.js";
-import { getPageIndex } from "../v2/page-index.js";
-import { readPage, renderPageContent } from "../v2/page-store.js";
-import { capabilityOrDiskBody } from "./capabilities.js";
+import {
+  capabilityOrDiskBody,
+  renderCapabilityContent,
+} from "./capabilities.js";
 import { renderCard } from "./card.js";
 import { loadCoreSet } from "./core-set.js";
 import type { EdgeGraph } from "./edge.js";
@@ -62,6 +70,8 @@ import { ensureSectionCollection } from "./section-dense-store.js";
 import type { SectionNeedle } from "./section-needle.js";
 import { buildSectionNeedle } from "./section-needle.js";
 import { buildSectionIndex } from "./sections.js";
+import { getPageIndex, invalidatePageIndex } from "./substrate/page-index.js";
+import { readPage, renderPageContent } from "./substrate/page-store.js";
 import { resolveV3Tuning } from "./tuning-profile.js";
 import {
   type MemoryRoutingTurn,
@@ -139,15 +149,75 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 let lanesPromise: Promise<ShadowLanes> | null = null;
 
 /**
+ * `memory_checkpoints` key carrying the lanes-version token — the
+ * cross-process invalidation signal. Memory jobs (the consolidation run's
+ * `memory_v3_maintain` follow-up) execute in the standalone memory worker
+ * process, so their `invalidateLanes()` cannot touch the daemon's
+ * `lanesPromise` directly; bumping the token in the shared workspace DB is
+ * how an invalidation reaches the process that owns the live lanes. Writers
+ * bump the token; {@link getLanes} compares it per call and rebuilds on any
+ * change. The value is an opaque string — only inequality matters.
+ */
+export const LANES_VERSION_CHECKPOINT_KEY = "memory_v3_lanes_version";
+
+/** The persisted lanes-version token captured when the memoized build
+ *  started. {@link getLanes} rebuilds when the store's token differs. */
+let builtLanesVersion: string | null = null;
+
+/**
+ * Current persisted lanes-version token: `null` when the store carries no
+ * token (a legitimate stable state, compared as such), `undefined` when the
+ * read itself failed (DB unavailable). Callers treat `undefined` as "cannot
+ * judge staleness" and keep serving the memoized lanes — degraded freshness
+ * beats a broken turn.
+ */
+function readLanesVersion(): string | null | undefined {
+  try {
+    return getMemoryCheckpoint(LANES_VERSION_CHECKPOINT_KEY);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Drop THIS process's lane caches: the memo and the page-index cache the
+ *  rebuild reads through. Shared by the writer path ({@link invalidateLanes})
+ *  and the observer path in {@link getLanes}. */
+function dropLanesLocal(): void {
+  lanesPromise = null;
+  invalidatePageIndex();
+}
+
+/**
  * Drop the memoized lanes so the NEXT `getLanes` rebuilds them from scratch
  * (fresh section index + fresh needle + fresh edge graph). The rebuild is lazy
- * — this only clears the cache, so the cost is paid by the next caller, and
+ * — this only clears the caches, so the cost is paid by the next caller, and
  * concurrent first-callers after the invalidation still share a single build via
  * the re-memoized promise. Call this whenever the underlying pages change on
  * disk.
+ *
+ * Three effects, and every caller needs all three:
+ *   - null the local memo, so this process rebuilds on its next turn;
+ *   - drop the page-index cache, so the rebuild re-scans the workspace even
+ *     when the pages changed without a daemon tool hook firing (direct disk
+ *     edits, another process's writes);
+ *   - bump the persisted lanes-version token, so OTHER processes observe the
+ *     invalidation — the memory worker is where the maintain job calls this,
+ *     and without the bump the daemon's lanes would never rebuild.
+ *
+ * The bump is best-effort: invalidation must never throw (it runs inside
+ * jobs, the rebuild-index route, and tests), so a checkpoint-write failure
+ * only logs — the local invalidation above still holds.
  */
 export function invalidateLanes(): void {
-  lanesPromise = null;
+  dropLanesLocal();
+  try {
+    setMemoryCheckpoint(LANES_VERSION_CHECKPOINT_KEY, crypto.randomUUID());
+  } catch (err) {
+    log.warn(
+      { err },
+      "lanes-version bump failed; other processes will not observe this invalidation",
+    );
+  }
 }
 
 /** Test-only alias for {@link invalidateLanes}. */
@@ -193,12 +263,12 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     return loaded;
   }
   // Synthetic capability slugs (skills / CLI commands) have no on-disk page, so
-  // they contribute their rendered capability content to the section index —
-  // exactly the content `page-content.ts` injects for them. This puts them in
-  // the section index, so the needle lane (and, once a backfill embeds them, the
-  // dense lane) ranks them by relevance like any other page, instead of being
-  // blindly added to the select pool every turn. Real pages read their body
-  // through the cached `loadPage`.
+  // they contribute their full INDEX-form capability content (for CLI commands,
+  // the complete help text — injection renders only the short summary). This
+  // puts them in the section index, so the needle lane (and, once a backfill
+  // embeds them, the dense lane) ranks them by relevance like any other page,
+  // instead of being blindly added to the select pool every turn. Real pages
+  // read their body through the cached `loadPage`.
   const pageBody = async (slug: Slug): Promise<string> =>
     capabilityOrDiskBody(slug, async (s) => (await loadPage(s))?.body ?? "");
   const pageRaw = async (slug: Slug): Promise<string> => {
@@ -268,11 +338,14 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // stable prefix must be byte-identical across turns to ride the provider KV
   // cache, so the cards are frozen here (lane invalidation at consolidation is
   // the recompute point) instead of being re-read per turn. Capability slugs
-  // render their capability content; disk pages render raw (frontmatter +
-  // body) so `kind: index` pages surface their `links:` map in the card TOC.
-  // Each card carries its lane annotation; fresh cards additionally carry the
-  // page's last-modified time (an absolute stamp — it only changes when the
-  // page does, so the card stays byte-stable between lane recomputes).
+  // card as their short injection form (matching the net-new capability
+  // cards) — a CLI command in the hot set must not pin its full-help index
+  // body into the byte-stable prefix. Disk pages render raw (frontmatter +
+  // body) through `renderCard` so `kind: index` pages surface their `links:`
+  // map in the card TOC. Each disk card carries its lane annotation; fresh
+  // cards additionally carry the page's last-modified time (an absolute
+  // stamp — it only changes when the page does, so the card stays byte-stable
+  // between lane recomputes).
   const modifiedAtBySlug = new Map(
     pageIndex.entries.map((entry) => [entry.slug, entry.modifiedAt]),
   );
@@ -305,10 +378,12 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     ["always", alwaysCandidateSlugs],
   ] as const) {
     for (const slug of slugs) {
-      const raw = await capabilityOrDiskBody(
-        slug,
-        async (s) => (await loadPage(s))?.raw ?? "",
-      );
+      const capability = renderCapabilityContent(slug);
+      if (capability !== null) {
+        prefixCards.set(slug, capability);
+        continue;
+      }
+      const raw = (await loadPage(slug))?.raw ?? "";
       prefixCards.set(slug, renderCard(slug, raw, laneAnnotation(slug, lane)));
     }
   }
@@ -364,9 +439,28 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   };
 }
 
-/** Lazy, memoized accessor for the shadow lanes. */
+/**
+ * Lazy, memoized accessor for the shadow lanes. The memo is valid while the
+ * persisted lanes-version token matches the one captured at build start; a
+ * mismatch (another process — or this one — called {@link invalidateLanes})
+ * drops the memo and rebuilds. A failed token read serves the memo unchanged.
+ */
 function getLanes(config: AssistantConfig): Promise<ShadowLanes> {
+  if (lanesPromise) {
+    const current = readLanesVersion();
+    if (current !== undefined && current !== builtLanesVersion) {
+      // A writer bumped the persisted token since this build — the memory
+      // worker's maintain job after a consolidation, or the rebuild-index
+      // route. This observer path never re-bumps the token: writers bump,
+      // observers only compare — a re-bump here would make every rebuild
+      // trigger another one on the following turn.
+      dropLanesLocal();
+    }
+  }
   if (!lanesPromise) {
+    // Capture the token BEFORE building: a bump that lands mid-build is then
+    // detected on the next call (one extra rebuild, never a missed one).
+    builtLanesVersion = readLanesVersion() ?? null;
     lanesPromise = initLanes(config).catch((err) => {
       // Reset on failure so a transient init error doesn't permanently wedge
       // the shadow lane — the next turn retries.

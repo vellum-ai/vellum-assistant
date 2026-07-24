@@ -55,6 +55,7 @@ import { downloadSlackFile } from "../../messaging/providers/slack/download.js";
 import {
   buildSlackTimezoneMetadata,
   formatSlackTimezoneLabel,
+  isSlackTs,
   mergeSlackMetadata,
   readSlackMetadataFromMessageMetadata,
   type SlackFileMetadata,
@@ -673,12 +674,15 @@ export async function handleChannelInbound({
     typeof sourceMetadata?.messageId === "string"
       ? sourceMetadata.messageId
       : undefined;
-  const slackThreadTs =
-    sourceChannel === "slack" &&
+  // Thread id of the inbound message's external container (Slack thread ts,
+  // Telegram topic id). Scopes conversation resolution and the persisted
+  // binding for thread-scoped channels.
+  const channelThreadId =
     typeof sourceMetadata?.threadId === "string" &&
     sourceMetadata.threadId.trim().length > 0
       ? sourceMetadata.threadId.trim()
       : undefined;
+  const slackThreadTs = sourceChannel === "slack" ? channelThreadId : undefined;
 
   if (isEdit && !sourceMessageId) {
     throw new BadRequestError("sourceMetadata.messageId is required for edits");
@@ -691,7 +695,7 @@ export async function handleChannelInbound({
       conversationExternalId,
       externalMessageId,
       sourceMessageId,
-      sourceThreadId: slackThreadTs,
+      sourceThreadId: channelThreadId,
       canonicalAssistantId,
       assistantId,
       content,
@@ -707,7 +711,7 @@ export async function handleChannelInbound({
     {
       sourceMessageId,
       assistantId: canonicalAssistantId,
-      sourceThreadId: slackThreadTs,
+      sourceThreadId: channelThreadId,
     },
   );
 
@@ -722,7 +726,7 @@ export async function handleChannelInbound({
       sourceChannel,
       externalChatId: conversationExternalId,
       externalChatName: slackChannelName,
-      externalThreadId: slackThreadTs ?? null,
+      externalThreadId: channelThreadId ?? null,
       externalUserId: canonicalSenderId ?? rawSenderId ?? null,
       displayName: body.actorDisplayName ?? null,
       username: body.actorUsername ?? null,
@@ -750,6 +754,10 @@ export async function handleChannelInbound({
         },
     slackActorTimezone,
   );
+  // Exact provenance for this turn's triggering message, read back by
+  // guardian-approval producers to link approval cards to their source.
+  trustCtx.sourceMessageId = sourceMessageId;
+  trustCtx.sourceThreadId = slackThreadTs;
 
   // ── Admission policy floor ──
   // Sits between trust resolution and the agent loop. The gateway attaches
@@ -1458,19 +1466,6 @@ export async function handleChannelInbound({
  * message history yet.
  */
 const SLACK_DM_BACKFILL_WARM_THRESHOLD = 3;
-
-/**
- * Shape-check for a Slack `ts` value. Slack IDs messages by `<seconds>.<micros>`
- * strings (e.g. `"1700000000.000100"`). The daemon also stores an
- * `externalMessageId` derived from the gateway's dedupe key which follows a
- * different format, so any path that feeds a ts to Slack's API
- * (`conversations.history`'s `latest`, etc.) must shape-check first — Slack
- * rejects non-ts arguments with `invalid_arguments`, and passing a malformed
- * bound silently disables the intended history window.
- */
-function isSlackTs(value: string | null | undefined): value is string {
-  return typeof value === "string" && /^\d+\.\d+$/.test(value);
-}
 
 /**
  * Batch size used when pulling candidate rows from SQL. A bare

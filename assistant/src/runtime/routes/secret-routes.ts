@@ -28,7 +28,7 @@ import type { CesClient } from "../../credential-execution/client.js";
 import { evictConversationsForReload } from "../../daemon/conversation-store.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
-import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/v2/memory-v2-startup.js";
+import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/v3/substrate/memory-v2-startup.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateBasetenApiKey } from "../../providers/baseten/client.js";

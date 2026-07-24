@@ -5,6 +5,11 @@ import { Button } from "@vellumai/design-library/components/button";
 export interface CustomPlanRowProps {
   className?: string;
   onConfigure: () => void;
+  /**
+   * Holds Configure disabled while a Pro sub's current tiers are still loading,
+   * so the click can't resolve before the parent knows how to route it.
+   */
+  configureDisabled?: boolean;
 }
 
 /**
@@ -12,7 +17,11 @@ export interface CustomPlanRowProps {
  * Configure does (opening the custom plan modal, or routing Pro subscribers
  * to the manage-plan modal).
  */
-export function CustomPlanRow({ className, onConfigure }: CustomPlanRowProps) {
+export function CustomPlanRow({
+  className,
+  onConfigure,
+  configureDisabled,
+}: CustomPlanRowProps) {
   return (
     <div className={`flex w-full flex-col items-center gap-8 ${className ?? ""}`}>
       <p className="text-center text-[20px] font-medium text-[var(--content-tertiary)]">
@@ -40,7 +49,11 @@ export function CustomPlanRow({ className, onConfigure }: CustomPlanRowProps) {
           <span className="text-[11px] font-medium text-[var(--content-tertiary)]">
             Billed monthly
           </span>
-          <Button variant="outlined" onClick={onConfigure}>
+          <Button
+            variant="outlined"
+            onClick={onConfigure}
+            disabled={configureDisabled}
+          >
             Configure
           </Button>
         </div>

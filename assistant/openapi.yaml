@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.10
+  version: 0.10.11
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -14300,7 +14300,7 @@ paths:
             type: string
           description:
             "Filter by provider id. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, openai-compatible, minimax, atlascloud, baseten"
+            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten"
       responses:
         "200":
           description: Successful response
@@ -14531,7 +14531,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, openai-compatible, minimax, atlascloud, baseten, vellum"
+            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, vellum"
       responses:
         "200":
           description: Successful response
@@ -16357,6 +16357,50 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/live-voice/preflight:
+    post:
+      operationId: livevoice_preflight_post
+      summary: Live voice preflight
+      description: Ensure managed speech defaulting has run, then report whether live voice can start.
+      tags:
+        - live-voice
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - ready
+                      - not-ready
+                  missing:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind:
+                          type: string
+                          enum:
+                            - stt
+                            - tts
+                        providerId:
+                          type: string
+                        reason:
+                          type: string
+                      required:
+                        - kind
+                        - providerId
+                        - reason
+                      additionalProperties: false
+                  userMessage:
+                    type: string
+                required:
+                  - status
+                additionalProperties: false
   /v1/llm-request-logs/{id}/context:
     get:
       operationId: llmrequestlogs_by_id_context_get
@@ -17052,6 +17096,15 @@ paths:
           schema:
             type: integer
           description: Max results (default 50, max 200)
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - skill
+              - cli
+          description: "Restrict to auto-seeded capability nodes: 'skill' or 'cli'"
       responses:
         "200":
           description: Successful response
@@ -17426,8 +17479,9 @@ paths:
       operationId: memory_remember_post
       summary: Create a memory by remembering a fact
       description:
-        Append a user-authored fact to the memory buffer via handleRemember; it is materialized into a graph node
-        later by consolidation.
+        Append a user-authored fact to the memory buffer via handleRemember. The fact surfaces in the memory graph
+        immediately as a pending node, and a consolidation run is nudged (deduped, backoff-respecting) so it files into
+        concept pages promptly.
       tags:
         - memory
       requestBody:
@@ -17462,8 +17516,10 @@ paths:
       operationId: memory_stats_get
       summary: Get lightweight memory stats
       description:
-        Return a cheap count of concept pages from the cached memory page index, for glanceable surfaces like the
-        identity Memory card. Counts concept pages only and never builds the memory-concept graph.
+        "Return a cheap count of concept pages from the cached memory page index, for glanceable surfaces like the
+        identity Memory card. Counts concept pages only and never builds the memory-concept graph. Also reports
+        graph_supported: whether the memory-concept graph is available for this assistant (memory enabled and v3 live),
+        so callers can gate the graph entry point without building the graph."
       tags:
         - memory
       responses:
@@ -17477,8 +17533,12 @@ paths:
                   concepts:
                     type: number
                     description: Number of concept pages in memory
+                  graph_supported:
+                    type: boolean
+                    description: Whether the memory-concept graph is available (memory enabled and v3 live)
                 required:
                   - concepts
+                  - graph_supported
                 additionalProperties: false
   /v1/memory/v2/backfill:
     post:
@@ -17703,7 +17763,9 @@ paths:
     post:
       operationId: memory_v2_reembedskills_post
       summary: Re-seed v2 skill entries from the current skill catalog
-      description: Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on config.memory.v2.enabled.
+      description:
+        Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on concept-page memory
+        being active.
       tags:
         - memory
       requestBody:
@@ -32293,8 +32355,6 @@ components:
               anyOf:
                 - type: object
                   properties:
-                    mode:
-                      $ref: "#/components/schemas/ServiceMode"
                     provider:
                       type: string
                   additionalProperties: {}
@@ -32339,7 +32399,10 @@ components:
         - minimax
         - atlascloud
         - together
+        - litellm
         - baseten
+        - vellum
+        - chatgpt
     ProfilePatchEntry:
       type: object
       properties:
@@ -32713,6 +32776,7 @@ components:
         - together
         - openrouter
         - vercel-ai-gateway
+        - litellm
         - openai-compatible
         - minimax
         - atlascloud
@@ -33107,8 +33171,6 @@ components:
             web-search:
               type: object
               properties:
-                mode:
-                  $ref: "#/components/schemas/ServiceMode"
                 provider:
                   type: string
               additionalProperties: {}

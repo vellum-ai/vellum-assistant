@@ -15,6 +15,8 @@ import { existsSync } from "node:fs";
 
 import { and, eq, sql } from "drizzle-orm";
 
+import { isBindingDemotion } from "@vellumai/gateway-client";
+
 import { getGatewayDb } from "../db/connection.js";
 import {
   contactChannels as gwContactChannels,
@@ -82,6 +84,10 @@ export async function findContactChannelByAddress(
  * legacy/unmirrored channel may carry a different gateway id than the
  * assistant id, and a blind id-keyed update would silently affect 0 rows.
  *
+ * `verifiedAt` defaults to `now`; the caller passes an explicit value to
+ * preserve an existing timestamp when the binding-strength guard keeps a
+ * stronger `verifiedVia` (see {@link applyVerifiedChannelGatewayWrites}).
+ *
  * Returns true if a gateway row was updated or inserted; false if the only
  * matching row is blocked/revoked (so nothing was written).
  */
@@ -93,6 +99,7 @@ function writeVerifiedGatewayChannel(params: {
   externalChatId: string;
   verifiedVia: string;
   now: number;
+  verifiedAt?: number;
   allowRevokedReactivation?: boolean;
 }): boolean {
   const {
@@ -103,6 +110,7 @@ function writeVerifiedGatewayChannel(params: {
     externalChatId,
     verifiedVia,
     now,
+    verifiedAt,
     allowRevokedReactivation,
   } = params;
   const gwDb = getGatewayDb();
@@ -111,7 +119,7 @@ function writeVerifiedGatewayChannel(params: {
     policy: "allow",
     address,
     externalChatId,
-    verifiedAt: now,
+    verifiedAt: verifiedAt ?? now,
     verifiedVia,
     revokedReason: null,
     blockedReason: null,
@@ -523,8 +531,11 @@ export function applyVerifiedChannelGatewayWrites(params: {
   // The gateway is the source of truth: a blocked/revoked gateway row rejects
   // the verification, gating BOTH the existing-channel update and the
   // new-insert path so no active mirror is created for a blocked actor. A
-  // missing gateway row is the legitimate happy path (legacy/unmirrored).
-  const gwStatus = gatewayChannelStatus(sourceChannel, address);
+  // missing gateway row is the legitimate happy path (legacy/unmirrored). The
+  // same authoritative read carries the existing binding provenance for the
+  // demotion guard below.
+  const gwRow = getGatewayChannelByKey(sourceChannel, address);
+  const gwStatus = gwRow?.status ?? null;
   if (
     gwStatus === "blocked" ||
     (gwStatus === "revoked" && !allowRevokedReactivation)
@@ -534,6 +545,33 @@ export function applyVerifiedChannelGatewayWrites(params: {
       "Skipping upsert: authoritative gateway channel is blocked or revoked",
     );
     return { verified: false };
+  }
+
+  // Binding-strength guard (LUM-2505): a lower-strength source must never
+  // demote the recorded provenance of an already-active binding. When the
+  // incoming write would weaken the ladder, preserve the stronger existing
+  // `verified_via` / `verified_at`; the write still refreshes identity/ACL
+  // fields, it just cannot lower the proof. Only active bindings are protected
+  // — reactivation from revoked is invite-gated (a proven, top-tier
+  // `verified_via`) and keeps the incoming provenance.
+  let effectiveVerifiedVia = verifiedVia;
+  let effectiveVerifiedAt: number | undefined;
+  if (
+    gwRow &&
+    gwRow.status === "active" &&
+    isBindingDemotion(gwRow.verifiedVia, verifiedVia)
+  ) {
+    effectiveVerifiedVia = gwRow.verifiedVia ?? verifiedVia;
+    effectiveVerifiedAt = gwRow.verifiedAt ?? undefined;
+    log.warn(
+      {
+        sourceChannel,
+        address,
+        existingVerifiedVia: gwRow.verifiedVia,
+        incomingVerifiedVia: verifiedVia,
+      },
+      "Refusing binding-strength demotion: preserving stronger existing verified_via",
+    );
   }
 
   if (existing) {
@@ -575,8 +613,9 @@ export function applyVerifiedChannelGatewayWrites(params: {
       type: sourceChannel,
       address,
       externalChatId,
-      verifiedVia,
+      verifiedVia: effectiveVerifiedVia,
       now,
+      verifiedAt: effectiveVerifiedAt,
       allowRevokedReactivation,
     });
     // The pre-check passed, so a write is expected. A false means a
@@ -651,8 +690,9 @@ export function applyVerifiedChannelGatewayWrites(params: {
     type: sourceChannel,
     address,
     externalChatId,
-    verifiedVia,
+    verifiedVia: effectiveVerifiedVia,
     now,
+    verifiedAt: effectiveVerifiedAt,
     allowRevokedReactivation,
   });
   // A blocked/revoked gateway row appeared after the pre-check — reject

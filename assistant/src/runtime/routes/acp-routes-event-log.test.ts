@@ -8,17 +8,21 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AcpSessionState } from "../../acp/index.js";
-import type { AcpSessionUpdate } from "../../daemon/message-types/acp.js";
+import type { AcpSessionUpdateEvent } from "../../api/events/acp-session-update.js";
 
 const inMemoryStates = new Map<string, AcpSessionState>();
-const bufferedUpdates = new Map<string, AcpSessionUpdate[]>();
+const bufferedUpdates = new Map<string, AcpSessionUpdateEvent[]>();
 
 mock.module("../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
     getStatus: (id?: string) => {
-      if (id === undefined) return Array.from(inMemoryStates.values());
+      if (id === undefined) {
+        return Array.from(inMemoryStates.values());
+      }
       const state = inMemoryStates.get(id);
-      if (!state) throw new Error(`ACP session "${id}" not found`);
+      if (!state) {
+        throw new Error(`ACP session "${id}" not found`);
+      }
       return state;
     },
     getBufferedUpdates: (id: string) => bufferedUpdates.get(id) ?? [],
@@ -45,7 +49,9 @@ function getListHandler() {
     (r: { endpoint: string; method: string }) =>
       r.endpoint === "acp/sessions" && r.method === "GET",
   );
-  if (!route) throw new Error("GET acp/sessions route not registered");
+  if (!route) {
+    throw new Error("GET acp/sessions route not registered");
+  }
   return route.handler;
 }
 
@@ -65,7 +71,7 @@ function makeInMemoryState(
   };
 }
 
-function makeUpdate(seq: number, content: string): AcpSessionUpdate {
+function makeUpdate(seq: number, content: string): AcpSessionUpdateEvent {
   return {
     type: "acp_session_update",
     acpSessionId: "active",
@@ -102,7 +108,7 @@ describe("GET /v1/acp/sessions — eventLog", () => {
 
     const session = result.sessions.find((s) => s.id === "active");
     expect(session).toBeDefined();
-    const eventLog = session?.eventLog as AcpSessionUpdate[];
+    const eventLog = session?.eventLog as AcpSessionUpdateEvent[];
     expect(eventLog).toHaveLength(2);
     expect(eventLog.map((u) => u.seq)).toEqual([1, 2]);
     expect(eventLog[0]?.content).toBe("hello");
@@ -149,7 +155,7 @@ describe("GET /v1/acp/sessions — eventLog", () => {
 
     const session = result.sessions.find((s) => s.id === "terminal");
     expect(session).toBeDefined();
-    const eventLog = session?.eventLog as AcpSessionUpdate[];
+    const eventLog = session?.eventLog as AcpSessionUpdateEvent[];
     expect(eventLog).toHaveLength(1);
     expect(eventLog[0]?.seq).toBe(7);
     expect(eventLog[0]?.content).toBe("persisted");
@@ -159,7 +165,7 @@ describe("GET /v1/acp/sessions — eventLog", () => {
     const rawInput = { command: "grep -rn foo", pattern: "foo" };
     const rawOutput = "src/a.ts:1: foo\nsrc/b.ts:9: foo";
 
-    const activeToolCall: AcpSessionUpdate = {
+    const activeToolCall: AcpSessionUpdateEvent = {
       type: "acp_session_update",
       acpSessionId: "active",
       updateType: "tool_call",
@@ -187,7 +193,7 @@ describe("GET /v1/acp/sessions — eventLog", () => {
           rawInput,
           rawOutput,
           seq: 1,
-        } satisfies AcpSessionUpdate,
+        } satisfies AcpSessionUpdateEvent,
       ]),
     });
 
@@ -199,7 +205,7 @@ describe("GET /v1/acp/sessions — eventLog", () => {
     for (const id of ["active", "terminal"]) {
       const session = result.sessions.find((s) => s.id === id);
       expect(session).toBeDefined();
-      const eventLog = session?.eventLog as AcpSessionUpdate[];
+      const eventLog = session?.eventLog as AcpSessionUpdateEvent[];
       expect(eventLog).toHaveLength(1);
       expect(eventLog[0]?.rawInput).toEqual(rawInput);
       expect(eventLog[0]?.rawOutput).toBe(rawOutput);

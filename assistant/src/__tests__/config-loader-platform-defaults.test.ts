@@ -75,9 +75,10 @@ function readConfig(): Record<string, unknown> {
 // When IS_PLATFORM=true, every managed-capable service defaults to "managed".
 // Without IS_PLATFORM, services split by Zod schema default: google/notion-oauth
 // resolve to "managed" (per JARVIS-966), the rest resolve to "your-own".
+// web-search is deliberately absent: `provider` is its only axis, so the
+// platform context injects no mode for it.
 const MANAGED_SERVICES = [
   "image-generation",
-  "web-search",
   "google-oauth",
   "outlook-oauth",
   "linear-oauth",
@@ -99,9 +100,9 @@ const SCHEMA_MANAGED_DEFAULT_SERVICES = [
   "notion-oauth",
 ] as const;
 
+// web-search is absent from both lists: it carries no mode at all.
 const SCHEMA_YOUR_OWN_DEFAULT_SERVICES = [
   "image-generation",
-  "web-search",
   "outlook-oauth",
   "linear-oauth",
   "github-oauth",
@@ -428,8 +429,9 @@ describe("GET /v1/config handler — context-default fill on raw response", () =
     >;
     const services = result["services"] as Record<string, { mode: string }>;
     expect(services["image-generation"]!.mode).toBe("your-own");
-    // web-search was missing → fill.
-    expect(services["web-search"]!.mode).toBe("managed");
+    // web-search is not context-filled: a filled `mode` would override BYOK
+    // configs on every load.
+    expect(services["web-search"]).toBeUndefined();
     // inference.mode is a legacy backwards-compat wire field — synthesized
     // here for old macOS clients (SettingsStore.swift) that still read it.
     expect(services["inference"]!.mode).toBe("managed");

@@ -1,8 +1,8 @@
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 
+import type { BackgroundToolCompletedEvent } from "../../api/events/background-tool-completed.js";
 import { getConfig } from "../../config/loader.js";
-import type { BackgroundToolCompleted } from "../../daemon/message-types/background-tools.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
@@ -340,7 +340,9 @@ export const shellTool = {
       let completed = false;
 
       child.on("close", (code, signal) => {
-        if (completed) {return;}
+        if (completed) {
+          return;
+        }
         completed = true;
         clearTimeout(timer);
         removeBackgroundTool(bgId);
@@ -367,7 +369,7 @@ export const shellTool = {
           timeoutSec,
         );
 
-        const status: BackgroundToolCompleted["status"] = aborted
+        const status: BackgroundToolCompletedEvent["status"] = aborted
           ? "cancelled"
           : timedOut
             ? "failed"
@@ -430,7 +432,9 @@ export const shellTool = {
       });
 
       child.on("error", (err) => {
-        if (completed) {return;}
+        if (completed) {
+          return;
+        }
         completed = true;
         clearTimeout(timer);
         removeBackgroundTool(bgId);

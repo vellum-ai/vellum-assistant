@@ -6,7 +6,7 @@
  * connection per request; remote hosts are unaffected.
  */
 
-function isLoopbackUrl(url: string): boolean {
+export function isLoopbackUrl(url: string): boolean {
   try {
     // WHATWG URL canonicalizes hostnames, so IPv6 loopback is always "[::1]".
     const h = new URL(url).hostname;

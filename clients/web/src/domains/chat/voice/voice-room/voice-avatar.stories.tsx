@@ -196,12 +196,9 @@ function RoomScene({
           size={size}
         />
       </div>
-      {/* Shared caption below the centered avatar (half its size from center,
-          plus a gap), matching the app's void look. */}
-      <VoiceStateCaption
-        visual={visual}
-        top={`calc(50% + ${size / 2}px + 1.25rem)`}
-      />
+      {/* Shared caption in the room's lower text zone, matching the app's void
+          look — the same anchor the color look uses. */}
+      <VoiceStateCaption visual={visual} />
     </div>
   );
 }
@@ -444,7 +441,9 @@ export const States: Story = {
             visual={visual}
             eyePlacement="center"
             wavePlacement="top"
-            minHeight={280}
+            // Tall enough that the lower zone's caption clears the eyes in a
+            // grid cell — the zone anchors off the frame, not the centerpiece.
+            minHeight={320}
           />
         </div>
       ))}
@@ -551,7 +550,9 @@ export const VoidLookStates: VoidStory = {
       {VISUALS.map((visual) => (
         <div key={visual} className="flex flex-col gap-2">
           <span className="text-[13px] font-medium text-white/60">{visual}</span>
-          <RoomScene {...args} visual={visual} size={140} minHeight={260} />
+          {/* Tall enough that the lower zone's caption clears the avatar in a
+              grid cell — the zone anchors off the frame, not the centerpiece. */}
+          <RoomScene {...args} visual={visual} size={140} minHeight={360} />
         </div>
       ))}
     </div>

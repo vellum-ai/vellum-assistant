@@ -5,7 +5,7 @@ import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 // The voice picker has its own tests; here it stays collapsed (unavailable) so
 // the menu renders without the daemon query graph / a QueryClient.
-mock.module("@/domains/chat/voice/voice-room/use-managed-voice-selection", () => ({
+mock.module("@/components/speech/use-managed-voice-selection", () => ({
   useManagedVoiceSelection: () => ({
     available: false,
     voices: [],

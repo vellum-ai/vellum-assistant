@@ -29,6 +29,7 @@ const NODE_KIND_ORDER: ConceptNodeKind[] = [
   "concept",
   "skill",
   "capability",
+  "pending",
   "other",
 ];
 
@@ -203,32 +204,36 @@ export function ConceptGraphView({
   // Disconnected nodes (degree 0) each form their own singleton cluster; they're
   // not themes, so skipping them keeps orphans from turning into label soup.
   const themes = useMemo(() => {
-    const bestByCluster = new Map<number, GraphLayoutNode>();
-    const sizeByCluster = new Map<number, number>();
+    const byCluster = new Map<number, GraphLayoutNode[]>();
     for (const node of layout.nodes) {
       const cluster = clusters.get(node.id);
       if (cluster == null || node.degree === 0) {
         continue;
       }
-      sizeByCluster.set(cluster, (sizeByCluster.get(cluster) ?? 0) + 1);
-      const current = bestByCluster.get(cluster);
-      if (
-        !current ||
-        node.degree > current.degree ||
-        (node.degree === current.degree && node.id < current.id)
-      ) {
-        bestByCluster.set(cluster, node);
+      const arr = byCluster.get(cluster);
+      if (arr) {
+        arr.push(node);
+      } else {
+        byCluster.set(cluster, [node]);
       }
     }
-    // Largest themes first; each named by its hub concept and colored to match
-    // the cluster palette, so the legend can map color → theme.
-    return [...bestByCluster.entries()]
-      .map(([cluster, hub]) => ({
-        hubId: hub.id,
-        color: CLUSTER_PALETTE[cluster % CLUSTER_PALETTE.length],
-        name: hub.label,
-        size: sizeByCluster.get(cluster) ?? 0,
-      }))
+    // Each theme takes its hub concept (highest degree) as the compact legend
+    // name, and carries its top few concepts along for the hover tooltip.
+    // Colored to match the cluster palette; largest themes first; ties break to
+    // lowest id.
+    return [...byCluster.entries()]
+      .map(([cluster, nodes]) => {
+        const top = [...nodes]
+          .sort((a, b) => b.degree - a.degree || (a.id < b.id ? -1 : 1))
+          .slice(0, 3);
+        return {
+          hubId: top[0].id,
+          color: CLUSTER_PALETTE[cluster % CLUSTER_PALETTE.length],
+          name: top[0].label,
+          concepts: top.map((n) => n.label),
+          size: nodes.length,
+        };
+      })
       .sort((a, b) => b.size - a.size);
   }, [clusters, layout.nodes]);
 
@@ -870,7 +875,12 @@ export function ConceptGraphView({
         ctx.shadowColor = color;
         ctx.shadowBlur = lit ? glow : 0;
 
-        ctx.globalAlpha = alpha * 0.55;
+        // Pending buffer entries render as a lighter fill with a dashed ring —
+        // "saved but not yet filed" — so they read apart from settled concepts
+        // even where the amber overlaps a cluster hue.
+        const isPending = node.kind === "pending";
+
+        ctx.globalAlpha = alpha * (isPending ? 0.3 : 0.55);
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(p.sx, p.sy, p.sr, 0, Math.PI * 2);
@@ -880,7 +890,9 @@ export function ConceptGraphView({
         ctx.globalAlpha = alpha;
         ctx.lineWidth = isActive ? 2.5 : 1.4;
         ctx.strokeStyle = color;
+        ctx.setLineDash(isPending ? [3, 3] : []);
         ctx.stroke();
+        ctx.setLineDash([]);
       }
       ctx.shadowBlur = 0;
 

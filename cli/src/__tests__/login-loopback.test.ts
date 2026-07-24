@@ -3,7 +3,9 @@ import { describe, expect, test } from "bun:test";
 import { startLoopbackListener } from "../commands/login.js";
 
 /** Resolve "settled"/"pending" — proves whether `waitForCode` resolved. */
-async function settleState(p: Promise<unknown>): Promise<"settled" | "pending"> {
+async function settleState(
+  p: Promise<unknown>,
+): Promise<"settled" | "pending"> {
   return Promise.race([
     p.then(
       () => "settled" as const,
@@ -49,7 +51,9 @@ describe("startLoopbackListener", () => {
         () => null,
         (e: Error) => e,
       );
-      const res = await fetch(`${listener.redirectUri}?error=access_denied&state=st`);
+      const res = await fetch(
+        `${listener.redirectUri}?error=access_denied&state=st`,
+      );
       expect(res.status).toBe(400);
       const err = await settled;
       expect(err?.message).toMatch(/access_denied/);

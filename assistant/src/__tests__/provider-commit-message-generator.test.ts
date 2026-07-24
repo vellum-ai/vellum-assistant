@@ -333,4 +333,23 @@ describe("ProviderCommitMessageGenerator", () => {
     const options = callArgs[1] as SendMessageOptions | undefined;
     expect(options?.config?.callSite).toBe("commitMessage");
   });
+
+  // 13. Routing identity — no provider API key exists under an identity name;
+  // the preflight skips it because resolution already verified the
+  // connection credential.
+  test("routing identity (vellum) — skips the API-key preflight", async () => {
+    mockSecureKeys = {};
+    resolvedProvider = {
+      provider: mockProvider,
+      configuredProviderName: "vellum",
+    };
+    const commitMsg = "fix: managed-route commit";
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe("llm");
+    expect(result.message).toBe(commitMsg);
+  });
 });

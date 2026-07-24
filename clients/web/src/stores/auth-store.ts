@@ -54,7 +54,6 @@ import {
 } from "@/lib/local-mode";
 import { bootstrapLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { listAssistants } from "@/assistant/api";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { unregisterFromRemotePush } from "@/runtime/push-registration";
 import {
@@ -816,22 +815,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         await syncUserScopedState(user?.id ?? null);
-        try {
-          await useOrganizationStore.getState().fetchOrganizations();
-          const apiAssistants = await listAssistants();
-          if (apiAssistants.ok) {
-            useResolvedAssistantsStore
-              .getState()
-              .setFromApi(apiAssistants.data);
-          } else {
-            useResolvedAssistantsStore.getState().markHydrated();
-          }
-        } catch {
-          // Best effort — but the route guard gates on hydration, so a failed
-          // fetch must still mark the list settled or navigation would stall
-          // against its hydration timeout on every route change.
-          useResolvedAssistantsStore.getState().markHydrated();
-        }
+        // The resolved assistants list is loaded by the platform-session
+        // subscription (setupPlatformAssistantsSync), which fires when the
+        // transition below flips `platformSession` to "present".
         set(authenticatedPlatformUser(user));
         return;
       }
@@ -859,21 +845,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
           if (retryResult.ok && retryResult.data.user) {
             const user = toAuthUser(retryResult.data.user);
             await syncUserScopedState(user?.id ?? null);
-            try {
-              await useOrganizationStore.getState().fetchOrganizations();
-              const apiAssistants = await listAssistants();
-              if (apiAssistants.ok) {
-                useResolvedAssistantsStore
-                  .getState()
-                  .setFromApi(apiAssistants.data);
-              } else {
-                useResolvedAssistantsStore.getState().markHydrated();
-              }
-            } catch {
-              // Best effort — a failed fetch still marks the list settled so
-              // the route guard's hydration wait can't stall navigation.
-              useResolvedAssistantsStore.getState().markHydrated();
-            }
+            // The resolved assistants list loads via the platform-session
+            // subscription (setupPlatformAssistantsSync) when the transition
+            // below flips `platformSession` to "present".
             set(authenticatedPlatformUser(user));
             return;
           }

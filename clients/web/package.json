@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/web",
-  "version": "0.10.10",
+  "version": "0.10.11",
   "type": "module",
   "description": "Pre-built web SPA for the Vellum Assistant",
   "license": "MIT",
@@ -77,6 +77,7 @@
     "lucide-react": "1.16.0",
     "motion": "12.39.0",
     "pdfjs-dist": "5.7.284",
+    "qrcode.react": "4.2.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "react-markdown": "10.1.0",

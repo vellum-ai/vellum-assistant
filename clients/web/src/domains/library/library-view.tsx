@@ -30,7 +30,6 @@ import { Button, Input, toast } from "@vellumai/design-library";
 export interface LibraryViewProps {
   assistantId: string;
   assistantName?: string;
-  title?: string;
   onNewConversation?: (initialMessage?: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   onOpenApp: (appId: string) => void;
@@ -39,7 +38,6 @@ export interface LibraryViewProps {
 export function LibraryView({
   assistantId,
   assistantName,
-  title,
   onNewConversation,
   onOpenDocument,
   onOpenApp,
@@ -172,14 +170,7 @@ export function LibraryView({
   // --- Render: main library grid ---
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="mb-4 flex shrink-0 items-center justify-between gap-4">
-        {title ? (
-          <h1 className="text-title-large text-[var(--content-default)]">
-            {title}
-          </h1>
-        ) : (
-          <span />
-        )}
+      <div className="mb-4 flex shrink-0 items-center justify-end gap-4">
         <div className="flex items-center gap-2">
           <input
             ref={fileInputRef}

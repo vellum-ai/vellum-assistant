@@ -599,6 +599,10 @@ export function useLiveVoice(
       // speaks, so the avatar looked inverted — pulsing on the user's voice, not
       // the assistant's. Cleared by the store reset in teardown()/stop().
       store.setOutputAmplitudeProvider(() => player.getOutputAmplitude());
+      // Feed the voice-room transcript's spoken-word cursor: it maps the
+      // player's played/total seconds onto the caption's words each animation
+      // frame. Cleared by the store reset in teardown()/stop().
+      store.setPlaybackProgressProvider(() => player.getPlaybackProgress());
 
       const session: SessionContext = {
         assistantId,
@@ -775,6 +779,10 @@ export function useLiveVoice(
           // previous response's audio can never consume it.
           session.turnHeardStampMs = session.speechEndedAtMs;
           session.speechEndedAtMs = null;
+          // Playback progress resets with the transcript so the new
+          // response's spoken-word cursor starts at the first word instead of
+          // counting the previous response's audio.
+          session.player.resetPlaybackProgress();
           const s = useLiveVoiceStore.getState();
           s.clearAssistantTranscript();
           s.setState("thinking");

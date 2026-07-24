@@ -44,8 +44,8 @@ let simBatchImpl: (
   text: string,
   slugs: readonly string[],
 ) => Promise<Map<string, number>> = async () => new Map();
-const realSim = await import("../../v2/sim.js");
-mock.module("../../v2/sim.js", () => ({
+const realSim = await import("../substrate/sim.js");
+mock.module("../substrate/sim.js", () => ({
   ...realSim,
   simBatch: (text: string, slugs: readonly string[]) =>
     simBatchImpl(text, slugs),

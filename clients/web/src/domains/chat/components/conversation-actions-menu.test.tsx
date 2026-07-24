@@ -170,6 +170,32 @@ describe("renderConversationMenuItems", () => {
     expect(html).not.toContain("Mark as unread");
   });
 
+  test("renders the channel source link item when provided", () => {
+    const html = renderToStaticMarkup(
+      <>{renderConversationMenuItems({
+        Primitive: Menu as unknown as ConversationMenuPrimitive,
+        variant: "header",
+        channelSourceLink: {
+          href: "https://slack.com/archives/C01ABC/p1700000000000100",
+          label: "Open in Slack",
+        },
+        onPinToggle: () => {},
+      })}</>,
+    );
+    expect(html).toContain("Open in Slack");
+  });
+
+  test("omits the channel source link item when absent", () => {
+    const html = renderToStaticMarkup(
+      <>{renderConversationMenuItems({
+        Primitive: Menu as unknown as ConversationMenuPrimitive,
+        variant: "header",
+        onPinToggle: () => {},
+      })}</>,
+    );
+    expect(html).not.toContain("Open in Slack");
+  });
+
   test("renders header variant with correct item order", () => {
     const html = renderToStaticMarkup(
       <>{renderConversationMenuItems({
@@ -395,6 +421,23 @@ describe("renderConversationMenuItemsAsPanelItems", () => {
     expect(html).toContain("Pin");
     expect(html).toContain("Rename");
     expect(html).toContain("Archive");
+  });
+
+  test("renders the channel source link row when provided", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItemsAsPanelItems({
+          variant: "header",
+          channelSourceLink: {
+            href: "https://slack.com/archives/C01ABC/p1700000000000100",
+            label: "Open in Slack",
+          },
+          onPinToggle: () => {},
+          onClose: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Open in Slack");
   });
 });
 

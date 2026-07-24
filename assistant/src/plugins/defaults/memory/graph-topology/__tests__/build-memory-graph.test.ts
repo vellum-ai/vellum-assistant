@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type { PageIndexEntry } from "../../v2/page-index.js";
+import type { PageIndexEntry } from "../../v3/substrate/page-index.js";
 import type { Slug } from "../../v3/types.js";
 import { assembleMemoryGraph } from "../build-memory-graph.js";
 

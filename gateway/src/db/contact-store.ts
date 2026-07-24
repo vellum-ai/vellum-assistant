@@ -2,6 +2,7 @@ import { type Database } from "bun:sqlite";
 
 import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 
+import { isBindingDemotion } from "@vellumai/gateway-client";
 import {
   type AssistantContactMetadata,
   type ContactRead,
@@ -722,6 +723,25 @@ export class ContactStore {
     const gwChannel = await this.resolveGatewayChannel(channelId);
     if (!gwChannel) return null;
     const gwChannelId = gwChannel.id;
+
+    // Binding-strength guard (LUM-2505): never demote an active binding's
+    // provenance. A lower-strength verifiedVia (e.g. a `manual` roster attest)
+    // over an already-active, higher-strength channel (e.g. `challenge`) is
+    // refused — the stronger existing binding stands, as an idempotent no-op.
+    if (
+      gwChannel.status === "active" &&
+      isBindingDemotion(gwChannel.verifiedVia, verifiedVia)
+    ) {
+      log.warn(
+        {
+          channelId: gwChannelId,
+          existingVerifiedVia: gwChannel.verifiedVia,
+          incomingVerifiedVia: verifiedVia,
+        },
+        "markChannelVerified: refusing binding-strength demotion; preserving stronger verified_via",
+      );
+      return { channel: gwChannel, didWrite: false };
+    }
 
     const now = Date.now();
     const raw = (this.db as unknown as { $client: Database }).$client;
@@ -1545,9 +1565,27 @@ export class ContactStore {
           if (ch.blockedReason !== undefined)
             updateSet.blockedReason = ch.blockedReason;
         }
-        if (ch.verifiedAt !== undefined) updateSet.verifiedAt = ch.verifiedAt;
-        if (ch.verifiedVia !== undefined)
-          updateSet.verifiedVia = ch.verifiedVia;
+        // Binding-strength guard (LUM-2505): a lower-strength verifiedVia must
+        // not demote an active binding. When it would, preserve the stronger
+        // existing verified_via/verified_at; benign field updates still apply.
+        if (
+          existing.status === "active" &&
+          ch.verifiedVia !== undefined &&
+          isBindingDemotion(existing.verifiedVia, ch.verifiedVia)
+        ) {
+          log.warn(
+            {
+              channelId: existing.id,
+              existingVerifiedVia: existing.verifiedVia,
+              incomingVerifiedVia: ch.verifiedVia,
+            },
+            "syncChannels: refusing binding-strength demotion; preserving stronger verified_via",
+          );
+        } else {
+          if (ch.verifiedAt !== undefined) updateSet.verifiedAt = ch.verifiedAt;
+          if (ch.verifiedVia !== undefined)
+            updateSet.verifiedVia = ch.verifiedVia;
+        }
         if (ch.inviteId !== undefined) updateSet.inviteId = ch.inviteId;
         this.db
           .update(contactChannels)

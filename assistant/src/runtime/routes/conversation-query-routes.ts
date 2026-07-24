@@ -51,6 +51,7 @@ import {
   LLMConfigBase,
   LLMConfigFragment,
   ProfileEntry,
+  routingIdentityModelIssue,
 } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { ServiceModeSchema } from "../../config/schemas/services.js";
@@ -88,8 +89,9 @@ import { getLlmRequestLogSource } from "../../persistence/llm-request-log-source
 import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/memory-v2-activation-log-store.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/v2/constants.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/v3/substrate/constants.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
 import {
   createConnection,
@@ -690,7 +692,6 @@ const ConfigGetResponseSchema = z
       .object({
         "web-search": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
@@ -793,7 +794,6 @@ const ConfigPatchRequestSchema = z
       .object({
         "web-search": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
@@ -1346,6 +1346,55 @@ function completeChangedCustomProfiles(
  * Shared by `handlePatchConfig` and `handleSetConfig` so both write paths get
  * identical post-write side effects.
  */
+/**
+ * Reject writes that would store a routing-identity provider with a missing
+ * or unroutable model (see `routingIdentityModelIssue`). saveRawConfig
+ * persists without schema validation, so the parse-time rejection alone
+ * would let the pair reach disk and be stripped on the next read — a silent
+ * no-op where the user expects a saved override.
+ */
+function assertRoutableIdentityEntries(raw: Record<string, unknown>): void {
+  const llm = raw.llm as
+    | {
+        default?: { provider?: unknown; model?: unknown } | null;
+        profiles?: Record<
+          string,
+          { provider?: unknown; model?: unknown } | null | undefined
+        >;
+        callSites?: Record<
+          string,
+          { provider?: unknown; model?: unknown } | null | undefined
+        >;
+      }
+    | undefined;
+  const entries: [string, { provider?: unknown; model?: unknown }][] = [];
+  // llm.default is a raw compatibility field outside the parsed schema;
+  // profile materialization uses the on-disk blob as its fill base, so it is
+  // checked like the schema-carried sections.
+  if (llm?.default) {
+    entries.push(["llm.default", llm.default]);
+  }
+  for (const section of ["profiles", "callSites"] as const) {
+    for (const [name, entry] of Object.entries(llm?.[section] ?? {})) {
+      if (entry) {
+        entries.push([`llm.${section}.${name}`, entry]);
+      }
+    }
+  }
+  for (const [label, entry] of entries) {
+    if (typeof entry.provider !== "string") {
+      continue;
+    }
+    const issue = routingIdentityModelIssue(
+      entry.provider,
+      typeof entry.model === "string" ? entry.model : undefined,
+    );
+    if (issue) {
+      throw new BadRequestError(`${issue} (${label})`);
+    }
+  }
+}
+
 export async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
@@ -1357,6 +1406,7 @@ export async function commitConfigWrite(
   const preWrite = loadRawConfig();
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
+  assertRoutableIdentityEntries(raw);
 
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write
@@ -1668,7 +1718,16 @@ async function handleReplaceInferenceProfile({
   // profile sharing a managed name is fully editable, so it takes the
   // derivation like any other custom profile.
   const fragment = parsed.data as Record<string, unknown>;
-  if (!isManaged && fragment.provider && !fragment.provider_connection) {
+  // Routing identities resolve their connection per-request from the
+  // provider value; deriving one here would stamp the canonical vellum row
+  // ("vellum" is its stored provider) or create a junk "<identity>-personal"
+  // connection for chatgpt.
+  if (
+    !isManaged &&
+    fragment.provider &&
+    !fragment.provider_connection &&
+    !ROUTING_IDENTITY_PROVIDERS.has(fragment.provider as string)
+  ) {
     const provider = fragment.provider as string;
     const db = getDb();
     // Exclude the orphaned legacy `*-managed` rows: they may still linger in

@@ -172,19 +172,19 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   const identityQuery = useAssistantIdentityDetails(assistantId);
   const supportsPlugins = useSupportsPluginsSurface();
   const showChannels = useAssistantFeatureFlagStore.use.channelTrustFloors();
-  const showMemory = useAssistantFeatureFlagStore.use.memoryConceptGraph();
   const stats = useIdentitySectionStats(assistantId, {
     supportsPlugins,
     showChannels,
   });
   // The Memory card's measurement is the cheap page-index concept count
   // (get-memory-stats) — NOT the concept-graph build, which is kept off
-  // identity-page load. Gated on `showMemory` so no request fires while the
-  // Memory card is hidden.
-  const memoryStats = useQuery({
-    ...memoryStatsOptions(assistantId),
-    enabled: showMemory,
-  });
+  // identity-page load. Fetched unconditionally: the card's visibility now
+  // follows the same call's `graphSupported` capability bit, so the Memory
+  // concept graph is only offered where the backend can build it (memory v3
+  // live) rather than dead-ending on a "not available" graph.
+  const memoryStats = useQuery(memoryStatsOptions(assistantId));
+  const showMemory =
+    memoryStats.data?.kind === "ready" && memoryStats.data.graphSupported;
   const sectionStats: Record<string, IdentitySectionStat | undefined> = {
     ...stats,
     // Only show a count when the daemon actually answered one (`ready`). An
@@ -212,9 +212,11 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           void queryClient.invalidateQueries({
             queryKey: assistantIdentityDetailsQueryKey(assistantId),
           });
-          const { version, setIdentity } =
+          const { version, assistantId: hydratedAssistantId, setIdentity } =
             useAssistantIdentityStore.getState();
-          setIdentity(newName, version);
+          // Preserve the owner tag: a rename changes the name, not which
+          // assistant the hydrated identity belongs to.
+          setIdentity(newName, version, hydratedAssistantId);
           toast.success(`Say hi to ${newName}!`);
         } else {
           toast.error("The rename didn't go through. Please try again.");
@@ -468,15 +470,15 @@ function SectionCard({
     section.key === "personality" || section.key === "schedules";
 
   return (
-    // The feature cards float flat on the page — no border, no shadow;
-    // the other tiles keep the standard raised card chrome.
+    // The feature cards sit flat on the page (no shadow) with a hairline
+    // theme border; the other tiles keep the standard raised card chrome.
     <Card.Root
       asChild
       bordered={!isFeatureCard}
       elevated={!isFeatureCard}
       className={`${SECTION_RADII[section.key] ?? ""} ${
         isFeatureCard
-          ? "border-0 bg-[var(--card-feature-bg,var(--card-bg))]"
+          ? "border border-[var(--border-base)] bg-[var(--card-feature-bg,var(--card-bg))]"
           : "bg-[var(--card-bg)]"
       }`}
       style={{
@@ -965,7 +967,6 @@ function OverviewBento({
               customImageUrl={customImageUrl}
               size={heroAvatarSize}
               interactive
-              trackCursor
             />
             <span
               aria-hidden="true"

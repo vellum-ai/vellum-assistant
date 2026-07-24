@@ -86,7 +86,7 @@ directly. This keeps conversation-action callbacks in `ChatLayout`
 (which owns `useConversationActions`) instead of duplicating them in
 `ActiveChatView`. The supplements carry only the few chat-specific
 values the header menu needs (fork, inspect callbacks, slack
-label, `hasPersistedMessage`).
+label, the channel source-link href, `hasPersistedMessage`).
 
 A Zustand store rather than outlet context because `ActiveAssistantGate`
 sits between `ChatLayout` and gated routes — outlet context value

@@ -107,6 +107,7 @@ export function PreferencesMenu({
         label={displayName}
         trailingIcon={isOpen ? ChevronDown : ChevronUp}
         active={isOpen}
+        data-tour-id="settings"
       />
     );
 

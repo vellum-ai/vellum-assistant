@@ -121,6 +121,9 @@ export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
 export const MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS = {
   automatic: "automatic",
   manual: "manual",
+  /** Enqueued by the create-memory route right after a user-authored
+   * remember, so the fact files into concept pages promptly. */
+  remember: "remember",
 } as const;
 
 /** Returns `false` only when `config.memory.enabled` is explicitly `false`; defaults to `true` on missing config or load errors. */

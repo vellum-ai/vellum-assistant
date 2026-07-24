@@ -948,6 +948,7 @@ describe("LiveVoiceSession spoken ack", () => {
     return {
       decideEndpoint: async () => ({ action: "release" }),
       generateAckText,
+      generateProgressText: async () => null,
     };
   }
 
@@ -1123,7 +1124,8 @@ describe("LiveVoiceSession spoken ack", () => {
     // The front-door leg escalates with no holding phrase of its own, so the
     // canned bridge is enqueued — exactly the case where a late-resolving
     // generation would stack a second filler on top of it.
-    getCallbacks()?.assistant_text_delta?.(makeTextDelta("[ESCALATE]"));
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("[1]"));
+    getCallbacks()?.message_complete?.(makeMessageComplete());
     await waitFor(() => ttsTexts.length === 1);
     expect(ttsTexts).toEqual([EXPECTED_BRIDGE]);
 
@@ -1154,7 +1156,8 @@ describe("LiveVoiceSession spoken ack", () => {
 
     await startReleasedTurn(session);
     // A bare hand-off enqueues the canned bridge, which holds the floor.
-    getCallbacks()?.assistant_text_delta?.(makeTextDelta("[ESCALATE]"));
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("[1]"));
+    getCallbacks()?.message_complete?.(makeMessageComplete());
     await waitFor(() => ttsTexts.length === 1);
     expect(ttsTexts).toEqual([EXPECTED_BRIDGE]);
 
@@ -1186,7 +1189,8 @@ describe("LiveVoiceSession spoken ack", () => {
     });
 
     await startReleasedTurn(session);
-    getCallbacks()?.assistant_text_delta?.(makeTextDelta("[ESCALATE]"));
+    getCallbacks()?.assistant_text_delta?.(makeTextDelta("[1]"));
+    getCallbacks()?.message_complete?.(makeMessageComplete());
     await waitFor(() => ttsTexts.length === 1);
     expect(ttsTexts).toEqual([EXPECTED_BRIDGE]);
 

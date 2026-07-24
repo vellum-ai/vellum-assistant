@@ -98,6 +98,22 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
    * tied to a conversation, or when no user turn has occurred yet.
    */
   turn_index: number | null;
+  /**
+   * Id of the conversation that spawned this event's conversation —
+   * `parent_conversation_id` stamped at subagent spawn, falling back to
+   * `fork_parent_conversation_id` for retrospective forks. Null when the
+   * conversation was not spawned by another conversation or the LLM call
+   * has no conversation.
+   */
+  parent_conversation_id: string | null;
+  /**
+   * 1-indexed parent-conversation user turn this event's conversation
+   * branched from: the turn in flight at child creation for subagent
+   * spawns, the fork boundary message's turn for retrospective forks
+   * (same real-user-turn filter as `turn_index`). Null when there is no
+   * parent conversation.
+   */
+  parent_turn_index: number | null;
   provider: string;
   model: string;
   input_tokens: number;

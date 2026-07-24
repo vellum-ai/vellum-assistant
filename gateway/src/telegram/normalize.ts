@@ -37,6 +37,7 @@ interface TelegramAudio {
 
 interface TelegramMessage {
   message_id?: number;
+  message_thread_id?: number;
   text?: string;
   caption?: string;
   chat?: { id?: number; type?: string };
@@ -52,6 +53,17 @@ interface TelegramMessage {
   document?: TelegramDocument;
   voice?: TelegramVoice;
   audio?: TelegramAudio;
+}
+
+/**
+ * Topic thread id of a private-chat message, as a string, or undefined for
+ * messages outside a topic. Callers run after the DM-only guard, so a thread
+ * id here always identifies a private-chat topic.
+ */
+function threadIdFromMessage(message: TelegramMessage): string | undefined {
+  return message.message_thread_id != null
+    ? String(message.message_thread_id)
+    : undefined;
 }
 
 interface TelegramCallbackQuery {
@@ -114,6 +126,7 @@ export function normalizeTelegramUpdate(
     }
 
     const actorExternalId = String(cbq.from.id);
+    const callbackThreadId = threadIdFromMessage(cbq.message);
 
     const displayName = [cbq.from?.first_name, cbq.from?.last_name]
       .filter(Boolean)
@@ -147,6 +160,7 @@ export function normalizeTelegramUpdate(
             ? String(cbq.message.message_id)
             : undefined,
         chatType: cbq.message.chat.type,
+        ...(callbackThreadId ? { threadId: callbackThreadId } : {}),
       },
       raw: payload,
     };
@@ -182,6 +196,8 @@ export function normalizeTelegramUpdate(
     .filter(Boolean)
     .join(" ")
     .trim();
+
+  const topicThreadId = threadIdFromMessage(message);
 
   const content = message.text || message.caption || "";
 
@@ -253,6 +269,7 @@ export function normalizeTelegramUpdate(
       messageId:
         message.message_id != null ? String(message.message_id) : undefined,
       chatType: message.chat.type,
+      ...(topicThreadId ? { threadId: topicThreadId } : {}),
     },
     raw: payload,
   };

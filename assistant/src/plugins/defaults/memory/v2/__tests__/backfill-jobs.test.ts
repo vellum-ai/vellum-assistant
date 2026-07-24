@@ -201,7 +201,7 @@ const { initializeDb } = await import("../../../../../persistence/db-init.js");
 const { rawExec } = await import("../../../../../persistence/raw-query.js");
 const { conversations, memoryJobs, messages } =
   await import("../../../../../persistence/schema/index.js");
-const { writePage } = await import("../page-store.js");
+const { writePage } = await import("../../v3/substrate/page-store.js");
 const { save: saveActivation, hydrate: hydrateActivation } =
   await import("../activation-store.js");
 const {
@@ -252,11 +252,12 @@ beforeEach(async () => {
   // so explicitly truncate every table this suite writes to. Without this,
   // a row written by an earlier test (e.g. an activation_state for
   // `conv-with-state`) leaks into the next test and breaks isolation.
-  for (const table of ["activation_state", "messages", "conversations"]) {
+  for (const table of ["messages", "conversations"]) {
     rawExec(`DELETE FROM ${table}`);
   }
-  // memory_jobs lives in the dedicated memory connection.
+  // memory_jobs and activation_state live in the dedicated memory connection.
   getMemorySqlite()!.run("DELETE FROM memory_jobs");
+  getMemorySqlite()!.run("DELETE FROM activation_state");
   // Reset memory dir so each test starts with a clean concepts/edges set.
   rmSync(join(tmpWorkspace, "memory", "concepts"), {
     recursive: true,
@@ -475,7 +476,7 @@ describe("memoryV2ActivationRecomputeJob", () => {
     // Seed a high-activation slug — the recompute should drive it back down
     // (no candidates appear in our stubbed Qdrant) and it should fall below
     // epsilon, leaving an empty sparse map on next save.
-    await saveActivation(getDb(), "conv-with-state", {
+    await saveActivation("conv-with-state", {
       messageId: "msg-prior",
       state: { "alice-prefers-vscode": 0.9 },
       everInjected: [{ slug: "alice-prefers-vscode", turn: 1 }],
@@ -489,7 +490,7 @@ describe("memoryV2ActivationRecomputeJob", () => {
     );
 
     expect(updated).toBeGreaterThanOrEqual(1);
-    const next = await hydrateActivation(getDb(), "conv-with-state");
+    const next = await hydrateActivation("conv-with-state");
     expect(next).not.toBeNull();
     expect(next?.messageId).toBe("msg-prior");
     expect(next?.everInjected).toEqual([
@@ -508,12 +509,12 @@ describe("memoryV2ActivationRecomputeJob", () => {
     );
 
     expect(updated).toBe(0);
-    expect(await hydrateActivation(getDb(), "conv-no-state")).toBeNull();
+    expect(await hydrateActivation("conv-no-state")).toBeNull();
   });
 
   test("does not crash on a conversation with state but no messages", async () => {
     seedConversation("conv-empty-msgs");
-    await saveActivation(getDb(), "conv-empty-msgs", {
+    await saveActivation("conv-empty-msgs", {
       messageId: "msg-x",
       state: {},
       everInjected: [],

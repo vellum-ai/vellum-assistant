@@ -1,6 +1,32 @@
 import { describe, expect, test } from "bun:test";
 
+import type {
+  ApprovalCardBlock,
+  ApprovalCardFallbackBlock,
+  ApprovalCardSurfaceBlock,
+} from "../notifications/approval-card-builder.js";
 import { buildToolApprovalSeedContentBlocks } from "../notifications/approval-card-data.js";
+
+/**
+ * Narrow the `[ui_surface, text]` pair through the discriminated union so
+ * assertions read typed fields — a shape change in the block contract fails
+ * compilation here instead of silently passing through a cast.
+ */
+function surfaceBlock(blocks: ApprovalCardBlock[]): ApprovalCardSurfaceBlock {
+  const block = blocks[0];
+  if (block?.type !== "ui_surface") {
+    throw new Error("expected a ui_surface block first");
+  }
+  return block;
+}
+
+function fallbackBlock(blocks: ApprovalCardBlock[]): ApprovalCardFallbackBlock {
+  const block = blocks[1];
+  if (block?.type !== "text") {
+    throw new Error("expected a text fallback block second");
+  }
+  return block;
+}
 
 describe("buildToolApprovalSeedContentBlocks", () => {
   const toolApprovalPayload: Record<string, unknown> = {
@@ -50,15 +76,18 @@ describe("buildToolApprovalSeedContentBlocks", () => {
       voiceToolApprovalPayload,
     )!;
     expect(blocks).toHaveLength(2);
-    expect((blocks[0] as Record<string, unknown>).type).toBe("ui_surface");
-    const surface = blocks[0] as Record<string, unknown>;
+    const surface = surfaceBlock(blocks);
     expect(surface.surfaceType).toBe("card");
     expect(surface.surfaceId).toBe("tool-approval-req-voice-101");
-    const data = surface.data as Record<string, unknown>;
-    expect(data.subtitle).toBe("Requires your approval to run");
-    const metadata = data.metadata as Array<{ label: string; value: string }>;
-    expect(metadata).toContainEqual({ label: "Requested by", value: "Bob" });
-    expect(metadata).toContainEqual({ label: "Source", value: "phone" });
+    expect(surface.data.subtitle).toBe("Requires your approval to run");
+    expect(surface.data.metadata).toContainEqual({
+      label: "Requested by",
+      value: "Bob",
+    });
+    expect(surface.data.metadata).toContainEqual({
+      label: "Source",
+      value: "phone",
+    });
   });
 
   test("returns null for pending_question without toolName", () => {
@@ -69,134 +98,187 @@ describe("buildToolApprovalSeedContentBlocks", () => {
   test("produces a ui_surface block and a text fallback block for tool_approval", () => {
     const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
     expect(blocks).toHaveLength(2);
-    expect((blocks[0] as Record<string, unknown>).type).toBe("ui_surface");
-    expect((blocks[1] as Record<string, unknown>).type).toBe("text");
+    surfaceBlock(blocks);
     // The fallback block is flagged so surface-capable clients skip it.
-    expect((blocks[1] as Record<string, unknown>)._surfaceFallback).toBe(true);
+    expect(fallbackBlock(blocks)._surfaceFallback).toBe(true);
   });
 
   test("produces a ui_surface block and a text fallback block for tool_grant_request", () => {
     const blocks = buildToolApprovalSeedContentBlocks(toolGrantPayload)!;
     expect(blocks).toHaveLength(2);
-    expect((blocks[0] as Record<string, unknown>).type).toBe("ui_surface");
-    expect((blocks[1] as Record<string, unknown>).type).toBe("text");
+    // The narrowing helpers throw unless the pair is [ui_surface, text].
+    surfaceBlock(blocks);
+    fallbackBlock(blocks);
   });
 
   test("card surface has correct surfaceType and surfaceId for tool_approval", () => {
-    const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
-    const surface = blocks[0] as Record<string, unknown>;
+    const surface = surfaceBlock(
+      buildToolApprovalSeedContentBlocks(toolApprovalPayload)!,
+    );
     expect(surface.surfaceType).toBe("card");
     expect(surface.surfaceId).toBe("tool-approval-req-tool-456");
     expect(surface.title).toBe("Tool Approval");
   });
 
   test("card surface has correct title for tool_grant_request", () => {
-    const blocks = buildToolApprovalSeedContentBlocks(toolGrantPayload)!;
-    const surface = blocks[0] as Record<string, unknown>;
+    const surface = surfaceBlock(
+      buildToolApprovalSeedContentBlocks(toolGrantPayload)!,
+    );
     expect(surface.title).toBe("Tool Grant Request");
   });
 
   test("card data uses the tool name as title — the decision is about the tool", () => {
-    const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
-    expect(data.title).toBe("bash");
+    const surface = surfaceBlock(
+      buildToolApprovalSeedContentBlocks(toolApprovalPayload)!,
+    );
+    expect(surface.data.title).toBe("bash");
   });
 
   test("requester appears only as metadata context, not as the card title", () => {
-    const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
-    expect(data.title).not.toBe("Bob");
-    const metadata = data.metadata as Array<{ label: string; value: string }>;
-    expect(metadata).toContainEqual({ label: "Requested by", value: "Bob" });
+    const surface = surfaceBlock(
+      buildToolApprovalSeedContentBlocks(toolApprovalPayload)!,
+    );
+    expect(surface.data.title).not.toBe("Bob");
+    expect(surface.data.metadata).toContainEqual({
+      label: "Requested by",
+      value: "Bob",
+    });
   });
 
   test("shows Requested by: Unknown when no requesterIdentifier", () => {
     const payload = { ...toolApprovalPayload, requesterIdentifier: undefined };
-    const blocks = buildToolApprovalSeedContentBlocks(payload)!;
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
-    expect(data.title).toBe("bash");
-    const metadata = data.metadata as Array<{ label: string; value: string }>;
-    expect(metadata).toContainEqual({
+    const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
+    expect(surface.data.title).toBe("bash");
+    expect(surface.data.metadata).toContainEqual({
       label: "Requested by",
       value: "Unknown",
     });
 
     // The plain-text fallback carries the same placeholder.
     const noQuestion = { ...payload, questionText: undefined };
-    const fallbackBlocks = buildToolApprovalSeedContentBlocks(noQuestion)!;
-    const textBlock = fallbackBlocks[1] as Record<string, unknown>;
-    expect(textBlock.text).toContain(
+    const fallback = fallbackBlock(
+      buildToolApprovalSeedContentBlocks(noQuestion)!,
+    );
+    expect(fallback.text).toContain(
       "Approve tool: bash (requested by Unknown)",
     );
   });
 
   test("card subtitle is tool-framed for both tool_approval and tool_grant_request", () => {
-    const approvalBlocks =
-      buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
-    const grantBlocks = buildToolApprovalSeedContentBlocks(toolGrantPayload)!;
-    const approvalData = (approvalBlocks[0] as Record<string, unknown>)
-      .data as Record<string, unknown>;
-    const grantData = (grantBlocks[0] as Record<string, unknown>)
-      .data as Record<string, unknown>;
-    expect(approvalData.subtitle).toBe("Requires your approval to run");
-    expect(grantData.subtitle).toBe("Requires your approval to run");
+    const approvalSurface = surfaceBlock(
+      buildToolApprovalSeedContentBlocks(toolApprovalPayload)!,
+    );
+    const grantSurface = surfaceBlock(
+      buildToolApprovalSeedContentBlocks(toolGrantPayload)!,
+    );
+    expect(approvalSurface.data.subtitle).toBe("Requires your approval to run");
+    expect(grantSurface.data.subtitle).toBe("Requires your approval to run");
   });
 
   test("includes requester and source channel in metadata", () => {
-    const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
-    const metadata = data.metadata as Array<{ label: string; value: string }>;
-    expect(metadata).toContainEqual({ label: "Requested by", value: "Bob" });
-    expect(metadata).toContainEqual({ label: "Source", value: "slack" });
+    const surface = surfaceBlock(
+      buildToolApprovalSeedContentBlocks(toolApprovalPayload)!,
+    );
+    expect(surface.data.metadata).toContainEqual({
+      label: "Requested by",
+      value: "Bob",
+    });
+    expect(surface.data.metadata).toContainEqual({
+      label: "Source",
+      value: "slack",
+    });
   });
 
   test("body includes questionText as blockquote", () => {
-    const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
-    expect(data.body).toContain("Approve tool: bash");
-    expect(data.body).toContain("requested by Bob");
+    const surface = surfaceBlock(
+      buildToolApprovalSeedContentBlocks(toolApprovalPayload)!,
+    );
+    expect(surface.data.body).toContain("Approve tool: bash");
+    expect(surface.data.body).toContain("requested by Bob");
+  });
+
+  test("Slack DM source reference renders a permalink and rich source row", () => {
+    const payload = {
+      ...toolApprovalPayload,
+      sourceChatId: "D01XYZ",
+      sourceLink: {
+        webUrl: "https://slack.com/archives/D01XYZ/p1700000000000100",
+      },
+    };
+    const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
+    expect(surface.data.body).toContain(
+      "[View message](https://slack.com/archives/D01XYZ/p1700000000000100)",
+    );
+    expect(surface.data.metadata).toContainEqual({
+      label: "Source",
+      value: "Slack — Direct message",
+    });
+  });
+
+  test("Slack channel source renders a #channel source row", () => {
+    const payload = {
+      ...toolApprovalPayload,
+      sourceChatId: "C01ABC",
+      sourceLink: {
+        webUrl: "https://slack.com/archives/C01ABC/p1700000001000200",
+      },
+    };
+    const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
+    expect(surface.data.body).toContain(
+      "[View message](https://slack.com/archives/C01ABC/p1700000001000200)",
+    );
+    expect(surface.data.metadata).toContainEqual({
+      label: "Source",
+      value: "Slack — #C01ABC",
+    });
+  });
+
+  test("Slack source falls back to requesterChatId and omits the link without one", () => {
+    const payload = {
+      ...toolApprovalPayload,
+      requesterChatId: "D0OTHER",
+    };
+    const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
+    expect(surface.data.body).not.toContain("[View message]");
+    expect(surface.data.metadata).toContainEqual({
+      label: "Source",
+      value: "Slack — Direct message",
+    });
+  });
+
+  test("non-Slack sources keep the plain channel row but still render a resolved link", () => {
+    const payload = {
+      ...toolGrantPayload,
+      sourceChatId: "chat-123",
+      sourceLink: { webUrl: "https://example.com/messages/42" },
+    };
+    const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
+    expect(surface.data.metadata).toContainEqual({
+      label: "Source",
+      value: "telegram",
+    });
+    expect(surface.data.body).toContain(
+      "[View message](https://example.com/messages/42)",
+    );
   });
 
   test("body shows fallback when no questionText", () => {
     const payload = { ...toolApprovalPayload, questionText: undefined };
-    const blocks = buildToolApprovalSeedContentBlocks(payload)!;
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
-    expect(data.body).toBe("No additional context available.");
+    const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
+    expect(surface.data.body).toBe("No additional context available.");
   });
 
   test("surface block includes approve/reject actions when requestId present", () => {
-    const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
-    const surface = blocks[0] as Record<string, unknown>;
-    const actions = surface.actions as Array<{
-      id: string;
-      label: string;
-      style: string;
-    }>;
-    expect(actions).toHaveLength(2);
-    expect(actions[0]).toEqual({
+    const surface = surfaceBlock(
+      buildToolApprovalSeedContentBlocks(toolApprovalPayload)!,
+    );
+    expect(surface.actions).toHaveLength(2);
+    expect(surface.actions?.[0]).toEqual({
       id: "apr:req-tool-456:approve_once",
       label: "Approve",
       style: "primary",
     });
-    expect(actions[1]).toEqual({
+    expect(surface.actions?.[1]).toEqual({
       id: "apr:req-tool-456:reject",
       label: "Reject",
       style: "destructive",
@@ -205,32 +287,33 @@ describe("buildToolApprovalSeedContentBlocks", () => {
 
   test("surface block omits actions when requestId is missing", () => {
     const payload = { ...toolApprovalPayload, requestId: undefined };
-    const blocks = buildToolApprovalSeedContentBlocks(payload)!;
-    const surface = blocks[0] as Record<string, unknown>;
+    const surface = surfaceBlock(buildToolApprovalSeedContentBlocks(payload)!);
     expect(surface.actions).toBeUndefined();
   });
 
   test("text fallback block contains questionText and request-code instruction", () => {
-    const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
-    const textBlock = blocks[1] as Record<string, unknown>;
-    expect(textBlock.type).toBe("text");
-    expect(textBlock.text).toContain("Approve tool: bash");
-    expect(textBlock.text).toContain("XYZ789");
-    expect(textBlock.text).toContain("approve");
+    const fallback = fallbackBlock(
+      buildToolApprovalSeedContentBlocks(toolApprovalPayload)!,
+    );
+    expect(fallback.text).toContain("Approve tool: bash");
+    expect(fallback.text).toContain("XYZ789");
+    expect(fallback.text).toContain("approve");
   });
 
   test("text fallback block omits request-code instruction when no requestCode", () => {
     const payload = { ...toolApprovalPayload, requestCode: undefined };
-    const blocks = buildToolApprovalSeedContentBlocks(payload)!;
-    const textBlock = blocks[1] as Record<string, unknown>;
-    expect(textBlock.text).toContain("Approve tool: bash");
-    expect(textBlock.text).not.toContain("XYZ789");
+    const fallback = fallbackBlock(
+      buildToolApprovalSeedContentBlocks(payload)!,
+    );
+    expect(fallback.text).toContain("Approve tool: bash");
+    expect(fallback.text).not.toContain("XYZ789");
   });
 
   test("text fallback block uses tool-framed generic text when no questionText", () => {
     const payload = { ...toolApprovalPayload, questionText: undefined };
-    const blocks = buildToolApprovalSeedContentBlocks(payload)!;
-    const textBlock = blocks[1] as Record<string, unknown>;
-    expect(textBlock.text).toContain("Approve tool: bash (requested by Bob)");
+    const fallback = fallbackBlock(
+      buildToolApprovalSeedContentBlocks(payload)!,
+    );
+    expect(fallback.text).toContain("Approve tool: bash (requested by Bob)");
   });
 });

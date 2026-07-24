@@ -251,12 +251,15 @@ await initializeDb();
 let eventIdCounter = 0;
 
 // The reporter consumes `UnreportedUsageEvent` (UsageEvent + the
-// JOIN-computed fields `conversationType` and `turnIndex`). Build that
-// shape directly so the mock matches `queryUnreportedUsageEvents`'
-// return type exactly.
+// JOIN-computed fields `conversationType`, `turnIndex`,
+// `parentConversationId`, and `parentTurnIndex`). Build that shape
+// directly so the mock matches `queryUnreportedUsageEvents`' return type
+// exactly.
 type UnreportedUsageEventFixture = UsageEvent & {
   conversationType: string | null;
   turnIndex: number | null;
+  parentConversationId: string | null;
+  parentTurnIndex: number | null;
 };
 
 function makeUsageEvent(
@@ -285,6 +288,8 @@ function makeUsageEvent(
     assistantVersion: "test-app-version",
     conversationType: "standard",
     turnIndex: 1,
+    parentConversationId: null,
+    parentTurnIndex: null,
     llmCallCount: 1,
     ...overrides,
   };
@@ -1610,10 +1615,11 @@ describe("UsageTelemetryReporter", () => {
     expect("failure_code" in body.events[0]).toBe(false);
   });
 
-  test("llm_usage events carry conversation_id, conversation_type, and turn_index", async () => {
+  test("llm_usage events carry conversation_id, conversation_type, turn_index, and parent linkage", async () => {
     // Three LLM calls across the spectrum of the new fields:
     //  - tied to a conversation, mid-turn (typical foreground)
-    //  - tied to a background conversation, first turn
+    //  - tied to a background conversation spawned by a parent turn
+    //    (subagent: parent linkage populated)
     //  - untied (memory consolidation: no conversation, no turn)
     mockQueryUnreportedUsageEvents.mockReturnValue([
       makeUsageEvent({
@@ -1627,6 +1633,8 @@ describe("UsageTelemetryReporter", () => {
         conversationId: "conv-bg",
         conversationType: "background",
         turnIndex: 1,
+        parentConversationId: "conv-fg",
+        parentTurnIndex: 4,
       }),
       makeUsageEvent({
         id: "evt-untied-call",
@@ -1654,6 +1662,8 @@ describe("UsageTelemetryReporter", () => {
         conversation_id: string | null;
         conversation_type: string | null;
         turn_index: number | null;
+        parent_conversation_id: string | null;
+        parent_turn_index: number | null;
       }
     > = {};
     for (const e of body.events as Array<{
@@ -1662,6 +1672,8 @@ describe("UsageTelemetryReporter", () => {
       conversation_id: string | null;
       conversation_type: string | null;
       turn_index: number | null;
+      parent_conversation_id: string | null;
+      parent_turn_index: number | null;
     }>) {
       byId[e.daemon_event_id] = e;
     }
@@ -1671,15 +1683,19 @@ describe("UsageTelemetryReporter", () => {
       conversation_id: "conv-fg",
       conversation_type: "standard",
       turn_index: 4,
+      parent_conversation_id: null,
+      parent_turn_index: null,
     });
     expect(byId["evt-bg-call"]).toMatchObject({
       type: "llm_usage",
       conversation_id: "conv-bg",
       conversation_type: "background",
       turn_index: 1,
+      parent_conversation_id: "conv-fg",
+      parent_turn_index: 4,
     });
     // LLM calls without a parent conversation flush through with all
-    // three conversation-level fields null — the serializer accepts
+    // conversation-level fields null — the serializer accepts
     // allow_null and downstream SQL filters can `WHERE conversation_id
     // IS NOT NULL` to scope to foreground analytics.
     expect(byId["evt-untied-call"]).toMatchObject({
@@ -1687,6 +1703,8 @@ describe("UsageTelemetryReporter", () => {
       conversation_id: null,
       conversation_type: null,
       turn_index: null,
+      parent_conversation_id: null,
+      parent_turn_index: null,
     });
   });
 

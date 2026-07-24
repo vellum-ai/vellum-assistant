@@ -5,11 +5,9 @@
 
 import { z } from "zod";
 
-import type {
-  ServiceGroupUpdateComplete,
-  ServiceGroupUpdateProgress,
-  ServiceGroupUpdateStarting,
-} from "../../daemon/message-types/upgrades.js";
+import type { ServiceGroupUpdateCompleteEvent } from "../../api/events/service-group-update-complete.js";
+import type { ServiceGroupUpdateProgressEvent } from "../../api/events/service-group-update-progress.js";
+import type { ServiceGroupUpdateStartingEvent } from "../../api/events/service-group-update-starting.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
@@ -44,7 +42,7 @@ async function handleUpgradeBroadcast({ body }: RouteHandlerArgs) {
       );
     }
 
-    const message: ServiceGroupUpdateStarting = {
+    const message: ServiceGroupUpdateStartingEvent = {
       type: "service_group_update_starting",
       targetVersion,
       expectedDowntimeSeconds: downtime,
@@ -64,7 +62,7 @@ async function handleUpgradeBroadcast({ body }: RouteHandlerArgs) {
       );
     }
 
-    const message: ServiceGroupUpdateProgress = {
+    const message: ServiceGroupUpdateProgressEvent = {
       type: "service_group_update_progress",
       statusMessage,
     };
@@ -101,7 +99,7 @@ async function handleUpgradeBroadcast({ body }: RouteHandlerArgs) {
       );
     }
 
-    const message: ServiceGroupUpdateComplete = {
+    const message: ServiceGroupUpdateCompleteEvent = {
       type: "service_group_update_complete",
       installedVersion,
       success,

@@ -17,9 +17,9 @@
  * etc.) using the standard Web API Request/Response signature.
  *
  * Handlers receive a second `context` argument with runtime singletons
- * (event hub, assistant ID, etc.) that would otherwise be unreachable
- * from dynamically imported modules because Bun's cache-busting import
- * creates separate module instances.
+ * (event hub, etc.) that would otherwise be unreachable from dynamically
+ * imported modules because Bun's cache-busting import creates separate
+ * module instances.
  *
  * Modules are lazily loaded on first request and cached by file path +
  * mtime. When a file changes on disk, the next request reloads it via
@@ -55,8 +55,6 @@ const log = getLogger("user-routes");
 export interface UserRouteContext {
   /** The daemon's event hub singleton — use this to publish events to connected SSE clients. */
   readonly assistantEventHub: AssistantEventHub;
-  /** The logical assistant ID used by the daemon (typically "self"). */
-  readonly assistantId: string;
   /** Conversation operations available to route handlers (e.g. posting integration events as turns). */
   readonly conversations: RouteConversationsApi;
 }
@@ -107,9 +105,9 @@ type HttpMethod = (typeof HTTP_METHODS)[number];
  * The function signature that user-defined route handlers must follow.
  *
  * Handlers may accept an optional second `context` argument with runtime
- * singletons (event hub, assistant ID). Legacy handlers that only accept
- * `request` continue to work — the context is passed positionally but
- * ignored if the handler doesn't declare the parameter.
+ * singletons (event hub). Legacy handlers that only accept `request`
+ * continue to work — the context is passed positionally but ignored if
+ * the handler doesn't declare the parameter.
  */
 type RouteHandler = (
   request: Request,

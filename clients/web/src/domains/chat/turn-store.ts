@@ -265,6 +265,7 @@ export interface TurnActions {
       canStartFromIdle?: boolean;
     },
   ) => void;
+  recoverFromAwaitingUserInput: () => void;
   showSurface: (interactive?: boolean) => void;
   updateSurface: () => void;
   dismissSurface: () => void;
@@ -406,6 +407,23 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
     }
     if (s.phase === "awaiting_user_input") return;
     set({ phase: "thinking", statusText: statusText ?? null });
+  },
+
+  /**
+   * Rejoin the live turn when a phase is stranded at `awaiting_user_input`.
+   *
+   * Server activity signals call this when no pending prompt or interactive
+   * surface remains: the prompt that moved the phase to `awaiting_user_input`
+   * resolved without a turn-state transition, so the phase would otherwise
+   * stay stuck while the turn keeps streaming. Restoring `thinking` re-enables
+   * the live-turn affordances (Stop control, busy indicators).
+   */
+  recoverFromAwaitingUserInput: () => {
+    const s = get();
+    if (s.phase !== "awaiting_user_input") {
+      return;
+    }
+    set({ phase: "thinking" });
   },
 
   // ----- UI surfaces -----

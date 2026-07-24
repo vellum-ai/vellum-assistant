@@ -2,6 +2,12 @@
   "version": 1,
   "providers": [
     {
+      "id": "vellum",
+      "displayName": "Vellum",
+      "displayNameLong": "Vellum Managed Search",
+      "kind": "managed"
+    },
+    {
       "id": "inference-provider-native",
       "displayName": "Provider Native",
       "kind": "managed"

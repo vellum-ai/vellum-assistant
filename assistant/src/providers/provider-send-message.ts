@@ -16,7 +16,10 @@ import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
-import { tryResolveProviderForConnectionName } from "./connection-resolution.js";
+import {
+  resolveRoutingIdentity,
+  tryResolveProviderForConnectionName,
+} from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import { initializeProviders, listProviders } from "./registry.js";
 import type {
@@ -77,15 +80,15 @@ export class CallSiteConfiguredProvider implements Provider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const config = options?.config;
-    if (config?.callSite) {
-      return this.inner.sendMessage(messages, options);
-    }
-
+    // Each field falls back independently. Naming a call site per-call must
+    // not suppress the stored override — they are orthogonal, and dropping
+    // the override leaves the transport bound to the requested profile while
+    // the model resolves from the call-site default.
     return this.inner.sendMessage(messages, {
       ...options,
       config: {
         ...config,
-        callSite: this.callSite,
+        callSite: config?.callSite ?? this.callSite,
         ...(config?.overrideProfile === undefined &&
         this.overrideProfile !== undefined
           ? { overrideProfile: this.overrideProfile }
@@ -146,6 +149,14 @@ export async function resolveConfiguredProvider(
   // skip backfill, freshly-installed configs not yet backfilled, or users
   // who manually cleared the field), try to auto-resolve from the provider
   // before falling back to null.
+  if (!connectionName) {
+    // Routing identities name their own connection row; the provider-keyed
+    // scan below cannot find them ("chatgpt" rows store provider "openai").
+    connectionName = resolveRoutingIdentity(
+      inferenceProvider,
+      resolved.model,
+    )?.connectionName;
+  }
   if (!connectionName) {
     if (inferenceProvider) {
       try {

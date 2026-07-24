@@ -2,20 +2,20 @@
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
 
 interface CreditsExhaustedBannerProps {
-  onAddFunds: () => void;
+  onUpgrade: () => void;
 }
 
 export function CreditsExhaustedBanner({
-  onAddFunds,
+  onUpgrade,
 }: CreditsExhaustedBannerProps) {
   return (
     <BillingErrorBanner
-      ariaLabel="Your credit balance has run out"
+      ariaLabel="Your credit balance has run out. Upgrade your plan for more credits."
       icon={<span style={{ fontSize: "1.25rem" }}>💰</span>}
       title="Your credit balance has run out"
-      subtitle="Purchase additional credits to pick up where you left off."
-      ctaLabel="Add Funds"
-      onAction={onAddFunds}
+      subtitle="Upgrade your plan for more credits every month."
+      ctaLabel="Upgrade"
+      onAction={onUpgrade}
     />
   );
 }

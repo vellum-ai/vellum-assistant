@@ -20,6 +20,7 @@ import { resolve } from "node:path";
 
 import type { Message } from "@vellumai/plugin-api";
 
+import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
@@ -40,7 +41,7 @@ import { getPkbAutoInjectList } from "./pkb/autoinject.js";
 import { readPkbContext } from "./pkb/context.js";
 import { searchPkbFiles } from "./pkb/pkb-search.js";
 import { getPkbRoot } from "./pkb/types.js";
-import { readMemoryV2StaticContent } from "./v2/static-context.js";
+import { readMemoryV2StaticContent } from "./v3/substrate/static-context.js";
 
 const pkbReminderLog = getLogger("pkb-reminder");
 
@@ -55,14 +56,18 @@ const PKB_HINT_THRESHOLD = 0.5;
 const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
 
 /**
- * v2 read-side cutover guard. Under v2 both `pkb-context` and `pkb-reminder`
- * silence themselves entirely — the `<knowledge_base>` content and the
- * generic recall/remember nudge are both supplanted by the v2 static
- * `<memory>` block. NOW.md is workspace state independent of PKB and fires
- * unchanged.
+ * Read-side cutover guard. Under concept-page memory both `pkb-context` and
+ * `pkb-reminder` silence themselves entirely — the `<knowledge_base>` content
+ * and the generic recall/remember nudge are both supplanted by the static
+ * memory block. They are also silenced when memory is disabled outright:
+ * these injectors have no other `memory.enabled` gate, and a workspace with
+ * leftover `pkb/*` files must not keep surfacing long-term memory after the
+ * user turns memory off. NOW.md is workspace state independent of PKB and
+ * fires unchanged.
  */
-function isPkbInjectionSilencedByV2(): boolean {
-  return getMemoryConfig().v2.enabled;
+function isPkbInjectionSilenced(): boolean {
+  const memory = getMemoryConfig();
+  return memory.enabled === false || usesConceptPageMemory(memory);
 }
 
 /**
@@ -99,7 +104,7 @@ const pkbContextInjector: Injector = {
   ): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
-    if (isPkbInjectionSilencedByV2()) return null;
+    if (isPkbInjectionSilenced()) return null;
     const content = readGatedPkbContext(ctx.trust);
     if (!content) return null;
     if (hasInjectedUserTextBlock(runMessages, KNOWLEDGE_BASE_BLOCK_PREFIXES))
@@ -135,7 +140,7 @@ const pkbReminderInjector: Injector = {
     const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
     if (!isPkbActive(ctx.trust)) return null;
-    if (isPkbInjectionSilencedByV2()) return null;
+    if (isPkbInjectionSilenced()) return null;
     const reminder = await buildPkbReminderWithHints(ctx, runMessages);
     return {
       id: "pkb-reminder",

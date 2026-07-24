@@ -24,7 +24,7 @@ const realMemoryV3Gate = {
   ...(await import("../../config/memory-v3-gate.js")),
 };
 const realV2Qdrant = {
-  ...(await import("../../plugins/defaults/memory/v2/qdrant.js")),
+  ...(await import("../../plugins/defaults/memory/v3/substrate/qdrant.js")),
 };
 const realSectionDenseStore = {
   ...(await import("../../plugins/defaults/memory/v3/section-dense-store.js")),
@@ -360,7 +360,7 @@ async function withDefaultDepsMocks(opts: {
       realMemoryV3Gate.isMemoryV3Live,
     ),
   }));
-  mock.module("../../plugins/defaults/memory/v2/qdrant.js", () => ({
+  mock.module("../../plugins/defaults/memory/v3/substrate/qdrant.js", () => ({
     ...realV2Qdrant,
     ensureConceptPageCollection: delegate(
       spies.ensureConceptPageCollection,

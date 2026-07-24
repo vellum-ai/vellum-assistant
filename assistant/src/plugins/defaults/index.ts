@@ -68,6 +68,7 @@ import maxTokensContinuePostModelCall from "./max-tokens-continue/hooks/post-mod
 import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
 import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { type: "json" };
 import memoryConversationDeleted from "./memory/hooks/conversation-deleted.js";
+import memoryConversationsCleared from "./memory/hooks/conversations-cleared.js";
 import memoryInit from "./memory/hooks/init.js";
 import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryShutdown from "./memory/hooks/shutdown.js";
@@ -206,6 +207,7 @@ export const defaultMemoryPlugin: Plugin = {
     "user-prompt-submit": memoryUserPromptSubmit,
     "post-compact": memoryPostCompact,
     "conversation-deleted": memoryConversationDeleted,
+    "conversations-cleared": memoryConversationsCleared,
   },
   injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
 };

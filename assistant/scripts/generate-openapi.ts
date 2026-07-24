@@ -4,8 +4,8 @@
  * HTTP route definitions.
  *
  * Pipeline:
- *   1. Programmatically import every route module under src/runtime/routes/
- *      and collect all exported ROUTES arrays — no regex, no source-text parsing.
+ *   1. Import the assembled `ROUTES` table from src/runtime/routes/index.ts —
+ *      the same single source of truth the HTTP and IPC servers serve.
  *   2. Combine with pre-auth / non-v1 routes.
  *   3. Convert to OpenAPI path items.
  *   4. Write to openapi.yaml.
@@ -16,8 +16,8 @@
  *   cd assistant && bun run generate:openapi -- --check  # CI: fail if stale
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { stringify } from "yaml";
@@ -30,6 +30,7 @@ import type {
 } from "zod-openapi";
 import { createDocument } from "zod-openapi";
 
+import { ROUTES } from "../src/runtime/routes/index.js";
 import { jsonValueSchema } from "../src/telemetry/telemetry-wire.generated.js";
 
 // The recursive wire JSON-value schema (`claims`/`suggestions` item type) must
@@ -39,8 +40,6 @@ import { jsonValueSchema } from "../src/telemetry/telemetry-wire.generated.js";
 z.globalRegistry.add(jsonValueSchema, { id: "TelemetryJsonValue" });
 
 const ROOT = resolve(import.meta.dir, "..");
-const ROUTES_DIR = join(ROOT, "src/runtime/routes");
-const PLUGIN_DEFAULTS_DIR = join(ROOT, "src/plugins/defaults");
 const OUTPUT_PATH = join(ROOT, "openapi.yaml");
 const PKG_PATH = join(ROOT, "package.json");
 
@@ -120,8 +119,6 @@ const RouteEntrySchema = z.object({
   additionalResponses: z
     .record(z.string(), RouteAdditionalResponseSchema)
     .optional(),
-  /** Source module filename, used for auto-deriving tags. */
-  sourceModule: z.string().optional(),
 });
 
 type RouteEntry = z.infer<typeof RouteEntrySchema>;
@@ -156,93 +153,23 @@ function resolveSchemaForDocument(schemaSource: unknown): ContentSchema {
 // ---------------------------------------------------------------------------
 
 /**
- * Directories holding `RouteDefinition` modules: the host `runtime/routes`
- * tree plus every default plugin's `routes/` subdirectory. A default plugin
- * that owns model-facing HTTP/IPC routes defines them under
- * `plugins/defaults/<plugin>/routes/` and the host route aggregator registers
- * them at runtime; the generator scans those dirs too so the spec stays
- * complete no matter which package a route lives in. Sorted for reproducible
- * output (see {@link collectRoutesFromModules}).
+ * Collect the OpenAPI-relevant fields of every route from the assembled
+ * `runtime/routes/index.ts` `ROUTES` table — the same single source of truth
+ * the HTTP and IPC servers serve. Each `RouteDefinition` is parsed through
+ * {@link RouteEntrySchema}, which keeps only the documentable fields (method,
+ * endpoint, summary, tags, request/response bodies, …) and drops the runtime
+ * ones (handler, policy). Routes that omit `tags` are surfaced without a tag —
+ * a lint-style guard test asserts every route sets one, so the spec never
+ * loses grouping.
  */
-async function routeModuleDirs(): Promise<string[]> {
-  const dirs = [ROUTES_DIR];
-  for (const entry of await readdir(PLUGIN_DEFAULTS_DIR, {
-    withFileTypes: true,
-  })) {
-    if (!entry.isDirectory()) continue;
-    const routesDir = join(PLUGIN_DEFAULTS_DIR, entry.name, "routes");
-    if (existsSync(routesDir)) dirs.push(routesDir);
-  }
-  return dirs.sort();
-}
-
-/**
- * Dynamically import every route module under each {@link routeModuleDirs}
- * entry and collect all exported `ROUTES` / `*_ROUTES` arrays. Each route
- * module exports a `RouteDefinition[]`; new modules are picked up without
- * manual updates.
- */
-async function collectRoutesFromModules(): Promise<RouteEntry[]> {
+function collectRoutes(): RouteEntry[] {
   const routes: RouteEntry[] = [];
-
-  for (const dir of await routeModuleDirs()) {
-    // Skip the `index.ts` barrel: it re-exports every other route module's
-    // ROUTES into a single combined array, so importing it would double-count
-    // every entry. The duplicate `method:endpoint` keys are deduped later by
-    // first-seen, but the surviving entry's `sourceModule` (used to derive
-    // OpenAPI `tags`) depends on `readdir` order — which is filesystem
-    // dependent and diverges between local sandbox and the CI runner, making
-    // the generator non-reproducible. Sort the file list as well so directory
-    // entry order can never affect the output.
-    const files = (await readdir(dir, { recursive: true }))
-      .filter(
-        (f) =>
-          typeof f === "string" &&
-          f.endsWith(".ts") &&
-          !f.endsWith(".test.ts") &&
-          !f.endsWith(".benchmark.test.ts") &&
-          !f.includes("node_modules") &&
-          f !== "index.ts" &&
-          !f.endsWith("/index.ts"),
-      )
-      .sort();
-
-    for (const file of files) {
-      const filePath = join(dir, file);
-      let mod: Record<string, unknown>;
-      try {
-        mod = (await import(filePath)) as Record<string, unknown>;
-      } catch (err) {
-        console.warn(
-          `Warning: could not import ${file}: ${err instanceof Error ? err.message : err}`,
-        );
-        continue;
-      }
-
-      // Collect every export whose name is `ROUTES` or ends in `_ROUTES`.
-      // A handful of route files (e.g. `channel-route-definitions.ts`,
-      // `contact-prompt-routes.ts`) export under domain-prefixed names like
-      // `CHANNEL_ROUTES` and `CONTACT_PROMPT_ROUTES` rather than the
-      // canonical `ROUTES`. Without this fan-out the only way those routes
-      // reached the spec was via the `index.ts` barrel — which is excluded
-      // above for reproducibility.
-      const exportNames = Object.keys(mod)
-        .filter((k) => k === "ROUTES" || k.endsWith("_ROUTES"))
-        .sort();
-      for (const name of exportNames) {
-        const arr = mod[name];
-        if (!Array.isArray(arr)) continue;
-        for (const raw of arr) {
-          const result = RouteEntrySchema.safeParse({
-            ...(typeof raw === "object" && raw !== null ? raw : {}),
-            sourceModule: file,
-          });
-          if (result.success) routes.push(result.data);
-        }
-      }
+  for (const raw of ROUTES) {
+    const result = RouteEntrySchema.safeParse(raw);
+    if (result.success) {
+      routes.push(result.data);
     }
   }
-
   return routes;
 }
 
@@ -388,14 +315,6 @@ function resolveBodyContent(body: unknown): {
   return { contentType: "application/json", schemaSource: body };
 }
 
-/** Derive a tag name from a route module filename (e.g. "secret-routes.ts" → "secrets"). */
-function deriveTagFromModule(filename: string): string {
-  // Strip directory prefix and extension
-  const base = filename.replace(/^.*[\/]/, "").replace(/\.ts$/, "");
-  // Remove trailing "-routes" suffix
-  return base.replace(/-routes$/, "");
-}
-
 function buildSpec(
   routes: RouteEntry[],
   version: string,
@@ -498,13 +417,8 @@ function buildSpec(
       }
     }
 
-    // Determine tags: explicit tags > auto-derived from source module
     const tags: string[] | undefined =
-      entry.tags && entry.tags.length > 0
-        ? entry.tags
-        : entry.sourceModule
-          ? [deriveTagFromModule(entry.sourceModule)]
-          : undefined;
+      entry.tags && entry.tags.length > 0 ? entry.tags : undefined;
 
     // Build the operation. Default success status is 200; async endpoints
     // that enqueue a job and return immediately set responseStatus: "202"
@@ -606,11 +520,8 @@ async function main() {
   };
   const version = pkg.version;
 
-  // Collect routes programmatically from route modules
-  const moduleRoutes = await collectRoutesFromModules();
-
-  // Combine all route sources
-  const allRoutes: RouteEntry[] = moduleRoutes;
+  // Collect routes from the assembled shared route table
+  const allRoutes: RouteEntry[] = collectRoutes();
 
   // Build the spec
   const spec = buildSpec(allRoutes, version);

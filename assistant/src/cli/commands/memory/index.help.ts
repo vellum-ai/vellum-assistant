@@ -85,6 +85,11 @@ Examples:
               description: "Filter nodes whose content contains <query>",
             },
             {
+              flags: "--kind <kind>",
+              description:
+                "Restrict to auto-seeded capability nodes: 'skill' or 'cli'",
+            },
+            {
               flags: "--limit <n>",
               description: "Max results (default 50, max 200)",
             },
@@ -96,12 +101,20 @@ Examples:
           helpText: `
 Behavior:
   Returns active (non-deleted) memory graph nodes ordered by significance.
-  With --search, all nodes are scanned so the filter is exhaustive regardless
-  of graph size. Without --search the query is capped at --limit rows at the
-  DB level for efficiency.
+  With --search or --kind, all nodes are scanned so the filter is exhaustive
+  regardless of graph size. With neither, the query is capped at --limit rows
+  at the DB level for efficiency.
+
+  --kind filters to the capability nodes auto-seeded from the assistant's
+  own catalog — one 'skill' node per enabled/catalog skill, one 'cli' node
+  per CLI command. This answers "which skills have a node in memory": each
+  matching row's content names the skill and its id. Combine with --search
+  to narrow to a specific capability. Filters compose (both must match).
 
 Examples:
   $ assistant memory nodes list
+  $ assistant memory nodes list --kind skill
+  $ assistant memory nodes list --kind skill --search "pdf"
   $ assistant memory nodes list --search "coffee" --limit 10
   $ assistant memory nodes list --json`,
         },
@@ -364,10 +377,10 @@ Examples:
       name: "v2",
       description: "Memory v2 subsystem operations (concept-page model)",
       helpText: `
-The v2 memory subsystem stores prose concept pages with directed edges in
-each page's frontmatter and uses activation-based retrieval. Pages live
-under /workspace/memory/concepts/ and are gated behind the
-memory.v2.enabled config field.
+The concept-page memory subsystem stores prose concept pages with directed
+edges in each page's frontmatter. Pages live under
+/workspace/memory/concepts/ and are active when memory.v3.live or
+memory.v2.enabled is set.
 
 Mutating subcommands return a jobId enqueued on the memory job queue,
 except reembed-skills which runs synchronously inside the assistant.
@@ -408,7 +421,7 @@ changes the enabled-skill set, or to recover corrupted skill embeddings.
 
 Unlike 'reembed' (concept pages), this runs synchronously inside the
 assistant — the command returns only once the seed completes. Requires
-memory.v2.enabled to be true.
+concept-page memory to be active (memory.v3.live or memory.v2.enabled).
 
 Examples:
   $ assistant memory v2 reembed-skills`,

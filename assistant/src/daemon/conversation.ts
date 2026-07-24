@@ -88,10 +88,6 @@ import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
-import {
-  type ActivationMomentParam,
-  isActivationMomentParam,
-} from "../telemetry/activation-funnel.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions } from "../tools/registry.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
@@ -149,7 +145,9 @@ import {
   flushPendingSurfaceDataPersists,
   handleSurfaceAction as handleSurfaceActionImpl,
   handleSurfaceUndo as handleSurfaceUndoImpl,
+  restoreSurfaceStateEntry,
   type SurfaceActionResult,
+  type SurfaceStateEntry,
 } from "./conversation-surfaces.js";
 import type {
   SubagentToolGateMode,
@@ -166,7 +164,6 @@ import { HostCuProxy } from "./host-cu-proxy.js";
 import { shouldAttachHostProxyForCapability } from "./host-proxy-preactivation.js";
 import type {
   ServerMessage,
-  SurfaceData,
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
@@ -550,26 +547,7 @@ export class Conversation {
     string,
     { actionId: string; data?: Record<string, unknown> }
   >();
-  /** @internal */ surfaceState = new Map<
-    string,
-    {
-      surfaceType: SurfaceType;
-      data: SurfaceData;
-      title?: string;
-      actions?: Array<{
-        id: string;
-        label: string;
-        style?: string;
-        data?: Record<string, unknown>;
-      }>;
-      /**
-       * Commit-timing activation-rail tag (daemon-only). Rehydrated by
-       * `restoreSurfaceStateFromHistory` so a post-reload commit still records
-       * its funnel milestone. Never sent to the client.
-       */
-      activationMoment?: ActivationMomentParam;
-    }
-  >();
+  /** @internal */ surfaceState = new Map<string, SurfaceStateEntry>();
   /** @internal */ surfaceUndoStacks = new Map<string, string[]>();
   /** @internal */ accumulatedSurfaceState = new Map<
     string,
@@ -1427,28 +1405,7 @@ export class Conversation {
       for (const block of msg.content) {
         const b = block as unknown as Record<string, unknown>;
         if (b.type === "ui_surface" && typeof b.surfaceId === "string") {
-          // Rehydrate the daemon-only commit-timing activation tag so a commit
-          // after reload still records its funnel milestone. Validated and
-          // dropped if malformed; this field never reaches the client.
-          const activationMoment =
-            typeof b.activationMoment === "string" &&
-            isActivationMomentParam(b.activationMoment)
-              ? b.activationMoment
-              : undefined;
-          this.surfaceState.set(b.surfaceId, {
-            surfaceType: (b.surfaceType ?? "dynamic_page") as SurfaceType,
-            data: (b.data ?? {}) as SurfaceData,
-            title: b.title as string | undefined,
-            actions: Array.isArray(b.actions)
-              ? (b.actions as Array<{
-                  id: string;
-                  label: string;
-                  style?: string;
-                  data?: Record<string, unknown>;
-                }>)
-              : undefined,
-            ...(activationMoment ? { activationMoment } : {}),
-          });
+          this.surfaceState.set(b.surfaceId, restoreSurfaceStateEntry(b));
         }
       }
     }

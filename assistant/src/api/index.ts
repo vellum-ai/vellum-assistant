@@ -12,6 +12,8 @@ import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js"
 import { AvatarUpdatedEventSchema } from "./events/avatar-updated.js";
 import { BackgroundToolCompletedEventSchema } from "./events/background-tool-completed.js";
 import { BackgroundToolStartedEventSchema } from "./events/background-tool-started.js";
+import { BookmarkCreatedEventSchema } from "./events/bookmark-created.js";
+import { BookmarkDeletedEventSchema } from "./events/bookmark-deleted.js";
 import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-closed.js";
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
@@ -33,6 +35,8 @@ import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
 import { HookEventSchema } from "./events/hook-event.js";
 import { IdentityChangedEventSchema } from "./events/identity-changed.js";
 import { InteractionResolvedEventSchema } from "./events/interaction-resolved.js";
+import { MemoryRecalledEventSchema } from "./events/memory-recalled.js";
+import { MemoryStatusEventSchema } from "./events/memory-status.js";
 import { MessageCompleteEventSchema } from "./events/message-complete.js";
 import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
 import { MessageQueuedEventSchema } from "./events/message-queued.js";
@@ -46,6 +50,9 @@ import { OpenUrlEventSchema } from "./events/open-url.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
 import { SecretRequestEventSchema } from "./events/secret-request.js";
+import { ServiceGroupUpdateCompleteEventSchema } from "./events/service-group-update-complete.js";
+import { ServiceGroupUpdateProgressEventSchema } from "./events/service-group-update-progress.js";
+import { ServiceGroupUpdateStartingEventSchema } from "./events/service-group-update-starting.js";
 import { SubagentEventEventSchema } from "./events/subagent-event.js";
 import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
 import { SubagentStatusChangedEventSchema } from "./events/subagent-status-changed.js";
@@ -138,6 +145,16 @@ export {
   type BackgroundToolStartedEvent,
   BackgroundToolStartedEventSchema,
 } from "./events/background-tool-started.js";
+export {
+  type BookmarkCreatedEvent,
+  BookmarkCreatedEventSchema,
+  type BookmarkSummary,
+  BookmarkSummarySchema,
+} from "./events/bookmark-created.js";
+export {
+  type BookmarkDeletedEvent,
+  BookmarkDeletedEventSchema,
+} from "./events/bookmark-deleted.js";
 export {
   type CompactionCircuitClosedEvent,
   CompactionCircuitClosedEventSchema,
@@ -249,6 +266,18 @@ export {
   InteractionResolvedEventSchema,
 } from "./events/interaction-resolved.js";
 export {
+  type MemoryRecalledCandidateDebug,
+  MemoryRecalledCandidateDebugSchema,
+  type MemoryRecalledDegradation,
+  MemoryRecalledDegradationSchema,
+  type MemoryRecalledEvent,
+  MemoryRecalledEventSchema,
+} from "./events/memory-recalled.js";
+export {
+  type MemoryStatusEvent,
+  MemoryStatusEventSchema,
+} from "./events/memory-status.js";
+export {
   type MessageCompleteEvent,
   MessageCompleteEventSchema,
 } from "./events/message-complete.js";
@@ -301,6 +330,18 @@ export {
   type SecretRequestEvent,
   SecretRequestEventSchema,
 } from "./events/secret-request.js";
+export {
+  type ServiceGroupUpdateCompleteEvent,
+  ServiceGroupUpdateCompleteEventSchema,
+} from "./events/service-group-update-complete.js";
+export {
+  type ServiceGroupUpdateProgressEvent,
+  ServiceGroupUpdateProgressEventSchema,
+} from "./events/service-group-update-progress.js";
+export {
+  type ServiceGroupUpdateStartingEvent,
+  ServiceGroupUpdateStartingEventSchema,
+} from "./events/service-group-update-starting.js";
 export {
   type SubagentEventEvent,
   SubagentEventEventSchema,
@@ -536,10 +577,74 @@ export {
   WorkflowLeafSchema,
 } from "./responses/workflow-journal.js";
 export {
+  type AnySurfaceData,
   type CardSurfaceData,
   CardSurfaceDataSchema,
+  type ChoiceOption,
+  ChoiceOptionSchema,
+  type ChoiceSurfaceData,
+  ChoiceSurfaceDataSchema,
+  coerceSurfaceDataRecord,
+  type ConfirmationSurfaceData,
+  ConfirmationSurfaceDataSchema,
+  type CopyBlockSurfaceData,
+  CopyBlockSurfaceDataSchema,
+  DAEMON_INTERNAL_SURFACE_TYPES,
+  type DocumentPreviewSurfaceData,
+  DocumentPreviewSurfaceDataSchema,
+  type DynamicPagePreview,
+  DynamicPagePreviewSchema,
+  type DynamicPageSurfaceData,
+  DynamicPageSurfaceDataSchema,
   type FileUploadSurfaceData,
   FileUploadSurfaceDataSchema,
+  type FormField,
+  FormFieldSchema,
+  type FormPage,
+  FormPageSchema,
+  type FormSurfaceData,
+  FormSurfaceDataSchema,
+  isDaemonInternalSurfaceType,
+  type ListItem,
+  ListItemSchema,
+  type ListSurfaceData,
+  ListSurfaceDataSchema,
+  MODEL_INVOKABLE_SURFACE_TYPES,
+  normalizeCopyBlockShowData,
+  type OAuthConnectSurfaceData,
+  OAuthConnectSurfaceDataSchema,
+  SURFACE_DATA_SCHEMAS,
+  SURFACE_TYPES,
+  type SurfaceData,
+  type SurfaceDataByType,
+  type SurfaceType,
+  SurfaceTypeSchema,
+  type TableCellValue,
+  TableCellValueSchema,
+  type TableColumn,
+  TableColumnSchema,
+  type TableRow,
+  TableRowSchema,
+  type TableSurfaceData,
+  TableSurfaceDataSchema,
+  type WorkResultDiff,
+  WorkResultDiffSchema,
+  type WorkResultItem,
+  WorkResultItemSchema,
+  type WorkResultMetadata,
+  WorkResultMetadataSchema,
+  type WorkResultMetric,
+  WorkResultMetricSchema,
+  type WorkResultSection,
+  WorkResultSectionSchema,
+  type WorkResultSectionType,
+  WorkResultSectionTypeSchema,
+  type WorkResultStatus,
+  WorkResultStatusSchema,
+  type WorkResultSurfaceData,
+  WorkResultSurfaceDataSchema,
+  type WorkResultTone,
+  WorkResultToneSchema,
 } from "./surfaces.js";
 
 /**
@@ -568,6 +673,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   AvatarUpdatedEventSchema,
   BackgroundToolCompletedEventSchema,
   BackgroundToolStartedEventSchema,
+  BookmarkCreatedEventSchema,
+  BookmarkDeletedEventSchema,
   CompactionCircuitClosedEventSchema,
   CompactionCircuitOpenEventSchema,
   ConfirmationRequestEventSchema,
@@ -589,6 +696,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   HookEventSchema,
   IdentityChangedEventSchema,
   InteractionResolvedEventSchema,
+  MemoryRecalledEventSchema,
+  MemoryStatusEventSchema,
   MessageCompleteEventSchema,
   MessageDequeuedEventSchema,
   MessageQueuedEventSchema,
@@ -602,6 +711,9 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   QuestionRequestEventSchema,
   RelationshipStateUpdatedEventSchema,
   SecretRequestEventSchema,
+  ServiceGroupUpdateCompleteEventSchema,
+  ServiceGroupUpdateProgressEventSchema,
+  ServiceGroupUpdateStartingEventSchema,
   SubagentEventEventSchema,
   SubagentSpawnedEventSchema,
   SubagentStatusChangedEventSchema,

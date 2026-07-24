@@ -10,8 +10,8 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import type { AcpSessionUpdateEvent } from "../../api/events/acp-session-update.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
-import type { AcpSessionUpdate } from "../../daemon/message-types/acp.js";
 import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import { VellumAcpClientHandler } from "../client-handler.js";
@@ -44,7 +44,7 @@ function buildSessionWithFakeProcess(opts: {
     usage?: { inputTokens: number; outputTokens: number };
   }) => void;
   rejectPrompt: (e: Error) => void;
-  emitUpdate: (update: AcpSessionUpdate) => void;
+  emitUpdate: (update: AcpSessionUpdateEvent) => void;
 } {
   const manager = new AcpSessionManager(1);
   const sent: ServerMessage[] = [];
@@ -85,7 +85,7 @@ function buildSessionWithFakeProcess(opts: {
     if (msg.type === "acp_session_update") {
       (
         manager as unknown as {
-          appendToBuffer: (id: string, u: AcpSessionUpdate) => void;
+          appendToBuffer: (id: string, u: AcpSessionUpdateEvent) => void;
         }
       ).appendToBuffer(opts.id, msg);
     }
@@ -134,7 +134,7 @@ function buildSessionWithFakeProcess(opts: {
 
   // Helper that pushes an update through the wrapped sender — exactly
   // matching what VellumAcpClientHandler.sessionUpdate does.
-  const emitUpdate = (update: AcpSessionUpdate) => {
+  const emitUpdate = (update: AcpSessionUpdateEvent) => {
     wrappedSend(update);
   };
 
@@ -204,7 +204,7 @@ describe("AcpSessionManager — terminal persistence", () => {
     expect(row!.completed_at).not.toBeNull();
     expect(row!.error).toBeNull();
 
-    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdate[];
+    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdateEvent[];
     expect(log).toHaveLength(3);
     expect(log[0]).toMatchObject({
       type: "acp_session_update",
@@ -272,7 +272,7 @@ describe("AcpSessionManager — terminal persistence", () => {
 
     const row = readHistoryRow(id);
     expect(row).not.toBeNull();
-    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdate[];
+    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdateEvent[];
     expect(log).toHaveLength(2);
     expect(log[0]!.rawInput).toEqual(rawInput);
     expect(log[1]!.rawOutput).toBe(rawOutput);
@@ -304,7 +304,7 @@ describe("AcpSessionManager — terminal persistence", () => {
     expect(row!.error).toBe("agent died");
     expect(row!.stop_reason).toBeNull();
 
-    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdate[];
+    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdateEvent[];
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({
       updateType: "agent_message_chunk",
@@ -333,7 +333,7 @@ describe("AcpSessionManager — terminal persistence", () => {
     // Verify in-memory buffer is bounded before persistence.
     const eventBuffers = (
       handles.manager as unknown as {
-        eventBuffers: Map<string, { update: AcpSessionUpdate }[]>;
+        eventBuffers: Map<string, { update: AcpSessionUpdateEvent }[]>;
       }
     ).eventBuffers;
     expect(eventBuffers.get(id)?.length).toBe(200);
@@ -344,7 +344,7 @@ describe("AcpSessionManager — terminal persistence", () => {
 
     const row = readHistoryRow(id);
     expect(row).not.toBeNull();
-    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdate[];
+    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdateEvent[];
     expect(log).toHaveLength(200);
     // Oldest events were evicted — the persisted log contains the last 200.
     expect((log[0] as { content?: string }).content).toBe("chunk-100");
@@ -378,7 +378,7 @@ describe("AcpSessionManager — terminal persistence", () => {
 
     const row = readHistoryRow(id);
     expect(row).not.toBeNull();
-    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdate[];
+    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdateEvent[];
     expect(log.length).toBeLessThan(80);
     expect(log.length).toBeGreaterThan(0);
     // Persisted JSON must respect the 256 KB cap (allowing a small margin
@@ -610,7 +610,7 @@ describe("AcpSessionManager — terminal persistence", () => {
     expect(row!.status).toBe("completed");
     expect(row!.stop_reason).toBe("end_turn");
     expect(row!.cwd).toBe("/new/cwd");
-    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdate[];
+    const log = JSON.parse(row!.event_log_json) as AcpSessionUpdateEvent[];
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({ content: "from the resumed run" });
   });

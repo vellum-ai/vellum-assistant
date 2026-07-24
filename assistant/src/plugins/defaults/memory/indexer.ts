@@ -7,6 +7,7 @@ import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
 
 import { getConfig } from "../../../config/loader.js";
+import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
 import type { MemoryConfig } from "../../../config/types.js";
 import {
   getMemoryCheckpoint,
@@ -187,9 +188,9 @@ export async function indexMessageNow(
     const batchSize = config.extraction.batchSize ?? 10;
     const idleTimeoutMs = config.extraction.idleTimeoutMs ?? 300_000;
 
-    // Reading config here is best-effort: when it fails we treat v2 as
-    // inactive (failing-open to v1) so a config error never silently
-    // drops the extraction or summarization paths.
+    // Reading config here is best-effort: when it fails we treat
+    // concept-page memory as inactive (failing-open to v1) so a config
+    // error never silently drops the extraction or summarization paths.
     let triggerConfig: ReturnType<typeof getConfig> | null = null;
     try {
       triggerConfig = getConfig();
@@ -200,8 +201,8 @@ export async function indexMessageNow(
       );
     }
 
-    const v2Config =
-      triggerConfig != null && triggerConfig.memory.v2.enabled
+    const conceptConfig =
+      triggerConfig != null && usesConceptPageMemory(triggerConfig.memory)
         ? triggerConfig
         : null;
 
@@ -212,13 +213,13 @@ export async function indexMessageNow(
     // analyzing its own output would loop indefinitely.
     if (!isAutoAnalysisSource) {
       // ── Graph extraction (v1) ───────────────────────────────────────
-      // Suppressed when v2 is active — v2 reads memory from buffer.md
-      // and concept pages, so the v1 graph would be stale data nobody
-      // consumes. Pending-count tracking is suppressed too; otherwise a
-      // flag flip back to v1 would fire an immediate batch from counts
-      // accumulated during the v2 window.
+      // Suppressed when concept-page memory is active — it reads memory
+      // from buffer.md and concept pages, so the v1 graph would be stale
+      // data nobody consumes. Pending-count tracking is suppressed too;
+      // otherwise a later switch back to v1 would fire an immediate batch
+      // from counts accumulated in the meantime.
       let extractRunAfter: number;
-      if (v2Config == null) {
+      if (conceptConfig == null) {
         const graphPendingKey = `graph_extract:${input.conversationId}:pending_count`;
         const graphCurrentVal = getMemoryCheckpoint(graphPendingKey);
         const graphPendingCount =
@@ -252,13 +253,13 @@ export async function indexMessageNow(
         extractRunAfter = Date.now() + idleTimeoutMs;
       }
 
-      // Memory v2 sweep: when v2 is on AND `sweep_enabled` is set, every
-      // extraction trigger also enqueues a sweep. The sweep itself reads
-      // recent messages globally, so the `conversationId` here is just
-      // the dedup key — one pending row per active conversation.
+      // Memory sweep: when concept-page memory is on AND `sweep_enabled` is
+      // set, every extraction trigger also enqueues a sweep. The sweep
+      // itself reads recent messages globally, so the `conversationId` here
+      // is just the dedup key — one pending row per active conversation.
       // `sweep_enabled` defaults to false because `remember()` is the
       // primary capture path; the sweep is opt-in.
-      if (v2Config != null && v2Config.memory.v2.sweep_enabled) {
+      if (conceptConfig != null && conceptConfig.memory.v2.sweep_enabled) {
         upsertDebouncedJob(
           "memory_v2_sweep",
           { conversationId: input.conversationId },
@@ -284,14 +285,14 @@ export async function indexMessageNow(
 
     // ── Conversation summarization (v1) ───────────────────────────────
     // Summaries feed the v1 graph retrieval pipeline (fetchRecentSummaries,
-    // semantic search). Suppressed when v2 is active — v2 readers (concept
-    // pages, activation pipeline) do not consume `memorySummaries`, so the
-    // summarization LLM call would produce rows nothing reads. Stale rows
-    // from before v2 was enabled are short-circuited at dispatch in
+    // semantic search). Suppressed when concept-page memory is active — its
+    // readers (concept pages, activation pipeline, v3 lanes) do not consume
+    // `memorySummaries`, so the summarization LLM call would produce rows
+    // nothing reads. Stale v1 rows are short-circuited at dispatch in
     // jobs-worker.ts. Debounced on the same idle timeout — no threshold
     // trigger needed since summaries compress the whole conversation, not
     // incremental batches.
-    if (v2Config == null && isMemoryEnabled()) {
+    if (conceptConfig == null && isMemoryEnabled()) {
       upsertDebouncedJob(
         "build_conversation_summary",
         { conversationId: input.conversationId },
