@@ -433,7 +433,7 @@ describe("stalled", () => {
     expect(getByText("This is taking longer than expected")).toBeTruthy();
     expect(getByText("This may take a couple of minutes.")).toBeTruthy();
     expect(getByText("Machine")).toBeTruthy();
-    // Apply & Restart is gone from the takeover entirely.
+    // The takeover renders no Apply & Restart control in any phase.
     expect(queryByTestId("provisioning-apply")).toBeNull();
     expect(getByText("Continue in the background")).toBeTruthy();
     fireEvent.click(getByTestId("provisioning-escape"));

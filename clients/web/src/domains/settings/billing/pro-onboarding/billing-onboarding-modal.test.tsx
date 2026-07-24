@@ -644,7 +644,7 @@ describe("BillingOnboardingModal", () => {
           expect(getByText("This is taking longer than expected")).toBeTruthy(),
         { timeout: 5000 },
       );
-      // Apply & Restart is gone from the takeover.
+      // The stalled takeover renders no Apply & Restart control.
       expect(queryByTestId("provisioning-apply")).toBeNull();
 
       // "Continue in the background" opens the confirm; it warns chat is
@@ -924,7 +924,8 @@ describe("BillingOnboardingModal", () => {
           ).toBeTruthy(),
         { timeout: 5000 },
       );
-      // The mapped error is the caption, and Apply & Restart is gone.
+      // The mapped error is the caption; the snag takeover renders no Apply &
+      // Restart control.
       expect(
         getByText(
           "We couldn't queue your upgrade just now. Try again in a moment.",
