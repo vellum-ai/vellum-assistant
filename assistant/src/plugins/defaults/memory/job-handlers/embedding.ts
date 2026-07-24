@@ -13,6 +13,7 @@ import {
   memorySummaries,
   messages,
 } from "../../../../persistence/schema/index.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import { extractMediaBlocks } from "../message-media.js";
 
 export async function embedSegmentJob(job: MemoryJob): Promise<void> {
@@ -20,8 +21,11 @@ export async function embedSegmentJob(job: MemoryJob): Promise<void> {
   if (!segmentId) {
     return;
   }
-  const db = getDb();
-  const segment = db
+  const mem = memoryDbOrNull("embedSegmentJob");
+  if (!mem) {
+    return;
+  }
+  const segment = mem
     .select()
     .from(memorySegments)
     .where(eq(memorySegments.id, segmentId))

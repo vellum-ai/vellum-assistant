@@ -13,7 +13,6 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../../persistence/checkpoints.js";
-import { getDb } from "../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
@@ -23,6 +22,7 @@ import { memorySegments } from "../../../persistence/schema/index.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { isAutoAnalysisConversation } from "../../../runtime/services/auto-analysis-guard.js";
 import { getLogger } from "./logging.js";
+import { memoryDbOrNull } from "./memory-db.js";
 import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
 import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";
 import { extractMediaBlockMeta } from "./message-media.js";
@@ -74,7 +74,10 @@ export async function indexMessageNow(
     return { indexedSegments: 0, enqueuedJobs: 0 };
   }
 
-  const db = getDb();
+  const mem = memoryDbOrNull("indexMessageNow");
+  if (!mem) {
+    return { indexedSegments: 0, enqueuedJobs: 0 };
+  }
   const now = Date.now();
   const segments = segmentText(
     text,
@@ -109,7 +112,7 @@ export async function indexMessageNow(
     type: "embed_segment" | "embed_attachment";
     payload: Record<string, unknown>;
   }> = [];
-  db.transaction((tx) => {
+  mem.transaction((tx) => {
     for (const segment of segments) {
       if (segment.text.length < MIN_SEGMENT_CHARS) {
         skippedShortSegments++;
