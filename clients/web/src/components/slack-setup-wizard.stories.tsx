@@ -21,19 +21,19 @@ export default meta;
 
 type Story = StoryObj<typeof SlackSetupWizard>;
 
-export const Step1CreateApp: Story = {};
+export const Default: Story = {};
 
-export const Step2GenerateAppToken: Story = {
-  args: {
-    initialStepId: "app-token",
-  },
+export const Saving: Story = {
+  args: { saveStatus: "pending" },
 };
 
-export const Step3InstallAndConnect: Story = {
+export const Saved: Story = {
+  args: { saveStatus: "success" },
+};
+
+export const SaveFailed: Story = {
   args: {
-    initialStepId: "install-and-connect",
-    onSave: async (_botToken: string, _appToken: string) => {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    },
+    saveStatus: "error",
+    saveError: "Slack rejected the bot token (invalid_auth).",
   },
 };
