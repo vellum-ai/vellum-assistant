@@ -278,6 +278,53 @@ describe("ImageGenerationCard — provider-only configuration", () => {
     });
   });
 
+  test("a daemon predating the vellum enum still gets explicit BYOK provider writes", async () => {
+    // Only "vellum" is unrepresentable on old daemons; gemini/openai are in
+    // the old enum, so a provider switch must not be dropped.
+    daemonSupportsVellumProvider = false;
+    renderCard();
+
+    fireEvent.click(trigger("Image generation provider"));
+    selectOption("Gemini");
+    const keyInput = screen.getByPlaceholderText("Enter your Gemini API key");
+    fireEvent.change(keyInput, { target: { value: "gm-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: {
+        "image-generation": { provider: "gemini", mode: "your-own" },
+      },
+    });
+  });
+
+  test("a stale stored model is reconciled against the provider before save", async () => {
+    // gpt-image-2 was selectable under the legacy managed toggle; under a
+    // gemini daemon config it must snap to a gemini model, not save a
+    // provider/model mismatch.
+    localStorage.setItem("vellum:ai:imageGenModel", "gpt-image-2");
+    daemonConfigData = {
+      services: {
+        "image-generation": { mode: "your-own", provider: "gemini" },
+      },
+    };
+    renderCard();
+
+    expect(trigger("Image generation model").textContent).toContain(
+      "Nano Banana 2",
+    );
+
+    const keyInput = screen.getByPlaceholderText("Enter your Gemini API key");
+    fireEvent.change(keyInput, { target: { value: "gm-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(modelPutCalls.length).toBe(1));
+    expect(modelPutCalls[0]!.body).toMatchObject({
+      modelId: "gemini-3.1-flash-image-preview",
+    });
+    expect(provisionedKeys).toEqual([{ provider: "gemini", key: "gm-secret" }]);
+  });
+
   test("a daemon predating the vellum provider gets the legacy managed write", async () => {
     // Old daemon schemas reject provider "vellum" outright; the Vellum
     // selection degrades to the legacy mode-only representation the read

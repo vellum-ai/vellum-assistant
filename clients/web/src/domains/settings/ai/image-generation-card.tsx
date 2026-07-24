@@ -84,6 +84,13 @@ export function ImageGenerationCard() {
   const [imageGenModel, setImageGenModel] = useState(() =>
     getLocalSetting(LS_IMAGE_GEN_MODEL, DEFAULT_IMAGE_GEN_MODEL),
   );
+  // Reconcile the stored model against the provider's list on every render,
+  // not just on a provider change — a stale stored model (e.g. gpt-image-2
+  // under a Gemini config) must never reach a save or a key provisioning.
+  const providerModels = imageGenModelsForProvider(provider);
+  const effectiveModel = providerModels.includes(imageGenModel)
+    ? imageGenModel
+    : (providerModels[0] ?? DEFAULT_IMAGE_GEN_MODEL);
   const [imageGenApiKey, setImageGenApiKey] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -111,18 +118,9 @@ export function ImageGenerationCard() {
 
   const requiresApiKey = provider === "gemini" || provider === "openai";
 
-  const handleProviderChange = useCallback(
-    (next: string) => {
-      setDraftProvider(next);
-      // Snap the model onto the new provider's list when it falls off it
-      // (e.g. GPT Image 2 is not servable by a Gemini key).
-      const models = imageGenModelsForProvider(next);
-      if (!models.includes(imageGenModel)) {
-        setImageGenModel(models[0] ?? DEFAULT_IMAGE_GEN_MODEL);
-      }
-    },
-    [setDraftProvider, imageGenModel],
-  );
+  // Model reconciliation is derived (`effectiveModel`), so a provider change
+  // needs no imperative snap.
+  const handleProviderChange = setDraftProvider;
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -131,25 +129,28 @@ export function ImageGenerationCard() {
     try {
       if (hasUserKey) {
         await provisionProviderKey(
-          providerForImageGenModel(imageGenModel),
+          providerForImageGenModel(effectiveModel),
           trimmed,
         );
       }
       // The provider is written as a pair with `mode`: a stale
       // `mode: "managed"` from the legacy toggle would win over a BYOK choice
-      // unless reset. Daemons older than the vellum enum value reject the
-      // provider outright, so for them a Vellum selection writes only the
-      // legacy managed mode — the read bridge renders that pair as Vellum.
+      // unless reset. Only the `vellum` value is unrepresentable on daemons
+      // older than its enum entry — for those a Vellum selection writes the
+      // legacy managed mode alone (the read bridge renders that pair as
+      // Vellum), while BYOK providers keep their explicit provider write.
       await whenAssistantVersionKnown();
+      const vellumUnsupported =
+        provider === "vellum" && !supportsImageGenVellumProvider();
       const imageGenService: {
         provider?: string;
         mode: "managed" | "your-own";
-      } = supportsImageGenVellumProvider()
-        ? {
+      } = vellumUnsupported
+        ? { mode: "managed" }
+        : {
             provider,
             mode: provider === "vellum" ? "managed" : "your-own",
-          }
-        : { mode: provider === "vellum" ? "managed" : "your-own" };
+          };
       await configMutation
         .mutateAsync({
           path: { assistant_id: assistantId },
@@ -165,7 +166,7 @@ export function ImageGenerationCard() {
       try {
         await modelImagegenPut({
           path: { assistant_id: assistantId },
-          body: { modelId: imageGenModel },
+          body: { modelId: effectiveModel },
           throwOnError: true,
         });
       } catch (error) {
@@ -186,7 +187,7 @@ export function ImageGenerationCard() {
     setSaving(false);
     try {
       setLocalSetting(LS_IMAGE_GEN_PROVIDER, provider);
-      setLocalSetting(LS_IMAGE_GEN_MODEL, imageGenModel);
+      setLocalSetting(LS_IMAGE_GEN_MODEL, effectiveModel);
       if (hasUserKey) {
         setImageGenApiKey("");
       }
@@ -199,7 +200,7 @@ export function ImageGenerationCard() {
     imageGenApiKey,
     provider,
     requiresApiKey,
-    imageGenModel,
+    effectiveModel,
     assistantId,
     configMutation,
     provisionProviderKey,
@@ -257,7 +258,7 @@ export function ImageGenerationCard() {
           </label>
           <Dropdown
             aria-label="Image generation model"
-            value={imageGenModel}
+            value={effectiveModel}
             onChange={setImageGenModel}
             options={modelOptions}
           />

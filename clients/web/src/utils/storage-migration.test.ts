@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { migrateKey, migratePrefix, migrateValue, removeKey, runStorageMigrations } from "./storage-migration";
+import {
+  migrateKey,
+  migratePrefix,
+  migrateValue,
+  removeKey,
+  runStorageMigrations,
+} from "./storage-migration";
 
 beforeEach(() => {
   localStorage.clear();
@@ -99,8 +105,12 @@ describe("migratePrefix", () => {
 
     migratePrefix("voice:ttsApiKey:", "vellum:voice:ttsApiKey:");
 
-    expect(localStorage.getItem("vellum:voice:ttsApiKey:openai")).toBe("sk-123");
-    expect(localStorage.getItem("vellum:voice:ttsApiKey:elevenlabs")).toBe("el-456");
+    expect(localStorage.getItem("vellum:voice:ttsApiKey:openai")).toBe(
+      "sk-123",
+    );
+    expect(localStorage.getItem("vellum:voice:ttsApiKey:elevenlabs")).toBe(
+      "el-456",
+    );
     expect(localStorage.getItem("voice:ttsApiKey:openai")).toBeNull();
     expect(localStorage.getItem("voice:ttsApiKey:elevenlabs")).toBeNull();
     // Unrelated key untouched
@@ -153,13 +163,21 @@ describe("runStorageMigrations", () => {
 
     runStorageMigrations();
 
-    expect(localStorage.getItem("vellum:voice:permissionPrimerSeen")).toBe("true");
+    expect(localStorage.getItem("vellum:voice:permissionPrimerSeen")).toBe(
+      "true",
+    );
     expect(localStorage.getItem("vellum:voice:ttsProvider")).toBe("openai");
     expect(localStorage.getItem("vellum:voice:sttProvider")).toBe("whisper");
     expect(localStorage.getItem("vellum:voice:activationKey")).toBe("Space");
-    expect(localStorage.getItem("vellum:voice:ttsApiKey:openai")).toBe("sk-123");
-    expect(localStorage.getItem("vellum:voice:ttsVoiceId:openai")).toBe("alloy");
-    expect(localStorage.getItem("vellum:voice:sttApiKey:deepgram")).toBe("dg-456");
+    expect(localStorage.getItem("vellum:voice:ttsApiKey:openai")).toBe(
+      "sk-123",
+    );
+    expect(localStorage.getItem("vellum:voice:ttsVoiceId:openai")).toBe(
+      "alloy",
+    );
+    expect(localStorage.getItem("vellum:voice:sttApiKey:deepgram")).toBe(
+      "dg-456",
+    );
     // Old keys removed
     expect(localStorage.getItem("voice:permissionPrimerSeen")).toBeNull();
     expect(localStorage.getItem("voice:ttsApiKey:openai")).toBeNull();
@@ -174,11 +192,15 @@ describe("runStorageMigrations", () => {
     runStorageMigrations();
 
     expect(localStorage.getItem("vellum:onboarding:tosAccepted")).toBe("true");
-    expect(localStorage.getItem("vellum:onboarding:aiDataConsent")).toBe("true");
+    expect(localStorage.getItem("vellum:onboarding:aiDataConsent")).toBe(
+      "true",
+    );
     // completed key is removed (no longer used), not migrated
     expect(localStorage.getItem("onboarding.completed")).toBeNull();
     expect(localStorage.getItem("vellum:onboarding:completed")).toBeNull();
-    expect(localStorage.getItem("vellum:onboarding:selectedVersion")).toBe("v1.0");
+    expect(localStorage.getItem("vellum:onboarding:selectedVersion")).toBe(
+      "v1.0",
+    );
     expect(localStorage.getItem("onboarding.tosAccepted")).toBeNull();
   });
 
@@ -193,7 +215,9 @@ describe("runStorageMigrations", () => {
     runStorageMigrations();
 
     expect(localStorage.getItem("vellum:ai:imageGenMode")).toBe("enabled");
-    expect(localStorage.getItem("vellum:ai:webSearchProvider")).toBe("perplexity");
+    expect(localStorage.getItem("vellum:ai:webSearchProvider")).toBe(
+      "perplexity",
+    );
     expect(localStorage.getItem("vellum:ai:geminiKey")).toBe("gk-789");
     expect(localStorage.getItem("vellum:ai:perplexityKey")).toBe("pplx-abc");
     expect(localStorage.getItem("vellum:ai:braveKey")).toBe("BSA-def");
@@ -243,9 +267,15 @@ describe("runStorageMigrations", () => {
 
     runStorageMigrations();
 
-    expect(localStorage.getItem("vellum:diskPressureDismissed:asst-1")).toBe("true");
-    expect(localStorage.getItem("vellum:diskPressureDismissed:asst-2")).toBe("true");
-    expect(localStorage.getItem("disk-pressure-warning-dismissed-asst-1")).toBeNull();
+    expect(localStorage.getItem("vellum:diskPressureDismissed:asst-1")).toBe(
+      "true",
+    );
+    expect(localStorage.getItem("vellum:diskPressureDismissed:asst-2")).toBe(
+      "true",
+    );
+    expect(
+      localStorage.getItem("disk-pressure-warning-dismissed-asst-1"),
+    ).toBeNull();
   });
 
   test("collapses the legacy per-org assistant map into one key", () => {
@@ -260,7 +290,9 @@ describe("runStorageMigrations", () => {
     expect(localStorage.getItem("vellum:selectedAssistantId")).toBe("asst-a");
     expect(localStorage.getItem("vellum:currentAssistantId:org-1")).toBeNull();
     expect(localStorage.getItem("vellum:currentAssistantId:org-2")).toBeNull();
-    expect(localStorage.getItem("vellum_current_assistant_id__org-1")).toBeNull();
+    expect(
+      localStorage.getItem("vellum_current_assistant_id__org-1"),
+    ).toBeNull();
   });
 
   test("collapse prefers the persisted active org's per-org selection", () => {
@@ -282,22 +314,33 @@ describe("runStorageMigrations", () => {
     localStorage.setItem("vellum:currentAssistantId:org-1", "per-org");
 
     runStorageMigrations();
-    expect(localStorage.getItem("vellum:selectedAssistantId")).toBe("tab-local");
+    expect(localStorage.getItem("vellum:selectedAssistantId")).toBe(
+      "tab-local",
+    );
     expect(localStorage.getItem("vellum:local:selectedAssistantId")).toBeNull();
     expect(localStorage.getItem("vellum:currentAssistantId:org-1")).toBeNull();
 
     // Re-running leaves the collapsed value untouched and removes nothing new.
     runStorageMigrations();
-    expect(localStorage.getItem("vellum:selectedAssistantId")).toBe("tab-local");
+    expect(localStorage.getItem("vellum:selectedAssistantId")).toBe(
+      "tab-local",
+    );
   });
 
   test("migrates vellumDebug key", () => {
-    localStorage.setItem("vellumDebug.flags.impersonateAssistantVersion", "0.8.6");
+    localStorage.setItem(
+      "vellumDebug.flags.impersonateAssistantVersion",
+      "0.8.6",
+    );
 
     runStorageMigrations();
 
-    expect(localStorage.getItem("vellum:debug:impersonateAssistantVersion")).toBe("0.8.6");
-    expect(localStorage.getItem("vellumDebug.flags.impersonateAssistantVersion")).toBeNull();
+    expect(
+      localStorage.getItem("vellum:debug:impersonateAssistantVersion"),
+    ).toBe("0.8.6");
+    expect(
+      localStorage.getItem("vellumDebug.flags.impersonateAssistantVersion"),
+    ).toBeNull();
   });
 
   test("migrates skillsTabTipDismissed to new name", () => {
@@ -362,5 +405,22 @@ describe("runStorageMigrations", () => {
     const snapshot2 = { ...localStorage };
 
     expect(snapshot1).toEqual(snapshot2);
+  });
+  test("converts a legacy imageGenMode into the equivalent provider", () => {
+    localStorage.setItem("vellum:ai:imageGenMode", "managed");
+    runStorageMigrations();
+    expect(localStorage.getItem("vellum:ai:imageGenProvider")).toBe("vellum");
+
+    localStorage.clear();
+    localStorage.setItem("vellum:ai:imageGenMode", "your-own");
+    runStorageMigrations();
+    expect(localStorage.getItem("vellum:ai:imageGenProvider")).toBe("gemini");
+  });
+
+  test("a stored imageGenProvider wins over the legacy mode", () => {
+    localStorage.setItem("vellum:ai:imageGenMode", "managed");
+    localStorage.setItem("vellum:ai:imageGenProvider", "gemini");
+    runStorageMigrations();
+    expect(localStorage.getItem("vellum:ai:imageGenProvider")).toBe("gemini");
   });
 });
