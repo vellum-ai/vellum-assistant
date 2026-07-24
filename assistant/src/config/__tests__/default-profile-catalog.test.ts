@@ -53,6 +53,15 @@ describe("getEffectiveProfiles", () => {
     }
   });
 
+  test("the managed Quality profile routes GPT-5.6 Sol through OpenAI", () => {
+    const quality = CODE_DEFAULT_PROFILE_ENTRIES["quality-optimized"];
+    expect(quality.model).toBe("gpt-5.6-sol");
+    expect(resolveRoutingIdentity(quality.provider, quality.model)).toEqual({
+      connectionName: "vellum",
+      expectedProvider: "openai",
+    });
+  });
+
   test("defaults absent from the workspace resolve from the catalog; os-beta stays flag-gated", () => {
     const effective = getEffectiveProfiles(undefined);
     expect(Object.keys(effective).sort()).toEqual(

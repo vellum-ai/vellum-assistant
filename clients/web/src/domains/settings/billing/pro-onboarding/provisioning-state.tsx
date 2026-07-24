@@ -12,7 +12,7 @@ import {
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import type { CreditTierEnum } from "@/generated/api/types.gen";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
-import { MACHINE_TIER_LABEL, SIZE_LABEL } from "@/lib/billing/machine-sizes";
+import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import { SURFACE_GROUND } from "@/utils/avatar-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
@@ -22,7 +22,7 @@ import type {
   ProvisioningDimensions,
   ProvisioningStateKind,
 } from "./provisioning-machine";
-import { SERIF_HEADING_STYLE, type StalledApplyAction } from "./primitives";
+import { SERIF_HEADING_STYLE } from "./primitives";
 import {
   buildResourceChanges,
   type ResourceChangeKey,
@@ -66,8 +66,8 @@ const AVATAR_GROWTH = 1.414;
 
 // The stage reserves the grown height from first paint, so the takeover needs
 // `size * AVATAR_GROWTH + 309` of viewport before the phase block underneath —
-// which carries the escape hatch and the stalled retry — starts to clip. Step
-// the creature down instead of pushing those actions off a short screen.
+// which carries the escape hatch — starts to clip. Step the creature down
+// instead of pushing that control off a short screen.
 const AVATAR_SIZE_STEPS: Array<{ minHeight: number; size: number }> = [
   { minHeight: 680, size: AVATAR_SIZE },
   { minHeight: 600, size: 184 },
@@ -130,7 +130,11 @@ export interface ProvisioningStateProps {
   onEscape: () => void;
   /** Reports the phase actually on screen, which lags `state` by the hold. */
   onPhaseChange?: (phase: ProvisioningStateKind) => void;
-  stalledAction: StalledApplyAction;
+  /**
+   * ensure-provisioned failure held by the hook; with STALLED it selects the
+   * snag variant.
+   */
+  kickError?: unknown;
   confirm: { onRetry: () => void; onGoToBilling: () => void };
   /** Test hook — overrides the per-phase minimum; 0 disables the hold. */
   phaseMinMs?: number;
@@ -456,7 +460,13 @@ function IntentChips({ intent }: { intent: CheckoutIntent }) {
   );
 }
 
-/** Machine/Storage from→to chips, driven by the resolved provisioning targets. */
+/**
+ * Machine/Storage from→to chips, derived from the shared `buildResourceChanges`
+ * derivation (credits omitted) so the STALLED/DONE path can't drift from the
+ * WAITING `ResourceChangeChips`. An unchanged dimension renders as a singular
+ * value with no arrow (the helper omits its `from`); `done` strips the from-side
+ * entirely, so the terminal phase shows just the achieved target with a check.
+ */
 function TargetChips({
   targets,
   fromSnapshot,
@@ -466,34 +476,19 @@ function TargetChips({
   fromSnapshot: ProvisioningDimensions;
   done?: boolean;
 }) {
+  const changes = buildResourceChanges({ targets, fromSnapshot, credits: null });
   return (
     <ChipRow>
-      {targets.machineSize != null && (
+      {changes.map((change) => (
         <DimensionChip
-          icon={Cpu}
-          label="Machine"
-          from={
-            !done && fromSnapshot.machineSize != null
-              ? SIZE_LABEL[fromSnapshot.machineSize]
-              : undefined
-          }
-          to={SIZE_LABEL[targets.machineSize]}
+          key={change.key}
+          icon={RESOURCE_CHIP_ICON[change.key]}
+          label={change.label}
+          from={done ? undefined : change.from}
+          to={change.to}
           done={done}
         />
-      )}
-      {targets.storageGib != null && (
-        <DimensionChip
-          icon={HardDrive}
-          label="Storage"
-          from={
-            !done && fromSnapshot.storageGib != null
-              ? `${fromSnapshot.storageGib} GB`
-              : undefined
-          }
-          to={`${targets.storageGib} GB`}
-          done={done}
-        />
-      )}
+      ))}
     </ChipRow>
   );
 }
@@ -511,7 +506,7 @@ export function ProvisioningState({
   escapeAvailable,
   onEscape,
   onPhaseChange,
-  stalledAction,
+  kickError,
   confirm,
   dwellMs = PROVISION_MIN_DWELL_MS,
   phaseMinMs = PROVISION_PHASE_MIN_MS,
@@ -590,7 +585,7 @@ export function ProvisioningState({
     </div>
   );
 
-  function escapeButton() {
+  function escapeButton(label = "Continue in the background") {
     if (!escapeAvailable) {
       return null;
     }
@@ -600,7 +595,7 @@ export function ProvisioningState({
         data-testid="provisioning-escape"
         onClick={onEscape}
       >
-        Continue in the background
+        {label}
       </Button>
     );
   }
@@ -685,25 +680,33 @@ export function ProvisioningState({
     }
 
     if (heldState === "STALLED") {
+      // With no captured reconcile error the wait is just slow — say so
+      // honestly. Only an actual failure escalates to the "snag" variant with
+      // the mapped error and a retry-flavoured escape label.
+      const snag = kickError != null;
       return (
         <>
           <Copy
-            status="We couldn't finish this automatically"
-            caption={extractOnboardingErrorMessage(
-              stalledAction.error,
-              "Apply the changes below to finish setting up your upgrade.",
-            )}
+            status={
+              snag
+                ? "We hit a snag upgrading your assistant"
+                : "This is taking longer than expected"
+            }
+            caption={
+              snag
+                ? extractOnboardingErrorMessage(
+                    kickError,
+                    "Retry in the background — we'll keep working on your upgrade.",
+                  )
+                : "This may take a couple of minutes."
+            }
           />
-          <TargetChips targets={targets} fromSnapshot={fromSnapshot} />
-          <Button
-            variant="primary"
-            data-testid="provisioning-apply"
-            disabled={stalledAction.pending}
-            onClick={stalledAction.onApply}
-          >
-            Apply &amp; Restart
-          </Button>
-          {escapeButton()}
+          <ResourceChangeChips
+            intent={intent}
+            targets={targets}
+            fromSnapshot={fromSnapshot}
+          />
+          {snag ? escapeButton("Retry in the background") : escapeButton()}
         </>
       );
     }

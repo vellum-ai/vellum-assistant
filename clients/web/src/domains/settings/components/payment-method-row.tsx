@@ -25,16 +25,16 @@ export function PaymentMethodRow({
       data-testid="payment-method-row"
       className="flex items-center justify-between gap-2 rounded-lg bg-[var(--surface-base)] pl-3 pr-2 py-1.5"
     >
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <CreditCard
           aria-hidden
-          className="h-4 w-4 text-[var(--content-default)]"
+          className="h-4 w-4 shrink-0 text-[var(--content-default)]"
         />
-        <div>
+        <div className="min-w-0">
           <Typography
             as="p"
             variant="body-medium-default"
-            className="text-[var(--content-default)]"
+            className="truncate text-[var(--content-default)]"
           >
             {brand ? brandLabel(brand) : "Saved card"}
           </Typography>
@@ -42,14 +42,14 @@ export function PaymentMethodRow({
             <Typography
               as="p"
               variant="body-small-default"
-              className="text-[var(--content-tertiary)]"
+              className="truncate text-[var(--content-tertiary)]"
             >
               Ending in {last4}
             </Typography>
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         <Button
           variant="outlined"
           onClick={onUpdateCard}
