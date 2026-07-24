@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -66,6 +66,30 @@ describe("withLocalHatchLock", () => {
 
     const result = await withLocalHatchLock(async () => "started", {
       lockPath,
+      timeoutMs: 1_000,
+      retryMs: 5,
+    });
+
+    expect(result).toBe("started");
+    expect(existsSync(lockPath)).toBe(false);
+  });
+
+  test("recovers an expired lock even when its PID has been reused", async () => {
+    const lockPath = makeLockPath();
+    writeFileSync(
+      lockPath,
+      JSON.stringify({
+        pid: process.pid,
+        processStartedAt: "not-the-current-process",
+        token: "reused-pid-owner",
+      }) + "\n",
+    );
+    const expired = new Date(Date.now() - 300_000);
+    utimesSync(lockPath, expired, expired);
+
+    const result = await withLocalHatchLock(async () => "started", {
+      lockPath,
+      liveOwnerRecoveryGraceMs: 0,
       timeoutMs: 1_000,
       retryMs: 5,
     });
