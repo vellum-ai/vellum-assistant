@@ -194,9 +194,10 @@ describe("getModelInputTokenPrice", () => {
   });
 
   test("ranks the vision call-site default (Haiku) below the Quality profile (Fable)", () => {
-    // The image-fallback fix rests on this: on a default managed catalog the
-    // only vision-capable default profile is Fable, but the vision call-site
-    // default pins Haiku — which must price cheaper so it wins the ranking.
+    // Pricing invariant the caption-candidate ranking depends on: on a default
+    // managed catalog the only vision-capable default profile is Fable, and the
+    // vision call-site default pins Haiku — Haiku must price cheaper so the
+    // call-site candidate wins the cheapest-first ranking.
     const haiku = getModelInputTokenPrice("claude-haiku-4-5-20251001");
     const fable = getModelInputTokenPrice("claude-fable-5");
     expect(haiku).not.toBeNull();
