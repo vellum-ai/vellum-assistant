@@ -8,6 +8,7 @@ import {
 import {
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
+  INTERNAL_PROFILE_KEYS,
 } from "../default-profile-names.js";
 
 /**
@@ -668,11 +669,18 @@ export const LLMSchema = z
       ...Object.keys(config.profiles ?? {}),
       ...DEFAULT_PROFILE_KEYS,
     ]);
+    // Internal profiles exist only to be named by a call site, so they are
+    // valid reference targets there and nowhere else — never for
+    // `activeProfile`/`advisorProfile`, which are user-facing selections.
+    const callSiteProfileNames = new Set([
+      ...profileNames,
+      ...INTERNAL_PROFILE_KEYS,
+    ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
       if (siteConfig?.profile == null) {
         continue;
       }
-      if (!profileNames.has(siteConfig.profile)) {
+      if (!callSiteProfileNames.has(siteConfig.profile)) {
         ctx.addIssue({
           code: "custom",
           path: ["callSites", siteId, "profile"],
