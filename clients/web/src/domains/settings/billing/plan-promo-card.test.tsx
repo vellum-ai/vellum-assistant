@@ -6,7 +6,7 @@
  * spinner and blocks the click while pending; and forces the dark palette.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 const { PlanPromoCard } = await import("./plan-promo-card");
