@@ -13,9 +13,10 @@ import { routes } from "@/utils/routes";
 /**
  * Full per-tier help copy, framed around behavior toward the people in the
  * channel: what the assistant does on its own when responding, and what waits
- * for the owner. Kept as plain text (not JSX) so it can ride each key entry's
- * hover tooltip — the terse `CAPABILITY_TIER_META` sublabel is what shows
- * inline, the full sentence appears on hover.
+ * for the owner. Rendered inline under each tier name in the key, so the
+ * meaning is on screen without hovering — plain text (not JSX) because it
+ * interpolates the assistant name. The terse `CAPABILITY_TIER_META.sublabel`
+ * is the picker's short form ({@link TierPicker}), not used here.
  *
  * Grounded in the live approval pipeline
  * (`assistant/src/permissions/checker.ts` → `approval-policy.ts`): each call's
@@ -44,7 +45,7 @@ function tierDescription(tier: RiskThreshold, assistantName: string): string {
     case "low":
       return `Low-risk lookups run on their own: web searches, reading files in ${assistantName}'s own workspace.`;
     case "medium":
-      return `Also allows medium-risk lookups. No tool ranks medium today, so this currently behaves like Conservative.`;
+      return `Also allows medium-risk lookups to run on their own.`;
     case "high":
       return `Any lookup runs on its own, including reads of sensitive local files.`;
   }
@@ -64,12 +65,11 @@ export interface SlackChannelTierLegendProps {
 /**
  * Always-visible Assistant Access key in the default-access card footer: a
  * heading, a one-line description of what the levels do (and what always
- * escalates), then every tier as a compact "label + what it does" pair in a
- * two-column grid, so the meaning is on screen without opening anything. The
- * terse sublabel shows inline (the touch-reachable case); the full behavior
- * sentence rides each pair's hover/description `title` as progressive
- * enhancement. The tier the global default resolves to is marked "· default",
- * matching the per-row picker so the two read together.
+ * escalates), then every tier in a two-column grid as its name over the full
+ * {@link tierDescription} sentence. Everything renders on screen — no hover
+ * tooltip — so the meaning is reachable on touch. The tier the global default
+ * resolves to is marked "· default", matching the per-row picker so the two
+ * read together.
  */
 export function SlackChannelTierLegend({
   assistantName,
