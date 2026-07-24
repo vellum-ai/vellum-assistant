@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 
 import {
   buildSlackManifest,
-  buildSlackManifestUrl,
   SLACK_MANIFEST_BOT_SCOPES,
 } from "./slack-manifest";
 
@@ -74,21 +73,22 @@ describe("field limits", () => {
   });
 });
 
-describe("buildSlackManifestUrl", () => {
-  // LUM-704: symbols in the assistant name used to break the encoded manifest.
-  it("round-trips a name containing symbols", () => {
-    const url = buildSlackManifestUrl("Becky 24/7", 'Ops & "stuff"');
-    const encoded = url.split("manifest_json=")[1];
-    const parsed = JSON.parse(decodeURIComponent(encoded));
+describe("JSON round-trip", () => {
+  // LUM-704: symbols in the assistant name used to break the generated
+  // manifest. The manifest now travels through the clipboard, so what matters
+  // is that stringify/parse preserves them intact for the paste.
+  it("round-trips a name and description containing symbols", () => {
+    const built = buildSlackManifest("Becky 24/7", 'Ops & "stuff" <3');
+    const parsed = JSON.parse(JSON.stringify(built));
 
     expect(parsed.display_information.name).toBe("Becky 24/7");
-    expect(parsed.display_information.description).toBe('Ops & "stuff"');
+    expect(parsed.display_information.description).toBe('Ops & "stuff" <3');
+    expect(parsed.features.agent_view.agent_description).toBe('Ops & "stuff" <3');
   });
 
-  it("encodes the same manifest buildSlackManifest returns", () => {
-    const url = buildSlackManifestUrl("Example Assistant");
-    const parsed = JSON.parse(decodeURIComponent(url.split("manifest_json=")[1]));
+  it("produces valid JSON for the clipboard", () => {
+    const text = JSON.stringify(buildSlackManifest("Becky 24/7"), null, 2);
 
-    expect(parsed).toEqual(JSON.parse(JSON.stringify(manifest)));
+    expect(() => JSON.parse(text)).not.toThrow();
   });
 });

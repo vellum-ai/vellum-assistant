@@ -75,7 +75,7 @@ const MAX_AGENT_DESCRIPTION_LENGTH = 300;
  * optional description, as a plain object ready to be JSON-stringified and
  * pasted into the "From a manifest" tile of Slack's create-app modal.
  *
- * Canonical source: skills/slack-app-setup/scripts/build-manifest-url.ts
+ * Canonical source: skills/slack-app-setup/scripts/build-manifest.ts
  * Duplicated here because skills cannot import from client packages.
  * Keep both in sync when changing scopes, events, or manifest shape.
  */
@@ -137,19 +137,4 @@ export function buildSlackManifest(name: string, desc = "") {
       token_rotation_enabled: false,
     },
   };
-}
-
-/**
- * Deep link that pre-fills Slack's create-app form from a manifest.
- *
- * Slack's create-app modal ignores the `manifest_json` query parameter, so the
- * wizard builds its copy-paste flow on {@link buildSlackManifest} instead.
- * This remains a fallback for Slack surfaces that still honor the parameter,
- * and for the setup skill.
- */
-export function buildSlackManifestUrl(name: string, desc = ""): string {
-  return (
-    "https://api.slack.com/apps?new_app=1&manifest_json=" +
-    encodeURIComponent(JSON.stringify(buildSlackManifest(name, desc)))
-  );
 }
