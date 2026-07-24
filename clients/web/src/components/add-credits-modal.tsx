@@ -1,5 +1,5 @@
 import { AlertCircle, ChevronRight, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,6 +9,7 @@ import {
   organizationsBillingTopUpsCheckoutSessionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
@@ -101,19 +102,47 @@ export function AddCreditsModal({
     organizationsBillingTopUpsCheckoutSessionCreateMutation(),
   );
 
+  // Whether this modal launched checkout, so the Electron focus handler below
+  // only reacts to a return from *its* flow — not to any incidental refocus.
+  const checkoutLaunchedRef = useRef(false);
+
+  const handleCheckoutReturn = useCallback(() => {
+    onOpenChange(false);
+    void queryClient.invalidateQueries(
+      organizationsBillingSummaryRetrieveOptions(),
+    );
+    onCheckoutReturn?.();
+  }, [onOpenChange, queryClient, onCheckoutReturn]);
+
   // On native, SFSafariViewController stays on top of the app — the modal
   // remains mounted while Stripe checkout runs. When the user finishes (or
   // cancels), `browserFinished` fires: close the modal and refetch billing
   // summary so the balance reflects the completed top-up.
   useEffect(() => {
-    return openUrlFinishedListener(() => {
-      onOpenChange(false);
-      void queryClient.invalidateQueries(
-        organizationsBillingSummaryRetrieveOptions(),
-      );
-      onCheckoutReturn?.();
-    });
-  }, [onOpenChange, queryClient, onCheckoutReturn]);
+    return openUrlFinishedListener(handleCheckoutReturn);
+  }, [handleCheckoutReturn]);
+
+  // Electron has no equivalent signal: `openUrl` hands the URL to the *system*
+  // browser and `browserFinished` is Capacitor-only, so without this the app
+  // never learns the user came back — the modal sits open and anything latched
+  // off the pre-top-up balance stays stale. Regaining window focus after we
+  // launched checkout is the available proxy. Plain web needs nothing: its
+  // `openUrl` navigates the same tab, so returning remounts the app.
+  useEffect(() => {
+    if (!isElectron()) {
+      return;
+    }
+    const onFocus = () => {
+      if (!checkoutLaunchedRef.current) {
+        return;
+      }
+      // One-shot: a later refocus is just the user using the app.
+      checkoutLaunchedRef.current = false;
+      handleCheckoutReturn();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [handleCheckoutReturn]);
 
   const handleAddFunds = () => {
     if (checkoutMutation.isPending) {
@@ -132,6 +161,7 @@ export function AddCreditsModal({
           // On native (iOS), open in SFSafariViewController so the user stays
           // inside the app and Stripe's redirect back to return_path lands in
           // the in-app browser rather than breaking out to Safari.
+          checkoutLaunchedRef.current = true;
           void openUrl(data.checkout_url);
         },
       },
