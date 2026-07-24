@@ -436,6 +436,19 @@
       "icon": "🧪"
     },
     {
+      "name": "vellum-db",
+      "source": {
+        "source": "github",
+        "repo": "simensgreen/vellum-db",
+        "ref": "00a587adb5d0344c977334353e0d4df54377340a"
+      },
+      "description": "Structured storage for Vellum agents: tables via JSON Schema, query/aggregate via JSON, named saved queries.",
+      "category": "developer",
+      "homepage": "https://github.com/simensgreen/vellum-db",
+      "license": "MIT",
+      "icon": "🗄️"
+    },
+    {
       "name": "virlo",
       "source": {
         "source": "github",
