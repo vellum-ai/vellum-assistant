@@ -17,12 +17,21 @@ import {
   setVercelConfig,
 } from "../../../daemon/handlers/config-vercel.js";
 import { BadRequestError } from "../errors.js";
+import { parseBody } from "../parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
 const vercelConfigResponseSchema = z.object({
   hasToken: z.boolean(),
   success: z.boolean(),
   error: z.string().optional(),
+});
+
+// Declared once and referenced by both the route's `requestBody` (the
+// OpenAPI/wire contract) and the handler's `parseBody` call, so the
+// advertised shape and the validated shape can't drift.
+const VercelConfigParams = z.object({
+  action: z.enum(["get", "set", "delete"]).optional(),
+  apiToken: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -34,10 +43,7 @@ async function handleGetVercelConfig() {
 }
 
 async function handlePostVercelConfig({ body = {} }: RouteHandlerArgs) {
-  const { action, apiToken } = body as {
-    action?: "get" | "set" | "delete";
-    apiToken?: string;
-  };
+  const { action, apiToken } = parseBody(VercelConfigParams, body);
 
   switch (action) {
     case "delete":
@@ -86,10 +92,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Set or delete the Vercel API token. Action is determined by the body action field.",
     tags: ["integrations"],
-    requestBody: z.object({
-      action: z.enum(["get", "set", "delete"]).optional(),
-      apiToken: z.string().optional(),
-    }),
+    requestBody: VercelConfigParams,
     responseBody: vercelConfigResponseSchema,
     handler: handlePostVercelConfig,
   },
