@@ -434,6 +434,131 @@ describe("channel-retry-sweep", () => {
     expect(capturedOptions?.slackInbound?.channelTs).toBe("1700000000.000200");
   });
 
+  test("skips retry delivery when a dedup replay's sibling event already owns delivery", async () => {
+    const eventId = seedFailedSlackEvent({
+      trustClass: "guardian",
+      content: "same turn",
+      externalChatId: "C-OWNED",
+      channelTs: "1700000000.000300",
+    });
+    const conversationId = getDb()
+      .select({ c: channelInboundEvents.conversationId })
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, eventId))
+      .get()!.c;
+
+    // The prior attempt's user row + its assistant reply already exist…
+    const userMessageId = "user-owned";
+    getDb()
+      .insert(messages)
+      .values({
+        id: userMessageId,
+        conversationId,
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "same turn" }]),
+        createdAt: Date.now(),
+      })
+      .run();
+    getDb()
+      .insert(messages)
+      .values({
+        id: "assistant-owned",
+        conversationId,
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "already answered" }]),
+        createdAt: Date.now() + 1,
+      })
+      .run();
+    // …and a sibling inbound event linked to that user row already owns delivery.
+    const sibling = deliveryCrud.recordInbound(
+      "slack",
+      "C-OWNED",
+      "sibling-msg",
+    );
+    getDb()
+      .update(channelInboundEvents)
+      .set({ messageId: userMessageId, deliveryStatus: "delivered" })
+      .where(eq(channelInboundEvents.id, sibling.eventId))
+      .run();
+
+    await sweepFailedEvents(async () => ({
+      messageId: userMessageId,
+      deduplicated: true,
+    }));
+
+    // finalizeEventDelivery must be skipped, or the sweep re-posts a reply the
+    // sibling already delivered (double-post).
+    expect(deliveryCalls.length).toBe(0);
+    expect(liveDeliveryCalls.length).toBe(0);
+    const row = getDb()
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, eventId))
+      .get();
+    expect(row?.processingStatus).toBe("processed");
+  });
+
+  test("completes a deduplicated replay that has no reply by re-running the turn", async () => {
+    const eventId = seedFailedSlackEvent({
+      trustClass: "guardian",
+      content: "unanswered",
+      externalChatId: "C-INCOMPLETE",
+      channelTs: "1700000000.000400",
+    });
+
+    let calls = 0;
+    const optionsSeen: Array<{ slackInbound?: unknown }> = [];
+    await sweepFailedEvents(async (conversationId, content, options) => {
+      calls += 1;
+      optionsSeen.push(options as { slackInbound?: unknown });
+      if (calls === 1) {
+        // First attempt dedups against the orphaned user row a crashed turn
+        // left behind — with no assistant reply following it.
+        getDb()
+          .insert(messages)
+          .values({
+            id: "orphan-user-row",
+            conversationId,
+            role: "user",
+            content: JSON.stringify([{ type: "text", text: content }]),
+            createdAt: Date.now(),
+          })
+          .run();
+        return { messageId: "orphan-user-row", deduplicated: true };
+      }
+      // The re-run completes the turn with a fresh persist + reply.
+      getDb()
+        .insert(messages)
+        .values({
+          id: "rerun-user-row",
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: content }]),
+          createdAt: Date.now() + 1,
+        })
+        .run();
+      return {
+        messageId: "rerun-user-row",
+        assistantMessageId: "rerun-reply",
+        deduplicated: false,
+      };
+    });
+
+    // The deduped-but-unanswered turn is completed by a second run rather than
+    // silently delivering nothing.
+    expect(calls).toBe(2);
+    // The first attempt carries the idempotency-bearing slackInbound; the re-run
+    // omits it so it does not dedup against the very row it needs to complete.
+    expect(optionsSeen[0]?.slackInbound).toBeDefined();
+    expect(optionsSeen[1]?.slackInbound).toBeUndefined();
+    const row = getDb()
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, eventId))
+      .get();
+    expect(row?.processingStatus).toBe("processed");
+  });
+
   test("marks legacy payloads with only actorRole (no trustClass) as failed", async () => {
     const actorRoles: Array<
       "guardian" | "non-guardian" | "unverified_channel"

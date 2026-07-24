@@ -8,14 +8,10 @@
  * pass through unwrapped. Slack additionally keeps the raw text as
  * `displayContent` so the UI shows the message the sender actually typed.
  *
- * This lives in one place because TWO paths must prepare content identically:
- * the live ingress path (`inbound-message-handler.ts`) and the retry sweep
- * (`channel-retry-sweep.ts`), which replays a turn from the stored raw payload
- * after a delivery failure, a busy defer, or a crash. When the wrapping was
- * added (#30785) it was wired only into the live path; the sweep kept replaying
- * the raw, unwrapped content, so a non-guardian message that reached the model
- * via a retry lost its external-content boundary. Sharing the preparation keeps
- * the two paths from drifting again (JARVIS-1346 follow-up).
+ * Shared by the live ingress path (`inbound-message-handler.ts`) and the retry
+ * sweep (`channel-retry-sweep.ts`) so both prepare content identically: a turn
+ * replayed from the stored payload is fenced exactly as its first run, and the
+ * boundary cannot be skipped on a retry or crash-recovery path.
  */
 import type { ChannelId } from "../../../channels/types.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";

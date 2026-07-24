@@ -24,6 +24,7 @@ import {
   deferRetryUntilIdle,
   getRetryableDeliveryEvents,
   getRetryableEvents,
+  isDeduplicatedDeliveryOwnedBySibling,
   markDeliveryDelivered,
   markProcessed,
   markRetryableFailure,
@@ -49,7 +50,9 @@ const DISK_PRESSURE_REMOTE_BLOCK_REPLY =
   "Storage is critically low, so remote messages are ignored until the guardian frees enough space. Please try again later.";
 
 function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
-  if (!value || typeof value !== "object") return undefined;
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
   const raw = value as Record<string, unknown>;
   const trustClass = raw.trustClass;
   if (
@@ -64,7 +67,9 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
     typeof raw.sourceChannel === "string" && raw.sourceChannel.trim().length > 0
       ? raw.sourceChannel
       : undefined;
-  if (!rawSourceChannel || !isChannelId(rawSourceChannel)) return undefined;
+  if (!rawSourceChannel || !isChannelId(rawSourceChannel)) {
+    return undefined;
+  }
   const sourceChannel = rawSourceChannel;
   return {
     sourceChannel,
@@ -125,19 +130,38 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
 }
 
 /**
- * Reconstruct the minimal Slack ingress metadata the live path derived its
- * idempotency key from (`slack:channelId:channelTs`), from fields already in the
- * stored payload. Passing it on replay lets `deriveIngressIdempotencyKey` (in
- * `process-message.ts`) produce the SAME `client_message_id` the first attempt
- * used, so replaying a turn that a prior attempt already persisted (e.g. a crash
- * after the user row was written but before the event was marked processed)
- * dedups on `(conversation_id, client_message_id)` instead of running the agent
- * loop again and double-posting.
- *
+ * Read the full `slackInbound` the live path captured onto the payload (via
+ * `storeInboundSlackMetadata`). This is the PREFERRED source on replay: it is
+ * the EXACT object the live turn used, so `deriveIngressIdempotencyKey` (in
+ * `process-message.ts`) produces a byte-identical `client_message_id` — a replay
+ * of a turn a prior attempt already persisted (e.g. a crash after the user row
+ * was written but before the event was marked processed) then dedups on
+ * `(conversation_id, client_message_id)` instead of running the agent loop again
+ * and double-posting — and full slackMeta survives onto the replayed row.
+ */
+function parseStoredSlackInbound(
+  value: unknown,
+): SlackInboundMessageMetadata | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.channelId !== "string" || typeof obj.channelTs !== "string") {
+    return undefined;
+  }
+  // Required fields validated above; optional slackMeta fields flow through as
+  // stored (this is our own persisted JSON, and downstream slackMeta building
+  // treats every optional field defensively).
+  return obj as unknown as SlackInboundMessageMetadata;
+}
+
+/**
+ * Fallback for payloads stored before {@link parseStoredSlackInbound}'s capture
+ * existed: reconstruct the minimal `{ channelId, channelTs }` from fields the
+ * payload has always carried, so those in-flight events still dedup on replay.
  * `channelTs` mirrors the live `sourceMessageId ?? externalMessageId` derivation.
- * The remaining `SlackInboundMessageMetadata` fields are optional and only feed
- * the best-effort transcript renderer, so a minimal object suffices for correct
- * deduplication; the full metadata was persisted by the first attempt's turn.
+ * slackMeta is partial here (only the key-bearing fields), which is acceptable
+ * for the short drain window of pre-upgrade retries.
  */
 function buildReplaySlackInbound(params: {
   sourceChannel: ChannelId;
@@ -167,7 +191,9 @@ export async function sweepFailedEvents(
 ): Promise<void> {
   const events = getRetryableEvents();
   const deliveryEvents = getRetryableDeliveryEvents();
-  if (events.length === 0 && deliveryEvents.length === 0) return;
+  if (events.length === 0 && deliveryEvents.length === 0) {
+    return;
+  }
 
   log.info(
     { processingCount: events.length, deliveryCount: deliveryEvents.length },
@@ -371,47 +397,85 @@ export async function sweepFailedEvents(
 
     // Prepare the replayed turn exactly as the live ingress path did: fence
     // non-guardian content in `<external_content>` (the stored payload holds the
-    // raw, unwrapped text) and reconstruct the Slack idempotency key so a replay
-    // of an already-persisted turn dedups instead of running a second agent loop.
+    // raw, unwrapped text), and replay the Slack ingress metadata — the captured
+    // `slackInbound` when present (identical idempotency key + full slackMeta),
+    // else the reconstructed fallback — so a replay of an already-persisted turn
+    // dedups instead of running a second agent loop.
     const prepared = prepareChannelInboundContent({
       trimmedContent: content,
       trustClass: trustContext.trustClass,
       sourceChannel,
       requesterIdentifier: trustContext.requesterIdentifier,
     });
-    const replaySlackInbound = buildReplaySlackInbound({
+    const replaySlackInbound =
+      parseStoredSlackInbound(payload.slackInbound) ??
+      buildReplaySlackInbound({
+        sourceChannel,
+        externalChatId,
+        sourceMetadata,
+        externalMessageId,
+      });
+
+    // Shared replay options. The idempotency-bearing `slackInbound` is added
+    // only on the first attempt; the incomplete-turn re-run below omits it so it
+    // does not dedup against the very row it needs to complete.
+    const replayOptions = {
+      attachmentIds,
+      transport: {
+        channelId: sourceChannel,
+        hints: metadataHints.length > 0 ? metadataHints : undefined,
+        uxBrief: metadataUxBrief,
+        chatType: metadataChatType,
+      },
+      assistantId,
+      trustContext,
+      isInteractive:
+        resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
+      onEvent: observeAgentEvent,
       sourceChannel,
-      externalChatId,
-      sourceMetadata,
-      externalMessageId,
-    });
+      sourceInterface,
+      ...(prepared.displayContent !== undefined
+        ? { displayContent: prepared.displayContent }
+        : {}),
+    };
 
     let userMessageId: string | undefined;
+    let deduplicatedIngress = false;
     try {
-      const result = await processMessage(
+      let result = await processMessage(
         event.conversationId,
         prepared.content,
         {
-          attachmentIds,
-          transport: {
-            channelId: sourceChannel,
-            hints: metadataHints.length > 0 ? metadataHints : undefined,
-            uxBrief: metadataUxBrief,
-            chatType: metadataChatType,
-          },
-          assistantId,
-          trustContext,
-          isInteractive:
-            resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
-          onEvent: observeAgentEvent,
-          sourceChannel,
-          sourceInterface,
-          ...(prepared.displayContent !== undefined
-            ? { displayContent: prepared.displayContent }
-            : {}),
+          ...replayOptions,
           ...(replaySlackInbound ? { slackInbound: replaySlackInbound } : {}),
         },
       );
+      // A dedup hit means a prior attempt of this event already persisted the
+      // user row. If that attempt crashed before writing any assistant reply,
+      // the dedup skipped the agent loop and there is nothing to deliver — so
+      // complete the turn with a fresh run (omitting `slackInbound` so it does
+      // not dedup again) rather than marking it processed with a silent
+      // no-reply. Rare: a crash between the user-row write and the first
+      // assistant token. (The fresh run persists a second user row; a
+      // resume-in-place path that avoids that is tracked as a follow-up.)
+      if (
+        result.deduplicated &&
+        !findAssistantReplyMessageIdForTurn(
+          event.conversationId,
+          result.messageId,
+        )
+      ) {
+        log.info(
+          { eventId: event.id, conversationId: event.conversationId },
+          "Deduplicated replay has no reply; completing the turn with a fresh run",
+        );
+        result = await processMessage(
+          event.conversationId,
+          prepared.content,
+          replayOptions,
+        );
+      }
+      deduplicatedIngress = result.deduplicated === true;
       userMessageId = result.messageId;
       linkMessage(event.id, userMessageId);
       markProcessed(event.id);
@@ -440,7 +504,22 @@ export async function sweepFailedEvents(
       continue;
     }
 
-    if (replyCallbackUrl && externalChatId) {
+    // Skip delivery when the replay deduplicated AND a sibling event already
+    // owns delivery of this turn's reply — otherwise finalizeEventDelivery would
+    // re-post a reply the owning event already delivered (double-post). Mirrors
+    // background-dispatch via the shared ownership check. With no such sibling,
+    // the prior attempt died before delivering, so this replay delivers once,
+    // editing any streamed message in place via `priorStreamMessageTs`.
+    if (
+      deduplicatedIngress &&
+      userMessageId &&
+      isDeduplicatedDeliveryOwnedBySibling(userMessageId, event.id)
+    ) {
+      log.info(
+        { eventId: event.id, conversationId: event.conversationId },
+        "Skipping retry delivery: a sibling event owns delivery for the deduplicated turn",
+      );
+    } else if (replyCallbackUrl && externalChatId) {
       try {
         await finalizeEventDelivery({
           eventId: event.id,
