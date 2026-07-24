@@ -18,6 +18,11 @@ import {
   prepareLexicalIndexForMessage,
   releasePreparedLexicalIndexJob,
 } from "../job-handlers/message-lexical.js";
+import {
+  foldContentFile,
+  parseContentRef,
+  resolveContentRefPath,
+} from "../message-content-file.js";
 
 const log = getLogger("migration-historical-inline-media");
 
@@ -32,6 +37,7 @@ export interface HistoricalInlineMediaMigrationOptions {
   ) => string;
   writeFile?: (path: string, data: Buffer) => void;
   readLinkedAttachmentBytes?: (attachmentId: string) => Buffer | null;
+  resolveMessageContentPath?: (ref: string) => string | null;
   prepareLexicalReindex?: (messageId: string) => PreparedLexicalIndexJob;
   releaseLexicalReindex?: (prepared: PreparedLexicalIndexJob) => void;
   yieldToEventLoop?: () => Promise<void>;
@@ -44,6 +50,7 @@ interface MessageRow {
   createdAt: number;
   conversationId: string;
   conversationCreatedAt: number;
+  finalized: number;
 }
 
 interface AttachmentRow {
@@ -255,10 +262,12 @@ function defaultResolveAttachmentsDir(
 }
 
 /**
- * Materialize base64 media from finalized inline message content into stable
- * attachment references. Each message's attachment rows, links, and content
- * rewrite commit together; deterministic files are written and verified first
- * so an interrupted run can safely reuse them.
+ * Materialize base64 media from inline and file-backed message content into
+ * stable attachment references. Readable content refs are folded into the
+ * atomic database rewrite, and touched pending rows become finalized. Each
+ * message's attachment rows, links, and content rewrite commit together;
+ * deterministic files are written and verified first so an interrupted run
+ * can safely reuse them.
  */
 export async function migrateMaterializeHistoricalInlineMessageMedia(
   database: DrizzleDb,
@@ -288,6 +297,8 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
         .get(attachmentId) as AttachmentRow | null;
       return attachment ? readableAttachmentBytes(attachment) : null;
     });
+  const resolveMessageContentPath =
+    options.resolveMessageContentPath ?? resolveContentRefPath;
 
   let lastRowid = 0;
   for (;;) {
@@ -299,10 +310,11 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
            m.content,
            m.created_at AS createdAt,
            m.conversation_id AS conversationId,
-           c.created_at AS conversationCreatedAt
+           c.created_at AS conversationCreatedAt,
+           m.finalized
          FROM messages m
          JOIN conversations c ON c.id = m.conversation_id
-         WHERE m.finalized = 1 AND m.rowid > ?
+         WHERE m.rowid > ?
          ORDER BY m.rowid
          LIMIT ?`,
       )
@@ -313,14 +325,29 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
 
     for (const row of rows) {
       lastRowid = row.rowid;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(row.content);
-      } catch {
-        continue;
-      }
-      if (!Array.isArray(parsed)) {
-        continue;
+      let parsed: unknown[];
+      const contentRef = parseContentRef(row.content);
+      if (contentRef) {
+        const contentPath = resolveMessageContentPath(contentRef.ref);
+        if (!contentPath) {
+          continue;
+        }
+        const folded = foldContentFile(contentPath);
+        if (!folded) {
+          continue;
+        }
+        parsed = folded;
+      } else {
+        let inline: unknown;
+        try {
+          inline = JSON.parse(row.content);
+        } catch {
+          continue;
+        }
+        if (!Array.isArray(inline)) {
+          continue;
+        }
+        parsed = inline;
       }
       if (!parsed.some(hasInlineMediaToMaterialize)) {
         continue;
@@ -587,10 +614,10 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
         }
         const result = raw
           .query(
-            `UPDATE messages SET content = ?
-             WHERE id = ? AND content = ? AND finalized = 1`,
+            `UPDATE messages SET content = ?, finalized = 1
+             WHERE id = ? AND content = ? AND finalized = ?`,
           )
-          .run(rewrittenContent, row.id, row.content);
+          .run(rewrittenContent, row.id, row.content, row.finalized);
         if (result.changes !== 1) {
           throw new Error(
             `Historical inline media message changed during migration: ${row.id}`,

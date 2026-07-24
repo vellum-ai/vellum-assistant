@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 
@@ -100,6 +100,8 @@ function createTestDb() {
     attachmentsDirFor,
     options: {
       resolveAttachmentsDir: attachmentsDirFor,
+      resolveMessageContentPath: (ref: string): string =>
+        join(workspaceDir, ref),
       prepareLexicalReindex: preparedLexicalJob,
       releaseLexicalReindex: () => {},
       yieldToEventLoop: async () => {},
@@ -137,6 +139,25 @@ function messageContent(sqlite: Database, id: string): unknown {
     .query(`SELECT content FROM messages WHERE id = ?`)
     .get(id) as { content: string };
   return JSON.parse(row.content);
+}
+
+function messageFinalized(sqlite: Database, id: string): number {
+  return (
+    sqlite.query(`SELECT finalized FROM messages WHERE id = ?`).get(id) as {
+      finalized: number;
+    }
+  ).finalized;
+}
+
+function writeMessageContentFile(
+  workspaceDir: string,
+  ref: string,
+  lines: unknown[],
+): string {
+  const path = join(workspaceDir, ref);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, lines.map((line) => JSON.stringify(line)).join("\n"));
+  return path;
 }
 
 function count(sqlite: Database, table: string): number {
@@ -347,6 +368,286 @@ describe("migration 351: materialize historical inline message media", () => {
       expect(existsSync(row.filePath)).toBe(true);
       expect(row.contentHash).toBeNull();
     }
+  });
+
+  test("folds finalized content refs and rewrites media inline atomically", async () => {
+    const { sqlite, db, options, workspaceDir } = createTestDb();
+    const ref = "conversations/conversation-test/inflight/message-ref.jsonl";
+    const olderImage = Buffer.from("older-image").toString("base64");
+    const rootImage = Buffer.from("root-image").toString("base64");
+    const nestedFile = Buffer.from("nested-file").toString("base64");
+    const contentPath = writeMessageContentFile(workspaceDir, ref, [
+      {
+        i: 0,
+        seq: 1,
+        block: {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: olderImage,
+          },
+        },
+      },
+      {
+        i: 0,
+        seq: 3,
+        block: {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: rootImage,
+          },
+        },
+      },
+      {
+        i: 1,
+        seq: 2,
+        block: {
+          type: "tool_result",
+          tool_use_id: "tool-ref",
+          content: "nested media",
+          contentBlocks: [
+            {
+              type: "file",
+              source: {
+                type: "base64",
+                media_type: "text/plain",
+                data: nestedFile,
+                filename: "nested.txt",
+              },
+            },
+          ],
+        },
+      },
+    ]);
+    insertMessage(sqlite, "message-ref", JSON.stringify({ ref }));
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    const content = messageContent(sqlite, "message-ref") as Array<any>;
+    expect(content[0].source).toMatchObject({
+      type: "workspace_ref",
+      sizeBytes: Buffer.from("root-image").length,
+    });
+    expect(content[1].contentBlocks[0].source).toMatchObject({
+      type: "workspace_ref",
+      sizeBytes: Buffer.from("nested-file").length,
+      filename: "nested.txt",
+    });
+    const migratedIds = [
+      content[0].source.attachmentId,
+      content[1].contentBlocks[0].source.attachmentId,
+    ] as string[];
+    expect(
+      migratedIds.every((id) => id.startsWith("historical-inline-media-")),
+    ).toBe(true);
+    expect(count(sqlite, "attachments")).toBe(2);
+    expect(count(sqlite, "message_attachments")).toBe(2);
+    expect(readFileSync(contentPath, "utf8")).toContain(olderImage);
+
+    const firstContent = JSON.stringify(content);
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    expect(JSON.stringify(messageContent(sqlite, "message-ref"))).toBe(
+      firstContent,
+    );
+    expect(count(sqlite, "attachments")).toBe(2);
+    expect(count(sqlite, "message_attachments")).toBe(2);
+  });
+
+  test("finalizes crashed and shared content refs after materializing nested media", async () => {
+    const { sqlite, db, options, workspaceDir } = createTestDb();
+    const ref = "conversations/conversation-test/inflight/shared-ref.jsonl";
+    const mediaBytes = Buffer.from("crash-recovered-image");
+    const contentPath = writeMessageContentFile(workspaceDir, ref, [
+      {
+        i: 0,
+        seq: 1,
+        block: {
+          type: "tool_result",
+          tool_use_id: "tool-crashed",
+          content: "pending tool result",
+          contentBlocks: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/png",
+                data: mediaBytes.toString("base64"),
+              },
+            },
+          ],
+        },
+      },
+    ]);
+    const storedRef = JSON.stringify({ ref });
+    insertMessage(sqlite, "message-ref-crashed", storedRef, 0);
+    insertMessage(sqlite, "message-ref-shared", storedRef, 1);
+    const preparedMessageIds: string[] = [];
+    const releasedMessageIds: string[] = [];
+    const migrationOptions = {
+      ...options,
+      prepareLexicalReindex: (messageId: string) => {
+        preparedMessageIds.push(messageId);
+        return preparedLexicalJob(messageId);
+      },
+      releaseLexicalReindex: (prepared: { messageId: string }): void => {
+        releasedMessageIds.push(prepared.messageId);
+      },
+    };
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    const crashed = messageContent(sqlite, "message-ref-crashed") as Array<any>;
+    const shared = messageContent(sqlite, "message-ref-shared") as Array<any>;
+    for (const content of [crashed, shared]) {
+      const source = content[0].contentBlocks[0].source;
+      expect(source.type).toBe("workspace_ref");
+      expect(source.attachmentId.startsWith("historical-inline-media-")).toBe(
+        true,
+      );
+      const row = sqlite
+        .query(`SELECT file_path AS filePath FROM attachments WHERE id = ?`)
+        .get(source.attachmentId) as { filePath: string };
+      expect(readFileSync(row.filePath)).toEqual(mediaBytes);
+    }
+    expect(messageFinalized(sqlite, "message-ref-crashed")).toBe(1);
+    expect(messageFinalized(sqlite, "message-ref-shared")).toBe(1);
+    expect(preparedMessageIds).toEqual([
+      "message-ref-crashed",
+      "message-ref-shared",
+    ]);
+    expect(releasedMessageIds).toEqual(preparedMessageIds);
+    expect(count(sqlite, "attachments")).toBe(2);
+    expect(count(sqlite, "message_attachments")).toBe(2);
+    expect(existsSync(contentPath)).toBe(true);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    expect(preparedMessageIds).toEqual([
+      "message-ref-crashed",
+      "message-ref-shared",
+    ]);
+    expect(releasedMessageIds).toEqual(preparedMessageIds);
+    expect(count(sqlite, "attachments")).toBe(2);
+    expect(count(sqlite, "message_attachments")).toBe(2);
+    expect(existsSync(contentPath)).toBe(true);
+  });
+
+  test("finalizes pending inline content after materializing media", async () => {
+    const { sqlite, db, options } = createTestDb();
+    insertMessage(
+      sqlite,
+      "message-pending-inline",
+      [
+        {
+          type: "file",
+          source: {
+            type: "base64",
+            media_type: "text/plain",
+            data: Buffer.from("pending-inline").toString("base64"),
+          },
+        },
+      ],
+      0,
+    );
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    const content = messageContent(
+      sqlite,
+      "message-pending-inline",
+    ) as Array<any>;
+    expect(content[0].source.type).toBe("workspace_ref");
+    expect(messageFinalized(sqlite, "message-pending-inline")).toBe(1);
+    expect(count(sqlite, "attachments")).toBe(1);
+    expect(count(sqlite, "message_attachments")).toBe(1);
+  });
+
+  test("leaves media-free pending refs unchanged without reading attachments", async () => {
+    const { sqlite, db, options, workspaceDir } = createTestDb();
+    const ref = "conversations/conversation-test/inflight/message-ref.jsonl";
+    writeMessageContentFile(workspaceDir, ref, [
+      {
+        i: 0,
+        seq: 1,
+        block: { type: "text", text: "Already externalized" },
+      },
+      {
+        i: 1,
+        seq: 2,
+        block: {
+          type: "image",
+          source: {
+            type: "workspace_ref",
+            media_type: "image/png",
+            attachmentId: "attachment-existing",
+            sizeBytes: 10,
+          },
+        },
+      },
+    ]);
+    const storedRef = { ref };
+    insertMessage(
+      sqlite,
+      "message-ref-no-inline",
+      JSON.stringify(storedRef),
+      0,
+    );
+    insertAttachment(sqlite, "attachment-existing", "");
+    linkAttachment(sqlite, "message-ref-no-inline", "attachment-existing", 0);
+    const reads: string[] = [];
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+      ...options,
+      readLinkedAttachmentBytes: (attachmentId) => {
+        reads.push(attachmentId);
+        throw new Error("media-free refs must not read linked attachments");
+      },
+    });
+
+    expect(reads).toEqual([]);
+    expect(messageContent(sqlite, "message-ref-no-inline")).toEqual(storedRef);
+    expect(messageFinalized(sqlite, "message-ref-no-inline")).toBe(0);
+    expect(count(sqlite, "attachments")).toBe(1);
+    expect(count(sqlite, "message_attachments")).toBe(1);
+  });
+
+  test("leaves missing and malformed content refs unchanged", async () => {
+    const { sqlite, db, options, workspaceDir } = createTestDb();
+    const missingRef =
+      "conversations/conversation-test/inflight/missing-ref.jsonl";
+    const malformedRef =
+      "conversations/conversation-test/inflight/malformed-ref.jsonl";
+    const malformedPath = join(workspaceDir, malformedRef);
+    mkdirSync(dirname(malformedPath), { recursive: true });
+    writeFileSync(malformedPath, 'not-json\n{"i":0');
+    insertMessage(
+      sqlite,
+      "message-ref-missing",
+      JSON.stringify({ ref: missingRef }),
+    );
+    insertMessage(
+      sqlite,
+      "message-ref-malformed",
+      JSON.stringify({ ref: malformedRef }),
+      0,
+    );
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+
+    expect(messageContent(sqlite, "message-ref-missing")).toEqual({
+      ref: missingRef,
+    });
+    expect(messageContent(sqlite, "message-ref-malformed")).toEqual({
+      ref: malformedRef,
+    });
+    expect(messageFinalized(sqlite, "message-ref-missing")).toBe(1);
+    expect(messageFinalized(sqlite, "message-ref-malformed")).toBe(0);
+    expect(count(sqlite, "attachments")).toBe(0);
+    expect(count(sqlite, "message_attachments")).toBe(0);
   });
 
   test("reuses same-message references and exact linked media without inferring by position", async () => {
@@ -839,7 +1140,7 @@ describe("migration 351: materialize historical inline message media", () => {
     expect(count(sqlite, "message_attachments")).toBe(0);
   });
 
-  test("leaves malformed JSON, invalid base64, and unfinalized rows untouched", async () => {
+  test("leaves malformed JSON and invalid base64 untouched", async () => {
     const { sqlite, db, options, attachmentsDir } = createTestDb();
     const preparedMessageIds: string[] = [];
     insertMessage(sqlite, "malformed-json", "{not-json");
@@ -863,21 +1164,6 @@ describe("migration 351: materialize historical inline message media", () => {
         },
       },
     ]);
-    insertMessage(
-      sqlite,
-      "unfinalized",
-      [
-        {
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: "image/png",
-            data: Buffer.from("pending").toString("base64"),
-          },
-        },
-      ],
-      0,
-    );
     const before = sqlite
       .query(`SELECT id, content FROM messages ORDER BY id`)
       .all();
