@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import type { AssistantConfig } from "../config/types.js";
 import { BackendUnavailableError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { getDb } from "./db-connection.js";
+import { getMemoryDb } from "./db-connection.js";
 import {
   embedWithBackend,
   generateSparseEmbedding,
@@ -180,23 +180,26 @@ export async function embedAndUpsert(
   let vector: number[];
 
   // Check SQLite embedding cache for a matching content hash (primary provider only).
-  const db = getDb();
+  // The cache lives on the memory connection alongside `memory_embeddings`.
+  const mem = getMemoryDb();
   const expectedDim = config.memory.qdrant.vectorSize;
-  let cachedRow = db
-    .select({
-      vectorBlob: memoryEmbeddings.vectorBlob,
-      vectorJson: memoryEmbeddings.vectorJson,
-      dimensions: memoryEmbeddings.dimensions,
-    })
-    .from(memoryEmbeddings)
-    .where(
-      and(
-        eq(memoryEmbeddings.contentHash, contentHash),
-        eq(memoryEmbeddings.provider, provider),
-        eq(memoryEmbeddings.model, model),
-      ),
-    )
-    .get();
+  let cachedRow = mem
+    ? mem
+        .select({
+          vectorBlob: memoryEmbeddings.vectorBlob,
+          vectorJson: memoryEmbeddings.vectorJson,
+          dimensions: memoryEmbeddings.dimensions,
+        })
+        .from(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.contentHash, contentHash),
+            eq(memoryEmbeddings.provider, provider),
+            eq(memoryEmbeddings.model, model),
+          ),
+        )
+        .get()
+    : undefined;
   if (cachedRow && cachedRow.dimensions !== expectedDim) cachedRow = undefined;
 
   if (cachedRow) {
@@ -234,7 +237,8 @@ export async function embedAndUpsert(
   const now = Date.now();
   try {
     const blobValue = vectorToBlob(vector);
-    db.insert(memoryEmbeddings)
+    mem
+      ?.insert(memoryEmbeddings)
       .values({
         id: randomUUID(),
         targetType,

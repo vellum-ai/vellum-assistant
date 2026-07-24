@@ -13,6 +13,7 @@ import {
   memorySummaries,
 } from "../../../../persistence/schema/index.js";
 import { getMemoryConfig } from "../config.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import { mapCosineToUnit } from "../validation.js";
 // ── Types (inlined from deleted types.ts) ──────────────────────────
 
@@ -101,6 +102,7 @@ export async function semanticSearch(
   }
 
   const db = getDb();
+  const mem = memoryDbOrNull("semanticSearch");
 
   // Batch-fetch all backing records upfront to avoid N+1 queries per result
   const summaryTargetIds: string[] = [];
@@ -123,8 +125,8 @@ export async function semanticSearch(
   }
 
   const segmentsMap = new Map<string, typeof memorySegments.$inferSelect>();
-  if (segmentTargetIds.length > 0) {
-    const allSegments = db
+  if (mem && segmentTargetIds.length > 0) {
+    const allSegments = mem
       .select()
       .from(memorySegments)
       .where(inArray(memorySegments.id, segmentTargetIds))

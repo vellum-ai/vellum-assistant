@@ -457,6 +457,8 @@ import { migrateMoveMemoryRetrospectiveStateToMemoryDb } from "./migrations/346-
 import { migrateDeleteStrayGreetingConversation } from "./migrations/347-delete-stray-greeting-conversation.js";
 import { migrateMemorySummariesScopeUpdatedIndex } from "./migrations/348-memory-summaries-scope-updated-index.js";
 import { migrateMoveMemoryGraphTablesToMemoryDb } from "./migrations/349-move-memory-graph-tables-to-memory-db.js";
+import { migrateMoveMemorySegmentsToMemoryDb } from "./migrations/351-move-memory-segments-to-memory-db.js";
+import { migrateMoveMemoryEmbeddingsToMemoryDb } from "./migrations/352-move-memory-embeddings-to-memory-db.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1469,6 +1471,38 @@ export const migrationSteps: MigrationStep[] = [
       "migrateDeleteNonDefaultMemoryScopes",
       "migrateSweepOrphanedGraphNodeVectors",
       "migrateSweepCachelessGraphNodeVectors",
+    ],
+  },
+  {
+    name: "migrateMoveMemorySegmentsToMemoryDb",
+    run: migrateMoveMemorySegmentsToMemoryDb,
+    // Gate on every migration that creates, alters, or clears memory_segments on
+    // main. migrateDeletePrivateConversations relies on the message-delete
+    // cascade to clear private segments, so it must land before the move; the
+    // runtime conversation-delete path is handled separately by adding
+    // memory_segments to CONVERSATION_KEYED_MEMORY_TABLES.
+    dependsOn: [
+      "migrateCoreTables",
+      "migrateMemorySegmentsIndexes",
+      "addCoreColumns",
+      "migrateDeletePrivateConversations",
+    ],
+  },
+  {
+    name: "migrateMoveMemoryEmbeddingsToMemoryDb",
+    run: migrateMoveMemoryEmbeddingsToMemoryDb,
+    // Gate on every migration that creates, alters, or writes rows in
+    // memory_embeddings on main so the move never drains a table another
+    // migration still expects there.
+    dependsOn: [
+      "migrateCoreTables",
+      "migrateEmbeddingVectorBlob",
+      "migrateEmbeddingsNullableVectorJson",
+      "addCoreColumns",
+      "createCoreIndexes",
+      "migrateDropSimplifiedMemory",
+      "migrateDeletePrivateConversations",
+      "migrateSweepOrphanedGraphNodeVectors",
     ],
   },
 ];
