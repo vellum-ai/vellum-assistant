@@ -2,9 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, mock, test } from "bun:test";
 
 import type { VoiceTurnOptions } from "../../calls/voice-session-bridge.js";
-import type {
-  StreamingTranscriber,
-  SttStreamServerEvent,
+import {
+  type StreamingTranscriber,
+  SttError,
+  type SttStreamServerEvent,
 } from "../../stt/types.js";
 import {
   LiveVoiceSession,
@@ -178,7 +179,9 @@ async function waitFor(
   message = "Timed out waiting for live voice STT test condition",
 ): Promise<void> {
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(message);
@@ -413,7 +416,9 @@ describe("LiveVoiceSession STT", () => {
     let resolverCalls = 0;
     const resolver: LiveVoiceStreamingTranscriberResolver = mock(async () => {
       resolverCalls += 1;
-      if (resolverCalls === 1) return firstTranscriber;
+      if (resolverCalls === 1) {
+        return firstTranscriber;
+      }
       return new Promise<StreamingTranscriber | null>(() => {});
     });
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
@@ -450,7 +455,9 @@ describe("LiveVoiceSession STT", () => {
     let resolverCalls = 0;
     const resolver: LiveVoiceStreamingTranscriberResolver = mock(async () => {
       resolverCalls += 1;
-      if (resolverCalls === 1) return new MockStreamingTranscriber();
+      if (resolverCalls === 1) {
+        return new MockStreamingTranscriber();
+      }
       throw new Error("next stt unavailable");
     });
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
@@ -653,6 +660,32 @@ describe("LiveVoiceSession STT", () => {
           "Live voice transcription could not be started: provider credentials rejected",
       },
     ]);
+  });
+
+  test("tags a credits-exhausted startup failure for the billing surface", async () => {
+    const { context, frames } = createContext();
+    // Credits already gone when the relay is dialed — the common way into this
+    // state, since the user hits the wall on the next utterance rather than
+    // mid-stream. Without the category the client falls back to a generic
+    // failure notice and never reaches the paywall.
+    const resolver: LiveVoiceStreamingTranscriberResolver = mock(async () => {
+      throw new SttError(
+        "credits-exhausted",
+        "Managed speech is paused: your Vellum organization is out of credits.",
+        { userFacing: true },
+      );
+    });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+    });
+
+    await session.start();
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
+
+    expect(frames.find((frame) => frame.type === "error")).toMatchObject({
+      code: "invalid_field",
+      errorCategory: "credits_exhausted",
+    });
   });
 
   test("retains transcriber handle when stop() throws so close() can clean up", async () => {

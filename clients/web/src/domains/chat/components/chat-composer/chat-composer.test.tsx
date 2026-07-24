@@ -13,7 +13,10 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
-import { type ChatAttachment, useComposerStore } from "@/domains/chat/composer-store";
+import {
+  type ChatAttachment,
+  useComposerStore,
+} from "@/domains/chat/composer-store";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import type { LiveVoicePreflightVerdict } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
@@ -28,6 +31,7 @@ import {
   shouldSubmitOnEnter,
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 let mockIsMobile = false;
 mock.module("@/hooks/use-is-mobile", () => ({
@@ -159,7 +163,9 @@ mock.module("@/domains/chat/voice/voice-recording-store", () => ({
 // room; mock it so no real daemon call is made and the verdict is controllable
 // per-test. Defaults to `ready` so every existing entry-point test keeps
 // starting the session. The not-ready cases below flip `mockPreflightVerdict`.
-let mockPreflightVerdict: LiveVoicePreflightVerdict | null = { status: "ready" };
+let mockPreflightVerdict: LiveVoicePreflightVerdict | null = {
+  status: "ready",
+};
 const preflightSpy = mock(
   (_assistantId: string): Promise<LiveVoicePreflightVerdict | null> =>
     Promise.resolve(mockPreflightVerdict),
@@ -216,15 +222,21 @@ function resetLiveVoiceMocks() {
 // voice-input-button imports) resolve against the mocked modules. The pure
 // helpers (computeGhostSuffix / shouldSubmitOnEnter) come from
 // `chat-composer-utils`, imported statically above.
-const { ChatComposer } = await import(
-  "@/domains/chat/components/chat-composer/chat-composer"
-);
+const { ChatComposer } =
+  await import("@/domains/chat/components/chat-composer/chat-composer");
 
 // ---------------------------------------------------------------------------
 // shouldSubmitOnEnter — keyboard policy
 // ---------------------------------------------------------------------------
 
-const ENTER = { key: "Enter", shiftKey: false, metaKey: false, ctrlKey: false, isComposing: false, keyCode: 13 };
+const ENTER = {
+  key: "Enter",
+  shiftKey: false,
+  metaKey: false,
+  ctrlKey: false,
+  isComposing: false,
+  keyCode: 13,
+};
 const ENTER_WITH_SHIFT = { ...ENTER, shiftKey: true };
 const ENTER_DURING_IME = { ...ENTER, isComposing: true };
 const ENTER_IME_KEYCODE = { ...ENTER, keyCode: 229 };
@@ -329,7 +341,14 @@ describe("shouldSubmitOnEnter — non-Enter keys", () => {
   test("Space is ignored (key !== 'Enter')", () => {
     expect(
       shouldSubmitOnEnter(
-        { key: " ", shiftKey: false, metaKey: false, ctrlKey: false, isComposing: false, keyCode: 32 },
+        {
+          key: " ",
+          shiftKey: false,
+          metaKey: false,
+          ctrlKey: false,
+          isComposing: false,
+          keyCode: 32,
+        },
         false,
         READY_POLICY,
       ),
@@ -349,11 +368,15 @@ describe("shouldSubmitOnEnter — cmdEnterMode=true", () => {
   });
 
   test("Cmd+Enter with content submits", () => {
-    expect(shouldSubmitOnEnter(CMD_ENTER, false, CMD_ENTER_POLICY)).toBe("submit");
+    expect(shouldSubmitOnEnter(CMD_ENTER, false, CMD_ENTER_POLICY)).toBe(
+      "submit",
+    );
   });
 
   test("Ctrl+Enter with content submits (Windows/Linux)", () => {
-    expect(shouldSubmitOnEnter(CTRL_ENTER, false, CMD_ENTER_POLICY)).toBe("submit");
+    expect(shouldSubmitOnEnter(CTRL_ENTER, false, CMD_ENTER_POLICY)).toBe(
+      "submit",
+    );
   });
 
   test("Cmd+Enter when sendDisabled returns 'prevent'", () => {
@@ -376,15 +399,21 @@ describe("shouldSubmitOnEnter — cmdEnterMode=true", () => {
   });
 
   test("Shift+Enter is still ignored in cmdEnterMode", () => {
-    expect(shouldSubmitOnEnter(ENTER_WITH_SHIFT, false, CMD_ENTER_POLICY)).toBe("ignore");
+    expect(shouldSubmitOnEnter(ENTER_WITH_SHIFT, false, CMD_ENTER_POLICY)).toBe(
+      "ignore",
+    );
   });
 
   test("IME composition is still ignored in cmdEnterMode", () => {
-    expect(shouldSubmitOnEnter(ENTER_DURING_IME, false, CMD_ENTER_POLICY)).toBe("ignore");
+    expect(shouldSubmitOnEnter(ENTER_DURING_IME, false, CMD_ENTER_POLICY)).toBe(
+      "ignore",
+    );
   });
 
   test("pointer:coarse is still ignored in cmdEnterMode", () => {
-    expect(shouldSubmitOnEnter(CMD_ENTER, true, CMD_ENTER_POLICY)).toBe("ignore");
+    expect(shouldSubmitOnEnter(CMD_ENTER, true, CMD_ENTER_POLICY)).toBe(
+      "ignore",
+    );
   });
 });
 
@@ -501,6 +530,9 @@ beforeEach(() => {
     stagedQuotes: [],
     replyBubble: null,
   });
+  // The voice entry point gates on the chat session error (a billing wall
+  // disables it), so clear it or a billing case leaks into later renders.
+  useChatSessionStore.getState().setError(null);
 });
 
 /**
@@ -619,7 +651,10 @@ describe("ChatComposer — send/stop button visibility", () => {
   });
 
   test("isAssistantBusy=false keeps the Send button even during awaiting_user_input", () => {
-    useTurnStore.setState({ ...INITIAL_TURN_STATE, phase: "awaiting_user_input" });
+    useTurnStore.setState({
+      ...INITIAL_TURN_STATE,
+      phase: "awaiting_user_input",
+    });
     const html = renderComposer({ isAssistantBusy: false });
     expect(html).toContain('aria-label="Send message"');
     expect(html).not.toContain('aria-label="Stop generating"');
@@ -758,7 +793,7 @@ describe("ChatComposer — attachments strip", () => {
     const html = renderComposer({ chatAttachments: [] });
     // ChatAttachmentsStrip renders nothing when the list is empty — sanity
     // check that no obvious attachment chip markup leaks in.
-    expect(html).not.toContain("aria-label=\"Remove attachment\"");
+    expect(html).not.toContain('aria-label="Remove attachment"');
   });
 
   test("with attachments, renders the strip wrapper", () => {
@@ -1254,9 +1289,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(queryByRole("group", { name: "Voice session" })).toBeNull();
     expect(getByLabelText("Start voice mode")).toBeTruthy();
     // ...with dictation treated as available again (failed = inactive)
-    const dictation = getByLabelText(
-      "Start voice input",
-    ) as HTMLButtonElement;
+    const dictation = getByLabelText("Start voice input") as HTMLButtonElement;
     expect(dictation.disabled).toBe(false);
   });
 
@@ -1279,6 +1312,39 @@ describe("ChatComposer — live-voice integration", () => {
     // THEN the store is reset back to idle (which clears the error)
     expect(useLiveVoiceStore.getState().state).toBe("idle");
     expect(useLiveVoiceStore.getState().error).toBeNull();
+  });
+
+  test("a billing wall disables voice entry — don't open a room we know will die", () => {
+    // GIVEN the org is out of credits (any failed turn, text or voice, parks
+    // this on the chat session store and paints the billing banner)
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    useChatSessionStore.getState().setError({
+      message: "You've run out of credits.",
+      code: "PROVIDER_BILLING",
+      errorCategory: "credits_exhausted",
+    });
+
+    // WHEN the composer renders
+    const { getByLabelText } = renderVoiceComposer();
+
+    // THEN voice entry is closed, with the reason on hover — a session started
+    // now would open a room that immediately winds back down.
+    const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
+    expect(liveVoice.disabled).toBe(true);
+    expect(liveVoice.title).toBe("Out of credits — add credits to use voice");
+  });
+
+  test("voice entry is open again once the billing error clears", () => {
+    // GIVEN no chat error (the state after any send, which resets it)
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+
+    const { getByLabelText } = renderVoiceComposer();
+
+    const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
+    expect(liveVoice.disabled).toBe(false);
+    expect(liveVoice.title).toBe("Start voice mode");
   });
 
   test("a billing failure suppresses the generic notice — the banner owns that surface", () => {
@@ -1415,7 +1481,9 @@ describe("ChatComposer — live-voice transcript area", () => {
     );
     // ...with a caret, in place of the visually hidden (still-mounted,
     // still-uneditable) textarea
-    expect(region.querySelector('[data-testid="voice-transcript-caret"]')).toBeTruthy();
+    expect(
+      region.querySelector('[data-testid="voice-transcript-caret"]'),
+    ).toBeTruthy();
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
     expect(textarea.className).toContain("hidden");
     expect(textarea.disabled).toBe(true);
@@ -1501,7 +1569,10 @@ describe("ChatComposer — live-voice transcript area", () => {
   // speech. The composer suppresses the ghost while it owns the session.
   test("ghost suffix renders normally with no active session (baseline)", () => {
     // GIVEN an empty draft and a pending autocomplete suggestion, no session
-    const html = renderComposer({ input: "", suggestion: "ghost completion text" });
+    const html = renderComposer({
+      input: "",
+      suggestion: "ghost completion text",
+    });
 
     // THEN the ghost suffix paints into the composer's mirror cell
     expect(html).toContain("ghost completion text");
@@ -1514,7 +1585,9 @@ describe("ChatComposer — live-voice transcript area", () => {
     seedLiveVoiceSession("listening");
 
     // WHEN the composer renders with the suggestion present
-    const { container } = renderVoiceComposer({ suggestion: "ghost completion text" });
+    const { container } = renderVoiceComposer({
+      suggestion: "ghost completion text",
+    });
 
     // THEN the ghost is gone — the shared grid cell is left for the streaming
     // transcript, not the suggestion overlay

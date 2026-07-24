@@ -31,11 +31,20 @@ interface LiveVoiceButtonProps {
   onStart: (origin?: { x: number; y: number }) => void;
   /** Disable the control (e.g. while dictation is recording). */
   disabled?: boolean;
+  /**
+   * Why the control is disabled, shown as its tooltip. Without this a disabled
+   * voice button is a dead control with no explanation — the caller knows the
+   * reason (out of credits, dictation running), this surfaces it on hover.
+   * Ignored unless `disabled`; the accessible name stays "Start voice mode" so
+   * the control keeps one stable identity.
+   */
+  disabledReason?: string;
 }
 
 export function LiveVoiceButton({
   onStart,
   disabled = false,
+  disabledReason,
 }: LiveVoiceButtonProps) {
   const voiceMode = useAssistantFeatureFlagStore.use.voiceMode();
 
@@ -51,11 +60,14 @@ export function LiveVoiceButton({
       iconOnly={<AudioLines strokeWidth={2} />}
       onClick={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
-        onStart({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+        onStart({
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        });
       }}
       disabled={disabled}
       aria-label="Start voice mode"
-      title="Start voice mode"
+      title={(disabled && disabledReason) || "Start voice mode"}
     />
   );
 }

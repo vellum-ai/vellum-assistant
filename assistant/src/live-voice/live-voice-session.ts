@@ -49,10 +49,11 @@ import {
 import type { ResolveStreamingTranscriberOptions } from "../providers/speech-to-text/resolve.js";
 import { publishConversationListAndMetadataChanged } from "../runtime/sync/resource-sync-events.js";
 import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
-import type {
-  StreamingTranscriber,
-  SttStreamServerErrorEvent,
-  SttStreamServerEvent,
+import {
+  type StreamingTranscriber,
+  SttError,
+  type SttStreamServerErrorEvent,
+  type SttStreamServerEvent,
 } from "../stt/types.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
@@ -339,7 +340,12 @@ type UtteranceStartResult =
   | { status: "started" }
   | { status: "stale" }
   | { status: "unavailable"; message: string }
-  | { status: "error"; message: string };
+  // `errorCategory` carries a billing classification (credit exhaustion) from
+  // the transcriber's startup failure through to the client's error frame. A
+  // dial that fails because the org is out of credits is the common way into
+  // this state — the user hits the wall on the next utterance, not mid-stream —
+  // so it must reach the billing banner like a mid-stream failure does.
+  | { status: "error"; message: string; errorCategory?: string };
 
 // One TTS segment flowing through the turn's synthesis pipeline. Synthesis
 // may run ahead of the emission slot (prefetch), but frames only reach the
@@ -1011,6 +1017,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         message: `Live voice transcription could not be started: ${errorMessage(
           err,
         )}`,
+        ...(err instanceof SttError && err.category === "credits-exhausted"
+          ? { errorCategory: CREDITS_EXHAUSTED_ERROR_CATEGORY }
+          : {}),
       };
     }
   }
@@ -1096,6 +1105,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           ? LiveVoiceProtocolErrorCode.CredentialsUnavailable
           : LiveVoiceProtocolErrorCode.InvalidField,
       message: result.message,
+      ...(result.status === "error" && result.errorCategory !== undefined
+        ? { errorCategory: result.errorCategory }
+        : {}),
     });
     // The manager only observes failures thrown from start(); an arm that
     // fails after the early `ready` must release the session slot itself,
