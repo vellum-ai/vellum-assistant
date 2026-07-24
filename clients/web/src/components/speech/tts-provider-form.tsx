@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { List, Pencil } from "lucide-react";
+import { List } from "lucide-react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
@@ -426,22 +426,11 @@ export function TtsProviderForm({
   const managedVoiceSupported =
     isManaged && selectedProvider.supportsVoiceSelection;
 
-  // The catalog/custom toggle sits on the action row beside Save. It's a muted
-  // secondary action — the icon plus a standing underline carry the affordance
-  // while the tertiary tone keeps Save the dominant control. `inline-flex`
-  // overrides the link variant's `inline` display so the icon centers with the
-  // label instead of riding the line above it.
-  const enterCustomVoiceLink = (
-    <Button
-      variant="link"
-      size="compact"
-      className="inline-flex h-auto items-center gap-1 px-0 underline [--vbtn-fg:var(--content-tertiary)]"
-      onClick={() => setCustomModeOverride(true)}
-    >
-      <Pencil className="h-3.5 w-3.5" aria-hidden />
-      Enter a custom voice ID
-    </Button>
-  );
+  // Catalog is the only entry path for now — the "Enter a custom voice ID"
+  // affordance is temporarily removed (to be brought back later). We still
+  // offer a way *back* to the catalog for an assistant whose saved voice is a
+  // non-catalog id (surfaced as the free-text field via `customManagedVoice`),
+  // so those configs aren't stranded in custom mode with no escape.
   const chooseFromCatalogLink = (
     <Button
       variant="link"
@@ -462,18 +451,12 @@ export function TtsProviderForm({
       Choose from catalog
     </Button>
   );
-  // From the catalog the toggle offers custom entry; from custom it offers a way
-  // back, but only when there's actually a catalog to return to. Null until the
-  // catalog resolves so it never flashes.
-  const managedVoiceToggle = !managedVoiceSupported
-    ? null
-    : customManagedVoice
-      ? managedVoices.length > 0
-        ? chooseFromCatalogLink
-        : null
-      : fetched
-        ? enterCustomVoiceLink
-        : null;
+  // Only the "way back" toggle remains, and only when a saved custom voice put
+  // the form into custom mode and there's actually a catalog to return to.
+  const managedVoiceToggle =
+    managedVoiceSupported && customManagedVoice && managedVoices.length > 0
+      ? chooseFromCatalogLink
+      : null;
 
   return (
     <div className="space-y-4">
