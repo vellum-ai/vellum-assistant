@@ -1,11 +1,11 @@
 /**
  * Interaction tests for the PlanCard recommended-upgrade CTA.
  *
- * Clicking "Upgrade for _ more" fires the Stripe upgrade for the recommended
- * package and redirects to the returned checkout URL — and stashes the
- * purchased package first, so the post-checkout provisioning screen shows what
- * was actually bought instead of an intent left behind by an abandoned earlier
- * checkout.
+ * Clicking the promo card's "Upgrade" CTA fires the Stripe upgrade for the
+ * recommended package and redirects to the returned checkout URL — and stashes
+ * the purchased package first, so the post-checkout provisioning screen shows
+ * what was actually bought instead of an intent left behind by an abandoned
+ * earlier checkout.
  *
  * Strategy mirrors plans-page-checkout.test.tsx: mock the generated SDK to
  * capture the upgrade body and return a redirect, and mock `openUrl` to capture
