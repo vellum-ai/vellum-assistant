@@ -10,10 +10,13 @@ type CallSiteDefaultConfig = {
   profile?: string;
   /**
    * Direct model pin overriding the resolved profile's model. The resolver
-   * treats a bare model pin as catalog-implied: it stamps the model's
-   * catalog provider and keeps the provider-agnostic Vellum managed
-   * connection (see `resolveOverrideOrDefault`). Reserve for call sites
-   * whose latency envelope the profile's model cannot meet.
+   * treats a bare model pin as catalog-implied: it stamps the model's catalog
+   * provider and keeps the provider-agnostic Vellum managed connection (see
+   * `resolveOverrideOrDefault`). On an install that can reach the implied
+   * provider through neither managed routing nor a matching connection, the
+   * pin is dropped and the call site's profile/intent model stands, so the pin
+   * is a best-effort optimization rather than a hard requirement. Reserve for
+   * call sites whose latency envelope the profile's model cannot meet.
    */
   model?: string;
   maxTokens?: number;
@@ -57,9 +60,9 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     // provider-agnostic managed connection (the managed route dispatches the
     // model to its Anthropic upstream). Production shows ~81% of selector
     // calls land within the 1h TTL, so the pin converts the recurring prefix
-    // from full-price input into cache reads. Same managed-credential caveat
-    // as the voice pins below — replace only with a model whose managed
-    // credentials are provisioned in every environment.
+    // from full-price input into cache reads. On a BYOK install that cannot
+    // reach Anthropic, the resolver drops the pin and the balanced profile's
+    // own model runs — the cache optimization is forgone, not an error.
     model: "claude-haiku-4-5-20251001",
     temperature: 0,
     thinking: { enabled: false, streamThinking: false },
@@ -141,8 +144,9 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     // profile's upstream cannot fit any usable decision budget (~1s+ per
     // forced tool call). Pin a latency-optimized model instead — the bare
     // model pin lets the catalog imply the provider, which preserves the
-    // provider-agnostic managed connection. Replace only with a model whose
-    // managed credentials are provisioned in every environment.
+    // provider-agnostic managed connection. On a BYOK install that cannot
+    // reach the implied provider, the resolver drops the pin and the
+    // cost-optimized profile's own model runs.
     model: "claude-haiku-4-5-20251001",
     effort: "low",
     thinking: { enabled: false },
@@ -155,7 +159,8 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     // latency-class model the endpoint decider uses: live drives showed the
     // cost-optimized upstream with multi-second cross-session TTFT tails
     // and over-escalation of small talk under open-task context pressure.
-    // Same model-pin caveat as voiceFrontDecision above.
+    // Falls back the same way as voiceFrontDecision above when the implied
+    // provider is unreachable.
     model: "claude-haiku-4-5-20251001",
     effort: "low",
     thinking: { enabled: false },

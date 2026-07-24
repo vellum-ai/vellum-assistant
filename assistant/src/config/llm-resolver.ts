@@ -100,7 +100,9 @@ export interface ResolveCallSiteOpts {
   onMixSelected?: (info: { mixProfile: string; chosenProfile: string }) => void;
   /**
    * Invoked once per chain rung that named a profile the resolver could not
-   * use, before resolution continues to the next rung. Fallback is silent to
+   * use (before resolution continues to the next rung), and once when a
+   * call-site default's model pin resolves to a provider this install cannot
+   * reach so the pin is dropped (`reason: "unroutable"`). Fallback is silent to
    * the call but must be visible in logs — callers on user-facing paths should
    * log at warn.
    */
@@ -111,7 +113,11 @@ export interface ResolveCallSiteOpts {
   }) => void;
 }
 
-export type ResolutionFallbackReason = "missing" | "disabled" | "incomplete";
+export type ResolutionFallbackReason =
+  | "missing"
+  | "disabled"
+  | "incomplete"
+  | "unroutable";
 
 export function resolveCallSiteConfig(
   callSite: LLMCallSite,
@@ -365,18 +371,34 @@ function resolveOverrideOrDefault(
 
   // The call site's own tweak fragment: the workspace override replaces the
   // code default wholesale. `profile` is the selection discriminator and
-  // `logitBias` is winner-owned, so neither enters the merge.
-  const site = llm.callSites?.[callSite] ?? CALL_SITE_DEFAULTS[callSite];
+  // `logitBias` is winner-owned, so neither enters the merge. `userSite`
+  // distinguishes an explicit workspace override from the shipped call-site
+  // default so a bare model pin is treated differently in each case (below).
+  const userSite = llm.callSites?.[callSite];
+  const site = userSite ?? CALL_SITE_DEFAULTS[callSite];
   const {
     profile: _siteProfile,
     logitBias: _siteBias,
     ...tweak
   } = (site ?? {}) as Record<string, unknown>;
 
-  // Direct call-site model overrides are fragments by design: when the tweak
-  // pins a model the winner's provider does not serve, stamp the catalog
-  // owner and drop the winner's connection (it belongs to the replaced
-  // provider; dispatch auto-resolves an absent connection by provider).
+  // A bare model tweak (a model with no sibling provider) is catalog-implied:
+  // the winner's provider does not serve it, so the model's catalog owner is
+  // the real dispatch provider. What happens next depends on whether that
+  // provider is reachable on this install:
+  //  - reachable — stamp the implied provider and drop the winner's connection
+  //    (it belongs to the replaced provider; dispatch auto-resolves an absent
+  //    connection by provider), unless it is the provider-agnostic Vellum
+  //    managed connection, which routes any managed-routable upstream and must
+  //    survive or platform installs lose their only connection.
+  //  - unreachable AND the pin is this call site's shipped default — drop the
+  //    pin and let the winner (the call site's profile/intent resolved through
+  //    `llm.defaultProvider`) stand. This is the same graceful fall-through an
+  //    unusable profile rung gets: a default pin is a best-effort optimization,
+  //    not a hard requirement, so on a BYOK install with no connection for the
+  //    implied provider it degrades to the profile's own model instead of
+  //    failing every dispatch. An explicit user model override is honored as
+  //    written, never silently swapped.
   const applicableProvider =
     (winnerFragment.provider as string | undefined) ??
     CODE_DEFAULT_BASE.provider;
@@ -391,21 +413,28 @@ function resolveOverrideOrDefault(
     tweak.provider === undefined &&
     !winnerServesModel(tweak.model)
   ) {
-    const implied = getCatalogProviderForModel(tweak.model);
+    const pinnedModel = tweak.model;
+    const implied = getCatalogProviderForModel(pinnedModel);
+    // The provider-agnostic Vellum managed connection reaches any
+    // managed-routable upstream, so a managed winner serves the implied
+    // provider even though its own `provider` field differs.
+    const managedRouteServesImplied =
+      implied !== undefined &&
+      winnerFragment.provider_connection === VELLUM_MANAGED_CONNECTION_NAME &&
+      MANAGED_ROUTABLE_PROVIDERS.has(implied);
     if (implied !== undefined) {
-      tweak.provider = implied;
-      // A provider-specific connection must not pin a mismatch onto the
-      // implied provider — but the provider-agnostic Vellum managed
-      // connection routes any managed-routable upstream and must survive,
-      // or platform installs lose their only connection.
-      if (
-        !(
-          winnerFragment.provider_connection ===
-            VELLUM_MANAGED_CONNECTION_NAME &&
-          MANAGED_ROUTABLE_PROVIDERS.has(implied)
-        )
-      ) {
-        delete winnerFragment.provider_connection;
+      if (userSite == null && !managedRouteServesImplied) {
+        delete tweak.model;
+        opts.onResolutionFallback?.({
+          callSite,
+          requested: pinnedModel,
+          reason: "unroutable",
+        });
+      } else {
+        tweak.provider = implied;
+        if (!managedRouteServesImplied) {
+          delete winnerFragment.provider_connection;
+        }
       }
     }
   }
