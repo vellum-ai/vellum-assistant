@@ -159,6 +159,100 @@ describe("pair command", () => {
     expect(fetchCalled).toBe(true);
   });
 
+  test("rejects an unknown --flag before any network call", async () => {
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = ["bun", "vellum", "pair", "--frobnicate"];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    // A `--` flag this version doesn't know is a hard error, and it points at
+    // the CLI self-update path — never a silent fall-through to another flow.
+    expect(exited).toBe(true);
+    const joined = errors.join("\n");
+    expect(joined).toContain("unknown option '--frobnicate'");
+    expect(joined).toContain("your CLI may be out of date");
+    expect(joined).toContain("bun install -g vellum@latest");
+    expect(fetchCalled).toBe(false);
+  });
+
+  test("rejects an unknown --flag even alongside a multi-word positional name", async () => {
+    writeFileSync(
+      join(testDir, ".vellum.lock.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "pair-test",
+            name: "My Assistant",
+            runtimeUrl: RUNTIME_URL,
+            localUrl: LOCAL_URL,
+            cloud: "local",
+          },
+        ],
+        activeAssistant: "pair-test",
+      }),
+    );
+
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    // Positional name tokens must not rescue an unknown flag from rejection.
+    process.argv = ["bun", "vellum", "pair", "My", "Assistant", "--frobnicate"];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    expect(exited).toBe(true);
+    expect(errors.join("\n")).toContain("unknown option '--frobnicate'");
+    expect(fetchCalled).toBe(false);
+  });
+
   test("refuses to advertise a loopback URL without --url (suggests the assistant's own port)", async () => {
     // Local hatch on a NON-default gateway port (e.g. a 2nd instance).
     const LOOPBACK_CUSTOM = "http://127.0.0.1:7842";
@@ -210,6 +304,11 @@ describe("pair command", () => {
     // The suggested --url uses the assistant's actual port, not the default.
     expect(errors.join("\n")).toContain(":7842");
     expect(errors.join("\n")).not.toContain(":7830");
+
+    // The refusal cross-points to the QR flow (the phone-pairing path) and its
+    // https prerequisite, so a user who wanted a QR isn't left at a dead end.
+    expect(errors.join("\n")).toContain("vellum pair --qr");
+    expect(errors.join("\n")).toContain("vellum tunnel --provider tailscale");
 
     // Exited with an error before minting — no token created for a dead URL.
     expect(exited).toBe(true);
