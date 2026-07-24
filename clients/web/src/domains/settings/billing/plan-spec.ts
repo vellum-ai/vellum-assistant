@@ -20,7 +20,7 @@ export interface PlanSpec {
  * The machine a package with no `machine_size` runs on — the small baseline
  * shared by Free and machine-less Pro packages (e.g. Mighty).
  */
-const STANDARD_MACHINE_LABEL = "Small";
+export const STANDARD_MACHINE_LABEL = "Small";
 
 /** Human machine-size label for a package (or the standard small machine). */
 export function machineLabel(pkg: ProPackage | null): string {
