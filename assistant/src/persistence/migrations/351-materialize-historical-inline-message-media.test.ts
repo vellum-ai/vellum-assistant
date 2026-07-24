@@ -1144,7 +1144,7 @@ describe("migration 351: materialize historical inline message media", () => {
       1000,
     );
 
-    expect(
+    await expect(
       migrateMaterializeHistoricalInlineMessageMedia(db, options),
     ).rejects.toThrow("unsafe conversation ID");
     expect(readdirSync(workspaceDir)).toEqual([]);
@@ -1202,7 +1202,7 @@ describe("migration 351: materialize historical inline message media", () => {
     ]);
     insertAttachment(sqlite, attachmentId, "", alternatePath);
 
-    expect(
+    await expect(
       migrateMaterializeHistoricalInlineMessageMedia(db, options),
     ).rejects.toThrow("conflicts with deterministic identity");
     expect(
@@ -1467,7 +1467,7 @@ describe("migration 351: materialize historical inline message media", () => {
       END;
     `);
 
-    expect(
+    await expect(
       migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions),
     ).rejects.toThrow("interrupted");
     expect(count(sqlite, "attachments")).toBe(0);
