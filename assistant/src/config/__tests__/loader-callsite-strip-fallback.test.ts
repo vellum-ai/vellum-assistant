@@ -91,9 +91,8 @@ describe("config recovery prunes call-site overrides emptied by a strip", () => 
     // The emptied call-site entry must be pruned entirely, not left as `{}`.
     expect(config.llm.callSites?.memoryV3SelectL2).toBeUndefined();
 
-    // Resolution now lands on the shipped call-site default (which pins the
-    // haiku model), not the active profile ("active-model"), which is what the
-    // bug produced.
+    // With the invalid entry pruned, resolution uses the shipped call-site
+    // default (which pins the haiku model) rather than the active profile.
     const resolved = resolveCallSiteConfig("memoryV3SelectL2", config.llm);
     expect(resolved.model).toBe("claude-haiku-4-5-20251001");
   });
