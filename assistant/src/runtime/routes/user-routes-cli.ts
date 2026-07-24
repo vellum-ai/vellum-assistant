@@ -16,6 +16,7 @@ import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { getWorkspaceDir, getWorkspaceRoutesDir } from "../../util/platform.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import {
   HANDLER_EXTENSIONS,
@@ -211,7 +212,7 @@ async function handleUserRoutesList() {
 }
 
 async function handleUserRoutesInspect({ body = {} }: RouteHandlerArgs) {
-  const routePath = normalizeInspectPath(InspectParams.parse(body).path);
+  const routePath = normalizeInspectPath(parseBody(InspectParams, body).path);
 
   const location = routePath.includes("..")
     ? null

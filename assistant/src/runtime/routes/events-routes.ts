@@ -48,6 +48,7 @@ import {
   NotFoundError,
   ServiceUnavailableError,
 } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("events-routes");
@@ -652,7 +653,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: EmitEventBodySchema,
     responseStatus: "204",
     handler: ({ body }) => {
-      const { kind } = EmitEventBodySchema.parse(body);
+      const { kind } = parseBody(EmitEventBodySchema, body);
       if (kind === "contacts_changed") {
         notifyContactsChanged();
       }
