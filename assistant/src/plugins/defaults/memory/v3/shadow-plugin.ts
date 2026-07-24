@@ -53,7 +53,6 @@ import type { EntityIndex } from "./entity-lane.js";
 import { buildEntityIndex } from "./entity-lane.js";
 import { getActiveSlugs } from "./ever-injected-store.js";
 import { computeFreshSet } from "./fresh-set.js";
-import { isMemoryV3InjectionGateEnabled } from "./gate-flag.js";
 import { computeHotSet } from "./hot-set.js";
 import { bumpLanesVersion, readLanesVersion } from "./lanes-version-store.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
@@ -702,10 +701,6 @@ export async function observeTurn(
       () => getLanes(cfg),
     );
     const v3 = cfg.memory.v3;
-    // Resolve the effective gate enable once for the turn: the feature flag
-    // AND the `memory.v3.gate.enabled` config kill-switch. Tuning lives in
-    // `memory.v3.gate`.
-    const gateEnabled = isMemoryV3InjectionGateEnabled(cfg);
     // Re-resolve the corpus-adaptive tuning each turn from the CURRENT config
     // (with the lane-build corpus-size signal) so a live config.json edit to a
     // per-turn knob (selectorEnabled, denseK, replyQueryK, edge.*) takes effect
@@ -748,7 +743,7 @@ export async function observeTurn(
       // config `enabled` overwritten by the effective enable (flag AND config).
       // The spread is the compile-time drift guard — if the gate schema and
       // `V3GateConfig` diverge, this stops typechecking.
-      gateConfig: { ...v3.gate, enabled: gateEnabled },
+      gateConfig: v3.gate,
     });
 
     // A zero-selection turn over a non-trivial pool is unusual enough to be

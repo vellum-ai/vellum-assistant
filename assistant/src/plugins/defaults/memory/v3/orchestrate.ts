@@ -220,9 +220,9 @@ export interface OrchestrateDeps {
   /** Whether to run the selector LLM. False passes all pooled candidates
    *  straight through as selections, preserving pool-order slug dedup. */
   selectorEnabled?: boolean;
-  /** Per-turn injection gate config (`memory.v3.gate` tuning + the flag-derived
-   *  `enabled`, assembled in observeTurn). Omitted/disabled → the gate never
-   *  runs and every turn proceeds to selectPool as before. */
+  /** Per-turn injection gate config (the `memory.v3.gate` tuning, threaded
+   *  through by observeTurn). Omitted/disabled → the gate never runs and every
+   *  turn proceeds to selectPool as before. */
   gateConfig?: V3GateConfig;
   /** Real concept-page count at lane build — the same corpus-size signal
    *  `resolveV3Tuning` switches the lean/full profile on. Reported with each
