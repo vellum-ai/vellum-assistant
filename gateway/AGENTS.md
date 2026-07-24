@@ -90,6 +90,21 @@ Trust/guardian decisions must be keyed on `actorExternalId` only — never fall 
 
 Physical DB column names (`externalUserId`, `externalChatId`) are unchanged; the rename is at the API/type layer only.
 
+## Module Organization
+
+Organize gateway code **by concern, not by technical layer** — group by what code _does_, not what it _is_. This mirrors the web client's rule (`clients/web/docs/CONVENTIONS.md` → "Organize by domain, not technical layer"), which is the fuller treatment of the shared principles; the gateway-specific shape:
+
+- **Provider ingress lives under `src/<provider>/`** (`slack/`, `telegram/`, `whatsapp/`, `email/`, …). Each provider directory is a domain module — organize _within_ it by concern rather than piling everything into one `normalize.ts`:
+  - **Directory / IO layer** — stateful clients and caches that call the provider's authenticated Web API. Example: `slack/user-directory.ts` (`users.info` / `conversations.info` resolution with an LRU cache and in-flight de-duplication). This layer reads a trusted API, distinct from untrusted-ingress normalization.
+  - **Pure helpers** — one file per concern (e.g. `actor.ts`, `attachments.ts`, `render-text.ts`): input→output functions with no module-level state or I/O.
+  - **Schemas & types** — the tolerant Zod ingress schemas (see _Provider Webhook Payload Validation_ above), their `z.infer` types, and any compile-time cross-checks against the provider's official types.
+  - **Normalizers** — split by event family, each turning a validated event into the canonical `GatewayInboundEvent`.
+- **No barrel files.** Do not add an `index.ts` that re-exports siblings; import from the source file directly.
+- **No single-file directories.** A directory holding exactly one file should be flattened up a level — directories organize multiple files.
+- **Split by concern, not by line count** — but a file that has grown to span multiple concerns (past a few hundred lines) is the signal to extract, not to keep appending.
+
+The `slack/` module is being reorganized to this shape and is the worked example.
+
 ## Channel Trust Classification & Admission Policy
 
 The gateway owns per-channel `AdmissionPolicy` storage (`gateway/src/db/admission-policy-store.ts`, HTTP in `gateway/src/http/routes/channel-admission-policy.ts`) and attaches the floor to every forwarded inbound via `sourceMetadata.admissionPolicy`. The runtime (`assistant/src/runtime/routes/inbound-stages/admission-policy.ts`) emits `admitted: true | false` based on `TRUST_CLASS_RANK[trustClass] >= ADMISSION_FLOOR[policy]`.
