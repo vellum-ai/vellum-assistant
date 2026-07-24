@@ -62,10 +62,12 @@ export interface SlackChannelTierLegendProps {
 
 /**
  * Always-visible Assistant Access key at the foot of the channel list card:
- * every tier as a compact "label + what it does" pair, laid out side by side so
- * the meaning is on screen without opening anything. The full behavior sentence
- * rides each pair's hover tooltip. The tier the global default resolves to is
- * marked "· default", matching the per-row picker so the two read together.
+ * every tier as a compact "label + what it does" pair in a two-column grid, so
+ * the meaning is on screen without opening anything. The terse sublabel shows
+ * inline (the touch-reachable case); the full behavior sentence rides each
+ * pair's hover/description `title` as progressive enhancement. The tier the
+ * global default resolves to is marked "· default", matching the per-row picker
+ * so the two read together.
  */
 export function SlackChannelTierLegend({
   assistantName,
@@ -76,7 +78,7 @@ export function SlackChannelTierLegend({
       <Typography as="span" variant="body-small-emphasised">
         Assistant Access levels
       </Typography>
-      <ul className="flex flex-wrap gap-x-4 gap-y-1.5">
+      <ul className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
         {CAPABILITY_TIER_VALUES.map((tier) => {
           const meta = CAPABILITY_TIER_META[tier];
           return (
