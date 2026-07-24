@@ -329,6 +329,15 @@ function RecommendedUpgrade({
     if (changeTiersPending || !currentReady) {
       return;
     }
+    // `currentReady` also flips true when the current-tier read settles with an
+    // error or a missing storage tier, leaving `customInitialSelection` null.
+    // Opening the configurator unseeded would let a submit diff the user's
+    // selections against null current tiers and overwrite tiers they already
+    // hold, so route to manage (which reads tiers independently) instead.
+    if (customInitialSelection == null) {
+      onManage();
+      return;
+    }
     setCustomPlanOpen(true);
   };
   // Disable only when the modal-open path is the live one — a switch-ineligible

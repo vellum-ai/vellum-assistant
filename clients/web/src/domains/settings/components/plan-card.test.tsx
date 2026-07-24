@@ -1026,7 +1026,8 @@ describe("PlanCard recommended upgrade — change-package", () => {
     const onTierUpgraded = mock(() => {});
     // An unpinned (Custom) Pro sub is switch-eligible, so the customize CTA opens
     // the CustomPlanModal (not the change-package confirm, not the manage
-    // fallback).
+    // fallback). A healthy sub's current tiers load, so seed them.
+    onboardingResponse = CUSTOMIZE_ONBOARDING;
     const subscription: SubscriptionResponse = {
       ...proMightySubscription(),
       package: null,
@@ -1060,7 +1061,9 @@ describe("PlanCard recommended upgrade — change-package", () => {
     const onManage = mock(() => {});
     const onTierUpgraded = mock(() => {});
     // A customized pin is switch-eligible; the customize CTA edits its tiers in
-    // place via the CustomPlanModal.
+    // place via the CustomPlanModal. A healthy sub's current tiers load, so seed
+    // them.
+    onboardingResponse = CUSTOMIZE_ONBOARDING;
     const subscription = proMightySubscription();
     subscription.package = {
       key: "mighty",
@@ -1091,7 +1094,9 @@ describe("PlanCard recommended upgrade — change-package", () => {
     const onManage = mock(() => {});
     const onTierUpgraded = mock(() => {});
     // Ultra is the top catalog package, so there's no package to upgrade to; the
-    // top-tier sub gets the customize card instead of an "Upgrade to X" card.
+    // top-tier sub gets the customize card instead of an "Upgrade to X" card. A
+    // healthy sub's current tiers load, so seed them.
+    onboardingResponse = CUSTOMIZE_ONBOARDING;
     const { findByTestId, findByText } = renderCardInteractive(
       proUltraSubscription(),
       plansWithUltra(),
@@ -1110,6 +1115,39 @@ describe("PlanCard recommended upgrade — change-package", () => {
 
     await findByText("Just better.");
     expect(onManage).not.toHaveBeenCalled();
+    expect(navigateArgs).toEqual([]);
+  });
+
+  test("a switch-eligible sub whose current tiers fail to load routes customize to onManage", async () => {
+    const onManage = mock(() => {});
+    const onTierUpgraded = mock(() => {});
+    // `currentReady` flips true even when the onboarding read settles without a
+    // storage tier (an error or a degraded response), leaving the seed null.
+    // Opening the configurator unseeded would let a submit overwrite the tiers
+    // the user already holds, so the customize CTA must route to manage instead.
+    onboardingResponse = {}; // settled, but no selected_storage_tier → null seed
+    const { findByTestId } = renderCardInteractive(
+      proUltraSubscription(),
+      plansWithUltra(),
+      onManage,
+      onTierUpgraded,
+    );
+
+    const cta = (await findByTestId(
+      "recommended-customize-button",
+    )) as HTMLButtonElement;
+    // The CTA is enabled (the read settled, nothing pending) but routes to manage.
+    await waitFor(() => expect(cta.disabled).toBe(false));
+    fireEvent.click(cta);
+
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
+    // The configurator never opened.
+    expect(document.body.textContent).not.toContain("Just better.");
+    expect(
+      document.querySelector("[data-testid='confirm-package-switch-button']"),
+    ).toBeNull();
     expect(navigateArgs).toEqual([]);
   });
 
