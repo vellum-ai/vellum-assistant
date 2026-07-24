@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 
+import { Card } from "@vellumai/design-library/components/card";
+
 import type { SlackChannel } from "@/domains/channels/slack-channels-query";
 
 import { SlackChannelList } from "./slack-channel-list";
@@ -63,8 +65,9 @@ const meta: Meta<typeof SlackChannelList> = {
     defaultTier: "medium",
   },
   decorators: [
-    // Mirrors the Slack sub-tab's card column (flex flex-col gap-4 in
-    // assistant-channels-list.tsx), which owns inter-card spacing.
+    // The list renders bare; in the Slack sub-tab it drops into the
+    // "Per-channel overrides" collapsible card, so wrap it in that same card
+    // frame here. The outer column mirrors the sub-tab's inter-card spacing.
     (Story) => (
       <div
         style={{
@@ -75,7 +78,9 @@ const meta: Meta<typeof SlackChannelList> = {
           gap: 16,
         }}
       >
-        <Story />
+        <Card.Root noPadding clipContents>
+          <Story />
+        </Card.Root>
       </div>
     ),
   ],
@@ -132,9 +137,9 @@ export const LoadError: Story = {
 };
 
 /**
- * Past ~100 rows the list virtualizes. Shown in a fixed-height panel (the real
- * settings context) so the card fills the space and the rows scroll inside it,
- * with the "Assistant Access levels" key pinned in the footer.
+ * Past ~100 rows the list virtualizes. The virtualized scroller self-bounds to
+ * a fixed height inside the card, so the rows scroll within it without the whole
+ * collapsible growing unbounded.
  */
 export const ManyChannels: Story = {
   args: {
@@ -147,11 +152,4 @@ export const ManyChannels: Story = {
       }),
     ),
   },
-  decorators: [
-    (Story) => (
-      <div style={{ height: 480, display: "flex", flexDirection: "column" }}>
-        <Story />
-      </div>
-    ),
-  ],
 };

@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { userEvent, within } from "storybook/test";
 
+import { Card } from "@vellumai/design-library/components/card";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Typography } from "@vellumai/design-library/components/typography";
 
@@ -108,8 +109,8 @@ export const Customized: Story = {
 
 /**
  * The full Slack sub-tab layout: the default-access card as the hero, with the
- * per-channel presence list folded into the "Individual channels" collapsible
- * below (collapsed by default). Mirrors `SlackChannelSection`.
+ * bare per-channel presence list folded into the "Per-channel overrides" card
+ * that expands in place (collapsed by default). Mirrors `SlackChannelSection`.
  */
 export const InContext: Story = {
   render: function SectionLayout(args) {
@@ -127,42 +128,41 @@ export const InContext: Story = {
             setTiers((prev) => ({ ...prev, [bucket]: undefined }))
           }
         />
-        <Collapsible.Root type="single" collapsible>
-          <Collapsible.Item value="individual-channels">
-            <Collapsible.Trigger className="group justify-between gap-2 px-1 py-2">
-              <Typography as="span" variant="body-small-emphasised">
-                Individual channels
-              </Typography>
-              <ChevronDown
-                aria-hidden="true"
-                className="h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-180"
-              />
-            </Collapsible.Trigger>
-            <Collapsible.Content>
-              <div className="pt-3">
+        <Card.Root noPadding clipContents>
+          <Collapsible.Root type="single" collapsible>
+            <Collapsible.Item value="per-channel-overrides">
+              <Collapsible.Trigger className="group justify-between gap-2 px-4 py-3">
+                <Typography as="span" variant="body-small-emphasised">
+                  Per-channel overrides
+                </Typography>
+                <ChevronDown
+                  aria-hidden="true"
+                  className="h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-180"
+                />
+              </Collapsible.Trigger>
+              <Collapsible.Content className="border-[var(--border-base)] data-[state=open]:border-t">
                 <SlackChannelList
                   assistantDisplayName="Example Assistant"
                   slackHandle="@example-assistant"
                   channels={CHANNELS}
                   defaultTier={channelsDefault}
-                  showLegend={false}
                 />
-              </div>
-            </Collapsible.Content>
-          </Collapsible.Item>
-        </Collapsible.Root>
+              </Collapsible.Content>
+            </Collapsible.Item>
+          </Collapsible.Root>
+        </Card.Root>
       </div>
     );
   },
 };
 
-/** The "Individual channels" collapsible expanded, showing the per-channel rows. */
+/** The "Per-channel overrides" card expanded, showing the per-channel rows. */
 export const InContextExpanded: Story = {
   ...InContext,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(
-      canvas.getByRole("button", { name: /individual channels/i }),
+      canvas.getByRole("button", { name: /per-channel overrides/i }),
     );
   },
 };

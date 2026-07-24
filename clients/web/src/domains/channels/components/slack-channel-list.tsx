@@ -2,14 +2,12 @@ import { Hash, Lock, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { cn } from "@vellumai/design-library";
-import { Card } from "@vellumai/design-library/components/card";
 import { Input } from "@vellumai/design-library/components/input";
 import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 
 import { EmptyState } from "@/components/empty-state";
-import { SlackChannelTierLegend } from "@/domains/channels/components/slack-channel-tier-legend";
 import { TierPicker } from "@/domains/channels/components/tier-picker";
 import type { RiskThreshold } from "@/utils/threshold-presets";
 import type { SlackChannel } from "@/domains/channels/slack-channels-query";
@@ -156,12 +154,6 @@ export interface SlackChannelListProps {
   onTierChange?: (channelId: string, tier: RiskThreshold) => void;
   /** Deletes the channel's persisted cells so the default wins again. */
   onTierReset?: (channelId: string) => void;
-  /**
-   * Whether to render the "Assistant Access levels" key in the footer. Off when
-   * the list sits under a primary card that already shows the key (the Slack
-   * sub-tab's default-access card). Defaults to on for standalone use.
-   */
-  showLegend?: boolean;
 }
 
 const EMPTY_PENDING_IDS: ReadonlySet<string> = new Set();
@@ -172,8 +164,11 @@ const EMPTY_PENDING_IDS: ReadonlySet<string> = new Set();
  * ({@link TierPicker}) that names the effective level and marks the one it
  * inherits. Search and the kind chips narrow the list client-side; the
  * membership filter itself is server-side (`?memberOnly=true`) with no toggle.
- * The key sits in the footer unless {@link SlackChannelListProps.showLegend} is
- * off (the default-access card owns it in the composed section).
+ *
+ * Renders bare — presence hint, search, chips, and rows, no card of its own —
+ * because it only ever mounts inside the "Per-channel overrides" collapsible
+ * card in {@link SlackChannelSection}, whose header is the toggle. The Assistant
+ * Access key lives in the sibling default-access card, not here.
  */
 export function SlackChannelList({
   assistantDisplayName,
@@ -189,7 +184,6 @@ export function SlackChannelList({
   pendingChannelIds = EMPTY_PENDING_IDS,
   onTierChange,
   onTierReset,
-  showLegend = true,
 }: SlackChannelListProps) {
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<SlackRoomKind | null>(null);
@@ -221,156 +215,126 @@ export function SlackChannelList({
   );
 
   return (
-    <>
-      <Card.Root className="flex min-h-0 flex-1 flex-col">
-        <Card.Header>
-          <div className="flex flex-col gap-1">
-            Where {assistantDisplayName} is present
-            <Typography
-              as="p"
-              variant="body-small-default"
-              className="text-[color:var(--content-tertiary)]"
+    <div className="flex flex-col gap-3 p-4">
+      <Typography
+        as="p"
+        variant="body-small-default"
+        className="text-[color:var(--content-tertiary)]"
+      >
+        {presenceHint}
+      </Typography>
+      {loading ? (
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className="text-[color:var(--content-tertiary)]"
+        >
+          Loading…
+        </Typography>
+      ) : error ? (
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className="text-[color:var(--content-negative)]"
+        >
+          Couldn’t load channels. Try reopening this page.
+        </Typography>
+      ) : allChannels.length === 0 ? (
+        <EmptyState icon={<Hash className="h-6 w-6" />} title="No channels yet" />
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-56 flex-1">
+              <Input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search channels"
+                aria-label="Search channels"
+                leftIcon={<Search className="h-4 w-4" />}
+                fullWidth
+              />
+            </div>
+            <div
+              className="flex items-center gap-2"
+              role="group"
+              aria-label="Filter channels by type"
             >
-              {presenceHint}
-            </Typography>
+              {CHANNEL_KIND_FILTERS.map(({ value, label }) => {
+                const active = kindFilter === value;
+                const count =
+                  value === null ? allChannels.length : kindCounts[value];
+                return (
+                  <button
+                    key={value ?? "all"}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setKindFilter(value)}
+                    className={cn(
+                      "inline-flex h-6 items-center rounded-full px-2.5 text-body-small-emphasised leading-none transition-colors",
+                      active
+                        ? "bg-[var(--content-default)] text-[var(--surface-base)]"
+                        : "bg-[var(--tag-bg-neutral)] text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)]",
+                    )}
+                  >
+                    {label} {count}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </Card.Header>
-        <Card.Body className="flex min-h-0 flex-1 flex-col gap-3">
-          {loading ? (
+          {visibleChannels.length === 0 ? (
             <Typography
               as="span"
               variant="body-small-default"
-              className="text-[color:var(--content-tertiary)]"
+              className="py-4 text-center text-[color:var(--content-tertiary)]"
             >
-              Loading…
+              No channels match.
             </Typography>
-          ) : error ? (
-            <Typography
-              as="span"
-              variant="body-small-default"
-              className="text-[color:var(--content-negative)]"
-            >
-              Couldn’t load channels. Try reopening this page.
-            </Typography>
-          ) : allChannels.length === 0 ? (
-            <EmptyState
-              icon={<Hash className="h-6 w-6" />}
-              title="No channels yet"
-            />
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="min-w-56 flex-1">
-                  <Input
-                    type="search"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search channels"
-                    aria-label="Search channels"
-                    leftIcon={<Search className="h-4 w-4" />}
-                    fullWidth
+          ) : visibleChannels.length > VIRTUALIZE_THRESHOLD ? (
+            // Virtuoso sizes its scroller to 100% of the wrapper, so the
+            // wrapper needs a bounded height to scroll within the collapsible.
+            <div className="h-96">
+              <VirtualList
+                items={visibleChannels}
+                computeItemKey={(_, channel) => channel.id}
+                itemContent={(_, channel) => (
+                  <SlackChannelRow
+                    channel={channel}
+                    pending={pendingChannelIds.has(channel.id)}
+                    overridesLoading={tierOverridesLoading}
+                    overridesError={tierOverridesError}
+                    defaultTier={defaultTier}
+                    accessControls={accessControlsSupported}
+                    tierOverride={tierOverrides?.[channel.id]}
+                    onTierChange={(tier) => onTierChange?.(channel.id, tier)}
+                    onReset={() => onTierReset?.(channel.id)}
                   />
-                </div>
-                <div
-                  className="flex items-center gap-2"
-                  role="group"
-                  aria-label="Filter channels by type"
-                >
-                  {CHANNEL_KIND_FILTERS.map(({ value, label }) => {
-                    const active = kindFilter === value;
-                    const count =
-                      value === null ? allChannels.length : kindCounts[value];
-                    return (
-                      <button
-                        key={value ?? "all"}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() => setKindFilter(value)}
-                        className={cn(
-                          "inline-flex h-6 items-center rounded-full px-2.5 text-body-small-emphasised leading-none transition-colors",
-                          active
-                            ? "bg-[var(--content-default)] text-[var(--surface-base)]"
-                            : "bg-[var(--tag-bg-neutral)] text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)]",
-                        )}
-                      >
-                        {label} {count}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              {visibleChannels.length === 0 ? (
-                <Typography
-                  as="span"
-                  variant="body-small-default"
-                  className="py-4 text-center text-[color:var(--content-tertiary)]"
-                >
-                  No channels match.
-                </Typography>
-              ) : (
-                visibleChannels.length > VIRTUALIZE_THRESHOLD ? (
-                  // Virtuoso sizes its scroller to 100% of the wrapper, so the
-                  // wrapper fills the card's flex scroll area.
-                  <div className="min-h-0 flex-1">
-                    <VirtualList
-                      items={visibleChannels}
-                      computeItemKey={(_, channel) => channel.id}
-                      itemContent={(_, channel) => (
-                        <SlackChannelRow
-                          channel={channel}
-                          pending={pendingChannelIds.has(channel.id)}
-                          overridesLoading={tierOverridesLoading}
-                          overridesError={tierOverridesError}
-                          defaultTier={defaultTier}
-                          accessControls={accessControlsSupported}
-                          tierOverride={tierOverrides?.[channel.id]}
-                          onTierChange={(tier) =>
-                            onTierChange?.(channel.id, tier)
-                          }
-                          onReset={() => onTierReset?.(channel.id)}
-                        />
-                      )}
-                      className="h-full"
-                    />
-                  </div>
-                ) : (
-                  // Rows scroll within the card's flex area; the always-visible
-                  // Assistant Access levels key stays pinned in the footer.
-                  <div className="min-h-0 flex-1 overflow-y-auto">
-                    {visibleChannels.map((channel) => (
-                      <SlackChannelRow
-                        key={channel.id}
-                        channel={channel}
-                        pending={pendingChannelIds.has(channel.id)}
-                        overridesLoading={tierOverridesLoading}
-                        overridesError={tierOverridesError}
-                        defaultTier={defaultTier}
-                        accessControls={accessControlsSupported}
-                        tierOverride={tierOverrides?.[channel.id]}
-                        onTierChange={(tier) => onTierChange?.(channel.id, tier)}
-                        onReset={() => onTierReset?.(channel.id)}
-                      />
-                    ))}
-                  </div>
-                )
-              )}
-            </>
+                )}
+                className="h-full"
+              />
+            </div>
+          ) : (
+            <div className="max-h-96 overflow-y-auto">
+              {visibleChannels.map((channel) => (
+                <SlackChannelRow
+                  key={channel.id}
+                  channel={channel}
+                  pending={pendingChannelIds.has(channel.id)}
+                  overridesLoading={tierOverridesLoading}
+                  overridesError={tierOverridesError}
+                  defaultTier={defaultTier}
+                  accessControls={accessControlsSupported}
+                  tierOverride={tierOverrides?.[channel.id]}
+                  onTierChange={(tier) => onTierChange?.(channel.id, tier)}
+                  onReset={() => onTierReset?.(channel.id)}
+                />
+              ))}
+            </div>
           )}
-        </Card.Body>
-        {showLegend &&
-        accessControlsSupported &&
-        !loading &&
-        !error &&
-        allChannels.length > 0 ? (
-          <Card.Footer className="p-0">
-            <SlackChannelTierLegend
-              assistantName={assistantDisplayName}
-              defaultTier={defaultTier}
-            />
-          </Card.Footer>
-        ) : null}
-      </Card.Root>
-    </>
+        </>
+      )}
+    </div>
   );
 }
 
