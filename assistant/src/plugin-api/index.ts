@@ -144,12 +144,18 @@ export type {
 export type { PluginEventHub } from "./event-hub-facade.js";
 /**
  * @deprecated Direct hub access is being replaced by narrower, purpose-built
- * importable helpers (e.g. a plugin-driven publish wrapper) so plugins don't
- * hold the general publish/subscribe surface. Avoid new usage; prefer the
- * scoped helpers as they land.
+ * importable helpers so plugins don't hold the general publish/subscribe
+ * surface. To emit an event, prefer {@link publishEvent}; avoid new usage of
+ * the raw hub.
  */
 export { pluginAssistantEventHub as assistantEventHub } from "./event-hub-facade.js";
 export { getModelProfiles } from "./model-profiles.js";
+// Purpose-built publish wrapper: emit a runtime event to the assistant's event
+// hub without holding the general hub handle. Route/hook authors surfacing a UI
+// invalidation (e.g. `sync_changed`) import this. Delegates to the same
+// capability-restricted facade, so host-proxy control events stay rejected.
+export type { PublishEventOptions } from "./publish-event.js";
+export { publishEvent } from "./publish-event.js";
 // Check whether a model or profile can process image input. Accepts a concrete
 // model id, a profile key, or a `ModelProfileInfo`; a bare string is resolved
 // as a model id first and then as a profile key. Profile resolution merges over
