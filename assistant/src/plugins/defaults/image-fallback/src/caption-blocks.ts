@@ -41,7 +41,7 @@ import {
 } from "@vellumai/plugin-api";
 
 import { persistImage } from "./image-persist.js";
-import { captionImage } from "./vision-caption.js";
+import { captionImage, type VisionProviderResolver } from "./vision-caption.js";
 
 /**
  * Whether the profile a turn runs needs image→text fallback (i.e. it can't
@@ -54,7 +54,9 @@ import { captionImage } from "./vision-caption.js";
 export function needsImageFallback(modelProfileKey: string): boolean {
   const profiles = getModelProfiles();
   const profile = profiles.find((p) => p.key === modelProfileKey);
-  if (profile == null) return !doesSupportVision(modelProfileKey);
+  if (profile == null) {
+    return !doesSupportVision(modelProfileKey);
+  }
   return !doesSupportVision(profile);
 }
 
@@ -67,22 +69,24 @@ export function needsImageFallback(modelProfileKey: string): boolean {
  * @param conversationId    Conversation the blocks belong to, recorded on the
  *                          caption-cache rows so `conversation-deleted`
  *                          cleanup stays accurate.
- * @param visionProfileKey  Key of a vision-capable profile for captioning, or
- *                          `null` when none is configured (fail-open
- *                          placeholder).
+ * @param resolver          Sweep-scoped vision provider resolver. `hasCandidates`
+ *                          gates the placeholder wording (no vision model vs.
+ *                          captioning failed); `resolve` supplies the provider.
  * @param logger            Turn-scoped logger for attribution.
  */
 export async function captionImageBlocks(
   blocks: ContentBlock[],
   conversationId: string,
-  visionProfileKey: string | null,
+  resolver: VisionProviderResolver,
   logger: PluginLogger,
 ): Promise<number> {
   let imageCount = 0;
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
-    if (block.type !== "image") continue;
+    if (block.type !== "image") {
+      continue;
+    }
 
     imageCount++;
     const image = block as ImageContent;
@@ -95,11 +99,11 @@ export async function captionImageBlocks(
       persistImage(resolvedForPersist.data, resolvedForPersist.media_type);
     }
 
-    if (visionProfileKey != null) {
+    if (resolver.hasCandidates()) {
       const caption = await captionImage(
         image,
         conversationId,
-        visionProfileKey,
+        resolver,
         logger,
       );
       blocks[i] = {
@@ -128,7 +132,7 @@ export async function captionImageBlocks(
 async function captionToolResultMedia(
   message: Message,
   conversationId: string,
-  visionProfileKey: string | null,
+  resolver: VisionProviderResolver,
   logger: PluginLogger,
 ): Promise<number> {
   let imageCount = 0;
@@ -137,7 +141,7 @@ async function captionToolResultMedia(
       imageCount += await captionImageBlocks(
         block.contentBlocks,
         conversationId,
-        visionProfileKey,
+        resolver,
         logger,
       );
     }
@@ -156,7 +160,7 @@ async function captionToolResultMedia(
 export async function captionImagesInMessages(
   messages: Message[],
   conversationId: string,
-  visionProfileKey: string | null,
+  resolver: VisionProviderResolver,
   logger: PluginLogger,
 ): Promise<number> {
   let imageCount = 0;
@@ -164,13 +168,13 @@ export async function captionImagesInMessages(
     imageCount += await captionImageBlocks(
       message.content,
       conversationId,
-      visionProfileKey,
+      resolver,
       logger,
     );
     imageCount += await captionToolResultMedia(
       message,
       conversationId,
-      visionProfileKey,
+      resolver,
       logger,
     );
   }
@@ -190,7 +194,7 @@ export async function captionImagesInMessages(
 export async function captionOutboundImagesInMessages(
   messages: Message[],
   conversationId: string,
-  visionProfileKey: string | null,
+  resolver: VisionProviderResolver,
   logger: PluginLogger,
 ): Promise<number> {
   const currentTurnIdx = lastToolResultUserMessageIndex(messages);
@@ -199,14 +203,14 @@ export async function captionOutboundImagesInMessages(
     imageCount += await captionImageBlocks(
       messages[i].content,
       conversationId,
-      visionProfileKey,
+      resolver,
       logger,
     );
     if (i === currentTurnIdx) {
       imageCount += await captionToolResultMedia(
         messages[i],
         conversationId,
-        visionProfileKey,
+        resolver,
         logger,
       );
     }
