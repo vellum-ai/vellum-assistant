@@ -52,6 +52,13 @@ export const imageGenerationModeToProviderMigration: WorkspaceMigration = {
 
     if (service.mode === "managed") {
       service.provider = "vellum";
+    } else if (!("provider" in service)) {
+      // An explicit non-managed mode with no persisted provider resolves to
+      // the gemini schema default. Pin that choice: with `mode` gone, an
+      // absent provider leaf would otherwise be context-filled to "vellum"
+      // on platform deployments, silently flipping a your-own config to
+      // managed billing.
+      service.provider = "gemini";
     }
     delete service.mode;
 

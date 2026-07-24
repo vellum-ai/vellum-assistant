@@ -146,6 +146,18 @@ describe("134-image-generation-mode-to-provider", () => {
     });
   });
 
+  test("pins the gemini default for your-own with no persisted provider", () => {
+    // With `mode` gone, an absent provider leaf would be context-filled to
+    // "vellum" on platform deployments — a silent your-own -> managed flip.
+    writeConfig({
+      services: { "image-generation": { mode: "your-own" } },
+    });
+
+    imageGenerationModeToProviderMigration.run(workspaceDir);
+
+    expect(imageGen(readConfig())).toEqual({ provider: "gemini" });
+  });
+
   test("is idempotent", () => {
     writeConfig({
       services: {
