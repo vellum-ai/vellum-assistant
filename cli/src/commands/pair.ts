@@ -19,6 +19,7 @@ import {
   buildRemoteWebPairingUrl,
   normalizePublicBaseUrl,
   resolvePublicBaseUrl,
+  tunnelProviderWebsiteName,
   type PublicBaseUrlRejection,
   type RemoteWebPairingChallengeRequest,
   type RemoteWebPairingChallengeResponse,
@@ -472,6 +473,9 @@ export async function pair(): Promise<void> {
         unparseable: `${advertisedUrl} isn't a valid URL`,
         loopback: `${advertisedUrl} is a loopback address`,
         "non-https": `${advertisedUrl} is not https`,
+        "service-website": `${advertisedUrl} is ${
+          tunnelProviderWebsiteName(advertisedUrl) ?? "a tunnel provider"
+        }'s website, not your assistant's address`,
       };
       console.error(
         "Error: --qr needs a public https URL the phone can open — " +

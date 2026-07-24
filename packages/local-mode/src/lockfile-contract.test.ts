@@ -24,6 +24,7 @@ describe("parseLockfile", () => {
           platformAssistantId: "platform-assistant-1",
           platformBaseUrl: "https://platform.example.com",
           platformOrganizationId: "org_1",
+          ingressUrl: "https://tunnel.example.ts.net",
           resources: { gatewayPort: 7777, daemonPort: 7778 },
         },
       ],
@@ -183,6 +184,30 @@ describe("parseLockfile", () => {
       { assistantId: "asst_1", cloud: "vellum", organizationId: "org_1" },
       { assistantId: "asst_2", cloud: "vellum" },
       { assistantId: "asst_3", cloud: "local" },
+    ]);
+  });
+
+  test("keeps a well-typed ingressUrl and drops it when mistyped", () => {
+    // The tunnel-recorded public URL rides the entry so remote-web pairing
+    // surfaces can prefill it; a mistyped value is dropped, entry preserved.
+    const raw = {
+      assistants: [
+        {
+          assistantId: "asst_1",
+          cloud: "local",
+          ingressUrl: "https://tunnel.example.ts.net",
+        },
+        { assistantId: "asst_2", cloud: "local", ingressUrl: 7 }, // mistyped
+      ],
+      activeAssistant: null,
+    };
+    expect(parseLockfile(raw).assistants).toEqual([
+      {
+        assistantId: "asst_1",
+        cloud: "local",
+        ingressUrl: "https://tunnel.example.ts.net",
+      },
+      { assistantId: "asst_2", cloud: "local" },
     ]);
   });
 

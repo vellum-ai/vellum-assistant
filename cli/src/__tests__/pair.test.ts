@@ -847,6 +847,53 @@ describe("pair command", () => {
     expect(fetchCalled).toBe(false);
   });
 
+  test("--qr refuses a tunnel-provider website URL (Tailscale admin invite) without minting", async () => {
+    let fetchCalled = false;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    process.argv = [
+      "bun",
+      "vellum",
+      "pair",
+      "--qr",
+      "--url",
+      "https://login.tailscale.com/admin/invite/abc123",
+    ];
+    let exited = false;
+    try {
+      await pair();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+      globalThis.fetch = origFetch;
+    }
+
+    // The admin-invite link is a vendor website — named as such, not mislabeled
+    // as non-https, and refused before any challenge is minted.
+    expect(exited).toBe(true);
+    const joined = errors.join("\n");
+    expect(joined).toContain("Tailscale's website");
+    expect(joined).not.toContain("is not https");
+    expect(fetchCalled).toBe(false);
+  });
+
   test("--qr refuses when the web remote ingress feature flag is off", async () => {
     const calls: Array<[string, RequestInit | undefined]> = [];
     const origFetch = globalThis.fetch;
