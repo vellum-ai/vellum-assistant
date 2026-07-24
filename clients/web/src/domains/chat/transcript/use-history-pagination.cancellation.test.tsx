@@ -44,6 +44,30 @@ function createWrapper(queryClient: QueryClient) {
 }
 
 describe("useHistoryPagination cancellation", () => {
+  test("does not start a history request while disabled", async () => {
+    const queryClient = new QueryClient();
+    const view = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useHistoryPagination({
+          assistantId: "assistant-123",
+          conversationId: "conversation-123",
+          enabled,
+        }),
+      {
+        initialProps: { enabled: false },
+        wrapper: createWrapper(queryClient),
+      },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(requests).toHaveLength(0);
+
+    view.rerender({ enabled: true });
+    await waitFor(() => expect(requests).toHaveLength(1));
+
+    view.unmount();
+    queryClient.clear();
+  });
+
   test("aborts the obsolete request without surfacing or retrying it", async () => {
     const queryClient = new QueryClient();
     const view = renderHook(

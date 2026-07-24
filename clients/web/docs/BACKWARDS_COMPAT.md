@@ -165,11 +165,20 @@ Each module owns one feature's old/new split. Current registry:
 | `complete-profile-snapshots.ts`     | `0.10.8`                          | Blank profile fields live-inherit (deep merge); no snapshot copy in the editor                            | Blanks are baked at save time; editor shows the snapshot helper line                        |
 | `use-supports-summarize-up-to-here.ts` | `0.10.8`                       | No `POST /v1/conversations/summarize`; the per-message "Summarize up to here" hover/long-press action is hidden | Endpoint exists; the action renders and posts to summarize working memory up to a message |
 | `use-supports-redacted-credential-chips.ts` | `0.10.10`                 | Sentinel-shaped transcript text renders as plain text (daemon neither mints nor neutralizes sentinels)   | Assistant-message sentinels upgrade to redacted-credential reveal chips                     |
-| `use-supports-progressive-attachment-loading.ts` | `0.10.12`            | History embeds attachment and tool-image bytes inline; referenced-image fallback uses default original bytes | History returns attachment metadata; display bytes load near the transcript viewport      |
+| `use-supports-progressive-attachment-loading.ts` | `0.10.12`            | After identity resolves as old (or a 5 s bounded wait), history embeds bytes inline; referenced-image fallback uses default original bytes | History returns attachment metadata; display bytes load near the transcript viewport      |
 | `use-supports-noninteractive-voice-turns.ts` | `0.11.0`                 | Voice turns can raise `oauth_connect` surfaces mid-call; the voice room renders its own reachable connect card | Voice turns force `supportsDynamicUi: false` (no mid-call surfaces); the room card stays hidden |
 
 When you delete a row here, also delete its module, its test, and the now-dead
 legacy branch at the call site.
+
+Progressive attachment history has a feature-specific pending state. While the
+requested assistant's identity/version is unknown or belongs to a different
+assistant, the history query stays disabled so it does not start a potentially
+large inline response immediately before switching to metadata mode. A known
+older version enables inline history at once. If identity never resolves, the
+pending state falls back to the universally-supported inline request after
+`VERSION_RESOLUTION_TIMEOUT_MS`. This does not change the general
+unknown-version-is-unsupported semantics used by other compatibility gates.
 
 ## Related compatibility seams (outside the registry)
 

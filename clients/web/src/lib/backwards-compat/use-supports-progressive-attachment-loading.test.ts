@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
-import { useSupportsProgressiveAttachmentLoading } from "@/lib/backwards-compat/use-supports-progressive-attachment-loading";
+import {
+  useProgressiveAttachmentLoadingPolicy,
+  useSupportsProgressiveAttachmentLoading,
+} from "@/lib/backwards-compat/use-supports-progressive-attachment-loading";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const OWNER_ID = "asst-owner";
@@ -44,5 +47,58 @@ describe("useSupportsProgressiveAttachmentLoading", () => {
 
   test("stays conservative when the identity belongs to another assistant", () => {
     expect(check("0.10.12", "asst-previous")).toBe(false);
+  });
+});
+
+describe("useProgressiveAttachmentLoadingPolicy", () => {
+  test("resolves known old assistants to inline and supported assistants to metadata", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("assistant", "0.10.11", OWNER_ID);
+    const { result } = renderHook(() =>
+      useProgressiveAttachmentLoadingPolicy(OWNER_ID),
+    );
+    expect(result.current).toBe("inline");
+
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("assistant", "0.10.12", OWNER_ID);
+    });
+    expect(result.current).toBe("metadata");
+  });
+
+  test("stays pending for unknown or mismatched identity", () => {
+    const { result } = renderHook(() =>
+      useProgressiveAttachmentLoadingPolicy(OWNER_ID, 1_000),
+    );
+    expect(result.current).toBe("pending");
+
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("assistant", "0.10.12", "asst-other");
+    });
+    expect(result.current).toBe("pending");
+  });
+
+  test("falls back to inline after a bounded wait and resets on assistant switch", async () => {
+    const { result, rerender } = renderHook(
+      ({ assistantId }: { assistantId: string }) =>
+        useProgressiveAttachmentLoadingPolicy(assistantId, 5),
+      { initialProps: { assistantId: OWNER_ID } },
+    );
+    expect(result.current).toBe("pending");
+    await waitFor(() => expect(result.current).toBe("inline"));
+
+    rerender({ assistantId: "asst-next" });
+    expect(result.current).toBe("pending");
+
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("assistant", "0.10.11", "asst-next");
+    });
+    expect(result.current).toBe("inline");
   });
 });

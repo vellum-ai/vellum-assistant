@@ -12,6 +12,7 @@ const realPaginationModule = await import(
 );
 
 let lastAttachmentContent: AttachmentHistoryContent | undefined;
+let lastEnabled: boolean | undefined;
 
 function paginationStub(): HistoryPaginationResult {
   return {
@@ -39,8 +40,10 @@ mock.module("@/domains/chat/transcript/use-history-pagination", () => ({
   ...realPaginationModule,
   useHistoryPagination: (params: {
     attachmentContent?: AttachmentHistoryContent;
+    enabled: boolean;
   }) => {
     lastAttachmentContent = params.attachmentContent;
+    lastEnabled = params.enabled;
     return paginationStub();
   },
 }));
@@ -63,6 +66,7 @@ function Wrapper({ children }: { children: ReactNode }) {
 
 beforeEach(() => {
   lastAttachmentContent = undefined;
+  lastEnabled = undefined;
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
@@ -73,7 +77,22 @@ afterEach(() => {
 });
 
 describe("useConversationHistory attachment content compatibility", () => {
-  test("switches from inline to metadata only when the transcript owner's version supports it", () => {
+  test("keeps pagination disabled while the requested assistant identity is pending", () => {
+    renderHook(
+      () =>
+        useConversationHistory({
+          assistantId: "asst-1",
+          assistantStateKind: "active",
+          activeConversationId: "conv-1",
+        }),
+      { wrapper: Wrapper },
+    );
+
+    expect(lastEnabled).toBe(false);
+    expect(lastAttachmentContent).toBe("inline");
+  });
+
+  test("enables legacy inline history for a known old assistant", () => {
     useAssistantIdentityStore
       .getState()
       .setIdentity("assistant", "0.10.11", "asst-1");
@@ -87,20 +106,54 @@ describe("useConversationHistory attachment content compatibility", () => {
         }),
       { wrapper: Wrapper },
     );
+    expect(lastEnabled).toBe(true);
+    expect(lastAttachmentContent).toBe("inline");
+  });
+
+  test("enables metadata history only for a supported owning assistant", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("assistant", "0.10.12", "asst-1");
+
+    renderHook(
+      () =>
+        useConversationHistory({
+          assistantId: "asst-1",
+          assistantStateKind: "active",
+          activeConversationId: "conv-1",
+        }),
+      { wrapper: Wrapper },
+    );
+    expect(lastEnabled).toBe(true);
+    expect(lastAttachmentContent).toBe("metadata");
+  });
+
+  test("returns to pending on assistant mismatch and resolves for the new owner", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("assistant", "0.10.12", "asst-1");
+    const { rerender } = renderHook(
+      ({ assistantId }: { assistantId: string }) =>
+        useConversationHistory({
+          assistantId,
+          assistantStateKind: "active",
+          activeConversationId: "conv-1",
+        }),
+      { wrapper: Wrapper, initialProps: { assistantId: "asst-1" } },
+    );
+    expect(lastEnabled).toBe(true);
+    expect(lastAttachmentContent).toBe("metadata");
+
+    rerender({ assistantId: "asst-2" });
+    expect(lastEnabled).toBe(false);
     expect(lastAttachmentContent).toBe("inline");
 
     act(() => {
       useAssistantIdentityStore
         .getState()
-        .setIdentity("assistant", "0.10.12", "asst-1");
+        .setIdentity("assistant", "0.10.11", "asst-2");
     });
-    expect(lastAttachmentContent).toBe("metadata");
-
-    act(() => {
-      useAssistantIdentityStore
-        .getState()
-        .setIdentity("assistant", "0.10.12", "asst-other");
-    });
+    expect(lastEnabled).toBe(true);
     expect(lastAttachmentContent).toBe("inline");
   });
 });

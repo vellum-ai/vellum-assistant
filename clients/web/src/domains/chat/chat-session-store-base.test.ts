@@ -254,6 +254,7 @@ describe("chat-session-store — snapshot + optimistic", () => {
       mimeType: "image/png",
       sizeBytes: 10,
       previewUrl: "blob:preview",
+      thumbnailUrl: "blob:thumbnail",
     };
     store().seedSnapshot(CONV, snapshot([textRow("a1", "earlier")], 5));
     store().addOptimisticSend({
@@ -291,15 +292,19 @@ describe("chat-session-store — snapshot + optimistic", () => {
     expect(midTurn.filter((m) => m.role === "user")).toHaveLength(1);
     expect(userRow?.attachments?.[0]?.previewUrl).toBe("blob:preview");
 
-    // Turn-end reseed: the authoritative server row carries hydrated data and
-    // retires the overlay copy.
-    const serverRow: DisplayMessage = {
+    // Turn-end metadata reseed: the authoritative row carries attachment
+    // metadata but no inline bytes. The snapshot inherits only the missing
+    // local preview field before the optimistic copy retires.
+    const metadataRow: DisplayMessage = {
       ...textRow("msg-server-1", "look"),
       role: "user",
       clientMessageId: "nonce-1",
-      attachments: [{ ...attachment, previewUrl: "data:image/png;base64,x" }],
+      attachments: [{ ...attachment, previewUrl: null, thumbnailUrl: null }],
     };
-    store().seedSnapshot(CONV, snapshot([textRow("a1", "earlier"), serverRow], 7));
+    store().seedSnapshot(
+      CONV,
+      snapshot([textRow("a1", "earlier"), metadataRow], 7),
+    );
 
     expect(store().optimisticSends).toEqual([]);
     const afterReseed = selectTranscriptMessages(
@@ -309,6 +314,55 @@ describe("chat-session-store — snapshot + optimistic", () => {
     expect(
       afterReseed.find((m) => m.id === "msg-server-1")?.attachments?.[0]
         ?.previewUrl,
-    ).toBe("data:image/png;base64,x");
+    ).toBe("blob:preview");
+    expect(
+      afterReseed.find((m) => m.id === "msg-server-1")?.attachments?.[0]
+        ?.thumbnailUrl,
+    ).toBe("blob:thumbnail");
+
+    // A later metadata refetch can no longer source the URL from the retired
+    // optimistic row, so it must inherit from the current materialized snapshot.
+    store().seedSnapshot(
+      CONV,
+      snapshot([textRow("a1", "earlier"), { ...metadataRow }], 8),
+    );
+    expect(store().optimisticSends).toEqual([]);
+    expect(
+      store().snapshot?.messages.find((m) => m.id === "msg-server-1")
+        ?.attachments?.[0]?.previewUrl,
+    ).toBe("blob:preview");
+    expect(
+      store().snapshot?.messages.find((m) => m.id === "msg-server-1")
+        ?.attachments?.[0]?.thumbnailUrl,
+    ).toBe("blob:thumbnail");
+
+    // When inline server content is present it remains authoritative, and the
+    // no-op enrichment preserves the fetched snapshot's referential identity.
+    const inlineSnapshot = snapshot(
+      [
+        textRow("a1", "earlier"),
+        {
+          ...metadataRow,
+          attachments: [
+            {
+              ...attachment,
+              previewUrl: "data:image/png;base64,server",
+              thumbnailUrl: "data:image/jpeg;base64,server",
+            },
+          ],
+        },
+      ],
+      9,
+    );
+    store().seedSnapshot(CONV, inlineSnapshot);
+    expect(store().snapshot).toBe(inlineSnapshot);
+    expect(
+      store().snapshot?.messages.find((m) => m.id === "msg-server-1")
+        ?.attachments?.[0]?.previewUrl,
+    ).toBe("data:image/png;base64,server");
+    expect(
+      store().snapshot?.messages.find((m) => m.id === "msg-server-1")
+        ?.attachments?.[0]?.thumbnailUrl,
+    ).toBe("data:image/jpeg;base64,server");
   });
 });

@@ -38,7 +38,7 @@ import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { getSeqGeneration } from "@/lib/streaming/reconnect-cursor";
 import { anchorColdStartReplay } from "@/lib/streaming/cold-anchor";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useSupportsProgressiveAttachmentLoading } from "@/lib/backwards-compat/use-supports-progressive-attachment-loading";
+import { useProgressiveAttachmentLoadingPolicy } from "@/lib/backwards-compat/use-supports-progressive-attachment-loading";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
@@ -105,16 +105,20 @@ export function useConversationHistory({
   activeConversationId,
 }: UseConversationHistoryParams): ConversationHistoryResult {
   const queryClient = useQueryClient();
-  const supportsProgressiveAttachmentLoading =
-    useSupportsProgressiveAttachmentLoading(assistantId);
-  const attachmentContent = supportsProgressiveAttachmentLoading
+  const progressiveAttachmentLoadingPolicy =
+    useProgressiveAttachmentLoadingPolicy(assistantId);
+  const attachmentContent = progressiveAttachmentLoadingPolicy === "metadata"
     ? "metadata"
     : "inline";
 
   const pagination = useHistoryPagination({
     assistantId,
     conversationId: activeConversationId,
-    enabled: assistantStateKind === "active" && !!assistantId && !!activeConversationId,
+    enabled:
+      progressiveAttachmentLoadingPolicy !== "pending" &&
+      assistantStateKind === "active" &&
+      !!assistantId &&
+      !!activeConversationId,
     attachmentContent,
   });
 
