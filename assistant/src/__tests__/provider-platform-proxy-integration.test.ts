@@ -192,6 +192,7 @@ const MANAGED_FALLBACK_PROVIDERS: string[] = [
   "openai",
   "fireworks",
   "together",
+  "poolside",
 ];
 
 function enableManagedProxy() {
@@ -315,7 +316,7 @@ describe("managed proxy integration — credential precedence", () => {
       },
     );
 
-    test("managed bootstrap registers anthropic, openai, gemini, fireworks, and together", async () => {
+    test("managed bootstrap registers anthropic, openai, gemini, fireworks, together, and poolside", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
       await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
@@ -326,14 +327,16 @@ describe("managed proxy integration — credential precedence", () => {
           "gemini",
           "fireworks",
           "together",
+          "poolside",
         ]),
       );
-      expect(listProviders()).toHaveLength(5);
+      expect(listProviders()).toHaveLength(6);
       expect(getProviderRoutingSource("anthropic")).toBe("managed-proxy");
       expect(getProviderRoutingSource("openai")).toBe("managed-proxy");
       expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
       expect(getProviderRoutingSource("fireworks")).toBe("managed-proxy");
       expect(getProviderRoutingSource("together")).toBe("managed-proxy");
+      expect(getProviderRoutingSource("poolside")).toBe("managed-proxy");
       expect(getProviderRoutingSource("openrouter")).toBeUndefined();
     });
 

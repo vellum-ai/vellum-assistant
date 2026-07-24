@@ -39,6 +39,7 @@ export const LLMProvider = z
     "together",
     "litellm",
     "baseten",
+    "poolside",
     // Routing identities rather than adapters: "vellum" = the platform-managed
     // route (upstream derived from the model at dispatch), "chatgpt" = the
     // subscription route to OpenAI. Neither has a PROVIDER_CATALOG entry;

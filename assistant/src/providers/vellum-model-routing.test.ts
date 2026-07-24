@@ -71,6 +71,7 @@ describe("vellum-model-routing", () => {
       "fireworks",
       "gemini",
       "openai",
+      "poolside",
       "together",
     ]);
   });

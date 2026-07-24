@@ -18,6 +18,7 @@ const MANAGED_PROVIDERS = [
   "gemini",
   "fireworks",
   "together",
+  "poolside",
 ] as const;
 
 let platformBaseUrlOverride: string | undefined;

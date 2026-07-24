@@ -2150,6 +2150,48 @@
           }
         }
       ]
+    },
+    {
+      "id": "poolside",
+      "displayName": "Poolside",
+      "subtitle": "Laguna models from Poolside (OpenAI-compatible). Requires a Poolside API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Poolside API key to enable Laguna models.",
+      "envVar": "POOLSIDE_API_KEY",
+      "apiKeyPlaceholder": "Your Poolside API key",
+      "credentialsGuide": {
+        "description": "Sign in to Poolside and create an API key.",
+        "url": "https://poolside.ai",
+        "linkLabel": "Open Poolside"
+      },
+      "supportsPlatformAuth": true,
+      "defaultModel": "poolside/laguna-s-2.1",
+      "models": [
+        {
+          "id": "poolside/laguna-s-2.1",
+          "displayName": "Laguna S 2.1",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true
+        },
+        {
+          "id": "poolside/laguna-xs-2.1",
+          "displayName": "Laguna XS 2.1",
+          "contextWindowTokens": 262144,
+          "maxOutputTokens": 32768,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true
+        }
+      ]
     }
   ]
 }

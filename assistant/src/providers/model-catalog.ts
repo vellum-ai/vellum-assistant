@@ -2097,6 +2097,45 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyUrl: "https://app.baseten.co/settings/api_keys",
     apiKeyPlaceholder: "Your Baseten API key",
   },
+  {
+    id: "poolside",
+    displayName: "Poolside",
+    subtitle:
+      "Laguna models from Poolside (OpenAI-compatible). Requires a Poolside API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your Poolside API key to enable Laguna models.",
+    envVar: "POOLSIDE_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to Poolside and create an API key.",
+      url: "https://poolside.ai",
+      linkLabel: "Open Poolside",
+    },
+    models: [
+      {
+        id: "poolside/laguna-s-2.1",
+        displayName: "Laguna S 2.1",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+      {
+        id: "poolside/laguna-xs-2.1",
+        displayName: "Laguna XS 2.1",
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+    ],
+    defaultModel: "poolside/laguna-s-2.1",
+    apiKeyUrl: "https://poolside.ai",
+    apiKeyPlaceholder: "Your Poolside API key",
+  },
 ];
 
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
