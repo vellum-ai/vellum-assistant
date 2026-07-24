@@ -336,6 +336,27 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
         linkedRows.reduce((max, item) => Math.max(max, item.position), -1) + 1;
       let changed = false;
 
+      function* attachmentCandidates(
+        hintedAttachmentId: unknown,
+      ): Generator<LinkedAttachmentRow> {
+        const hinted =
+          typeof hintedAttachmentId === "string"
+            ? linkedById.get(hintedAttachmentId)
+            : undefined;
+        if (hinted) {
+          yield hinted;
+        }
+        for (const linked of linkedRows) {
+          if (
+            linked.linkId === hinted?.linkId ||
+            consumedLinkIds.has(linked.linkId)
+          ) {
+            continue;
+          }
+          yield linked;
+        }
+      }
+
       const getAttachmentsDir = (): string => {
         if (attachmentsDir) {
           return attachmentsDir;
@@ -396,40 +417,19 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
         const inlineSignature = byteSignature(inlineBytes);
 
         let selected: SelectedAttachment | undefined;
-        if (typeof block._attachmentId === "string") {
-          const linked = linkedById.get(block._attachmentId);
-          if (linked) {
-            const match = matchAttachmentToBlock(
-              linked,
-              readLinkedAttachmentBytes,
-              block.type as "image" | "file",
-              mediaType,
-              inlineSignature,
-              attachmentSignatureCache,
-              optimizedSignatureCache,
-            );
-            if (match) {
-              selected = { row: linked, match };
-            }
-          }
-        } else {
-          for (const linked of linkedRows) {
-            if (consumedLinkIds.has(linked.linkId)) {
-              continue;
-            }
-            const match = matchAttachmentToBlock(
-              linked,
-              readLinkedAttachmentBytes,
-              block.type as "image" | "file",
-              mediaType,
-              inlineSignature,
-              attachmentSignatureCache,
-              optimizedSignatureCache,
-            );
-            if (match) {
-              selected = { row: linked, match };
-              break;
-            }
+        for (const linked of attachmentCandidates(block._attachmentId)) {
+          const match = matchAttachmentToBlock(
+            linked,
+            readLinkedAttachmentBytes,
+            block.type as "image" | "file",
+            mediaType,
+            inlineSignature,
+            attachmentSignatureCache,
+            optimizedSignatureCache,
+          );
+          if (match) {
+            selected = { row: linked, match };
+            break;
           }
         }
 

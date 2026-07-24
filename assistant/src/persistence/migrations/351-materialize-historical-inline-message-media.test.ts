@@ -486,6 +486,104 @@ describe("migration 351: materialize historical inline message media", () => {
     expect(count(sqlite, "message_attachments")).toBe(3);
   });
 
+  test("falls back from a missing legacy hint to the matching linked attachment", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const inlineBytes = Buffer.from("fork-owned-media");
+    insertMessage(sqlite, "message-missing-hint", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/octet-stream",
+          data: inlineBytes.toString("base64"),
+          filename: "fork.bin",
+        },
+        _attachmentId: "source-attachment-missing",
+      },
+    ]);
+    for (const [position, attachmentId] of [
+      "fork-attachment-match",
+      "attachment-never-read",
+    ].entries()) {
+      insertAttachment(sqlite, attachmentId, "", `/candidate/${attachmentId}`);
+      linkAttachment(sqlite, "message-missing-hint", attachmentId, position);
+    }
+    const reads: string[] = [];
+    const migrationOptions = {
+      ...options,
+      readLinkedAttachmentBytes: (attachmentId: string): Buffer | null => {
+        reads.push(attachmentId);
+        return attachmentId === "fork-attachment-match"
+          ? inlineBytes
+          : Buffer.from("unused");
+      },
+    };
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    const content = messageContent(
+      sqlite,
+      "message-missing-hint",
+    ) as Array<any>;
+    expect(reads).toEqual(["fork-attachment-match"]);
+    expect(content[0]._attachmentId).toBeUndefined();
+    expect(content[0].source.attachmentId).toBe("fork-attachment-match");
+    expect(count(sqlite, "attachments")).toBe(2);
+    expect(count(sqlite, "message_attachments")).toBe(2);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
+
+    expect(reads).toEqual(["fork-attachment-match"]);
+    expect(count(sqlite, "attachments")).toBe(2);
+    expect(count(sqlite, "message_attachments")).toBe(2);
+  });
+
+  test("falls back after a mismatched linked hint while preserving hint priority", async () => {
+    const { sqlite, db, options } = createTestDb();
+    const inlineBytes = Buffer.from("fork-owned-media");
+    insertMessage(sqlite, "message-mismatched-hint", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/octet-stream",
+          data: inlineBytes.toString("base64"),
+          filename: "fork.bin",
+        },
+        _attachmentId: "source-attachment-stale",
+      },
+    ]);
+    for (const [attachmentId, position] of [
+      ["fork-attachment-match", 0],
+      ["source-attachment-stale", 1],
+      ["attachment-never-read", 2],
+    ] as const) {
+      insertAttachment(sqlite, attachmentId, "", `/candidate/${attachmentId}`);
+      linkAttachment(sqlite, "message-mismatched-hint", attachmentId, position);
+    }
+    const reads: string[] = [];
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+      ...options,
+      readLinkedAttachmentBytes: (attachmentId) => {
+        reads.push(attachmentId);
+        return attachmentId === "fork-attachment-match"
+          ? inlineBytes
+          : Buffer.from("not-the-inline-bytes");
+      },
+    });
+
+    const content = messageContent(
+      sqlite,
+      "message-mismatched-hint",
+    ) as Array<any>;
+    expect(reads).toEqual(["source-attachment-stale", "fork-attachment-match"]);
+    expect(content[0]._attachmentId).toBeUndefined();
+    expect(content[0].source.attachmentId).toBe("fork-attachment-match");
+    expect(count(sqlite, "attachments")).toBe(3);
+    expect(count(sqlite, "message_attachments")).toBe(3);
+  });
+
   test("materializes the inline bytes when a legacy attachment ID points at different media", async () => {
     const { sqlite, db, options } = createTestDb();
     const inlineBytes = Buffer.from("correct-media");
