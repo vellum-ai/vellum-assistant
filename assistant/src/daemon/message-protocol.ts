@@ -58,10 +58,7 @@ import type {
   _ComputerUseServerMessages,
 } from "./message-types/computer-use.js";
 import type { _ContactsServerMessages } from "./message-types/contacts.js";
-import type {
-  _ConversationsClientMessages,
-  _ConversationsServerMessages,
-} from "./message-types/conversations.js";
+import type { _ConversationsServerMessages } from "./message-types/conversations.js";
 import type { _DiagnosticsClientMessages } from "./message-types/diagnostics.js";
 import type { _DocumentCommentsServerMessages } from "./message-types/document-comments.js";
 import type { _DocumentsServerMessages } from "./message-types/documents.js";
@@ -118,7 +115,6 @@ export interface SubagentEvent {
 // === Client -> Server aggregate union ===
 
 export type ClientMessage =
-  | _ConversationsClientMessages
   | _MessagesClientMessages
   | _IntegrationsClientMessages
   | _ComputerUseClientMessages

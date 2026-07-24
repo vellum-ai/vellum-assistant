@@ -64,7 +64,6 @@ export function sanitizeUrlForDisplay(rawUrl: unknown): string {
 export async function startCli(): Promise<void> {
   let conversationKey = CLI_CONVERSATION_KEY;
   let conversationId = "";
-  let pendingUserContent: string | null = null;
   let generating = false;
   let lastUsage: {
     inputTokens: number;
@@ -292,52 +291,6 @@ export async function startCli(): Promise<void> {
 
   function handleMessage(msg: ServerMessage): void {
     switch (msg.type) {
-      case "conversation_info":
-        pendingSessionPick = false;
-        conversationId = msg.conversationId;
-        process.stdout.write(
-          `\n  Conversation: ${msg.title}\n  Type your message. Ctrl+D to detach.\n\n`,
-        );
-        if (pendingUserContent) {
-          const content = pendingUserContent;
-          pendingUserContent = null;
-          sendUserMessage(content).then((result) => {
-            if (result.ok) {
-              generating = true;
-              spinner.start("Thinking...");
-            } else {
-              if (result.error === "secret_blocked" && result.message) {
-                process.stdout.write(`${result.message}\n`);
-                rl.question("Send anyway? (y/N): ", (answer) => {
-                  if (answer.trim().toLowerCase() === "y") {
-                    sendUserMessage(content, {
-                      bypassSecretCheck: true,
-                    }).then((retryResult) => {
-                      if (retryResult.ok) {
-                        generating = true;
-                        spinner.start("Thinking...");
-                      } else {
-                        process.stdout.write(
-                          "[Not connected — message not sent]\n",
-                        );
-                        prompt();
-                      }
-                    });
-                  } else {
-                    prompt();
-                  }
-                });
-              } else {
-                process.stdout.write("[Not connected — message not sent]\n");
-                prompt();
-              }
-            }
-          });
-        } else {
-          prompt();
-        }
-        break;
-
       case "assistant_text_delta":
         spinner.stop();
         process.stdout.write(msg.text);
@@ -507,70 +460,10 @@ export async function startCli(): Promise<void> {
         prompt();
         break;
 
-      case "conversation_list_response":
-        if (pendingSessionPick) {
-          renderConversationPicker(msg.conversations);
-        } else {
-          for (const conversation of msg.conversations) {
-            process.stdout.write(
-              `  ${conversation.id}  ${conversation.title}\n`,
-            );
-          }
-          prompt();
-        }
-        break;
-
       case "model_info":
         process.stdout.write(`\n  Model: ${msg.model} (${msg.provider})\n\n`);
         prompt();
         break;
-
-      case "history_response":
-        process.stdout.write("\n");
-        if (msg.messages.length === 0) {
-          process.stdout.write("  No messages in this conversation.\n");
-        } else {
-          for (const m of msg.messages) {
-            const label = m.role === "user" ? "you" : "assistant";
-            const preview = truncate(m.text, 120);
-            process.stdout.write(
-              `  ${label}> ${preview.replace(/\n/g, " ")}\n`,
-            );
-          }
-        }
-        process.stdout.write("\n");
-        prompt();
-        break;
-
-      case "undo_complete":
-        if (msg.removedCount === 0) {
-          process.stdout.write("\n  Nothing to undo.\n\n");
-        } else {
-          process.stdout.write(
-            `\n  Removed last exchange (${msg.removedCount} messages).\n\n`,
-          );
-        }
-        prompt();
-        break;
-
-      case "usage_response": {
-        process.stdout.write("\n");
-        process.stdout.write(`  Model:          ${msg.model}\n`);
-        process.stdout.write(
-          `  Input tokens:   ${msg.totalInputTokens.toLocaleString()}\n`,
-        );
-        process.stdout.write(
-          `  Output tokens:  ${msg.totalOutputTokens.toLocaleString()}\n`,
-        );
-        const costStr =
-          msg.estimatedCost > 0
-            ? `$${msg.estimatedCost.toFixed(4)}`
-            : "N/A (unknown model pricing)";
-        process.stdout.write(`  Estimated cost: ${costStr}\n`);
-        process.stdout.write("\n");
-        prompt();
-        break;
-      }
     }
   }
 
