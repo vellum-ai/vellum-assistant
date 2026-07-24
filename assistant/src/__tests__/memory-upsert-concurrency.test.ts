@@ -32,7 +32,11 @@ mock.module("../persistence/embeddings/qdrant-client.js", () => ({
 }));
 
 import { getConfig } from "../config/loader.js";
-import { getDb, getMemorySqlite } from "../persistence/db-connection.js";
+import {
+  getDb,
+  getMemoryDb,
+  getMemorySqlite,
+} from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
   conversations,
@@ -51,10 +55,13 @@ await initializeDb();
 
 function resetTables() {
   const db = getDb();
-  db.run("DELETE FROM memory_embeddings");
-  getMemorySqlite()!.run("DELETE FROM memory_graph_nodes");
-  db.run("DELETE FROM memory_segments");
-  getMemorySqlite()!.run("DELETE FROM memory_jobs");
+  // memory_embeddings and memory_segments now live on the memory connection,
+  // alongside memory_graph_nodes and memory_jobs.
+  const memory = getMemorySqlite()!;
+  memory.run("DELETE FROM memory_embeddings");
+  memory.run("DELETE FROM memory_graph_nodes");
+  memory.run("DELETE FROM memory_segments");
+  memory.run("DELETE FROM memory_jobs");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
 }
@@ -113,7 +120,6 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
 
     seedConversationAndMessage(conversationId, messageId, text);
 
-    const db = getDb();
     const config = getConfig().memory;
 
     // Call indexMessageNow N times for the same messageId.  Even though we use
@@ -138,7 +144,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       ),
     );
 
-    const segments = db
+    const segments = getMemoryDb()!
       .select()
       .from(memorySegments)
       .where(eq(memorySegments.messageId, messageId))
@@ -229,7 +235,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
     // for the wrong messageId.
     for (let i = 0; i < MSG_COUNT; i++) {
       const msgId = `msg-distinct-${i}`;
-      const segs = db
+      const segs = getMemoryDb()!
         .select()
         .from(memorySegments)
         .where(eq(memorySegments.messageId, msgId))
@@ -271,8 +277,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       config,
     );
 
-    const db = getDb();
-    const segmentsAfterFirst = db
+    const segmentsAfterFirst = getMemoryDb()!
       .select()
       .from(memorySegments)
       .where(eq(memorySegments.messageId, messageId))
@@ -300,7 +305,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       config,
     );
 
-    const segmentsAfterRehash = db
+    const segmentsAfterRehash = getMemoryDb()!
       .select()
       .from(memorySegments)
       .where(eq(memorySegments.messageId, messageId))
@@ -368,8 +373,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       ),
     ]);
 
-    const db = getDb();
-    const segments = db
+    const segments = getMemoryDb()!
       .select()
       .from(memorySegments)
       .where(eq(memorySegments.messageId, messageId))
@@ -467,7 +471,7 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
     // duplicates regardless of how many indexer calls ran.
     for (let i = 0; i < MSG_COUNT; i++) {
       const msgId = `msg-atomicity-${i}`;
-      const segs = db
+      const segs = getMemoryDb()!
         .select()
         .from(memorySegments)
         .where(eq(memorySegments.messageId, msgId))
@@ -514,8 +518,7 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
       ),
     );
 
-    const db = getDb();
-    const storedSegments = db
+    const storedSegments = getMemoryDb()!
       .select()
       .from(memorySegments)
       .where(eq(memorySegments.messageId, messageId))

@@ -8,7 +8,10 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { getDb } from "../../../../../persistence/db-connection.js";
+import {
+  getDb,
+  getMemoryDb,
+} from "../../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../../persistence/db-init.js";
 import {
   conversations,
@@ -32,7 +35,7 @@ function seedSummary(
   summary: string,
   updatedAt: number,
 ): void {
-  getDb()
+  getMemoryDb()!
     .insert(memorySummaries)
     .values({
       id: `sum-${scopeKey}`,
@@ -57,7 +60,7 @@ function recentSummaries(): string[] {
 }
 
 beforeEach(() => {
-  getDb().delete(memorySummaries).run();
+  getMemoryDb()!.delete(memorySummaries).run();
   getDb().delete(conversations).run();
 });
 

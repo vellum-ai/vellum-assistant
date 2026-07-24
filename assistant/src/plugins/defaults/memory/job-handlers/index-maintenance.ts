@@ -31,20 +31,23 @@ const log = getLogger("memory-jobs-worker");
 
 export async function rebuildIndexJob(): Promise<void> {
   const db = getDb();
-  db.delete(memoryEmbeddings).run();
+  const memoryDb = memoryDbOrNull("rebuildIndexJob");
 
-  const summaries = db
-    .select({ id: memorySummaries.id })
-    .from(memorySummaries)
-    .all();
+  // memory_embeddings, memory_segments, and memory_summaries now live on the
+  // memory connection; wipe embeddings and re-enqueue segments/summaries from
+  // there. Media stays on the main handle.
+  memoryDb?.delete(memoryEmbeddings).run();
+
+  const summaries =
+    memoryDb?.select({ id: memorySummaries.id }).from(memorySummaries).all() ??
+    [];
   for (const summary of summaries) {
     enqueueMemoryJob("embed_summary", { summaryId: summary.id });
   }
 
-  const segments = db
-    .select({ id: memorySegments.id })
-    .from(memorySegments)
-    .all();
+  const segments =
+    memoryDb?.select({ id: memorySegments.id }).from(memorySegments).all() ??
+    [];
   for (const segment of segments) {
     enqueueMemoryJob("embed_segment", { segmentId: segment.id });
   }
@@ -84,9 +87,6 @@ export async function rebuildIndexJob(): Promise<void> {
   }
 
   // The graph cluster lives on the memory connection; re-embeds read it there.
-  // memory_embeddings/segments/summaries above stay on the main handle (Wave 4),
-  // and each read is a separate query, so the split across connections is fine.
-  const memoryDb = memoryDbOrNull("rebuildIndexJob");
   if (memoryDb) {
     // Re-embed graph nodes stored in the memory graph.
     const graphNodes = memoryDb

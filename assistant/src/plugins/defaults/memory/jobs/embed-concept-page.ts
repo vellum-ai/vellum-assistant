@@ -42,6 +42,7 @@ import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embeddings.js";
 import { BackendUnavailableError } from "../host-utils.js";
 import { getLogger } from "../logging.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import { getWorkspaceDir } from "../paths.js";
 import { readPage } from "../v3/substrate/page-store.js";
 import {
@@ -117,7 +118,8 @@ export async function embedConceptPageJob(
   const cacheProvider = status.provider;
   const cacheModel = status.model!;
 
-  const db = getDb();
+  // The `memory_embeddings` cache lives on the memory connection.
+  const mem = memoryDbOrNull("embedConceptPageJob");
 
   // Cache lookup: same (targetType, targetId, provider, model) row gets
   // reused across runs as long as `contentHash` matches. The dim mismatch
@@ -127,13 +129,9 @@ export async function embedConceptPageJob(
   // its own cache row keyed by a distinct targetId so summary edits don't
   // invalidate the body cache and vice versa.
   const bodyContentHash = embeddingInputContentHash({ type: "text", text });
-  const bodyCache = readEmbeddingCache(
-    db,
-    slug,
-    cacheProvider,
-    cacheModel,
-    expectedDim,
-  );
+  const bodyCache = mem
+    ? readEmbeddingCache(mem, slug, cacheProvider, cacheModel, expectedDim)
+    : null;
   const bodyCacheHit = bodyCache?.contentHash === bodyContentHash;
 
   // Optional summary embedding — only when the page has a `summary` in its
@@ -146,15 +144,16 @@ export async function embedConceptPageJob(
   const summaryContentHash = hasSummary
     ? embeddingInputContentHash({ type: "text", text: summaryText })
     : undefined;
-  const summaryCache = hasSummary
-    ? readEmbeddingCache(
-        db,
-        summaryCacheId,
-        cacheProvider,
-        cacheModel,
-        expectedDim,
-      )
-    : null;
+  const summaryCache =
+    hasSummary && mem
+      ? readEmbeddingCache(
+          mem,
+          summaryCacheId,
+          cacheProvider,
+          cacheModel,
+          expectedDim,
+        )
+      : null;
   const summaryCacheHit =
     hasSummary && summaryCache?.contentHash === summaryContentHash;
 
@@ -254,8 +253,8 @@ export async function embedConceptPageJob(
   // the new vector overwrites the now-stale cache row under the new
   // provider/model identity. Best-effort: write failure is not fatal, we
   // still want the Qdrant upsert below to fire.
-  if (bodyFresh) {
-    writeEmbeddingCache(db, {
+  if (bodyFresh && mem) {
+    writeEmbeddingCache(mem, {
       slug,
       cacheId: slug,
       dense: bodyDense,
@@ -265,8 +264,8 @@ export async function embedConceptPageJob(
       now,
     });
   }
-  if (hasSummary && summaryFresh && summaryDense && summaryContentHash) {
-    writeEmbeddingCache(db, {
+  if (hasSummary && summaryFresh && summaryDense && summaryContentHash && mem) {
+    writeEmbeddingCache(mem, {
       slug,
       cacheId: summaryCacheId,
       dense: summaryDense,

@@ -51,6 +51,12 @@ const {
   MEMORY_GRAPH_NODE_EDITS_RELOCATION,
 } =
   await import("../../../../persistence/migrations/349-move-memory-graph-tables-to-memory-db.js");
+const { MEMORY_SEGMENTS_RELOCATION } =
+  await import("../../../../persistence/migrations/351-move-memory-segments-to-memory-db.js");
+const { MEMORY_EMBEDDINGS_RELOCATION } =
+  await import("../../../../persistence/migrations/352-move-memory-embeddings-to-memory-db.js");
+const { MEMORY_SUMMARIES_RELOCATION } =
+  await import("../../../../persistence/migrations/353-move-memory-summaries-to-memory-db.js");
 
 await initializeDb();
 
@@ -892,5 +898,182 @@ describe("memory graph cluster drain", () => {
         >(`SELECT COUNT(*) AS c FROM memory_graph_node_edits`)
         .get(),
     ).toEqual({ c: 0 });
+  });
+});
+
+describe("memory_segments drain", () => {
+  test("copies every row (full copy, including the unmapped scope_id) and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    memory.exec(`DELETE FROM memory_segments`);
+    sqlite.exec(`DROP TABLE IF EXISTS main."memory_segments__relocating"`);
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_segments__relocating" (
+        id TEXT PRIMARY KEY, message_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL, role TEXT NOT NULL,
+        segment_index INTEGER NOT NULL, text TEXT NOT NULL,
+        token_estimate INTEGER NOT NULL,
+        scope_id TEXT NOT NULL DEFAULT 'default', content_hash TEXT,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      )
+    `);
+    const insert = sqlite.prepare(
+      `INSERT INTO main."memory_segments__relocating"
+         (id, message_id, conversation_id, role, segment_index, text,
+          token_estimate, scope_id, content_hash, created_at, updated_at)
+       VALUES (?, ?, ?, 'user', ?, ?, 3, ?, ?, 0, 0)`,
+    );
+    insert.run("seg-1", "msg-1", "conv-1", 0, "first", "scope-a", "h1");
+    insert.run("seg-2", "msg-1", "conv-1", 1, "second", "default", null);
+
+    await drainStagedTable(sqlite, MEMORY_SEGMENTS_RELOCATION);
+
+    expect(existsInMain("memory_segments__relocating")).toBe(false);
+    const kept = memory
+      .query(
+        `SELECT id, message_id, conversation_id, segment_index, text, scope_id, content_hash
+           FROM memory_segments ORDER BY segment_index`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        id: "seg-1",
+        message_id: "msg-1",
+        conversation_id: "conv-1",
+        segment_index: 0,
+        text: "first",
+        scope_id: "scope-a",
+        content_hash: "h1",
+      },
+      {
+        id: "seg-2",
+        message_id: "msg-1",
+        conversation_id: "conv-1",
+        segment_index: 1,
+        text: "second",
+        scope_id: "default",
+        content_hash: null,
+      },
+    ]);
+  });
+});
+
+describe("memory_embeddings drain", () => {
+  test("copies every polymorphic row (full copy) and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    memory.exec(`DELETE FROM memory_embeddings`);
+    sqlite.exec(`DROP TABLE IF EXISTS main."memory_embeddings__relocating"`);
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_embeddings__relocating" (
+        id TEXT PRIMARY KEY, target_type TEXT NOT NULL, target_id TEXT NOT NULL,
+        provider TEXT NOT NULL, model TEXT NOT NULL, dimensions INTEGER NOT NULL,
+        vector_json TEXT, vector_blob BLOB, content_hash TEXT,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        UNIQUE (target_type, target_id, provider, model)
+      )
+    `);
+    const insert = sqlite.prepare(
+      `INSERT INTO main."memory_embeddings__relocating"
+         (id, target_type, target_id, provider, model, dimensions,
+          vector_json, vector_blob, content_hash, created_at, updated_at)
+       VALUES (?, ?, ?, 'p', 'm', 3, ?, NULL, ?, 0, 0)`,
+    );
+    insert.run("emb-1", "segment", "seg-1", "[0.1,0.2,0.3]", "h1");
+    insert.run("emb-2", "summary", "sum-1", "[0.4,0.5,0.6]", null);
+
+    await drainStagedTable(sqlite, MEMORY_EMBEDDINGS_RELOCATION);
+
+    expect(existsInMain("memory_embeddings__relocating")).toBe(false);
+    const kept = memory
+      .query(
+        `SELECT id, target_type, target_id, provider, model, dimensions,
+                vector_json, content_hash
+           FROM memory_embeddings ORDER BY id`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        id: "emb-1",
+        target_type: "segment",
+        target_id: "seg-1",
+        provider: "p",
+        model: "m",
+        dimensions: 3,
+        vector_json: "[0.1,0.2,0.3]",
+        content_hash: "h1",
+      },
+      {
+        id: "emb-2",
+        target_type: "summary",
+        target_id: "sum-1",
+        provider: "p",
+        model: "m",
+        dimensions: 3,
+        vector_json: "[0.4,0.5,0.6]",
+        content_hash: null,
+      },
+    ]);
+  });
+});
+
+describe("memory_summaries drain", () => {
+  test("copies every row (full copy, including the unmapped scope_id) and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    memory.exec(`DELETE FROM memory_summaries`);
+    sqlite.exec(`DROP TABLE IF EXISTS main."memory_summaries__relocating"`);
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_summaries__relocating" (
+        id TEXT PRIMARY KEY, scope TEXT NOT NULL, scope_key TEXT NOT NULL,
+        summary TEXT NOT NULL, token_estimate INTEGER NOT NULL,
+        start_at INTEGER NOT NULL, end_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        scope_id TEXT NOT NULL DEFAULT 'default',
+        UNIQUE (scope, scope_key)
+      )
+    `);
+    const insert = sqlite.prepare(
+      `INSERT INTO main."memory_summaries__relocating"
+         (id, scope, scope_key, summary, token_estimate, start_at, end_at,
+          created_at, updated_at, version, scope_id)
+       VALUES (?, 'conversation', ?, ?, 10, 0, 0, 0, ?, ?, ?)`,
+    );
+    insert.run("sum-1", "conv-1", "first summary", 100, 2, "scope-a");
+    insert.run("sum-2", "conv-2", "second summary", 200, 1, "default");
+
+    await drainStagedTable(sqlite, MEMORY_SUMMARIES_RELOCATION);
+
+    expect(existsInMain("memory_summaries__relocating")).toBe(false);
+    const kept = memory
+      .query(
+        `SELECT id, scope, scope_key, summary, updated_at, version, scope_id
+           FROM memory_summaries ORDER BY id`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        id: "sum-1",
+        scope: "conversation",
+        scope_key: "conv-1",
+        summary: "first summary",
+        updated_at: 100,
+        version: 2,
+        scope_id: "scope-a",
+      },
+      {
+        id: "sum-2",
+        scope: "conversation",
+        scope_key: "conv-2",
+        summary: "second summary",
+        updated_at: 200,
+        version: 1,
+        scope_id: "default",
+      },
+    ]);
   });
 });

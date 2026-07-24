@@ -13,7 +13,7 @@ import { z } from "zod";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { estimateTextTokens } from "../../../../context/token-estimator.js";
 import type { ServerMessage } from "../../../../daemon/message-protocol.js";
-import { getDb } from "../../../../persistence/db-connection.js";
+import { getDb, getMemoryDb } from "../../../../persistence/db-connection.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
 import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
 import type { QdrantSparseVector } from "../../../../persistence/embeddings/qdrant-client.js";
@@ -209,13 +209,15 @@ export class ConversationGraphMemory {
   private fetchRecentSummaries(): string[] {
     try {
       const db = getDb();
+      const memoryDb = getMemoryDb();
+      if (!memoryDb) return [];
 
-      // Read candidate summaries most-recent first. This can't join
-      // `conversations` because `memory_summaries` is moving to the dedicated
-      // memory database while `conversations` stays on main, so the
-      // conversationType filter runs as a second lookup below. Over-fetch a
-      // window (see RECENT_SUMMARY_CANDIDATE_LIMIT) and partition in JS.
-      const candidates = db
+      // Read candidate summaries most-recent first from the memory connection
+      // (memory_summaries lives there now). This can't join `conversations`,
+      // which stays on main, so the conversationType filter runs as a second
+      // lookup below. Over-fetch a window (see RECENT_SUMMARY_CANDIDATE_LIMIT)
+      // and partition in JS.
+      const candidates = memoryDb
         .select({
           scopeKey: memorySummaries.scopeKey,
           summary: memorySummaries.summary,

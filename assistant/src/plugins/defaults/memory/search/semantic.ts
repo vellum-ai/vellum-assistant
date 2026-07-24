@@ -1,7 +1,6 @@
 import { inArray } from "drizzle-orm";
 
 import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
-import { getDb } from "../../../../persistence/db-connection.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import type {
   QdrantSearchResult,
@@ -13,6 +12,7 @@ import {
   memorySummaries,
 } from "../../../../persistence/schema/index.js";
 import { getMemoryConfig } from "../config.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import { mapCosineToUnit } from "../validation.js";
 // ── Types (inlined from deleted types.ts) ──────────────────────────
 
@@ -100,7 +100,7 @@ export async function semanticSearch(
     );
   }
 
-  const db = getDb();
+  const mem = memoryDbOrNull("semanticSearch");
 
   // Batch-fetch all backing records upfront to avoid N+1 queries per result
   const summaryTargetIds: string[] = [];
@@ -113,8 +113,8 @@ export async function semanticSearch(
   }
 
   const summariesMap = new Map<string, typeof memorySummaries.$inferSelect>();
-  if (summaryTargetIds.length > 0) {
-    const allSummaries = db
+  if (mem && summaryTargetIds.length > 0) {
+    const allSummaries = mem
       .select()
       .from(memorySummaries)
       .where(inArray(memorySummaries.id, summaryTargetIds))
@@ -123,8 +123,8 @@ export async function semanticSearch(
   }
 
   const segmentsMap = new Map<string, typeof memorySegments.$inferSelect>();
-  if (segmentTargetIds.length > 0) {
-    const allSegments = db
+  if (mem && segmentTargetIds.length > 0) {
+    const allSegments = mem
       .select()
       .from(memorySegments)
       .where(inArray(memorySegments.id, segmentTargetIds))
