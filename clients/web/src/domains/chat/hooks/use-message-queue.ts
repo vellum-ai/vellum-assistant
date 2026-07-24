@@ -27,7 +27,7 @@ import { useComposerStore } from "@/domains/chat/composer-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
-import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
+import { messageMatchesKey } from "@/domains/chat/utils/message-identity";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -48,7 +48,7 @@ function requestIdForQueuedMessage(messageId: string): string | undefined {
   return snapshot?.messages.find(
     (message) =>
       message.queueStatus === "queued" &&
-      messageMatchKeys(message).includes(messageId),
+      messageMatchesKey(message, messageId),
   )?.id;
 }
 
@@ -68,7 +68,9 @@ export function useMessageQueue({
       setOptimisticSends((prev) => prev.filter((m) => m.id !== messageId));
       const queueIds = useChatSessionStore.getState().pendingQueuedMessageIds;
       const idx = queueIds.indexOf(messageId);
-      if (idx !== -1) queueIds.splice(idx, 1);
+      if (idx !== -1) {
+        queueIds.splice(idx, 1);
+      }
     },
     [setOptimisticSends],
   );
@@ -119,6 +121,9 @@ export function useMessageQueue({
       }
       const targetRequestId = requestIdForQueuedMessage(messageId);
       if (targetRequestId) {
+        const queuePosition = queuedMessages.find((message) =>
+          messageMatchesKey(message, messageId),
+        )?.queuePosition;
         const patchMessageCopies = (
           updater: (prev: DisplayMessage[]) => DisplayMessage[],
         ) => {
@@ -132,14 +137,14 @@ export function useMessageQueue({
           (ok) => {
             if (!ok) {
               const restoreMessage = (prev: DisplayMessage[]) =>
-                markMessageQueued(prev, messageId);
+                markMessageQueued(prev, messageId, queuePosition);
               patchMessageCopies(restoreMessage);
             }
           },
         );
       }
     },
-    [assistantId, activeConversationId, setOptimisticSends],
+    [assistantId, activeConversationId, queuedMessages, setOptimisticSends],
   );
 
   const handleEditQueueTail = useCallback(() => {

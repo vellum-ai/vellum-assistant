@@ -40,7 +40,11 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { registerHistoryCachePatcher } from "@/domains/chat/transcript/patch-transcript-messages";
 
-function queuedMessage(id: string, clientMessageId: string): DisplayMessage {
+function queuedMessage(
+  id: string,
+  clientMessageId: string,
+  queuePosition = 1,
+): DisplayMessage {
   return {
     id,
     clientMessageId,
@@ -50,15 +54,15 @@ function queuedMessage(id: string, clientMessageId: string): DisplayMessage {
     contentBlocks: [{ type: "text", text: "Steer me" }],
     timestamp: 1,
     queueStatus: "queued",
-    queuePosition: 1,
+    queuePosition,
   };
 }
 
-function seedQueuedCopies(): void {
+function seedQueuedCopies(queuePosition = 1): void {
   useChatSessionStore.setState({
-    optimisticSends: [queuedMessage("client-1", "client-1")],
+    optimisticSends: [queuedMessage("client-1", "client-1", queuePosition)],
     snapshot: {
-      messages: [queuedMessage("request-1", "client-1")],
+      messages: [queuedMessage("request-1", "client-1", queuePosition)],
       hasMore: false,
       oldestTimestamp: null,
       oldestMessageId: null,
@@ -265,9 +269,9 @@ describe("useMessageQueue", () => {
     ]);
   });
 
-  test("failed steering restores both queued copies", async () => {
+  test("failed steering restores status and position on both queued copies", async () => {
     steerResult = false;
-    seedQueuedCopies();
+    seedQueuedCopies(2);
     const { result } = renderHook(() =>
       useMessageQueue({
         assistantId: "assistant-1",
@@ -284,7 +288,13 @@ describe("useMessageQueue", () => {
       useChatSessionStore.getState().optimisticSends[0]?.queueStatus,
     ).toBe("queued");
     expect(
+      useChatSessionStore.getState().optimisticSends[0]?.queuePosition,
+    ).toBe(2);
+    expect(
       useChatSessionStore.getState().snapshot?.messages[0]?.queueStatus,
     ).toBe("queued");
+    expect(
+      useChatSessionStore.getState().snapshot?.messages[0]?.queuePosition,
+    ).toBe(2);
   });
 });

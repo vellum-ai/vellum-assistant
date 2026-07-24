@@ -8,7 +8,7 @@
  */
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
+import { messageMatchesKey } from "@/domains/chat/utils/message-identity";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 // ---------------------------------------------------------------------------
@@ -92,9 +92,13 @@ export function withMergedAlias(
   row: DisplayMessage,
   messageId: string | undefined,
 ): DisplayMessage {
-  if (!messageId || row.id === messageId) return row;
+  if (!messageId || row.id === messageId) {
+    return row;
+  }
   const existing = row.mergedMessageIds ?? [];
-  if (existing.includes(messageId)) return row;
+  if (existing.includes(messageId)) {
+    return row;
+  }
   return { ...row, mergedMessageIds: [...existing, messageId] };
 }
 
@@ -131,10 +135,6 @@ export function finalizeRunningToolCalls(
 // Queue updaters
 // ---------------------------------------------------------------------------
 
-function hasQueueMessageIdentity(message: DisplayMessage, id: string): boolean {
-  return messageMatchKeys(message).includes(id);
-}
-
 /** Set queue position on a message by id. */
 export function setQueuePosition(
   prev: DisplayMessage[],
@@ -150,7 +150,7 @@ export function clearQueueStatus(
   id: string,
 ): DisplayMessage[] {
   return prev.map((m) =>
-    hasQueueMessageIdentity(m, id)
+    messageMatchesKey(m, id)
       ? { ...m, queueStatus: undefined, queuePosition: undefined }
       : m,
   );
@@ -160,10 +160,11 @@ export function clearQueueStatus(
 export function markMessageQueued(
   prev: DisplayMessage[],
   id: string,
+  position: number | undefined,
 ): DisplayMessage[] {
   return prev.map((m) =>
-    hasQueueMessageIdentity(m, id)
-      ? { ...m, queueStatus: "queued" as const }
+    messageMatchesKey(m, id)
+      ? { ...m, queueStatus: "queued" as const, queuePosition: position }
       : m,
   );
 }
@@ -173,5 +174,5 @@ export function removeQueuedMessage(
   prev: DisplayMessage[],
   id: string,
 ): DisplayMessage[] {
-  return prev.filter((m) => !hasQueueMessageIdentity(m, id));
+  return prev.filter((m) => !messageMatchesKey(m, id));
 }
