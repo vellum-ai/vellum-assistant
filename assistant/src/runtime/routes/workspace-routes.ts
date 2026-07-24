@@ -21,6 +21,7 @@ import { basename, dirname, join } from "node:path";
 import { z } from "zod";
 
 import { getWorkspaceDir } from "../../util/platform.js";
+import { workspacePathCatalog } from "../../workspace/path-search.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishSoundsConfigUpdated } from "../sync/resource-sync-events.js";
 import {
@@ -47,6 +48,23 @@ const workspaceTreeEntrySchema = z.object({
 });
 
 type TreeEntry = z.infer<typeof workspaceTreeEntrySchema>;
+
+const workspaceSearchEntrySchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  type: z.enum(["file", "directory"]),
+});
+
+const workspaceSearchTruncationReasonSchema = z.enum([
+  "result_limit",
+  "entry_limit",
+  "time_limit",
+  "io_error",
+]);
+
+const WORKSPACE_SEARCH_DEFAULT_LIMIT = 100;
+const WORKSPACE_SEARCH_MAX_LIMIT = 200;
+const WORKSPACE_SEARCH_MAX_QUERY_LENGTH = 256;
 
 // Recursive directory sizing walks the filesystem synchronously, so it is
 // bounded by two caps that work together:
@@ -239,6 +257,68 @@ function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
 }
 
 // ---------------------------------------------------------------------------
+// GET /v1/workspace/search — search file and directory paths
+// ---------------------------------------------------------------------------
+
+function parseWorkspaceSearchBoolean(
+  name: string,
+  rawValue: string | undefined,
+): boolean {
+  if (rawValue === undefined || rawValue === "false") {
+    return false;
+  }
+  if (rawValue === "true") {
+    return true;
+  }
+  throw new BadRequestError(`${name} must be true or false`);
+}
+
+function parseWorkspaceSearchLimit(rawValue: string | undefined): number {
+  if (rawValue === undefined) {
+    return WORKSPACE_SEARCH_DEFAULT_LIMIT;
+  }
+  if (!/^\d+$/.test(rawValue)) {
+    throw new BadRequestError("limit must be an integer");
+  }
+
+  const limit = Number(rawValue);
+  if (limit < 1 || limit > WORKSPACE_SEARCH_MAX_LIMIT) {
+    throw new BadRequestError(
+      `limit must be between 1 and ${WORKSPACE_SEARCH_MAX_LIMIT}`,
+    );
+  }
+  return limit;
+}
+
+async function handleWorkspaceSearch({
+  queryParams = {},
+  abortSignal,
+}: RouteHandlerArgs) {
+  const query = queryParams.q?.trim() ?? "";
+  if (!query) {
+    throw new BadRequestError("q query parameter is required");
+  }
+  if (query.length > WORKSPACE_SEARCH_MAX_QUERY_LENGTH) {
+    throw new BadRequestError(
+      `q must be at most ${WORKSPACE_SEARCH_MAX_QUERY_LENGTH} characters`,
+    );
+  }
+
+  const showHidden = parseWorkspaceSearchBoolean(
+    "showHidden",
+    queryParams.showHidden,
+  );
+  const limit = parseWorkspaceSearchLimit(queryParams.limit);
+  const result = await workspacePathCatalog.search({
+    query,
+    limit,
+    showHidden,
+    signal: abortSignal,
+  });
+  return { query, ...result };
+}
+
+// ---------------------------------------------------------------------------
 // GET /v1/workspace/file — file metadata + inline text content
 // ---------------------------------------------------------------------------
 
@@ -408,6 +488,7 @@ function handleWorkspaceWrite({ body, headers }: RouteHandlerArgs) {
 
   mkdirSync(dirname(resolved), { recursive: true });
   writeFileSync(resolved, buffer);
+  workspacePathCatalog.invalidate();
   publishSoundsConfigUpdatedForPaths(
     [path],
     headers?.["x-vellum-client-id"]?.trim() || undefined,
@@ -439,6 +520,7 @@ function handleWorkspaceMkdir({ body, headers }: RouteHandlerArgs) {
   }
 
   mkdirSync(resolved, { recursive: true });
+  workspacePathCatalog.invalidate();
   publishSoundsConfigUpdatedForPaths(
     [path],
     headers?.["x-vellum-client-id"]?.trim() || undefined,
@@ -505,6 +587,7 @@ function handleWorkspaceRename({ body, headers }: RouteHandlerArgs) {
 
   mkdirSync(dirname(resolvedNew), { recursive: true });
   renameSync(resolvedOld, resolvedNew);
+  workspacePathCatalog.invalidate();
   publishSoundsConfigUpdatedForPaths(
     [oldPath, newPath],
     headers?.["x-vellum-client-id"]?.trim() || undefined,
@@ -536,6 +619,7 @@ function handleWorkspaceDelete({ body, headers }: RouteHandlerArgs) {
   }
 
   rmSync(resolved, { recursive: true, force: true });
+  workspacePathCatalog.invalidate();
   publishSoundsConfigUpdatedForPaths(
     [path],
     headers?.["x-vellum-client-id"]?.trim() || undefined,
@@ -581,6 +665,60 @@ export const ROUTES: RouteDefinition[] = [
         .describe("Directory entry objects"),
     }),
     handler: handleWorkspaceTree,
+  },
+  {
+    operationId: "workspace_search",
+    endpoint: "workspace/search",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Search workspace entries",
+    description:
+      "Case-insensitive filename and path search across workspace files and directories. Dependency, version-control, cache, build, and runtime-data subtrees are not traversed.",
+    tags: ["workspace"],
+    queryParams: [
+      {
+        name: "q",
+        required: true,
+        description:
+          "Filename, directory name, or slash-delimited relative path query",
+        schema: {
+          type: "string",
+          minLength: 1,
+          maxLength: WORKSPACE_SEARCH_MAX_QUERY_LENGTH,
+        },
+      },
+      {
+        name: "limit",
+        description: "Maximum number of results",
+        schema: {
+          type: "integer",
+          minimum: 1,
+          maximum: WORKSPACE_SEARCH_MAX_LIMIT,
+          default: WORKSPACE_SEARCH_DEFAULT_LIMIT,
+        },
+      },
+      {
+        name: "showHidden",
+        description: "Include dotfiles and hidden directories",
+        schema: {
+          type: "boolean",
+          default: false,
+        },
+      },
+    ],
+    responseBody: z.object({
+      query: z.string(),
+      results: z.array(workspaceSearchEntrySchema),
+      truncated: z.boolean(),
+      truncatedReason: workspaceSearchTruncationReasonSchema.nullable(),
+    }),
+    additionalResponses: {
+      "400": { description: "Invalid search query parameters" },
+    },
+    handler: handleWorkspaceSearch,
   },
   {
     operationId: "workspace_file",

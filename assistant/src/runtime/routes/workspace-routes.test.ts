@@ -336,6 +336,97 @@ describe("GET /v1/workspace/tree", () => {
 });
 
 // ===========================================================================
+// GET /v1/workspace/search
+// ===========================================================================
+
+describe("GET /v1/workspace/search", () => {
+  const route = getRoute("workspace_search");
+  const { handler } = route;
+
+  test("registers an additive read-only workspace route", () => {
+    expect(route.endpoint).toBe("workspace/search");
+    expect(route.method).toBe("GET");
+    expect(route.policy?.requiredScopes).toEqual(["settings.read"]);
+  });
+
+  test("returns lightweight, case-insensitive nested matches", async () => {
+    const result = (await handler({
+      queryParams: { q: "  NESTED  " },
+    })) as {
+      query: string;
+      results: Array<{
+        name: string;
+        path: string;
+        type: "file" | "directory";
+      }>;
+      truncated: boolean;
+      truncatedReason: string | null;
+    };
+
+    expect(result.query).toBe("NESTED");
+    expect(result.results).toContainEqual({
+      name: "nested.txt",
+      path: "subdir/nested.txt",
+      type: "file",
+    });
+    expect(Object.keys(result.results[0]!).sort()).toEqual([
+      "name",
+      "path",
+      "type",
+    ]);
+    expect(result.truncated).toBe(false);
+    expect(result.truncatedReason).toBeNull();
+  });
+
+  test("requires a bounded query and valid parameters", async () => {
+    const invalidQueryParams: Array<Record<string, string>> = [
+      {},
+      { q: "   " },
+      { q: "x".repeat(257) },
+      { q: "file", limit: "0" },
+      { q: "file", limit: "1.5" },
+      { q: "file", limit: "201" },
+      { q: "file", showHidden: "yes" },
+    ];
+
+    for (const queryParams of invalidQueryParams) {
+      await expect(handler({ queryParams })).rejects.toBeInstanceOf(
+        BadRequestError,
+      );
+    }
+  });
+
+  test("searches hidden entries only when explicitly requested", async () => {
+    const hiddenOff = (await handler({
+      queryParams: { q: ".env", showHidden: "false" },
+    })) as { results: Array<{ path: string }> };
+    const hiddenOn = (await handler({
+      queryParams: { q: ".env", showHidden: "true" },
+    })) as { results: Array<{ path: string }> };
+
+    expect(hiddenOff.results).toEqual([]);
+    expect(hiddenOn.results.map((entry) => entry.path)).toContain(".env");
+  });
+
+  test("workspace mutations invalidate the cached path catalog", async () => {
+    const path = "search-cache-invalidation.txt";
+    const before = (await handler({
+      queryParams: { q: path },
+    })) as { results: Array<{ path: string }> };
+    expect(before.results).toEqual([]);
+
+    getRoute("workspace_write").handler({
+      body: { path, content: "newly searchable" },
+    });
+
+    const after = (await handler({
+      queryParams: { q: path },
+    })) as { results: Array<{ path: string }> };
+    expect(after.results.map((entry) => entry.path)).toEqual([path]);
+  });
+});
+
+// ===========================================================================
 // GET /v1/workspace/file
 // ===========================================================================
 

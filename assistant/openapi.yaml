@@ -31926,6 +31926,88 @@ paths:
                   - oldPath
                   - newPath
                 additionalProperties: false
+  /v1/workspace/search:
+    get:
+      operationId: workspace_search_get
+      summary: Search workspace entries
+      description:
+        Case-insensitive filename and path search across workspace files and directories. Dependency,
+        version-control, cache, build, and runtime-data subtrees are not traversed.
+      tags:
+        - workspace
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+          description: Filename, directory name, or slash-delimited relative path query
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+          description: Maximum number of results
+        - name: showHidden
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Include dotfiles and hidden directories
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query:
+                    type: string
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        path:
+                          type: string
+                        type:
+                          type: string
+                          enum:
+                            - file
+                            - directory
+                      required:
+                        - name
+                        - path
+                        - type
+                      additionalProperties: false
+                  truncated:
+                    type: boolean
+                  truncatedReason:
+                    anyOf:
+                      - type: string
+                        enum:
+                          - result_limit
+                          - entry_limit
+                          - time_limit
+                          - io_error
+                      - type: "null"
+                required:
+                  - query
+                  - results
+                  - truncated
+                  - truncatedReason
+                additionalProperties: false
+        "400":
+          description: Invalid search query parameters
   /v1/workspace/theme:
     get:
       operationId: workspace_theme_get
