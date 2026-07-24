@@ -57,16 +57,14 @@ export function PlanSpecCard({
     >
       <div
         className={cn(
-          "flex flex-wrap gap-3",
-          centered
-            ? "items-center justify-center"
-            : "items-start justify-between",
+          "flex flex-wrap items-center gap-3",
+          centered ? "justify-center" : "justify-between",
         )}
       >
         <div className="flex items-center gap-3">
           <PlanTierAvatar tier={tierKey} />
-          <div className="flex min-w-0 flex-col gap-1">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <Typography
                 as="span"
                 variant="body-large-default"
