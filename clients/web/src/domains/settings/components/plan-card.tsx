@@ -1,6 +1,6 @@
-import { ArrowUp, Loader2, Sparkles } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { useNavigate } from "react-router";
 
@@ -13,14 +13,17 @@ import {
   type ProPackage,
   type SwitchRelation,
 } from "@/domains/settings/billing/package-types";
+import { PlanPromoCard } from "@/domains/settings/billing/plan-promo-card";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
+import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
+import {
+  CustomPlanModal,
+  type CustomPlanSeed,
+  type CustomPlanSelection,
+} from "@/domains/settings/billing/plans/custom-plan-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
-import {
-  machineLabel,
-  packageSpecs,
-  type PlanSpec,
-} from "@/domains/settings/billing/plan-spec";
+import { packageSpecs } from "@/domains/settings/billing/plan-spec";
 import { PlanSpecCard } from "@/domains/settings/billing/plan-spec-card";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
@@ -99,6 +102,12 @@ function PlanHeading() {
 
 interface RecommendedUpgradeProps {
   packages: ProPackage[];
+  /**
+   * The live Pro plan from the catalog, supplying the machine/storage/credit
+   * tiers the `CustomPlanModal` configures. Undefined only when the Pro plan is
+   * absent from the catalog — in which case there is no customize path to offer.
+   */
+  proPlan: ProPlan | undefined;
   currentKey: string | null;
   /**
    * Whether the org already has a Pro subscription. Pro users change their
@@ -115,26 +124,29 @@ interface RecommendedUpgradeProps {
    */
   canChangePackage: boolean;
   /**
-   * How the target package relates to the current sub — drives the confirm
-   * copy. A clean pin's next package is an "upgrade"; a customized or unpinned
-   * (Custom) sub gets the direction-neutral "switch".
+   * How the target package relates to the current sub. A clean pin's next
+   * package is an "upgrade" (the promo "Upgrade to X" variant); a customized or
+   * unpinned (Custom) sub gets "switch", which routes to the "Create a custom
+   * plan" variant instead.
    */
   relation: SwitchRelation;
   /**
    * Manage-path delegate (AdjustPlanModal). Handles a cancelling or
-   * non-entitlement Pro sub that the change-package flow cannot switch, and the
-   * empty-catalog fallback.
+   * non-entitlement Pro sub that the change-package/change-tier flows cannot
+   * act on.
    */
   onManage: () => void;
   /**
    * Opens the provisioning takeover (resize modal) after a Pro user's in-place
-   * package change succeeds — the same signal the tier-change flow raises.
+   * package or tier change succeeds — the same signal the tier-change flow
+   * raises.
    */
   onTierUpgraded?: () => void;
 }
 
 function RecommendedUpgrade({
   packages,
+  proPlan,
   currentKey,
   isProUser,
   canChangePackage,
@@ -147,51 +159,65 @@ function RecommendedUpgrade({
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
   const { changePackage, isPending: changePending } = useChangePackage();
+  // The customize variant edits the Pro sub's tiers in place; only enable the
+  // hook's org-scoped reads for a Pro sub (a base user never sees that variant).
+  const {
+    changeTiers,
+    isPending: changeTiersPending,
+    current,
+    currentReady,
+  } = useChangeTiers({ enabled: isProUser });
   const [pending, setPending] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [customPlanOpen, setCustomPlanOpen] = useState(false);
   // Native iOS keeps Checkout inside an in-app sheet; refetch when it closes.
   useCheckoutDismissRefresh();
 
-  const recommended = nextPackageUp(packages, currentKey);
-  if (!recommended) {
-    return null;
-  }
+  // Seed the custom-plan modal with the Pro sub's current tiers so an unrelated
+  // edit doesn't force re-picking — and dropping — a dimension the user still
+  // holds. Null until the current tiers load (mirrors plans-page).
+  const customInitialSelection = useMemo<CustomPlanSeed | null>(() => {
+    if (!isProUser || current.storageTier == null) {
+      return null;
+    }
+    // `machineTier` may be null for a baseline (Small) package — the modal
+    // seeds storage/credit and leaves the machine picker empty in that case.
+    return {
+      machineTier: current.machineTier,
+      storageTier: current.storageTier,
+      creditTier: current.creditTier,
+    };
+  }, [isProUser, current.machineTier, current.storageTier, current.creditTier]);
 
-  const currentPackage = currentKey
-    ? (packages.find((p) => p.key === currentKey) ?? null)
-    : null;
-  // "a stronger machine" only holds when the recommended tier's machine size
-  // actually steps up. Free→Mighty stays on the Small baseline (machine_size
-  // null), so only credits and storage increase there — drop the machine clause.
-  const machineUpgrades =
-    machineLabel(currentPackage) !== machineLabel(recommended);
-  const summarySpecs: PlanSpec[] = [
-    {
-      icon: ArrowUp,
-      label: machineUpgrades
-        ? "more credits, storage, and a stronger machine"
-        : "more credits and storage",
-      multiline: true,
-    },
-  ];
-  // A Custom (customized or unpinned) sub's real tiers can diverge from any
-  // stock package, so a stock price delta could misstate the change; the neutral
-  // "switch" relation offers the named plan by itself.
-  const isNeutralSwitch = relation === "switch";
-  // Keep the CTA short ("Upgrade") so it sits inline in the card header beside
-  // the plan name, matching the mock. A longer label ("Upgrade for $X/mo more")
-  // overflows the header and wraps onto its own line below the name. The value
-  // prop is the summary chip below, and the prorated charge is confirmed in the
-  // switch dialog.
-  const upgradeLabel = isNeutralSwitch
-    ? `Switch to ${recommended.name}`
-    : "Upgrade";
+  const recommended = nextPackageUp(packages, currentKey);
+  const hasCatalog = packages.length > 0;
+
+  // Upgrade variant: base users and Pro clean pins with a stronger package to
+  // step up to. A neutral "switch" (customized/unpinned sub) is never an
+  // upgrade — it routes to the customize variant below instead.
+  const showUpgrade = recommended != null && relation !== "switch";
+  // Customize variant: a Pro sub whose tiers can diverge from stock (customized
+  // or unpinned, i.e. relation "switch"), or a clean pin already on the top
+  // catalog package (no package left to upgrade to). Both open the new
+  // CustomPlanModal. Requires a live catalog — with the flag off there are no
+  // tiers to configure.
+  const showCustomize =
+    isProUser &&
+    hasCatalog &&
+    (relation === "switch" ||
+      (recommended == null &&
+        currentKey != null &&
+        packages.some((p) => p.key === currentKey)));
+
   const isPending = pending || upgradeMutation.isPending || changePending;
 
   // Pro users change their package in place: confirm the prorated charge, then
   // call change-package and hand off to the resize takeover on success. Base
   // users go through the Stripe-checkout path instead.
   const handleConfirmChange = async () => {
+    if (!recommended) {
+      return;
+    }
     const result = await changePackage(recommended.key);
     if (!result) {
       // The hook already toasted; leave the dialog open so the user can
@@ -209,6 +235,9 @@ function RecommendedUpgrade({
   };
 
   const handleUpgrade = async () => {
+    if (!recommended) {
+      return;
+    }
     // Any switch-eligible Pro sub (a clean pin, a customized pin, or an
     // unpinned Custom sub) can be one-click package-switched; a cancelling or
     // non-entitlement Pro sub stays on the manage path.
@@ -265,52 +294,92 @@ function RecommendedUpgrade({
     }
   };
 
-  const recommendedCopy = getPlanTierCopy(recommended.key);
-  const upgradeButton = (
-    <Button
-      variant="primary"
-      className="shrink-0"
-      onClick={handleUpgrade}
-      disabled={isPending}
-      leftIcon={
-        isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : undefined
-      }
-      data-testid="recommended-upgrade-button"
-    >
-      {upgradeLabel}
-    </Button>
-  );
-  return (
-    <>
-      <PlanSpecCard
-        tone="dark"
-        tierKey={recommended.key}
-        name={recommended.name}
-        className="lg:flex-[2]"
-        tag={
-          <Tag
-            className="bg-[var(--feed-digest-weak)] text-[var(--credits-accent)]"
-            leftIcon={
-              <Sparkles className="h-3 w-3 text-[var(--credits-accent)]" />
-            }
-          >
-            {isNeutralSwitch ? "Switch plan" : "Recommended"}
-          </Tag>
-        }
-        tagline={recommendedCopy?.tagline}
-        specs={isNeutralSwitch ? null : summarySpecs}
-        action={upgradeButton}
-      />
-      <PackageSwitchConfirmModal
-        open={confirmOpen}
-        relation={relation}
-        packageName={recommended.name}
-        pending={isPending}
-        onConfirm={() => void handleConfirmChange()}
-        onCancel={() => setConfirmOpen(false)}
-      />
-    </>
-  );
+  // Active Pro orgs edit their tiers in place via the change-tier endpoints;
+  // mirrors plans-page's `applyCustomTierChange`. On success the billing page
+  // opens its own resize takeover (via `onTierUpgraded`).
+  const applyCustomTierChange = async (selection: CustomPlanSelection) => {
+    const result = await changeTiers(selection);
+    if (!result) {
+      // The hook toasted; keep the modal open so the user can retry.
+      return;
+    }
+    setCustomPlanOpen(false);
+    if (result.needsResize || result.creditChanged) {
+      onTierUpgraded?.();
+    } else {
+      toast.success("Plan updated.");
+    }
+  };
+
+  // The customize CTA opens the configurator; a switch-ineligible sub (cancelling
+  // or non-entitlement status) falls back to the manage path, like the upgrade
+  // CTA. Guard the open like plans-page's `handleConfigure`: hold until the
+  // current tiers load and no tier change is in flight.
+  const handleCustomize = () => {
+    if (!canChangePackage) {
+      onManage();
+      return;
+    }
+    if (changeTiersPending || !currentReady) {
+      return;
+    }
+    setCustomPlanOpen(true);
+  };
+  // Disable only when the modal-open path is the live one — a switch-ineligible
+  // sub keeps the CTA enabled so it can reach the manage fallback.
+  const customizeDisabled =
+    canChangePackage && (changeTiersPending || !currentReady);
+
+  if (showUpgrade) {
+    return (
+      <>
+        <PlanPromoCard
+          className="lg:flex-[2]"
+          title={`Upgrade to ${recommended.name}`}
+          blurb={getPlanTierCopy(recommended.key)?.upgradeBlurb}
+          ctaLabel="Upgrade"
+          ctaTestId="recommended-upgrade-button"
+          pending={isPending}
+          onCtaClick={() => void handleUpgrade()}
+        />
+        <PackageSwitchConfirmModal
+          open={confirmOpen}
+          relation={relation}
+          packageName={recommended.name}
+          pending={isPending}
+          onConfirm={() => void handleConfirmChange()}
+          onCancel={() => setConfirmOpen(false)}
+        />
+      </>
+    );
+  }
+
+  if (showCustomize && proPlan) {
+    return (
+      <>
+        <PlanPromoCard
+          className="lg:flex-[2]"
+          title="Create a custom plan"
+          ctaLabel="Customize"
+          ctaTestId="recommended-customize-button"
+          pending={changeTiersPending}
+          disabled={customizeDisabled}
+          onCtaClick={handleCustomize}
+        />
+        <CustomPlanModal
+          open={customPlanOpen}
+          proPlan={proPlan}
+          pending={changeTiersPending}
+          currentStorageGib={current.storageGib}
+          initialSelection={customInitialSelection}
+          onClose={() => setCustomPlanOpen(false)}
+          onContinue={(selection) => void applyCustomTierChange(selection)}
+        />
+      </>
+    );
+  }
+
+  return null;
 }
 
 export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
@@ -478,6 +547,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
           />
           <RecommendedUpgrade
             packages={packages}
+            proPlan={proPlan}
             currentKey={currentKey}
             isProUser={currentPlan.id !== "base"}
             canChangePackage={canChangePackage}

@@ -208,6 +208,48 @@ function proMightySubscription(): SubscriptionResponse {
   };
 }
 
+/** Catalog with Mighty, Super, and Ultra — so Ultra is the top package. */
+function plansWithUltra(): PlanListResponse {
+  const plans = plansWithSuper();
+  const pro = plans.plans.find((p) => p.id === "pro");
+  if (pro && "packages" in pro && pro.packages) {
+    pro.packages.push({
+      key: "ultra",
+      name: "Ultra",
+      description:
+        "Large machine, 60 GB of storage, and $115 in monthly credits.",
+      version: 1,
+      machine_tier: "large",
+      storage_tier: "l",
+      credit_tier: "credits_115",
+      machine_size: "large",
+      storage_gib: 60,
+      credits_usd: 115,
+      include_platform_fee: true,
+      base_price_cents: 1000,
+      machine_price_cents: 7000,
+      storage_price_cents: 2000,
+      credit_price_cents: 11500,
+      total_price_cents: 20000,
+    });
+  }
+  return plans;
+}
+
+/** A subscriber cleanly pinned to the top (Ultra) Pro package. */
+function proUltraSubscription(): SubscriptionResponse {
+  return {
+    plan_id: "pro",
+    status: "active",
+    renewal_date: null,
+    current_period_end: "2026-08-10T00:00:00Z",
+    cancel_at_period_end: false,
+    cancel_at: null,
+    package: { key: "ultra", name: "Ultra", version: 1, customized: false },
+    entitlements: { managed_email: false, phone_number: false },
+  };
+}
+
 /** A catalog with the `pro-packages` flag off — the Pro plan has no packages. */
 function emptyCatalogPlans(): PlanListResponse {
   const plans = basePlansResponse();
@@ -330,11 +372,12 @@ describe("PlanCard", () => {
     expect(html).not.toContain("plan-card-invoices-button");
   });
 
-  test("renders the recommended-upgrade banner (Mighty from Free)", () => {
+  test("renders the recommended-upgrade promo card (Mighty from Free)", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("recommended-upgrade-button");
-    expect(html).toContain("Recommended");
-    expect(html).toContain("Mighty");
+    expect(html).toContain("Upgrade to Mighty");
+    // The dark promo card carries no "Recommended" tag.
+    expect(html).not.toContain("Recommended");
   });
 
   test("no upgrade banner when the package catalog is empty (flag off)", () => {
@@ -343,38 +386,34 @@ describe("PlanCard", () => {
     expect(html).not.toContain("recommended-upgrade-button");
   });
 
-  test("Free current card is chip-less; recommended shows the summary chip", () => {
+  test("Free current card is chip-less; recommended shows the promo blurb", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     // The current (Free) card is now a minimal centered card with NO spec chips:
     // none of the free-baseline chip labels appear.
     expect(html).not.toContain("$0 credits");
     expect(html).not.toContain("4 GB");
     expect(html).not.toContain("Small Machine");
-    // The recommended (Mighty) card shows the single summary chip, replacing the
-    // old absolute per-resource chips (machine · credits · storage). Free→Mighty
-    // stays on the Small baseline, so the chip omits the machine claim.
-    expect(html).toContain("more credits and storage");
-    expect(html).not.toContain("stronger machine");
-    expect(html).not.toContain("$25 credits");
-    expect(html).not.toContain("10 GB");
-    expect(html).not.toContain("vCPU");
+    // The recommended (Mighty) promo card shows "Upgrade to Mighty" plus the
+    // per-tier blurb, replacing the old summary chip — and carries no tag/chips.
+    expect(html).toContain("Upgrade to Mighty");
+    expect(html).toContain(PLAN_TIER_COPY.mighty.upgradeBlurb!);
+    expect(html).not.toContain("more credits and storage");
+    expect(html).not.toContain("Recommended");
     // The centered free card still shows its "Your Current Plan" tag and its real
     // tagline — the tagline follows "known plan", not "has chips".
     expect(html).toContain("Your Current Plan");
     expect(html).toContain(PLAN_TIER_COPY.free.tagline);
   });
 
-  test("Mighty → Super: current keeps its chips, recommended shows the summary chip", () => {
+  test("Mighty → Super: current keeps its chips, recommended shows the promo card", () => {
     const html = renderCard(proMightySubscription(), plansWithSuper());
     // On Mighty, the recommended upgrade is the next catalog package, Super.
     expect(html).toContain("recommended-upgrade-button");
-    expect(html).toContain("Recommended");
-    expect(html).toContain("Super");
-    // The recommended (Super) card shows the single summary chip, not Super's
-    // absolute per-resource chips.
-    expect(html).toContain("more credits, storage, and a stronger machine");
-    expect(html).not.toContain("$45 credits");
-    expect(html).not.toContain("30 GB");
+    expect(html).toContain("Upgrade to Super");
+    expect(html).toContain(PLAN_TIER_COPY.super.upgradeBlurb!);
+    // The promo card carries no "Recommended" tag and no summary chip.
+    expect(html).not.toContain("Recommended");
+    expect(html).not.toContain("more credits, storage, and a stronger machine");
     // The current (Mighty) card keeps its absolute chips.
     expect(html).toContain("$25 credits");
     expect(html).toContain("10 GB");
@@ -383,31 +422,29 @@ describe("PlanCard", () => {
     // generic plan name "Pro").
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Mighty");
-    expect(html).not.toContain("Pro");
   });
 
-  test("an unpinned Custom sub's banner drops the stock upgrade framing", () => {
-    // A legacy unpinned Pro sub's real tiers can diverge from any stock
-    // package, so the banner offers the named plan neutrally: a "Switch plan"
-    // tag and a "Switch to Mighty" CTA, with no "Recommended Upgrade" claim and
-    // no stock price/resource deltas that could point the wrong way.
+  test("an unpinned Custom sub gets the customize promo card", () => {
+    // A legacy unpinned Pro sub's real tiers can diverge from any stock package,
+    // so instead of a named-package upgrade it gets the "Create a custom plan"
+    // promo card whose "Customize" CTA opens the CustomPlanModal.
     const subscription: SubscriptionResponse = {
       ...proMightySubscription(),
       package: null,
     };
     const html = renderCard(subscription, plansWithSuper());
-    expect(html).toContain("recommended-upgrade-button");
-    expect(html).toContain("Switch plan");
-    expect(html).toContain("Switch to Mighty");
-    // A neutral switch drops the "Recommended" tag and renders no chips on the
-    // recommended card — not even the summary chip; the current "Custom" card
-    // also has no knowable chips. Asserting on the "more credits" prefix covers
-    // both the full and machine-less summary labels.
+    expect(html).toContain("recommended-customize-button");
+    expect(html).toContain("Create a custom plan");
+    expect(html).toContain("Customize");
+    // No upgrade/switch framing, no tag, and no chips.
+    expect(html).not.toContain("recommended-upgrade-button");
     expect(html).not.toContain("Recommended");
+    expect(html).not.toContain("Switch plan");
+    expect(html).not.toContain("Switch to");
     expect(html).not.toContain("more credits");
   });
 
-  test("a customized Pro sub's banner drops the stock upgrade framing", () => {
+  test("a customized Pro sub gets the customize promo card", () => {
     const subscription = proMightySubscription();
     subscription.package = {
       key: "mighty",
@@ -416,24 +453,28 @@ describe("PlanCard", () => {
       customized: true,
     };
     const html = renderCard(subscription, plansWithSuper());
-    // Recommended package is Super (next after the Mighty pin), offered as a
-    // neutral switch since the customized tiers can differ from stock Super.
-    expect(html).toContain("Switch plan");
-    expect(html).toContain("Switch to Super");
+    // A customized pin's tiers can differ from stock, so it gets the customize
+    // promo card rather than a named-package upgrade.
+    expect(html).toContain("recommended-customize-button");
+    expect(html).toContain("Create a custom plan");
+    expect(html).toContain("Customize");
+    expect(html).not.toContain("recommended-upgrade-button");
     expect(html).not.toContain("Recommended");
-    // A neutral switch renders no summary chip either. The "more credits" prefix
-    // covers both the full and machine-less summary labels.
+    expect(html).not.toContain("Switch to");
     expect(html).not.toContain("more credits");
   });
 
-  test("a base user's banner keeps the upgrade CTA (not a switch)", () => {
+  test("a base user's banner keeps the upgrade CTA (not a customize)", () => {
     // Base → Pro is a genuine Stripe-checkout upgrade, so the recommended card
-    // keeps its "Recommended" tag and a compact "Upgrade" CTA (no "Switch").
+    // stays on the "Upgrade to X" variant (no customize path).
     const html = renderCard(baseSubscription(), basePlansResponse());
-    expect(html).toContain("Recommended");
-    expect(html).toContain("Upgrade");
+    expect(html).toContain("recommended-upgrade-button");
+    expect(html).toContain("Upgrade to Mighty");
+    expect(html).not.toContain("recommended-customize-button");
+    expect(html).not.toContain("Create a custom plan");
     expect(html).not.toContain("Switch plan");
     expect(html).not.toContain("Switch to");
+    expect(html).not.toContain("Recommended");
   });
 
   test("current-plan row labels a customized package as custom", () => {
@@ -497,9 +538,10 @@ describe("PlanCard", () => {
     expect(html).not.toContain("$0 credits");
     expect(html).not.toContain("4 GB");
     expect(html).not.toContain("Small Machine");
-    // The recommended (Mighty) card shows the single summary chip. Free→Mighty
-    // keeps the Small baseline machine, so the chip claims only credits/storage.
-    expect(html).toContain("more credits and storage");
+    // The recommended (Mighty) promo card shows the per-tier blurb, not a chip.
+    expect(html).toContain("Upgrade to Mighty");
+    expect(html).toContain(PLAN_TIER_COPY.mighty.upgradeBlurb!);
+    expect(html).not.toContain("more credits and storage");
     expect(html).not.toContain("stronger machine");
   });
 });
@@ -827,12 +869,12 @@ describe("PlanCard recommended upgrade — change-package", () => {
     expect(onTierUpgraded).not.toHaveBeenCalled();
   });
 
-  test("an unpinned Pro sub's recommended upgrade opens the neutral switch confirm", async () => {
+  test("an unpinned Pro sub's customize CTA opens the CustomPlanModal", async () => {
     const onManage = mock(() => {});
     const onTierUpgraded = mock(() => {});
-    // An unpinned (Custom) Pro sub is switch-eligible, so the banner CTA reaches
-    // the change-package confirm rather than the manage fallback. Its catalog
-    // rank is unknown, so the confirm copy stays direction-neutral.
+    // An unpinned (Custom) Pro sub is switch-eligible, so the customize CTA opens
+    // the CustomPlanModal (not the change-package confirm, not the manage
+    // fallback).
     const subscription: SubscriptionResponse = {
       ...proMightySubscription(),
       package: null,
@@ -844,23 +886,29 @@ describe("PlanCard recommended upgrade — change-package", () => {
       onTierUpgraded,
     );
 
-    // The banner renders and its CTA opens the neutral switch confirm (currentKey
-    // is null, so the recommended package is Mighty).
-    fireEvent.click(await findByTestId("recommended-upgrade-button"));
-    await findByText("Switch to Mighty?");
-    await findByText(
-      "Your plan changes now. Any prorated difference is charged now or credited to your next invoice.",
-    );
+    const cta = (await findByTestId(
+      "recommended-customize-button",
+    )) as HTMLButtonElement;
+    // The CTA enables once the current tiers settle; opening it reveals the
+    // CustomPlanModal (its unique "Just better." subtitle).
+    await waitFor(() => expect(cta.disabled).toBe(false));
+    fireEvent.click(cta);
+
+    await findByText("Just better.");
+    // Never the change-package confirm nor the manage fallback.
+    expect(
+      document.querySelector("[data-testid='confirm-package-switch-button']"),
+    ).toBeNull();
+    expect(changePackageBody).toBeNull();
     expect(onManage).not.toHaveBeenCalled();
     expect(navigateArgs).toEqual([]);
   });
 
-  test("a customized Pro sub's recommended upgrade opens the neutral switch confirm", async () => {
+  test("a customized Pro sub's customize CTA opens the CustomPlanModal", async () => {
     const onManage = mock(() => {});
     const onTierUpgraded = mock(() => {});
-    // A customized pin is switch-eligible; the change-package endpoint re-pins it
-    // to the named target. Its catalog rank is ambiguous, so the confirm copy
-    // stays direction-neutral instead of claiming an upgrade.
+    // A customized pin is switch-eligible; the customize CTA edits its tiers in
+    // place via the CustomPlanModal.
     const subscription = proMightySubscription();
     subscription.package = {
       key: "mighty",
@@ -875,13 +923,72 @@ describe("PlanCard recommended upgrade — change-package", () => {
       onTierUpgraded,
     );
 
-    // Recommended package is Super (next after the customized Mighty pin).
-    fireEvent.click(await findByTestId("recommended-upgrade-button"));
-    await findByText("Switch to Super?");
-    await findByText(
-      "Your plan changes now. Any prorated difference is charged now or credited to your next invoice.",
-    );
+    const cta = (await findByTestId(
+      "recommended-customize-button",
+    )) as HTMLButtonElement;
+    await waitFor(() => expect(cta.disabled).toBe(false));
+    fireEvent.click(cta);
+
+    await findByText("Just better.");
+    expect(changePackageBody).toBeNull();
     expect(onManage).not.toHaveBeenCalled();
+    expect(navigateArgs).toEqual([]);
+  });
+
+  test("a top-tier (Ultra) clean pin's customize CTA opens the CustomPlanModal", async () => {
+    const onManage = mock(() => {});
+    const onTierUpgraded = mock(() => {});
+    // Ultra is the top catalog package, so there's no package to upgrade to; the
+    // top-tier sub gets the customize card instead of an "Upgrade to X" card.
+    const { findByTestId, findByText } = renderCardInteractive(
+      proUltraSubscription(),
+      plansWithUltra(),
+      onManage,
+      onTierUpgraded,
+    );
+
+    expect(
+      document.querySelector("[data-testid='recommended-upgrade-button']"),
+    ).toBeNull();
+    const cta = (await findByTestId(
+      "recommended-customize-button",
+    )) as HTMLButtonElement;
+    await waitFor(() => expect(cta.disabled).toBe(false));
+    fireEvent.click(cta);
+
+    await findByText("Just better.");
+    expect(onManage).not.toHaveBeenCalled();
+    expect(navigateArgs).toEqual([]);
+  });
+
+  test("a switch-ineligible custom sub's customize CTA falls back to onManage", async () => {
+    const onManage = mock(() => {});
+    const onTierUpgraded = mock(() => {});
+    // A customized sub pending cancellation can't change tiers, so the customize
+    // CTA routes to the manage modal (AdjustPlanModal) — the same fallback the
+    // upgrade CTA uses — instead of opening the configurator.
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "mighty",
+      name: "Mighty",
+      version: 1,
+      customized: true,
+    };
+    subscription.cancel_at = "2026-08-23T12:36:05Z";
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+      onTierUpgraded,
+    );
+
+    fireEvent.click(await findByTestId("recommended-customize-button"));
+
+    await waitFor(() => {
+      expect(onManage).toHaveBeenCalledTimes(1);
+    });
+    // No configurator opened, no navigation.
+    expect(document.querySelector("[data-testid='confirm-package-switch-button']")).toBeNull();
     expect(navigateArgs).toEqual([]);
   });
 
