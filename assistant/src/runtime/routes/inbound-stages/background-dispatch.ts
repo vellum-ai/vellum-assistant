@@ -17,6 +17,10 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
+import {
+  CONVERSATION_BUSY_MESSAGE,
+  isConversationBusyError,
+} from "../../../daemon/conversation-messaging.js";
 import type { ServerMessage } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import {
@@ -28,6 +32,7 @@ import {
 import {
   getSiblingEventDeliveryStatuses,
   markProcessed,
+  markRetryableFailure,
   recordProcessingFailure,
 } from "../../../persistence/delivery-status.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
@@ -55,6 +60,7 @@ import { isContactTrustClass } from "../../trust-class.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
 import { finalizeEventDelivery } from "../channel-delivery-routes.js";
 import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
+import { withChannelTurnAdmission } from "./channel-turn-admission.js";
 
 const log = getLogger("runtime-http");
 
@@ -140,7 +146,14 @@ export function processChannelMessageInBackground(
     slackInbound,
   } = params;
 
-  (async () => {
+  // Defer the whole turn + delivery until the conversation's processing lock is
+  // free, serialized per conversation so same-conversation replies stay ordered.
+  // A channel message routed to a busy conversation (e.g. a Slack
+  // thread-participant reply arriving mid-session) is thereby processed when the
+  // in-flight turn completes instead of being dropped. See
+  // `channel-turn-admission.ts` for why channel turns defer rather than route
+  // through the SSE-oriented conversation queue.
+  void withChannelTurnAdmission(conversationId, async () => {
     const typingCallbackUrl = shouldEmitTelegramTyping(
       sourceChannel,
       replyCallbackUrl,
@@ -261,14 +274,28 @@ export function processChannelMessageInBackground(
           storeReplyMessageId(eventId, replyMessageId);
         }
       } catch (err) {
-        log.error(
-          { err, conversationId },
-          "Background channel message processing failed",
-        );
         // Stop any live Slack stream cleanly. Its `ts` is already durably
         // recorded via `onStreamOpen`, so the retry sweep can reconcile
         // against that message rather than posting a duplicate.
         await slackReplySession?.finish();
+        if (isConversationBusyError(err)) {
+          // Admission observed the conversation idle, but a non-channel turn
+          // (web / wake / voice) re-took the processing lock before this turn
+          // could. Route to the retry sweep as a *retryable* failure so it
+          // reprocesses and delivers from the stored payload once the lock
+          // frees — a plain processing-failure record would classify the busy
+          // message as fatal and dead-letter it (a silent drop).
+          log.info(
+            { conversationId, eventId },
+            "Channel turn lost the processing lock after admission; deferring to the retry sweep",
+          );
+          markRetryableFailure(eventId, CONVERSATION_BUSY_MESSAGE);
+          return;
+        }
+        log.error(
+          { err, conversationId },
+          "Background channel message processing failed",
+        );
         recordProcessingFailure(eventId, err);
         return;
       }
@@ -342,7 +369,12 @@ export function processChannelMessageInBackground(
       stopApprovalWatcher?.();
       stopTcApprovalNotifier?.();
     }
-  })();
+  }).catch((err) => {
+    log.error(
+      { err, conversationId, eventId },
+      "Channel turn admission failed unexpectedly",
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------

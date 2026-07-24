@@ -12,6 +12,12 @@ The single HTTP send endpoint is `POST /v1/messages`. Key behaviors:
 
 Do NOT add new send endpoints. All message ingress should go through `POST /v1/messages` (HTTP).
 
+### Channel inbound honors "queue if busy" via defer-until-idle
+
+Channel inbound turns (Slack/Telegram/etc. — `processChannelMessageInBackground`) obey the same "process when the current turn completes" contract, but they do **not** route through the conversation's queue. A channel turn delivers its reply back through the provider callback URL (streaming session + `finalizeEventDelivery` + processed/delivery bookkeeping); the queue drain fans replies onto the SSE hub only and performs none of that. So a channel turn that arrives while the conversation is mid-turn is **deferred until the processing lock frees** (`withChannelTurnAdmission` in `routes/inbound-stages/channel-turn-admission.ts`: per-conversation single-flight for FIFO ordering + event-driven `waitForIdle`), then run with its delivery orchestration intact.
+
+**Invariant:** do NOT "fix" this by routing channel turns through `conversation.enqueueMessage` — the drain has no channel-callback delivery, so the reply would run but never reach the channel. A channel turn that still hits `CONVERSATION_BUSY_MESSAGE` (a non-channel turn raced in after admission) is recorded as a **retryable** failure (`markRetryableFailure`), so the channel-retry sweep reprocesses and delivers it — never `recordProcessingFailure`, which `classifyError` treats as fatal → dead-letter → a silent drop (JARVIS-1346). The sweep is itself busy-aware: it re-defers a retry whose conversation is mid-turn instead of dead-lettering it.
+
 ### SSE backpressure shedding must be observable
 
 SSE handlers built on `ReadableStream` shed slow subscribers when `controller.desiredSize <= 0` to keep daemon memory bounded. Every shed site must emit a log line + Sentry capture so the daemon-side shed can be time-correlated with the client-side idle watchdog (otherwise stalls are invisible from both sides). See [WHATWG Streams — Backpressure](https://streams.spec.whatwg.org/#pipe-chains) and [Node `monitorEventLoopDelay`](https://nodejs.org/api/perf_hooks.html#perf_hooksmonitoreventloopdelayoptions).

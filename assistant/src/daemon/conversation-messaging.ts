@@ -643,6 +643,17 @@ export interface PersistMessageOptions {
 export const CONVERSATION_BUSY_MESSAGE =
   "Conversation is already processing a message";
 
+/**
+ * True when `err` is the {@link CONVERSATION_BUSY_MESSAGE} processing-lock
+ * rejection thrown by {@link persistUserMessage} (and by
+ * `prepareConversationForMessage`) while a turn is already in flight. Channel
+ * ingress uses this to route a lock-contended turn to the retry sweep as a
+ * retryable failure instead of letting it dead-letter as a fatal error.
+ */
+export function isConversationBusyError(err: unknown): boolean {
+  return err instanceof Error && err.message === CONVERSATION_BUSY_MESSAGE;
+}
+
 export async function persistUserMessage(
   ctx: MessagingConversationContext,
   options: PersistMessageOptions,

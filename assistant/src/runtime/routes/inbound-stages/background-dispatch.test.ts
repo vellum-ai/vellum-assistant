@@ -6,6 +6,7 @@ const deliveredChannelReplies: Array<{
 }> = [];
 const markedProcessedEvents: string[] = [];
 const processingFailureEvents: string[] = [];
+const retryableFailureEvents: string[] = [];
 const deliveredEvents: string[] = [];
 const deliveryFailureEvents: string[] = [];
 const deliveredSegmentCounts: Array<{ eventId: string; count: number }> = [];
@@ -65,6 +66,10 @@ mock.module("../../../persistence/delivery-status.js", () => ({
     operationOrder.push("processing-failure");
     processingFailureEvents.push(eventId);
   },
+  markRetryableFailure: (eventId: string) => {
+    operationOrder.push("retryable-failure");
+    retryableFailureEvents.push(eventId);
+  },
   getSiblingEventDeliveryStatuses: () => siblingDeliveryStatuses,
 }));
 
@@ -97,6 +102,12 @@ mock.module("../../channel-reply-delivery.js", () => ({
   },
 }));
 
+import type { Conversation } from "../../../daemon/conversation.js";
+import { CONVERSATION_BUSY_MESSAGE } from "../../../daemon/conversation-messaging.js";
+import {
+  clearConversations,
+  setConversation,
+} from "../../../daemon/conversation-registry.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import type { MessageProcessor } from "../../http-types.js";
 import {
@@ -105,11 +116,15 @@ import {
   shouldStartSlackThinkingStatusForText,
   shouldStartSlackThinkingStatusImmediately,
 } from "./background-dispatch.js";
+import { __resetChannelTurnAdmissionForTests } from "./channel-turn-admission.js";
 
 beforeEach(() => {
+  __resetChannelTurnAdmissionForTests();
+  clearConversations();
   deliveredChannelReplies.length = 0;
   markedProcessedEvents.length = 0;
   processingFailureEvents.length = 0;
+  retryableFailureEvents.length = 0;
   deliveredEvents.length = 0;
   deliveryFailureEvents.length = 0;
   deliveredSegmentCounts.length = 0;
@@ -695,6 +710,141 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     ]);
     expect(processingFailureEvents).toEqual(["evt-stream-processing-failure"]);
     expect(operationOrder).toEqual(["store-streamed-ts", "processing-failure"]);
+  });
+});
+
+describe("processChannelMessageInBackground — admission (queue if busy)", () => {
+  const trustCtx: TrustContext = {
+    trustClass: "guardian",
+    guardianExternalUserId: "guardian-1",
+    requesterExternalUserId: "guardian-1",
+  } as unknown as TrustContext;
+
+  const flush = (): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, 10));
+
+  /** Register a busy stand-in conversation; `release()` frees its lock. */
+  function registerBusyConversation(conversationId: string): {
+    release: () => void;
+  } {
+    let processing = true;
+    const idleWaiters = new Set<() => void>();
+    const fake = {
+      isProcessing: () => processing,
+      waitForIdle: ({ timeoutMs }: { timeoutMs: number }) =>
+        new Promise<boolean>((resolve) => {
+          if (!processing) {
+            resolve(true);
+            return;
+          }
+          const notify = (): void => {
+            clearTimeout(timer);
+            idleWaiters.delete(notify);
+            resolve(true);
+          };
+          const timer = setTimeout(() => {
+            idleWaiters.delete(notify);
+            resolve(false);
+          }, timeoutMs);
+          (timer as { unref?: () => void }).unref?.();
+          idleWaiters.add(notify);
+        }),
+    };
+    setConversation(conversationId, fake as unknown as Conversation);
+    return {
+      release: () => {
+        processing = false;
+        for (const notify of [...idleWaiters]) {
+          notify();
+        }
+      },
+    };
+  }
+
+  test("defers a channel turn while the conversation is mid-turn, then processes and delivers on idle", async () => {
+    const conversationId = "conv-admission-defer";
+    const channelId = "C-ADMISSION-DEFER";
+    const busy = registerBusyConversation(conversationId);
+
+    let processed = false;
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      options,
+    ) => {
+      processed = true;
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-msg-admission",
+      });
+      return { messageId: "user-msg-admission" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-admission-defer",
+      content: "thread reply that arrived mid-session",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      chatType: "channel",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+    // Mid-turn: the reply is deferred — not dropped, not run concurrently.
+    expect(processed).toBe(false);
+    expect(markedProcessedEvents).toEqual([]);
+    expect(processingFailureEvents).toEqual([]);
+    expect(retryableFailureEvents).toEqual([]);
+
+    busy.release();
+    await flush();
+
+    // The instant the in-flight turn frees the lock, the deferred reply runs
+    // and delivers.
+    expect(processed).toBe(true);
+    expect(markedProcessedEvents).toEqual(["evt-admission-defer"]);
+    expect(replyDeliveryCalls).toEqual([
+      { messageId: "assistant-msg-admission", startFromSegment: 0 },
+    ]);
+    expect(deliveredEvents).toEqual(["evt-admission-defer"]);
+  });
+
+  test("routes a busy error after admission to the retry sweep instead of dead-lettering", async () => {
+    const conversationId = "conv-admission-busy-race";
+    const channelId = "C-ADMISSION-BUSY-RACE";
+    // The conversation is not resident, so admission admits immediately, but the
+    // turn still throws the busy error (a non-channel turn took the lock in the
+    // race window). It must be retryable, never a fatal dead-letter.
+    const processMessage: MessageProcessor = async () => {
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-admission-busy-race",
+      content: "please reply",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      chatType: "channel",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+
+    expect(retryableFailureEvents).toEqual(["evt-admission-busy-race"]);
+    expect(processingFailureEvents).toEqual([]);
+    expect(markedProcessedEvents).toEqual([]);
+    expect(deliveredEvents).toEqual([]);
   });
 });
 
