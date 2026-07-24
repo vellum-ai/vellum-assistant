@@ -547,7 +547,10 @@ export const parseConversation = createRowMapper<
   title: "title",
   createdAt: "createdAt",
   updatedAt: "updatedAt",
-  totalInputTokens: "totalInputTokens",
+  totalInputTokens: {
+    from: "totalInputTokens",
+    transform: (v) => (v as number | null) ?? 0,
+  },
   totalOutputTokens: "totalOutputTokens",
   totalEstimatedCost: "totalEstimatedCost",
   contextSummary: "contextSummary",

@@ -37,7 +37,6 @@ import {
   usesConceptPageMemory,
 } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getDb } from "../../../../persistence/db-connection.js";
 import {
   generateSparseEmbedding,
   getMemoryBackendStatus,
@@ -76,6 +75,7 @@ import type {
 } from "../graph/types.js";
 import { consolidationBackoffRemainingMs } from "../jobs-worker.js";
 import { getLogger } from "../logging.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import { getWorkspaceDir } from "../paths.js";
 import { getPageIndex } from "../v3/substrate/page-index.js";
 
@@ -315,7 +315,8 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
     );
   }
 
-  const db = getDb();
+  const db = memoryDbOrNull("listMemoryItems");
+  if (!db) throw new Error("memory database unavailable");
 
   // Build fidelity filter based on status param
   const fidelityFilter =
@@ -532,7 +533,8 @@ async function handleCreateMemoryItem(body: Record<string, unknown>) {
     : trimmedStatement;
 
   // Check for duplicate content
-  const db = getDb();
+  const db = memoryDbOrNull("createMemoryItem");
+  if (!db) throw new Error("memory database unavailable");
   const existing = db
     .select({ id: memoryGraphNodes.id })
     .from(memoryGraphNodes)
@@ -651,7 +653,8 @@ async function handleUpdateMemoryItem(
     changes.fidelity === "vivid" && existing.fidelity === "gone";
   if (contentChanged || reactivating) {
     const contentToCheck = changes.content ?? existing.content;
-    const db = getDb();
+    const db = memoryDbOrNull("updateMemoryItem");
+    if (!db) throw new Error("memory database unavailable");
     const collision = db
       .select({ id: memoryGraphNodes.id })
       .from(memoryGraphNodes)

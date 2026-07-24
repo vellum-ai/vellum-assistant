@@ -133,6 +133,31 @@ export function deriveDeterministicTitle(context: TitleContext): string {
   return truncateTitle(base.replace(/\s+/g, " ").trim());
 }
 
+/**
+ * Apply a deterministic title to a conversation, but only while its current
+ * title is still a replaceable placeholder — never clobbering a user or LLM
+ * title. For conversations that will never run an agent turn (so neither the
+ * `user-prompt-submit` nor `stop` title hook ever fires), e.g. a floor-denied
+ * inbound whose only content is a guardian access-request card: without this
+ * the sidebar shows a permanent "Generating title…". Persisted as
+ * `AUTO_TITLE_DETERMINISTIC` so a later genuine turn can still upgrade it, and
+ * broadcast so connected clients converge. Returns whether the title changed.
+ */
+export function applyDeterministicTitleIfReplaceable(
+  conversationId: string,
+  title: string,
+): boolean {
+  const conversation = getConversation(conversationId);
+  if (conversation && !isReplaceableTitle(conversation.title)) {
+    return false;
+  }
+  const cleaned =
+    truncateTitle(title.replace(/\s+/g, " ").trim()) || UNTITLED_FALLBACK;
+  updateConversationTitle(conversationId, cleaned, AUTO_TITLE_DETERMINISTIC);
+  publishConversationTitleChanged(conversationId, cleaned);
+  return true;
+}
+
 // ── Title generation ─────────────────────────────────────────────────
 
 export interface GenerateTitleParams {

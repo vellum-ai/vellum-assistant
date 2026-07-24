@@ -25,6 +25,74 @@ function makeCallbackQueryPayload(overrides?: {
   };
 }
 
+describe("normalizeTelegramUpdate — private-chat topics", () => {
+  it("maps message_thread_id to source.threadId", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 500,
+      message: {
+        message_id: 50,
+        message_thread_id: 777,
+        text: "hello topic",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.source.threadId).toBe("777");
+    expect(result!.message.content).toBe("hello topic");
+  });
+
+  it("leaves source.threadId undefined for messages outside a topic", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 501,
+      message: {
+        message_id: 51,
+        text: "plain dm",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.source.threadId).toBeUndefined();
+  });
+
+  it("maps callback_query message_thread_id to source.threadId", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 502,
+      callback_query: {
+        id: "cbq-topic",
+        from: { id: 42, first_name: "Alice" },
+        message: {
+          message_id: 52,
+          message_thread_id: 777,
+          chat: { id: 42, type: "private" },
+        },
+        data: "apr:run1:approve",
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.source.threadId).toBe("777");
+  });
+
+  it("still rejects group messages even when they carry message_thread_id", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 503,
+      message: {
+        message_id: 53,
+        message_thread_id: 777,
+        text: "forum topic message",
+        chat: { id: -100123, type: "supergroup" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+
+    expect(result).toBeNull();
+  });
+});
+
 describe("normalizeTelegramUpdate — callback_query DM-only guard", () => {
   it("accepts callback_query from private chat", () => {
     const result = normalizeTelegramUpdate(
@@ -183,5 +251,72 @@ describe("normalizeTelegramUpdate — audio messages", () => {
   it("audio message with missing sender is rejected", () => {
     const result = normalizeTelegramUpdate(makeAudioPayload({ fromId: null }));
     expect(result).toBeNull();
+  });
+});
+
+describe("normalizeTelegramUpdate — malformed input is validated, not trusted", () => {
+  it("drops a message whose chat.id is not a number", () => {
+    // A non-number chat.id must be dropped, not coerced to
+    // `String({...})` = "[object Object]" and forwarded as the conversation id.
+    const result = normalizeTelegramUpdate({
+      update_id: 600,
+      message: {
+        message_id: 60,
+        text: "hi",
+        chat: { id: { nested: true }, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+    expect(result).toBeNull();
+  });
+
+  it("ignores a non-array photo instead of treating it like an array", () => {
+    // A non-array photo must be ignored: `.length` on a string would otherwise
+    // produce a garbage single-character attachment with an undefined fileId.
+    const result = normalizeTelegramUpdate({
+      update_id: 601,
+      message: {
+        message_id: 61,
+        text: "caption text",
+        photo: "not-an-array",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+    expect(result).not.toBeNull();
+    expect(result!.message.content).toBe("caption text");
+    expect(result!.message.attachments).toBeUndefined();
+  });
+
+  it("drops a non-numeric message_thread_id rather than stringifying it", () => {
+    const result = normalizeTelegramUpdate({
+      update_id: 602,
+      message: {
+        message_id: 62,
+        message_thread_id: { bad: true },
+        text: "hi",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+    expect(result).not.toBeNull();
+    expect(result!.source.threadId).toBeUndefined();
+  });
+
+  it("preserves the original payload verbatim as `raw`, unknown keys included", () => {
+    const payload = {
+      update_id: 603,
+      message: {
+        message_id: 63,
+        text: "hi",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+      // The schema strips this from the parsed working copy; `raw` must keep it.
+      unknown_future_field: { anything: 1 },
+    };
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).not.toBeNull();
+    expect(result!.raw).toEqual(payload);
   });
 });

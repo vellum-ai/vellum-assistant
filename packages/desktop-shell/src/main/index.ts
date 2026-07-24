@@ -38,6 +38,7 @@ import { installAvatarIpc } from "./avatar";
 import { installCommandPaletteWindow } from "./command-palette-window";
 import { installDictationOverlay } from "./dictation-overlay-window";
 import { installDock } from "./dock";
+import { installShare } from "./share";
 import {
   installEscapeMonitor,
   setDictationRecording,
@@ -443,6 +444,7 @@ app
     if (isMac) {
       installDock();
     }
+    installShare();
     installPowerEvents();
     installNotifications();
     // Register the status channel before the tray installs so the tray's

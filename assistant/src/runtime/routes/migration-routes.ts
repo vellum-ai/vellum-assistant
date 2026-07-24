@@ -106,15 +106,15 @@ const PLATFORM_CREDENTIAL_PREFIX = credentialKey("vellum", "");
 
 /**
  * Platform-identity fields that the managed runtime expects to see in CES.
- * Django's post-hatch provisioning populates the first four via
- * `POST /v1/secrets`; `platform_organization_id` and `platform_user_id` are
- * populated by the signed-in client after hatch (onboarding, teleport,
- * local→managed transfer) because Django has no signed-in user session to
- * resolve them. Either set of writes can race with the import — the CES
- * write survives (separate volume), but the metadata upsert may be
- * clobbered by the in-place clear / atomic swap. After every import we
- * reconcile metadata.json against CES so any field CES already holds a
- * value for gets a matching metadata entry.
+ * On a managed assistant the platform provisions these after hatch (most via
+ * `POST /v1/secrets`), including `platform_organization_id` and
+ * `platform_user_id`, which it resolves from the hatching user and
+ * organization. A signed-in client may additionally (re)assert some of them
+ * on teleport / local→managed transfer. Either set of writes can race with
+ * the import — the CES write survives (separate volume), but the metadata
+ * upsert may be clobbered by the in-place clear / atomic swap. After every
+ * import we reconcile metadata.json against CES so any field CES already holds
+ * a value for gets a matching metadata entry.
  */
 const VELLUM_PLATFORM_IDENTITY_FIELDS = [
   "platform_base_url",

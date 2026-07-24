@@ -2,9 +2,9 @@
  * Tests for `VoiceFirstRunCard`.
  *
  * The card is exercised in isolation: `onStart` is a spy, and the assistant
- * avatar / provider-form dependencies are stubbed so the card renders without
- * the React Query graph — they are chrome around the card's own behavior, and
- * each has its own tests.
+ * avatar / voice-list dependencies are stubbed so the card renders without the
+ * React Query graph — they are chrome around the card's own behavior, and each
+ * has its own tests.
  *
  * Load-bearing behavior:
  *   - the card renders on first run and does NOT start on its own,
@@ -16,11 +16,11 @@
  *   - the voice-settings detour is a VIEW of this one modal, not a modal
  *     stacked on it, and returns to the intro.
  */
-import { useEffect } from "react";
+import { type ReactNode } from "react";
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 
 // Stub the avatar hook so the card renders without the assistant-avatar React
 // Query graph — irrelevant to the card's preference behavior.
@@ -34,49 +34,33 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   }),
 }));
 
-// The provider forms own the daemon config/credential graph and are covered by
-// the settings-page tests. Here they stand in as save handles: each publishes a
-// dirty flag and a `save` the card's single footer button has to drive, which
-// is what's under test.
-type StubFormProps = {
-  hideSaveButton?: boolean;
-  onSaveStateChange?: (handle: {
-    hasChanges: boolean;
-    saving: boolean;
-    save: () => Promise<boolean>;
-  }) => void;
-};
-
-/** Per-service stub behavior, set by each test before render. */
-const formState = {
-  stt: { dirty: false, saveOk: true },
-  tts: { dirty: false, saveOk: true },
-};
-const saveCalls: string[] = [];
-
-function makeStubForm(kind: "stt" | "tts") {
-  return function StubForm({ onSaveStateChange }: StubFormProps) {
-    const { dirty, saveOk } = formState[kind];
-    // Mirrors the real form: republish whenever the state it reports changes.
-    useEffect(() => {
-      onSaveStateChange?.({
-        hasChanges: dirty,
-        saving: false,
-        save: async () => {
-          saveCalls.push(kind);
-          return saveOk;
-        },
-      });
-    }, [onSaveStateChange, dirty, saveOk]);
-    return <div data-testid={`${kind}-form`} />;
-  };
-}
-
-mock.module("@/components/speech/stt-provider-form", () => ({
-  SttProviderForm: makeStubForm("stt"),
+// The voice list owns the daemon config graph and is covered by its own tests.
+// Here it stands in as a marker so the settings view renders without the React
+// Query graph — the card's own behavior (view swap, back, lock) is what's under
+// test, not the picker.
+mock.module("@/components/speech/voice-list", () => ({
+  VoiceList: () => <div data-testid="voice-list" />,
 }));
-mock.module("@/components/speech/tts-provider-form", () => ({
-  TtsProviderForm: makeStubForm("tts"),
+
+// The Voices view reads managed-voice availability (for the credits subtitle)
+// off the daemon config graph; stub it so the card renders without React Query.
+mock.module("@/components/speech/use-managed-voice-selection", () => ({
+  useManagedVoiceSelection: () => ({
+    available: true,
+    voices: [],
+    currentModel: "",
+    defaultModel: "",
+    selectModel: () => {},
+    selecting: false,
+  }),
+}));
+
+// The settings view links to Models & Services; give it a plain anchor so the
+// card renders without a Router.
+mock.module("react-router", () => ({
+  Link: ({ to, children }: { to: string; children: ReactNode }) => (
+    <a href={typeof to === "string" ? to : "#"}>{children}</a>
+  ),
 }));
 
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
@@ -89,9 +73,9 @@ const { VoiceFirstRunCard } = await import(
 const SETTINGS_LINK = "Voice settings";
 
 /**
- * The dialog's current title. The settings view shares its copy with the footer
- * link, so assertions read the heading rather than matching text anywhere —
- * otherwise the link alone would satisfy them.
+ * The dialog's current title. Read the heading specifically rather than matching
+ * text anywhere — the intro's "Voice settings" link would otherwise satisfy a
+ * loose text match for the settings-view assertions.
  */
 function dialogTitle(): string {
   return document.querySelector('[data-slot="modal-title"]')?.textContent ?? "";
@@ -105,9 +89,6 @@ beforeEach(() => {
     showAssistantTranscript: false,
     firstRunSeen: false,
   });
-  formState.stt = { dirty: false, saveOk: true };
-  formState.tts = { dirty: false, saveOk: true };
-  saveCalls.length = 0;
 });
 
 describe("VoiceFirstRunCard", () => {
@@ -184,23 +165,22 @@ describe("VoiceFirstRunCard", () => {
 
   describe("voice settings view", () => {
     test("the link opens the settings view in place — one dialog, no stack", () => {
-      const { getByText, queryByText, baseElement } = render(
+      const { getByText, getByTestId, queryByText, baseElement } = render(
         <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
       );
 
       fireEvent.click(getByText(SETTINGS_LINK));
 
-      expect(dialogTitle()).toBe("Voice settings");
-      // Section copy matches Settings → Services so the two read as one.
-      expect(getByText("Text-to-Speech")).toBeTruthy();
-      expect(getByText("Configure how your assistant speaks")).toBeTruthy();
-      expect(getByText("Speech-to-Text")).toBeTruthy();
-      expect(
-        getByText("Configure how your assistant transcribes speech"),
-      ).toBeTruthy();
-      // The intro's forward action is gone — this is a view swap, not an
-      // overlay on top of the intro.
-      expect(queryByText("Start talking")).toBeNull();
+      expect(dialogTitle()).toBe("Voices");
+      // The view is just the voice picker plus a pointer to Models & Services,
+      // where advanced/BYO provider and API-key config lives.
+      expect(getByTestId("voice-list")).toBeTruthy();
+      expect(getByText("Models & Services")).toBeTruthy();
+      // The voice hot-applies, so there's no Save. "Start talking" moves into
+      // this view so a pick flows straight in, and it's a view swap, not an
+      // overlay — one dialog.
+      expect(queryByText("Save")).toBeNull();
+      expect(getByText("Start talking")).toBeTruthy();
       expect(baseElement.querySelectorAll('[role="dialog"]').length).toBe(1);
     });
 
@@ -218,66 +198,9 @@ describe("VoiceFirstRunCard", () => {
       expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
     });
 
-    test("one Save commits both forms and lands back on Start talking", async () => {
-      formState.stt = { dirty: true, saveOk: true };
-      formState.tts = { dirty: true, saveOk: true };
-      const { getByText } = render(
-        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
-      );
-
-      fireEvent.click(getByText(SETTINGS_LINK));
-      await act(async () => {
-        fireEvent.click(getByText("Save"));
-      });
-
-      expect(saveCalls.sort()).toEqual(["stt", "tts"]);
-      expect(getByText("Start talking")).toBeTruthy();
-    });
-
-    test("Save writes only the forms that changed", async () => {
-      formState.tts = { dirty: true, saveOk: true };
-      const { getByText } = render(
-        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
-      );
-
-      fireEvent.click(getByText(SETTINGS_LINK));
-      await act(async () => {
-        fireEvent.click(getByText("Save"));
-      });
-
-      // Entering a TTS key must not re-write the untouched STT service.
-      expect(saveCalls).toEqual(["tts"]);
-    });
-
-    test("Save stays disabled until something changes", () => {
-      const { getByText } = render(
-        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
-      );
-
-      fireEvent.click(getByText(SETTINGS_LINK));
-      expect((getByText("Save") as HTMLButtonElement).disabled).toBe(true);
-    });
-
-    test("a failed save keeps the user on the settings view", async () => {
-      // The typed key has to stay on screen with its failure toast, not
-      // vanish behind the intro.
-      formState.tts = { dirty: true, saveOk: false };
-      const { getByText, queryByText } = render(
-        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
-      );
-
-      fireEvent.click(getByText(SETTINGS_LINK));
-      await act(async () => {
-        fireEvent.click(getByText("Save"));
-      });
-
-      expect(dialogTitle()).toBe("Voice settings");
-      expect(queryByText("Start talking")).toBeNull();
-    });
-
     test("the link is reachable under the iOS lock too", () => {
       // The lock removes cancels, not in-modal navigation — a locked card
-      // still has to let a BYOK user configure before the mic prompt.
+      // still has to let a user reach voice settings before the mic prompt.
       const { getByText, getByLabelText } = render(
         <VoiceFirstRunCard
           assistantId="asst_test"
@@ -287,7 +210,7 @@ describe("VoiceFirstRunCard", () => {
       );
 
       fireEvent.click(getByText(SETTINGS_LINK));
-      expect(dialogTitle()).toBe("Voice settings");
+      expect(dialogTitle()).toBe("Voices");
       fireEvent.click(getByLabelText("Back"));
       expect(getByText("Start talking")).toBeTruthy();
     });

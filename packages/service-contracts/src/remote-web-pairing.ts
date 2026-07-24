@@ -100,3 +100,161 @@ export interface RemoteWebPairingTokenApprovedResponse {
 export type RemoteWebPairingTokenResponse =
   | RemoteWebPairingTokenPendingResponse
   | RemoteWebPairingTokenApprovedResponse;
+
+// ── Shared pairing URL helpers ──────────────────────────────────────────────
+//
+// Every surface that mints a pairing (the `vellum pair --qr` CLI, the web
+// settings "Pair a device" card) must accept the same public URLs and build
+// the same scannable links. The helpers are environment-neutral (WHATWG URL
+// only) so both Node and browser callers share one implementation.
+
+/** Why a public base URL can't be advertised in a pairing challenge. */
+export type PublicBaseUrlRejection =
+  | "unparseable"
+  | "loopback"
+  | "non-https"
+  | "service-website";
+
+export type PublicBaseUrlResult =
+  | { ok: true; url: string }
+  | { ok: false; reason: PublicBaseUrlRejection };
+
+/**
+ * Hosts that are a tunnel/ingress vendor's own website, not a user's assistant
+ * endpoint. These are the tunnel vendors our docs mention, and their sites are
+ * exactly where a lost user grabs a URL from — e.g. a Tailscale admin invite
+ * link (`login.tailscale.com/admin/invite/…`), which is https and non-loopback
+ * and so clears every other check. Pairing refuses them with a targeted message
+ * rather than minting a challenge the scanning device can never reach.
+ */
+export const TUNNEL_PROVIDER_WEBSITE_HOSTS = [
+  "login.tailscale.com",
+  "tailscale.com",
+  "www.tailscale.com",
+  "ngrok.com",
+  "dashboard.ngrok.com",
+  "dash.cloudflare.com",
+  "cloudflare.com",
+  "www.cloudflare.com",
+] as const;
+
+/**
+ * A URL whose exact host is a tunnel/ingress vendor's own website (see
+ * {@link TUNNEL_PROVIDER_WEBSITE_HOSTS}). Exact-host only: a user's real
+ * Tailscale endpoint (`*.ts.net`) or Cloudflare-fronted domain is never a
+ * listed host, so a legitimate address is never mistaken for a vendor site.
+ */
+export function isTunnelProviderWebsiteUrl(url: string): boolean {
+  let hostname: string;
+  try {
+    // WHATWG URL lowercases the hostname during parsing.
+    hostname = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  return (TUNNEL_PROVIDER_WEBSITE_HOSTS as readonly string[]).includes(
+    hostname,
+  );
+}
+
+/**
+ * The display name of the tunnel/ingress vendor a service-website URL points
+ * at (`"Tailscale"` / `"ngrok"` / `"Cloudflare"`), or null when the host is not
+ * a known vendor site. Drives the "This is <Name>'s website" pairing guidance.
+ */
+export function tunnelProviderWebsiteName(url: string): string | null {
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return null;
+  }
+  if (
+    !(TUNNEL_PROVIDER_WEBSITE_HOSTS as readonly string[]).includes(hostname)
+  ) {
+    return null;
+  }
+  if (hostname.includes("tailscale")) return "Tailscale";
+  if (hostname.includes("ngrok")) return "ngrok";
+  if (hostname.includes("cloudflare")) return "Cloudflare";
+  return null;
+}
+
+/**
+ * A loopback URL — `localhost`, `[::1]`, or `127.x.x.x`. A pairing link that
+ * encodes a loopback address is unreachable from the scanning device.
+ */
+export function isLoopbackPublicUrl(url: string): boolean {
+  try {
+    // WHATWG URL canonicalizes hostnames, so IPv6 loopback is always "[::1]".
+    const hostname = new URL(url).hostname;
+    return (
+      hostname === "localhost" ||
+      hostname === "[::1]" ||
+      /^127(?:\.\d{1,3}){3}$/.test(hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Normalize an address to the public base a scanning device opens:
+ * query/hash stripped, the `assistant` path segment (and everything after it)
+ * removed so a pasted pair-page URL collapses to its base, and trailing
+ * slashes trimmed. Throws if the value is not a parseable URL.
+ */
+export function normalizePublicBaseUrl(value: string): string {
+  const url = new URL(value);
+  url.search = "";
+  url.hash = "";
+  const parts = url.pathname.split("/").filter(Boolean);
+  const assistantIndex = parts.indexOf("assistant");
+  if (assistantIndex >= 0) {
+    parts.splice(assistantIndex);
+  }
+  url.pathname = parts.length ? `/${parts.join("/")}` : "/";
+  return url.toString().replace(/\/+$/, "");
+}
+
+/**
+ * Resolve an address to the public https base URL to advertise in a pairing
+ * challenge, or report why it can't be used. Loopback and non-https links are
+ * refused with a specific reason callers turn into their own guidance.
+ */
+export function resolvePublicBaseUrl(raw: string): PublicBaseUrlResult {
+  let normalized: string;
+  try {
+    normalized = normalizePublicBaseUrl(raw);
+  } catch {
+    return { ok: false, reason: "unparseable" };
+  }
+  if (isLoopbackPublicUrl(normalized)) {
+    return { ok: false, reason: "loopback" };
+  }
+  if (isTunnelProviderWebsiteUrl(normalized)) {
+    return { ok: false, reason: "service-website" };
+  }
+  if (new URL(normalized).protocol !== "https:") {
+    return { ok: false, reason: "non-https" };
+  }
+  return { ok: true, url: normalized };
+}
+
+/**
+ * The scannable pair URL: the challenge's verification URI with the device
+ * code carried in the fragment (`#device_code=…`), matching what the pair
+ * page reads on load. Fragments never reach the wire.
+ */
+export function buildRemoteWebPairingUrl(
+  challenge: Pick<
+    RemoteWebPairingChallengeResponse,
+    "verificationUri" | "deviceCode"
+  >,
+): string {
+  const url = new URL(challenge.verificationUri);
+  url.hash = new URLSearchParams({
+    device_code: challenge.deviceCode,
+  }).toString();
+  return url.toString();
+}

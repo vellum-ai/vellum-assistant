@@ -5,11 +5,14 @@
  *
  * - **Captions** — enable/disable the ambient transcript. Purely client-side
  *   (the two `voice-prefs` transcript flags, toggled together), so it applies
- *   instantly.
+ *   instantly. Led by the captions icon, which carries the room's iconographic
+ *   control language into the popover.
  * - **Voice** — a row showing the assistant's current TTS voice that opens the
  *   dedicated {@link VoicePickerModal} (the full catalog with per-voice preview
  *   doesn't fit the popover). Writes `services.tts.providers.vellum.model`,
- *   which hot-applies on the assistant's next reply. Managed assistants only.
+ *   which hot-applies on the assistant's next reply. Managed assistants only;
+ *   a bring-your-own provider gets the disabled row and its Settings link (see
+ *   {@link VoiceSettingRow}).
  *
  * Captions are bound to the same `voice-prefs` store the Settings page uses;
  * voice is bound to daemon config, the source of truth the Settings → Voice
@@ -18,13 +21,13 @@
 
 import { useState } from "react";
 
-import { Settings } from "lucide-react";
+import { Captions, Settings } from "lucide-react";
 
 import { cn } from "@vellumai/design-library";
 import { Popover } from "@vellumai/design-library/components/popover";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
-import { VoicePickerModal } from "@/domains/chat/voice/voice-room/voice-picker-modal";
+import { VoicePickerModal } from "@/components/speech/voice-picker-modal";
 import { VoiceSettingRow } from "@/domains/chat/voice/voice-room/voice-setting-row";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
@@ -34,8 +37,6 @@ interface VoiceRoomSettingsMenuProps {
   /** Assistant to audition in the voice picker; `null` disables the sample. */
   assistantId: string | null;
 }
-
-const rowLabelClass = "text-body-medium-default text-[var(--content-default)]";
 
 export function VoiceRoomSettingsMenu({
   triggerClassName,
@@ -84,7 +85,18 @@ export function VoiceRoomSettingsMenu({
         >
           <div className="flex flex-col">
             <label className="flex items-center justify-between gap-3 py-1">
-              <span className={rowLabelClass}>Captions</span>
+              {/* Icon + label: the icon ties the row to the captions control
+                  the room already shows, the label keeps it level with the
+                  Voice row below (an icon alone reads as unlabelled). */}
+              <span className="flex items-center gap-2">
+                <Captions
+                  aria-hidden
+                  className="size-5 shrink-0 text-[var(--content-secondary)]"
+                />
+                <span className="text-body-medium-default text-[var(--content-default)]">
+                  Captions
+                </span>
+              </span>
               <Toggle
                 checked={captionsOn}
                 onChange={setCaptions}

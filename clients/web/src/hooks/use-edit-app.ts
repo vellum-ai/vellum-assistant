@@ -20,9 +20,13 @@ import { routes } from "@/utils/routes";
  * viewer if it isn't already there, and navigates to that conversation so
  * `ChatMainPanel` renders the `app-editing` split.
  *
- * On a mobile viewport the split layout doesn't fit, so the viewer stays
- * full-screen (`app`) while still binding the edit conversation — matching
- * `useOpenAppFromChat`.
+ * On a mobile viewport the split layout doesn't fit, so instead the app is
+ * minimized to its bottom strip and the edit conversation becomes the primary
+ * surface — the user edits by chatting, and the strip reads "Open app". Leaving
+ * the app full-screen would re-present the same "Edit" button over a full-screen
+ * app, which reads as a no-op (LUM-2809). This is the deliberate difference from
+ * `useOpenAppFromChat`, which keeps the app full-screen because it is a
+ * view (not edit) action.
  *
  * Shared by the in-chat app viewer (`ChatMainPanel`) and the standalone
  * Library app view (`LibraryDetailPage`).
@@ -47,7 +51,15 @@ export function useEditApp(): (app: OpenedAppState) => void {
         viewer.setLoadedApp(app);
       }
       useConversationStore.getState().setEditingConversationId(convId);
-      if (!isMobile) viewer.enterAppEditing();
+      if (isMobile) {
+        // No room for the chat+app split: land in the edit conversation with
+        // the app minimized to its bottom strip so the chat is the primary
+        // surface and the strip's affordance reads "Open app" — rather than a
+        // second "Edit" button stacked over a re-opened full-screen app.
+        viewer.minimizeApp();
+      } else {
+        viewer.enterAppEditing();
+      }
 
       // The split edit view only renders on the conversation route. Navigate
       // whenever we aren't already there — comparing the path rather than the

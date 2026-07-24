@@ -84,6 +84,12 @@ import {
   shouldShowGenericChatErrorNotice,
 } from "@/domains/chat/utils/error-classification";
 import { openUrlInPopupOrTab } from "@/domains/chat/utils/oauth-popup-links";
+import { resolveCreditPaywallCta } from "@/domains/chat/utils/credit-paywall-cta";
+import {
+  isBillingCtaUpgradeArm,
+  useBillingCtaExperimentArm,
+} from "@/hooks/use-billing-cta-experiment";
+import { useIsFreePlan } from "@/hooks/use-is-free-plan";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/types/types";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -146,8 +152,8 @@ export interface ChatMainPanelProps {
   diskPressure: UseDiskPressureMonitorResult;
 
   // Upward signals to ActiveChatView local state
-  setShowAddCreditsModal: Dispatch<SetStateAction<boolean>>;
   setRefreshEpoch: Dispatch<SetStateAction<number>>;
+  setShowAddCreditsModal: Dispatch<SetStateAction<boolean>>;
 
   // Shared refs (owned by ActiveChatView for debug API / keydown handler)
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -157,7 +163,7 @@ export interface ChatMainPanelProps {
   uiContextRef: MutableRefObject<UIContext | null>;
 
   // Onboarding (local state in ActiveChatView)
-  onboardingTasksEmpty: boolean;
+  onboardingChoiceEligible: boolean;
   didOnboarding: boolean;
   onboardingConversationId: string | null;
 }
@@ -221,14 +227,14 @@ export function ChatMainPanel({
   handleInspectMessage,
   historyPagination,
   diskPressure,
-  setShowAddCreditsModal,
   setRefreshEpoch,
+  setShowAddCreditsModal,
   inputRef,
   sanitizedMessagesRef,
   transcriptItemsRef,
   transcriptRef,
   uiContextRef,
-  onboardingTasksEmpty,
+  onboardingChoiceEligible,
   didOnboarding,
   onboardingConversationId,
 }: ChatMainPanelProps) {
@@ -377,6 +383,10 @@ export function ChatMainPanel({
     void navigate(routes.settings.usageBilling);
   }, [navigate]);
 
+  const pushToPlansTakeover = useCallback(() => {
+    void navigate(routes.plans);
+  }, [navigate]);
+
   const checkAssistant = useCallback(() => lifecycleService.checkAssistant(), []);
 
   const handleDismissUnknownNudge = useCallback(
@@ -455,7 +465,7 @@ export function ChatMainPanel({
     isNative,
     didOnboarding,
     messages,
-    onboardingTasksEmpty,
+    onboardingChoiceEligible,
     activeConversationId,
     onboardingConversationId,
     sendMessage,
@@ -884,6 +894,15 @@ export function ChatMainPanel({
   const billingBannerDecision =
     errorBillingBannerDecision ?? noticeBillingBannerDecision;
 
+  // Credit-paywall CTA: single CTA gated by experiment arm + plan. Only fetch
+  // the subscription when the credit paywall is actually shown.
+  const billingCtaArm = useBillingCtaExperimentArm();
+  const isFreePlan = useIsFreePlan(billingBannerDecision === "managed_credits");
+  const creditPaywallMode = resolveCreditPaywallCta({
+    isUpgradeArm: isBillingCtaUpgradeArm(billingCtaArm),
+    isFreePlan,
+  });
+
   // -------------------------------------------------------------------------
   // JSX construction
   // -------------------------------------------------------------------------
@@ -955,7 +974,10 @@ export function ChatMainPanel({
       onCancelEdit={isEditing ? handleCancelEdit : undefined}
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}
-      hasBillingBanner={billingBannerDecision !== null}
+      hasBillingBanner={
+        billingBannerDecision !== null &&
+        billingBannerDecision !== "managed_credits"
+      }
       thresholdPickerSlot={
         assistantId ? (
           <ComposerSettingsMenu
@@ -987,7 +1009,9 @@ export function ChatMainPanel({
               <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
             ) : billingBannerDecision === "managed_credits" ? (
               <CreditsExhaustedBanner
-                onAddFunds={() => setShowAddCreditsModal(true)}
+                mode={creditPaywallMode}
+                onAddCredits={() => setShowAddCreditsModal(true)}
+                onUpgrade={pushToPlansTakeover}
               />
             ) : billingBannerDecision === "provider_billing" ? (
               <ProviderBillingBanner onOpenSettings={pushToAiSettings} />

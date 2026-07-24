@@ -30,6 +30,15 @@ import {
   startGateway,
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
+import {
+  isAssistantFeatureFlagEnabled,
+  WEB_REMOTE_INGRESS_FLAG,
+} from "../lib/feature-flags.js";
+import { loadRawConfig } from "../lib/ingress-config.js";
+import {
+  isIngressRunning,
+  startRemoteWebIngress,
+} from "../lib/nginx-ingress.js";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -379,6 +388,17 @@ export async function wake(): Promise<void> {
     writeFileSync(ngrokPidFile, String(ngrokChild.pid));
   }
 
+  // Restore the nginx web ingress edge when the workspace config still wants
+  // it. A TLS-terminating front (tailscale serve / tunnel) persists across
+  // restarts and keeps proxying to the edge's loopback port, but the edge has
+  // a manual lifecycle — so a routine restart otherwise leaves the self-hosted
+  // remote-web path dead (502 / blank page) until someone runs it back up.
+  await restoreWebIngressIfEnabled(
+    entry.assistantId,
+    resources.gatewayPort,
+    workspaceDir,
+  );
+
   if (daemonMigrationsFailed) {
     console.log(
       "Assistant database migrations FAILED — DB-backed routes will return 503 until the assistant is restarted. Check the daemon logs.",
@@ -402,5 +422,103 @@ export async function wake(): Promise<void> {
       });
       process.on("SIGTERM", () => resolve());
     });
+  }
+}
+
+/**
+ * Bring the nginx web ingress edge back up after a wake when the workspace
+ * config still wants it. Only restores when ingress is explicitly enabled with
+ * a saved public URL and the `web-remote-ingress` flag is on — the edge is
+ * pointless without the flag, so a disabled flag skips quietly with a hint.
+ *
+ * Reads the same workspace config the edge serves. Any failure to restore
+ * warns with the manual `vellum nginx-ingress up` command and never fails the
+ * wake — a down edge is a degraded remote-web path, not a broken assistant.
+ */
+async function restoreWebIngressIfEnabled(
+  assistantId: string,
+  gatewayPort: number,
+  workspaceDir: string,
+): Promise<void> {
+  const config = loadRawConfig(workspaceDir);
+  const ingress = config.ingress as
+    | { enabled?: unknown; publicBaseUrl?: unknown }
+    | undefined;
+  const enabled = ingress?.enabled === true;
+  const publicBaseUrl =
+    typeof ingress?.publicBaseUrl === "string"
+      ? ingress.publicBaseUrl.trim()
+      : "";
+  if (!enabled || !publicBaseUrl) {
+    return;
+  }
+
+  // The edge already survived (or was manually brought back) — nothing to do.
+  if (isIngressRunning(workspaceDir)) {
+    return;
+  }
+
+  let flagEnabled: boolean;
+  try {
+    flagEnabled = await isAssistantFeatureFlagEnabled(
+      assistantId,
+      WEB_REMOTE_INGRESS_FLAG,
+      { runtimeUrl: `http://127.0.0.1:${gatewayPort}` },
+    );
+  } catch (err) {
+    console.warn(
+      `   Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` flag to restore the web ingress edge; leaving it down. Bring it up manually with \`vellum nginx-ingress up\`. ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return;
+  }
+  if (!flagEnabled) {
+    console.log(
+      `   Web ingress edge not restored: the \`${WEB_REMOTE_INGRESS_FLAG}\` flag is off. Enable it and run \`vellum nginx-ingress up\` to serve remote web access.`,
+    );
+    return;
+  }
+
+  try {
+    const result = await startRemoteWebIngress({
+      workspaceDir,
+      gatewayPort,
+      onStarting: ({ listenPort }) => {
+        console.log(
+          `Restoring web ingress edge on 127.0.0.1:${listenPort} (ingress.enabled)...`,
+        );
+      },
+    });
+    switch (result.status) {
+      case "started":
+        console.log(
+          `   Web ingress edge running: http://127.0.0.1:${result.listenPort}`,
+        );
+        break;
+      case "already-running":
+        break;
+      case "nginx-missing":
+        console.warn(
+          "   Could not restore the web ingress edge: nginx is not installed. Bring it up manually with `vellum nginx-ingress up`.",
+        );
+        break;
+      case "web-dist-missing":
+        console.warn(
+          "   Could not restore the web ingress edge: built web assets were not found. Bring it up manually with `vellum nginx-ingress up`.",
+        );
+        break;
+      case "unreachable":
+        console.warn(
+          `   Web ingress edge did not become reachable on 127.0.0.1:${result.listenPort}; check ${result.logPath}. Bring it up manually with \`vellum nginx-ingress up\`.`,
+        );
+        break;
+    }
+  } catch (err) {
+    console.warn(
+      `   Failed to restore the web ingress edge: ${
+        err instanceof Error ? err.message : String(err)
+      }. Bring it up manually with \`vellum nginx-ingress up\`.`,
+    );
   }
 }

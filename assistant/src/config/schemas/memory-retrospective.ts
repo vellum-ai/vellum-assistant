@@ -39,6 +39,19 @@ export const MemoryRetrospectiveConfigSchema = z
         "Minimum milliseconds between attempts (success or failure). Prevents tight retry loops across trigger types. Pre-compaction bypasses this gate.",
       ),
 
+    sweepIntervalMs: z
+      .number({
+        error: "memory.retrospective.sweepIntervalMs must be a number",
+      })
+      .int("memory.retrospective.sweepIntervalMs must be an integer")
+      .positive(
+        "memory.retrospective.sweepIntervalMs must be a positive integer",
+      )
+      .default(8 * 60 * 60 * 1000)
+      .describe(
+        "Cadence of the scheduled retrospective sweep, the timer-driven backstop that re-scans conversations for unprocessed messages the event-driven triggers missed (e.g. a turn that ended in a crash or IPC drop before the post-turn hooks ran). A conversation is only swept when its last retrospective attempt is at least this old, so the sweep never competes with the responsive interval/message_count triggers on active conversations.",
+      ),
+
     keepSupersededRuns: z
       .boolean({
         error: "memory.retrospective.keepSupersededRuns must be a boolean",

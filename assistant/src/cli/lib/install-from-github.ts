@@ -166,6 +166,8 @@ export interface InstallPluginDeps {
   readonly runPostinstall?: PostinstallRunner;
   /** Override the runner used to install a plugin's dependencies. Falls back to {@link defaultDependencyInstaller}. */
   readonly runInstallDeps?: DependencyInstaller;
+  /** Forwarded to {@link finalizeStagedInstall}; see {@link FinalizeStagedInstallParams.beforeSwap}. */
+  readonly beforeSwap?: () => Promise<void>;
 }
 
 /** Successful install result. */
@@ -328,13 +330,17 @@ async function resolvePluginSource(
 }
 
 /**
- * Prefix reserved for first-party default plugins that ship in the assistant
- * source tree. User-installable plugins must not use it — the `.disabled`
- * sentinel and the plugin registry both key on manifest names, and a
- * user plugin with a `default-` name would shadow or collide with the
- * built-in.
+ * Prefixes reserved for first-party plugins that ship from the Vellum team.
+ * User-installable plugins must not use them — the `.disabled` sentinel and
+ * the plugin registry both key on manifest names, and a user plugin with a
+ * reserved name would shadow or collide with a first-party one.
+ *
+ * - `default-`: built-in default plugins that ship in the assistant source
+ *   tree.
+ * - `vellum-`: first-class plugins shipped from the Vellum team (e.g. curated
+ *   marketplace entries).
  */
-export const RESERVED_PLUGIN_PREFIX = "default-";
+export const RESERVED_PLUGIN_PREFIXES = ["default-", "vellum-"] as const;
 
 /**
  * Reject plugin names that could escape the canonical source path or the
@@ -342,8 +348,9 @@ export const RESERVED_PLUGIN_PREFIX = "default-";
  * `plugins/`, so a legitimate name is a single path segment
  * built from kebab-case alphanumerics.
  *
- * Names prefixed with {@link RESERVED_PLUGIN_PREFIX} (`default-`) are also
- * rejected — that prefix is reserved for first-party default plugins.
+ * Names carrying one of the {@link RESERVED_PLUGIN_PREFIXES} (`default-`,
+ * `vellum-`) are also rejected — those prefixes are reserved for first-party
+ * plugins.
  *
  * Exported so callers (e.g. the CLI input prompt) can validate up front
  * before invoking {@link installPlugin}.
@@ -353,10 +360,13 @@ export function sanitizePluginName(name: string): string {
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(trimmed)) {
     throw new InvalidPluginNameError(name);
   }
-  if (trimmed.startsWith(RESERVED_PLUGIN_PREFIX)) {
+  const reservedPrefix = RESERVED_PLUGIN_PREFIXES.find((prefix) =>
+    trimmed.startsWith(prefix),
+  );
+  if (reservedPrefix) {
     throw new InvalidPluginNameError(
       name,
-      `The "${RESERVED_PLUGIN_PREFIX}" prefix is reserved for first-party default plugins.`,
+      `The "${reservedPrefix}" prefix is reserved for first-party plugins.`,
     );
   }
   return trimmed;
@@ -501,6 +511,7 @@ export async function installPlugin(
     committedAt,
     pluginsDir,
     installDependencies: deps.runInstallDeps,
+    beforeSwap: deps.beforeSwap,
   });
 
   return { name, target, fileCount, ref, commit, committedAt };
@@ -522,6 +533,15 @@ export interface FinalizeStagedInstallParams {
   readonly pluginsDir: string;
   /** Override the runner used to install the plugin's dependencies. Falls back to {@link defaultDependencyInstaller}. */
   readonly installDependencies?: DependencyInstaller;
+  /**
+   * Invoked after the staged tree is fully populated (dependencies installed,
+   * fingerprint recorded) and immediately before it is swapped over the live
+   * install. The upgrade path uses this to run the outgoing version's
+   * `shutdown` while its files are still on disk — mirroring
+   * `uninstallPlugin`, which runs `shutdown` before `rmSync`. Best-effort: a
+   * rejection is swallowed so a failing teardown can never block the swap.
+   */
+  readonly beforeSwap?: () => Promise<void>;
 }
 
 /**
@@ -548,6 +568,7 @@ export async function finalizeStagedInstall(
     etag,
     pluginsDir,
     installDependencies,
+    beforeSwap,
   }: FinalizeStagedInstallParams,
 ): Promise<{ target: string; fingerprint: Fingerprint }> {
   // Install the plugin's own runtime dependencies into the staged tree before
@@ -591,6 +612,19 @@ export async function finalizeStagedInstall(
   // it, so the target's parent is no longer created as a side effect.
   const target = join(pluginsDir, name);
   mkdirSync(pluginsDir, { recursive: true });
+
+  // Give the outgoing version its shutdown before anything below reads or
+  // replaces the live install: everything fallible (fetch, merge, dependency
+  // install) has already succeeded, so a staging failure never tears a
+  // running plugin down, and the preserved-entries copy below still captures
+  // any final state the shutdown hook writes into data/.
+  if (beforeSwap) {
+    try {
+      await beforeSwap();
+    } catch {
+      // Best-effort teardown; the swap must proceed regardless.
+    }
+  }
 
   // Copy preserved entries (config.json, data/, .disabled) from the existing
   // install into the staging dir before the swap so user-owned state survives

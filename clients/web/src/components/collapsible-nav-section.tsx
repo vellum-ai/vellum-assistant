@@ -64,6 +64,12 @@ export interface CollapsibleNavSectionSectionProps
   label: string;
   trailing?: ReactNode;
   contextMenuContent?: ReactNode;
+  /**
+   * Activity indicator rendered inline in the header, but only while the
+   * section is collapsed — when open, the child rows show their own
+   * indicators, so a header dot would be redundant.
+   */
+  collapsedIndicator?: ReactNode;
   children?: ReactNode;
   contentClassName?: string;
   ref?: Ref<HTMLDivElement>;
@@ -75,6 +81,7 @@ function CollapsibleNavSectionSection({
   label,
   trailing,
   contextMenuContent,
+  collapsedIndicator,
   children,
   className,
   contentClassName,
@@ -117,6 +124,11 @@ function CollapsibleNavSectionSection({
           />
         </span>
         <span className="min-w-0 flex-1 truncate">{label}</span>
+        {collapsedIndicator ? (
+          <span className="ml-1 flex shrink-0 items-center group-data-[state=open]:hidden">
+            {collapsedIndicator}
+          </span>
+        ) : null}
       </Collapsible.Trigger>
       {trailing ? (
         <span

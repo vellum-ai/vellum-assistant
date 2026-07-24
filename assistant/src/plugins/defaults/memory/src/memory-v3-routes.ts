@@ -43,8 +43,9 @@ export type MemoryV3RebuildIndexResult = z.infer<
 
 /**
  * Invalidate the v3 shadow lanes so the next turn rebuilds the section index
- * from the current on-disk state. Runs in-daemon so it acts on the live
- * process's cached lanes (an in-CLI call would invalidate nothing).
+ * from the current on-disk state. Runs in-daemon so it drops the live
+ * process's cached lanes immediately; the bumped lanes-version token also
+ * reaches every other process's memo on its next `getLanes`.
  */
 export async function handleMemoryV3RebuildIndex(): Promise<MemoryV3RebuildIndexResult> {
   invalidateLanes();

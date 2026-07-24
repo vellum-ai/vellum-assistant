@@ -9,6 +9,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
 import { shouldShowBillingTab } from "@/domains/settings/billing/billing-tab-visibility";
+import { proPackageDisplayName } from "@/domains/settings/billing/package-types";
 import { UsageTab } from "@/domains/settings/billing/usage/usage-tab";
 import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal";
 import { BillingPanel } from "@/domains/settings/components/billing-panel";
@@ -17,8 +18,6 @@ import { BillingUsagePanel } from "@/domains/settings/components/billing-usage/b
 import { GracePeriodBanner } from "@/domains/settings/components/grace-period-banner";
 import { InvoicesTable } from "@/domains/settings/components/invoices-table";
 import { PlanCard } from "@/domains/settings/components/plan-card";
-import { ReferralPanel } from "@/domains/settings/components/referral-panel";
-import { TierUpgradeResizeModal } from "@/domains/settings/components/tier-upgrade-resize-modal";
 import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
 import {
     organizationsBillingSubscriptionOnboardingRetrieveOptions,
@@ -108,7 +107,7 @@ function FinishProSetupNotice({ onFinishSetup }: { onFinishSetup: () => void }) 
     return (
         <Notice
             tone="info"
-            title="Finish setting up your Pro plan"
+            title={`Finish setting up your ${proPackageDisplayName(subscription?.package)} plan`}
             actions={
                 <Button
                     variant="outlined"
@@ -238,7 +237,6 @@ function BillingTab() {
             <Suspense fallback={null}>
                 <BillingPanel />
             </Suspense>
-            <ReferralPanel />
             <Suspense fallback={null}>
                 <InvoicesTable />
             </Suspense>
@@ -249,7 +247,8 @@ function BillingTab() {
                 />
             )}
             {showPlanManagement && (
-                <TierUpgradeResizeModal
+                <BillingOnboardingModal
+                    mode="resize"
                     open={resizeModalOpen}
                     onClose={() => setResizeModalOpen(false)}
                 />

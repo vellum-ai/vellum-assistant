@@ -15,11 +15,16 @@ import { nanoid } from "nanoid";
 // error-correction level off `this`, so a destructured import renders nothing.
 import qrcodeTerminal from "qrcode-terminal";
 
-import type {
-  RemoteWebPairingChallengeRequest,
-  RemoteWebPairingChallengeResponse,
-  RemoteWebPairingVerificationRequest,
-  RemoteWebPairingVerificationResponse,
+import {
+  buildRemoteWebPairingUrl,
+  normalizePublicBaseUrl,
+  resolvePublicBaseUrl,
+  tunnelProviderWebsiteName,
+  type PublicBaseUrlRejection,
+  type RemoteWebPairingChallengeRequest,
+  type RemoteWebPairingChallengeResponse,
+  type RemoteWebPairingVerificationRequest,
+  type RemoteWebPairingVerificationResponse,
 } from "@vellumai/service-contracts/remote-web-pairing";
 
 import { extractFlag } from "../lib/arg-utils.js";
@@ -42,6 +47,7 @@ import {
 } from "../lib/feature-flags.js";
 import { getLocalLanIPv4 } from "../lib/local.js";
 import { isLoopbackUrl, loopbackSafeFetch } from "../lib/loopback-fetch.js";
+import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 
 function assistantDisplayName(entry: AssistantEntry): string {
   return entry.name || entry.assistantName || entry.assistantId;
@@ -127,29 +133,6 @@ interface PairResponse {
   refreshAfter?: string;
 }
 
-function normalizePublicBaseUrl(value: string): string {
-  const url = new URL(value);
-  url.search = "";
-  url.hash = "";
-  const parts = url.pathname.split("/").filter(Boolean);
-  const assistantIndex = parts.indexOf("assistant");
-  if (assistantIndex >= 0) {
-    parts.splice(assistantIndex);
-  }
-  url.pathname = parts.length ? `/${parts.join("/")}` : "/";
-  return url.toString().replace(/\/+$/, "");
-}
-
-function buildRemoteWebPairingUrl(
-  challenge: RemoteWebPairingChallengeResponse,
-): string {
-  const url = new URL(challenge.verificationUri);
-  url.hash = new URLSearchParams({
-    device_code: challenge.deviceCode,
-  }).toString();
-  return url.toString();
-}
-
 /** Default URL scheme registered by production builds of the iOS app. */
 const DEFAULT_APP_CONNECT_SCHEME = "vellum-assistant";
 
@@ -165,35 +148,6 @@ export function buildAppConnectUrl(
 ): string {
   const params = new URLSearchParams({ url: baseUrl, code: deviceCode });
   return `${scheme}://connect?${params.toString()}`;
-}
-
-type QrPublicBaseUrlFailureReason = "unparseable" | "loopback" | "non-https";
-
-type QrPublicBaseUrlResult =
-  | { ok: true; url: string }
-  | { ok: false; reason: QrPublicBaseUrlFailureReason };
-
-/**
- * Normalize the advertised URL to the public https origin a scanning phone can
- * open, or report why it isn't internet-reachable. Stricter than the copy-paste
- * bundle path's loopback guard: a QR that encodes a loopback or plain-http link
- * is unusable from another device, so both are refused. The failure reason is
- * returned so the caller can emit an accurate message per case.
- */
-function resolveQrPublicBaseUrl(advertisedUrl: string): QrPublicBaseUrlResult {
-  let normalized: string;
-  try {
-    normalized = normalizePublicBaseUrl(advertisedUrl);
-  } catch {
-    return { ok: false, reason: "unparseable" };
-  }
-  if (isLoopbackUrl(normalized)) {
-    return { ok: false, reason: "loopback" };
-  }
-  if (new URL(normalized).protocol !== "https:") {
-    return { ok: false, reason: "non-https" };
-  }
-  return { ok: true, url: normalized };
 }
 
 /**
@@ -325,6 +279,22 @@ export async function pair(): Promise<void> {
   );
   args = afterAppScheme;
 
+  // Any `--`-prefixed token left after known-flag extraction is an option this
+  // CLI version doesn't support. Fail loud before any network call rather than
+  // letting it fall through: an unknown flag would otherwise be silently
+  // dropped and the command would run the wrong flow (e.g. `--qr` on an older
+  // CLI minting a copy-paste bundle instead of a QR). Positional names never
+  // start with `--`, so multi-word assistant targets are unaffected.
+  const unknownFlag = args.find((a) => a.startsWith("--"));
+  if (unknownFlag) {
+    console.error(`Error: unknown option '${unknownFlag}'.`);
+    console.error("Run `vellum pair --help` to see available options.");
+    console.error(
+      `If this option is from newer docs, ${STALE_CLI_UPDATE_HINT}`,
+    );
+    process.exit(1);
+  }
+
   if (webPairing && webApproveCode) {
     console.error("Error: use either --web or --web-approve, not both.");
     process.exit(1);
@@ -419,6 +389,10 @@ export async function pair(): Promise<void> {
     console.error(
       `Re-run with a reachable URL, e.g.:\n  vellum pair --url ${suggestion}`,
     );
+    console.error(
+      "Pairing a phone by QR instead? Use: vellum pair --qr " +
+        "(needs an https URL — run `vellum tunnel --provider tailscale` first).",
+    );
     process.exit(1);
   }
 
@@ -493,12 +467,15 @@ export async function pair(): Promise<void> {
   if (qrPairing) {
     // Validate the public URL before any network call — a QR that encodes a
     // loopback or plain-http link is unscannable from another device.
-    const qrResult = resolveQrPublicBaseUrl(advertisedUrl);
+    const qrResult = resolvePublicBaseUrl(advertisedUrl);
     if (!qrResult.ok) {
-      const detailByReason: Record<QrPublicBaseUrlFailureReason, string> = {
+      const detailByReason: Record<PublicBaseUrlRejection, string> = {
         unparseable: `${advertisedUrl} isn't a valid URL`,
         loopback: `${advertisedUrl} is a loopback address`,
         "non-https": `${advertisedUrl} is not https`,
+        "service-website": `${advertisedUrl} is ${
+          tunnelProviderWebsiteName(advertisedUrl) ?? "a tunnel provider"
+        }'s website, not your assistant's address`,
       };
       console.error(
         "Error: --qr needs a public https URL the phone can open — " +

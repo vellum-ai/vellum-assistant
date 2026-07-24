@@ -27,6 +27,8 @@ export interface DropdownMenuPosition {
 
 export type DropdownMenuAlign = "start" | "end";
 
+export type DropdownSize = "regular" | "compact";
+
 export interface DropdownOption<T extends string> {
   readonly value: T;
   readonly label: string;
@@ -52,6 +54,8 @@ export interface DropdownProps<T extends string> {
   readonly onChange: (value: T) => void;
   readonly placeholder?: string;
   readonly disabled?: boolean;
+  /** Trigger + option density. Defaults to `"regular"` (36px trigger). */
+  readonly size?: DropdownSize;
   readonly className?: string;
   readonly style?: CSSProperties;
   readonly id?: string;
@@ -77,12 +81,28 @@ export interface DropdownProps<T extends string> {
  * design tokens resolve correctly. Falls back to inline rendering when no
  * provider is mounted.
  */
+const TRIGGER_SIZE_CLASSES: Record<DropdownSize, string> = {
+  regular: "h-9 px-3 text-body-medium-lighter",
+  compact: "h-7 px-2.5 text-body-small-default",
+};
+
+const OPTION_SIZE_CLASSES: Record<DropdownSize, string> = {
+  regular: "px-3 py-2 text-body-medium-default",
+  compact: "px-2.5 py-1.5 text-body-small-default",
+};
+
+const CHEVRON_SIZE_CLASSES: Record<DropdownSize, string> = {
+  regular: "h-3.5 w-3.5",
+  compact: "h-3 w-3",
+};
+
 export function Dropdown<T extends string>({
   options,
   value,
   onChange,
   placeholder,
   disabled = false,
+  size = "regular",
   className,
   style,
   id,
@@ -336,7 +356,8 @@ export function Dropdown<T extends string>({
             }}
             onClick={() => selectOption(option)}
             className={cn(
-              "flex items-center gap-2 px-3 py-2 text-body-medium-default transition-colors",
+              "flex items-center gap-2 transition-colors",
+              OPTION_SIZE_CLASSES[size],
               isDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
             )}
             style={{
@@ -416,7 +437,10 @@ export function Dropdown<T extends string>({
         data-state={isOpen ? "open" : "closed"}
         onClick={() => (isOpen ? close() : open())}
         onKeyDown={handleTriggerKeyDown}
-        className="flex h-9 w-full items-center gap-2 rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] px-3 text-left text-body-medium-lighter transition-colors focus:outline-none data-[state=open]:border-[var(--border-active)] disabled:cursor-not-allowed disabled:opacity-60"
+        className={cn(
+          "flex w-full items-center gap-2 rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] text-left transition-colors focus:outline-none data-[state=open]:border-[var(--border-active)] disabled:cursor-not-allowed disabled:opacity-60",
+          TRIGGER_SIZE_CLASSES[size],
+        )}
         style={{
           color: selectedOption
             ? "var(--content-default)"
@@ -444,7 +468,7 @@ export function Dropdown<T extends string>({
           )}
         </span>
         <ChevronDown
-          className="h-3.5 w-3.5 shrink-0"
+          className={cn("shrink-0", CHEVRON_SIZE_CLASSES[size])}
           style={{ color: "var(--content-tertiary)" }}
           aria-hidden
         />

@@ -102,3 +102,27 @@ most-relevant records first.
     `<ISO-with-dashes>_<conversationId>` format are silently skipped
     (Rule 3 — default deny). Legacy `<id>_<ISO>` directories are
     intentionally excluded until they migrate to the canonical format.
+
+## Derived metadata (not file contents)
+
+The rules above govern shipping workspace **file contents**. A handful of
+export entries instead ship a **derived metadata summary** the handler
+assembles directly (`log-export-routes.ts`), never a file body — the same
+category as `config-snapshot.json` (a redacted `config.json` derivative)
+and `clients-list.json` (runtime state). These are outside the allowlist
+regime because they emit no workspace bytes.
+
+- **`installed-inventory.json`** (`installed-inventory.ts`): one row per
+  installed skill and plugin with its **name, `lastUpdated` date, and
+  content fingerprint** (`v2:<sha256>`), plus source / state / version /
+  disabled flags. Answers "what was installed, at what version" from a
+  bundle alone — otherwise unrecoverable. Every field is **read from the
+  already-persisted `install-meta.json` sidecars** (`installedAt` +
+  `contentHash`) — nothing is walked or re-hashed at export time — so the
+  fingerprint is the install-time identity (post-install in-place drift is
+  `plugins diff`'s job, not this snapshot's). Copies no file body. A section
+  that fails to enumerate is recorded under `errors` in the JSON (its array
+  left empty) so "collection failed" is never mistaken for "nothing
+  installed"; a hard failure of the whole collector still falls back to
+  `installed-inventory-error.json`. Carries no time/conversation filter —
+  the inventory is a point-in-time snapshot, not per-turn data.

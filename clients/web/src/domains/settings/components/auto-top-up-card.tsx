@@ -1,10 +1,10 @@
-import { Info, X } from "lucide-react";
+import { Coins, Info, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
-import { brandLabel, formatBrandLast4 } from "@/domains/settings/utils/payment-method-brand";
 import {
     organizationsBillingAutoTopUpDisableCreateMutation,
+    organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation,
     organizationsBillingAutoTopUpRetrieveOptions,
     organizationsBillingAutoTopUpRetrieveQueryKey,
     organizationsBillingAutoTopUpRetrieveSetQueryData,
@@ -12,6 +12,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -22,6 +23,7 @@ import {
     type AutoTopUpFormValues,
 } from "@/domains/settings/components/auto-top-up-form";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal";
+import { PaymentMethodRow } from "@/domains/settings/components/payment-method-row";
 
 type Mode = "view" | "form";
 
@@ -97,26 +99,25 @@ export function extractAutoTopUpServerErrors(err: unknown): Record<string, strin
 }
 
 /**
- * Build the saved-PM display string for the enabled-state summary:
- * - "Charged to <brand> •••• <last4>" when both fields are present
- * - "Charged to <brand>" when only the brand is present
- * - null when neither is present (caller renders nothing)
- *
- * The "<brand> •••• <last4>" shape comes from `formatBrandLast4` in
- * `utils/payment-method-brand.ts`, which owns the brand-fallback (`"card"`)
- * and last4-fallback (`"????"`).
+ * Neutral pill shared by the enabled-state summary row — the "add $X under
+ * $Y" chip and the monthly-cap progress chip use identical chrome so they
+ * read as one control group.
  */
-export function formatSavedPaymentMethodLine(args: {
-  brand: string | null;
-  last4: string | null;
-}): string | null {
-  const { brand, last4 } = args;
-  if (!brand && !last4) return null;
-  // When last4 is missing we render "Charged to <brand>" (no bullets), so
-  // we don't route through formatBrandLast4 here — that helper always
-  // emits the "•••• <last4>" tail.
-  if (!last4) return `Charged to ${brandLabel(brand ?? "card")}`;
-  return `Charged to ${formatBrandLast4(brand, last4)}`;
+function SummaryChip({
+  testId,
+  children,
+}: {
+  testId: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      data-testid={testId}
+      className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-[var(--surface-base)] px-2"
+    >
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -142,10 +143,14 @@ export function AutoTopUpCard() {
   const disableMutation = useMutation(
     organizationsBillingAutoTopUpDisableCreateMutation(),
   );
+  const removeMutation = useMutation(
+    organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation(),
+  );
 
   const [mode, setMode] = useState<Mode>("view");
   const [pendingEnable, setPendingEnable] = useState(false);
   const [confirmingDisable, setConfirmingDisable] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [showAddPm, setShowAddPm] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [pmModalOpen, setPmModalOpen] = useState(false);
@@ -321,6 +326,44 @@ export function AutoTopUpCard() {
   };
 
   /**
+   * The remove endpoint clears the PM AND flips `enabled=False` server-side,
+   * so the optimistic write lands on the disabled/no-PM state — matching what
+   * the follow-up GET returns, with no separate disable call needed.
+   */
+  const handleConfirmRemove = () => {
+    removeMutation.mutate(
+      {},
+      {
+        onSuccess: () => {
+          organizationsBillingAutoTopUpRetrieveSetQueryData(
+            queryClient,
+            undefined,
+            {
+              ...config,
+              enabled: false,
+              has_payment_method: false,
+              payment_method_brand: null,
+              payment_method_last4: null,
+            },
+          );
+          void queryClient.invalidateQueries({
+            queryKey: organizationsBillingAutoTopUpRetrieveQueryKey(),
+          });
+          setConfirmingRemove(false);
+          // Removal disables auto-reload, so leave the Adjust form (if open)
+          // to keep the OFF toggle and a saveable form from coexisting.
+          exitFormMode();
+        },
+        // Close the dialog on failure so the error notice isn't hidden behind
+        // the overlay; the card row stays put for a retry.
+        onError: () => {
+          setConfirmingRemove(false);
+        },
+      },
+    );
+  };
+
+  /**
    * Click handler for the "Enable Extra Usage" toggle. The toggle itself is
    * never disabled — turning it on always flips visually to reflect intent
    * (`pendingEnable`), even when a payment method still needs to be added.
@@ -418,10 +461,6 @@ export function AutoTopUpCard() {
     updateMutation.isError && Object.keys(fieldErrors).length === 0;
 
   const toggleChecked = enabled || pendingEnable;
-  const savedPmLine = formatSavedPaymentMethodLine({
-    brand: config.payment_method_brand,
-    last4: config.payment_method_last4,
-  });
 
   return (
     <div data-testid="auto-top-up-card">
@@ -431,37 +470,60 @@ export function AutoTopUpCard() {
           onChange={handleToggleChange}
           label="Enable Extra Usage"
         />
-
-        {enabled && !isFormMode && (
-          <div className="flex items-center gap-3">
-            <div className="text-right">
-              <p
-                className="text-body-small-default text-[var(--content-tertiary)]"
-                data-testid="auto-top-up-summary"
-              >
-                Add {formatUsdShort(config.amount_usd)} when the balance falls
-                under {formatUsdShort(config.threshold_usd)}
-              </p>
-              {config.monthly_cap_usd != null && (
-                <p
-                  className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]"
-                  data-testid="auto-top-up-cap-progress"
-                >
-                  {formatUsdShort(config.current_month_credits_purchased_usd)} of{" "}
-                  {formatUsdShort(config.monthly_cap_usd)} this month
-                </p>
-              )}
-            </div>
-            <Button
-              variant="outlined"
-              onClick={enterFormMode}
-              data-testid="auto-top-up-edit-button"
-            >
-              Adjust
-            </Button>
-          </div>
-        )}
       </div>
+
+      {config.has_payment_method && (
+        <div className="mt-3">
+          <PaymentMethodRow
+            brand={config.payment_method_brand}
+            last4={config.payment_method_last4}
+            onUpdateCard={() => setPmModalOpen(true)}
+            onRemove={() => setConfirmingRemove(true)}
+            removing={removeMutation.isPending}
+          />
+        </div>
+      )}
+
+      {enabled && !isFormMode && (
+        <div className="mt-3 flex w-full items-center gap-2">
+          <SummaryChip testId="auto-top-up-summary">
+            <Coins
+              className="h-3.5 w-3.5 shrink-0 text-[var(--content-default)]"
+              aria-hidden="true"
+            />
+            <Typography
+              variant="body-medium-default"
+              className="truncate text-[var(--content-default)]"
+            >
+              Add {formatUsdShort(config.amount_usd)} when balance falls under{" "}
+              {formatUsdShort(config.threshold_usd)}
+            </Typography>
+          </SummaryChip>
+          {config.monthly_cap_usd != null && (
+            <SummaryChip testId="auto-top-up-cap-progress">
+              <Typography
+                variant="body-medium-default"
+                className="truncate text-[var(--content-default)]"
+              >
+                <span>
+                  {formatUsdShort(config.current_month_credits_purchased_usd)}{" "}
+                </span>
+                <span className="text-[var(--content-tertiary)]">
+                  / {formatUsdShort(config.monthly_cap_usd)} this month
+                </span>
+              </Typography>
+            </SummaryChip>
+          )}
+          <Button
+            variant="outlined"
+            onClick={enterFormMode}
+            data-testid="auto-top-up-edit-button"
+            className="shrink-0"
+          >
+            Adjust
+          </Button>
+        </div>
+      )}
 
       {disabledAfterDeclines && (
         <Notice
@@ -548,6 +610,16 @@ export function AutoTopUpCard() {
         </Notice>
       )}
 
+      {removeMutation.isError && (
+        <Notice
+          tone="error"
+          className="mt-4"
+          data-testid="auto-top-up-remove-error"
+        >
+          Failed to remove the payment method. Please try again.
+        </Notice>
+      )}
+
       {isFormMode && (
         <AutoTopUpForm
           initialValues={
@@ -566,15 +638,6 @@ export function AutoTopUpCard() {
         />
       )}
 
-      {enabled && config.has_payment_method && (
-        <p
-          className="mt-3 text-body-small-default text-[var(--content-tertiary)]"
-          data-testid="auto-top-up-saved-pm"
-        >
-          {savedPmLine ?? "Charged to a saved card"}
-        </p>
-      )}
-
       {(enabled || isFormMode) && (
         <Notice tone="info" className="mt-4">
           If you&apos;re too close to your monthly limit, the auto-reload will
@@ -587,6 +650,18 @@ export function AutoTopUpCard() {
         confirming={disableMutation.isPending}
         onCancel={dismissDisableConfirm}
         onConfirm={handleConfirmDisable}
+      />
+
+      <ConfirmDialog
+        open={confirmingRemove}
+        title="Remove payment method?"
+        message="Removing your card will turn off Extra Usage."
+        confirmLabel={removeMutation.isPending ? "Removing…" : "Remove"}
+        isPending={removeMutation.isPending}
+        cancelLabel="Keep card"
+        destructive
+        onConfirm={handleConfirmRemove}
+        onCancel={() => setConfirmingRemove(false)}
       />
 
       <AutoTopUpPaymentMethodModal

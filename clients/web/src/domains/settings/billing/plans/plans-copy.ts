@@ -17,33 +17,32 @@ export interface PlanTierCopy {
   cta: string;
   /** Small caption rendered under the price. */
   priceCaption: string;
-  /** Marks the "MOST POPULAR" tier — also renders as the light/white card. */
-  mostPopular?: boolean;
+  /** Marks the recommended tier; plans-page keys the light/white card off this. */
+  recommended?: boolean;
   /** Feature rows appended after the catalog-derived rows. */
   extraFeatures?: readonly string[];
 }
 
 export const PLAN_TIER_COPY: Record<PlanTierKey, PlanTierCopy> = {
   free: {
-    tagline: "Get to know your assistant",
+    tagline: "Get to know your assistant.",
     cta: "Start Free",
     priceCaption: "Forever",
   },
   mighty: {
-    tagline: "Empower your assistant to level you up.",
+    tagline: "More capacity for consistent user.",
     cta: "Power Up",
     priceCaption: "Billed monthly",
+    recommended: true,
   },
   super: {
-    tagline: "Give your assistant real muscle to help you grow",
+    tagline: "Stronger performance for heavier workloads.",
     cta: "Go Super",
     priceCaption: "Billed monthly",
-    mostPopular: true,
     extraFeatures: ["Assistant email and subdomain"],
   },
   ultra: {
-    tagline:
-      "Our most powerful assistant. There's nothing you can't tackle together",
+    tagline: "Our highest level of power and capacity.",
     cta: "Unleash Ultra",
     priceCaption: "Billed monthly",
     extraFeatures: ["Assistant email and subdomain"],

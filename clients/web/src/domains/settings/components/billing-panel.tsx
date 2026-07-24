@@ -18,6 +18,7 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { DailyCreditLimitCard } from "./daily-credit-limit-card";
 import { LowBalanceAlertCard } from "./low-balance-alert-card";
+import { ReferralModal } from "./referral-modal";
 
 export const BOOTSTRAP_MAX_RETRIES = 3;
 export const BOOTSTRAP_RETRY_DELAY_MS = 2000;
@@ -48,6 +49,7 @@ export function BillingPanel() {
     const summary = data ?? null;
 
     const [addCreditsOpen, setAddCreditsOpen] = useState(false);
+    const [referralOpen, setReferralOpen] = useState(false);
     const [lowBalanceExpanded, setLowBalanceExpanded] = useState(false);
 
     const bootstrapAttemptsRef = useRef(0);
@@ -117,14 +119,24 @@ export function BillingPanel() {
                     Quick overview of your balances and other things
                 </Typography>
             </div>
-            <Button
-                variant="primary"
-                onClick={() => setAddCreditsOpen(true)}
-                disabled={isLoading || !summary}
-                data-testid="add-credits-button"
-            >
-                Add Credits
-            </Button>
+            <div className="flex items-center gap-2">
+                <Button
+                    variant="outlined"
+                    leftIcon={<Coins className="h-4 w-4" aria-hidden />}
+                    onClick={() => setReferralOpen(true)}
+                    data-testid="earn-credits-button"
+                >
+                    Earn Free Credits
+                </Button>
+                <Button
+                    variant="primary"
+                    onClick={() => setAddCreditsOpen(true)}
+                    disabled={isLoading || !summary}
+                    data-testid="add-credits-button"
+                >
+                    Add Credits
+                </Button>
+            </div>
         </div>
     );
 
@@ -210,6 +222,7 @@ export function BillingPanel() {
             </Card>
 
             <AddCreditsModal open={addCreditsOpen} onOpenChange={setAddCreditsOpen} />
+            <ReferralModal open={referralOpen} onOpenChange={setReferralOpen} />
         </>
     );
 }

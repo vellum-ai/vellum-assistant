@@ -1,14 +1,18 @@
 // Conversation lifecycle, auth, model config, and history types.
 
+import type { AssistantStatusEvent } from "../../api/events/assistant-status.js";
 import type { CompactionCircuitClosedEvent } from "../../api/events/compaction-circuit-closed.js";
 import type { CompactionCircuitOpenEvent } from "../../api/events/compaction-circuit-open.js";
+import type { ContextCompactedEvent } from "../../api/events/context-compacted.js";
 import type { ConversationErrorEvent } from "../../api/events/conversation-error.js";
 import type { ConversationListInvalidatedEvent } from "../../api/events/conversation-list-invalidated.js";
 import type { ConversationNoticeEvent } from "../../api/events/conversation-notice.js";
 import type { ConversationTitleUpdatedEvent } from "../../api/events/conversation-title-updated.js";
 import type { GenerationCancelledEvent } from "../../api/events/generation-cancelled.js";
 import type { GenerationHandoffEvent } from "../../api/events/generation-handoff.js";
+import type { ModelInfoEvent } from "../../api/events/model-info.js";
 import type { OpenConversationEvent } from "../../api/events/open-conversation.js";
+import type { ScheduleConversationCreatedEvent } from "../../api/events/schedule-conversation-created.js";
 import type { UsageProgressEvent } from "../../api/events/usage-progress.js";
 import type { UsageUpdateEvent } from "../../api/events/usage-update.js";
 import type {
@@ -164,18 +168,6 @@ export interface ImageGenModelSetRequest {
   model: string;
 }
 
-export interface MessageContentResponse {
-  type: "message_content_response";
-  conversationId: string;
-  messageId: string;
-  text?: string;
-  toolCalls?: Array<{
-    name: string;
-    result?: string;
-    input?: Record<string, unknown>;
-  }>;
-}
-
 export interface UndoRequest {
   type: "undo";
   conversationId: string;
@@ -200,27 +192,6 @@ export interface ReorderConversationsRequest {
 }
 
 // === Server → Client ===
-
-interface ConversationSearchMatchingMessage {
-  messageId: string;
-  role: string;
-  /** Plain-text excerpt around the match, truncated to ~200 chars. */
-  excerpt: string;
-  createdAt: number;
-}
-
-interface ConversationSearchResultItem {
-  conversationId: string;
-  conversationTitle: string | null;
-  conversationUpdatedAt: number;
-  matchingMessages: ConversationSearchMatchingMessage[];
-}
-
-export interface ConversationSearchResponse {
-  type: "conversation_search_response";
-  query: string;
-  results: ConversationSearchResultItem[];
-}
 
 export interface ConversationInfo {
   type: "conversation_info";
@@ -301,44 +272,6 @@ export interface ConversationListResponse {
   }>;
   /** Whether more conversations exist beyond the returned page. */
   hasMore?: boolean;
-}
-
-export interface ConversationsClearResponse {
-  type: "conversations_clear_response";
-  cleared: number;
-}
-
-export interface AuthResult {
-  type: "auth_result";
-  success: boolean;
-  message?: string;
-}
-
-export interface PongMessage {
-  type: "pong";
-}
-
-export interface AssistantStatusMessage {
-  type: "assistant_status";
-  version?: string;
-  keyFingerprint?: string;
-}
-
-export interface ModelInfo {
-  type: "model_info";
-  conversationId?: string;
-  model: string;
-  provider: string;
-  configuredProviders?: string[];
-  availableModels?: Array<{ id: string; displayName: string }>;
-  allProviders?: Array<{
-    id: string;
-    displayName: string;
-    models: Array<{ id: string; displayName: string }>;
-    defaultModel: string;
-    apiKeyUrl?: string;
-    apiKeyPlaceholder?: string;
-  }>;
 }
 
 interface HistoryResponseToolCall {
@@ -449,43 +382,6 @@ export interface UsageResponse {
 }
 
 /**
- * Emitted after a compaction turn completes (both auto-compaction and
- * `/compact`). Carries the fresh `estimatedInputTokens` so clients can refresh
- * the context-window indicator without waiting for the next `usage_update`.
- *
- * Scoped per-conversation — see `CompactionCircuitOpenEvent` doc for why.
- */
-export interface ContextCompacted {
-  type: "context_compacted";
-  conversationId: string;
-  previousEstimatedInputTokens: number;
-  estimatedInputTokens: number;
-  maxInputTokens: number;
-  thresholdTokens: number;
-  compactedMessages: number;
-  summaryCalls: number;
-  summaryInputTokens: number;
-  summaryOutputTokens: number;
-  summaryModel: string;
-  /**
-   * Quality signals for the generated summary. Emitted for every
-   * compaction (including truncation-only paths where the summary text
-   * is unchanged from the prior pass). Consumers can use these to detect
-   * regressions without needing to read the summary text itself.
-   *
-   * - `summaryCharCount`: length of the produced summary text.
-   * - `summaryHeaderCount`: number of `## ` section headers in the summary.
-   * - `summaryHadMemoryEcho`: `true` if the summary contains any runtime
-   *   injection tag (e.g. `<memory`, `<turn_context>`, `<workspace>`). The
-   *   durable summary should be clean prose, so `true` flags an echoed or
-   *   invented tag worth investigating.
-   */
-  summaryCharCount?: number;
-  summaryHeaderCount?: number;
-  summaryHadMemoryEcho?: boolean;
-}
-
-/**
  * Emitted when the compaction circuit breaker trips. After three consecutive
  * summary-LLM failures (with local fallback covering each), auto-compaction is
  * suspended until `openUntil` to avoid repeatedly hammering a broken provider.
@@ -497,14 +393,6 @@ export interface ContextCompacted {
  * conversation would set the "auto-compaction paused" banner on every open
  * `ChatViewModel`.
  */
-
-/** Server push — broadcast when a schedule creates a conversation. */
-export interface ScheduleConversationCreated {
-  type: "schedule_conversation_created";
-  conversationId: string;
-  scheduleJobId: string;
-  title: string;
-}
 
 // `open_conversation` is a migrated event: its canonical wire contract lives
 // in `../../api/events/open-conversation.ts` (imported as
@@ -530,18 +418,16 @@ export type _ConversationsClientMessages =
   | ReorderConversationsRequest;
 
 export type _ConversationsServerMessages =
-  | AuthResult
-  | PongMessage
-  | AssistantStatusMessage
+  | AssistantStatusEvent
   | GenerationCancelledEvent
   | GenerationHandoffEvent
-  | ModelInfo
+  | ModelInfoEvent
   | HistoryResponse
   | UndoComplete
   | UsageUpdateEvent
   | UsageProgressEvent
   | UsageResponse
-  | ContextCompacted
+  | ContextCompactedEvent
   | CompactionCircuitOpenEvent
   | CompactionCircuitClosedEvent
   | ConversationErrorEvent
@@ -549,9 +435,6 @@ export type _ConversationsServerMessages =
   | ConversationInfo
   | ConversationTitleUpdatedEvent
   | ConversationListResponse
-  | ConversationsClearResponse
-  | ConversationSearchResponse
-  | MessageContentResponse
   | ConversationListInvalidatedEvent
-  | ScheduleConversationCreated
+  | ScheduleConversationCreatedEvent
   | OpenConversationEvent;

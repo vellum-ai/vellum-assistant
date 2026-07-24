@@ -75,10 +75,22 @@ const realCliCommandStore = {
 };
 const realCoreSet = { ...(await import("../core-set.js")) };
 const realHotSet = { ...(await import("../hot-set.js")) };
+const realLanesVersionStore = {
+  ...(await import("../lanes-version-store.js")),
+};
 
 let shadowMockActive = false;
 
 // ─── mutable test state, read by the mocks below ────────────────────────────
+
+// In-memory stand-in for the plugin-owned lanes-version token file, so tests
+// drive the cross-process signal without touching disk. `null` mirrors an
+// absent token; a fresh string mirrors another process's bump. Each mocked
+// bump writes a distinct value (via `bumpCounter`) like the real store's UUID.
+// `lanesVersionReadThrows` mirrors the store's "read failed → undefined" branch.
+let mockLanesVersion: string | null = null;
+let lanesVersionReadThrows = false;
+let bumpCounter = 0;
 
 let liveEnabled = false;
 let memoryEnabled = true;
@@ -449,6 +461,27 @@ mock.module("../orchestrate.js", () => ({
       : realOrchestrate.orchestrate(...args),
 }));
 
+mock.module("../lanes-version-store.js", () => ({
+  ...realLanesVersionStore,
+  readLanesVersion: (workspaceDir: string) => {
+    if (!shadowMockActive) {
+      return realLanesVersionStore.readLanesVersion(workspaceDir);
+    }
+    // The store swallows read errors and returns `undefined`; mirror that so
+    // `getLanes` exercises its "cannot judge staleness → serve memo" branch.
+    if (lanesVersionReadThrows) return undefined;
+    return mockLanesVersion;
+  },
+  bumpLanesVersion: (workspaceDir: string) => {
+    if (!shadowMockActive) {
+      return realLanesVersionStore.bumpLanesVersion(workspaceDir);
+    }
+    const token = `bump-${++bumpCounter}`;
+    mockLanesVersion = token;
+    return token;
+  },
+}));
+
 // Import AFTER mocks so the plugin binds to them.
 const {
   observeTurn: observeTurnImpl,
@@ -510,6 +543,9 @@ beforeEach(() => {
   hotSetResult = [];
   hotSetOpts = null;
   testDb = makeDb();
+  mockLanesVersion = null;
+  lanesVersionReadThrows = false;
+  bumpCounter = 0;
   resetShadowLanesForTests();
   // The injector memoizes one orchestration per (conversation, turn); clear it
   // so tests reusing the same ids observe fresh orchestrations.
@@ -913,6 +949,45 @@ describe("memory-v3 engine", () => {
     await Promise.all([observeTurn("conv-1", 1), observeTurn("conv-1", 2)]);
     expect(sectionBuilds).toBe(2);
     expect(needleBuilds).toBe(2);
+  });
+
+  test("invalidateLanes writes a new, distinct lanes-version token each call", () => {
+    invalidateLanes();
+    const first = mockLanesVersion;
+    invalidateLanes();
+    const second = mockLanesVersion;
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+  });
+
+  test("a lanes-version bump from another process forces a rebuild on the next turn", async () => {
+    await observeTurn("conv-1", 0);
+    await observeTurn("conv-1", 1);
+    expect(sectionBuilds).toBe(1);
+
+    // Simulate the memory worker's invalidateLanes(): its in-process memo
+    // clear is invisible to this process — only the persisted token write
+    // crosses the boundary.
+    mockLanesVersion = "worker-bump-1";
+
+    await observeTurn("conv-1", 2);
+    expect(sectionBuilds).toBe(2);
+    expect(needleBuilds).toBe(2);
+
+    // The rebuild captured the new token — the observer path never re-bumps,
+    // so later turns reuse the rebuilt memo instead of churning.
+    await observeTurn("conv-1", 3);
+    expect(sectionBuilds).toBe(2);
+  });
+
+  test("a lanes-version read failure serves the memoized lanes", async () => {
+    await observeTurn("conv-1", 0);
+    expect(sectionBuilds).toBe(1);
+
+    lanesVersionReadThrows = true;
+    await observeTurn("conv-1", 1);
+    expect(sectionBuilds).toBe(1);
   });
 
   test("no user message → no orchestrate, no writes", async () => {

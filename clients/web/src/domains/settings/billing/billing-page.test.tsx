@@ -28,6 +28,7 @@ import type {
     Assistant,
     OnboardingStateResponse,
     PaginatedAssistantDomainList,
+    SubscriptionPackage,
     SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import * as platformGate from "@/hooks/use-platform-gate";
@@ -94,9 +95,19 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 mock.module(
     "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal",
     () => ({
-        BillingOnboardingModal: ({ open }: { open: boolean }) => (
+        BillingOnboardingModal: ({
+            open,
+            mode,
+        }: {
+            open: boolean;
+            mode?: "checkout" | "resize";
+        }) => (
             <div
-                data-testid="onboarding-modal"
+                data-testid={
+                    mode === "resize"
+                        ? "resize-onboarding-modal"
+                        : "onboarding-modal"
+                }
                 data-open={open ? "true" : "false"}
             />
         ),
@@ -126,18 +137,17 @@ mock.module("@/domains/settings/components/invoices-table", () => ({
     InvoicesTable: () => null,
 }));
 mock.module("@/domains/settings/components/plan-card", () => ({
-    PlanCard: () => null,
-}));
-mock.module("@/domains/settings/components/referral-panel", () => ({
-    ReferralPanel: () => null,
-}));
-mock.module("@/domains/settings/components/tier-upgrade-resize-modal", () => ({
-    TierUpgradeResizeModal: () => null,
+    PlanCard: ({ onTierUpgraded }: { onTierUpgraded?: () => void }) => (
+        <button data-testid="plan-card-tier-upgraded" onClick={onTierUpgraded} />
+    ),
 }));
 
 const { BillingPage } = await import("./billing-page");
 
-function makeSubscription(planId: "base" | "pro"): SubscriptionResponse {
+function makeSubscription(
+    planId: "base" | "pro",
+    pkg?: SubscriptionPackage,
+): SubscriptionResponse {
     return {
         plan_id: planId,
         status: "active",
@@ -145,6 +155,7 @@ function makeSubscription(planId: "base" | "pro"): SubscriptionResponse {
         current_period_end: "2026-08-01T00:00:00Z",
         cancel_at_period_end: false,
         cancel_at: null,
+        package: pkg ?? null,
         entitlements: { managed_email: false, phone_number: false },
     };
 }
@@ -224,6 +235,39 @@ describe("BillingTab ?pro_onboarding param", () => {
                 getByTestId("onboarding-modal").getAttribute("data-open"),
             ).toBe("true"),
         );
+        // The checkout instance opens; the dedicated resize instance stays inert.
+        expect(
+            getByTestId("resize-onboarding-modal").getAttribute("data-open"),
+        ).toBe("false");
+        expect(getByTestId("loc").textContent).toBe(
+            "/assistant/settings/usage?tab=billing",
+        );
+    });
+});
+
+describe("BillingTab tier-upgrade resize takeover", () => {
+    test("opens the resize instance on tier upgrade without touching the URL or the checkout instance", async () => {
+        const { getByTestId } = renderPage();
+
+        await waitFor(() =>
+            expect(getByTestId("resize-onboarding-modal")).toBeTruthy(),
+        );
+        expect(
+            getByTestId("resize-onboarding-modal").getAttribute("data-open"),
+        ).toBe("false");
+
+        fireEvent.click(getByTestId("plan-card-tier-upgraded"));
+
+        await waitFor(() =>
+            expect(
+                getByTestId("resize-onboarding-modal").getAttribute("data-open"),
+            ).toBe("true"),
+        );
+        // The checkout instance is untouched and the resize flow leaves the URL
+        // params exactly as they were.
+        expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
+            "false",
+        );
         expect(getByTestId("loc").textContent).toBe(
             "/assistant/settings/usage?tab=billing",
         );
@@ -265,6 +309,32 @@ describe("Finish Pro setup nudge", () => {
         // The transient param is consumed straight back out of the URL.
         expect(getByTestId("loc").textContent).toBe(
             "/assistant/settings/usage?tab=billing",
+        );
+    });
+
+    test("names the pinned package in the title", async () => {
+        subscriptionResponse = makeSubscription("pro", {
+            key: "super",
+            name: "Super",
+            version: 1,
+            customized: false,
+        });
+        const { getByTestId } = renderPage();
+
+        await waitFor(() =>
+            expect(
+                getByTestId("finish-pro-setup-notice").textContent,
+            ).toContain("Finish setting up your Super plan"),
+        );
+    });
+
+    test("falls back to Custom for an unpinned Pro sub", async () => {
+        const { getByTestId } = renderPage();
+
+        await waitFor(() =>
+            expect(
+                getByTestId("finish-pro-setup-notice").textContent,
+            ).toContain("Finish setting up your Custom plan"),
         );
     });
 

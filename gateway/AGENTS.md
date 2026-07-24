@@ -13,6 +13,17 @@ Concretely:
 
 Why: the gateway is the single point of ingress, handling TLS termination, auth, rate limiting, and routing. Exposing the daemon directly bypasses these protections and breaks the deployment model.
 
+### Provider Webhook Payload Validation
+
+Provider webhook payloads (Telegram, WhatsApp, Slack, email/Resend, …) are **untrusted external input**. Parse them with tolerant Zod schemas co-located in the provider module — a `normalize.ts`, a dedicated schemas file (`slack/message-schemas.ts`), or the webhook route where normalization is split — never trust a blanket `as` / `as unknown as` cast off `JSON.parse`.
+
+- **Schema-first, co-located.** Define the schema in a module co-located with the normalizer(s) that consume it and derive the type with `z.infer` (single source of truth). These input schemas stay local to the provider directory — do **not** hoist them to `packages/gateway-client` (that package is for schemas that cross the gateway↔daemon↔web wire, e.g. the normalized `GatewayInboundEvent` output).
+- **Tolerant, not strict.** Validate each field's type but `.optional().catch(undefined)` it so a malformed field collapses rather than rejecting the whole payload; the existing downstream null-checks then drop an unprocessable message. Require only the fields the normalizer actually keys on (identity / dedup). `safeParse` at the boundary and drop-or-acknowledge malformed input **individually**, so one bad message can't crash a batch.
+- **`receivedAt` is the gateway's wall clock** (`new Date().toISOString()`), never a provider-supplied timestamp — routing an untrusted time into `new Date()` is a crash class, and receipt time is the correct semantic anyway.
+- **Preserve `raw`.** In a direct normalizer, keep the original payload verbatim on the event (`raw: payload`); only the parsed working copy is schema-shaped. Split-normalization paths that first map the provider payload onto a shared canonical shape (the email family — email/Resend/Mailgun → `VellumEmailPayload`) carry that canonical payload as `raw`, by the email channel's design.
+
+Reference implementations: `telegram/normalize.ts` (plus a compile-time cross-check against the `@grammyjs/types` dev dependency), `whatsapp/normalize.ts`, `http/routes/resend-webhook.ts`, and the `slack/` module — schemas in `slack/message-schemas.ts` (cross-checked against `@slack/types`), with normalizers split by event family (see _Module Organization_).
+
 ### Gateway-Only API Consumption
 
 All assistant API requests from clients, CLI, skills, and user-facing tooling **MUST** target gateway URLs. Never construct URLs using the daemon runtime port (`7821`) or `RUNTIME_HTTP_PORT` for external API consumption.
@@ -78,6 +89,21 @@ Gateway inbound events use a channel-discriminated union model (`GatewayInboundE
 Trust/guardian decisions must be keyed on `actorExternalId` only — never fall back to `conversationExternalId` for actor identity.
 
 Physical DB column names (`externalUserId`, `externalChatId`) are unchanged; the rename is at the API/type layer only.
+
+## Module Organization
+
+Organize gateway code **by concern, not by technical layer** — group by what code _does_, not what it _is_. This mirrors the web client's rule (`clients/web/docs/CONVENTIONS.md` → "Organize by domain, not technical layer"), which is the fuller treatment of the shared principles; the gateway-specific shape:
+
+- **Provider ingress lives under `src/<provider>/`** (`slack/`, `telegram/`, `whatsapp/`, `email/`, …). Each provider directory is a domain module — organize _within_ it by concern rather than piling everything into one `normalize.ts`:
+  - **Directory / IO layer** — stateful clients and caches that call the provider's authenticated Web API. Example: `slack/user-directory.ts` (`users.info` / `conversations.info` resolution with an LRU cache and in-flight de-duplication). This layer reads a trusted API, distinct from untrusted-ingress normalization.
+  - **Pure helpers** — one file per concern (e.g. `actor.ts`, `attachments.ts`, `render-text.ts`): input→output functions with no module-level state or I/O.
+  - **Schemas & types** — the tolerant Zod ingress schemas (see _Provider Webhook Payload Validation_ above), their `z.infer` types, and any compile-time cross-checks against the provider's official types.
+  - **Normalizers** — split by event family, each turning a validated event into the canonical `GatewayInboundEvent`.
+- **No barrel files.** Do not add an `index.ts` that re-exports siblings; import from the source file directly.
+- **No single-file directories.** A directory holding exactly one file should be flattened up a level — directories organize multiple files.
+- **Split by concern, not by line count** — but a file that has grown to span multiple concerns (past a few hundred lines) is the signal to extract, not to keep appending.
+
+The `slack/` module is the worked example of this shape.
 
 ## Channel Trust Classification & Admission Policy
 

@@ -8,16 +8,24 @@
  * popover (which unmounts this row) can't unmount the picker with it; the
  * first-run card swaps to its own voice view.
  *
- * Renders nothing unless managed voice selection is available (managed assistant
- * + a daemon that offers it); BYO providers choose their voice in Settings.
+ * An assistant on a bring-your-own speech provider has no catalog to open, so
+ * the row goes disabled and points at Settings → Models & Services, where that
+ * provider's voice id lives with the rest of its config — a stopgap until BYO
+ * voices get a picker of their own. Following that link mid-call is safe: it
+ * leaves the chat route, which hides the room and hands the live session to the
+ * title-bar pill. Everything else that leaves voice selection unavailable
+ * (config still loading, an older daemon) renders nothing, so the popover never
+ * shows a dead row it can't explain.
  */
 
 import { ChevronRight } from "lucide-react";
+import { Link } from "react-router";
 
 import { cn } from "@vellumai/design-library";
 
-import { useManagedVoiceSelection } from "@/domains/chat/voice/voice-room/use-managed-voice-selection";
-import { VoiceLabel } from "@/domains/chat/voice/voice-room/voice-list";
+import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
+import { VoiceLabel } from "@/components/speech/voice-list";
+import { routes } from "@/utils/routes";
 
 export interface VoiceSettingRowProps {
   assistantId: string | null;
@@ -31,11 +39,13 @@ export function VoiceSettingRow({
   onOpen,
   className,
 }: VoiceSettingRowProps) {
-  const { available, voices, currentModel } =
+  const { available, isByok, voices, currentModel } =
     useManagedVoiceSelection(assistantId);
   const current = voices.find((v) => v.model === currentModel) ?? voices[0];
 
-  if (!available || !current) return null;
+  if (!available || !current) {
+    return isByok ? <ByokVoiceRow className={className} /> : null;
+  }
 
   return (
     // The divider is its own straight, full-width line — a top border on the
@@ -56,6 +66,37 @@ export function VoiceSettingRow({
         />
         <ChevronRight className="size-4 shrink-0 self-center text-[var(--content-tertiary)]" />
       </button>
+    </div>
+  );
+}
+
+/**
+ * The bring-your-own-provider state: the same row, disabled — it keeps the
+ * shape so the popover doesn't reflow between assistants — with the one thing
+ * the user can act on underneath it.
+ */
+function ByokVoiceRow({ className }: { className?: string }) {
+  return (
+    <div className={cn("flex flex-col", className)}>
+      <div className="border-t border-[var(--border-subtle)]" />
+      <button
+        type="button"
+        disabled
+        className="mt-1 flex w-full cursor-not-allowed items-baseline gap-2 rounded-md px-1 py-2 text-left opacity-50"
+      >
+        <span className="shrink-0 text-body-medium-default text-[var(--content-default)]">
+          Voice
+        </span>
+        <span className="min-w-0 flex-1 truncate text-right text-label-small-default text-[var(--content-tertiary)]">
+          Your API key
+        </span>
+      </button>
+      <Link
+        to={`${routes.settings.ai}#text-to-speech`}
+        className="px-1 pb-1 text-label-small-default text-[var(--content-tertiary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
+      >
+        Change voice in Settings
+      </Link>
     </div>
   );
 }

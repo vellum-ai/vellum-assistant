@@ -1,8 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
-import { clearFeatureFlagOverridesCache } from "../../config/assistant-feature-flags.js";
-import type { AssistantConfig } from "../../config/schema.js";
 import {
   capEscalationBridge,
   classifyFrontDoorLeading,
@@ -14,20 +11,10 @@ import {
   frontDoorDecisionRule,
   HOLD_VERDICT_TOKEN,
   isEscalationBridgeComplete,
-  isVoiceTriageEscalateEnabled,
   MAX_ESCALATION_BRIDGE_CHARS,
   needsFallbackBridge,
   spokenBridgeText,
-  VOICE_TRIAGE_ESCALATE_FLAG,
 } from "../voice-triage-escalate.js";
-
-// The gate ignores the config arg (flags resolve from the override cache +
-// bundled registry), so a bare cast is sufficient.
-const CONFIG = {} as AssistantConfig;
-
-afterEach(() => {
-  clearFeatureFlagOverridesCache();
-});
 
 describe("frontDoorCapabilityDigest", () => {
   test("names the escalated leg's tools and demands escalation for them", () => {
@@ -51,23 +38,6 @@ describe("frontDoorCapabilityDigest", () => {
     });
     expect(withDigest.startsWith(bare)).toBe(true);
     expect(withDigest).toContain("calendar_read");
-  });
-});
-
-describe("isVoiceTriageEscalateEnabled", () => {
-  test("is off by default (registry defaultEnabled: false)", () => {
-    clearFeatureFlagOverridesCache();
-    expect(isVoiceTriageEscalateEnabled(CONFIG)).toBe(false);
-  });
-
-  test("is on when the flag override is set", () => {
-    setOverridesForTesting({ [VOICE_TRIAGE_ESCALATE_FLAG]: true });
-    expect(isVoiceTriageEscalateEnabled(CONFIG)).toBe(true);
-  });
-
-  test("is off when the flag override is explicitly false", () => {
-    setOverridesForTesting({ [VOICE_TRIAGE_ESCALATE_FLAG]: false });
-    expect(isVoiceTriageEscalateEnabled(CONFIG)).toBe(false);
   });
 });
 
@@ -345,10 +315,9 @@ describe("escalation continuation content", () => {
 });
 
 // This module is the surface-agnostic escalation *policy* (profiles, prompt
-// rules, the verdict classifier, the bridge cap/fallback decision, the flag
-// gate). The two-leg *routing* runs on the in-app Voice Mode surface
-// (LiveVoiceSession), gated behind both the voice-mode and
-// voice-triage-escalate flags — see
+// rules, the verdict classifier, the bridge cap/fallback decision). The
+// two-leg *routing* runs on the in-app Voice Mode surface (LiveVoiceSession),
+// gated behind the single voice-mode flag — see
 // live-voice/__tests__/live-voice-triage-escalate.test.ts for the orchestration
 // coverage (flag gating, verdict-first hand-off, token suppression, fallback
 // bridge, barge-in). What remains for the manual cli-testing flow is true

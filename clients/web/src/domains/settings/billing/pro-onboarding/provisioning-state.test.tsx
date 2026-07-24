@@ -14,20 +14,31 @@ import * as motionReact from "motion/react";
 import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { PlanListResponse } from "@/generated/api/types.gen";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { SURFACE_GROUND } from "@/utils/avatar-tone";
 
 import type { ProvisioningStateProps } from "./provisioning-state";
 
 /** The id handed to the avatar hook, captured so the target-selection wiring
  *  can be asserted without a network fetch. */
 let avatarQueryId: string | null | undefined;
+/** Flipped per-test to hold the avatar query in flight. */
+let avatarLoading = false;
+/** The avatar the mocked query resolves to; null components keep the neutral
+ *  fallback the phase/mode cases render against. */
+let avatarComponents: CharacterComponents | null = null;
+let avatarTraits: CharacterTraits | null = null;
+/** An uploaded avatar image, which the takeover also blurs behind its content. */
+let avatarCustomImageUrl: string | null = null;
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: (assistantId: string | null) => {
     avatarQueryId = assistantId;
     return {
-      components: null,
-      traits: null,
-      customImageUrl: null,
-      isLoading: false,
+      components: avatarComponents,
+      traits: avatarTraits,
+      customImageUrl: avatarCustomImageUrl,
+      isLoading: avatarLoading,
       invalidate: () => {},
     };
   },
@@ -42,10 +53,15 @@ mock.module("motion/react", () => ({
   useReducedMotion: () => reducedMotion,
 }));
 
-const { ProvisioningState } = await import("./provisioning-state");
+const { ProvisioningState, TAKEOVER_SURFACE, TAKEOVER_SURFACE_VAR } =
+  await import("./provisioning-state");
 
 beforeEach(() => {
   avatarQueryId = undefined;
+  avatarLoading = false;
+  avatarComponents = null;
+  avatarTraits = null;
+  avatarCustomImageUrl = null;
   reducedMotion = false;
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
@@ -93,6 +109,7 @@ function plansResponse(): PlanListResponse {
             credits_usd: 50,
             price_cents: 5000,
             lookup_key: "credits_50_key",
+            legacy: false,
           },
         ],
         packages: [
@@ -362,6 +379,45 @@ describe("done / not_applicable", () => {
     expect(queryByTestId("provisioning-apply")).toBeNull();
     await waitFor(() => expect(onCelebrationEnd).toHaveBeenCalledTimes(1));
   });
+
+  test("not_applicable confirms an applied credit bundle with the catalog label", () => {
+    // A credit-only in-place change owes no resize, so it lands here — the only
+    // surface where its bundle can be confirmed (the WAITING credits chip never
+    // shows).
+    const { getByText } = renderState({
+      state: "NOT_APPLICABLE",
+      resizeCredits: "credits_50",
+    });
+
+    expect(getByText("Your plan is ready")).toBeTruthy();
+    expect(getByText("Credits")).toBeTruthy();
+    expect(getByText("$50 credits/mo")).toBeTruthy();
+  });
+
+  test("not_applicable falls back to plain copy when the bundle can't resolve", () => {
+    // "No extra credits" (null tier) still counts as a change, so it confirms
+    // without a catalog label rather than leaving the phase blank.
+    const { getByText, queryByText } = renderState({
+      state: "NOT_APPLICABLE",
+      resizeCredits: null,
+    });
+
+    expect(getByText("Credits updated")).toBeTruthy();
+    expect(queryByText(/credits\/mo/)).toBeNull();
+  });
+
+  test("done confirms an applied credit bundle alongside the target chips", () => {
+    const { getByText } = renderState({
+      state: "DONE",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+      resizeCredits: "credits_50",
+    });
+
+    expect(getByText("All done!")).toBeTruthy();
+    expect(getByText("Large")).toBeTruthy();
+    expect(getByText("$50 credits/mo")).toBeTruthy();
+  });
 });
 
 describe("stalled", () => {
@@ -376,9 +432,7 @@ describe("stalled", () => {
 
     expect(getByText("We couldn't finish this automatically")).toBeTruthy();
     expect(
-      getByText(
-        "Apply the changes below to finish setting up your upgrade.",
-      ),
+      getByText("Apply the changes below to finish setting up your upgrade."),
     ).toBeTruthy();
     expect(getByText("Machine")).toBeTruthy();
     fireEvent.click(getByTestId("provisioning-apply"));
@@ -415,9 +469,7 @@ describe("confirm_timeout", () => {
 
     expect(getByText("Still confirming your upgrade")).toBeTruthy();
     expect(
-      getByText(
-        "Your payment went through safely — this can take a minute.",
-      ),
+      getByText("Your payment went through safely — this can take a minute."),
     ).toBeTruthy();
     fireEvent.click(getByTestId("onboarding-retry"));
     expect(onRetry).toHaveBeenCalledTimes(1);
@@ -466,5 +518,359 @@ describe("takeover avatar", () => {
     renderState();
 
     expect(avatarQueryId).toBe("active-assistant");
+  });
+});
+
+/** The takeover root, which publishes the tint, paints from it, and holds the
+ *  backdrop and the content layered over it. */
+function root(container: HTMLElement): HTMLElement {
+  const el = container.querySelector<HTMLElement>(".provision-surface-settle");
+  if (!el) {
+    throw new Error("takeover root not found");
+  }
+  return el;
+}
+
+describe("takeover surface", () => {
+  test("paints from the published variable rather than a literal colour", () => {
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(root(container).style.backgroundColor).toBe(TAKEOVER_SURFACE);
+  });
+
+  test("a purple character publishes its own deep tint", () => {
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(
+      root(container)
+        .style.getPropertyValue(TAKEOVER_SURFACE_VAR)
+        .toLowerCase(),
+    ).toBe("#29202e");
+  });
+
+  test("an unresolved avatar holds the neutral ground", () => {
+    // A hue committed before the query settles is the wrong assistant's, at
+    // full-viewport scale.
+    avatarLoading = true;
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(root(container).style.getPropertyValue(TAKEOVER_SURFACE_VAR)).toBe(
+      SURFACE_GROUND,
+    );
+  });
+
+  test("the default green creature keeps the takeover's established tint", () => {
+    avatarComponents = BUNDLED_COMPONENTS;
+
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(
+      root(container)
+        .style.getPropertyValue(TAKEOVER_SURFACE_VAR)
+        .toLowerCase(),
+    ).toBe("#1d281d");
+  });
+});
+
+describe("takeover backdrop", () => {
+  test("a custom-image avatar blurs that image behind the takeover", () => {
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+
+    const { getByTestId } = renderState({ assistantId: "primary-assistant" });
+
+    expect(
+      getByTestId("takeover-backdrop")
+        .querySelector("img")
+        ?.getAttribute("src"),
+    ).toBe("blob:vellum/avatar-image");
+  });
+
+  test("every layer beside the backdrop stacks above it", () => {
+    // The backdrop is absolutely positioned, so it paints over any sibling left
+    // in normal flow — the avatar and the phase block both have to be raised.
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+
+    const { container, getByTestId } = renderState({
+      state: "WAITING",
+      assistantId: "primary-assistant",
+    });
+    const backdrop = getByTestId("takeover-backdrop");
+    const content = Array.from(root(container).children).filter(
+      (el) => el !== backdrop,
+    );
+
+    expect(content.length).toBeGreaterThan(0);
+    for (const el of content) {
+      expect(el.className).toContain("z-10");
+    }
+  });
+
+  test("a character avatar gets the flat tint and no image layer", () => {
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+
+    const { queryByTestId } = renderState({ assistantId: "primary-assistant" });
+
+    expect(queryByTestId("takeover-backdrop")).toBeNull();
+  });
+
+  test("withholds the backdrop until the avatar query settles", () => {
+    // A backdrop that appears and then disappears is worse than one that
+    // arrives late.
+    avatarLoading = true;
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+
+    const { queryByTestId } = renderState({ assistantId: "primary-assistant" });
+
+    expect(queryByTestId("takeover-backdrop")).toBeNull();
+  });
+});
+
+describe("takeover avatar mode", () => {
+  /** The mode is carried as a class on the avatar's outer element. */
+  function modeClasses(container: HTMLElement): string {
+    const el = container.querySelector(".provision-avatar-evolve");
+    return el?.className ?? "";
+  }
+
+  const CASES: Array<[ProvisioningStateProps["state"], boolean, string]> = [
+    ["CONFIRMING", false, ""],
+    ["CONFIRM_TIMEOUT", false, ""],
+    ["WAITING", false, "is-working"],
+    ["RESIZING", false, "is-working"],
+    ["WAITING", true, "is-settling"],
+    ["RESIZING", true, "is-settling"],
+    ["STALLED", false, "is-stalled"],
+    ["DONE", false, "is-evolved"],
+    ["NOT_APPLICABLE", false, "is-evolved"],
+  ];
+
+  for (const [state, softWaiting, expected] of CASES) {
+    const label = softWaiting ? `${state} past the grace window` : state;
+    test(`${label} renders ${expected || "no mode class"}`, () => {
+      const { container } = renderState({
+        state,
+        softWaiting,
+        assistantId: "primary-assistant",
+      });
+      const classes = modeClasses(container);
+
+      if (expected) {
+        expect(classes).toContain(expected);
+      } else {
+        for (const mode of [
+          "is-working",
+          "is-settling",
+          "is-stalled",
+          "is-evolved",
+        ]) {
+          expect(classes).not.toContain(mode);
+        }
+      }
+    });
+  }
+
+  test("withholds the avatar until its query settles", () => {
+    // `components ?? fallback` synthesizes traits from the first bundled entry
+    // of each list, so drawing during the fetch shows a green blob regardless
+    // of the assistant's real avatar.
+    avatarLoading = true;
+
+    const { container } = renderState({
+      state: "WAITING",
+      assistantId: "primary-assistant",
+    });
+
+    expect(container.querySelector(".provision-avatar-reveal")).toBeNull();
+    // The stage still reserves its height, so nothing moves when it arrives.
+    expect(container.querySelector(".provision-avatar-stage")).toBeTruthy();
+  });
+
+  test("reveals the avatar once the target and the query both settle", () => {
+    const { container } = renderState({
+      state: "WAITING",
+      assistantId: "primary-assistant",
+    });
+
+    expect(container.querySelector(".provision-avatar-reveal")).toBeTruthy();
+  });
+
+  test("keeps waiting while the target assistant is still unknown", () => {
+    // `useAssistantAvatar(null)` is a disabled query, and a disabled query
+    // reports `isLoading: false` with no data — so the id has to gate the
+    // render too. The active assistant is deliberately set here: an explicit
+    // null target must not fall back to it, or a multi-assistant org fades in
+    // the active assistant before the provisioning primary resolves.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "active-assistant",
+    });
+
+    const { container } = renderState({ state: "WAITING", assistantId: null });
+
+    expect(container.querySelector(".provision-avatar-reveal")).toBeNull();
+    expect(container.querySelector(".provision-avatar-stage")).toBeTruthy();
+    // Nor should it fetch the wrong assistant's avatar on the way.
+    expect(avatarQueryId).toBeNull();
+  });
+
+  test("holds the grow until there is an avatar to play it on", () => {
+    // The phase can resolve before the avatar fetch does — the avatar is read
+    // off the machine being restarted — and a grow that runs on an empty
+    // wrapper leaves the creature to fade in already at its final scale.
+    avatarLoading = true;
+
+    const { container } = renderState({
+      state: "DONE",
+      assistantId: "primary-assistant",
+    });
+
+    expect(
+      container.querySelector(".provision-avatar-evolve")?.className,
+    ).not.toContain("is-evolved");
+  });
+
+  test("steps the creature down so a short viewport keeps the actions below it", () => {
+    // The stage reserves the grown height, so a full-size creature needs about
+    // 650px before the phase block — which carries the escape hatch and the
+    // stalled retry — starts to clip out of the h-screen takeover.
+    const original = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", {
+      value: 568,
+      configurable: true,
+    });
+
+    const { container } = renderState({ state: "WAITING" });
+    const el = container.querySelector<HTMLElement>(".provision-avatar-evolve");
+
+    expect(el?.style.getPropertyValue("--provision-avatar-size")).toBe("132px");
+
+    Object.defineProperty(window, "innerHeight", {
+      value: original,
+      configurable: true,
+    });
+  });
+
+  test("uses the full size when the viewport has room for it", () => {
+    const original = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", {
+      value: 900,
+      configurable: true,
+    });
+
+    const { container } = renderState({ state: "WAITING" });
+    const el = container.querySelector<HTMLElement>(".provision-avatar-evolve");
+
+    expect(el?.style.getPropertyValue("--provision-avatar-size")).toBe("240px");
+
+    Object.defineProperty(window, "innerHeight", {
+      value: original,
+      configurable: true,
+    });
+  });
+
+  test("the grace window never softens a state that isn't waiting", () => {
+    const { container } = renderState({
+      state: "STALLED",
+      softWaiting: true,
+      assistantId: "primary-assistant",
+    });
+
+    expect(modeClasses(container)).toContain("is-stalled");
+  });
+});
+
+describe("ProvisioningState phase hold", () => {
+  test("keeps a phase on screen for its minimum before the next one shows", async () => {
+    const { rerender, getByText, queryByText } = renderState({
+      state: "CONFIRMING",
+      phaseMinMs: 150,
+    });
+    expect(getByText("Confirming your upgrade…")).toBeTruthy();
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ProvisioningState {...baseProps({ state: "DONE", phaseMinMs: 150 })} />
+      </QueryClientProvider>,
+    );
+    // Still inside CONFIRMING's window, so DONE hasn't been allowed through.
+    expect(queryByText("All done!")).toBeNull();
+
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 1000,
+    });
+  });
+
+  test("skips a phase that would resolve before it could be read", async () => {
+    const { rerender, getByText, queryByText } = renderState({
+      state: "CONFIRMING",
+      phaseMinMs: 150,
+    });
+
+    const advance = (state: ProvisioningStateProps["state"]) =>
+      rerender(
+        <QueryClientProvider client={new QueryClient()}>
+          <ProvisioningState {...baseProps({ state, phaseMinMs: 150 })} />
+        </QueryClientProvider>,
+      );
+
+    // WAITING and DONE both land inside CONFIRMING's window; WAITING is never
+    // readable, so it must never reach the screen.
+    advance("WAITING");
+    advance("DONE");
+    expect(queryByText("Upgrading your assistant…")).toBeNull();
+
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 1000,
+    });
+    expect(queryByText("Upgrading your assistant…")).toBeNull();
+  });
+
+  test("passes phases straight through when the hold is disabled", () => {
+    const { rerender, getByText } = renderState({
+      state: "CONFIRMING",
+      phaseMinMs: 0,
+    });
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ProvisioningState {...baseProps({ state: "DONE", phaseMinMs: 0 })} />
+      </QueryClientProvider>,
+    );
+    expect(getByText("All done!")).toBeTruthy();
+  });
+
+  test("reports the phase on screen, not the live one", async () => {
+    // The wizard locks Esc/backdrop against this report, so it has to describe
+    // what the user is looking at — reporting DONE early unlocks the takeover
+    // while it still reads as busy.
+    const reported: string[] = [];
+    const onPhaseChange = (phase: ProvisioningStateProps["state"]) => {
+      reported.push(phase);
+    };
+    const { rerender, getByText } = renderState({
+      state: "WAITING",
+      phaseMinMs: 150,
+      onPhaseChange,
+    });
+    expect(reported).toEqual(["WAITING"]);
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ProvisioningState
+          {...baseProps({ state: "DONE", phaseMinMs: 150, onPhaseChange })}
+        />
+      </QueryClientProvider>,
+    );
+    expect(reported).toEqual(["WAITING"]);
+
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 1000,
+    });
+    expect(reported).toEqual(["WAITING", "DONE"]);
   });
 });

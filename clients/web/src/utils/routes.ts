@@ -193,6 +193,7 @@ export const routes = {
     credentials: r("/assistant/settings/credentials"),
     notifications: r("/assistant/settings/notifications"),
     voice: r("/assistant/settings/voice"),
+    sounds: r("/assistant/settings/sounds"),
     privacy: r("/assistant/settings/privacy"),
     bookmarks: r("/assistant/settings/bookmarks"),
     usage: SETTINGS_USAGE_PATH,

@@ -45,14 +45,21 @@ import type {
   PackageChangeResponse,
   PlanListResponse,
   ProPackage,
+  ProPlan,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
+const PORTAL_URL = "https://stripe.test/portal/session";
 
 type Captured = { body?: unknown };
 let changePackageCall: Captured | null = null;
 let upgradeCall: Captured | null = null;
+// Captures the billing-portal session create — the Pro → Free cancel path.
+let portalSessionCall: Captured | null = null;
+// When false, the portal-session promise never settles — used to observe the
+// in-flight (pending) state after confirming the Free downgrade.
+let portalSessionResolves = true;
 let machineTierCall: Captured | null = null;
 let storageTierCall: Captured | null = null;
 let creditTierCall: Captured | null = null;
@@ -102,6 +109,16 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
+  organizationsBillingPortalSessionCreate: (opts: Captured) => {
+    portalSessionCall = opts;
+    if (!portalSessionResolves) {
+      return new Promise(() => {});
+    }
+    return Promise.resolve({
+      data: { portal_url: PORTAL_URL },
+      response: { ok: true },
+    });
+  },
   organizationsBillingSubscriptionChangeMachineTierCreate: (opts: Captured) => {
     machineTierCall = opts;
     if (machineTierError !== null) {
@@ -148,12 +165,35 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
   useBundledAvatarComponents: () => null,
 }));
 
-// Stand in for the provisioning takeover so the test can assert it was revealed
-// without driving its own resize queries.
-mock.module("@/domains/settings/components/tier-upgrade-resize-modal", () => ({
-  TierUpgradeResizeModal: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="resize-takeover" /> : null,
-}));
+// Stand in for the provisioning takeover so the test can assert it was
+// revealed in resize mode without driving its own provisioning polls.
+// The full loading → "You're all set!" flow is owned by
+// billing-onboarding-modal.test.tsx's resize-mode suite.
+//
+// Captures the credit tier the page threads in so the credit-change confirmation
+// (and the switch path's deliberate omission of it) can be asserted directly.
+let takeoverResizeCredits: string | null | undefined;
+mock.module(
+  "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal",
+  () => ({
+    BillingOnboardingModal: ({
+      open,
+      mode,
+      resizeCredits,
+    }: {
+      open: boolean;
+      mode?: string;
+      resizeCredits?: string | null;
+    }) => {
+      if (open) {
+        takeoverResizeCredits = resizeCredits;
+      }
+      return open ? (
+        <div data-testid="resize-takeover" data-mode={mode ?? "checkout"} />
+      ) : null;
+    },
+  }),
+);
 
 // Capture success toasts so the downgrade path can assert its confirmation
 // message; keep the real module's other methods (error, etc.) intact.
@@ -311,7 +351,7 @@ function count(html: string, needle: RegExp): number {
 describe("PlansPage — full catalog render", () => {
   test("renders the headline and all four tier names", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
-    expect(html).toContain("Plans designed to empower you");
+    expect(html).toContain("Give your assistant more power");
     expect(html).toContain("Free");
     expect(html).toContain("Mighty");
     expect(html).toContain("Super");
@@ -326,11 +366,12 @@ describe("PlansPage — full catalog render", () => {
     expect(html).toContain("$200/month");
   });
 
-  test("shows the Most Popular badge exactly once", () => {
+  test("shows the Recommended badge exactly once", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
-    // The badge text is "Most Popular"; the all-caps look is CSS `uppercase`,
+    // The badge text is "Recommended"; the all-caps look is CSS `uppercase`,
     // which renderToStaticMarkup does not apply.
-    expect(count(html, /Most Popular/g)).toBe(1);
+    expect(count(html, /Recommended/g)).toBe(1);
+    expect(html).not.toContain("Most Popular");
   });
 
   test("derives feature rows from the fixture (storage, credits, machine)", () => {
@@ -342,7 +383,7 @@ describe("PlansPage — full catalog render", () => {
     // Free plan's baseline storage (FREE_STORAGE_GIB).
     expect(html).toContain("4 GB Storage");
     // Credits row, formatted from credits_usd.
-    expect(html).toContain("$25 in credits per month");
+    expect(html).toContain("$25 in credits included");
     // Machine "Computer" labels; a null machine_size renders "Small".
     expect(html).toContain("Small Computer");
     expect(html).toContain("Medium Computer");
@@ -399,6 +440,22 @@ describe("PlansPage — current-plan state", () => {
     // which a static first-paint render (no effects) never loads.
     expect(count(html, /disabled=""/g)).toBe(2);
   });
+
+  test("pro subscriber on Mighty: no Recommended badge, but Mighty keeps the light card", () => {
+    const html = renderStatic(proMightySubscription(), fullCatalog());
+    expect(html).not.toContain("Recommended");
+    expect(count(html, /data-theme="light"/g)).toBe(1);
+    expect(html).toContain("Current Plan");
+  });
+
+  test("pro subscriber on Super: Mighty is a downgrade, no Recommended badge, but keeps the light card", () => {
+    const html = renderStatic(proSuperSubscription(), fullCatalog());
+    // Mighty sits below Super, so its CTA is a downgrade and the chip is hidden.
+    expect(html).toContain("Downgrade to Mighty");
+    expect(html).not.toContain("Recommended");
+    // Mighty still renders as the light card for a Super subscriber.
+    expect(count(html, /data-theme="light"/g)).toBe(1);
+  });
 });
 
 describe("PlansPage — empty catalog (pro-packages flag off)", () => {
@@ -407,7 +464,7 @@ describe("PlansPage — empty catalog (pro-packages flag off)", () => {
     // the pre-redirect markup is the loading spinner.
     const html = renderStatic(freeSubscription(), plansWith([]));
     expect(html).toContain("Loading plans");
-    expect(html).not.toContain("Plans designed to empower you");
+    expect(html).not.toContain("Give your assistant more power");
     expect(html).not.toContain("Mighty");
     expect(html).not.toContain("Power Up");
     expect(html).not.toContain("Custom Plan");
@@ -415,9 +472,10 @@ describe("PlansPage — empty catalog (pro-packages flag off)", () => {
 });
 
 describe("getPlanTierCopy", () => {
-  test("returns tier copy including the most-popular flag and CTA", () => {
+  test("returns tier copy including the recommended flag and CTA", () => {
     expect(getPlanTierCopy("mighty")?.cta).toBe("Power Up");
-    expect(getPlanTierCopy("super")?.mostPopular).toBe(true);
+    expect(getPlanTierCopy("mighty")?.recommended).toBe(true);
+    expect(getPlanTierCopy("super")?.recommended).toBeFalsy();
     expect(getPlanTierCopy("ultra")?.cta).toBe("Unleash Ultra");
   });
 
@@ -496,6 +554,8 @@ function renderInteractive(
 beforeEach(() => {
   changePackageCall = null;
   upgradeCall = null;
+  portalSessionCall = null;
+  portalSessionResolves = true;
   machineTierCall = null;
   storageTierCall = null;
   creditTierCall = null;
@@ -511,6 +571,7 @@ beforeEach(() => {
   plansFixture = null;
   onboardingFixture = null;
   toastSuccessCalls.length = 0;
+  takeoverResizeCredits = undefined;
 });
 
 afterEach(() => {
@@ -556,25 +617,95 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     await waitFor(() => expect(changePackageCall).not.toBeNull());
     expect(changePackageCall!.body).toEqual({ package: "ultra" });
 
-    await findByTestId("resize-takeover");
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
+    // The switch path sources no bundle, so it threads none — a stale value
+    // from a prior custom change must never surface on this takeover.
+    expect(takeoverResizeCredits).toBeUndefined();
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
   });
 
-  test("Pro → Free downgrade routes to the manage/cancel flow, not change-package", async () => {
-    const { findByRole, findByTestId } = renderInteractive(
-      proSuperSubscription(),
-    );
+  test("Pro → Free downgrade confirms first, then opens the Stripe billing portal", async () => {
+    const { findByRole, findByText, findByTestId, getByTestId } =
+      renderInteractive(proSuperSubscription());
 
-    // Below Super, Free reads "Downgrade to Free". Cancellation can't go through
-    // the package-only change-package endpoint, so it routes to `?adjust_plan`.
+    // Below Super, Free reads "Downgrade to Free". Clicking it opens the confirm
+    // dialog — not an immediate portal redirect.
     fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    await findByText("Downgrade to Free?");
+    expect(openedUrl).toBeNull();
+    expect(portalSessionCall).toBeNull();
 
-    const loc = await findByTestId("loc");
-    await waitFor(() =>
-      expect(loc.textContent).toBe(
-        "/assistant/settings/usage?tab=billing&adjust_plan",
-      ),
+    // Confirming opens the Stripe billing portal (the same destination as the
+    // adjust-plan modal's Downgrade to Base). Cancellation can't go through the
+    // package-only change-package endpoint.
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+    await waitFor(() => expect(openedUrl).toBe(PORTAL_URL));
+    expect(portalSessionCall).not.toBeNull();
+    // Stays on the plans page (no navigation to the manage surface) and never
+    // touches the package/checkout endpoints.
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    expect(changePackageCall).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("dismissing the Free downgrade confirm doesn't open the portal", async () => {
+    const { findByRole, findByText, getByRole, queryByText } =
+      renderInteractive(proSuperSubscription());
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    await findByText("Downgrade to Free?");
+
+    // The confirm dialog's Cancel closes it without creating a portal session.
+    fireEvent.click(getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(queryByText("Downgrade to Free?")).toBeNull());
+    expect(portalSessionCall).toBeNull();
+    expect(openedUrl).toBeNull();
+  });
+
+  test("the Free downgrade confirm lists the Pro features being lost", async () => {
+    const plans = fullCatalog();
+    const pro = plans.plans.find((p) => p.id === "pro") as ProPlan;
+    // Base plan lists no features, so both Pro features are "lost".
+    pro.included_features = ["Managed email", "Custom domain"];
+    const { findByRole, findByText } = renderInteractive(
+      proSuperSubscription(),
+      { plans },
     );
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    await findByText("Downgrade to Free?");
+    await findByText("Managed email");
+    await findByText("Custom domain");
+  });
+
+  test("while the portal is opening, the other plan CTAs and Configure are disabled", async () => {
+    // Hold the portal-session request in flight so `portalMutation.isPending`
+    // stays true after the Free downgrade is confirmed.
+    portalSessionResolves = false;
+    const { findByRole, findByTestId } = renderInteractive(
+      proMightySubscription(),
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+
+    // The portal request is in flight and never settles: every other plan
+    // action is disabled so a second click can't start a competing billing
+    // operation before the redirect lands.
+    const goSuper = (await findByRole("button", {
+      name: "Go Super",
+    })) as HTMLButtonElement;
+    const configure = (await findByRole("button", {
+      name: "Configure",
+    })) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(goSuper.disabled).toBe(true);
+      expect(configure.disabled).toBe(true);
+    });
+
+    // The portal was actually initiated, and no competing action started.
+    expect(portalSessionCall).not.toBeNull();
     expect(changePackageCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });
@@ -730,7 +861,8 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
 
     await waitFor(() => expect(changePackageCall).not.toBeNull());
     expect(changePackageCall!.body).toEqual({ package: "mighty" });
-    await findByTestId("resize-takeover");
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
     expect(upgradeCall).toBeNull();
   });
 
@@ -749,13 +881,108 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
     expect(changePackageCall!.body).toEqual({ package: "mighty" });
   });
 
-  test("a Custom sub's Free card is a downgrade and no named card renders as current", () => {
+  test("a Custom sub's Free card is a downgrade and no named card is current", () => {
     const html = renderStatic(proCustomizedMightySubscription(), fullCatalog());
     // Pro → Free is always a downgrade.
     expect(html).toContain("Downgrade to Free");
     expect(html).not.toContain("Start Free");
-    // A Custom sub has no catalog rank, so no card is the current plan.
-    expect(count(html, /Current Plan/g)).toBe(0);
+    // A Custom sub has no catalog rank, so no named column card is its current
+    // plan. The Custom row's own current-plan tag is gated on the onboarding
+    // read, which a single-pass static render never resolves — the interactive
+    // "Custom row current-plan marker" suite covers that tag.
+    expect(html).not.toContain("Current Plan");
+  });
+});
+
+// A custom Pro sub (unpinned, customized, or legacy) is represented by the
+// Custom row, not any named card: the row is marked as their current plan and
+// summarizes the tiers they actually hold. Base and clean-pinned subs — whose
+// current plan IS a named card — see no marker on the Custom row.
+describe("PlansPage — Custom row current-plan marker", () => {
+  function proCustomizedWithCredits(): SubscriptionResponse {
+    return {
+      ...proMightySubscription(),
+      package: { key: "mighty", name: "Mighty", version: 1, customized: true },
+      selected_credit_tier: "credits_50",
+    };
+  }
+
+  // A legacy/unpinned Pro sub carries no package at all, so it too is a Custom
+  // sub represented by the Custom row rather than any named card.
+  function proUnpinnedWithCredits(): SubscriptionResponse {
+    return {
+      ...proMightySubscription(),
+      package: null,
+      selected_credit_tier: "credits_50",
+    };
+  }
+
+  test("a custom Pro sub sees the Custom row marked current with a tier summary", async () => {
+    // onboarding() supplies medium machine / 10 GB; the sub carries credits_50.
+    const { findByText } = renderInteractive(proCustomizedWithCredits(), {
+      plans: customCatalog(),
+    });
+
+    await findByText("Your Current Plan");
+    await findByText("Medium Machine · 10 GB · 50 credits");
+  });
+
+  test("a legacy/unpinned Pro sub sees the Custom row marked current with a tier summary", async () => {
+    // No package pin — the same Custom-row current marker as the customized case.
+    const { findByText } = renderInteractive(proUnpinnedWithCredits(), {
+      plans: customCatalog(),
+    });
+
+    await findByText("Your Current Plan");
+    await findByText("Medium Machine · 10 GB · 50 credits");
+  });
+
+  test("a custom sub holding a deprecated credit tier shows a derived credit label", async () => {
+    // credits_45 is a valid tier the sub holds but the catalog no longer lists,
+    // so the summary derives "45 credits" from the key instead of dropping it.
+    const { findByText } = renderInteractive(
+      { ...proCustomizedWithCredits(), selected_credit_tier: "credits_45" },
+      { plans: customCatalog() },
+    );
+
+    await findByText("Your Current Plan");
+    await findByText("Medium Machine · 10 GB · 45 credits");
+  });
+
+  test("a clean-pinned Pro sub sees no marker on the Custom row", async () => {
+    const { findByRole, queryByText } = renderInteractive(
+      proMightySubscription(),
+      { plans: customCatalog() },
+    );
+
+    // The body is mounted once the Configure CTA is present.
+    await findByRole("button", { name: "Configure" });
+    expect(queryByText("Your Current Plan")).toBeNull();
+  });
+
+  test("a base user sees no marker on the Custom row", async () => {
+    const { findByRole, queryByText } = renderInteractive(freeSubscription(), {
+      plans: customCatalog(),
+    });
+
+    await findByRole("button", { name: "Configure" });
+    expect(queryByText("Your Current Plan")).toBeNull();
+  });
+
+  test("a custom sub with no loaded current tiers shows no marker", async () => {
+    // When the onboarding read yields no provisioned storage (e.g. it errors),
+    // the row isn't marked current — no "Your Current Plan" tag next to a
+    // degraded summary.
+    const { findByRole, queryByText } = renderInteractive(
+      proCustomizedWithCredits(),
+      {
+        plans: customCatalog(),
+        onboardingData: onboarding({ selected_storage_gib: null }),
+      },
+    );
+
+    await findByRole("button", { name: "Configure" });
+    expect(queryByText("Your Current Plan")).toBeNull();
   });
 });
 
@@ -826,12 +1053,30 @@ function customCatalog(): PlanListResponse {
             credits_usd: 50,
             price_cents: 5000,
             lookup_key: "credits_50",
+            legacy: false,
           },
         ],
         packages: [MIGHTY, SUPER, ULTRA],
       },
     ],
   };
+}
+
+/**
+ * A catalog whose only 10 GB storage tier is legacy. A Pro sub sitting on it
+ * can't be represented by the (legacy-filtered) modal storage picker, yet
+ * Configure must still open the modal rather than bounce to the manage surface.
+ */
+function legacyStorageCatalog(): PlanListResponse {
+  const catalog = customCatalog();
+  const pro = catalog.plans.find((p) => p.id === "pro") as ProPlan;
+  // storage_tiers[0] is the 10 GB tier.
+  pro.storage_tiers[0] = {
+    ...pro.storage_tiers[0],
+    lookup_key: "storage_10_legacy",
+    legacy: true,
+  };
+  return catalog;
 }
 
 function openDropdown(ariaLabel: string): void {
@@ -902,24 +1147,85 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
 
     // A machine change resizes the assistant, so the takeover opens; checkout
     // (which no-ops for active Pro) is never touched.
-    await findByTestId("resize-takeover");
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
+    // The bundle changed alongside the machine, so it's threaded through too.
+    expect(takeoverResizeCredits).toBe("credits_50");
     expect(upgradeCall).toBeNull();
   });
 
-  test("an ineligible (cancelling) Pro sub's Configure routes to manage", async () => {
-    const { findByRole, getByTestId, queryByText } = renderInteractive(
+  test("a credits-only Continue opens the takeover, not just a toast", async () => {
+    // Current config is medium machine / 10 GB (xs) storage / no credits; change
+    // only the credit bundle.
+    const { findByRole, findByTestId } = renderInteractive(
+      proMightySubscription(),
+      { plans: customCatalog() },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    selectOption("Credit bundle", "50 credits");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(creditTierCall).not.toBeNull());
+    expect(creditTierCall!.body).toEqual({ credit_tier: "credits_50" });
+    // Machine and storage are unchanged, so no resource-tier request fires.
+    expect(machineTierCall).toBeNull();
+    expect(storageTierCall).toBeNull();
+
+    // A credit-only change owes no provisioning but still opens the takeover for
+    // a readable confirmation moment.
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
+    // The applied bundle is threaded through so the takeover can confirm it —
+    // the credit-only path never reaches the WAITING credits chip.
+    expect(takeoverResizeCredits).toBe("credits_50");
+    expect(upgradeCall).toBeNull();
+  });
+
+  // Configure always opens the in-place custom modal for a Pro sub, whatever the
+  // sub's eligibility or tier legacy status. An ineligible or legacy-tier sub
+  // that then tries to apply a change surfaces the backend's 4xx as a toast (the
+  // modal stays open) instead of being pre-emptively bounced to the manage
+  // surface.
+  test("an ineligible (cancelling) Pro sub's Configure opens the modal, not adjust_plan", async () => {
+    const { findByRole, getByTestId, getByText } = renderInteractive(
       { ...proMightySubscription(), cancel_at_period_end: true },
       { plans: customCatalog() },
     );
 
     fireEvent.click(await findByRole("button", { name: "Configure" }));
 
-    await waitFor(() =>
-      expect(getByTestId("loc").textContent).toBe(
-        "/assistant/settings/usage?tab=billing&adjust_plan",
-      ),
+    getByText("Create a custom plan");
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    expect(machineTierCall).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("a base user's Configure opens the custom modal (checkout path), not adjust_plan", async () => {
+    const { findByRole, getByTestId, getByText } = renderInteractive(
+      freeSubscription(),
+      { plans: customCatalog() },
     );
-    expect(queryByText("Create a custom plan")).toBeNull();
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    getByText("Create a custom plan");
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    // Checkout only fires once the modal's Continue is pressed.
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("a Pro sub on a legacy storage tier's Configure opens the modal, not adjust_plan", async () => {
+    const { findByRole, getByTestId, getByText } = renderInteractive(
+      proMightySubscription(),
+      { plans: legacyStorageCatalog() },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    getByText("Create a custom plan");
+    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(machineTierCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });

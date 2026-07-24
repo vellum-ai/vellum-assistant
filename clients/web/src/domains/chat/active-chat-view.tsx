@@ -73,6 +73,7 @@ const AddCreditsModal = lazy(() =>
     default: m.AddCreditsModal,
   })),
 );
+
 const DeployDialogs = lazy(() =>
   import("@/components/deploy-dialogs").then((m) => ({
     default: m.DeployDialogs,
@@ -108,10 +109,9 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   // Local state (not store-backed)
   // -------------------------------------------------------------------------
-  const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
-
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
+  const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
 
   // -------------------------------------------------------------------------
   // Zustand store selectors
@@ -158,7 +158,7 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const {
     didOnboarding,
-    onboardingTasksEmpty,
+    onboardingChoiceEligible,
     onboardingConversationId,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
@@ -543,8 +543,8 @@ export function ActiveChatView() {
     diskPressure,
 
     // Upward signals
-    setShowAddCreditsModal,
     setRefreshEpoch,
+    setShowAddCreditsModal,
 
     // Shared refs
     inputRef,
@@ -554,7 +554,7 @@ export function ActiveChatView() {
     uiContextRef,
 
     // Onboarding
-    onboardingTasksEmpty,
+    onboardingChoiceEligible,
     didOnboarding,
     onboardingConversationId,
   };
@@ -562,6 +562,7 @@ export function ActiveChatView() {
   return (
     <>
       <ChatContentLayout {...chatRouteProps} />
+
       {showAddCreditsModal ? (
         <LazyBoundary>
           <AddCreditsModal

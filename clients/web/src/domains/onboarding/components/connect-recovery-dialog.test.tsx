@@ -4,7 +4,7 @@
  * The component composes `@vellumai/design-library`'s `Modal` and
  * `ConfirmDialog` (Radix Dialog under the hood), mounted via
  * `@testing-library/react` on happy-dom — same approach as
- * `rename-conversation-dialog.test.tsx`. The real library components are
+ * `name-input-dialog.test.tsx`. The real library components are
  * rendered so the destructive styling and `isPending` behavior asserted
  * here are the actual shipped behavior, not a mock's.
  *

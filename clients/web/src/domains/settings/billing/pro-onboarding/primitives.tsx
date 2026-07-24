@@ -1,6 +1,5 @@
 import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ArrowRight } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -77,63 +76,6 @@ export function IconBadge({ icon: Icon }: { icon: LucideIcon }) {
         aria-hidden="true"
       />
     </span>
-  );
-}
-
-export function ResourceCard({
-  icon: Icon,
-  label,
-  from,
-  fromDetail,
-  to,
-  toDetail,
-}: {
-  icon: LucideIcon;
-  label: string;
-  from: string;
-  fromDetail?: string;
-  to: string;
-  toDetail?: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-lg bg-[var(--surface-base)] p-3">
-      <span
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-        style={{
-          backgroundColor: "color-mix(in oklab, var(--system-positive-strong) 10%, transparent)",
-        }}
-      >
-        <Icon className="h-4 w-4 text-[var(--system-positive-strong)]" />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="text-label-small-default text-[var(--content-tertiary)]">
-          {label}
-        </span>
-        <div className="flex items-center gap-2">
-          <div className="flex flex-col">
-            <span className="text-label-medium-default text-[var(--content-tertiary)] line-through">
-              {from}
-            </span>
-            {fromDetail && (
-              <span className="text-label-small-default text-[var(--content-tertiary)] line-through">
-                {fromDetail}
-              </span>
-            )}
-          </div>
-          <ArrowRight className="h-3 w-3 shrink-0 text-[var(--content-tertiary)]" />
-          <div className="flex flex-col">
-            <span className="text-label-medium-default text-[var(--content-default)]">
-              {to}
-            </span>
-            {toDetail && (
-              <span className="text-label-small-default text-[var(--content-tertiary)]">
-                {toDetail}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 

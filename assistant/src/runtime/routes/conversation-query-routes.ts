@@ -2041,15 +2041,26 @@ async function handleGetLlmRequestLogContext({
   return normalizeLlmContextLog(log);
 }
 
-function handleDeleteQueuedMessage({
+function resolveQueuedMessageConversationId({
   queryParams = {},
-  pathParams = {},
-}: RouteHandlerArgs) {
-  const conversationId = queryParams.conversationId;
+  body,
+  headers = {},
+}: RouteHandlerArgs): string | undefined {
+  const bodyConversationId = body?.conversationId;
+  const conversationId =
+    queryParams.conversationId ??
+    (typeof bodyConversationId === "string" ? bodyConversationId : undefined) ??
+    headers["x-vellum-conversation-id"];
+  return typeof conversationId === "string" && conversationId.length > 0
+    ? conversationId
+    : undefined;
+}
+
+function handleDeleteQueuedMessage(args: RouteHandlerArgs) {
+  const { pathParams = {} } = args;
+  const conversationId = resolveQueuedMessageConversationId(args);
   if (!conversationId) {
-    throw new BadRequestError(
-      "Missing required query parameter: conversationId",
-    );
+    throw new BadRequestError("Missing required parameter: conversationId");
   }
   const result = deleteQueuedMessage(conversationId, pathParams.id ?? "");
   if (result.removed) {
@@ -2061,17 +2072,10 @@ function handleDeleteQueuedMessage({
   throw new NotFoundError("Queued message not found");
 }
 
-function handleSteerToMessage({
-  queryParams = {},
-  pathParams = {},
-  body,
-}: RouteHandlerArgs) {
-  const conversationId =
-    queryParams.conversationId ??
-    (body && typeof body === "object" && "conversationId" in body
-      ? (body as Record<string, unknown>).conversationId
-      : undefined);
-  if (!conversationId || typeof conversationId !== "string") {
+function handleSteerToMessage(args: RouteHandlerArgs) {
+  const { pathParams = {} } = args;
+  const conversationId = resolveQueuedMessageConversationId(args);
+  if (!conversationId) {
     throw new BadRequestError("Missing required parameter: conversationId");
   }
   const result = steerToMessage(conversationId, pathParams.id ?? "");

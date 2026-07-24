@@ -10,6 +10,7 @@ import { v4 as uuid } from "uuid";
 
 import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import type { SlackInboundMessageMetadata } from "../runtime/http-types.js";
 import { parseJsonSafe } from "../util/json.js";
 import { isPlainObject } from "../util/object.js";
 import { selectSlackMetaCandidateMetadata } from "./conversation-crud.js";
@@ -37,6 +38,13 @@ export interface RecordInboundOptions {
 const SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE = 50;
 const SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN = 500;
 
+/**
+ * Channels where an inbound thread id scopes the conversation: a Slack thread
+ * or a Telegram private-chat topic each maps to its own conversation. A
+ * message without a thread id always resolves to the chat-level base key.
+ */
+const THREAD_SCOPED_CHANNELS = new Set(["slack", "telegram"]);
+
 function buildScopedConversationKeyForAssistant(
   assistantId: string,
   sourceChannel: string,
@@ -44,7 +52,7 @@ function buildScopedConversationKeyForAssistant(
   sourceThreadId?: string | null,
 ): string {
   const threadId = sourceThreadId?.trim();
-  if (sourceChannel === "slack" && threadId) {
+  if (THREAD_SCOPED_CHANNELS.has(sourceChannel) && threadId) {
     return `asst:${assistantId}:${sourceChannel}:${externalChatId}:thread:${threadId}`;
   }
   return `asst:${assistantId}:${sourceChannel}:${externalChatId}`;
@@ -103,7 +111,9 @@ function legacySlackConversationHasThreadEvidence(
       { includeFlatLegacy: true },
     );
 
-    if (metadataRows.length === 0) return false;
+    if (metadataRows.length === 0) {
+      return false;
+    }
     for (const metadata of metadataRows) {
       const slackMeta = readSlackMetadataFromMessageMetadata(metadata, {
         allowFlatLegacy: true,
@@ -116,7 +126,9 @@ function legacySlackConversationHasThreadEvidence(
       }
     }
 
-    if (metadataRows.length < batchLimit) return false;
+    if (metadataRows.length < batchLimit) {
+      return false;
+    }
     offset += metadataRows.length;
   }
 
@@ -137,6 +149,11 @@ function resolveInboundConversation(
   );
 
   const threadId = sourceThreadId?.trim();
+  // Flat→threaded aliasing applies only to Slack: a Slack thread may continue
+  // a conversation that lives on the flat channel key, so the alias path below
+  // checks for that evidence before minting a threaded conversation. Every
+  // other thread-scoped channel (Telegram topics) has no flat-key aliasing —
+  // a thread id always resolves the threaded key directly.
   if (sourceChannel !== "slack" || !threadId) {
     return getOrCreateConversation(threadedKey);
   }
@@ -296,7 +313,9 @@ export function findMessageBySourceId(
     )
     .get();
 
-  if (!row || !row.messageId) return null;
+  if (!row || !row.messageId) {
+    return null;
+  }
   return { messageId: row.messageId, conversationId: row.conversationId };
 }
 
@@ -424,6 +443,23 @@ export function storeReplyMessageId(
  */
 export function storeStreamedReplyTs(eventId: string, streamTs: string): void {
   mergeRawPayload(eventId, { slackStreamMessageTs: streamTs });
+}
+
+/**
+ * Persist the Slack inbound metadata captured at ingress onto the stored
+ * payload, so the retry sweep replays the turn with the SAME `slackInbound` the
+ * live path used rather than reconstructing a partial one. This keeps the
+ * derived idempotency key (`deriveIngressIdempotencyKey`) byte-identical across
+ * the live and replay paths — so a replay of an already-persisted turn dedups —
+ * and carries full `slackMeta` onto the replayed message row. No-ops when the
+ * payload was cleared (e.g. a secret-bearing ingress), so cleared secrets are
+ * never resurrected.
+ */
+export function storeInboundSlackMetadata(
+  eventId: string,
+  slackInbound: SlackInboundMessageMetadata,
+): void {
+  mergeRawPayload(eventId, { slackInbound });
 }
 
 /**

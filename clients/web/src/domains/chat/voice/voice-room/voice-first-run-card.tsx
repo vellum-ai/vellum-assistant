@@ -1,15 +1,15 @@
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 
 import { ArrowLeft, AudioLines, Captions, MicOff, Settings } from "lucide-react";
 
-import { cn } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import type { ProviderFormSaveHandle } from "@/components/service-form-controls";
-import { SttProviderForm } from "@/components/speech/stt-provider-form";
-import { TtsProviderForm } from "@/components/speech/tts-provider-form";
+import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
+import { VoiceList } from "@/components/speech/voice-list";
+import { VoiceProvidersNote } from "@/components/speech/voice-providers-note";
+import { MANAGED_VOICE_CREDITS_NOTE } from "@/lib/tts/managed-voice-catalog";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
@@ -24,17 +24,19 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  * before the user has ever experienced voice mode is the wrong moment. The card
  * just sets expectations and starts.
  *
- * The one exception is the voice settings behind the footer link: the speech
- * providers, the assistant's voice, and API keys for users running voice on
- * their own providers. It lives here because it gates whether voice works at
- * all. The label names a destination rather than an action — the defaults work
- * untouched, and a link reading like a task would imply setup is owed. Quiet by
- * design so it never competes with "Start talking".
+ * The one exception is the voice settings behind the footer link: the
+ * assistant's voice, the one thing most people come here to change. It hides
+ * itself for assistants on a bring-your-own provider, whose full config
+ * (providers, transcription, keys) lives in Settings → Models & Services — a
+ * quiet link points there. The label names a destination rather than an action:
+ * the defaults work untouched, and a link reading like a task would imply setup
+ * is owed. Quiet by design so it never competes with "Start talking".
  *
  * Those settings are a **view within this one modal**, not a modal stacked on
- * it: entering swaps the card's header, body, and footer, and a back arrow
- * returns to the intro. Width is held constant across views so navigating
- * doesn't resize the dialog under the cursor.
+ * it: entering swaps the card's header and body, and a back arrow returns to the
+ * intro. The voice hot-applies on the next reply, so there's no Save. Width is
+ * held constant across views so navigating doesn't resize the dialog under the
+ * cursor.
  *
  * The card does NOT persist `firstRunSeen` itself: dismissing it (Escape /
  * backdrop / ✕) is a plain cancel and must leave the first run un-consumed so
@@ -93,25 +95,6 @@ export function VoiceFirstRunCard({
   const [view, setView] = useState<FirstRunView>("intro");
   const backToIntro = () => setView("intro");
 
-  // One Save commits both provider forms. Each publishes its own state here;
-  // the footer button derives from the pair and only the dirty ones are
-  // written, so saving a key for one service doesn't touch the other.
-  const [sttSave, setSttSave] = useState<ProviderFormSaveHandle | null>(null);
-  const [ttsSave, setTtsSave] = useState<ProviderFormSaveHandle | null>(null);
-  const keysDirty = !!sttSave?.hasChanges || !!ttsSave?.hasChanges;
-  const keysSaving = !!sttSave?.saving || !!ttsSave?.saving;
-  const saveKeys = async () => {
-    const results = await Promise.all([
-      ttsSave?.hasChanges ? ttsSave.save() : Promise.resolve(true),
-      sttSave?.hasChanges ? sttSave.save() : Promise.resolve(true),
-    ]);
-    // Only leave on a clean save — a rejected key has to stay on screen with
-    // the failure toast, not vanish behind the intro.
-    if (results.every(Boolean)) {
-      backToIntro();
-    }
-  };
-
   return (
     <Modal.Root
       open
@@ -129,7 +112,7 @@ export function VoiceFirstRunCard({
         size="sm"
         // Held constant across views: a sub-view that resized the dialog would
         // shift the back arrow and ✕ out from under the pointer.
-        className="max-w-[440px]"
+        className="max-w-[520px]"
         // iOS lock: strip the ✕, the backdrop-tap dismiss, and Escape so the
         // only way forward is "Start talking" → the mic alert.
         hideCloseButton={nonDismissible}
@@ -229,51 +212,11 @@ export function VoiceFirstRunCard({
         )}
 
         {view === "settings" && (
-          <>
-            <Modal.Header>
-              <div className="flex items-center gap-2">
-                <BackButton onClick={backToIntro} />
-                <Modal.Title className="leading-tight">Voice settings</Modal.Title>
-              </div>
-            </Modal.Header>
-            <Modal.Body className="space-y-6">
-              {/* The same forms Settings → AI renders, minus that page's card
-                  chrome and its per-card Save — the footer commits both. Copy
-                  matches Settings → Services so the two read as one surface. */}
-              <ProviderSection
-                title="Text-to-Speech"
-                subtitle="Configure how your assistant speaks"
-              >
-                <TtsProviderForm
-                  assistantId={assistantId ?? undefined}
-                  hideSaveButton
-                  hideCredentialsGuide
-                  onSaveStateChange={setTtsSave}
-                />
-              </ProviderSection>
-              <ProviderSection
-                title="Speech-to-Text"
-                subtitle="Configure how your assistant transcribes speech"
-                divided
-              >
-                <SttProviderForm
-                  assistantId={assistantId ?? undefined}
-                  hideSaveButton
-                  hideCredentialsGuide
-                  onSaveStateChange={setSttSave}
-                />
-              </ProviderSection>
-            </Modal.Body>
-            <Modal.Footer>
-              <Button
-                variant="primary"
-                onClick={saveKeys}
-                disabled={!keysDirty || keysSaving}
-              >
-                {keysSaving ? "Saving…" : "Save"}
-              </Button>
-            </Modal.Footer>
-          </>
+          <VoiceSettingsView
+            assistantId={assistantId}
+            onStart={onStart}
+            onBack={backToIntro}
+          />
         )}
       </Modal.Content>
     </Modal.Root>
@@ -281,45 +224,69 @@ export function VoiceFirstRunCard({
 }
 
 /**
- * One titled provider block in the settings view — the modal-scale echo of a
- * Settings → Services card, sharing its title and subtitle copy so the two
- * surfaces read as one. The subtitle sits on the title's line behind a rule,
- * keeping each block one row tall so both services fit without scrolling.
- * `divided` rules off the block from the one above it.
+ * The "Voices" view reached from the intro's "Voice settings" link: pick the
+ * assistant's voice, then start. Split into its own component so the managed-
+ * voice query runs only when this view is open — not on the intro (which would
+ * pull the React Query graph into every first-run render).
  */
-function ProviderSection({
-  title,
-  subtitle,
-  divided = false,
-  children,
+function VoiceSettingsView({
+  assistantId,
+  onStart,
+  onBack,
 }: {
-  title: string;
-  subtitle: string;
-  divided?: boolean;
-  children: ReactNode;
+  assistantId: string | null;
+  onStart: () => void;
+  onBack: () => void;
 }) {
+  // Own the selection here (rather than let the list self-commit) so the write's
+  // in-flight state can gate Start: the picker reports a pick via `onChange`, and
+  // `selecting` stays true until the config patch and refetch settle. Managed
+  // assistants also get the credits subtitle; BYO ones see no catalog (the footer
+  // note is their path), so the Vellum-credits line wouldn't apply.
+  const { available, currentModel, selectModel, selecting } =
+    useManagedVoiceSelection(assistantId);
+
   return (
-    <section
-      className={cn(
-        "space-y-3",
-        divided && "border-t border-[var(--border-subtle)] pt-5",
-      )}
-    >
-      {/* Wraps rather than truncates: the subtitle dropping to its own line on
-          a narrow viewport is better than losing the end of the sentence. */}
-      <div className="flex flex-wrap items-baseline gap-x-2">
-        <h3 className="text-body-medium-default text-[var(--content-emphasised)]">
-          {title}
-        </h3>
-        <span aria-hidden className="text-[var(--content-quiet)]">
-          |
-        </span>
-        <p className="text-label-small-default text-[var(--content-tertiary)]">
-          {subtitle}
-        </p>
-      </div>
-      {children}
-    </section>
+    <>
+      <Modal.Header>
+        <div className="flex items-center gap-2">
+          <BackButton onClick={onBack} />
+          <div className="flex min-w-0 flex-col">
+            <Modal.Title className="leading-tight">Voices</Modal.Title>
+            {available && (
+              <Modal.Description>{MANAGED_VOICE_CREDITS_NOTE}</Modal.Description>
+            )}
+          </div>
+        </div>
+      </Modal.Header>
+      <Modal.Body>
+        {/* Just the voice — the one thing most people come here to change, and
+            it hot-applies on the next reply (no Save). A provider dropdown
+            scopes the list; it hides itself for assistants on a bring-your-own
+            provider, leaving the footer note as their path. */}
+        <VoiceList
+          assistantId={assistantId}
+          filterBySource
+          value={currentModel}
+          onChange={selectModel}
+        />
+      </Modal.Body>
+      {/* Mirrors the intro footer (fine print left, primary right) and is always
+          present, so the picker flows straight into the session without a size
+          change when a voice is chosen. Start waits out an in-flight voice write
+          so the session can't open on the previous voice. */}
+      <Modal.Footer className="items-center justify-between gap-3">
+        <VoiceProvidersNote />
+        <Button
+          variant="primary"
+          onClick={onStart}
+          disabled={selecting}
+          className="shrink-0"
+        >
+          Start talking
+        </Button>
+      </Modal.Footer>
+    </>
   );
 }
 

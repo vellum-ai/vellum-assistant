@@ -27,7 +27,6 @@ import {
   ESCALATION_CONTINUATION_CONTENT,
   FALLBACK_ESCALATION_BRIDGE,
   isEscalationBridgeComplete,
-  isVoiceTriageEscalateEnabled,
   MIN_SPOKEN_BRIDGE_CHARS,
   type VoiceRoutingLeg,
 } from "../calls/voice-triage-escalate.js";
@@ -1759,18 +1758,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
-   * Whether front-door routing is active: the voice-mode surface flag and
-   * the triage-escalate routing flag both on. Governs both halves of the
-   * unified front door — the speculative leg that decides the endpoint, and
-   * the escalation hand-off — so the two can never disagree. The
-   * decider-based hold path runs only when this is false.
+   * Whether front-door routing is active: the single `voice-mode` flag.
+   * Governs both halves of the unified front door — the speculative leg that
+   * decides the endpoint, and the escalation hand-off — so the two can never
+   * disagree. The decider-based hold path (`decideEndpoint`) runs as the
+   * flag-off fallback, so endpointing stays model-decided either way.
    */
   private frontDoorRoutingActive(config?: AssistantConfig): boolean {
     const cfg = config ?? getConfig();
-    return (
-      isAssistantFeatureFlagEnabled("voice-mode", cfg) &&
-      isVoiceTriageEscalateEnabled(cfg)
-    );
+    return isAssistantFeatureFlagEnabled("voice-mode", cfg);
   }
 
   /**
@@ -2661,10 +2657,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.armProgressIdleTimer(activeTurn);
     }
 
-    // Triage-and-escalate (Voice Mode): active only when BOTH the voice-mode
-    // surface flag and the voice-triage-escalate routing flag are on. A
-    // live-voice session already implies voice-mode client-side; the explicit
-    // check keeps the "gated behind both flags" contract true server-side.
+    // Triage-and-escalate (Voice Mode): active whenever the `voice-mode` flag
+    // is on. A live-voice session already implies voice-mode client-side; the
+    // explicit server-side check keeps the gate honest when the daemon's flag
+    // copy lags (it falls back to the decider-based hold path until it lands).
     const escalateEnabled = this.frontDoorRoutingActive(cfg);
 
     // Front-door leg: with routing on, a fast model fronts the turn (the

@@ -55,6 +55,21 @@ export async function POST(request: Request, context): Promise<Response> {
 
 A handler may also reach other Assistant capabilities through its `@vellumai/plugin-api` imports, the same as any other surface.
 
+## Calling a route from an app frontend
+
+A plugin [app](apps.md) that backs its data with the plugin's own routes must reach them through the `window.vellum.fetch` bridge — **never the global `fetch`**. An app runs in a sandboxed origin, so a raw `fetch` carries no gateway URL and no auth headers and the request fails; `window.vellum.fetch` injects both and routes the call to the Assistant runtime.
+
+Call the route at the same path it is served — `/x/plugins/<name>/<path>`. The wrapper prepends the `/v1` API prefix for you, so you never write it:
+
+```ts
+// inside apps/<app>/src — calling this plugin's own status route
+const res = await window.vellum.fetch("/x/plugins/my-plugin/status");
+if (!res.ok) throw new Error(`HTTP ${res.status}`);
+const data = await res.json();
+```
+
+Webhooks and other external callers reach the same route over plain HTTP; the `window.vellum.fetch` rule is specific to an app frontend's sandboxed origin. The bridge itself (`fetch`, `asset`, `subscribe`, `sendAction`) is owned by the **app-builder** skill.
+
 ## Loading and lifecycle
 
 Route files are loaded lazily on the first matching request and cached by path + mtime. Editing a route file is picked up on the next request — the dispatcher re-reads it when its mtime changes, so there is no restart or reload step. A handler that throws returns 500; a handler that runs longer than the per-request timeout (30s) returns 504.
