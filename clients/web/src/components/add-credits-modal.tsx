@@ -1,4 +1,3 @@
-
 import { AlertCircle, ChevronRight, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
@@ -6,8 +5,8 @@ import { Link, useLocation, useSearchParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-    organizationsBillingSummaryRetrieveOptions,
-    organizationsBillingTopUpsCheckoutSessionCreateMutation,
+  organizationsBillingSummaryRetrieveOptions,
+  organizationsBillingTopUpsCheckoutSessionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { routes } from "@/utils/routes";
@@ -16,8 +15,16 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 const DEFAULT_TOP_UP_AMOUNTS: [string, ...string[]] = [
-  "10.00", "20.00", "30.00", "40.00", "50.00",
-  "60.00", "70.00", "80.00", "90.00", "100.00",
+  "10.00",
+  "20.00",
+  "30.00",
+  "40.00",
+  "50.00",
+  "60.00",
+  "70.00",
+  "80.00",
+  "90.00",
+  "100.00",
 ];
 
 function formatCredits(value: string): string {
@@ -49,9 +56,26 @@ function extractCheckoutError(error: unknown): string {
 interface AddCreditsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * The top-up flow returned from the external checkout browser. Fires on
+   * cancel as well as success — the outcome isn't observable from here, only
+   * that the user is back — so callers must treat it as "re-check billing
+   * state", not "payment succeeded".
+   *
+   * Exists because on the native/Electron path the app state survives checkout:
+   * anything a caller latched off the *old* balance (e.g. a surface disabled
+   * because credits ran out) would otherwise stay stale until something else
+   * happened to clear it. On web, checkout navigates away and the app remounts
+   * fresh, so there is nothing to reconcile.
+   */
+  onCheckoutReturn?: () => void;
 }
 
-export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
+export function AddCreditsModal({
+  open,
+  onOpenChange,
+  onCheckoutReturn,
+}: AddCreditsModalProps) {
   const queryClient = useQueryClient();
   const { pathname } = useLocation();
   const [searchParams] = useSearchParams();
@@ -63,16 +87,15 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
     organizationsBillingSummaryRetrieveOptions(),
   );
 
-  const topUpAmounts =
-    summary?.allowed_top_up_amounts?.length
-      ? summary.allowed_top_up_amounts
-      : DEFAULT_TOP_UP_AMOUNTS;
+  const topUpAmounts = summary?.allowed_top_up_amounts?.length
+    ? summary.allowed_top_up_amounts
+    : DEFAULT_TOP_UP_AMOUNTS;
 
   const [selectedAmount, setSelectedAmount] = useState<string | null>(null);
   const amount =
     selectedAmount && topUpAmounts.includes(selectedAmount)
       ? selectedAmount
-      : topUpAmounts[0] ?? DEFAULT_TOP_UP_AMOUNTS[0];
+      : (topUpAmounts[0] ?? DEFAULT_TOP_UP_AMOUNTS[0]);
 
   const checkoutMutation = useMutation(
     organizationsBillingTopUpsCheckoutSessionCreateMutation(),
@@ -88,8 +111,9 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
       void queryClient.invalidateQueries(
         organizationsBillingSummaryRetrieveOptions(),
       );
+      onCheckoutReturn?.();
     });
-  }, [onOpenChange, queryClient]);
+  }, [onOpenChange, queryClient, onCheckoutReturn]);
 
   const handleAddFunds = () => {
     if (checkoutMutation.isPending) {

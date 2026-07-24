@@ -7,14 +7,7 @@
  * listeners) live here so they don't execute during non-active states.
  */
 
-import {
-  lazy,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
@@ -33,6 +26,7 @@ import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { getChatBillingBannerDecision } from "@/domains/chat/utils/error-classification";
 
 import { peekPendingPreChatContext } from "@/domains/onboarding/prechat";
 
@@ -97,7 +91,9 @@ import type { ChatMainPanelProps } from "@/domains/chat/components/chat-route-co
 export function ActiveChatView() {
   const showLlmInspector = useCanUseLlmInspector();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
+  const { conversationId: urlConversationId } = useParams<{
+    conversationId?: string;
+  }>();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const turnPhase = useTurnStore.use.phase();
@@ -112,6 +108,20 @@ export function ActiveChatView() {
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
   const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
+
+  // Returning from checkout invalidates the billing queries, but the chat error
+  // that raised the paywall is client state and would survive — leaving the
+  // billing banner painted and voice entry disabled against a balance that may
+  // now be fine. Drop it and let the next turn re-raise the wall if it is still
+  // there; a stale block is worse than one wasted turn. Only billing errors are
+  // cleared, so an unrelated error under the modal is left alone.
+  const clearBillingChatError = useCallback(() => {
+    useChatSessionStore
+      .getState()
+      .setError((prev) =>
+        getChatBillingBannerDecision(prev) !== null ? null : prev,
+      );
+  }, []);
 
   // -------------------------------------------------------------------------
   // Zustand store selectors
@@ -131,12 +141,14 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   // Pin-sync side-effect
   // -------------------------------------------------------------------------
-  useActiveAppPinSync(useCallback((appId: string) => {
-    const didClose = useViewerStore.getState().handleAppUnpinned(appId);
-    if (didClose) {
-      useConversationStore.getState().setEditingConversationId(null);
-    }
-  }, []));
+  useActiveAppPinSync(
+    useCallback((appId: string) => {
+      const didClose = useViewerStore.getState().handleAppUnpinned(appId);
+      if (didClose) {
+        useConversationStore.getState().setEditingConversationId(null);
+      }
+    }, []),
+  );
 
   // -------------------------------------------------------------------------
   // Shared refs — owned here, read/written by hooks
@@ -169,7 +181,7 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const reachability = useAssistantReachability(assistantId);
   const reachabilityReadyEpoch = useMemo(() => {
-    if (reachability.state.phase === "ready") return refreshEpoch + 1;
+    if (reachability.state.phase === "ready") {return refreshEpoch + 1;}
     return 0;
   }, [reachability.state.phase, refreshEpoch]);
 
@@ -264,7 +276,8 @@ export function ActiveChatView() {
     assistantStateKind: assistantState.kind,
     activeConversationId,
     conversationExistsOnServer,
-    latestPageOldestTimestamp: historyResult.pagination.latestPageOldestTimestamp,
+    latestPageOldestTimestamp:
+      historyResult.pagination.latestPageOldestTimestamp,
     reachability,
     setAssetsRefreshKey,
   });
@@ -301,7 +314,8 @@ export function ActiveChatView() {
     sendMessage,
     reachabilityPhase: reachability.state.phase,
     reachabilityProbe: reachability.probe,
-    getPendingInitialMessage: () => peekPendingPreChatContext()?.initialMessage ?? undefined,
+    getPendingInitialMessage: () =>
+      peekPendingPreChatContext()?.initialMessage ?? undefined,
     getPendingInitialMessageHidden: () =>
       peekPendingPreChatContext()?.initialMessageHidden === true,
   });
@@ -325,7 +339,7 @@ export function ActiveChatView() {
   });
 
   useEffect(() => {
-    if (reachability.state.phase !== "failed") return;
+    if (reachability.state.phase !== "failed") {return;}
     useChatSessionStore.getState().setError({
       message: "Connection lost. Please try again.",
     });
@@ -337,8 +351,8 @@ export function ActiveChatView() {
   const pendingFollowupMessage =
     useOnboardingFocusStore.use.pendingFollowupMessage();
   useEffect(() => {
-    if (!pendingFollowupMessage) return;
-    if (isSending(useTurnStore.getState().phase)) return;
+    if (!pendingFollowupMessage) {return;}
+    if (isSending(useTurnStore.getState().phase)) {return;}
     useOnboardingFocusStore.getState().clearFollowup();
     void sendMessage(pendingFollowupMessage);
   }, [pendingFollowupMessage, sendMessage]);
@@ -362,7 +376,7 @@ export function ActiveChatView() {
       lifecycleService.clearExpectingFirstMessage();
       return;
     }
-    if (isSending(useTurnStore.getState().phase)) return;
+    if (isSending(useTurnStore.getState().phase)) {return;}
     lifecycleService.markExpectingFirstMessage();
     void sendMessage(message);
   }, [sendMessage]);
@@ -421,14 +435,15 @@ export function ActiveChatView() {
   // `onSummarizeUpToHere`, so the hover button never renders and the dialog
   // is unreachable.
   const supportsSummarizeUpToHere = useSupportsSummarizeUpToHere();
-  const [pendingSummarizeMessageId, setPendingSummarizeMessageId] =
-    useState<string | null>(null);
+  const [pendingSummarizeMessageId, setPendingSummarizeMessageId] = useState<
+    string | null
+  >(null);
   const [summarizePending, setSummarizePending] = useState(false);
   const handleSummarizeUpToHere = useCallback((messageId: string) => {
     setPendingSummarizeMessageId(messageId);
   }, []);
   const handleConfirmSummarize = useCallback(() => {
-    if (!pendingSummarizeMessageId) return;
+    if (!pendingSummarizeMessageId) {return;}
     setSummarizePending(true);
     // Errors toast inside the handler; the dialog just closes.
     void handleSummarizeUpToMessage(pendingSummarizeMessageId).finally(() => {
@@ -568,6 +583,7 @@ export function ActiveChatView() {
           <AddCreditsModal
             open={showAddCreditsModal}
             onOpenChange={setShowAddCreditsModal}
+            onCheckoutReturn={clearBillingChatError}
           />
         </LazyBoundary>
       ) : null}
