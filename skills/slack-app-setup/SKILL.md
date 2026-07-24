@@ -135,7 +135,14 @@ If identity was skipped → swap the last two lines for:
 
 **No tokens after creating the app.** Slack shows both under **Your app credentials** in the "your app is ready" modal, collapsed behind a toggle — expand it. If that panel is missing entirely, the app was created from a template (**AI agent**, **Starter app**, **Blank app**) rather than **From a manifest**; scopes will be wrong too, so start over from Step 1. Do not hand-edit scopes.
 
-**Wizard warns that Slack didn't grant every permission.** Slack sometimes installs an app with a fraction of the requested scopes even though the token authenticates fine. The wizard detects this and offers a **Reinstall in Slack** link — reinstalling re-grants the scopes to the same token, so no new tokens are needed. This is distinct from the note about declined optional permissions, which reports a choice the workspace made and needs no action.
+**Calls fail with `missing_scope` even though setup succeeded.** Slack sometimes installs an app carrying only a fraction of the manifest's scopes — a live install produced 2 of 18. `auth.test` still passes, so a green connection check does not prove the scopes arrived. Confirm by reading the `x-oauth-scopes` response header on any Slack API call and comparing it against the scopes in the manifest.
+
+To fix, in this order:
+
+1. Open the app at <https://api.slack.com/apps>. Slack interrupts with a prompt to **update** the app — accept it. Reinstalling without this step does not restore the scopes.
+2. Go to **OAuth & Permissions → Reinstall to Workspace**.
+
+The same bot token then carries the full scope set — it is not rotated, so nothing needs re-entering in the wizard.
 
 ## Optional: add a User OAuth Token later
 

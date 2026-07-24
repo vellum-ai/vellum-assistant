@@ -1,16 +1,9 @@
 import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button, Input, Notice, Typography } from "@vellumai/design-library";
+import { Button, Input, Typography } from "@vellumai/design-library";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import {
-  buildSlackManifest,
-  SLACK_MANIFEST_BOT_SCOPES,
-} from "@/utils/slack-manifest";
-import {
-  probeSlackScopes,
-  type SlackScopeProbeResult,
-} from "@/utils/slack-scope-probe";
+import { buildSlackManifest } from "@/utils/slack-manifest";
 
 export type MutationStatus = "idle" | "pending" | "success" | "error";
 
@@ -55,11 +48,6 @@ export interface SlackSetupWizardProps {
   onSave?: (botToken: string, appToken: string) => void;
   saveStatus?: MutationStatus;
   saveError?: string | null;
-  /**
-   * Post-save scope check. Injectable so stories and tests can exercise the
-   * drift path without touching the live Slack API.
-   */
-  probeScopes?: (botToken: string) => Promise<SlackScopeProbeResult>;
 }
 
 /**
@@ -76,7 +64,6 @@ export function SlackSetupWizard({
   onSave,
   saveStatus = "idle",
   saveError = null,
-  probeScopes = probeSlackScopes,
 }: SlackSetupWizardProps) {
   const [slackAppName, setSlackAppName] = useState(assistantName);
   const [description, setDescription] = useState("");
@@ -131,38 +118,6 @@ export function SlackSetupWizard({
     onSave?.(botToken.trim(), appToken.trim());
   }, [canSave, onSave, botToken, appToken]);
 
-  const [scopeProbe, setScopeProbe] = useState<SlackScopeProbeResult | null>(
-    null,
-  );
-  const probedToken = useRef<string | null>(null);
-
-  // Slack's install flow can return a healthy-looking token carrying only a
-  // fraction of the requested scopes. Check once the credentials land, so the
-  // user fixes it with one reinstall instead of hitting dead features later.
-  // probeSlackScopes never rejects, so there's nothing to catch.
-  useEffect(() => {
-    if (saveStatus !== "success") {return;}
-    const token = botToken.trim();
-    if (!token || probedToken.current === token) {return;}
-    probedToken.current = token;
-
-    let cancelled = false;
-    let settled = false;
-    void probeScopes(token).then((result) => {
-      settled = true;
-      if (!cancelled) {setScopeProbe(result);}
-    });
-    return () => {
-      cancelled = true;
-      // Release the guard when this run delivered no result, so the next run
-      // probes again instead of honoring a reservation nothing fulfilled.
-      // Without this, any teardown between reserving the token and resolving
-      // (a remount, an effect re-run) permanently suppresses the drift card.
-      if (!settled && probedToken.current === token) {
-        probedToken.current = null;
-      }
-    };
-  }, [saveStatus, botToken, probeScopes]);
 
   return (
     <div data-slot="slack-setup-wizard">
@@ -221,6 +176,17 @@ export function SlackSetupWizard({
               <strong>Bot token</strong> and <strong>App token</strong>
             </li>
           </ol>
+
+          <Typography
+            as="p"
+            variant="body-small-default"
+            className="text-[color:var(--content-faint)]"
+          >
+            Slack&apos;s last screen also offers a command-line walkthrough and
+            a <strong>Download app files</strong> button. Skip both — they set
+            up a separate local app, and this assistant needs only the two
+            tokens.
+          </Typography>
 
           <div className="flex flex-wrap items-center gap-3">
             <Button
@@ -301,71 +267,13 @@ export function SlackSetupWizard({
           </div>
 
           {saveStatus === "success" && (
-            <>
-              <Typography
-                as="p"
-                variant="body-small-default"
-                className="text-[color:var(--content-positive)]"
-              >
-                Credentials saved.
-              </Typography>
-
-              {/* Only a missing mandatory scope is worth interrupting for.
-                  Optional ones were declined on Slack's consent screen, and
-                  reinstalling would replay that screen to the same answer. */}
-              {scopeProbe?.status === "incomplete" && (
-                <Notice
-                  tone="warning"
-                  title="Slack didn&rsquo;t grant every permission we asked for"
-                  actions={
-                    <Button
-                      type="button"
-                      variant="outlined"
-                      size="compact"
-                      onClick={() =>
-                        window.open(
-                          scopeProbe.reinstallUrl,
-                          "_blank",
-                          "noopener,noreferrer",
-                        )
-                      }
-                      rightIcon={<ExternalLink aria-hidden className="size-4" />}
-                    >
-                      Reinstall in Slack
-                    </Button>
-                  }
-                >
-                  <Typography as="p" variant="body-small-default">
-                    {scopeProbe.missingRequiredScopes.length} of{" "}
-                    {SLACK_MANIFEST_BOT_SCOPES.length} permissions are missing,
-                    so some features won&apos;t work. Reinstalling grants them
-                    to this same token — you won&apos;t need new ones.
-                  </Typography>
-                  <Typography
-                    as="p"
-                    variant="body-small-default"
-                    className="mt-2 font-mono text-[color:var(--content-faint)]"
-                  >
-                    Missing: {scopeProbe.missingRequiredScopes.join(", ")}
-                  </Typography>
-                </Notice>
-              )}
-
-              {scopeProbe?.status === "degraded" && (
-                <Typography
-                  as="p"
-                  variant="body-small-default"
-                  className="text-[color:var(--content-faint)]"
-                >
-                  Optional permissions you declined stay off:{" "}
-                  <span className="font-mono">
-                    {scopeProbe.missingScopes.join(", ")}
-                  </span>
-                  . Everything else is connected — grant them later from the
-                  app&apos;s settings in Slack if you change your mind.
-                </Typography>
-              )}
-            </>
+            <Typography
+              as="p"
+              variant="body-small-default"
+              className="text-[color:var(--content-positive)]"
+            >
+              Credentials saved.
+            </Typography>
           )}
           {saveStatus === "error" && saveError && (
             <Typography

@@ -1,10 +1,8 @@
 /**
  * Every bot scope the manifest requests.
  *
- * The scope-drift probe diffs against this full list, not just the mandatory
- * ones — a scope being declinable doesn't mean we stop wanting it. What the
- * probe does about a gap depends on which side of
- * {@link SLACK_MANIFEST_BOT_SCOPES_OPTIONAL} it falls on.
+ * {@link SLACK_MANIFEST_BOT_SCOPES_OPTIONAL} marks the subset a workspace may
+ * decline; everything here is requested either way.
  */
 export const SLACK_MANIFEST_BOT_SCOPES = [
   "app_mentions:read",
@@ -36,7 +34,7 @@ export const SLACK_MANIFEST_BOT_SCOPES = [
  * the complete request and `bot_optional` as the opt-out subset within it, so
  * a scope listed only here is never requested at all.
  */
-export const SLACK_MANIFEST_BOT_SCOPES_OPTIONAL = [
+const SLACK_MANIFEST_BOT_SCOPES_OPTIONAL = [
   "channels:join",
   "files:read",
   "files:write",
