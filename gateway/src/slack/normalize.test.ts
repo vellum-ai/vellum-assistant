@@ -1,14 +1,18 @@
 import { describe, it, expect } from "bun:test";
 import {
-  normalizeSlackBlockActions,
-  normalizeSlackReactionAdded,
-  normalizeSlackReactionRemoved,
   normalizeSlackDirectMessage,
   normalizeSlackChannelMessage,
   normalizeSlackAppMention,
+} from "./message-normalizer.js";
+import {
   normalizeSlackMessageEdit,
   normalizeSlackMessageDelete,
-} from "./normalize.js";
+} from "./message-change-normalizer.js";
+import { normalizeSlackBlockActions } from "./block-actions-normalizer.js";
+import {
+  normalizeSlackReactionAdded,
+  normalizeSlackReactionRemoved,
+} from "./reaction-normalizer.js";
 import { enrichNormalizedActor, slackBotContactNote } from "./actor.js";
 import type {
   SlackBlockActionsPayload,

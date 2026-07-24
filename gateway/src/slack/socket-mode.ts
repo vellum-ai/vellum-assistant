@@ -29,12 +29,16 @@ import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
   normalizeSlackChannelMessage,
+} from "./message-normalizer.js";
+import {
   normalizeSlackMessageEdit,
   normalizeSlackMessageDelete,
-  normalizeSlackBlockActions,
+} from "./message-change-normalizer.js";
+import { normalizeSlackBlockActions } from "./block-actions-normalizer.js";
+import {
   normalizeSlackReactionAdded,
   normalizeSlackReactionRemoved,
-} from "./normalize.js";
+} from "./reaction-normalizer.js";
 import { enrichNormalizedActor } from "./actor.js";
 import type {
   SlackAppMentionEvent,
