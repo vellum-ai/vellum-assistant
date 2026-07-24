@@ -476,7 +476,6 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       ? "upgrade"
       : "switch";
 
-  const currentCopy = getPlanTierCopy(currentTier);
   const isFreePlan = currentPlan.id === "base";
   // Chips render only for a paid plan whose stock package specs are known.
   // Free shows a minimal centered card (no chips); a clean pin absent from the
@@ -487,10 +486,6 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       ? (packages.find((p) => p.key === currentKey) ?? null)
       : null;
   const currentSpecs = currentPackage ? packageSpecs(currentPackage) : null;
-  // Tagline shows for a KNOWN plan (free, or a clean stock pin); hidden for a
-  // Custom/unknown sub whose real plan can't be named. (Note: this is gated on
-  // "known plan", NOT on having chips — free has no chips but a real tagline.)
-  const isKnownCurrentPlan = isFreePlan || isCleanPin(subscription.package);
 
   return (
     <Card padding="md">
@@ -531,24 +526,17 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             {display.actionLabel}
           </Button>
         </div>
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
           <PlanSpecCard
-            tone="light"
             tierKey={currentTier}
             name={planName}
             nameTestId="plan-card-name"
             className="lg:flex-[3]"
-            centered={isFreePlan}
             tag={
               <Tag className="bg-[var(--feed-digest-weak)] text-[var(--content-default)]">
-                Your Current Plan
+                Current Plan
               </Tag>
             }
-            // The tagline follows "known plan" (free, or a clean stock pin), not
-            // "has chips": free is centered with no chips but still shows its
-            // real tagline, while a Custom/unknown sub — whose real plan can't be
-            // named — hides it to avoid mislabeling a paid sub with stock copy.
-            tagline={isKnownCurrentPlan ? currentCopy?.tagline : undefined}
             specs={currentSpecs}
           />
           <RecommendedUpgrade
