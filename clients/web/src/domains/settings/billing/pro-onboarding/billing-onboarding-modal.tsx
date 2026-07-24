@@ -156,12 +156,11 @@ export function BillingOnboardingModal({
   const machineBusy = isMachineBusy(provisioning.state);
   const provisioningSettled = isSettled(provisioning.state);
 
-  // The lock and the close toast describe the screen the user is looking at, so
-  // they read the takeover's held phase rather than the live one. The steps
-  // after it keep tracking live provisioning: a resize backgrounded via the
-  // escape hatch has to unblock the domain step when it actually finishes.
+  // The lock describes the screen the user is looking at, so it reads the
+  // takeover's held phase rather than the live one. The steps after it keep
+  // tracking live provisioning: a resize backgrounded via the escape hatch has
+  // to unblock the domain step when it actually finishes.
   const onScreenPhase = displayedPhase ?? provisioning.state;
-  const onScreenBusy = isMachineBusy(onScreenPhase);
   const onScreenSettled = isSettled(onScreenPhase);
 
   const { targets, assistantId, domainSetupAvailable, onboardingSettled } =
@@ -288,10 +287,19 @@ export function BillingOnboardingModal({
     );
   }, [domainSetupAvailable, isResize, hasExistingDomain]);
 
+  // "Continue in the background" no longer advances the wizard while the
+  // machine is busy — it kicks the idempotent ensure-provisioned reconcile,
+  // toasts (error-aware), and closes the takeover so the user is handed back to
+  // the app rather than parked on the email/All-set steps mid-provisioning.
   const escapeProvisioning = useCallback(() => {
-    setFinishedInBackground(true);
-    advanceFromProvisioning();
-  }, [advanceFromProvisioning]);
+    provisioning.kickProvisioning();
+    toast.info(
+      provisioning.kickError != null
+        ? "We'll retry your upgrade in the background."
+        : "Your upgrade continues in the background.",
+    );
+    onClose();
+  }, [provisioning, onClose]);
 
   // Stalled recovery re-calls the idempotent, org-wide ensure-provisioned
   // reconcile — the same path the wizard fires on Pro confirmation. Its errors
@@ -308,27 +316,18 @@ export function BillingOnboardingModal({
     step === "provisioning" &&
     (provisioning.confirmError || provisioning.targetsError);
 
-  const handleClose = () => {
-    if (step === "provisioning" && !provisioningError && onScreenBusy) {
-      toast.info("Your upgrade continues in the background.");
-    }
-    onClose();
-  };
-
   // The live provisioning takeover is the user's first real touchpoint with the
   // flow; we lock it so an accidental backdrop click or Esc can't bail them out
-  // mid-provisioning. Sanctioned exits (escape hatch, stalled apply, timeout
+  // mid-provisioning. Sanctioned exits (the escape hatch and the timeout
   // actions) live inside the step content.
   const isTakeover = step === "provisioning" && !provisioningError;
 
   // Lock Esc/backdrop while provisioning is active. The takeover exposes no
-  // persistent close control, so two escape valves guarantee a hung routing
-  // refetch can't strand the user: terminal ready states unlock, and a busy
-  // state stuck past the escape grace with routing still hung unlocks to a plain
-  // background-dismiss (the in-content escape hatch needs routing to have settled).
-  const stuckAwaitingRouting =
-    onScreenBusy && provisioning.escapeEligible && !routingSettled;
-  const lockTakeover = isTakeover && !onScreenSettled && !stuckAwaitingRouting;
+  // persistent close control, but the in-content "Continue in the background"
+  // button becomes available the moment the escape window elapses (no longer
+  // gated on routing), so a hung routing refetch can't strand the user. Only a
+  // terminal ready state unlocks the backdrop itself.
+  const lockTakeover = isTakeover && !onScreenSettled;
 
   // Full-bleed dark content that fills the viewport for the takeover.
   const provisioningContentClass =
@@ -351,7 +350,7 @@ export function BillingOnboardingModal({
     <Modal.Root
       open={open}
       onOpenChange={(o) => {
-        if (!o) handleClose();
+        if (!o) onClose();
       }}
     >
       <Modal.Content
@@ -423,12 +422,10 @@ export function BillingOnboardingModal({
           celebrating={routingSettled}
           onCelebrationEnd={advanceFromProvisioning}
           assistantId={assistantId}
-          escapeAvailable={
-            machineBusy && routingSettled && provisioning.escapeEligible
-          }
+          escapeAvailable={machineBusy && provisioning.escapeEligible}
           onEscape={escapeProvisioning}
           onPhaseChange={setDisplayedPhase}
-          stalledAction={stalledAction}
+          kickError={provisioning.kickError}
           confirm={{
             onRetry: provisioning.retryConfirm,
             onGoToBilling: onClose,

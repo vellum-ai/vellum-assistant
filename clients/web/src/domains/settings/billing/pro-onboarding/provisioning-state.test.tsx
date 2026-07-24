@@ -83,7 +83,6 @@ function baseProps(
     onCelebrationEnd: () => {},
     escapeAvailable: false,
     onEscape: () => {},
-    stalledAction: { onApply: () => {}, pending: false, error: null },
     confirm: { onRetry: () => {}, onGoToBilling: () => {} },
     ...overrides,
   };
@@ -421,40 +420,62 @@ describe("done / not_applicable", () => {
 });
 
 describe("stalled", () => {
-  test("renders the stalled status, keeps the chips, and Apply & Restart invokes the callback", () => {
-    const onApply = mock(() => {});
-    const { getByText, getByTestId } = renderState({
+  test("with no captured error shows the honest taking-longer copy, chips, and the background button — never an Apply", () => {
+    const onEscape = mock(() => {});
+    const { getByText, queryByTestId, getByTestId } = renderState({
       state: "STALLED",
       targets: { machineSize: "large", storageGib: null },
       fromSnapshot: { machineSize: "small", storageGib: null },
-      stalledAction: { onApply, pending: false, error: null },
+      escapeAvailable: true,
+      onEscape,
     });
 
-    expect(getByText("We couldn't finish this automatically")).toBeTruthy();
-    expect(
-      getByText("Apply the changes below to finish setting up your upgrade."),
-    ).toBeTruthy();
+    expect(getByText("This is taking longer than expected")).toBeTruthy();
+    expect(getByText("This may take a couple of minutes.")).toBeTruthy();
     expect(getByText("Machine")).toBeTruthy();
-    fireEvent.click(getByTestId("provisioning-apply"));
-    expect(onApply).toHaveBeenCalledTimes(1);
+    // Apply & Restart is gone from the takeover entirely.
+    expect(queryByTestId("provisioning-apply")).toBeNull();
+    expect(getByText("Continue in the background")).toBeTruthy();
+    fireEvent.click(getByTestId("provisioning-escape"));
+    expect(onEscape).toHaveBeenCalledTimes(1);
   });
 
-  test("disables the Apply button while pending and renders the extracted error as the caption", () => {
-    const onApply = mock(() => {});
-    const { getByText, getByTestId } = renderState({
+  test("with a captured reconcile error shows the snag copy, the mapped error, and a Retry-in-background button", () => {
+    const { getByText, queryByTestId } = renderState({
       state: "STALLED",
-      stalledAction: {
-        onApply,
-        pending: true,
-        error: { detail: "Resize already in progress." },
-      },
+      escapeAvailable: true,
+      kickError: { detail: "Resize already in progress." },
     });
 
+    expect(getByText("We hit a snag upgrading your assistant")).toBeTruthy();
     expect(getByText("Resize already in progress.")).toBeTruthy();
-    const apply = getByTestId("provisioning-apply") as HTMLButtonElement;
-    expect(apply.disabled).toBe(true);
-    fireEvent.click(apply);
-    expect(onApply).not.toHaveBeenCalled();
+    expect(queryByTestId("provisioning-apply")).toBeNull();
+    expect(getByText("Retry in the background")).toBeTruthy();
+  });
+
+  test("the background button relabels to Retry once a reconcile has errored", () => {
+    const { getByText, queryByText, rerender } = renderState({
+      state: "STALLED",
+      escapeAvailable: true,
+    });
+
+    expect(getByText("Continue in the background")).toBeTruthy();
+    expect(queryByText("Retry in the background")).toBeNull();
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ProvisioningState
+          {...baseProps({
+            state: "STALLED",
+            escapeAvailable: true,
+            kickError: { error: "provisioning_submission_failed" },
+          })}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(getByText("Retry in the background")).toBeTruthy();
+    expect(queryByText("Continue in the background")).toBeNull();
   });
 
   test("an unchanged machine dimension renders singular while storage still arrows", () => {
