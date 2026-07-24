@@ -423,4 +423,31 @@ describe("recordUsage", () => {
       inferenceProfileSource: "default",
     });
   });
+
+  test("NaN token counts never reach persistence and a poisoned total self-heals", () => {
+    const usageStats = {
+      inputTokens: Number.NaN,
+      outputTokens: 5,
+      estimatedCost: Number.NaN,
+    };
+
+    recordUsage(
+      {
+        conversationId: "conv-nan-1",
+        providerName: "anthropic",
+        usageStats,
+      },
+      Number.NaN,
+      10,
+      "claude-opus-4-6",
+      () => {},
+      "main_agent",
+    );
+
+    expect(updateConversationUsageCalls).toHaveLength(1);
+    const call = updateConversationUsageCalls[0];
+    expect(call.inputTokens).toBe(0);
+    expect(call.outputTokens).toBe(15);
+    expect(Number.isFinite(call.estimatedCost)).toBe(true);
+  });
 });

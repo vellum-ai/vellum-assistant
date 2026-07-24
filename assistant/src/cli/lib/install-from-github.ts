@@ -330,13 +330,17 @@ async function resolvePluginSource(
 }
 
 /**
- * Prefix reserved for first-party default plugins that ship in the assistant
- * source tree. User-installable plugins must not use it — the `.disabled`
- * sentinel and the plugin registry both key on manifest names, and a
- * user plugin with a `default-` name would shadow or collide with the
- * built-in.
+ * Prefixes reserved for first-party plugins that ship from the Vellum team.
+ * User-installable plugins must not use them — the `.disabled` sentinel and
+ * the plugin registry both key on manifest names, and a user plugin with a
+ * reserved name would shadow or collide with a first-party one.
+ *
+ * - `default-`: built-in default plugins that ship in the assistant source
+ *   tree.
+ * - `vellum-`: first-class plugins shipped from the Vellum team (e.g. curated
+ *   marketplace entries).
  */
-export const RESERVED_PLUGIN_PREFIX = "default-";
+export const RESERVED_PLUGIN_PREFIXES = ["default-", "vellum-"] as const;
 
 /**
  * Reject plugin names that could escape the canonical source path or the
@@ -344,8 +348,9 @@ export const RESERVED_PLUGIN_PREFIX = "default-";
  * `plugins/`, so a legitimate name is a single path segment
  * built from kebab-case alphanumerics.
  *
- * Names prefixed with {@link RESERVED_PLUGIN_PREFIX} (`default-`) are also
- * rejected — that prefix is reserved for first-party default plugins.
+ * Names carrying one of the {@link RESERVED_PLUGIN_PREFIXES} (`default-`,
+ * `vellum-`) are also rejected — those prefixes are reserved for first-party
+ * plugins.
  *
  * Exported so callers (e.g. the CLI input prompt) can validate up front
  * before invoking {@link installPlugin}.
@@ -355,10 +360,13 @@ export function sanitizePluginName(name: string): string {
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(trimmed)) {
     throw new InvalidPluginNameError(name);
   }
-  if (trimmed.startsWith(RESERVED_PLUGIN_PREFIX)) {
+  const reservedPrefix = RESERVED_PLUGIN_PREFIXES.find((prefix) =>
+    trimmed.startsWith(prefix),
+  );
+  if (reservedPrefix) {
     throw new InvalidPluginNameError(
       name,
-      `The "${RESERVED_PLUGIN_PREFIX}" prefix is reserved for first-party default plugins.`,
+      `The "${reservedPrefix}" prefix is reserved for first-party plugins.`,
     );
   }
   return trimmed;

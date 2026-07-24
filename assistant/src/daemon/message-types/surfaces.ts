@@ -1,5 +1,8 @@
 // Surface types, UI surface lifecycle messages.
 
+import type { UISurfaceCompleteEvent } from "../../api/events/ui-surface-complete.js";
+import type { UISurfaceDismissEvent } from "../../api/events/ui-surface-dismiss.js";
+import type { UISurfaceUndoResultEvent } from "../../api/events/ui-surface-undo-result.js";
 import type {
   AnySurfaceData,
   CardSurfaceData,
@@ -96,21 +99,9 @@ export interface SurfaceAction {
   data?: Record<string, unknown>;
 }
 
-// === Client → Server ===
-
-export interface UiSurfaceAction {
-  type: "ui_surface_action";
-  conversationId: string;
-  surfaceId: string;
-  actionId: string;
-  data?: Record<string, unknown>;
-}
-
-export interface UiSurfaceUndoRequest {
-  type: "ui_surface_undo";
-  conversationId: string;
-  surfaceId: string;
-}
+// Surface actions (user clicks) and undo requests are served by the HTTP
+// surface-action routes (`surface-actions`, `surfaces/:id/undo`), not by client
+// messages.
 
 // === Server → Client ===
 
@@ -170,36 +161,16 @@ export interface UiSurfaceUpdate {
   data: Partial<AnySurfaceData>;
 }
 
-export interface UiSurfaceDismiss {
-  type: "ui_surface_dismiss";
-  conversationId: string;
-  surfaceId: string;
-}
-
-export interface UiSurfaceComplete {
-  type: "ui_surface_complete";
-  conversationId: string;
-  surfaceId: string;
-  summary: string;
-  submittedData?: Record<string, unknown>;
-}
-
-export interface UiSurfaceUndoResult {
-  type: "ui_surface_undo_result";
-  conversationId: string;
-  surfaceId: string;
-  success: boolean;
-  /** Number of remaining undo entries after this undo. */
-  remainingUndos: number;
-}
+// `ui_surface_dismiss`, `ui_surface_complete`, and `ui_surface_undo_result` are
+// single-sourced from their canonical `api/events` wire schemas. `ui_surface_show`
+// and `ui_surface_update` retain their strictly-correlated (`surfaceType` ↔ `data`)
+// daemon shapes here, which their producers/consumers depend on.
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
-
-export type _SurfacesClientMessages = UiSurfaceAction | UiSurfaceUndoRequest;
 
 export type _SurfacesServerMessages =
   | UiSurfaceShow
   | UiSurfaceUpdate
-  | UiSurfaceDismiss
-  | UiSurfaceComplete
-  | UiSurfaceUndoResult;
+  | UISurfaceDismissEvent
+  | UISurfaceCompleteEvent
+  | UISurfaceUndoResultEvent;

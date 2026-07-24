@@ -19,6 +19,7 @@ import {
   buildRemoteWebPairingUrl,
   normalizePublicBaseUrl,
   resolvePublicBaseUrl,
+  tunnelProviderWebsiteName,
   type PublicBaseUrlRejection,
   type RemoteWebPairingChallengeRequest,
   type RemoteWebPairingChallengeResponse,
@@ -46,6 +47,7 @@ import {
 } from "../lib/feature-flags.js";
 import { getLocalLanIPv4 } from "../lib/local.js";
 import { isLoopbackUrl, loopbackSafeFetch } from "../lib/loopback-fetch.js";
+import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
 
 function assistantDisplayName(entry: AssistantEntry): string {
   return entry.name || entry.assistantName || entry.assistantId;
@@ -277,6 +279,22 @@ export async function pair(): Promise<void> {
   );
   args = afterAppScheme;
 
+  // Any `--`-prefixed token left after known-flag extraction is an option this
+  // CLI version doesn't support. Fail loud before any network call rather than
+  // letting it fall through: an unknown flag would otherwise be silently
+  // dropped and the command would run the wrong flow (e.g. `--qr` on an older
+  // CLI minting a copy-paste bundle instead of a QR). Positional names never
+  // start with `--`, so multi-word assistant targets are unaffected.
+  const unknownFlag = args.find((a) => a.startsWith("--"));
+  if (unknownFlag) {
+    console.error(`Error: unknown option '${unknownFlag}'.`);
+    console.error("Run `vellum pair --help` to see available options.");
+    console.error(
+      `If this option is from newer docs, ${STALE_CLI_UPDATE_HINT}`,
+    );
+    process.exit(1);
+  }
+
   if (webPairing && webApproveCode) {
     console.error("Error: use either --web or --web-approve, not both.");
     process.exit(1);
@@ -371,6 +389,10 @@ export async function pair(): Promise<void> {
     console.error(
       `Re-run with a reachable URL, e.g.:\n  vellum pair --url ${suggestion}`,
     );
+    console.error(
+      "Pairing a phone by QR instead? Use: vellum pair --qr " +
+        "(needs an https URL — run `vellum tunnel --provider tailscale` first).",
+    );
     process.exit(1);
   }
 
@@ -451,6 +473,9 @@ export async function pair(): Promise<void> {
         unparseable: `${advertisedUrl} isn't a valid URL`,
         loopback: `${advertisedUrl} is a loopback address`,
         "non-https": `${advertisedUrl} is not https`,
+        "service-website": `${advertisedUrl} is ${
+          tunnelProviderWebsiteName(advertisedUrl) ?? "a tunnel provider"
+        }'s website, not your assistant's address`,
       };
       console.error(
         "Error: --qr needs a public https URL the phone can open — " +

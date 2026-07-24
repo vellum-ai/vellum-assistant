@@ -4,20 +4,28 @@ import { ChevronDown } from "lucide-react";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import {
+  buildMoveToGroupTargets,
+  isInCustomGroup,
+} from "@/domains/chat/utils/group-conversations";
 import { ChannelIcon, getOpenInChannelLabel } from "@/utils/channel-presentation";
-import type { Conversation } from "@/types/conversation-types";
+import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 
 interface ChatConversationHeaderProps {
   assistantId: string | null;
   activeConversation: Conversation | null;
   headerSupplements: ChatHeaderSupplements | null;
   showLlmInspector: boolean;
+  conversationGroups?: ConversationGroup[];
   onArchive: (c: Conversation) => void;
   onUnarchive: (c: Conversation) => void;
   onMarkUnread: (c: Conversation) => void;
   onMarkRead: (c: Conversation) => void;
   onPinToggle: (c: Conversation) => void;
   onRename: (c: Conversation) => void;
+  onMoveToGroup: (c: Conversation, groupId: string) => void;
+  onCreateGroupInto: (c: Conversation) => void;
+  onRemoveFromGroup: (c: Conversation) => void;
 }
 
 export function ChatConversationHeader({
@@ -25,12 +33,16 @@ export function ChatConversationHeader({
   activeConversation,
   headerSupplements,
   showLlmInspector,
+  conversationGroups,
   onArchive,
   onUnarchive,
   onMarkUnread,
   onMarkRead,
   onPinToggle,
   onRename,
+  onMoveToGroup,
+  onCreateGroupInto,
+  onRemoveFromGroup,
 }: ChatConversationHeaderProps) {
   if (!activeConversation) {
     if (!assistantId) {return null;}
@@ -67,6 +79,14 @@ export function ChatConversationHeader({
       isReadonly={isReadonly}
       onPinToggle={() => onPinToggle(activeConversation)}
       onRename={() => onRename(activeConversation)}
+      moveToGroups={buildMoveToGroupTargets(activeConversation, conversationGroups)}
+      onMoveToGroup={(groupId) => onMoveToGroup(activeConversation, groupId)}
+      onCreateGroupInto={() => onCreateGroupInto(activeConversation)}
+      onRemoveFromGroup={
+        isInCustomGroup(activeConversation)
+          ? () => onRemoveFromGroup(activeConversation)
+          : undefined
+      }
       onArchive={() => onArchive(activeConversation)}
       onUnarchive={() => onUnarchive(activeConversation)}
       onForkConversation={

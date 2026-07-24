@@ -68,7 +68,6 @@ export function VoicePickerCard() {
           assistantId={assistantId}
           open={pickerOpen}
           onOpenChange={setPickerOpen}
-          filterBySource
         />
       </DetailCard>
     );
@@ -80,7 +79,7 @@ export function VoicePickerCard() {
         Your assistant speaks through a provider you configured yourself. Set
         its voice on{" "}
         <Link
-          to={routes.settings.ai}
+          to={`${routes.settings.ai}#text-to-speech`}
           className="text-[var(--primary-base)] hover:underline"
         >
           Models &amp; Services

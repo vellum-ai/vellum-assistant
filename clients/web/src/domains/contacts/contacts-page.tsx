@@ -41,7 +41,6 @@ import { channelsAvailableGet } from "@/generated/daemon/sdk.gen";
 import type { ChannelsAvailableGetResponse } from "@/generated/daemon/types.gen";
 import { assistantDisplayName } from "@/utils/assistant-display-name";
 import { useAssistantChannels } from "@/hooks/use-assistant-channels";
-import { useChannelProvenance } from "@/domains/contacts/hooks/use-channel-provenance";
 import { useInviteLinkDialog } from "@/hooks/use-invite-link-dialog";
 import { useAccountLink } from "@/domains/contacts/hooks/use-account-link";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -149,8 +148,6 @@ export function ContactsPage({
     assistantId,
     onStartSetupConversation,
   });
-
-  const channelProvenance = useChannelProvenance(assistantId);
 
   const availabilityQuery = useQuery({
     ...channelsAvailableGetOptions({
@@ -555,7 +552,6 @@ export function ContactsPage({
               canMerge={canMerge}
               availableChannels={availableChannels}
               a2aEnabled={a2aChannel}
-              channelProvenance={channelProvenance}
               onSave={(patch) => {
                 updateMutation.mutate({
                   contactId: optimisticContact.id,

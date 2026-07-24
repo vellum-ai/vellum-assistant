@@ -52,6 +52,7 @@ import { useChatLayoutDrawer } from "@/domains/chat/hooks/use-chat-layout-drawer
 import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-shortcuts";
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
+import { useGroupNameRequestStore } from "@/domains/chat/group-name-request-store";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
   navigateToConversation,
@@ -93,6 +94,7 @@ import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
+import { GroupNameDialogFromStore } from "./group-name-dialog-from-store";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
 
 const CommandPalette = lazy(() =>
@@ -215,10 +217,11 @@ export function ChatLayout({
   // create/rename/delete affordances are rendered here, not in ChatPage.
   // The hook is self-sufficient (cache invalidation handles rollback), so
   // it can live wherever the sidebar lives.
-  const { handleRenameGroup, handleDeleteGroup } = useConversationGroupActions({
-    assistantId,
-    conversationGroups,
-  });
+  const { createGroup, renameGroup, handleDeleteGroup } =
+    useConversationGroupActions({
+      assistantId,
+      conversationGroups,
+    });
 
   // Mirror the unread count + signed-in flag into the Electron Dock
   // (no-op off Electron). Uses the conversation list this layout
@@ -466,6 +469,8 @@ export function ChatLayout({
     handleMarkConversationUnread,
     handleMarkConversationRead,
     handleTogglePinConversation,
+    handleMoveToGroup,
+    handleRemoveFromGroup,
     handleRenameConversation,
     handleReorderConversations,
     handleMarkAllReadInGroup,
@@ -478,6 +483,36 @@ export function ChatLayout({
     startNewConversation,
     prePinGroupIdsRef,
   });
+
+  // The move-to-group menu's "New group…" item and the group actions menu's
+  // "Rename" open the shared NameInputDialog through the request store; the
+  // GroupNameDialogFromStore connector (mounted below) performs the
+  // create-then-move / rename on submit. "New group…" is the only
+  // group-creation entry point — there is no standalone create button.
+  const handleRequestCreateGroup = useCallback(
+    (conversation: Conversation) =>
+      useGroupNameRequestStore.getState().requestCreateGroup(conversation),
+    [],
+  );
+  const handleRequestRenameGroup = useCallback(
+    (groupId: string) => {
+      const currentName =
+        conversationGroups.find((g) => g.id === groupId)?.name ?? "";
+      useGroupNameRequestStore
+        .getState()
+        .requestRenameGroup(groupId, currentName);
+    },
+    [conversationGroups],
+  );
+
+  // A pending group-name request captures a specific conversation ("New
+  // group…") or group ("Rename"); if the active assistant changes before the
+  // user submits, that target belongs to the previous assistant while the
+  // create/move/rename would run against the new one. Clear it on assistant
+  // change so we never act across a mismatched assistant.
+  useEffect(() => {
+    useGroupNameRequestStore.getState().clearGroupNameRequest();
+  }, [assistantId]);
 
   // Resolve the active row from whichever list cache holds it (foreground,
   // background, or scheduled), fetching the single row when an open
@@ -501,12 +536,16 @@ export function ChatLayout({
         activeConversation={activeConversation}
         headerSupplements={headerSupplements}
         showLlmInspector={showLlmInspector}
+        conversationGroups={conversationGroups}
         onArchive={handleArchiveConversation}
         onUnarchive={handleUnarchiveConversation}
         onMarkUnread={handleMarkConversationUnread}
         onMarkRead={handleMarkConversationRead}
         onPinToggle={handleTogglePinConversation}
         onRename={handleRenameConversation}
+        onMoveToGroup={handleMoveToGroup}
+        onCreateGroupInto={handleRequestCreateGroup}
+        onRemoveFromGroup={handleRemoveFromGroup}
       />
     ) : null);
 
@@ -736,12 +775,15 @@ export function ChatLayout({
       onUnarchiveConversation={handleUnarchiveConversation}
       onMarkConversationUnread={handleMarkConversationUnread}
       onMarkConversationRead={handleMarkConversationRead}
-      onRenameGroup={handleRenameGroup}
+      onRenameGroup={handleRequestRenameGroup}
       onDeleteGroup={handleDeleteGroup}
       onMarkAllReadInGroup={handleMarkAllReadInGroup}
       onArchiveAllInGroup={handleArchiveAllInGroup}
       onOpenInNewWindow={isNative ? undefined : handleOpenInNewWindow}
       onInspect={showLlmInspector ? handleInspectConversation : undefined}
+      onMoveToGroup={handleMoveToGroup}
+      onCreateGroupInto={handleRequestCreateGroup}
+      onRemoveFromGroup={handleRemoveFromGroup}
       footerAction={
         <PreferencesMenu
           assistantId={assistantId}
@@ -943,6 +985,11 @@ export function ChatLayout({
       <OnboardingAvatarApplier />
 
       <RenameDialogFromStore assistantId={assistantId} />
+      <GroupNameDialogFromStore
+        createGroup={createGroup}
+        renameGroup={renameGroup}
+        moveToGroup={handleMoveToGroup}
+      />
       {commandPalette.isOpen ? (
         <LazyBoundary>
           <CommandPalette

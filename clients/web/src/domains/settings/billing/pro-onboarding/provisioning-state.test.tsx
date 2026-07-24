@@ -109,6 +109,7 @@ function plansResponse(): PlanListResponse {
             credits_usd: 50,
             price_cents: 5000,
             lookup_key: "credits_50_key",
+            legacy: false,
           },
         ],
         packages: [

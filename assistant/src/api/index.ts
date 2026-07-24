@@ -5,7 +5,9 @@ import { AcpSessionErrorEventSchema } from "./events/acp-session-error.js";
 import { AcpSessionSpawnedEventSchema } from "./events/acp-session-spawned.js";
 import { AcpSessionUpdateEventSchema } from "./events/acp-session-update.js";
 import { AcpSessionUsageEventSchema } from "./events/acp-session-usage.js";
+import { AppFilesChangedEventSchema } from "./events/app-files-changed.js";
 import { AssistantActivityStateEventSchema } from "./events/assistant-activity-state.js";
+import { AssistantStatusEventSchema } from "./events/assistant-status.js";
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantThinkingDeltaEventSchema } from "./events/assistant-thinking-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
@@ -22,6 +24,7 @@ import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js
 import { ConfirmationStateChangedEventSchema } from "./events/confirmation-state-changed.js";
 import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ContactsChangedEventSchema } from "./events/contacts-changed.js";
+import { ContextCompactedEventSchema } from "./events/context-compacted.js";
 import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationInferenceProfileUpdatedEventSchema } from "./events/conversation-inference-profile-updated.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
@@ -37,6 +40,8 @@ import { DocumentEditorUpdateEventSchema } from "./events/document-editor-update
 import { ErrorEventSchema } from "./events/error.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
+import { HeartbeatAlertEventSchema } from "./events/heartbeat-alert.js";
+import { HeartbeatConversationCreatedEventSchema } from "./events/heartbeat-conversation-created.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
 import { HookEventSchema } from "./events/hook-event.js";
 import {
@@ -77,12 +82,15 @@ import { MessageQueuedEventSchema } from "./events/message-queued.js";
 import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
 import { MessageSteeredEventSchema } from "./events/message-steered.js";
+import { ModelInfoEventSchema } from "./events/model-info.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
 import { NotificationConversationCreatedEventSchema } from "./events/notification-conversation-created.js";
 import { NotificationIntentEventSchema } from "./events/notification-intent.js";
+import { OAuthConnectResultEventSchema } from "./events/oauth-connect-result.js";
 import { OpenConversationEventSchema } from "./events/open-conversation.js";
 import { OpenPanelEventSchema } from "./events/open-panel.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
+import { PlatformDisconnectedEventSchema } from "./events/platform-disconnected.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
 import {
   RecordingPauseEventSchema,
@@ -91,10 +99,12 @@ import {
   RecordingStopEventSchema,
 } from "./events/recording.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
+import { ScheduleConversationCreatedEventSchema } from "./events/schedule-conversation-created.js";
 import { SecretRequestEventSchema } from "./events/secret-request.js";
 import { ServiceGroupUpdateCompleteEventSchema } from "./events/service-group-update-complete.js";
 import { ServiceGroupUpdateProgressEventSchema } from "./events/service-group-update-progress.js";
 import { ServiceGroupUpdateStartingEventSchema } from "./events/service-group-update-starting.js";
+import { ShowPlatformLoginEventSchema } from "./events/show-platform-login.js";
 import { SkillStateChangedEventSchema } from "./events/skill-state-changed.js";
 import { SoundsConfigUpdatedEventSchema } from "./events/sounds-config-updated.js";
 import { SubagentEventEventSchema } from "./events/subagent-event.js";
@@ -109,6 +119,7 @@ import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
+import { UISurfaceUndoResultEventSchema } from "./events/ui-surface-undo-result.js";
 import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
 import { UsageProgressEventSchema } from "./events/usage-progress.js";
 import { UsageUpdateEventSchema } from "./events/usage-update.js";
@@ -153,6 +164,10 @@ export {
   AcpSessionUsageEventSchema,
 } from "./events/acp-session-usage.js";
 export {
+  type AppFilesChangedEvent,
+  AppFilesChangedEventSchema,
+} from "./events/app-files-changed.js";
+export {
   type AssistantActivityAnchor,
   AssistantActivityAnchorSchema,
   type AssistantActivityPhase,
@@ -166,6 +181,10 @@ export {
   type AssistantOutboundAttachment,
   AssistantOutboundAttachmentSchema,
 } from "./events/assistant-outbound-attachment.js";
+export {
+  type AssistantStatusEvent,
+  AssistantStatusEventSchema,
+} from "./events/assistant-status.js";
 export {
   type AssistantTextDeltaEvent,
   AssistantTextDeltaEventSchema,
@@ -247,6 +266,10 @@ export {
   ContactsChangedEventSchema,
 } from "./events/contacts-changed.js";
 export {
+  type ContextCompactedEvent,
+  ContextCompactedEventSchema,
+} from "./events/context-compacted.js";
+export {
   type ConversationErrorCode,
   ConversationErrorCodeSchema,
   type ConversationErrorEvent,
@@ -314,6 +337,14 @@ export {
   type GenerationHandoffEvent,
   GenerationHandoffEventSchema,
 } from "./events/generation-handoff.js";
+export {
+  type HeartbeatAlertEvent,
+  HeartbeatAlertEventSchema,
+} from "./events/heartbeat-alert.js";
+export {
+  type HeartbeatConversationCreatedEvent,
+  HeartbeatConversationCreatedEventSchema,
+} from "./events/heartbeat-conversation-created.js";
 export {
   type HomeFeedUpdatedEvent,
   HomeFeedUpdatedEventSchema,
@@ -419,6 +450,10 @@ export {
   MessageSteeredEventSchema,
 } from "./events/message-steered.js";
 export {
+  type ModelInfoEvent,
+  ModelInfoEventSchema,
+} from "./events/model-info.js";
+export {
   type NavigateSettingsEvent,
   NavigateSettingsEventSchema,
 } from "./events/navigate-settings.js";
@@ -431,6 +466,10 @@ export {
   NotificationIntentEventSchema,
 } from "./events/notification-intent.js";
 export {
+  type OAuthConnectResultEvent,
+  OAuthConnectResultEventSchema,
+} from "./events/oauth-connect-result.js";
+export {
   type OpenConversationEvent,
   OpenConversationEventSchema,
 } from "./events/open-conversation.js";
@@ -439,6 +478,10 @@ export {
   OpenPanelEventSchema,
 } from "./events/open-panel.js";
 export { type OpenUrlEvent, OpenUrlEventSchema } from "./events/open-url.js";
+export {
+  type PlatformDisconnectedEvent,
+  PlatformDisconnectedEventSchema,
+} from "./events/platform-disconnected.js";
 export {
   type QuestionEntry,
   QuestionEntrySchema,
@@ -464,6 +507,10 @@ export {
   RelationshipStateUpdatedEventSchema,
 } from "./events/relationship-state-updated.js";
 export {
+  type ScheduleConversationCreatedEvent,
+  ScheduleConversationCreatedEventSchema,
+} from "./events/schedule-conversation-created.js";
+export {
   type SecretRequestEvent,
   SecretRequestEventSchema,
 } from "./events/secret-request.js";
@@ -479,6 +526,10 @@ export {
   type ServiceGroupUpdateStartingEvent,
   ServiceGroupUpdateStartingEventSchema,
 } from "./events/service-group-update-starting.js";
+export {
+  type ShowPlatformLoginEvent,
+  ShowPlatformLoginEventSchema,
+} from "./events/show-platform-login.js";
 export {
   type SkillStateChangedEvent,
   SkillStateChangedEventSchema,
@@ -557,6 +608,10 @@ export {
   type UISurfaceShowEvent,
   UISurfaceShowEventSchema,
 } from "./events/ui-surface-show.js";
+export {
+  type UISurfaceUndoResultEvent,
+  UISurfaceUndoResultEventSchema,
+} from "./events/ui-surface-undo-result.js";
 export {
   type UISurfaceUpdateEvent,
   UISurfaceUpdateEventSchema,
@@ -815,7 +870,9 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   AcpSessionSpawnedEventSchema,
   AcpSessionUpdateEventSchema,
   AcpSessionUsageEventSchema,
+  AppFilesChangedEventSchema,
   AssistantActivityStateEventSchema,
+  AssistantStatusEventSchema,
   AssistantTextDeltaEventSchema,
   AssistantThinkingDeltaEventSchema,
   AssistantTurnStartEventSchema,
@@ -832,6 +889,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ConfirmationStateChangedEventSchema,
   ContactRequestEventSchema,
   ContactsChangedEventSchema,
+  ContextCompactedEventSchema,
   ConversationErrorEventSchema,
   ConversationInferenceProfileUpdatedEventSchema,
   ConversationListInvalidatedEventSchema,
@@ -847,6 +905,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ErrorEventSchema,
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
+  HeartbeatAlertEventSchema,
+  HeartbeatConversationCreatedEventSchema,
   HomeFeedUpdatedEventSchema,
   HookEventSchema,
   HostAppControlCancelEventSchema,
@@ -873,22 +933,27 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageQueuedDeletedEventSchema,
   MessageRequestCompleteEventSchema,
   MessageSteeredEventSchema,
+  ModelInfoEventSchema,
   NavigateSettingsEventSchema,
   NotificationConversationCreatedEventSchema,
   NotificationIntentEventSchema,
+  OAuthConnectResultEventSchema,
   OpenConversationEventSchema,
   OpenPanelEventSchema,
   OpenUrlEventSchema,
+  PlatformDisconnectedEventSchema,
   QuestionRequestEventSchema,
   RecordingPauseEventSchema,
   RecordingResumeEventSchema,
   RecordingStartEventSchema,
   RecordingStopEventSchema,
   RelationshipStateUpdatedEventSchema,
+  ScheduleConversationCreatedEventSchema,
   SecretRequestEventSchema,
   ServiceGroupUpdateCompleteEventSchema,
   ServiceGroupUpdateProgressEventSchema,
   ServiceGroupUpdateStartingEventSchema,
+  ShowPlatformLoginEventSchema,
   SkillStateChangedEventSchema,
   SoundsConfigUpdatedEventSchema,
   SubagentEventEventSchema,
@@ -903,6 +968,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,
+  UISurfaceUndoResultEventSchema,
   UISurfaceUpdateEventSchema,
   UsageProgressEventSchema,
   UsageUpdateEventSchema,

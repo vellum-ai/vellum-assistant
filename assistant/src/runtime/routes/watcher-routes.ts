@@ -18,6 +18,7 @@ import {
 } from "../../watcher/watcher-store.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Param schemas ─────────────────────────────────────────────────────
@@ -69,7 +70,7 @@ function handleWatcherCreate({ body = {} }: RouteHandlerArgs) {
     poll_interval_ms: pollIntervalMs,
     config,
     credential_service: credentialServiceOverride,
-  } = WatcherCreateParams.parse(body);
+  } = parseBody(WatcherCreateParams, body);
 
   const provider = getWatcherProvider(providerId);
   if (!provider) {
@@ -98,8 +99,10 @@ function handleWatcherCreate({ body = {} }: RouteHandlerArgs) {
 }
 
 function handleWatcherList({ body = {} }: RouteHandlerArgs) {
-  const { watcher_id: watcherId, enabled_only: enabledOnly } =
-    WatcherListParams.parse(body);
+  const { watcher_id: watcherId, enabled_only: enabledOnly } = parseBody(
+    WatcherListParams,
+    body,
+  );
 
   if (watcherId) {
     const watcher = getWatcher(watcherId);
@@ -121,7 +124,7 @@ function handleWatcherUpdate({ body = {} }: RouteHandlerArgs) {
     poll_interval_ms: pollIntervalMs,
     enabled,
     config,
-  } = WatcherUpdateParams.parse(body);
+  } = parseBody(WatcherUpdateParams, body);
 
   const updates: {
     name?: string;
@@ -152,7 +155,7 @@ function handleWatcherUpdate({ body = {} }: RouteHandlerArgs) {
 }
 
 function handleWatcherDelete({ body = {} }: RouteHandlerArgs) {
-  const { watcher_id: watcherId } = WatcherDeleteParams.parse(body);
+  const { watcher_id: watcherId } = parseBody(WatcherDeleteParams, body);
 
   const watcher = getWatcher(watcherId);
   if (!watcher) {
@@ -172,7 +175,7 @@ function handleWatcherDigest({ body = {} }: RouteHandlerArgs) {
     watcher_id: watcherId,
     hours,
     limit,
-  } = WatcherDigestParams.parse(body);
+  } = parseBody(WatcherDigestParams, body);
 
   const since = Date.now() - hours * 3_600_000;
   const events = listWatcherEvents({ watcherId, limit, since });

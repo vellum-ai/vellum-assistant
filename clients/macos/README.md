@@ -144,6 +144,29 @@ whichever Swift channel you have around.
   `View > Toggle Developer Tools` is gated to dev builds only so the
   packaged build doesn't expose devtools to end users.
 
+- **Share Sheet** (`src/main/share.ts`). The renderer's `saveFile`
+  (`clients/web/src/runtime/native-file.ts`) hands file bytes over the
+  `vellum:share:file` channel; the main process writes them to a temp file and
+  presents the native `NSSharingServicePicker` via Electron's `ShareMenu`. Two
+  gotchas here were verified against the pinned `electron@42` source and types,
+  **not** the published API docs (which are wrong):
+  - **Anchor with `window`, not `browserWindow`.** `ShareMenu.popup` forwards to
+    `Menu.popup`, whose options are read as `options.window` (a `BrowserWindow`
+    — in Electron that _is_ the native app window). The upstream `share-menu.md`
+    doc says `browserWindow`, but that key is silently ignored at runtime and
+    the sheet falls back to the focused window; the typed `PopupOptions` only
+    has `window`, so `browserWindow` wouldn't even compile. The same
+    `menu.popup({ window })` shape is used in `image-context-menu.ts` and
+    `text-context-menu.ts`.
+  - **Don't tear down the shared temp file on picker close.** The `popup`
+    callback fires on menu _close_ (a service was selected), not when that
+    service has finished reading the file — an in-flight AirDrop transfer or a
+    pasteboard/file-promise reference can still need it. Instead `share.ts`
+    reclaims only _stale_ temp dirs (older than an hour — long past any
+    transfer), sweeping at startup and before each new share, so it never
+    deletes a file still in use, including one from a second Vellum build
+    sharing at the same time.
+
 ## Scripts
 
 ```sh

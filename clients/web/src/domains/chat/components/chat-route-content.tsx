@@ -172,7 +172,7 @@ export interface ChatMainPanelProps {
   uiContextRef: MutableRefObject<UIContext | null>;
 
   // Onboarding (local state in ActiveChatView)
-  onboardingTasksEmpty: boolean;
+  onboardingChoiceEligible: boolean;
   didOnboarding: boolean;
   onboardingConversationId: string | null;
 }
@@ -243,7 +243,7 @@ export function ChatMainPanel({
   transcriptItemsRef,
   transcriptRef,
   uiContextRef,
-  onboardingTasksEmpty,
+  onboardingChoiceEligible,
   didOnboarding,
   onboardingConversationId,
 }: ChatMainPanelProps) {
@@ -482,7 +482,7 @@ export function ChatMainPanel({
     isNative,
     didOnboarding,
     messages,
-    onboardingTasksEmpty,
+    onboardingChoiceEligible,
     activeConversationId,
     onboardingConversationId,
     sendMessage,

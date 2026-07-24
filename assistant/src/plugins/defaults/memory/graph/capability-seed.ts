@@ -15,7 +15,6 @@ import {
   loadSkillCatalog,
   type SkillSummary,
 } from "../../../../config/skills.js";
-import { getDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
@@ -26,6 +25,7 @@ import {
   getCatalog,
 } from "../../../../skills/catalog-cache.js";
 import { getLogger } from "../logging.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import type { SkillCapabilityInput } from "../v3/substrate/skill-content.js";
 import { createNode } from "./store.js";
 import {
@@ -261,7 +261,8 @@ function buildSkillContent(input: SkillCapabilityInput): string {
  * (capability nodes aren't tied to a real conversation).
  */
 function upsertCapabilityNode(sourceKey: string, content: string): void {
-  const db = getDb();
+  const db = memoryDbOrNull("upsertCapabilityNode");
+  if (!db) return;
 
   // Find existing node by sourceKey stored in source_conversations JSON
   const existing = db
@@ -347,7 +348,8 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
  * Soft-delete (mark as gone) a capability node by its sourceKey.
  */
 function deleteCapabilityNode(sourceKey: string): void {
-  const db = getDb();
+  const db = memoryDbOrNull("deleteCapabilityNode");
+  if (!db) return;
   const existing = db
     .select()
     .from(memoryGraphNodes)
@@ -377,7 +379,8 @@ function deleteCapabilityNode(sourceKey: string): void {
  * surface in retrieval.
  */
 function cleanupOldFormatCapabilityNodes(): void {
-  const db = getDb();
+  const db = memoryDbOrNull("cleanupOldFormatCapabilityNodes");
+  if (!db) return;
   const now = Date.now();
 
   // --- skill:* old-format nodes ---
@@ -443,7 +446,8 @@ function cleanupOldFormatCapabilityNodes(): void {
  * Remove capability nodes whose sourceKeys are no longer in the active set.
  */
 function pruneStaleCapabilities(prefix: string, activeKeys: Set<string>): void {
-  const db = getDb();
+  const db = memoryDbOrNull("pruneStaleCapabilities");
+  if (!db) return;
   const allCapabilities = db
     .select()
     .from(memoryGraphNodes)

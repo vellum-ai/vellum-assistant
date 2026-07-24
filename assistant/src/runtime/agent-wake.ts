@@ -115,6 +115,7 @@ import {
 } from "../security/untrusted-content.js";
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
+import { createKeyedSingleFlight } from "../util/single-flight.js";
 
 const log = getLogger("agent-wake");
 
@@ -476,36 +477,13 @@ async function defaultResolveTarget(
 
 // ── Per-conversation single-flight lock ───────────────────────────────
 //
-// Simple promise-chain map. When a wake arrives and another run is in
-// flight, we chain onto its tail so the wake runs *after* the current
-// work completes. Using the tail promise avoids awaiting every prior
-// completion in the chain (only the last one matters) and keeps memory
-// bounded — the map entry is cleared once the chain completes.
+// When a wake arrives and another run is in flight for the same
+// conversation, we chain onto its tail so the wake runs *after* the current
+// work completes. `createKeyedSingleFlight` owns the tail-chaining and
+// bounded-map bookkeeping; wakes serialize on their own chain, independent of
+// any other single-flight consumer.
 
-const wakeChain = new Map<string, Promise<void>>();
-
-async function runSingleFlight<T>(
-  conversationId: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const prior = wakeChain.get(conversationId) ?? Promise.resolve();
-  let release!: () => void;
-  const next = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  // Install our tail *before* awaiting so later callers chain behind us.
-  wakeChain.set(conversationId, next);
-  try {
-    await prior;
-    return await fn();
-  } finally {
-    // Only clear the map entry if nothing chained behind us in the meantime.
-    if (wakeChain.get(conversationId) === next) {
-      wakeChain.delete(conversationId);
-    }
-    release();
-  }
-}
+const runWakeSingleFlight = createKeyedSingleFlight();
 
 /**
  * How long a wake waits for an in-flight turn to release the conversation's
@@ -636,7 +614,7 @@ export async function wakeAgentForOpportunity(
   const nowFn = deps?.now ?? Date.now;
   const startedAt = nowFn();
 
-  return runSingleFlight(conversationId, async () => {
+  return runWakeSingleFlight(conversationId, async () => {
     // Snapshot the conversation's resting trust before the resolver runs, so
     // it can be restored after. The resolver leaves the wake's trust on the
     // conversation, and a following no-trust wake would otherwise read it via
@@ -1625,5 +1603,5 @@ export async function wakeAgentForOpportunity(
  * @internal
  */
 export function __resetWakeChainForTests(): void {
-  wakeChain.clear();
+  runWakeSingleFlight.reset();
 }

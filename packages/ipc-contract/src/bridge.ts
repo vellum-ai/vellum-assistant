@@ -154,6 +154,9 @@ export interface VellumBridge {
   dock: {
     setBadge(count: number): void;
   };
+  share: {
+    shareFile(bytes: Uint8Array, filename: string): Promise<void>;
+  };
   localMode: {
     hatch(
       species: string,

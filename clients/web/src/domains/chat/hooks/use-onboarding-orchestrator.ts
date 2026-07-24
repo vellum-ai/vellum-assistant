@@ -5,9 +5,9 @@
  * Owns:
  * - `pendingOnboardingContextRef` — pre-chat context for the first send
  * - `onboardingDraftConversationIdRef` — draft conversation created during onboarding
- * - `didOnboarding` / `onboardingConversationId` / `onboardingTasksEmpty` — lifecycle flags
+ * - `didOnboarding` / `onboardingConversationId` / `onboardingChoiceEligible` — lifecycle flags
  * - `?onboarding=1` search-param signal consumption effect
- * - `sessionStorage` tasks-empty derivation
+ * - choice-card eligibility derivation from the pending pre-chat context
  *
  * Does NOT own:
  * - Auto-send of the initial message (depends on `sendMessage` from `useSendMessage`,
@@ -27,7 +27,10 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
-import { type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
+import {
+  peekPendingPreChatContext,
+  type PreChatOnboardingContext,
+} from "@/domains/onboarding/prechat";
 import {
   isInChatTourOn,
   readInChatTourVariant,
@@ -42,8 +45,12 @@ import { routes } from "@/utils/routes";
 export interface UseOnboardingOrchestratorResult {
   /** Whether the user arrived via the onboarding flow. */
   didOnboarding: boolean;
-  /** Whether the user skipped task selection during prechat. */
-  onboardingTasksEmpty: boolean;
+  /**
+   * Whether this onboarding handoff is eligible for the in-chat onboarding
+   * choice card. See the option doc on `useOnboardingChoice` for the
+   * rationale behind each condition.
+   */
+  onboardingChoiceEligible: boolean;
   /** The draft conversation created for the onboarding flow. */
   onboardingConversationId: string | null;
   /** Shared with `useSendMessage` — pre-chat context for the first send. */
@@ -61,7 +68,7 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
   const onboardingDraftConversationIdRef = useRef<string | null>(null);
   const [didOnboarding, setDidOnboarding] = useState(false);
-  const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
+  const [onboardingChoiceEligible, setOnboardingChoiceEligible] = useState(false);
   const [onboardingConversationId, setOnboardingConversationId] = useState<string | null>(null);
 
   // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
@@ -100,25 +107,21 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
     void navigate(routes.conversation(draftId), { replace: true });
   }, [searchParams, navigate, isMobile, isNative]);
 
-  // Derive onboardingTasksEmpty from the pending context in sessionStorage.
-  // Runs once on mount — if initial message key is present, this is an
-  // onboarding mount, so peek at the context for the tasks-empty flag.
+  // Derive choice-card eligibility from the pending pre-chat context. Runs
+  // once on mount, before the first send consumes the context. Reads through
+  // the validated peek so this gate can never disagree with the auto-send
+  // path in ActiveChatView: a malformed/absent context yields `null` there
+  // too, which fails open to the legacy (card-less) behavior.
   useEffect(() => {
-    try {
-      const raw = globalThis.sessionStorage?.getItem("onboarding.prechat.pendingContext");
-      if (!raw) return;
-      const ctx = JSON.parse(raw) as { tasks?: string[] };
-      if (Array.isArray(ctx.tasks) && ctx.tasks.length === 0) {
-        setOnboardingTasksEmpty(true);
-      }
-    } catch {
-      // Storage or parse failure — ignore.
+    const ctx = peekPendingPreChatContext();
+    if (ctx !== null && ctx.tasks.length === 0 && ctx.initialMessageHidden !== true) {
+      setOnboardingChoiceEligible(true);
     }
   }, []);
 
   return {
     didOnboarding,
-    onboardingTasksEmpty,
+    onboardingChoiceEligible,
     onboardingConversationId,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
