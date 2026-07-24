@@ -112,8 +112,8 @@ export function SlackChannelTierLegend({
         variant="body-small-default"
         className="text-[color:var(--content-tertiary)]"
       >
-        Writes, sends, and spends always come to you first — at every level.
-        Your{" "}
+        These levels only cover how much it looks up on its own before answering.
+        Writing, sending, and spending always ask first — at every level. Your{" "}
         <Link
           to={routes.settings.privacy}
           className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"

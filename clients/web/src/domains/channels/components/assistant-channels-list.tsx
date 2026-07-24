@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-import { cn } from "@vellumai/design-library";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
 import { DetailCard } from "@/components/detail-card";
@@ -257,17 +256,11 @@ export function AssistantChannelsList({
           />
         </aside>
 
-        {/* Slack brings its own cards (connection card + channel list) and owns
-            its internal table scroll, so it fills the panel; the other adapters
-            render bare content in a scrollable card to match. */}
-        <section
-          className={cn(
-            "min-h-0 min-w-0 flex-1",
-            selected.key === "slack"
-              ? "flex flex-col overflow-hidden"
-              : "overflow-y-auto",
-          )}
-        >
+        {/* Slack brings its own cards (connection, default access, per-channel
+            overrides) so it renders bare; the other adapters get a DetailCard
+            wrapper. Both scroll as a whole when the stacked content overflows —
+            the per-channel list self-bounds its own rows within that. */}
+        <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {selected.key === "slack" ? detail : <DetailCard>{detail}</DetailCard>}
         </section>
       </div>

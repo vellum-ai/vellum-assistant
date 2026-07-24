@@ -38,7 +38,7 @@ describe("CAPABILITY_TIER_META", () => {
     expect(CAPABILITY_TIER_META.none.sublabel).toBe("asks before acting");
     expect(CAPABILITY_TIER_META.low.sublabel).toBe("safe reads only");
     expect(CAPABILITY_TIER_META.medium.sublabel).toBe("broader lookups");
-    expect(CAPABILITY_TIER_META.high.sublabel).toBe("answers on its own");
+    expect(CAPABILITY_TIER_META.high.sublabel).toBe("researches on its own");
   });
 });
 

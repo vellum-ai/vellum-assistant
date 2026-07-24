@@ -69,7 +69,7 @@ export const CAPABILITY_TIER_META: Record<RiskThreshold, CapabilityTierMeta> = {
   },
   high: {
     label: presetFromThreshold("high").label,
-    sublabel: "answers on its own",
+    sublabel: "researches on its own",
     tone: "positive",
     dotColor: "var(--system-positive-strong)",
   },
