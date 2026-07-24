@@ -100,7 +100,7 @@ describe("handleMessageDequeued", () => {
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
 
-  it("clears queue status from a server-backed transcript row", () => {
+  it("removes an uncorrelatable server-backed transcript row", () => {
     useChatSessionStore.setState({
       snapshot: {
         messages: [
@@ -127,9 +127,7 @@ describe("handleMessageDequeued", () => {
       makeCtx(),
     );
 
-    expect(
-      useChatSessionStore.getState().snapshot?.messages[0]?.queueStatus,
-    ).toBeUndefined();
+    expect(useChatSessionStore.getState().snapshot?.messages).toEqual([]);
   });
 });
 

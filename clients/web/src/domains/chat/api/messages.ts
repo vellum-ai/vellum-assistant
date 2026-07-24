@@ -739,7 +739,7 @@ export async function steerToMessage(
     if (response?.ok) {
       return "steered";
     }
-    if (response?.status === 400 || response?.status === 404) {
+    if (response?.status === 404) {
       return "not_steerable";
     }
     return "request_failed";

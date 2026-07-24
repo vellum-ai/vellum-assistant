@@ -216,18 +216,28 @@ describe("queued message request context", () => {
     });
   });
 
-  test("classifies semantic steer rejections as not steerable", async () => {
-    for (const status of [400, 404]) {
-      nextPostResult = {
-        data: null,
-        error: { detail: "Cannot steer queued message" },
-        response: new Response(null, { status }),
-      };
+  test("classifies a missing queued message as not steerable", async () => {
+    nextPostResult = {
+      data: null,
+      error: { detail: "Queued message not found" },
+      response: new Response(null, { status: 404 }),
+    };
 
-      expect(
-        await steerToMessage("assistant-1", "conv-1", "request-1"),
-      ).toBe("not_steerable");
-    }
+    expect(
+      await steerToMessage("assistant-1", "conv-1", "request-1"),
+    ).toBe("not_steerable");
+  });
+
+  test("restores queue state when the conversation stopped processing", async () => {
+    nextPostResult = {
+      data: null,
+      error: { detail: "Conversation is not currently processing" },
+      response: new Response(null, { status: 400 }),
+    };
+
+    expect(
+      await steerToMessage("assistant-1", "conv-1", "request-1"),
+    ).toBe("request_failed");
   });
 
   test("classifies server steer failures as retryable request failures", async () => {

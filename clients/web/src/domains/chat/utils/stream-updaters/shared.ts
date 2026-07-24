@@ -156,6 +156,23 @@ export function clearQueueStatus(
   );
 }
 
+export function applyQueuedMessageDequeue(
+  prev: DisplayMessage[],
+  id: string,
+): DisplayMessage[] {
+  return prev.flatMap((message) => {
+    if (!messageMatchesKey(message, id)) {
+      return [message];
+    }
+    if (message.queueStatus === "queued" && !message.clientMessageId) {
+      return [];
+    }
+    return [
+      { ...message, queueStatus: undefined, queuePosition: undefined },
+    ];
+  });
+}
+
 /** Mark a message as queued by server id or client correlation id. */
 export function markMessageQueued(
   prev: DisplayMessage[],

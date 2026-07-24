@@ -37,7 +37,7 @@ import {
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import { clearConfirmationByRequestId } from "@/domains/chat/utils/send-message-utils";
 import {
-  clearQueueStatus,
+  applyQueuedMessageDequeue,
   removeQueuedMessage,
 } from "@/domains/chat/utils/stream-updaters/shared";
 
@@ -84,7 +84,7 @@ export function appendEventToMessages(
         at,
       );
     case "message_dequeued":
-      return clearQueueStatus(messages, event.requestId);
+      return applyQueuedMessageDequeue(messages, event.requestId);
     case "message_queued_deleted":
       return removeQueuedMessage(messages, event.requestId);
     case "assistant_activity_state":

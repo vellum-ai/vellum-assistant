@@ -227,8 +227,25 @@ describe("rolling-snapshot reducer", () => {
       expect(resolved.messages.find((m) => m.id === "a1")?.textSegments).toEqual(["x"]);
     });
 
-    test("replays a dequeue transition onto a queued snapshot row", () => {
+    test("removes a nonce-less queued placeholder when replaying a dequeue", () => {
+      const dequeued = env(2, {
+        type: "message_dequeued",
+        conversationId: "conv-1",
+        requestId: "req-1",
+      } as AssistantEvent);
       const resolved = resolveSnapshot(queuedSnapshot(), [
+        dequeued,
+        userEcho(3, "persisted-1", "queued message"),
+      ]);
+
+      expect(resolved.messages).toHaveLength(1);
+      expect(resolved.messages[0]?.id).toBe("persisted-1");
+    });
+
+    test("retains a correlated queued row when replaying a dequeue", () => {
+      const snapshot = queuedSnapshot();
+      snapshot.messages[0]!.clientMessageId = "nonce-1";
+      const resolved = resolveSnapshot(snapshot, [
         env(2, {
           type: "message_dequeued",
           conversationId: "conv-1",

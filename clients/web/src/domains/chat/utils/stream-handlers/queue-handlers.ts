@@ -1,5 +1,5 @@
 import {
-  clearQueueStatus,
+  applyQueuedMessageDequeue,
   removeQueuedMessage,
   setQueuePosition,
 } from "@/domains/chat/utils/stream-updaters/shared";
@@ -55,10 +55,12 @@ export function handleMessageDequeued(
   ctx.turnActions.dequeueMessage();
   const dequeuedMessageId = ctx.popRequestIdMapping(event.requestId);
   if (dequeuedMessageId) {
-    ctx.setOptimisticSends((prev) => clearQueueStatus(prev, dequeuedMessageId));
+    ctx.setOptimisticSends((prev) =>
+      applyQueuedMessageDequeue(prev, dequeuedMessageId),
+    );
   }
   patchTranscriptMessages((prev) =>
-    clearQueueStatus(prev, dequeuedMessageId ?? event.requestId),
+    applyQueuedMessageDequeue(prev, dequeuedMessageId ?? event.requestId),
   );
 }
 
