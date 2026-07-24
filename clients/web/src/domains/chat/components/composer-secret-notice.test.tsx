@@ -94,6 +94,49 @@ describe("ComposerSecretNotice (passive)", () => {
   });
 });
 
+describe("ComposerSecretNotice (non-storable match)", () => {
+  // A private key detected by its header alone — the END footer never
+  // arrived, so storing would leave the key body in the draft.
+  const headerOnlyPem: DetectedSecret = {
+    label: "Private Key",
+    value: "-----BEGIN RSA PRIVATE KEY-----",
+    start: 0,
+    end: "-----BEGIN RSA PRIVATE KEY-----".length,
+    wholeMessage: false,
+  };
+
+  test("passive state omits Store securely for a header-only private key", () => {
+    renderNotice({ matches: [headerOnlyPem] });
+    expect(
+      screen.queryByRole("button", { name: "Store securely" }),
+    ).toBeNull();
+  });
+
+  test("blocked state omits Store securely but keeps Send anyway / Dismiss", () => {
+    renderNotice({ matches: [headerOnlyPem], sendBlocked: true });
+    expect(
+      screen.queryByRole("button", { name: "Store securely" }),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Send anyway" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+  });
+
+  test("a complete PEM block still offers Store securely", () => {
+    const fullBlock: DetectedSecret = {
+      label: "Private Key",
+      value:
+        "-----BEGIN RSA PRIVATE KEY-----\nMIIFAKEfakefakefake==\n-----END RSA PRIVATE KEY-----",
+      start: 0,
+      end: 92,
+      wholeMessage: false,
+    };
+    renderNotice({ matches: [fullBlock] });
+    expect(
+      screen.getByRole("button", { name: "Store securely" }),
+    ).toBeTruthy();
+  });
+});
+
 describe("ComposerSecretNotice (blocked send)", () => {
   test("shows the exact blocked copy, the masked value, and both actions", () => {
     const { container } = renderNotice({ sendBlocked: true });

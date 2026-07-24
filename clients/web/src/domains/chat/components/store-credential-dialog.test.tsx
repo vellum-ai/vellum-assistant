@@ -81,6 +81,7 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 
 const {
   StoreCredentialDialog,
+  isStorableSecret,
   rewriteDraftWithStoredCredential,
   suggestCredentialSlot,
 } = await import("@/domains/chat/components/store-credential-dialog");
@@ -89,6 +90,27 @@ const {
 // OpenAI-project shape.
 const SYNTHETIC_PROJECT_KEY =
   "sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv1Wx2Yz3A";
+
+// Clearly fake PEM material — never a real key.
+const FAKE_PEM_HEADER = "-----BEGIN RSA PRIVATE KEY-----";
+const FAKE_PEM_BODY = "MIIFAKEfakefakefakefakefakefakefakefakefake==";
+const FAKE_PEM_BLOCK = `${FAKE_PEM_HEADER}\n${FAKE_PEM_BODY}\n-----END RSA PRIVATE KEY-----`;
+
+const fullPemSecret: DetectedSecret = {
+  label: "Private Key",
+  value: FAKE_PEM_BLOCK,
+  start: 12,
+  end: 12 + FAKE_PEM_BLOCK.length,
+  wholeMessage: false,
+};
+
+const headerOnlyPemSecret: DetectedSecret = {
+  label: "Private Key",
+  value: FAKE_PEM_HEADER,
+  start: 12,
+  end: 12 + FAKE_PEM_HEADER.length,
+  wholeMessage: false,
+};
 
 const detectedSecret: DetectedSecret = {
   label: "OpenAI Project Key",
@@ -175,6 +197,20 @@ describe("suggestCredentialSlot", () => {
     [""],
   ])("%p suggests empty fields", (label) => {
     expect(suggestCredentialSlot(label)).toEqual({ service: "", field: "" });
+  });
+});
+
+describe("isStorableSecret", () => {
+  test("non-private-key secrets are always storable", () => {
+    expect(isStorableSecret(detectedSecret)).toBe(true);
+  });
+
+  test("a complete PEM block is storable", () => {
+    expect(isStorableSecret(fullPemSecret)).toBe(true);
+  });
+
+  test("a header-only private-key match is not storable", () => {
+    expect(isStorableSecret(headerOnlyPemSecret)).toBe(false);
   });
 });
 
@@ -285,6 +321,48 @@ describe("StoreCredentialDialog", () => {
     expect(setCalls.length).toBe(0);
     expect(onStored.mock.calls.length).toBe(0);
     expect(onClose.mock.calls.length).toBe(1);
+  });
+
+  test("a full PEM block is stored whole and rewritten out of the draft with no residue", async () => {
+    const draft = `here is my\n${FAKE_PEM_BLOCK}\nplease deploy`;
+    useComposerStore.getState().setInput(draft);
+    const { onStored } = renderDialog({ secret: fullPemSecret });
+
+    fireEvent.change(input("Service"), { target: { value: "github-app" } });
+    fireEvent.change(input("Field"), { target: { value: "pem" } });
+    fireEvent.submit(
+      screen
+        .getByRole("button", { name: "Save" })
+        .closest("form") as HTMLFormElement,
+    );
+
+    // The mutation receives the ENTIRE block — header, body, and footer.
+    await waitFor(() => expect(setCalls.length).toBe(1));
+    expect(setCalls[0]!.body.value).toBe(FAKE_PEM_BLOCK);
+
+    await waitFor(() => expect(onStored.mock.calls.length).toBe(1));
+    const rewritten = useComposerStore.getState().input;
+    expect(rewritten).toBe(
+      "here is my\n[stored securely as github-app/pem]\nplease deploy",
+    );
+    // No fragment of the key survives anywhere — draft or DOM.
+    expect(rewritten).not.toContain("BEGIN");
+    expect(rewritten).not.toContain(FAKE_PEM_BODY);
+    expect(rewritten).not.toContain("END");
+    expect(document.body.innerHTML).not.toContain(FAKE_PEM_BODY);
+  });
+
+  test("a header-only private-key match is not storable — the dialog never opens", () => {
+    // A partial store would vault just the header and strip only the header
+    // from the draft, leaving the key body behind with nothing left for the
+    // detector to flag.
+    useComposerStore
+      .getState()
+      .setInput(`here is my\n${FAKE_PEM_HEADER}\n${FAKE_PEM_BODY}`);
+    renderDialog({ secret: headerOnlyPemSecret });
+
+    expect(screen.queryByLabelText("Value")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 
   test("unknown detection label opens with empty service/field for the user to fill", () => {

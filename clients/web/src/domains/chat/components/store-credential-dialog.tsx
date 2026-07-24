@@ -1,4 +1,8 @@
-import type { DetectedSecret } from "@vellumai/service-contracts/secret-detection";
+import {
+  isCompletePrivateKeyBlock,
+  PRIVATE_KEY_LABEL,
+  type DetectedSecret,
+} from "@vellumai/service-contracts/secret-detection";
 
 import { AddCredentialModal } from "@/components/add-credential-modal";
 import { useComposerStore } from "@/domains/chat/composer-store";
@@ -67,6 +71,22 @@ export function suggestCredentialSlot(label: string): CredentialSlot {
 }
 
 /**
+ * True when storing this secret and rewriting the draft removes the entire
+ * secret. A `Private Key` match whose value lacks the PEM END footer is only
+ * the block header (the footer is absent from the draft — truncated or
+ * partial paste): storing it would vault the header alone and the rewrite
+ * would strip just the header, leaving the key body in the composer with
+ * nothing left for the detector to flag. Such a match must not be offered
+ * the "Store securely" action.
+ */
+export function isStorableSecret(secret: DetectedSecret): boolean {
+  return (
+    secret.label !== PRIVATE_KEY_LABEL ||
+    isCompletePrivateKeyBlock(secret.value)
+  );
+}
+
+/**
  * Replaces every occurrence of a stored secret in the draft with a plaintext
  * placeholder naming its vault slot. The placeholder is model-actionable: the
  * assistant discovers stored credentials via `assistant credentials list` and
@@ -104,6 +124,10 @@ export interface StoreCredentialDialogProps {
  * composer draft, replacing the secret with its vault-slot placeholder, so
  * the plaintext key never enters the transcript. Cancel leaves the draft —
  * and the composer secret notice — untouched.
+ *
+ * Never opens for a non-{@link isStorableSecret} match (a header-only
+ * private key): storing it would rewrite only the header and leave the key
+ * body in the draft, undetected.
  */
 export function StoreCredentialDialog({
   secret,
@@ -112,9 +136,10 @@ export function StoreCredentialDialog({
   onStored,
 }: StoreCredentialDialogProps) {
   const suggestion = suggestCredentialSlot(secret?.label ?? "");
+  const storable = secret !== null && isStorableSecret(secret);
 
   const handleSaved = (meta: { service: string; field: string }) => {
-    if (!secret) {
+    if (!secret || !isStorableSecret(secret)) {
       return;
     }
     const slot: CredentialSlot = { service: meta.service, field: meta.field };
@@ -125,7 +150,7 @@ export function StoreCredentialDialog({
 
   return (
     <AddCredentialModal
-      open={open && secret !== null}
+      open={open && storable}
       onClose={onClose}
       onSaved={handleSaved}
       successToastMessage="Stored securely — the key never entered the chat"

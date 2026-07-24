@@ -1,6 +1,8 @@
 import { Button, Notice } from "@vellumai/design-library";
 import type { DetectedSecret } from "@vellumai/service-contracts/secret-detection";
 
+import { isStorableSecret } from "@/domains/chat/components/store-credential-dialog";
+
 /** Leading characters of the detected value kept visible in the masked preview. */
 const MASK_VISIBLE_CHARS = 6;
 const MASK_BULLETS = "•".repeat(8);
@@ -50,7 +52,8 @@ export interface ComposerSecretNoticeProps {
  *   bypass + resubmit) or "Dismiss".
  *
  * Both states lead with "Store securely" — the recommended path — which
- * opens the store-credential dialog for the previewed secret.
+ * opens the store-credential dialog for the previewed secret. The action is
+ * omitted for a non-storable match (see {@link isStorableSecret}).
  *
  * The copy is deliberately generic — the detection label (which names the
  * vendor) stays internal and is never rendered. The detected value appears
@@ -73,11 +76,14 @@ export function ComposerSecretNotice({
   if (!first) {
     return null;
   }
-  const storeSecurelyButton = (
+  // A non-storable match (a private key detected by its header alone — the
+  // END footer never arrived) gets no "Store securely" action: the store +
+  // rewrite would remove only the header and leave the key body behind.
+  const storeSecurelyButton = isStorableSecret(first) ? (
     <Button variant="primary" size="compact" onClick={onStoreSecurely}>
       Store securely
     </Button>
-  );
+  ) : null;
   return (
     <div className="mb-2">
       <Notice

@@ -42,7 +42,48 @@ export interface SecretPrefixPattern {
  * here.**  If the service uses only opaque OAuth access tokens (no fixed
  * prefix), no pattern is needed.
  */
+/** Detection label for PEM private-key matches. */
+export const PRIVATE_KEY_LABEL = "Private Key";
+
+// PEM private-key header/footer type variants, shared by the Private Key
+// pattern and the complete-block check.
+const PEM_KEY_TYPE = String.raw`(?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY(?:\s+BLOCK)?`;
+const PEM_BEGIN = String.raw`-----BEGIN ${PEM_KEY_TYPE}-----`;
+const PEM_END = String.raw`-----END ${PEM_KEY_TYPE}-----`;
+
+const PEM_COMPLETE_BLOCK = new RegExp(`${PEM_END}$`);
+
+/**
+ * True when a `Private Key` match is a complete PEM block — it ends at an
+ * `-----END … PRIVATE KEY-----` footer (the pattern guarantees it starts at
+ * the BEGIN header). A header-only match means the footer is absent from
+ * the scanned text (truncated or partial paste), so the match does NOT
+ * cover the key body: storing or replacing such a value would leave key
+ * material behind.
+ */
+export function isCompletePrivateKeyBlock(value: string): boolean {
+  return PEM_COMPLETE_BLOCK.test(value);
+}
+
 export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
+  // -- Private keys --
+  // First in the list on purpose: `detectSecretsInText` resolves overlapping
+  // spans by list order, and a PEM body is base64 — it can embed runs that
+  // look like other tokens (e.g. `AKIA` + 16 chars). The whole-block match
+  // must win those overlaps or the block would be fragmented.
+  {
+    label: PRIVATE_KEY_LABEL,
+    // Matches the entire PEM block (header through footer) when the END
+    // footer is present, so consumers that store or replace the matched
+    // value handle the whole key. The block tail is optional: a header with
+    // no footer (truncated or streamed partial paste) still matches alone,
+    // which ingress blocking relies on. The body is tempered — it never
+    // crosses another BEGIN header — so adjacent blocks match separately.
+    regex: new RegExp(
+      `${PEM_BEGIN}(?:(?:(?!-----BEGIN)[\\s\\S])*?${PEM_END})?`,
+    ),
+  },
+
   // -- AWS --
   { label: "AWS Access Key", regex: /AKIA[0-9A-Z]{16}/ },
 
@@ -112,13 +153,6 @@ export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
 
   // -- PyPI --
   { label: "PyPI API Token", regex: /pypi-[A-Za-z0-9\-_]{50,}/ },
-
-  // -- Private keys --
-  {
-    label: "Private Key",
-    regex:
-      /-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY(?:\s+BLOCK)?-----/,
-  },
 
   // -- Linear --
   { label: "Linear API Key", regex: /lin_api_[A-Za-z0-9]{32,}/ },
