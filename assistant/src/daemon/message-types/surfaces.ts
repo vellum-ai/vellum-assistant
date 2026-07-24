@@ -2,7 +2,9 @@
 
 import type { UISurfaceCompleteEvent } from "../../api/events/ui-surface-complete.js";
 import type { UISurfaceDismissEvent } from "../../api/events/ui-surface-dismiss.js";
+import type { UISurfaceShowEvent } from "../../api/events/ui-surface-show.js";
 import type { UISurfaceUndoResultEvent } from "../../api/events/ui-surface-undo-result.js";
+import type { UISurfaceUpdateEvent } from "../../api/events/ui-surface-update.js";
 import type {
   AnySurfaceData,
   CardSurfaceData,
@@ -91,13 +93,18 @@ export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = [
   "task_preferences",
 ];
 
-export interface SurfaceAction {
-  id: string;
-  label: string;
-  style?: "primary" | "secondary" | "destructive";
-  /** Optional data payload returned to the daemon when this action is clicked. */
-  data?: Record<string, unknown>;
-}
+// The clickable-action shape and the five surface lifecycle events are
+// single-sourced from their canonical `api/events` wire schemas; re-exported so
+// the daemon's surface protocol barrel keeps surfacing them under their
+// canonical names.
+export type { SurfaceAction } from "../../api/events/ui-surface-show.js";
+export type {
+  UISurfaceCompleteEvent,
+  UISurfaceDismissEvent,
+  UISurfaceShowEvent,
+  UISurfaceUndoResultEvent,
+  UISurfaceUpdateEvent,
+};
 
 // Surface actions (user clicks) and undo requests are served by the HTTP
 // surface-action routes (`surface-actions`, `surfaces/:id/undo`), not by client
@@ -105,28 +112,17 @@ export interface SurfaceAction {
 
 // === Server → Client ===
 
-/** Common fields shared by all UiSurfaceShow variants. */
-interface UiSurfaceShowBase {
-  type: "ui_surface_show";
-  conversationId: string;
-  surfaceId: string;
-  title?: string;
-  actions?: SurfaceAction[];
-  display?: "inline" | "panel";
-  /** The message ID that this surface belongs to (for history loading). */
-  messageId?: string;
-  /** When `true`, clicking an action does not dismiss the surface — the client keeps the card visible and only marks the clicked `actionId` as spent so siblings remain clickable. */
-  persistent?: boolean;
-  /** Id of the tool call that produced this surface (the `ui_show` proxy tool). Lets the client gate app previews on the tool result's arrival rather than whole-turn streaming state. */
-  toolCallId?: string;
-}
-
 /**
- * The show event for one specific surface type: base fields plus the
- * correlated `surfaceType`/`data` pair, both indexed from
- * `SurfaceDataByType` so generic code keeps the pairing.
+ * The show event for one specific surface type: the canonical
+ * `UISurfaceShowEvent` base fields with the wire-opaque `surfaceType`/`data`
+ * replaced by the correlated pair indexed from `SurfaceDataByType`, so daemon
+ * construction code keeps the `surfaceType` ↔ `data` pairing that the opaque
+ * wire schema deliberately drops. Assignable to `UISurfaceShowEvent`.
  */
-export type UiSurfaceShowFor<K extends SurfaceType> = UiSurfaceShowBase & {
+export type UiSurfaceShowFor<K extends SurfaceType> = Omit<
+  UISurfaceShowEvent,
+  "surfaceType" | "data"
+> & {
   surfaceType: K;
   data: SurfaceDataByType[K];
 };
@@ -154,23 +150,17 @@ export type UiSurfaceShowFileUpload = UiSurfaceShowFor<"file_upload">;
 export type UiSurfaceShowDocumentPreview = UiSurfaceShowFor<"document_preview">;
 export type UiSurfaceShowWorkResult = UiSurfaceShowFor<"work_result">;
 
-export interface UiSurfaceUpdate {
-  type: "ui_surface_update";
-  conversationId: string;
-  surfaceId: string;
-  data: Partial<AnySurfaceData>;
-}
-
-// `ui_surface_dismiss`, `ui_surface_complete`, and `ui_surface_undo_result` are
-// single-sourced from their canonical `api/events` wire schemas. `ui_surface_show`
-// and `ui_surface_update` retain their strictly-correlated (`surfaceType` ↔ `data`)
-// daemon shapes here, which their producers/consumers depend on.
+// All five surface lifecycle events are single-sourced from their canonical
+// `api/events` wire schemas. The strict, per-`surfaceType` `UiSurfaceShow*`
+// types above are daemon-side construction helpers derived from the same
+// canonical `UISurfaceShowEvent` — they narrow `surfaceType` ↔ `data` for
+// typed construction and are assignable to the opaque wire type.
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _SurfacesServerMessages =
-  | UiSurfaceShow
-  | UiSurfaceUpdate
+  | UISurfaceShowEvent
+  | UISurfaceUpdateEvent
   | UISurfaceDismissEvent
   | UISurfaceCompleteEvent
   | UISurfaceUndoResultEvent;
