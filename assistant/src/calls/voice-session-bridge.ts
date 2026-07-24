@@ -1324,7 +1324,13 @@ export async function startVoiceTurn(
             // turnComplete promise settles instead of hanging forever.
             eventSink.onMessageComplete(msg);
           } else if (msg.type === "error") {
-            eventSink.onError(msg.message);
+            // Carries its own classification, and the agent loop can emit this
+            // ahead of the matching `conversation_error` — a client that tears
+            // down on the first terminal frame never sees the second, so this
+            // one must be categorized too.
+            eventSink.onError(msg.message, {
+              errorCategory: msg.errorCategory,
+            });
           } else if (msg.type === "conversation_error") {
             eventSink.onError(msg.userMessage, {
               errorCategory: msg.errorCategory,

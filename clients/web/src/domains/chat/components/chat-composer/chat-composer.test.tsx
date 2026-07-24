@@ -533,6 +533,7 @@ beforeEach(() => {
   // The voice entry point gates on the chat session error (a billing wall
   // disables it), so clear it or a billing case leaks into later renders.
   useChatSessionStore.getState().setError(null);
+  useChatSessionStore.getState().setNotice(null);
 });
 
 /**
@@ -1333,6 +1334,23 @@ describe("ChatComposer — live-voice integration", () => {
     const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
     expect(liveVoice.disabled).toBe(true);
     expect(liveVoice.title).toBe("Out of credits — add credits to use voice");
+  });
+
+  test("a billing NOTICE disables voice too — same source the banner uses", () => {
+    // The banner renders off `error ?? notice`, so gating on `error` alone would
+    // leave voice enabled underneath a visible paywall.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    useChatSessionStore.getState().setNotice({
+      message: "You've run out of credits.",
+      errorCategory: "credits_exhausted",
+    });
+
+    const { getByLabelText } = renderVoiceComposer();
+
+    expect(
+      (getByLabelText("Start voice mode") as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   test("voice entry is open again once the billing error clears", () => {

@@ -291,8 +291,14 @@ export function ChatComposer({
   // that immediately winds down — the billing banner sitting above the composer
   // already explains it and carries the CTA. Self-clearing: any send resets the
   // chat error (see `use-send-message`), so this can never strand the button.
+  // Both sources, matching what the billing banner renders from (`error ??
+  // notice`): gating on `error` alone would leave voice enabled underneath a
+  // visible paywall whenever the wall arrived as a non-terminal notice.
   const chatError = useChatSessionStore.use.error();
-  const billingBlocksVoice = getChatBillingBannerDecision(chatError) !== null;
+  const chatNotice = useChatSessionStore.use.notice();
+  const billingBlocksVoice =
+    getChatBillingBannerDecision(chatError) !== null ||
+    getChatBillingBannerDecision(chatNotice) !== null;
   // Whether any session is live anywhere (this thread or another). `failed`
   // is a retryable/inactive state, so it must count as inactive — otherwise
   // dictation would stay unavailable after a failed start.
