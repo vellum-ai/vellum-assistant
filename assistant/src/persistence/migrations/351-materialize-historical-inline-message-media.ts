@@ -4,6 +4,7 @@ import { join, resolve, sep } from "node:path";
 
 import { optimizeImageForTransport } from "../../agent/image-optimize.js";
 import { parseImageDimensions } from "../../context/image-dimensions.js";
+import { getLogger } from "../../util/logger.js";
 import { getConversationsDir } from "../../util/platform.js";
 import { classifyKind } from "../attachments-store.js";
 import {
@@ -12,6 +13,9 @@ import {
 } from "../conversation-directories.js";
 import type { DrizzleDb } from "../db-connection.js";
 import { getSqliteFrom } from "../db-connection.js";
+import { enqueueLexicalIndexForMessage } from "../job-handlers/message-lexical.js";
+
+const log = getLogger("migration-historical-inline-media");
 
 const BATCH_SIZE = 10;
 const ATTACHMENT_ID_PREFIX = "historical-inline-media-";
@@ -24,6 +28,7 @@ export interface HistoricalInlineMediaMigrationOptions {
   ) => string;
   writeFile?: (path: string, data: Buffer) => void;
   readLinkedAttachmentBytes?: (attachmentId: string) => Buffer | null;
+  scheduleLexicalReindex?: (messageId: string) => void;
   yieldToEventLoop?: () => Promise<void>;
 }
 
@@ -259,6 +264,8 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
     options.resolveAttachmentsDir ?? defaultResolveAttachmentsDir;
   const writeFile = options.writeFile ?? defaultWriteFile;
   const yieldToEventLoop = options.yieldToEventLoop ?? defaultYield;
+  const scheduleLexicalReindex =
+    options.scheduleLexicalReindex ?? enqueueLexicalIndexForMessage;
   const readLinkedAttachmentBytes =
     options.readLinkedAttachmentBytes ??
     ((attachmentId: string): Buffer | null => {
@@ -579,6 +586,18 @@ export async function migrateMaterializeHistoricalInlineMessageMedia(
         if (result.changes !== 1) {
           throw new Error(
             `Historical inline media message changed during migration: ${row.id}`,
+          );
+        }
+        // The lexical queue lives in a separate database. Enqueue after the
+        // guarded update but before this transaction commits so a crash cannot
+        // leave committed content without a pending idempotent reindex job.
+        // A queue failure stays non-fatal, matching the canonical enqueue seam.
+        try {
+          scheduleLexicalReindex(row.id);
+        } catch (err) {
+          log.warn(
+            { err, messageId: row.id },
+            "Failed to schedule lexical reindex after inline-media migration",
           );
         }
       });

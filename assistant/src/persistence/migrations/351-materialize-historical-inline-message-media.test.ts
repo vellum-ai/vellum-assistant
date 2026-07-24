@@ -89,6 +89,7 @@ function createTestDb() {
     attachmentsDirFor,
     options: {
       resolveAttachmentsDir: attachmentsDirFor,
+      scheduleLexicalReindex: () => {},
       yieldToEventLoop: async () => {},
     },
   };
@@ -204,6 +205,7 @@ describe("migration 351: materialize historical inline message media", () => {
 
   test("materializes root and nested image/file blocks with stable links and metadata", async () => {
     const { sqlite, db, options } = createTestDb();
+    const scheduledMessageIds: string[] = [];
     const imageOne = Buffer.from("image-one").toString("base64");
     const fileOne = Buffer.from("file-one").toString("base64");
     const imageTwo = Buffer.from("image-two").toString("base64");
@@ -272,7 +274,12 @@ describe("migration 351: materialize historical inline message media", () => {
       },
     ]);
 
-    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+      ...options,
+      scheduleLexicalReindex: (messageId) => {
+        scheduledMessageIds.push(messageId);
+      },
+    });
 
     const content = messageContent(sqlite, "message-1") as Array<any>;
     const converted = [
@@ -300,6 +307,7 @@ describe("migration 351: materialize historical inline message media", () => {
     expect(content[3].contentBlocks[0].source.filename).toBe("result.txt");
     expect(count(sqlite, "attachments")).toBe(5);
     expect(count(sqlite, "message_attachments")).toBe(5);
+    expect(scheduledMessageIds).toEqual(["message-1"]);
     const positions = (
       sqlite
         .query(
@@ -413,6 +421,7 @@ describe("migration 351: materialize historical inline message media", () => {
     );
     linkAttachment(sqlite, "message-referenced", "attachment-existing", 0);
     const reads: string[] = [];
+    const scheduledMessageIds: string[] = [];
 
     await migrateMaterializeHistoricalInlineMessageMedia(db, {
       ...options,
@@ -420,9 +429,13 @@ describe("migration 351: materialize historical inline message media", () => {
         reads.push(attachmentId);
         throw new Error("linked attachment must not be read");
       },
+      scheduleLexicalReindex: (messageId) => {
+        scheduledMessageIds.push(messageId);
+      },
     });
 
     expect(reads).toEqual([]);
+    expect(scheduledMessageIds).toEqual([]);
     expect(messageContent(sqlite, "message-referenced")).toEqual(content);
   });
 
@@ -459,11 +472,15 @@ describe("migration 351: materialize historical inline message media", () => {
       ["attachment-never-read", Buffer.from("unused")],
     ]);
     const reads: string[] = [];
+    const scheduledMessageIds: string[] = [];
     const migrationOptions = {
       ...options,
       readLinkedAttachmentBytes: (attachmentId: string): Buffer | null => {
         reads.push(attachmentId);
         return candidateBytes.get(attachmentId) ?? null;
+      },
+      scheduleLexicalReindex: (messageId: string): void => {
+        scheduledMessageIds.push(messageId);
       },
     };
 
@@ -478,10 +495,12 @@ describe("migration 351: materialize historical inline message media", () => {
     });
     expect(count(sqlite, "attachments")).toBe(3);
     expect(count(sqlite, "message_attachments")).toBe(3);
+    expect(scheduledMessageIds).toEqual(["message-lazy-match"]);
 
     await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
 
     expect(reads).toEqual(["attachment-wrong", "attachment-match"]);
+    expect(scheduledMessageIds).toEqual(["message-lazy-match"]);
     expect(count(sqlite, "attachments")).toBe(3);
     expect(count(sqlite, "message_attachments")).toBe(3);
   });
@@ -796,6 +815,7 @@ describe("migration 351: materialize historical inline message media", () => {
 
   test("leaves malformed JSON, invalid base64, and unfinalized rows untouched", async () => {
     const { sqlite, db, options, attachmentsDir } = createTestDb();
+    const scheduledMessageIds: string[] = [];
     insertMessage(sqlite, "malformed-json", "{not-json");
     insertMessage(sqlite, "invalid-base64", [
       {
@@ -836,14 +856,53 @@ describe("migration 351: materialize historical inline message media", () => {
       .query(`SELECT id, content FROM messages ORDER BY id`)
       .all();
 
-    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+      ...options,
+      scheduleLexicalReindex: (messageId) => {
+        scheduledMessageIds.push(messageId);
+      },
+    });
 
     expect(
       sqlite.query(`SELECT id, content FROM messages ORDER BY id`).all(),
     ).toEqual(before);
     expect(count(sqlite, "attachments")).toBe(0);
     expect(count(sqlite, "message_attachments")).toBe(0);
+    expect(scheduledMessageIds).toEqual([]);
     expect(existsSync(attachmentsDir)).toBe(false);
+  });
+
+  test("keeps a lexical scheduling failure non-fatal after committing rewritten content", async () => {
+    const { sqlite, db, options } = createTestDb();
+    let schedulingAttempts = 0;
+    insertMessage(sqlite, "message-lexical-failure", [
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "text/plain",
+          data: Buffer.from("searchable").toString("base64"),
+          filename: "searchable.txt",
+        },
+      },
+    ]);
+
+    await migrateMaterializeHistoricalInlineMessageMedia(db, {
+      ...options,
+      scheduleLexicalReindex: () => {
+        schedulingAttempts += 1;
+        throw new Error("jobs database unavailable");
+      },
+    });
+
+    const content = messageContent(
+      sqlite,
+      "message-lexical-failure",
+    ) as Array<any>;
+    expect(content[0].source.type).toBe("workspace_ref");
+    expect(schedulingAttempts).toBe(1);
+    expect(count(sqlite, "attachments")).toBe(1);
+    expect(count(sqlite, "message_attachments")).toBe(1);
   });
 
   test("leaves a valid media write failure uncheckpointed without changing database state", async () => {
@@ -893,6 +952,13 @@ describe("migration 351: materialize historical inline message media", () => {
 
   test("rolls back database writes and reuses the deterministic file after interruption", async () => {
     const { sqlite, db, options, attachmentsDir } = createTestDb();
+    const scheduledMessageIds: string[] = [];
+    const migrationOptions = {
+      ...options,
+      scheduleLexicalReindex: (messageId: string): void => {
+        scheduledMessageIds.push(messageId);
+      },
+    };
     insertMessage(sqlite, "message-5", [
       {
         type: "file",
@@ -913,19 +979,21 @@ describe("migration 351: materialize historical inline message media", () => {
     `);
 
     expect(
-      migrateMaterializeHistoricalInlineMessageMedia(db, options),
+      migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions),
     ).rejects.toThrow("interrupted");
     expect(count(sqlite, "attachments")).toBe(0);
     expect(count(sqlite, "message_attachments")).toBe(0);
+    expect(scheduledMessageIds).toEqual([]);
     expect(readdirSync(attachmentsDir)).toHaveLength(1);
 
     sqlite.exec(`DROP TRIGGER fail_message_rewrite`);
-    await migrateMaterializeHistoricalInlineMessageMedia(db, options);
+    await migrateMaterializeHistoricalInlineMessageMedia(db, migrationOptions);
 
     const content = messageContent(sqlite, "message-5") as Array<any>;
     expect(content[0].source.type).toBe("workspace_ref");
     expect(count(sqlite, "attachments")).toBe(1);
     expect(count(sqlite, "message_attachments")).toBe(1);
+    expect(scheduledMessageIds).toEqual(["message-5"]);
     expect(readdirSync(attachmentsDir)).toHaveLength(1);
   });
 });
