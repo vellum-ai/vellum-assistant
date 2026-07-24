@@ -37,6 +37,7 @@ import {
   isHeifImage,
   jpegFilenameFor,
   normalizeImageBytes,
+  sniffImageMimeType,
 } from "../../util/image-conversion.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
@@ -535,24 +536,30 @@ function displayAttachmentResponse(
       `A browser-displayable representation is unavailable for ${normalized.mimeType}`,
     );
   }
-  const bytes = Buffer.from(normalized.bytes);
-  return new RouteResponse(bytes, {
+  const responseBytes: Uint8Array<ArrayBuffer> =
+    normalized.bytes.buffer instanceof ArrayBuffer
+      ? new Uint8Array(
+          normalized.bytes.buffer,
+          normalized.bytes.byteOffset,
+          normalized.bytes.byteLength,
+        )
+      : new Uint8Array(normalized.bytes);
+  return new RouteResponse(responseBytes, {
     "Content-Type": normalized.mimeType,
-    "Content-Length": String(bytes.length),
+    "Content-Length": String(responseBytes.byteLength),
     "Accept-Ranges": "none",
   });
 }
 
-function assertDisplayRequestSupported(
-  filename: string,
-  mimeType: string,
-  rangeHeader: string | undefined,
-): void {
+function assertDisplayRangeSupported(rangeHeader: string | undefined): void {
   if (rangeHeader) {
     throw new RangeNotSatisfiableError(
       "Range requests are not supported for display representations",
     );
   }
+}
+
+function assertDisplayImageCandidate(filename: string, mimeType: string): void {
   if (!mimeType.startsWith("image/") && !isHeicFilename(filename)) {
     throw new UnsupportedMediaTypeError(
       "Display representations are available only for image attachments",
@@ -601,15 +608,30 @@ function handleGetAttachmentContentRoute({
     }
 
     if (displayRepresentation) {
-      assertDisplayRequestSupported(
+      assertDisplayRangeSupported(headers["range"]);
+      assertDisplayImageCandidate(
         attachment.originalFilename,
         attachment.mimeType,
-        headers["range"],
       );
-      return displayAttachmentResponse(
-        attachment.mimeType,
-        readFileSync(resolvedPath),
-      );
+      const head = readFileHead(resolvedPath, 12);
+      if (isHeifImage(head)) {
+        return displayAttachmentResponse(
+          attachment.mimeType,
+          readFileSync(resolvedPath),
+        );
+      }
+      const displayMimeType = sniffImageMimeType(head) ?? attachment.mimeType;
+      if (!BROWSER_DISPLAY_IMAGE_MIME_TYPES.has(displayMimeType)) {
+        throw new UnsupportedMediaTypeError(
+          `A browser-displayable representation is unavailable for ${displayMimeType}`,
+        );
+      }
+      const displayFile = Bun.file(resolvedPath);
+      return new RouteResponse(displayFile, {
+        "Content-Type": displayMimeType,
+        "Content-Length": String(displayFile.size),
+        "Accept-Ranges": "none",
+      });
     }
 
     const file = Bun.file(resolvedPath);
@@ -671,10 +693,10 @@ function handleGetAttachmentContentRoute({
   }
 
   if (displayRepresentation) {
-    assertDisplayRequestSupported(
+    assertDisplayRangeSupported(headers["range"]);
+    assertDisplayImageCandidate(
       attachment.originalFilename,
       attachment.mimeType,
-      headers["range"],
     );
   }
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, truncateSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   afterAll,
@@ -44,6 +44,7 @@ import { ACTOR_PRINCIPALS } from "../runtime/auth/route-policy.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ROUTES as ATTACHMENT_ROUTES } from "../runtime/routes/attachment-routes.js";
+import { RouteResponse } from "../runtime/routes/types.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import {
   fakeHeifHeaderBytes,
@@ -68,6 +69,9 @@ afterAll(() => {
 
 const TEST_TOKEN = "test-bearer-token-attach";
 const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
+const ATTACHMENT_CONTENT_ROUTE = ATTACHMENT_ROUTES.find(
+  (candidate) => candidate.operationId === "attachment_content",
+)!;
 
 describe("Runtime attachment metadata", () => {
   let server: RuntimeHttpServer;
@@ -96,11 +100,7 @@ describe("Runtime attachment metadata", () => {
   });
 
   test("attachment content representations retain attachment read authorization", () => {
-    const route = ATTACHMENT_ROUTES.find(
-      (candidate) => candidate.operationId === "attachment_content",
-    );
-
-    expect(route?.policy).toEqual({
+    expect(ATTACHMENT_CONTENT_ROUTE.policy).toEqual({
       requiredScopes: ["attachments.read"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     });
@@ -259,6 +259,46 @@ describe("Runtime attachment metadata", () => {
     expect(res.headers.get("accept-ranges")).toBe("none");
     expect(res.headers.get("cache-control")).toBeNull();
     expect(Buffer.from(await res.arrayBuffer())).toEqual(PNG_1PX_BYTES);
+  });
+
+  test("file-backed native display streams after a bounded format sniff", async () => {
+    const mapping = getOrCreateConversation("display-stream");
+    const message = await conversationStore.addMessage(
+      mapping.conversationId,
+      "user",
+      "image",
+    );
+    const stored = uploadAttachment(
+      "pixel.png",
+      "image/png",
+      PNG_1PX_BYTES.toString("base64"),
+    );
+    const attachmentId = linkAttachmentToMessage(message.id, stored.id, 0);
+    const attachmentPath = getFilePathForAttachment(attachmentId)!;
+    const expandedSize = 32 * 1024 * 1024;
+    truncateSync(attachmentPath, expandedSize);
+    rawRun(
+      "test:mislabeledNativeDisplayImage",
+      "UPDATE attachments SET mime_type = ?, size_bytes = ? WHERE id = ?",
+      "image/heic",
+      expandedSize,
+      attachmentId,
+    );
+
+    const result = await ATTACHMENT_CONTENT_ROUTE.handler({
+      pathParams: { id: attachmentId },
+      queryParams: { representation: "display" },
+    });
+
+    expect(result).toBeInstanceOf(RouteResponse);
+    const response = result as RouteResponse;
+    expect(response.body).toBeInstanceOf(Blob);
+    expect(response.body).not.toBeInstanceOf(Uint8Array);
+    expect(response.headers).toEqual({
+      "Content-Type": "image/png",
+      "Content-Length": String(expandedSize),
+      "Accept-Ranges": "none",
+    });
   });
 
   test("explicit original representation preserves file-backed Range behavior", async () => {
