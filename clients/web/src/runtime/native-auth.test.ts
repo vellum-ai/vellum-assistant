@@ -1,15 +1,21 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  clearCheckoutIntent,
   readCheckoutIntent,
   saveCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 
-import { resolveNativePostAuthDestination } from "./native-auth";
+import {
+  clearStaleNativeCheckoutStash,
+  resolveNativePostAuthDestination,
+} from "./native-auth";
 
 describe("resolveNativePostAuthDestination", () => {
   beforeEach(() => {
     sessionStorage.clear();
+    // Reset the module-level in-memory mirror so it can't leak across tests.
+    clearCheckoutIntent();
   });
 
   test("native signup via the checkout deep link stashes the package and still routes to privacy", () => {
@@ -65,5 +71,45 @@ describe("resolveNativePostAuthDestination", () => {
 
     expect(destination).toBe("/assistant/home");
     expect(readCheckoutIntent()).toBeNull();
+  });
+});
+
+describe("clearStaleNativeCheckoutStash", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    clearCheckoutIntent();
+  });
+
+  test("a direct native login with a non-checkout destination clears a stale stash", () => {
+    // The direct login form passes no intent and a non-checkout returnTo.
+    saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
+
+    clearStaleNativeCheckoutStash(undefined, "/assistant/home");
+
+    expect(readCheckoutIntent()).toBeNull();
+  });
+
+  test("a native login onto a checkout deep link leaves an existing stash in place", () => {
+    saveCheckoutIntent({ kind: "package", packageKey: "existing" });
+
+    clearStaleNativeCheckoutStash(undefined, "/assistant/checkout?package=super");
+
+    expect(readCheckoutIntent()).toMatchObject({
+      kind: "package",
+      packageKey: "existing",
+    });
+  });
+
+  test("a signup keeps the stash its resolver just set", () => {
+    // A signup owns its stash via `resolveSignupCheckoutDestination`; the entry
+    // cleanup must not wipe it just because the destination is the privacy page.
+    saveCheckoutIntent({ kind: "package", packageKey: "super" });
+
+    clearStaleNativeCheckoutStash("signup", "/assistant/onboarding/privacy");
+
+    expect(readCheckoutIntent()).toMatchObject({
+      kind: "package",
+      packageKey: "super",
+    });
   });
 });

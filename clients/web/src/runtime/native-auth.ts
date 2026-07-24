@@ -103,6 +103,13 @@ export async function startNativeLogin(options?: {
   loginHint?: string;
   intent?: string;
 }): Promise<void> {
+  // Every native auth entry routes through the shared stale-stash cleanup. The
+  // direct login form (`login-page.tsx`) calls this without going through
+  // `resolveNativePostAuthDestination`, so without this a stash abandoned by a
+  // prior native checkout-signup could leak into a later login and wrongly
+  // resume checkout from privacy.
+  clearStaleNativeCheckoutStash(options?.intent, options?.returnTo);
+
   const baseURL = options?.baseURL ?? deriveAuthBaseURL();
   const { sessionToken } = await NativeAuth.startAuth({
     baseURL,
@@ -243,6 +250,32 @@ export function resolveNativePostAuthDestination(
   // and apply the fallback — while still discarding a stale stash via the
   // shared resolver.
   return isSignup ? destination : (returnTo ?? null);
+}
+
+/**
+ * Discard a checkout stash abandoned by a prior native checkout-signup so it
+ * can't leak into a later native auth. Runs on every native auth entry (via
+ * `startNativeLogin`), including the direct login form that skips
+ * `resolveNativePostAuthDestination`.
+ *
+ * A signup owns its stash through `resolveSignupCheckoutDestination` — already
+ * run before we reach here, and its `returnTo` is the transformed privacy
+ * destination rather than the original checkout link — so we skip it to avoid
+ * wiping the package it just stashed. Otherwise the shared resolver clears a
+ * stale stash for a non-checkout destination and leaves an existing stash in
+ * place when the destination IS a checkout deep link (a legitimate resume).
+ */
+export function clearStaleNativeCheckoutStash(
+  intent: string | undefined,
+  returnTo: string | null | undefined,
+): void {
+  if (intent === "signup") {
+    return;
+  }
+  resolveSignupCheckoutDestination({
+    intent: "login",
+    returnTo: returnTo ?? "",
+  });
 }
 
 /**

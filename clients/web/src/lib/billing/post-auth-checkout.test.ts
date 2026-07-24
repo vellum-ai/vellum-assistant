@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  clearCheckoutIntent,
   readCheckoutIntent,
   saveCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
@@ -29,6 +30,8 @@ describe("checkoutPackageFromDestination", () => {
 describe("resolveSignupCheckoutDestination", () => {
   beforeEach(() => {
     sessionStorage.clear();
+    // Reset the module-level in-memory mirror so it can't leak across tests.
+    clearCheckoutIntent();
   });
 
   test("signup on a checkout deep link stashes the package and routes to privacy", () => {
