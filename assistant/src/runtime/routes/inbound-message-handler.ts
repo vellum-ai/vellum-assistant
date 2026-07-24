@@ -90,7 +90,6 @@ import {
 import { markProcessed } from "../../persistence/delivery-status.js";
 import { upsertBinding } from "../../persistence/external-conversation-store.js";
 import type { ContentBlock } from "../../providers/types.js";
-import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
@@ -115,6 +114,7 @@ import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.j
 import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
 import { handleGuardianActivationIntercept } from "./inbound-stages/guardian-activation-intercept.js";
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
+import { prepareChannelInboundContent } from "./inbound-stages/inbound-content-prep.js";
 import {
   handleSlackReactionIntercept,
   isSlackReactionEvent,
@@ -1447,19 +1447,18 @@ export async function handleChannelInbound({
         });
       }
 
-      // Wrap non-guardian inbound content in external_content boundaries so
+      // Fence non-guardian inbound content in external_content boundaries so
       // the model can distinguish external channel messages from instructions.
-      const contentForProcessing =
-        trustCtx.trustClass !== "guardian"
-          ? wrapUntrustedContent(trimmedContent, {
-              source: sourceChannel === "slack" ? "slack" : "webhook",
-              sourceDetail: trustCtx.requesterIdentifier,
-            })
-          : trimmedContent;
-      const displayContentForProcessing =
-        sourceChannel === "slack" && trustCtx.trustClass !== "guardian"
-          ? trimmedContent
-          : undefined;
+      // The retry sweep prepares replayed content through the same helper.
+      const {
+        content: contentForProcessing,
+        displayContent: displayContentForProcessing,
+      } = prepareChannelInboundContent({
+        trimmedContent,
+        trustClass: trustCtx.trustClass,
+        sourceChannel,
+        requesterIdentifier: trustCtx.requesterIdentifier,
+      });
 
       // Fire-and-forget: process the message and deliver the reply in the background.
       // The HTTP response returns immediately so the gateway webhook is not blocked.

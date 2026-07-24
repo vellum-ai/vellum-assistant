@@ -3,6 +3,7 @@
  */
 
 import {
+  type ChannelId,
   isChannelId,
   parseChannelId,
   parseInterfaceId,
@@ -36,7 +37,11 @@ import {
 } from "./channel-reply-delivery.js";
 import { finalizeEventDelivery } from "./finalize-event-delivery.js";
 import { deliverChannelReply } from "./gateway-client.js";
-import type { MessageProcessor } from "./http-types.js";
+import type {
+  MessageProcessor,
+  SlackInboundMessageMetadata,
+} from "./http-types.js";
+import { prepareChannelInboundContent } from "./routes/inbound-stages/inbound-content-prep.js";
 import { resolveRoutingStateFromRuntime } from "./trust-context-resolver.js";
 
 const log = getLogger("runtime-http");
@@ -117,6 +122,40 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
         ? raw.requesterTimezoneOffsetSeconds
         : undefined,
   };
+}
+
+/**
+ * Reconstruct the minimal Slack ingress metadata the live path derived its
+ * idempotency key from (`slack:channelId:channelTs`), from fields already in the
+ * stored payload. Passing it on replay lets `deriveIngressIdempotencyKey` (in
+ * `process-message.ts`) produce the SAME `client_message_id` the first attempt
+ * used, so replaying a turn that a prior attempt already persisted (e.g. a crash
+ * after the user row was written but before the event was marked processed)
+ * dedups on `(conversation_id, client_message_id)` instead of running the agent
+ * loop again and double-posting.
+ *
+ * `channelTs` mirrors the live `sourceMessageId ?? externalMessageId` derivation.
+ * The remaining `SlackInboundMessageMetadata` fields are optional and only feed
+ * the best-effort transcript renderer, so a minimal object suffices for correct
+ * deduplication; the full metadata was persisted by the first attempt's turn.
+ */
+function buildReplaySlackInbound(params: {
+  sourceChannel: ChannelId;
+  externalChatId: string | undefined;
+  sourceMetadata: import("@vellumai/gateway-client").SourceMetadata | undefined;
+  externalMessageId: string | undefined;
+}): SlackInboundMessageMetadata | undefined {
+  if (params.sourceChannel !== "slack" || !params.externalChatId) {
+    return undefined;
+  }
+  const channelTs =
+    (typeof params.sourceMetadata?.messageId === "string"
+      ? params.sourceMetadata.messageId
+      : undefined) ?? params.externalMessageId;
+  if (!channelTs) {
+    return undefined;
+  }
+  return { channelId: params.externalChatId, channelTs };
 }
 
 /**
@@ -291,6 +330,10 @@ export async function sweepFailedEvents(
       typeof payload.externalChatId === "string"
         ? payload.externalChatId
         : undefined;
+    const externalMessageId =
+      typeof payload.externalMessageId === "string"
+        ? payload.externalMessageId
+        : undefined;
     // A retry never opens a new stream: a prior attempt may already have
     // streamed a message, so re-streaming would duplicate the reply. The
     // durable delivery below edits that message in place when one exists.
@@ -326,24 +369,49 @@ export async function sweepFailedEvents(
       continue;
     }
 
+    // Prepare the replayed turn exactly as the live ingress path did: fence
+    // non-guardian content in `<external_content>` (the stored payload holds the
+    // raw, unwrapped text) and reconstruct the Slack idempotency key so a replay
+    // of an already-persisted turn dedups instead of running a second agent loop.
+    const prepared = prepareChannelInboundContent({
+      trimmedContent: content,
+      trustClass: trustContext.trustClass,
+      sourceChannel,
+      requesterIdentifier: trustContext.requesterIdentifier,
+    });
+    const replaySlackInbound = buildReplaySlackInbound({
+      sourceChannel,
+      externalChatId,
+      sourceMetadata,
+      externalMessageId,
+    });
+
     let userMessageId: string | undefined;
     try {
-      const result = await processMessage(event.conversationId, content, {
-        attachmentIds,
-        transport: {
-          channelId: sourceChannel,
-          hints: metadataHints.length > 0 ? metadataHints : undefined,
-          uxBrief: metadataUxBrief,
-          chatType: metadataChatType,
+      const result = await processMessage(
+        event.conversationId,
+        prepared.content,
+        {
+          attachmentIds,
+          transport: {
+            channelId: sourceChannel,
+            hints: metadataHints.length > 0 ? metadataHints : undefined,
+            uxBrief: metadataUxBrief,
+            chatType: metadataChatType,
+          },
+          assistantId,
+          trustContext,
+          isInteractive:
+            resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
+          onEvent: observeAgentEvent,
+          sourceChannel,
+          sourceInterface,
+          ...(prepared.displayContent !== undefined
+            ? { displayContent: prepared.displayContent }
+            : {}),
+          ...(replaySlackInbound ? { slackInbound: replaySlackInbound } : {}),
         },
-        assistantId,
-        trustContext,
-        isInteractive:
-          resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
-        onEvent: observeAgentEvent,
-        sourceChannel,
-        sourceInterface,
-      });
+      );
       userMessageId = result.messageId;
       linkMessage(event.id, userMessageId);
       markProcessed(event.id);
