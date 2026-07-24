@@ -1,8 +1,8 @@
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { app, BrowserWindow, ShareMenu } from "electron";
+import { BrowserWindow, ShareMenu } from "electron";
 import { z } from "zod";
 
 import { handle } from "./ipc";
@@ -23,21 +23,30 @@ import { handle } from "./ipc";
  * selected — not when the selected service has finished with the file. An
  * AirDrop transfer, a pasteboard / file-promise reference, or a share extension
  * can still read the file after the menu closes, so deleting there could pull
- * it out from under an in-flight share. Instead the temp dirs are swept when no
- * share can be in flight — at startup and best-effort on quit — and the OS
+ * it out from under an in-flight share. Instead we reclaim only *stale* temp
+ * dirs — ones old enough (see `SHARE_TMP_STALE_MS`) that no transfer could
+ * still be using them — sweeping at startup and before each new share. Bounding
+ * to stale dirs also keeps the sweep safe when a second Vellum build is sharing
+ * concurrently (it won't touch that build's fresh temp dir), and the OS
  * reclaims `$TMPDIR` regardless.
  */
 
 const SHARE_TMP_PREFIX = "vellum-share-";
 
+// A share temp dir older than this can't belong to an in-flight share — even a
+// large AirDrop over a slow link finishes well within an hour — so it's safe to
+// reclaim. Anything newer might still be open by the selected service (or by a
+// second Vellum build sharing at the same time), so it's left alone.
+const SHARE_TMP_STALE_MS = 60 * 60 * 1000;
+
 const ShareFileArgs = z.tuple([z.instanceof(Uint8Array), z.string().min(1)]);
 
 /**
- * Remove leftover share temp dirs. Safe only when no share is in flight — call
- * at startup (before any file is shared) or on quit (the app is closing).
- * Exported for unit tests.
+ * Reclaim *stale* share temp dirs — those older than `SHARE_TMP_STALE_MS`.
+ * Bounded to old dirs so it never deletes a file this run (or a concurrent
+ * build) still has open for an in-flight share. Exported for unit tests.
  */
-export const sweepShareDirs = async (): Promise<void> => {
+export const sweepStaleShareDirs = async (): Promise<void> => {
   const root = tmpdir();
   let entries: string[];
   try {
@@ -45,14 +54,21 @@ export const sweepShareDirs = async (): Promise<void> => {
   } catch {
     return;
   }
+  const now = Date.now();
   await Promise.all(
     entries
       .filter((name) => name.startsWith(SHARE_TMP_PREFIX))
-      .map((name) =>
-        rm(path.join(root, name), { recursive: true, force: true }).catch(
-          () => {},
-        ),
-      ),
+      .map(async (name) => {
+        const dir = path.join(root, name);
+        try {
+          const { mtimeMs } = await stat(dir);
+          if (now - mtimeMs >= SHARE_TMP_STALE_MS) {
+            await rm(dir, { recursive: true, force: true });
+          }
+        } catch {
+          // Raced with another sweep, or already gone — ignore.
+        }
+      }),
   );
 };
 
@@ -63,10 +79,8 @@ export const installShare = (): void => {
   if (installed) return;
   installed = true;
 
-  // Reclaim temp files an earlier run left behind (crash / force-quit), and
-  // clean this run's files on quit. Neither runs while a share is in flight.
-  void sweepShareDirs();
-  app.on("before-quit", () => void sweepShareDirs());
+  // Reclaim stale temp files an earlier run left behind (crash / force-quit).
+  void sweepStaleShareDirs();
 
   handle(
     "vellum:share:file",
@@ -78,6 +92,12 @@ export const installShare = (): void => {
       if (process.platform !== "darwin") {
         throw new Error("Share sheet is only available on macOS");
       }
+
+      // Opportunistically reclaim old shares so temp usage stays bounded
+      // without an unsafe close-time delete. Fire-and-forget — it never blocks
+      // the share, and the staleness filter keeps it off the file we're about
+      // to write (and off any concurrent share).
+      void sweepStaleShareDirs();
 
       const dir = await mkdtemp(path.join(tmpdir(), SHARE_TMP_PREFIX));
       // `basename` strips any path components the renderer's filename may

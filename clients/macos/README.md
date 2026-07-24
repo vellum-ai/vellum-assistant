@@ -161,9 +161,11 @@ whichever Swift channel you have around.
   - **Don't tear down the shared temp file on picker close.** The `popup`
     callback fires on menu _close_ (a service was selected), not when that
     service has finished reading the file — an in-flight AirDrop transfer or a
-    pasteboard/file-promise reference can still need it. `share.ts` sweeps the
-    temp dirs at startup and on `before-quit`, when nothing can be in flight,
-    instead.
+    pasteboard/file-promise reference can still need it. Instead `share.ts`
+    reclaims only _stale_ temp dirs (older than an hour — long past any
+    transfer), sweeping at startup and before each new share, so it never
+    deletes a file still in use, including one from a second Vellum build
+    sharing at the same time.
 
 ## Scripts
 

@@ -21,9 +21,9 @@ mock.module("./ipc", () => ({
   },
 }));
 
-// `node:fs/promises` is mocked so the temp-file dance and the sweep are
-// asserted structurally — no real disk access. `node:os` / `node:path` stay
-// real (pure helpers), so the asserted paths match what production builds.
+// `node:fs/promises` is mocked so the temp-file dance and the stale-dir sweep
+// are asserted structurally — no real disk access. `node:os` / `node:path`
+// stay real (pure helpers), so the asserted paths match what production builds.
 const mkdtempMock = mock((prefix: string) =>
   Promise.resolve(`${prefix}abc123`),
 );
@@ -32,18 +32,19 @@ const writeFileMock = mock((_path: string, _data: unknown) =>
 );
 const readdirMock = mock((_path: string) => Promise.resolve<string[]>([]));
 const rmMock = mock((_path: string, _opts: unknown) => Promise.resolve());
+const statMock = mock((_path: string) => Promise.resolve({ mtimeMs: 0 }));
 mock.module("node:fs/promises", () => ({
   mkdtemp: mkdtempMock,
   writeFile: writeFileMock,
   readdir: readdirMock,
   rm: rmMock,
+  stat: statMock,
 }));
 
-// Mock the electron seams `share.ts` touches: `app.on` (to register the
-// before-quit cleanup), the `ShareMenu` picker, and `BrowserWindow` (used to
-// anchor the sheet to the calling window). `ShareMenu` records its constructor
-// arg + `popup` options so the tests can assert the file path and that no
-// teardown callback is wired to menu close.
+// Mock the electron seams `share.ts` touches: the `ShareMenu` picker and
+// `BrowserWindow` (used to anchor the sheet to the calling window). `ShareMenu`
+// records its constructor arg + `popup` options so the tests can assert the
+// file path and that no teardown callback is wired to menu close.
 type PopupOpts = { window?: unknown; callback?: () => void };
 const shareMenuArgs: Array<{ filePaths: string[] }> = [];
 const popupCalls: PopupOpts[] = [];
@@ -57,9 +58,7 @@ class ShareMenuMock {
 }
 const fakeWindow = { id: "main-window" };
 const fromWebContentsMock = mock((_sender: unknown): unknown => fakeWindow);
-const appOnMock = mock((_event: string, _listener: () => void) => undefined);
 mock.module("electron", () => ({
-  app: { on: appOnMock },
   ShareMenu: ShareMenuMock,
   BrowserWindow: { fromWebContents: fromWebContentsMock },
 }));
@@ -73,19 +72,15 @@ const setPlatform = (value: NodeJS.Platform): void => {
 };
 setPlatform("darwin");
 
-const { installShare, sweepShareDirs } = await import("./share");
+const { installShare, sweepStaleShareDirs } = await import("./share");
 
 // Idempotent — a second call must not double-register (module-level flag).
 installShare();
 installShare();
 
-// installShare kicks off a startup sweep (a `readdir`) and registers the
-// before-quit cleanup synchronously; snapshot both before `beforeEach` clears
-// the mocks.
+// installShare kicks off a startup sweep (a `readdir`) synchronously; snapshot
+// the call count before `beforeEach` clears the mocks.
 const readdirCallsAtInstall = readdirMock.mock.calls.length;
-const beforeQuitListener = appOnMock.mock.calls.find(
-  (call) => call[0] === "before-quit",
-)?.[1] as (() => void) | undefined;
 
 const shareReg = (): Registration =>
   handleRegistrations.find((r) => r.channel === "vellum:share:file")!;
@@ -96,6 +91,7 @@ const fakeEvent = { sender: fakeSender };
 
 const bytes = new Uint8Array([1, 2, 3, 4]);
 const expectedDir = `${path.join(tmpdir(), "vellum-share-")}abc123`;
+const STALE_MS = 60 * 60 * 1000;
 
 beforeEach(() => {
   shareMenuArgs.length = 0;
@@ -105,6 +101,10 @@ beforeEach(() => {
   rmMock.mockClear();
   readdirMock.mockReset();
   readdirMock.mockReturnValue(Promise.resolve<string[]>([]));
+  statMock.mockReset();
+  statMock.mockImplementation((_path: string) =>
+    Promise.resolve({ mtimeMs: Date.now() }),
+  );
   fromWebContentsMock.mockReset();
   fromWebContentsMock.mockReturnValue(fakeWindow);
   setPlatform("darwin");
@@ -118,14 +118,8 @@ describe("installShare wiring", () => {
     expect(matches).toHaveLength(1);
   });
 
-  test("sweeps once at startup and registers a before-quit cleanup", () => {
-    // Startup sweep ran (one `readdir`) and idempotency held — two
-    // installShare() calls, still a single sweep + before-quit registration.
+  test("kicks off a single startup sweep (idempotent across repeat installs)", () => {
     expect(readdirCallsAtInstall).toBe(1);
-    expect(beforeQuitListener).toBeDefined();
-    expect(
-      appOnMock.mock.calls.filter((call) => call[0] === "before-quit"),
-    ).toHaveLength(1);
   });
 });
 
@@ -197,13 +191,13 @@ describe("share handler", () => {
     expect(popupCalls[0]!.window).toBeUndefined();
   });
 
-  test("does not delete the temp dir on menu close", async () => {
+  test("wires no teardown callback and does not delete the fresh temp dir", async () => {
     await shareReg().fn([bytes, "report.pdf"], fakeEvent);
 
     // Cleanup is intentionally NOT wired to the picker closing: Electron's
     // popup callback fires on menu close (service selected), not when the
-    // service is done reading the file, so no teardown callback is passed and
-    // the share itself removes nothing.
+    // service is done reading the file. No teardown callback is passed, and the
+    // just-written (fresh) dir is never swept — only stale dirs are.
     expect(popupCalls[0]!.callback).toBeUndefined();
     expect(rmMock).not.toHaveBeenCalled();
   });
@@ -222,37 +216,59 @@ describe("share handler", () => {
   });
 });
 
-describe("sweepShareDirs", () => {
-  test("removes only vellum-share-* dirs, leaving unrelated temp entries", async () => {
+describe("sweepStaleShareDirs", () => {
+  const dirPath = (name: string): string => path.join(tmpdir(), name);
+
+  test("removes only stale vellum-share-* dirs, sparing fresh ones and unrelated entries", async () => {
+    const now = Date.now();
+    const mtimes: Record<string, number> = {
+      "vellum-share-old": now - 2 * STALE_MS, // stale → removed
+      "vellum-share-fresh": now - 1000, // in-flight → kept
+      "vellum-share-old2": now - (STALE_MS + 5000), // stale → removed
+    };
     readdirMock.mockReturnValue(
       Promise.resolve([
-        "vellum-share-aaa",
+        "vellum-share-old",
+        "vellum-share-fresh",
         "vellum-mac-helper-permission-x",
-        "some-other-app",
-        "vellum-share-bbb",
+        "vellum-share-old2",
       ]),
     );
-
-    await sweepShareDirs();
-
-    expect(readdirMock).toHaveBeenCalledWith(tmpdir());
-    expect(rmMock).toHaveBeenCalledTimes(2);
-    expect(rmMock).toHaveBeenCalledWith(
-      path.join(tmpdir(), "vellum-share-aaa"),
-      { recursive: true, force: true },
+    statMock.mockImplementation((p: string) =>
+      Promise.resolve({ mtimeMs: mtimes[path.basename(p)] ?? now }),
     );
-    expect(rmMock).toHaveBeenCalledWith(
-      path.join(tmpdir(), "vellum-share-bbb"),
-      { recursive: true, force: true },
+
+    await sweepStaleShareDirs();
+
+    expect(rmMock).toHaveBeenCalledTimes(2);
+    expect(rmMock).toHaveBeenCalledWith(dirPath("vellum-share-old"), {
+      recursive: true,
+      force: true,
+    });
+    expect(rmMock).toHaveBeenCalledWith(dirPath("vellum-share-old2"), {
+      recursive: true,
+      force: true,
+    });
+    // A fresh share dir might still be open by the selected service — never
+    // deleted, even though it matches the prefix.
+    expect(rmMock).not.toHaveBeenCalledWith(
+      dirPath("vellum-share-fresh"),
+      expect.anything(),
+    );
+    // Unrelated temp dirs aren't even stat'd.
+    expect(statMock).not.toHaveBeenCalledWith(
+      dirPath("vellum-mac-helper-permission-x"),
     );
   });
 
-  test("no-ops when the temp dir holds no share dirs", async () => {
+  test("leaves everything in place when no share dir is stale", async () => {
+    const now = Date.now();
     readdirMock.mockReturnValue(
-      Promise.resolve(["vellum-mac-helper-permission-x", "unrelated"]),
+      Promise.resolve(["vellum-share-a", "vellum-share-b"]),
     );
+    statMock.mockImplementation(() => Promise.resolve({ mtimeMs: now - 1000 }));
 
-    await sweepShareDirs();
+    await sweepStaleShareDirs();
 
     expect(rmMock).not.toHaveBeenCalled();
   });
@@ -262,21 +278,26 @@ describe("sweepShareDirs", () => {
       Promise.reject(new Error("tmpdir unreadable")),
     );
 
-    await expect(sweepShareDirs()).resolves.toBeUndefined();
+    await expect(sweepStaleShareDirs()).resolves.toBeUndefined();
     expect(rmMock).not.toHaveBeenCalled();
   });
 
-  test("the before-quit listener triggers a sweep", async () => {
-    readdirMock.mockReturnValue(Promise.resolve(["vellum-share-ccc"]));
-
-    // Invoke the captured before-quit listener; it fires the sweep.
-    beforeQuitListener?.();
-    // Let the fire-and-forget sweep settle (a macrotask flushes microtasks).
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(rmMock).toHaveBeenCalledWith(
-      path.join(tmpdir(), "vellum-share-ccc"),
-      { recursive: true, force: true },
+  test("a stat failure on one dir doesn't block sweeping the others", async () => {
+    const now = Date.now();
+    readdirMock.mockReturnValue(
+      Promise.resolve(["vellum-share-bad", "vellum-share-old"]),
     );
+    statMock.mockImplementation((p: string) =>
+      path.basename(p) === "vellum-share-bad"
+        ? Promise.reject(new Error("stat failed"))
+        : Promise.resolve({ mtimeMs: now - 2 * STALE_MS }),
+    );
+
+    await expect(sweepStaleShareDirs()).resolves.toBeUndefined();
+    expect(rmMock).toHaveBeenCalledTimes(1);
+    expect(rmMock).toHaveBeenCalledWith(dirPath("vellum-share-old"), {
+      recursive: true,
+      force: true,
+    });
   });
 });
