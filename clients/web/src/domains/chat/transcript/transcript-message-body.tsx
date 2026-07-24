@@ -14,7 +14,10 @@ import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachmen
 
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
-import { ToolResultImages } from "@/domains/chat/components/chat-attachments/tool-result-images";
+import {
+  hasToolResultImages,
+  ToolResultImages,
+} from "@/domains/chat/components/chat-attachments/tool-result-images";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import {
   VellumFileActionModal,
@@ -50,6 +53,7 @@ import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { useLongPress } from "@/hooks/use-long-press";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -1021,17 +1025,52 @@ export function TranscriptMessageBody({
     (group) => group.type === "text" && group.text.trim().length > 0,
   );
   const renderedGroups = groups.map((group, gi) => renderGroupNode(group, gi));
+  const collapsibleGroupIndexes = groups.flatMap((group, groupIndex) => {
+    if (groupIndex >= finalResponseGroupIndex) {
+      return [];
+    }
+    if (group.type === "surface") {
+      return [];
+    }
+    if (group.type === "text") {
+      return [groupIndex];
+    }
+
+    const { toolCalls } = activityItemsToCardData(group.items);
+    const hasVisibleOutputOrControl =
+      hasToolResultImages(toolCalls) ||
+      toolCalls.some(
+        (toolCall) =>
+          isToolCallRunning(toolCall) ||
+          toolCall.pendingConfirmation !== undefined ||
+          isSubagentSpawnCall(toolCall) ||
+          cardBackedWorkflowRunId(toolCall) !== null ||
+          cardBackedAcpRunId(toolCall) !== null ||
+          cardBackedBackgroundTaskId(toolCall) !== null ||
+          acpConnectToolUseId === toolCall.id ||
+          unknownNudgeToolCallIds?.has(toolCall.id) === true,
+      );
+    return hasVisibleOutputOrControl ? [] : [groupIndex];
+  });
+  const collapsibleGroupIndexSet = new Set(collapsibleGroupIndexes);
+  const firstCollapsibleGroupIndex = collapsibleGroupIndexes[0] ?? -1;
   const assistantContent =
-    !isStreaming && finalResponseGroupIndex > 0 ? (
-      <>
-        <AssistantContentDisclosure>
-          {renderedGroups.slice(0, finalResponseGroupIndex)}
-        </AssistantContentDisclosure>
-        {renderedGroups.slice(finalResponseGroupIndex)}
-      </>
-    ) : (
-      renderedGroups
-    );
+    !isStreaming && firstCollapsibleGroupIndex >= 0
+      ? renderedGroups.map((renderedGroup, groupIndex) => {
+          if (groupIndex === firstCollapsibleGroupIndex) {
+            return (
+              <AssistantContentDisclosure key="earlier-activity">
+                {renderedGroups.filter((_, index) =>
+                  collapsibleGroupIndexSet.has(index),
+                )}
+              </AssistantContentDisclosure>
+            );
+          }
+          return collapsibleGroupIndexSet.has(groupIndex)
+            ? null
+            : renderedGroup;
+        })
+      : renderedGroups;
 
   return (
     <div

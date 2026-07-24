@@ -680,6 +680,69 @@ describe("TranscriptMessageBody", () => {
     expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
   });
 
+  test("keeps result artifacts visible outside collapsed earlier activity", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-result-image",
+      name: "media_generate_image",
+      input: { prompt: "diagram" },
+      result: "Generated an image",
+      imageDataList: ["img-a"],
+      completedAt: 1,
+    };
+    const { container, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-artifacts",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will create that."),
+            toolUseBlock(toolCall),
+            surfaceBlock("result-surface"),
+            textBlock("Here are the results."),
+          ],
+          toolCalls: [toolCall],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will create that.")).toBeNull();
+    expect(queryByText("Here are the results.")).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='tool-result-image']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-surface-id='result-surface']"),
+    ).not.toBeNull();
+  });
+
+  test("keeps running activity visible outside collapsed earlier text", () => {
+    const { container, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-running-tool",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will start that."),
+            toolUseBlock({
+              id: "tc-running",
+              name: "bash",
+              input: {},
+            }),
+            textBlock("It is running in the background."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will start that.")).toBeNull();
+    expect(queryByText("It is running in the background.")).not.toBeNull();
+    expect(
+      container.querySelector("[data-tool-call-id='tc-running']"),
+    ).not.toBeNull();
+  });
+
   test("does not add a disclosure to a single assistant text response", () => {
     const { queryByRole, queryByText } = render(
       <TranscriptMessageBody

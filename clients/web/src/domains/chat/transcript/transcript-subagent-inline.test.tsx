@@ -639,10 +639,6 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
       />,
     );
 
-    fireEvent.click(
-      within(container).getByRole("button", { name: "Earlier activity" }),
-    );
-
     // The two spawns land in distinct activity groups (split by the interleaved
     // text), so each renders its own collapsible group with its own toggle.
     expect(
