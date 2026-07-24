@@ -147,21 +147,27 @@ describe("buildSubagentTerminalMessage", () => {
     expect(msg).not.toContain("re-spawn");
   });
 
-  test("appends a truncation notice when the run reached its iteration budget", () => {
+  test("routes a budget-capped run to the read pointer instead of inlining stale preamble", () => {
     const msg = buildSubagentTerminalMessage({
       label: "long-run",
       subagentId: "sa-10",
       isFork: false,
       outcome: "completed",
       silent: false,
-      finalText: "Partial progress so far.",
+      // When the hard cap fires, the loop stops after appending the final tool
+      // results, so the trailing assistant text is the pre-tool preamble — a
+      // stale snapshot that hides the last iteration's output.
+      finalText: "I'll inspect the config next...",
       iterationBudgetReached: true,
     });
 
-    // The partial result is still inlined for the parent to use...
-    expect(msg).toContain("Partial progress so far.");
-    // ...but flagged as possibly incomplete with a respawn hint so the parent
-    // can continue rather than treating it as final.
+    // The stale preamble must NOT be presented as the result.
+    expect(msg).not.toContain("I'll inspect the config next");
+    // Instead the parent is pointed at the latest child output (which includes
+    // the final iteration's tool results)...
+    expect(msg).toContain('subagent_read with subagent_id "sa-10"');
+    // ...and told the run was truncated so it can continue rather than treating
+    // the output as final.
     expect(msg).toContain("reached its iteration budget");
     expect(msg).toContain("may be incomplete");
     expect(msg).toContain("re-spawn it to continue");

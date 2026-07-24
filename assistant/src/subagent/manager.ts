@@ -133,13 +133,34 @@ export function buildSubagentSystemPrompt(
 }
 
 /**
+ * The parent-facing note appended when a subagent run stopped by reaching its
+ * per-run LLM-call ceiling (`subagent.maxCallsPerRun`). Shared by the async
+ * terminal-message path (`buildSubagentTerminalMessage`) and the synchronous
+ * `spawnAndAwait` return, so both surfaces carry the identical truncation
+ * signal. Path-agnostic wording ("its output") so it reads correctly whether it
+ * trails inlined text or a `subagent_read` pointer.
+ */
+function iterationBudgetTruncationNote(isFork: boolean): string {
+  const noun = isFork ? "fork" : "subagent";
+  return (
+    `\n\nNote: this ${noun} reached its iteration budget and was stopped before ` +
+    `it signaled completion — its output may be incomplete. If more work is ` +
+    `needed, re-spawn it to continue from here.`
+  );
+}
+
+/**
  * Build the message injected into the parent conversation when a subagent
  * reaches a terminal state.
  *
  * For a completed subagent the final synthesis is inlined directly, so the
  * parent acts on the result without a `subagent_read` round-trip and has
  * nothing left to re-spawn. The `subagent_read` pointer survives only as a
- * fallback for the rare run that ends with no trailing assistant text.
+ * fallback for the rare run that ends with no trailing assistant text, or when
+ * the run was stopped at its iteration budget — where the trailing assistant
+ * text is a pre-tool preamble, so the parent must read the latest child output
+ * (including the final iteration's tool results) rather than act on the stale
+ * snapshot.
  *
  * Exported for unit testing.
  */
@@ -180,7 +201,7 @@ export function buildSubagentTerminalMessage(opts: {
   // partial answer. Tell the parent explicitly so it can decide whether to
   // respawn the subagent to continue rather than treating the output as final.
   const truncationNote = iterationBudgetReached
-    ? `\n\nNote: this ${prefix.toLowerCase()} reached its iteration budget and was stopped before it signaled completion — the result above may be incomplete. If more work is needed, re-spawn it to continue from here.`
+    ? iterationBudgetTruncationNote(isFork)
     : "";
 
   // When the subagent reached for tools its role does not permit, tell the
@@ -201,7 +222,12 @@ export function buildSubagentTerminalMessage(opts: {
   }
 
   const trimmed = finalText?.trim() ?? "";
-  if (trimmed && !deferred) {
+  // A budget-capped run breaks the loop after appending the final iteration's
+  // tool results, so the trailing assistant text is the pre-tool preamble — a
+  // stale snapshot that hides the last iteration's output. Force such runs onto
+  // the read-pointer path so the parent retrieves the actual latest output via
+  // `subagent_read` instead of acting on the preamble.
+  if (trimmed && !deferred && !iterationBudgetReached) {
     return (
       `[${prefix} "${label}" completed — result below]\n\n` +
       `${trimmed}\n\n` +
@@ -213,13 +239,16 @@ export function buildSubagentTerminalMessage(opts: {
     );
   }
 
-  // Read-pointer path: either the run left no trailing assistant text to inline,
-  // or a queued follow-up turn is still draining — so the current synthesis is a
-  // stale snapshot and the parent should read the latest output instead.
+  // Read-pointer path: the run left no trailing assistant text to inline, a
+  // queued follow-up turn is still draining, or the run was stopped at its
+  // iteration budget — in each case the trailing text is a stale snapshot and
+  // the parent should read the latest output instead.
   const lastN = isFork ? " and last_n: 1" : "";
   const reason = deferred
     ? `Queued follow-up guidance is still being processed`
-    : `The ${prefix.toLowerCase()} produced no final text`;
+    : iterationBudgetReached
+      ? `The ${prefix.toLowerCase()} was stopped at its iteration budget`
+      : `The ${prefix.toLowerCase()} produced no final text`;
   return (
     `[${prefix} "${label}" completed]\n\n` +
     `${reason}. Use subagent_read with subagent_id "${subagentId}"${lastN} for the latest output.` +
@@ -839,6 +868,13 @@ export class SubagentManager {
             deniedTools,
             iterationBudgetReached,
           );
+        } else if (iterationBudgetReached) {
+          // The synchronous caller (advisor consult, voice continuation)
+          // receives this text directly instead of a parent-injected
+          // notification, so append the same truncation note here — otherwise a
+          // capped run returns a possibly-partial answer with no indication it
+          // stopped early.
+          finalText += iterationBudgetTruncationNote(managed.state.isFork);
         }
       }
     } catch (err) {
