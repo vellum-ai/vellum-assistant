@@ -11,6 +11,27 @@ export interface AvatarTransforms {
 }
 
 /**
+ * Compute the body group's scale and translation for the target size. Shared by
+ * {@link computeTransforms} (which layers the eye math on top) and the eyeless
+ * body-only path so both derive the body matrix from one formula.
+ */
+function computeBodyPlacement(
+  bodyShape: BodyShapeDefinition,
+  size: number,
+): { bodyScale: number; bodyTx: number; bodyTy: number } {
+  const bodyVB = bodyShape.viewBox;
+  const bodyScale = Math.min(size / bodyVB.width, size / bodyVB.height);
+  const bodyTx = (size - bodyVB.width * bodyScale) / 2;
+  const bodyTy = (size - bodyVB.height * bodyScale) / 2;
+  return { bodyScale, bodyTx, bodyTy };
+}
+
+function computeBodyTransform(bodyShape: BodyShapeDefinition, size: number): string {
+  const { bodyScale, bodyTx, bodyTy } = computeBodyPlacement(bodyShape, size);
+  return `matrix(${bodyScale},0,0,${bodyScale},${bodyTx},${bodyTy})`;
+}
+
+/**
  * Compute the SVG transform strings for body and eye groups.
  */
 export function computeTransforms(
@@ -25,9 +46,7 @@ export function computeTransforms(
   const faceCenter = override ? override.faceCenter : bodyShape.faceCenter;
 
   const bodyVB = bodyShape.viewBox;
-  const bodyScale = Math.min(size / bodyVB.width, size / bodyVB.height);
-  const bodyTx = (size - bodyVB.width * bodyScale) / 2;
-  const bodyTy = (size - bodyVB.height * bodyScale) / 2;
+  const { bodyScale, bodyTx, bodyTy } = computeBodyPlacement(bodyShape, size);
 
   const eyeVB = eyeStyle.sourceViewBox;
   const remapScale = Math.min(
@@ -48,7 +67,9 @@ export function computeTransforms(
 }
 
 /**
- * Resolve the active definitions from components + trait IDs.
+ * Resolve the active definitions from components + trait IDs. When `eyeStyleId`
+ * is absent (null/undefined) the eye style is left unresolved (body-only
+ * avatars); a present-but-unknown id still throws, as before.
  */
 export function resolveDefinitions(
   components: CharacterComponents,
@@ -59,11 +80,34 @@ export function resolveDefinitions(
   bodyShape: BodyShapeDefinition;
   eyeStyle: EyeStyleDefinition;
   color: ColorDefinition;
+};
+export function resolveDefinitions(
+  components: CharacterComponents,
+  bodyShapeId: string,
+  eyeStyleId: string | null | undefined,
+  colorId: string,
+): {
+  bodyShape: BodyShapeDefinition;
+  eyeStyle: EyeStyleDefinition | undefined;
+  color: ColorDefinition;
+};
+export function resolveDefinitions(
+  components: CharacterComponents,
+  bodyShapeId: string,
+  eyeStyleId: string | null | undefined,
+  colorId: string,
+): {
+  bodyShape: BodyShapeDefinition;
+  eyeStyle: EyeStyleDefinition | undefined;
+  color: ColorDefinition;
 } {
   const bodyShape = components.bodyShapes.find((b) => b.id === bodyShapeId);
   if (!bodyShape) throw new Error(`Unknown body shape: "${bodyShapeId}"`);
-  const eyeStyle = components.eyeStyles.find((e) => e.id === eyeStyleId);
-  if (!eyeStyle) throw new Error(`Unknown eye style: "${eyeStyleId}"`);
+  let eyeStyle: EyeStyleDefinition | undefined;
+  if (eyeStyleId != null) {
+    eyeStyle = components.eyeStyles.find((e) => e.id === eyeStyleId);
+    if (!eyeStyle) throw new Error(`Unknown eye style: "${eyeStyleId}"`);
+  }
   const color = components.colors.find((c) => c.id === colorId);
   if (!color) throw new Error(`Unknown color: "${colorId}"`);
   return { bodyShape, eyeStyle, color };
@@ -80,7 +124,7 @@ function escapeAttr(s: string): string {
 export function composeSvg(
   components: CharacterComponents,
   bodyShapeId: string,
-  eyeStyleId: string,
+  eyeStyleId: string | null | undefined,
   colorId: string,
   size: number = 512,
 ): string {
@@ -95,11 +139,18 @@ export function composeSvg(
 
 export function composeSvgFromDefinitions(
   bodyShape: BodyShapeDefinition,
-  eyeStyle: EyeStyleDefinition,
+  eyeStyle: EyeStyleDefinition | null | undefined,
   color: ColorDefinition,
   components: CharacterComponents,
   size: number = 512,
 ): string {
+  // Body-only (eyeless) avatar: skip the eye-transform math and emit no eye paths.
+  if (!eyeStyle) {
+    const bodyTransform = computeBodyTransform(bodyShape, size);
+    const bodyPath = `<path d="${escapeAttr(bodyShape.svgPath)}" fill="${escapeAttr(color.hex)}" transform="${bodyTransform}"/>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${bodyPath}</svg>`;
+  }
+
   const { bodyTransform, eyeTransform } = computeTransforms(bodyShape, eyeStyle, components, size);
 
   const bodyPath = `<path d="${escapeAttr(bodyShape.svgPath)}" fill="${escapeAttr(color.hex)}" transform="${bodyTransform}"/>`;

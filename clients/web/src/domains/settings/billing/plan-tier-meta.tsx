@@ -46,10 +46,12 @@ export function PlanTierAvatar({
     return (
         <div aria-hidden className="inline-flex shrink-0">
             {components ? (
+                // Plan-tier avatars render eyeless (body-only); the eye style is
+                // deliberately omitted. `TIER_TRAITS[tier].eyeStyle` is retained
+                // for other consumers of the trait table.
                 <AvatarRenderer
                     components={components}
                     bodyShapeId={traits.bodyShape}
-                    eyeStyleId={traits.eyeStyle}
                     colorId={traits.color}
                     size={size}
                 />
