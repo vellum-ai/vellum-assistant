@@ -216,9 +216,21 @@ export const MemoryV2ConfigSchema = z
         "memory.v2.consolidation_max_entries_per_run must be a positive integer",
       )
       .nullable()
-      .default(150)
+      .default(100)
       .describe(
-        "Upper bound on buffer entries one consolidation run may process. When the buffer holds more, the run's cutoff is moved back to the first over-cap entry's timestamp so the overflow is deferred to a follow-up pass (the `consolidation_max_buffer_lines` size trigger re-fires while the remainder stays over threshold). Bounds the context a single agentic run must read after a backlog. Set to `null` to always process the full buffer.",
+        "Upper bound on buffer entries one consolidation run may process. When the buffer holds more, the run's cutoff is moved back to the first over-cap entry's timestamp so the overflow is deferred to a follow-up pass (the `consolidation_max_buffer_lines` size trigger re-fires while the remainder stays over threshold). Bounds the context a single agentic run must read after a backlog. Defaults to 100. Set to `null` to always process the full buffer.",
+      ),
+    consolidation_max_runs_per_day: z
+      .number({
+        error: "memory.v2.consolidation_max_runs_per_day must be a number",
+      })
+      .int("memory.v2.consolidation_max_runs_per_day must be an integer")
+      .positive(
+        "memory.v2.consolidation_max_runs_per_day must be a positive integer",
+      )
+      .default(3)
+      .describe(
+        "Maximum number of automatic consolidation runs (interval-triggered and size-triggered combined) the scheduler enqueues per UTC day. Once the cap is reached, further automatic runs are skipped until the next UTC day; buffered memories accumulate in `memory/buffer.md` (append-only, with a durable archive copy) and drain on the following day's runs. Manual 'run now' requests are not counted or capped. Defaults to 3.",
       ),
     max_page_chars: z
       .number({ error: "memory.v2.max_page_chars must be a number" })

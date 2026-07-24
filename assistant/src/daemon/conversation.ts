@@ -15,7 +15,7 @@
  * - conversation-usage.ts        — recordUsage
  */
 
-import type { AgentLoopConfig } from "../agent/loop.js";
+import type { AgentLoopConfig, IterationBudget } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
@@ -2486,6 +2486,13 @@ export class Conversation {
        * forwarded into {@link runAgentLoopImpl} and threaded to `recordUsage`.
        */
       cronRunId?: string | null;
+      /**
+       * Per-run LLM-call governor for this turn, forwarded to
+       * {@link runAgentLoopImpl} and on to {@link AgentLoop.run} as
+       * `iterationBudget`. Bounds mechanical background runs (e.g. memory
+       * consolidation). Unset = uncapped.
+       */
+      iterationBudget?: IterationBudget;
     },
   ): Promise<void> {
     const { onEvent, ...rest } = options ?? {};

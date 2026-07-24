@@ -534,6 +534,18 @@ type AgentLoopContextWindowResolver = () => {
   overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
 };
 
+/**
+ * Per-run LLM-call governor thresholds. `softNudgeAtCalls` is the call count at
+ * which the loop injects a one-time wrap-up nudge; `maxCallsPerRun` is the hard
+ * ceiling at which the run stops gracefully with `iteration_budget_reached`.
+ * Shared by every caller that wires the budget (subagent spawns, bounded
+ * background jobs) so the shape is declared once.
+ */
+export interface IterationBudget {
+  softNudgeAtCalls: number;
+  maxCallsPerRun: number;
+}
+
 interface AgentLoopRunOptionsBase {
   /** Input history the run starts from; the loop appends its output onto a copy. */
   messages: Message[];
@@ -624,16 +636,17 @@ interface AgentLoopRunOptionsBase {
     markFirstToken(kind: "thinking" | "text"): void;
   };
   /**
-   * Per-run LLM-call governor for unattended runs (subagent spawns). When set,
-   * the loop injects a one-time wrap-up nudge into the history once
-   * `softNudgeAtCalls` provider calls have been made, and stops the run
-   * gracefully with the {@link AgentLoopExitReason} `iteration_budget_reached`
-   * once `maxCallsPerRun` calls have been made. It is a cost backstop: a run
-   * that never stops re-reads its full accumulated context on every late call,
-   * so cost grows super-linearly. Omitted for interactive turns, which stay
-   * uncapped.
+   * Per-run LLM-call governor for unattended runs. When set, the loop injects a
+   * one-time wrap-up nudge into the history once `softNudgeAtCalls` provider
+   * calls have been made, and stops the run gracefully with the
+   * {@link AgentLoopExitReason} `iteration_budget_reached` once `maxCallsPerRun`
+   * calls have been made. It is a cost backstop: a run that never stops re-reads
+   * its full accumulated context on every late call, so cost grows
+   * super-linearly. Omitted for interactive turns, which stay uncapped. Wired
+   * for subagent spawns and for bounded mechanical background runs (e.g. memory
+   * consolidation).
    */
-  iterationBudget?: { softNudgeAtCalls: number; maxCallsPerRun: number };
+  iterationBudget?: IterationBudget;
 }
 
 interface AgentLoopRunOptionsWithContextWindow extends AgentLoopRunOptionsBase {

@@ -24,7 +24,8 @@ describe("MemoryV2ConfigSchema", () => {
       bm25_b: 0.4,
       consolidation_interval_hours: 8,
       consolidation_max_buffer_lines: 100,
-      consolidation_max_entries_per_run: 150,
+      consolidation_max_entries_per_run: 100,
+      consolidation_max_runs_per_day: 3,
       max_page_chars: 5000,
       consolidation_prompt_path: null,
       rerank: {
@@ -152,6 +153,38 @@ describe("MemoryV2ConfigSchema", () => {
   test("rejects zero or negative consolidation_interval_hours", () => {
     expect(() =>
       MemoryV2ConfigSchema.parse({ consolidation_interval_hours: 0 }),
+    ).toThrow();
+  });
+
+  test("consolidation_max_entries_per_run defaults to 100", () => {
+    const parsed = MemoryV2ConfigSchema.parse({});
+    expect(parsed.consolidation_max_entries_per_run).toBe(100);
+  });
+
+  test("consolidation_max_runs_per_day defaults to 3", () => {
+    const parsed = MemoryV2ConfigSchema.parse({});
+    expect(parsed.consolidation_max_runs_per_day).toBe(3);
+  });
+
+  test("accepts an explicit consolidation_max_runs_per_day override", () => {
+    const parsed = MemoryV2ConfigSchema.parse({
+      consolidation_max_runs_per_day: 2,
+    });
+    expect(parsed.consolidation_max_runs_per_day).toBe(2);
+  });
+
+  test("rejects zero or negative consolidation_max_runs_per_day", () => {
+    expect(() =>
+      MemoryV2ConfigSchema.parse({ consolidation_max_runs_per_day: 0 }),
+    ).toThrow();
+    expect(() =>
+      MemoryV2ConfigSchema.parse({ consolidation_max_runs_per_day: -1 }),
+    ).toThrow();
+  });
+
+  test("rejects non-integer consolidation_max_runs_per_day", () => {
+    expect(() =>
+      MemoryV2ConfigSchema.parse({ consolidation_max_runs_per_day: 2.5 }),
     ).toThrow();
   });
 
