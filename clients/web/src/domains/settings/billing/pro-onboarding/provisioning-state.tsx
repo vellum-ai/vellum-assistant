@@ -12,7 +12,7 @@ import {
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import type { CreditTierEnum } from "@/generated/api/types.gen";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
-import { MACHINE_TIER_LABEL, SIZE_LABEL } from "@/lib/billing/machine-sizes";
+import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import { SURFACE_GROUND } from "@/utils/avatar-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
@@ -456,7 +456,13 @@ function IntentChips({ intent }: { intent: CheckoutIntent }) {
   );
 }
 
-/** Machine/Storage from→to chips, driven by the resolved provisioning targets. */
+/**
+ * Machine/Storage from→to chips, derived from the shared `buildResourceChanges`
+ * derivation (credits omitted) so the STALLED/DONE path can't drift from the
+ * WAITING `ResourceChangeChips`. An unchanged dimension renders as a singular
+ * value with no arrow (the helper omits its `from`); `done` strips the from-side
+ * entirely, so the terminal phase shows just the achieved target with a check.
+ */
 function TargetChips({
   targets,
   fromSnapshot,
@@ -466,34 +472,19 @@ function TargetChips({
   fromSnapshot: ProvisioningDimensions;
   done?: boolean;
 }) {
+  const changes = buildResourceChanges({ targets, fromSnapshot, credits: null });
   return (
     <ChipRow>
-      {targets.machineSize != null && (
+      {changes.map((change) => (
         <DimensionChip
-          icon={Cpu}
-          label="Machine"
-          from={
-            !done && fromSnapshot.machineSize != null
-              ? SIZE_LABEL[fromSnapshot.machineSize]
-              : undefined
-          }
-          to={SIZE_LABEL[targets.machineSize]}
+          key={change.key}
+          icon={RESOURCE_CHIP_ICON[change.key]}
+          label={change.label}
+          from={done ? undefined : change.from}
+          to={change.to}
           done={done}
         />
-      )}
-      {targets.storageGib != null && (
-        <DimensionChip
-          icon={HardDrive}
-          label="Storage"
-          from={
-            !done && fromSnapshot.storageGib != null
-              ? `${fromSnapshot.storageGib} GB`
-              : undefined
-          }
-          to={`${targets.storageGib} GB`}
-          done={done}
-        />
-      )}
+      ))}
     </ChipRow>
   );
 }

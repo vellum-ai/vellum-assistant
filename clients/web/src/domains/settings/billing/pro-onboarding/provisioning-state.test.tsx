@@ -456,6 +456,38 @@ describe("stalled", () => {
     fireEvent.click(apply);
     expect(onApply).not.toHaveBeenCalled();
   });
+
+  test("an unchanged machine dimension renders singular while storage still arrows", () => {
+    const { getByText, getAllByText, container } = renderState({
+      state: "STALLED",
+      targets: { machineSize: "medium", storageGib: 100 },
+      fromSnapshot: { machineSize: "medium", storageGib: 30 },
+    });
+
+    // Machine is unchanged: the label appears once (target only), never as a
+    // "Medium → Medium" self-arrow.
+    expect(getByText("Machine")).toBeTruthy();
+    expect(getAllByText("Medium").length).toBe(1);
+    // Storage changed: both endpoints render, with a single from→to arrow.
+    expect(getByText("30 GB")).toBeTruthy();
+    expect(getByText("100 GB")).toBeTruthy();
+    expect(container.querySelectorAll(".lucide-arrow-right").length).toBe(1);
+  });
+
+  test("both dimensions unchanged render singular with no arrows", () => {
+    const { getByText, container } = renderState({
+      state: "STALLED",
+      targets: { machineSize: "medium", storageGib: 30 },
+      fromSnapshot: { machineSize: "medium", storageGib: 30 },
+    });
+
+    expect(getByText("Machine")).toBeTruthy();
+    expect(getByText("Medium")).toBeTruthy();
+    expect(getByText("Storage")).toBeTruthy();
+    expect(getByText("30 GB")).toBeTruthy();
+    // Nothing changed, so neither chip draws a current→new arrow.
+    expect(container.querySelector(".lucide-arrow-right")).toBeNull();
+  });
 });
 
 describe("confirm_timeout", () => {
