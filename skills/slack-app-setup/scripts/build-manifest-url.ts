@@ -53,7 +53,8 @@ const safeName = name.trim().slice(0, 35) || "My Assistant";
 const manifest = {
   display_information: {
     name: safeName,
-    ...(desc ? { description: desc } : {}),
+    // Slack caps `description` at 140 characters.
+    ...(desc ? { description: desc.slice(0, 140) } : {}),
     background_color: "#1a1a2e",
   },
   features: {
@@ -66,22 +67,28 @@ const manifest = {
       display_name: safeName,
       always_online: true,
     },
-    assistant_view: {
-      assistant_description: desc || safeName,
+    // `agent_view` supersedes `assistant_view` (Slack Agent messaging,
+    // Jun 30 2026). The description field is renamed — `agent_view` declares
+    // `additionalProperties: false`, so the old `assistant_description` key
+    // would be rejected outright. Migration is one-way per Slack's docs.
+    agent_view: {
+      // Slack caps `agent_description` at 300 characters.
+      agent_description: (desc || safeName).slice(0, 300),
       suggested_prompts: [],
     },
   },
   oauth_config: {
+    // Scopes are split required vs optional. Slack lists optional scopes
+    // separately on the install consent screen, so a workspace that declines
+    // one makes a visible choice instead of silently dropping it. Optional
+    // means "degrades gracefully", not "unwanted".
     scopes: {
       bot: [
         "app_mentions:read",
         "assistant:write",
         "channels:history",
-        "channels:join",
         "channels:read",
         "chat:write",
-        "files:read",
-        "files:write",
         "groups:history",
         "groups:read",
         "im:history",
@@ -89,9 +96,14 @@ const manifest = {
         "im:write",
         "mpim:history",
         "mpim:read",
+        "users:read",
+      ],
+      bot_optional: [
+        "channels:join",
+        "files:read",
+        "files:write",
         "reactions:read",
         "reactions:write",
-        "users:read",
       ],
       user: [
         "channels:history",
@@ -103,15 +115,16 @@ const manifest = {
         "mpim:history",
         "mpim:read",
         "users:read",
-        "search:read",
-        "reactions:read",
       ],
+      user_optional: ["search:read", "reactions:read"],
     },
   },
   settings: {
     event_subscriptions: {
       bot_events: [
         "app_mention",
+        // Requires `agent_view`; carries the user's active Slack context.
+        "app_context_changed",
         "message.channels",
         "message.groups",
         "message.im",
