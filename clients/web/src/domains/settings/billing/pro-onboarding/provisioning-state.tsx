@@ -456,7 +456,12 @@ function IntentChips({ intent }: { intent: CheckoutIntent }) {
   );
 }
 
-/** Machine/Storage from→to chips, driven by the resolved provisioning targets. */
+/**
+ * Machine/Storage from→to chips, driven by the resolved provisioning targets.
+ * A dimension whose snapshot equals its target renders as a singular value with
+ * no arrow (mirroring `buildResourceChanges`); the arrow appears only when the
+ * values actually differ.
+ */
 function TargetChips({
   targets,
   fromSnapshot,
@@ -473,7 +478,9 @@ function TargetChips({
           icon={Cpu}
           label="Machine"
           from={
-            !done && fromSnapshot.machineSize != null
+            !done &&
+            fromSnapshot.machineSize != null &&
+            fromSnapshot.machineSize !== targets.machineSize
               ? SIZE_LABEL[fromSnapshot.machineSize]
               : undefined
           }
@@ -486,7 +493,9 @@ function TargetChips({
           icon={HardDrive}
           label="Storage"
           from={
-            !done && fromSnapshot.storageGib != null
+            !done &&
+            fromSnapshot.storageGib != null &&
+            fromSnapshot.storageGib !== targets.storageGib
               ? `${fromSnapshot.storageGib} GB`
               : undefined
           }
