@@ -84,12 +84,12 @@ mock.module("@/utils/voice-input-device", () => ({
 // Capture the command handler map the component registers so tests can
 // deliver the escape monitor's `cancelDictation` relay directly (the real
 // hook is an Electron IPC subscription and no-ops in this environment).
-const commandHandlers: Record<string, ((command: unknown) => void) | undefined> =
-  {};
+const commandHandlers: Record<
+  string,
+  ((command: unknown) => void) | undefined
+> = {};
 mock.module("@/runtime/vellum-commands", () => ({
-  useVellumCommands: (
-    handlers: Record<string, (command: unknown) => void>,
-  ) => {
+  useVellumCommands: (handlers: Record<string, (command: unknown) => void>) => {
     Object.assign(commandHandlers, handlers);
   },
 }));
@@ -105,17 +105,14 @@ class FakeMediaRecorder {
   onstop: (() => void) | null = null;
   onerror: (() => void) | null = null;
 
-  constructor(
-    _stream: unknown,
-    _options?: unknown,
-  ) {}
+  constructor(_stream: unknown, _options?: unknown) {}
 
   start(): void {
     this.state = "recording";
   }
 
   stop(): void {
-    if (this.state === "inactive") return;
+    if (this.state === "inactive") {return;}
     this.state = "inactive";
     this.ondataavailable?.({
       data: new Blob(["audio"], { type: "audio/webm;codecs=opus" }),
@@ -139,12 +136,14 @@ Object.defineProperty(navigator, "mediaDevices", {
 // Imported after the mocks so the component resolves against them. The
 // recording store is intentionally real — phase transitions are part of the
 // behavior under test.
-const { VoiceInputButton } = await import(
-  "@/domains/chat/components/voice-input-button"
-);
-const { useVoiceRecordingStore } = await import(
-  "@/domains/chat/voice/voice-recording-store"
-);
+const { VoiceInputButton } =
+  await import("@/domains/chat/components/voice-input-button");
+const { useVoiceRecordingStore } =
+  await import("@/domains/chat/voice/voice-recording-store");
+const { errorCodeForReason } =
+  await import("@/domains/chat/components/voice-input-button");
+const { formatVoiceError } = await import("@/domains/chat/utils/chat");
+type SttFailureReason = import("@/domains/chat/voice/stt-api").SttFailureReason;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -380,8 +379,7 @@ describe("VoiceInputButton — native partials fallback", () => {
 
   test("waits for empty native final when stop races native startup", async () => {
     let resolveNativeStart:
-      | ((stop: (() => Promise<string | null>) | null) => void)
-      | null = null;
+      ((stop: (() => Promise<string | null>) | null) => void) | null = null;
     nativePartialsImpl = () =>
       new Promise<(() => Promise<string | null>) | null>((resolve) => {
         resolveNativeStart = resolve;
@@ -413,8 +411,7 @@ describe("VoiceInputButton — native partials fallback", () => {
 
   test("configuration errors still surface when native startup resolves unavailable after stop", async () => {
     let resolveNativeStart:
-      | ((stop: (() => Promise<string | null>) | null) => void)
-      | null = null;
+      ((stop: (() => Promise<string | null>) | null) => void) | null = null;
     nativePartialsImpl = () =>
       new Promise<(() => Promise<string | null>) | null>((resolve) => {
         resolveNativeStart = resolve;
@@ -602,5 +599,44 @@ describe("VoiceInputButton — forced native provider (macOS Native Dictation)",
     expect(postSttTranscribeSpy).not.toHaveBeenCalled();
     expect(onTranscript).not.toHaveBeenCalled();
     expect(lastBreadcrumb().data.outcome).toBe("error");
+  });
+});
+
+describe("errorCodeForReason", () => {
+  // The taxonomy spans three files — the daemon's HTTP status, the reason
+  // union + `reasonFromHttp` in `stt-api.ts`, and the copy map in
+  // `utils/chat.ts`. A reason that reaches `formatVoiceError` without its own
+  // entry silently degrades to the generic "transcription failed", which is how
+  // an actionable failure loses its remediation. Pin the whole chain.
+  test("every reason maps to a code with real copy", () => {
+    const reasons: SttFailureReason[] = [
+      "config-missing",
+      "audio-rejected",
+      "auth-failed",
+      "rate-limited",
+      "credits-exhausted",
+      "provider-error",
+      "unavailable",
+      "timeout",
+    ];
+    const generic = formatVoiceError("definitely-not-a-real-code");
+
+    for (const reason of reasons) {
+      const copy = formatVoiceError(errorCodeForReason(reason));
+      expect(copy).not.toBe(generic);
+      expect(copy.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("an exhausted balance names credits, not a provider glitch", () => {
+    // The daemon returns 402 for `credits-exhausted`; without a mapping this
+    // reads as "the provider is having trouble — try again", which is wrong
+    // advice for a wall that retrying cannot clear.
+    const copy = formatVoiceError(errorCodeForReason("credits-exhausted"));
+
+    expect(copy).toContain("credits");
+    expect(copy).not.toBe(
+      formatVoiceError(errorCodeForReason("provider-error")),
+    );
   });
 });
