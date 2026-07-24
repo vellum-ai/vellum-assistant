@@ -32,35 +32,46 @@ interface CapabilityTierMeta {
   /** Preset name, straight from the matching global Assistant Access preset. */
   label: string;
   /**
-   * Short qualifier shown under the label in the tier picker. The full
-   * per-tier description lives in the one-time legend
-   * (`SlackChannelTierLegend`) — it needs the assistant name and a settings
-   * link, so it can't be a static string here.
+   * Short qualifier shown beside the label in the picker and the legend key.
+   * Frames how much the assistant does on its own before checking with the
+   * owner — reads/answers only, since writes/sends/spends always escalate. The
+   * full per-tier sentence lives in the legend (`SlackChannelTierLegend`); it
+   * interpolates the assistant name, so it can't be a static string here.
    */
   sublabel: string;
   tone: TagTone;
+  /**
+   * Accent dot color for this tier, the single source shared by the per-row
+   * picker and the legend key so the two can't drift. Mirrors the tone's Tag
+   * accent (`--system-*-strong`).
+   */
+  dotColor: string;
 }
 
 export const CAPABILITY_TIER_META: Record<RiskThreshold, CapabilityTierMeta> = {
   none: {
     label: presetFromThreshold("none").label,
-    sublabel: "asks first",
+    sublabel: "asks before acting",
     tone: "negative",
+    dotColor: "var(--system-negative-strong)",
   },
   low: {
     label: presetFromThreshold("low").label,
-    sublabel: "safe reads",
+    sublabel: "safe reads only",
     tone: "warning",
+    dotColor: "var(--system-mid-strong)",
   },
   medium: {
     label: presetFromThreshold("medium").label,
-    sublabel: "more lookups",
+    sublabel: "broader lookups",
     tone: "info",
+    dotColor: "var(--system-info-strong)",
   },
   high: {
     label: presetFromThreshold("high").label,
-    sublabel: "answers anything",
+    sublabel: "answers on its own",
     tone: "positive",
+    dotColor: "var(--system-positive-strong)",
   },
 };
 

@@ -34,10 +34,10 @@ describe("CAPABILITY_TIER_META", () => {
   });
 
   test("sublabels frame each tier's read/answer depth, not free action", () => {
-    expect(CAPABILITY_TIER_META.none.sublabel).toBe("asks first");
-    expect(CAPABILITY_TIER_META.low.sublabel).toBe("safe reads");
-    expect(CAPABILITY_TIER_META.medium.sublabel).toBe("more lookups");
-    expect(CAPABILITY_TIER_META.high.sublabel).toBe("answers anything");
+    expect(CAPABILITY_TIER_META.none.sublabel).toBe("asks before acting");
+    expect(CAPABILITY_TIER_META.low.sublabel).toBe("safe reads only");
+    expect(CAPABILITY_TIER_META.medium.sublabel).toBe("broader lookups");
+    expect(CAPABILITY_TIER_META.high.sublabel).toBe("answers on its own");
   });
 });
 

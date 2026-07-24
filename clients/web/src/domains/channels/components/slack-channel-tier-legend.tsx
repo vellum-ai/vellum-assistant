@@ -1,6 +1,5 @@
 import { Link } from "react-router";
 
-import type { TagTone } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
@@ -9,15 +8,6 @@ import {
 } from "@/domains/channels/slack-channel-overrides";
 import type { RiskThreshold } from "@/utils/threshold-presets";
 import { routes } from "@/utils/routes";
-
-/** Dot accent per tier tone — mirrors the Tag component's icon accents. */
-const TONE_DOT_COLOR: Record<TagTone, string> = {
-  positive: "var(--system-positive-strong)",
-  negative: "var(--system-negative-strong)",
-  warning: "var(--system-mid-strong)",
-  info: "var(--system-info-strong)",
-  neutral: "var(--content-secondary)",
-};
 
 /**
  * Full per-tier help copy, framed around behavior toward the people in the
@@ -98,7 +88,7 @@ export function SlackChannelTierLegend({
               <span
                 aria-hidden="true"
                 className="h-1.5 w-1.5 shrink-0 rounded-full"
-                style={{ backgroundColor: TONE_DOT_COLOR[meta.tone] }}
+                style={{ backgroundColor: meta.dotColor }}
               />
               <Typography as="span" variant="body-small-emphasised">
                 {meta.label}

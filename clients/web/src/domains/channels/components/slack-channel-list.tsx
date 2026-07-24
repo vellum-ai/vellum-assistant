@@ -372,14 +372,6 @@ export function SlackChannelList({
   );
 }
 
-/** Accent dot per tier, matching the Assistant Access levels key. */
-const TIER_DOT_COLOR: Record<RiskThreshold, string> = {
-  none: "var(--system-negative-strong)",
-  low: "var(--system-mid-strong)",
-  medium: "var(--system-info-strong)",
-  high: "var(--system-positive-strong)",
-};
-
 function TierDot({ color }: { color: string }) {
   return (
     <span
@@ -459,7 +451,7 @@ function SlackChannelRow({
     (tier) => ({
       value: tier,
       label: CAPABILITY_TIER_META[tier].label,
-      icon: <TierDot color={TIER_DOT_COLOR[tier]} />,
+      icon: <TierDot color={CAPABILITY_TIER_META[tier].dotColor} />,
       suffix:
         tier === defaultTier ? (
           <span className="text-[color:var(--content-tertiary)]">default</span>
