@@ -217,6 +217,52 @@ describe("useDraftSecretDetection detection", () => {
     expect(result.current.matches).toHaveLength(1);
   });
 
+  test("an identical restored draft with the same secret warns immediately after a switch", () => {
+    seedFlags({ composerSecretGuard: true, hasHydrated: true });
+    // The same pasted key is drafted in both conversations, so the restored
+    // draft is byte-identical to the outgoing one.
+    const sharedDraft = `here is ${SYNTHETIC_PROJECT_KEY}`;
+    setDraft(sharedDraft);
+    const { result, rerender } = renderDetection("conv-1", NEVER_ELAPSES_MS);
+    expect(result.current.matches).toHaveLength(1);
+
+    rerender({ conversationId: "conv-2" });
+    expect(result.current.matches).toEqual([]);
+
+    // Conversation B's restored draft equals conversation A's byte-for-byte,
+    // so the composer input is unchanged across the swap and the
+    // subscription's identity guard would skip the scan. The armed
+    // immediate-scan must still run so the repeated secret warns without a
+    // keystroke or a debounce wait.
+    setDraft(sharedDraft);
+    expect(result.current.matches).toHaveLength(1);
+    expect(result.current.matches[0]?.value).toBe(SYNTHETIC_PROJECT_KEY);
+    expect(result.current.dismissed).toBe(false);
+
+    // The immediate scan is single-use — an unchanged draft afterward is an
+    // ordinary keystroke path again and early-outs (no re-scan needed), while
+    // an actual edit waits out the (never-elapsing) debounce.
+    setDraft(`${sharedDraft} plus ${SYNTHETIC_GITHUB_TOKEN}`);
+    expect(result.current.matches).toHaveLength(1);
+  });
+
+  test("a switch to an empty draft still clears matches (identity fix does not resurrect)", async () => {
+    seedFlags({ composerSecretGuard: true, hasHydrated: true });
+    setDraft(`conversation A: ${SYNTHETIC_PROJECT_KEY}`);
+    const { result, rerender } = renderDetection("conv-1", 0);
+    expect(result.current.matches).toHaveLength(1);
+
+    rerender({ conversationId: "conv-2" });
+    expect(result.current.matches).toEqual([]);
+
+    // Conversation B has no saved draft: the switch swap clears the composer.
+    setDraft("");
+    await waitFor(() => {
+      expect(result.current.matches).toEqual([]);
+    });
+    expect(result.current.dismissed).toBe(false);
+  });
+
   test("scanning waits out the debounce between keystrokes", async () => {
     seedFlags({ composerSecretGuard: true, hasHydrated: true });
     const { result } = renderDetection();
