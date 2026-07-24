@@ -38,7 +38,7 @@ function StatChip({ icon, value, label }: StatChipProps) {
       <Typography
         variant="body-small-default"
         as="span"
-        className="text-[var(--content-tertiary)]"
+        className="min-w-0 truncate text-[var(--content-tertiary)]"
       >
         {label}
       </Typography>
