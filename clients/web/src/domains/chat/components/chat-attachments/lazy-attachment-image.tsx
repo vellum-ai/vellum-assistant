@@ -1,5 +1,5 @@
 import { FileImage, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { useLazyAttachmentDisplayPreview } from "@/domains/chat/components/chat-attachments/use-lazy-attachment-display-preview";
 
@@ -10,16 +10,16 @@ interface LazyAttachmentImageProps {
   inlinePreviewUrl: string | null;
   size: "inline" | "square";
   testId?: string;
-  onError?: () => void;
+  onDecodeError?: () => void;
 }
 
 const SIZE_CLASS = {
-  inline: "h-64 w-64 sm:w-96",
+  inline: "h-64 w-64 max-w-full sm:w-96",
   square: "h-16 w-16",
 } as const;
 
 /**
- * Stable-geometry image slot backed by a viewport-lazy display representation.
+ * Stable-geometry image slot backed by a viewport-lazy authenticated preview.
  * The slot dimensions are identical before and after image resolution, which
  * prevents transcript scroll jumps as previews finish loading.
  */
@@ -54,7 +54,7 @@ export function LazyAttachmentImage(props: LazyAttachmentImageProps) {
 }
 
 function RemoteAttachmentImage(props: LazyAttachmentImageProps) {
-  const { assistantId, attachmentId, onError } = props;
+  const { assistantId, attachmentId } = props;
   const {
     elementRef,
     previewUrl,
@@ -65,12 +65,6 @@ function RemoteAttachmentImage(props: LazyAttachmentImageProps) {
     attachmentId,
     inlinePreviewUrl: null,
   });
-
-  useEffect(() => {
-    if (isError) {
-      onError?.();
-    }
-  }, [isError, onError]);
 
   return (
     <AttachmentImageSlot
@@ -94,7 +88,7 @@ function AttachmentImageSlot({
   filename,
   size,
   testId = "lazy-attachment-image",
-  onError,
+  onDecodeError,
   elementRef,
   previewUrl,
   isLoading,
@@ -125,7 +119,7 @@ function AttachmentImageSlot({
           alt={filename}
           onError={() => {
             setDecodeFailedUrl(usablePreviewUrl);
-            onError?.();
+            onDecodeError?.();
           }}
           className={`h-full w-full ${
             size === "square" ? "object-cover" : "object-contain"

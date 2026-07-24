@@ -272,6 +272,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
         key={conversationId}
         ref={scrollRef}
         data-testid="transcript-scroll-container"
+        data-transcript-scroll-root="true"
         className="flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none]"
       >
         {/* Inner content wrapper — observed by the scroll coordinator's

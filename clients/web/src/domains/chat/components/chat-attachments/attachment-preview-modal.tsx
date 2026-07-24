@@ -125,7 +125,6 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     queryKey: ["attachmentContent", "original", assistantId, attachment.id],
     queryFn: async ({ signal }) => {
       const data = await fetchAttachmentContentBlob(assistantId!, attachment.id, {
-        representation: "original",
         signal,
       });
       if (!data) {

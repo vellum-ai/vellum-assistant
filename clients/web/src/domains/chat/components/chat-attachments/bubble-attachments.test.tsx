@@ -91,6 +91,12 @@ describe("BubbleAttachments", () => {
     expect(getByTestId("lazy-attachment-image-slot").className).toContain(
       "h-64",
     );
+    expect(getByTestId("lazy-attachment-image-slot").className).toContain(
+      "max-w-full",
+    );
+    expect(
+      getByRole("button", { name: "scan.jpg" }).className,
+    ).toContain("max-w-full");
     expect(queryByText("scan.jpg")).toBeNull();
   });
 

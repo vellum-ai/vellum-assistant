@@ -20,6 +20,7 @@ import type { ReactElement } from "react";
 
 import * as daemonSdk from "@/generated/daemon/sdk.gen";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 type ContentResult = { data: Blob | null; error: { message: string } | null };
 
@@ -121,12 +122,16 @@ function enterViewport(): void {
 beforeEach(() => {
   intersectionCallback = null;
   globalThis.IntersectionObserver = TestIntersectionObserver;
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("assistant", "0.10.12", "asst-1");
 });
 
 afterEach(() => {
   cleanup();
   attachmentsByIdContentGet.mockClear();
   saveFileMock.mockClear();
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 afterAll(() => {

@@ -92,9 +92,7 @@ describe("AttachmentPreviewModal content loading", () => {
     const img = await screen.findByAltText("photo.png");
     expect(img.getAttribute("src")).toBe("blob:preview-mock");
     expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
-    expect(attachmentsByIdContentGet.mock.calls[0]![0]).toMatchObject({
-      query: { representation: "original" },
-    });
+    expect(attachmentsByIdContentGet.mock.calls[0]![0].query).toBeUndefined();
     expect(
       attachmentsByIdContentGet.mock.calls[0]![0].signal,
     ).toBeInstanceOf(AbortSignal);

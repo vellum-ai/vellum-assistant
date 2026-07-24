@@ -38,7 +38,7 @@ import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { getSeqGeneration } from "@/lib/streaming/reconnect-cursor";
 import { anchorColdStartReplay } from "@/lib/streaming/cold-anchor";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useSupportsMetadataAttachmentHistory } from "@/lib/backwards-compat/use-supports-metadata-attachment-history";
+import { useSupportsProgressiveAttachmentLoading } from "@/lib/backwards-compat/use-supports-progressive-attachment-loading";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
@@ -105,9 +105,9 @@ export function useConversationHistory({
   activeConversationId,
 }: UseConversationHistoryParams): ConversationHistoryResult {
   const queryClient = useQueryClient();
-  const supportsMetadataAttachmentHistory =
-    useSupportsMetadataAttachmentHistory(assistantId);
-  const attachmentContent = supportsMetadataAttachmentHistory
+  const supportsProgressiveAttachmentLoading =
+    useSupportsProgressiveAttachmentLoading(assistantId);
+  const attachmentContent = supportsProgressiveAttachmentLoading
     ? "metadata"
     : "inline";
 

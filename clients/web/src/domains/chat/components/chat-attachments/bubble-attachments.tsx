@@ -84,7 +84,7 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
                 aria-label={att.filename}
                 title={att.filename}
                 onClick={() => openPreview(att)}
-                className="w-fit cursor-pointer rounded-lg text-left"
+                className="w-fit max-w-full cursor-pointer rounded-lg text-left"
               >
                 <LazyAttachmentImage
                   assistantId={assistantId}
@@ -92,7 +92,7 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
                   filename={att.filename}
                   inlinePreviewUrl={att.previewUrl}
                   size="inline"
-                  onError={() => markImageFailed(att.id)}
+                  onDecodeError={() => markImageFailed(att.id)}
                 />
               </button>
             );

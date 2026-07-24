@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import { fetchAttachmentContentBlob } from "@/domains/chat/components/chat-attachments/download-attachment";
+import { useSupportsProgressiveAttachmentLoading } from "@/lib/backwards-compat/use-supports-progressive-attachment-loading";
 
 const PREVIEW_ROOT_MARGIN = "400px 0px";
 
@@ -25,10 +26,12 @@ interface LazyAttachmentDisplayPreview {
 }
 
 /**
- * Loads an authenticated browser-displayable attachment representation once
- * its element nears the viewport. Inline legacy previews bypass the request.
- * Pending requests consume TanStack Query's AbortSignal, and fetched object
- * URLs are revoked whenever their blob changes or the consumer unmounts.
+ * Loads authenticated browser-displayable attachment bytes once the element
+ * nears its transcript scrollport. Supported assistants receive the display
+ * representation; legacy assistants use the endpoint's default original
+ * bytes. Inline history previews bypass the request. Pending requests consume
+ * TanStack Query's AbortSignal, and fetched object URLs are revoked whenever
+ * their blob changes or the consumer unmounts.
  */
 export function useLazyAttachmentDisplayPreview({
   assistantId,
@@ -36,6 +39,11 @@ export function useLazyAttachmentDisplayPreview({
   inlinePreviewUrl,
   enabled = true,
 }: UseLazyAttachmentDisplayPreviewParams): LazyAttachmentDisplayPreview {
+  const supportsProgressiveAttachmentLoading =
+    useSupportsProgressiveAttachmentLoading(assistantId);
+  const effectiveRepresentation = supportsProgressiveAttachmentLoading
+    ? "display"
+    : "original";
   const [element, setElement] = useState<Element | null>(null);
   const [isNearViewport, setIsNearViewport] = useState(false);
   const elementRef = useCallback<RefCallback<Element>>((node) => {
@@ -58,6 +66,9 @@ export function useLazyAttachmentDisplayPreview({
       return;
     }
 
+    const observerRoot = element.closest<HTMLElement>(
+      "[data-transcript-scroll-root]",
+    );
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
@@ -65,19 +76,28 @@ export function useLazyAttachmentDisplayPreview({
           observer.disconnect();
         }
       },
-      { rootMargin: PREVIEW_ROOT_MARGIN },
+      { root: observerRoot, rootMargin: PREVIEW_ROOT_MARGIN },
     );
     observer.observe(element);
     return () => observer.disconnect();
   }, [canFetch, element, isNearViewport]);
 
   const query = useQuery({
-    queryKey: ["attachmentContent", "display", assistantId, attachmentId],
+    queryKey: [
+      "attachmentContent",
+      effectiveRepresentation,
+      assistantId,
+      attachmentId,
+    ],
     queryFn: async ({ signal }) => {
-      const blob = await fetchAttachmentContentBlob(assistantId!, attachmentId, {
-        representation: "display",
-        signal,
-      });
+      const requestOptions = supportsProgressiveAttachmentLoading
+        ? { representation: "display" as const, signal }
+        : { signal };
+      const blob = await fetchAttachmentContentBlob(
+        assistantId!,
+        attachmentId,
+        requestOptions,
+      );
       if (!blob) {
         throw new Error("Failed to load image preview");
       }
