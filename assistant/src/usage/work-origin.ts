@@ -1,8 +1,4 @@
 import { type LLMCallSite, LLMCallSiteEnum } from "../config/schemas/llm.js";
-import {
-  MEMORY_RETROSPECTIVE_FORK_SOURCE,
-  MEMORY_RETROSPECTIVE_SOURCE,
-} from "../plugins/defaults/memory/memory-retrospective-constants.js";
 
 /**
  * Coarse attribution of *why* an LLM call happened, derived from the durable
@@ -78,14 +74,16 @@ const RECOGNIZED_CALL_SITES: ReadonlySet<string> = new Set(
  * usage batch flushed: the linkage is gone, but the record-time source
  * survives on the usage row and still mechanically denotes delegated work.
  *
- * Stamp sites: `subagent/manager.ts` (`source: "subagent"`) and
- * `memory-retrospective-job.ts` (the two retrospective sentinels). Keep in
- * lockstep with those.
+ * The values are literals, not imports: each is a persisted `conversations.
+ * source` value stamped at conversation creation (`subagent/manager.ts`;
+ * the memory plugin's retrospective job), so historical usage rows carry
+ * these exact strings regardless of how the stamping code evolves — and host
+ * code must not import a plugin's internals. The classifier tests pin them.
  */
 const SPAWNED_CONVERSATION_SOURCES: ReadonlySet<string> = new Set([
   "subagent",
-  MEMORY_RETROSPECTIVE_SOURCE,
-  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  "memory-retrospective",
+  "memory-retrospective-fork",
 ]);
 
 /**
