@@ -881,13 +881,60 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
     expect(changePackageCall!.body).toEqual({ package: "mighty" });
   });
 
-  test("a Custom sub's Free card is a downgrade and no named card renders as current", () => {
+  test("a Custom sub's Free card is a downgrade; the Custom row is current, no named card is", () => {
     const html = renderStatic(proCustomizedMightySubscription(), fullCatalog());
     // Pro → Free is always a downgrade.
     expect(html).toContain("Downgrade to Free");
     expect(html).not.toContain("Start Free");
-    // A Custom sub has no catalog rank, so no card is the current plan.
-    expect(count(html, /Current Plan/g)).toBe(0);
+    // A Custom sub has no catalog rank, so the Custom row carries the
+    // current-plan tag instead of any named column card.
+    expect(count(html, /Your Current Plan/g)).toBe(1);
+    // Every "Current Plan" match is that tag — no named column card is current.
+    expect(count(html, /Current Plan/g)).toBe(count(html, /Your Current Plan/g));
+  });
+});
+
+// A custom Pro sub (unpinned, customized, or legacy) is represented by the
+// Custom row, not any named card: the row is marked as their current plan and
+// summarizes the tiers they actually hold. Base and clean-pinned subs — whose
+// current plan IS a named card — see no marker on the Custom row.
+describe("PlansPage — Custom row current-plan marker", () => {
+  function proCustomizedWithCredits(): SubscriptionResponse {
+    return {
+      ...proMightySubscription(),
+      package: { key: "mighty", name: "Mighty", version: 1, customized: true },
+      selected_credit_tier: "credits_50",
+    };
+  }
+
+  test("a custom Pro sub sees the Custom row marked current with a tier summary", async () => {
+    // onboarding() supplies medium machine / 10 GB; the sub carries credits_50.
+    const { findByText } = renderInteractive(proCustomizedWithCredits(), {
+      plans: customCatalog(),
+    });
+
+    await findByText("Your Current Plan");
+    await findByText("Medium machine · 10 GB · $50 credits");
+  });
+
+  test("a clean-pinned Pro sub sees no marker on the Custom row", async () => {
+    const { findByRole, queryByText } = renderInteractive(
+      proMightySubscription(),
+      { plans: customCatalog() },
+    );
+
+    // The body is mounted once the Configure CTA is present.
+    await findByRole("button", { name: "Configure" });
+    expect(queryByText("Your Current Plan")).toBeNull();
+  });
+
+  test("a base user sees no marker on the Custom row", async () => {
+    const { findByRole, queryByText } = renderInteractive(freeSubscription(), {
+      plans: customCatalog(),
+    });
+
+    await findByRole("button", { name: "Configure" });
+    expect(queryByText("Your Current Plan")).toBeNull();
   });
 });
 
