@@ -3,7 +3,8 @@
  * active the composer's action row is replaced by this bar — a mic mute
  * toggle and muted state label on the left, the dotted timeline waveform
  * filling the middle, and the session controls on the right: optional
- * ■ stop-response (while the assistant speaks), end (✕), and send-now (↑).
+ * ■ stop-response (while the assistant speaks), optional expand back to the
+ * voice room, end (✕), and send-now (↑).
  *
  * Purely presentational: the composer observes the live-voice store and
  * wires `state`, an amplitude poll function, and the callbacks. The green ↑
@@ -15,7 +16,7 @@
  * layout shift.
  */
 
-import { ArrowUp, Mic, MicOff, Square, X } from "lucide-react";
+import { ArrowUp, Maximize2, Mic, MicOff, Square, X } from "lucide-react";
 
 import { Button } from "@vellumai/design-library";
 
@@ -44,6 +45,12 @@ export interface VoiceComposerBarProps {
    * hands-free sessions, where the interrupt is turn-scoped.
    */
   onStop?: () => void;
+  /**
+   * Return to the full-screen voice room. The composer passes it only where
+   * the room can render (never in pop-out windows), so the control never
+   * ships dead.
+   */
+  onExpand?: () => void;
 }
 
 export function VoiceComposerBar({
@@ -54,6 +61,7 @@ export function VoiceComposerBar({
   onEnd,
   onSend,
   onStop,
+  onExpand,
 }: VoiceComposerBarProps) {
   return (
     <div
@@ -101,6 +109,15 @@ export function VoiceComposerBar({
             onClick={onStop}
             aria-label="Stop assistant response"
             tooltip="Stop assistant response"
+          />
+        ) : null}
+        {onExpand ? (
+          <Button
+            variant="ghost"
+            iconOnly={<Maximize2 className="h-4 w-4" />}
+            onClick={onExpand}
+            aria-label="Open voice room"
+            tooltip="Open voice room"
           />
         ) : null}
         <Button

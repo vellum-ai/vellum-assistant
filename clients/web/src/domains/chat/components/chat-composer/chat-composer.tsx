@@ -11,7 +11,7 @@ import {
     useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import {
     AttachFileButton,
@@ -41,6 +41,7 @@ import {
     getLiveVoiceInputAmplitude,
     isLiveVoiceSessionActive,
     releaseLiveVoiceTurn,
+    restoreVoiceRoom,
     setLiveVoiceEntryOrigin,
     setLiveVoiceMuted,
     stopLiveVoiceResponse,
@@ -54,6 +55,7 @@ import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-sto
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
+import { isPopoutWindow } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { isNativeIOS } from "@/runtime/platform-detection";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -338,6 +340,12 @@ export function ChatComposer({
   // the first-run card path defers the actual start to its own handler.
   const liveVoiceEntryOriginRef = useRef<{ x: number; y: number } | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  // Captured once at mount, mirroring `ChatLayout` / `useIsVoiceRoomVisible`:
+  // pop-out URLs carry `?popout=1` only on the window's initial load. Pop-outs
+  // never render the voice room, so the bar's expand-to-room control is
+  // omitted there (the mount-time value gates it below).
+  const [isPopout] = useState(() => isPopoutWindow(location.search));
   // "Configure voice" copy surfaced when the pre-open preflight returns
   // `not-ready` — the daemon's human-readable `userMessage`. Non-null renders
   // the notice below (with a deep-link to voice settings) and the room stays
@@ -878,6 +886,10 @@ export function ChatComposer({
                 // Turn-scoped stop is hands-free-only; a manual session's
                 // interrupt ends the whole session (✕ owns that).
                 onStop={liveVoiceHandsFree ? stopLiveVoiceResponse : undefined}
+                // Expand back to the full-screen room — omitted in pop-out
+                // windows, where the room never renders (the standalone pill
+                // is their only session surface).
+                onExpand={isPopout ? undefined : restoreVoiceRoom}
               />
             ) : (
               <div className="flex items-center justify-between gap-1 px-2 pb-2">
