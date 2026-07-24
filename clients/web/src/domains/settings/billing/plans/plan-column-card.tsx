@@ -59,7 +59,7 @@ export function PlanColumnCard({
   return (
     <div
       data-theme={tone}
-      className="flex w-full flex-col gap-4 rounded-2xl bg-[var(--surface-lift)] p-4"
+      className="flex w-full flex-col gap-3 rounded-2xl bg-[var(--surface-lift)] p-3 sm:gap-4 sm:p-4"
     >
       <PlanTierAvatar tier={tierKey} size={50} />
 
@@ -75,7 +75,7 @@ export function PlanColumnCard({
           ) : null}
         </div>
 
-        <p className="h-9 overflow-hidden text-[14px] font-medium leading-[18px] text-[var(--content-tertiary)]">
+        <p className="overflow-hidden text-[14px] font-medium leading-[18px] text-[var(--content-tertiary)] sm:h-9">
           {tagline}
         </p>
       </div>
@@ -102,7 +102,7 @@ export function PlanColumnCard({
 
       <div className="h-px w-full bg-[var(--border-hover)]" />
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2 sm:gap-4">
         <span className="text-[12px] font-medium text-[var(--content-tertiary)]">
           Includes:
         </span>
