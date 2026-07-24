@@ -4,6 +4,7 @@ import {
   couldBeControlMarker,
   ESCALATE_VERDICT_TOKEN,
   HOLD_VERDICT_TOKEN,
+  MINIMIZE_ROOM_MARKER,
   stripInternalSpeechMarkers,
 } from "../voice-control-protocol.js";
 
@@ -44,5 +45,27 @@ describe("front-door verdict tokens", () => {
     expect(stripInternalSpeechMarkers("Sure, one moment")).toBe(
       "Sure, one moment",
     );
+  });
+});
+
+describe("minimize-room marker", () => {
+  test("marker constant is the expected bracketed form", () => {
+    expect(MINIMIZE_ROOM_MARKER).toBe("[-1]");
+  });
+
+  test("stripInternalSpeechMarkers removes the marker so it is never spoken", () => {
+    expect(
+      stripInternalSpeechMarkers("Done [-1] here").replace(/\s+/g, " "),
+    ).toBe("Done here");
+  });
+
+  test("couldBeControlMarker holds the marker and its streaming prefixes", () => {
+    for (const text of ["[", "[-", "[-1", "[-1]", "[-1] trailing"]) {
+      expect(couldBeControlMarker(text)).toBe(true);
+    }
+  });
+
+  test("a bracket prefix that disproves the marker is not held", () => {
+    expect(couldBeControlMarker("[- something else")).toBe(false);
   });
 });
