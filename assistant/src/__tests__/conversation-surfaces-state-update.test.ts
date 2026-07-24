@@ -384,7 +384,7 @@ describe("ui_update normalizes modeled fields for known surface types", () => {
 
     const update = sent.find((m) => m.type === "ui_surface_update");
     expect(update).toBeDefined();
-    expect(typeof (update as { data: { html: unknown } }).data.html).toBe(
+    expect(typeof (update as { data: Record<string, unknown> }).data.html).toBe(
       "string",
     );
   });

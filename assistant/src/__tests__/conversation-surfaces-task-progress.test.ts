@@ -11,7 +11,7 @@ import type {
   ServerMessage,
   SurfaceType,
   UiSurfaceShow,
-  UiSurfaceUpdate,
+  UISurfaceUpdateEvent,
 } from "../daemon/message-protocol.js";
 
 function makeContext(
@@ -431,7 +431,7 @@ describe("task_progress surface compatibility", () => {
     expect(result.isError).toBe(false);
 
     const updateMessage = sent.find(
-      (msg): msg is UiSurfaceUpdate => msg.type === "ui_surface_update",
+      (msg): msg is UISurfaceUpdateEvent => msg.type === "ui_surface_update",
     );
     expect(updateMessage).toBeDefined();
     if (!updateMessage) {
@@ -470,7 +470,7 @@ describe("task_progress surface compatibility", () => {
 
     expect(result.isError).toBe(false);
     const updateMessage = sent.find(
-      (msg): msg is UiSurfaceUpdate => msg.type === "ui_surface_update",
+      (msg): msg is UISurfaceUpdateEvent => msg.type === "ui_surface_update",
     );
     expect(updateMessage).toBeDefined();
     if (!updateMessage) {
