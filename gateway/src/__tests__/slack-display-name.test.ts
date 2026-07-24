@@ -40,8 +40,8 @@ mock.module("../runtime/client.js", () => ({
     forwardToRuntimeMock(...args),
 }));
 
+const { normalizeSlackAppMention } = await import("../slack/normalize.js");
 const {
-  normalizeSlackAppMention,
   resolveSlackChannel,
   resolveSlackUser,
   resolveSlackUserSync,
@@ -50,7 +50,7 @@ const {
   clearUserInfoCache,
   getChannelInfoCacheSize,
   getUserInfoCacheSize,
-} = await import("../slack/normalize.js");
+} = await import("../slack/user-directory.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
 const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
 const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =

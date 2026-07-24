@@ -23,7 +23,7 @@ mock.module("../fetch.js", () => ({
 }));
 
 const { SlackSocketModeClient } = await import("../slack/socket-mode.js");
-const { clearUserInfoCache } = await import("../slack/normalize.js");
+const { clearUserInfoCache } = await import("../slack/user-directory.js");
 import type { SlackSocketModeConfig } from "../slack/socket-mode.js";
 
 type CatchupHarness = {
