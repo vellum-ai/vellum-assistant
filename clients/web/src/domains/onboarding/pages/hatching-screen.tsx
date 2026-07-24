@@ -538,7 +538,13 @@ export function HatchingScreen() {
       // the cap instead of completing at baseline.
       let targets: ProvisioningDimensions | null = null;
       while (!cancelled) {
-        let planId: string | null = null;
+        // Tri-state entitlement read. Only a CONFIRMED non-Pro plan — a
+        // successful response whose plan_id is definitively not "pro" —
+        // completes early. An unknown result (a thrown error, or a 5xx that
+        // resolves with no data under throwOnError:false) must not be mistaken
+        // for "free"; it behaves like "Pro but targets not yet provisioned" and
+        // keeps polling within the cap so a purchased resize is never skipped.
+        let subscriptionState: "pro" | "non_pro" | "unknown" = "unknown";
         try {
           const subscription = await organizationsBillingSubscriptionRetrieve({
             throwOnError: false,
@@ -546,9 +552,12 @@ export function HatchingScreen() {
           if (cancelled) {
             return;
           }
-          planId = subscription.data?.plan_id ?? null;
+          if (subscription.data) {
+            subscriptionState =
+              subscription.data.plan_id === "pro" ? "pro" : "non_pro";
+          }
         } catch {
-          // Subscription endpoint blip; keep polling to the cap.
+          // Subscription endpoint blip: stay "unknown" and keep polling to the cap.
         }
 
         try {
@@ -575,17 +584,20 @@ export function HatchingScreen() {
           targets != null &&
           (targets.machineSize != null || targets.storageGib != null);
 
-        // Not Pro — genuinely free, or the subscription hasn't flipped. Complete
-        // exactly as a non-provisioned hatch does today.
-        if (planId !== "pro") {
+        // Confirmed non-Pro — genuinely free. Complete exactly as a
+        // non-provisioned hatch does today.
+        if (subscriptionState === "non_pro") {
           return;
         }
-        // Pro with a purchased ceiling to wait on: hold for the resize below.
-        if (hasTargets) {
+        // Confirmed Pro with a purchased ceiling to wait on: hold for the resize
+        // below.
+        if (subscriptionState === "pro" && hasTargets) {
           break;
         }
-        // Pro but the targets aren't visible yet: keep polling within the cap
-        // rather than completing at baseline onto an unprovisioned assistant.
+        // Pro with targets not yet visible, or an unknown/errored subscription
+        // read: keep polling within the cap rather than completing at baseline
+        // onto an unprovisioned assistant. The cap is the ultimate escape so a
+        // persistently-erroring subscription endpoint still completes.
         if (Date.now() >= resizeDeadline) {
           return;
         }
@@ -618,7 +630,12 @@ export function HatchingScreen() {
           // Assistant endpoint unreachable mid-resize; keep polling to the cap.
         }
 
-        let operationInFlight = false;
+        // Default to in-flight so an uncertain status read withholds completion.
+        // Under throwOnError:false a 5xx resolves with no data rather than
+        // throwing, and isResizeOperationInFlight(undefined) is false — so only
+        // a successful read (data present) may downgrade to "not in flight".
+        // Otherwise the screen could navigate onto a pod that is still restarting.
+        let operationInFlight = true;
         try {
           const opStatus = await assistantsOperationalStatusDetailRead({
             path: { id: assistantId },
@@ -627,10 +644,12 @@ export function HatchingScreen() {
           if (cancelled) {
             return;
           }
-          operationInFlight = isResizeOperationInFlight(opStatus.data);
+          if (opStatus.data) {
+            operationInFlight = isResizeOperationInFlight(opStatus.data);
+          }
         } catch {
-          // Operational-status endpoint unreachable mid-resize: treat the resize
-          // as still in flight and keep polling to the cap rather than guessing.
+          // Operational-status endpoint unreachable mid-resize: retain the
+          // conservative in-flight value and keep polling to the cap.
           operationInFlight = true;
         }
 

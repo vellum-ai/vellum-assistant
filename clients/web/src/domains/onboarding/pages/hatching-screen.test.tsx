@@ -37,8 +37,15 @@ let isLocalModeValue = false;
 
 // The observed subscription plan gates the free/no-wait decision (Fix 2).
 let subscriptionPlanId = "base";
+// Whether the subscription read is uncertain: a throw, or a resolved response
+// with no data (a 5xx under throwOnError:false). Either is "unknown", not "free".
+let subscriptionThrows = false;
+let subscriptionNoData = false;
 // Whether a resize operation reads as still in flight (Fix 1).
 let opStatusInFlight = false;
+// Whether the operational-status read resolves with no data (a 5xx under
+// throwOnError:false) — an uncertain read that must count as in-flight.
+let opStatusNoData = false;
 // Whether the no-id pre-flight getAssistant resolves an already-active
 // assistant (the reload path, Fix 3).
 let preflightActive = false;
@@ -56,6 +63,11 @@ let currentAssistant: AssistantShape;
 // exercised without a real 90s wait.
 let idPollCount = 0;
 let resizePollClockStepMs = 0;
+
+// The subscription/targets loop runs before the resize loop, so a cap-expiry
+// test that never reaches a confirmed-Pro read advances the clock here instead.
+let subscriptionCallCount = 0;
+let subscriptionPollClockStepMs = 0;
 
 interface OnboardingShape {
   max_machine_tier: string | null;
@@ -105,16 +117,31 @@ const onboardingRetrieveMock = mock(async () => {
   return { data: onboardingData };
 });
 
-const subscriptionRetrieveMock = mock(async () => ({
-  data: { plan_id: subscriptionPlanId },
-}));
+const subscriptionRetrieveMock = mock(async () => {
+  subscriptionCallCount += 1;
+  if (subscriptionCallCount >= 2 && subscriptionPollClockStepMs > 0) {
+    setSystemTime(new Date(Date.now() + subscriptionPollClockStepMs));
+  }
+  if (subscriptionThrows) {
+    throw new Error("subscription fetch failed");
+  }
+  if (subscriptionNoData) {
+    return { data: undefined };
+  }
+  return { data: { plan_id: subscriptionPlanId } };
+});
 
-const operationalStatusReadMock = mock(async () => ({
-  data: {
-    state: opStatusInFlight ? "resizing_machine" : "active",
-    active_operation: null,
-  },
-}));
+const operationalStatusReadMock = mock(async () => {
+  if (opStatusNoData) {
+    return { data: undefined };
+  }
+  return {
+    data: {
+      state: opStatusInFlight ? "resizing_machine" : "active",
+      active_operation: null,
+    },
+  };
+});
 
 const hatchLocalAssistantMock = mock(async () => ({
   ok: true as const,
@@ -325,10 +352,15 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     searchParams = new URLSearchParams();
     isLocalModeValue = false;
     subscriptionPlanId = "base";
+    subscriptionThrows = false;
+    subscriptionNoData = false;
     opStatusInFlight = false;
+    opStatusNoData = false;
     preflightActive = false;
     idPollCount = 0;
     resizePollClockStepMs = 0;
+    subscriptionCallCount = 0;
+    subscriptionPollClockStepMs = 0;
     onboardingThrows = false;
     onboardingData = null;
     currentAssistant = {
@@ -535,6 +567,104 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
       // Never met the targets — completion came from the cap, not convergence.
       expect(currentAssistant.machine_size).toBe("small");
       expect(ensureProvisionedMock).toHaveBeenCalledTimes(1);
+    },
+    20000,
+  );
+
+  test(
+    "an unknown (no-data) subscription read during a paid hatch keeps waiting, never completing at baseline",
+    async () => {
+      // The subscription endpoint resolves with no data (a 5xx under
+      // throwOnError:false) — an UNKNOWN result. Even with onboarding targets
+      // present and actuals already at the ceiling, an unknown read must not be
+      // mistaken for "free" and skip the purchased resize by completing early.
+      subscriptionNoData = true;
+      onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
+      currentAssistant.machine_size = "extra_large";
+      currentAssistant.provisioned_storage_gib = 50;
+
+      render(<HatchingScreen />);
+
+      // The reconcile fires and the subscription poll keeps retrying rather than
+      // concluding "free" and navigating away.
+      await waitFor(() =>
+        expect(ensureProvisionedMock).toHaveBeenCalledTimes(1),
+      );
+      await waitFor(
+        () =>
+          expect(
+            subscriptionRetrieveMock.mock.calls.length,
+          ).toBeGreaterThanOrEqual(2),
+        { timeout: 15000 },
+      );
+      expect(navigateMock).not.toHaveBeenCalled();
+
+      // A definitive Pro read now lands; with targets met the resize completes.
+      subscriptionNoData = false;
+      subscriptionPlanId = "pro";
+
+      await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+        timeout: 15000,
+      });
+    },
+    20000,
+  );
+
+  test(
+    "an erroring subscription endpoint still completes at the hard cap",
+    async () => {
+      // The subscription read persistently throws (always "unknown"). It never
+      // completes early, but the RESIZE_WAIT_MAX_MS cap is the ultimate escape
+      // so the user is not trapped.
+      subscriptionThrows = true;
+      onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
+      // The subscription loop's poll jumps the clock past the cap so completion
+      // falls through without a real 90s wait.
+      subscriptionPollClockStepMs = 91_000;
+
+      render(<HatchingScreen />);
+
+      await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+        timeout: 15000,
+      });
+      // Never entered the resize phase: the cap fired before a confirmed Pro read.
+      expect(screen.queryByText(RESIZE_LABEL)).toBeNull();
+    },
+    20000,
+  );
+
+  test(
+    "a failed operational-status read counts as in-flight and holds until a healthy read arrives",
+    async () => {
+      subscriptionPlanId = "pro";
+      onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
+      // Actuals already sit at the purchased ceiling, but the operational-status
+      // read returns no data (a 5xx under throwOnError:false). That uncertain
+      // read must count as in-flight so the screen does not navigate onto a pod
+      // that is still restarting.
+      currentAssistant.machine_size = "extra_large";
+      currentAssistant.provisioned_storage_gib = 50;
+      opStatusNoData = true;
+
+      render(<HatchingScreen />);
+
+      await waitFor(() => expect(screen.getByText(RESIZE_LABEL)).toBeTruthy());
+      // The resize loop keeps polling operational status while it holds.
+      await waitFor(
+        () =>
+          expect(
+            operationalStatusReadMock.mock.calls.length,
+          ).toBeGreaterThanOrEqual(2),
+        { timeout: 15000 },
+      );
+      expect(navigateMock).not.toHaveBeenCalled();
+
+      // A healthy status read (data present, no resize in flight) finally lands.
+      opStatusNoData = false;
+
+      await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+        timeout: 15000,
+      });
     },
     20000,
   );
