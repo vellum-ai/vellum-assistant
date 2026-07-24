@@ -1930,9 +1930,7 @@ describe("outbound voice verification", () => {
     await cancelOutbound({ channel: "phone" });
     await revokePendingSessions("phone");
 
-    // Verify session is no longer active (post-cancel effect the test cares
-    // about; the deleted handler broadcast { success: true, channel } which no
-    // longer exists).
+    // Cancelling revokes the active session.
     const sessionAfter = await serviceFindActiveSession("phone");
     expect(sessionAfter).toBeNull();
   });
@@ -2040,10 +2038,8 @@ describe("outbound voice verification", () => {
   });
 
   test("cancel_session succeeds even when no active session (idempotent)", async () => {
-    // No active session exists. The deleted handler broadcast
-    // { success: true } here purely as a smoke check with no state assertion,
-    // so assert the two service calls resolve without throwing and leave no
-    // active session behind.
+    // With no active session, cancelling is idempotent: the calls resolve
+    // without throwing and leave no active session behind.
     await cancelOutbound({ channel: "phone" });
     await revokePendingSessions("phone");
     expect(await serviceFindActiveSession("phone")).toBeNull();
@@ -2340,8 +2336,7 @@ describe("outbound Telegram verification", () => {
     await cancelOutbound({ channel: "telegram" });
     await revokePendingSessions("telegram");
 
-    // Session should be revoked (post-cancel effect; the deleted handler
-    // broadcast { success: true } which no longer exists).
+    // Cancelling revokes the session.
     const revoked = await serviceFindActiveSession("telegram");
     expect(revoked).toBeNull();
   });
@@ -2530,8 +2525,7 @@ describe("outbound voice verification", () => {
     await cancelOutbound({ channel: "phone" });
     await revokePendingSessions("phone");
 
-    // Session should no longer be active (post-cancel effect; the deleted
-    // handler broadcast { success: true } which no longer exists).
+    // Cancelling leaves the session no longer active.
     const session = await serviceFindActiveSession("phone");
     expect(session).toBeNull();
   });
