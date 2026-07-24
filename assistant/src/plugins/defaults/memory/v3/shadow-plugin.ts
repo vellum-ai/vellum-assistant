@@ -733,6 +733,7 @@ export async function observeTurn(
       activeSlugs: getActiveSlugs(conversationId),
       entityCap: v3.entity.cap,
       replyQueryK: tuning.replyQueryK,
+      spanQueryK: tuning.spanQueryK,
       edgeSeeds: tuning.edgeSeedCount,
       edgePerSeed: tuning.edgePerSeed,
       edgeCap: tuning.edgeCap,

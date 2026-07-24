@@ -383,6 +383,14 @@ export const MemoryV3ConfigSchema = z
       .describe(
         "Per-lane article budget for the reply-query finder pass: needle and dense each re-run over the assistant's previous message as separate queries (never concatenated with the user's message). 0 disables the pass. Deliberately small next to needleK/denseK — the pass adds the assistant-side retrieval signal, not a second full sweep.",
       ),
+    spanQueryK: z
+      .number({ error: "memory.v3.spanQueryK must be a number" })
+      .int("memory.v3.spanQueryK must be an integer")
+      .nonnegative("memory.v3.spanQueryK must be a non-negative integer")
+      .default(0)
+      .describe(
+        "Per-chunk article budget for the span-query dense pass: the current message's clause spans (merged into at most 8 contiguous chunks) re-run through the dense lane as separate queries, union-additive into the candidate pool. 0 disables the pass; it is also inert when denseK is 0 or the message yields fewer than two chunks. Deliberately small next to denseK — the pass rescues motifs a long message's single query vector averages away, not a second full sweep.",
+      ),
     selectorEnabled: z
       .boolean({ error: "memory.v3.selectorEnabled must be a boolean" })
       .default(true)

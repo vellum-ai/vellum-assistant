@@ -28,6 +28,7 @@ export interface ResolvedV3Tuning {
   needleK: number;
   denseK: number;
   replyQueryK: number;
+  spanQueryK: number;
   selectorEnabled: boolean;
   learnedEdgesCap: number;
   edgeSeedCount: number;
@@ -55,6 +56,7 @@ export const MEMORY_V3_NEW_USER_TUNING: ResolvedV3Tuning = {
   needleK: 12,
   denseK: 0,
   replyQueryK: 0,
+  spanQueryK: 0,
   selectorEnabled: false,
   learnedEdgesCap: 0,
   edgeSeedCount: 6,
@@ -82,6 +84,7 @@ export function resolveV3Tuning(
     needleK: v3.needleK,
     denseK: v3.denseK,
     replyQueryK: v3.replyQueryK,
+    spanQueryK: v3.spanQueryK,
     selectorEnabled: v3.selectorEnabled,
     learnedEdgesCap: v3.learnedEdges.cap,
     edgeSeedCount: v3.edge.seedCount,

@@ -9,7 +9,11 @@
  *          PREVIOUS message as separate queries at a smaller budget
  *          (`replyQueryK` per lane), surfacing the threads the assistant is
  *          actively developing that the user's message references without
- *          naming — and
+ *          naming —
+ *        - the span-query pass — the dense lane re-run over the current
+ *          message's clause chunks as separate queries at a small per-chunk
+ *          budget (`spanQueryK`), rescuing motifs a long multi-topic message's
+ *          single query vector averages away — and
  *        - link-graph edge expansion (`edgeExpand`) over the top
  *          user-message needle+dense article seeds, and
  *        - learned-edge expansion (`edgeExpand` over the co-selection NPMI
@@ -74,6 +78,7 @@ import type {
 } from "./pool-select.js";
 import { selectAllPoolCandidates, selectPool } from "./pool-select.js";
 import type { SectionNeedle } from "./section-needle.js";
+import { spanChunksOf } from "./span-query.js";
 import type {
   FinderLane,
   MemoryRoutingTurn,
@@ -195,6 +200,12 @@ export interface OrchestrateDeps {
    *  over `turn.previousAssistantMessage` as separate queries). `0` or
    *  omitted disables the pass (canonical value: `memory.v3.replyQueryK`). */
   replyQueryK?: number;
+  /** Per-chunk article budget for the span-query pass (dense re-run over the
+   *  current message's clause chunks as separate queries). `0` or omitted
+   *  disables the pass; it is also inert when the dense lane is disabled or
+   *  the message yields fewer than two chunks (canonical value:
+   *  `memory.v3.spanQueryK`). */
+  spanQueryK?: number;
   /** Number of top needle+dense seeds expanded. When omitted, the edge lane's
    *  own default applies (canonical value: `memory.v3.edge.seedCount`). */
   edgeSeeds?: number;
@@ -359,15 +370,23 @@ export async function orchestrate(
   // a vector that matches neither) at its own, smaller budget; it runs in the
   // same parallel batch.
   // `denseK = 0` disables dense retrieval for the whole turn, including the
-  // reply-query dense pass.
+  // reply-query and span-query dense passes.
   const replyK = deps.replyQueryK ?? 0;
   const replyQuery =
     replyK > 0 ? (turn.previousAssistantMessage ?? "").trim() : "";
   const denseEnabled = denseK > 0;
-  const [needled, densed, replyNeedled, replyDensed] = await timeLatencySubSpan(
-    "v3_lanes",
-    "Memory search",
-    () =>
+  // The span-query pass re-runs the dense lane over the current message's
+  // clause chunks as SEPARATE queries (a single embedding of a multi-topic
+  // message averages its intents into a vector that matches none of them —
+  // the within-message form of the averaging the reply pass avoids across
+  // speakers). A single-chunk message would just duplicate the full-message
+  // dense query, so the pass needs at least two chunks to run.
+  const spanK = deps.spanQueryK ?? 0;
+  const spanChunks =
+    spanK > 0 && denseEnabled ? spanChunksOf(turn.currentMessage) : [];
+  const spanQueries = spanChunks.length >= 2 ? spanChunks : [];
+  const [needled, densed, replyNeedled, replyDensed, spanDensed] =
+    await timeLatencySubSpan("v3_lanes", "Memory search", () =>
       Promise.all([
         Promise.resolve(deps.needle.queryScored(turn.currentMessage, needleK)),
         denseEnabled
@@ -381,8 +400,13 @@ export async function orchestrate(
         replyQuery.length > 0 && denseEnabled
           ? denseLaneScored(deps.denseConfig, replyQuery, replyK)
           : Promise.resolve([]),
+        Promise.all(
+          spanQueries.map((chunk) =>
+            denseLaneScored(deps.denseConfig, chunk, spanK),
+          ),
+        ),
       ]),
-  );
+    );
   // Everything from here to the step-3 selection — finder assembly, the
   // entity lane, the injection gate, edge + learned-edge expansion, pool
   // assembly — is synchronous in-memory work, measured as one `v3_expand`
@@ -469,7 +493,23 @@ export async function orchestrate(
     );
   }
 
-  // Step 1b'': entity lane — sections whose `## ` heading NAMES a distinctive
+  // Step 1b'': span-query hits — union-additive at the pass's own small
+  // budget. Candidates the primary or reply lanes already surfaced keep their
+  // attribution (`addFinder`'s first-lane-wins dedupe); only genuinely
+  // span-surfaced articles tag `"span"`. Like the reply pass, span hits are
+  // excluded from the injection gate (which scores current-message needle +
+  // dense only) and from the edge-expansion seeds.
+  for (const hit of spanDensed.flat()) {
+    if (!deps.sectionIndex.byArticle.has(hit.article)) continue;
+    addFinder(
+      hit.article,
+      sectionByOrdinal(deps.sectionIndex, hit.article, hit.section),
+      undefined,
+      "span",
+    );
+  }
+
+  // Step 1b''': entity lane — sections whose `## ` heading NAMES a distinctive
   // entity the message mentions. Additive BM25 buries a single named entity
   // under a long, multi-topic message's bulk theme; this keys on the heading
   // vocabulary so the page the user named surfaces regardless of the bulk
@@ -501,8 +541,8 @@ export async function orchestrate(
     }
   }
 
-  // Step 1b''': opt-in injection gate. With the CURRENT-message finder lanes in
-  // hand (needle + dense — NOT reply/entity/edge, which only add recall), decide
+  // Step 1b'''': opt-in injection gate. With the CURRENT-message finder lanes in
+  // hand (needle + dense — NOT reply/span/entity/edge, which only add recall), decide
   // whether retrieval is confident enough to spend the selectPool LLM call this
   // turn. Default-off via `?.enabled`; pass-open on any throw (a gate bug must
   // never drop a turn's memory). A closed gate either hard-skips selection
