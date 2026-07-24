@@ -39,6 +39,7 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
+import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
@@ -1016,6 +1017,22 @@ export function TranscriptMessageBody({
     );
   }
 
+  const finalResponseGroupIndex = groups.findLastIndex(
+    (group) => group.type === "text" && group.text.trim().length > 0,
+  );
+  const renderedGroups = groups.map((group, gi) => renderGroupNode(group, gi));
+  const assistantContent =
+    !isStreaming && finalResponseGroupIndex > 0 ? (
+      <>
+        <AssistantContentDisclosure>
+          {renderedGroups.slice(0, finalResponseGroupIndex)}
+        </AssistantContentDisclosure>
+        {renderedGroups.slice(finalResponseGroupIndex)}
+      </>
+    ) : (
+      renderedGroups
+    );
+
   return (
     <div
       ref={wrapperRef}
@@ -1031,7 +1048,7 @@ export function TranscriptMessageBody({
       className={wrapperClass}
     >
       <div className={columnClass}>
-        {groups.map((group, gi) => renderGroupNode(group, gi))}
+        {assistantContent}
         {hasAttachments && (
           <MessageAttachments
             attachments={message.attachments ?? []}

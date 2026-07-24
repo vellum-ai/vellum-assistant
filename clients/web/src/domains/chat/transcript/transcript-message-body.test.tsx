@@ -298,6 +298,10 @@ function clickModalAction(name: string) {
   fireEvent.click(screen.getByRole("button", { name }));
 }
 
+function expandEarlierActivity() {
+  fireEvent.click(screen.getByRole("button", { name: "Earlier activity" }));
+}
+
 // `TranscriptMessageBody` renders a row's body by walking its unified
 // `contentBlocks` projection — the sole source of truth. Each block embeds its
 // own referent (text, reasoning, tool call, surface ref), so these fixtures
@@ -601,6 +605,8 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
+    expandEarlierActivity();
+
     const card = container.querySelector("[data-testid='tool-progress-card']");
     expect(card).not.toBeNull();
     expect(card!.getAttribute("data-item-kinds")).toBe("thinking,toolCall");
@@ -613,6 +619,81 @@ describe("TranscriptMessageBody", () => {
     expect(
       Array.from(markdowns).some((m) => m.textContent === "the answer"),
     ).toBe(true);
+  });
+
+  test("collapses completed assistant activity before the final text response", () => {
+    const { getByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-response",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will check that."),
+            toolUseBlock({
+              id: "tc-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will check that.")).toBeNull();
+    expect(queryByText("Here is the final answer.")).not.toBeNull();
+
+    const trigger = getByRole("button", { name: "Earlier activity" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(trigger);
+
+    expect(queryByText("I will check that.")).not.toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("keeps all assistant activity visible while the response is streaming", () => {
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "streaming-response",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I am checking that."),
+            toolUseBlock({
+              id: "tc-streaming-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is what I found so far."),
+          ],
+        }}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(queryByText("I am checking that.")).not.toBeNull();
+    expect(queryByText("Here is what I found so far.")).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+  });
+
+  test("does not add a disclosure to a single assistant text response", () => {
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "single-response",
+          role: "assistant",
+          contentBlocks: [textBlock("A concise answer.")],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("A concise answer.")).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
   });
 
   test("merges contiguous thinking + tool runs into one card per run", () => {
@@ -635,6 +716,8 @@ describe("TranscriptMessageBody", () => {
     const { container } = render(
       <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
     );
+
+    expandEarlierActivity();
 
     // Exactly two merged tool cards (one per run).
     const cards = container.querySelectorAll(
@@ -886,6 +969,8 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
+    expandEarlierActivity();
+
     expect(
       container.querySelector("[data-testid='tool-progress-card']"),
     ).not.toBeNull();
@@ -940,6 +1025,8 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
+    expandEarlierActivity();
+
     expect(
       container.querySelector("[data-testid='thought-process-link']"),
     ).not.toBeNull();
@@ -956,20 +1043,26 @@ describe("TranscriptMessageBody", () => {
     // GIVEN a persisted assistant turn whose reasoning precedes its answer,
     // with no interleaved tool call
     // WHEN it is rendered as a settled row
-    const html = renderMessage({
-      id: "m-think",
-      role: "assistant",
-      contentBlocks: [
-        thinkingBlock("chain of thought"),
-        textBlock("the answer"),
-      ],
-      timestamp: 1_000,
-    });
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-think",
+          role: "assistant",
+          contentBlocks: [
+            thinkingBlock("chain of thought"),
+            textBlock("the answer"),
+          ],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+    expandEarlierActivity();
 
     // THEN the reasoning renders as a completed SingleActivity, not a
     // perpetually-streaming "Thinking" link
-    expect(html).toContain("Thought process");
-    expect(html).not.toContain("Thinking");
+    expect(container.textContent).toContain("Thought process");
+    expect(container.textContent).not.toContain("Thinking");
   });
 
   test("labels trailing reasoning as 'Thinking' while the row is live", () => {
@@ -1042,6 +1135,8 @@ describe("TranscriptMessageBody", () => {
     const { container } = render(
       <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
     );
+
+    expandEarlierActivity();
 
     // No legacy summary card.
     expect(
