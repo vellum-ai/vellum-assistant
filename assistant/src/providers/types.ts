@@ -2,6 +2,7 @@ import type { ToolDefinition } from "../tools/tool-types.js";
 export type { ToolDefinition };
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { UsageOriginSnapshot } from "../usage/work-origin.js";
 import { ProviderError, type ProviderErrorReason } from "../util/errors.js";
 
 export interface TextContent {
@@ -280,6 +281,16 @@ export interface SendMessageConfig {
    * JSON request bodies.
    */
   usageAttributionHeaders?: Record<string, string>;
+  /**
+   * Immutable record-time attribution of *why* this LLM call happened,
+   * populated by conversation-aware call sites. `RetryProvider` maps it to the
+   * seven `X-Vellum-*` billing-origin headers (conversation type/source, work
+   * origin, conversation/turn ids, parent conversation/turn ids) and merges
+   * them into {@link usageAttributionHeaders} only on the managed-proxy
+   * transport path. A resolution/routing-time concern only; stripped before any
+   * provider wire request so it never leaks into a JSON request body.
+   */
+  usageOriginSnapshot?: UsageOriginSnapshot;
   /**
    * Controls local usage-ledger writes for attributed provider calls.
    * Defaults to `auto`; conversation paths that aggregate usage separately

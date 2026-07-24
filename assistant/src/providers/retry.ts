@@ -4,6 +4,7 @@ import {
   resolveUsageAttribution,
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
+import type { UsageOriginSnapshot } from "../usage/work-origin.js";
 import { ProviderError, type ProviderErrorReason } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -42,6 +43,27 @@ const USAGE_ATTRIBUTION_HEADER_NAMES = {
   resolvedModel: "X-Vellum-Resolved-Model",
   resolvedMixArm: "X-Vellum-Resolved-Mix-Arm",
 } as const;
+
+/** Billing-origin attribution headers derived from a
+ *  {@link UsageOriginSnapshot}, forwarded only on the managed-proxy transport
+ *  path so the billing backend can key rows by the same work-origin vocabulary
+ *  the `llm_usage` telemetry uses. */
+const USAGE_ORIGIN_HEADER_NAMES = {
+  conversationType: "X-Vellum-Conversation-Type",
+  conversationSource: "X-Vellum-Conversation-Source",
+  workOrigin: "X-Vellum-Work-Origin",
+  conversationId: "X-Vellum-Conversation-Id",
+  turnIndex: "X-Vellum-Turn-Index",
+  parentConversationId: "X-Vellum-Parent-Conversation-Id",
+  parentTurnIndex: "X-Vellum-Parent-Turn-Index",
+} as const;
+
+/** Platform header-sanitizer contract: accepted values match this charset and
+ *  cap at {@link MAX_ORIGIN_HEADER_VALUE_LENGTH} characters. Values outside the
+ *  contract are omitted rather than truncated/rewritten — a corrupted billing
+ *  identifier is worse than an absent one. */
+const ORIGIN_HEADER_VALUE_PATTERN = /^[A-Za-z0-9._:@/-]+$/;
+const MAX_ORIGIN_HEADER_VALUE_LENGTH = 256;
 
 /** Providers whose transports consume `promptCacheKey` (OpenAI Responses
  *  `prompt_cache_key`); `RetryProvider` derives it from `selectionSeed` for
@@ -365,6 +387,10 @@ function normalizeSendMessageOptions(
   delete nextConfig.forceOverrideProfile;
   delete nextConfig.selectionSeed;
   delete nextConfig.conversationId;
+  // Attribution-only: mapped to billing-origin headers below (managed-proxy
+  // path) and never a wire-format field. Strip unconditionally so it cannot
+  // leak into a provider request body.
+  delete nextConfig.usageOriginSnapshot;
 
   if (config.callSite !== undefined) {
     const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm, {
@@ -488,6 +514,27 @@ function normalizeSendMessageOptions(
     // leaks unknown fields into provider request bodies — Anthropic (and other
     // strict-schema clients) reject the request with
     // "Extra inputs are not permitted".
+  }
+
+  // Billing-origin attribution headers share the managed-proxy-only forwarding
+  // gate with the call-site attribution headers above, but derive from the
+  // immutable `usageOriginSnapshot` a conversation-aware call site stamped
+  // rather than from call-site resolution — so they flow even for a snapshot
+  // carried without a `callSite`. Sanitized to the platform header contract and
+  // merged into the same header map the transport forwards; null snapshot
+  // fields are omitted entirely.
+  if (
+    normalizeOptions.forwardUsageAttributionHeaders === true &&
+    config.usageOriginSnapshot
+  ) {
+    const originHeaders = buildUsageOriginHeaders(config.usageOriginSnapshot);
+    if (Object.keys(originHeaders).length > 0) {
+      const existing =
+        (nextConfig.usageAttributionHeaders as
+          | Record<string, string>
+          | undefined) ?? {};
+      nextConfig.usageAttributionHeaders = { ...existing, ...originHeaders };
+    }
   }
 
   // Convert schema-shape `{ enabled, streamThinking }` into Anthropic's
@@ -758,6 +805,103 @@ function addSanitizedHeader(
   if (sanitized != null) {
     headers[name] = sanitized;
   }
+}
+
+/**
+ * Map a {@link UsageOriginSnapshot} to the seven `X-Vellum-*` billing-origin
+ * headers, sanitizing each value to the platform header-sanitizer contract and
+ * omitting any null/invalid field entirely. Ids and vocabulary values go
+ * through the string charset gate; turn indexes serialize only as non-negative
+ * decimal integers.
+ */
+function buildUsageOriginHeaders(
+  snapshot: UsageOriginSnapshot,
+): Record<string, string> {
+  const headers: Record<string, string> = {};
+  addOriginStringHeader(
+    headers,
+    USAGE_ORIGIN_HEADER_NAMES.conversationType,
+    snapshot.conversationType,
+  );
+  addOriginStringHeader(
+    headers,
+    USAGE_ORIGIN_HEADER_NAMES.conversationSource,
+    snapshot.conversationSource,
+  );
+  addOriginStringHeader(
+    headers,
+    USAGE_ORIGIN_HEADER_NAMES.workOrigin,
+    snapshot.workOrigin,
+  );
+  addOriginStringHeader(
+    headers,
+    USAGE_ORIGIN_HEADER_NAMES.conversationId,
+    snapshot.conversationId,
+  );
+  addOriginStringHeader(
+    headers,
+    USAGE_ORIGIN_HEADER_NAMES.parentConversationId,
+    snapshot.parentConversationId,
+  );
+  addOriginTurnIndexHeader(
+    headers,
+    USAGE_ORIGIN_HEADER_NAMES.turnIndex,
+    snapshot.turnIndex,
+  );
+  addOriginTurnIndexHeader(
+    headers,
+    USAGE_ORIGIN_HEADER_NAMES.parentTurnIndex,
+    snapshot.parentTurnIndex,
+  );
+  return headers;
+}
+
+function addOriginStringHeader(
+  headers: Record<string, string>,
+  name: string,
+  value: string | null,
+): void {
+  const sanitized = sanitizeOriginHeaderValue(value);
+  if (sanitized != null) {
+    headers[name] = sanitized;
+  }
+}
+
+function addOriginTurnIndexHeader(
+  headers: Record<string, string>,
+  name: string,
+  value: number | null,
+): void {
+  const sanitized = sanitizeOriginTurnIndex(value);
+  if (sanitized != null) {
+    headers[name] = sanitized;
+  }
+}
+
+/** Enforce the platform charset + length contract; omit (return null) any value
+ *  that violates it rather than rewriting it. */
+function sanitizeOriginHeaderValue(value: string | null): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (
+    trimmed.length === 0 ||
+    trimmed.length > MAX_ORIGIN_HEADER_VALUE_LENGTH ||
+    !ORIGIN_HEADER_VALUE_PATTERN.test(trimmed)
+  ) {
+    return null;
+  }
+  return trimmed;
+}
+
+/** Serialize a turn index as a non-negative decimal integer; omit anything
+ *  else (null, non-integer, negative). */
+function sanitizeOriginTurnIndex(value: number | null): string | null {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    return null;
+  }
+  return String(value);
 }
 
 /**

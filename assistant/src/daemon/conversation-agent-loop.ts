@@ -68,6 +68,7 @@ import {
   startToolProfilingRequest,
 } from "../tools/tool-profiler.js";
 import type { UsageActor } from "../usage/actors.js";
+import { buildUsageOriginSnapshot } from "../usage/work-origin.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
@@ -353,6 +354,24 @@ export async function runAgentLoopImpl(
   // Expose the turn's call site on the live conversation so the runtime
   // injection assembly self-resolves it for the turn's plugin contexts.
   ctx.currentCallSite = turnCallSite;
+
+  // Immutable record-time usage attribution for every LLM call this turn emits,
+  // carrying the same work-origin classification the `llm_usage` telemetry
+  // derives so managed billing rows and usage telemetry share one vocabulary.
+  // `turnIndex` is the current turn's 1-based position (`turnCount` holds the
+  // count of prior turns until incremented at turn end, matching the read
+  // path's "1-indexed position of the user turn this call belongs to").
+  // `parentConversationId` is the subagent-spawn parent; precise parent-turn
+  // attribution is resolved by the telemetry flush, so it rides null here.
+  const usageOriginSnapshot = buildUsageOriginSnapshot({
+    conversationType: ctx.conversationType ?? null,
+    conversationSource: ctx.source ?? null,
+    callSite: turnCallSite,
+    conversationId: ctx.conversationId,
+    turnIndex: ctx.turnCount + 1,
+    parentConversationId: ctx.parentConversationId ?? null,
+    parentTurnIndex: null,
+  });
 
   // Expose the turn's request origin (e.g. "memory_consolidation") on the live
   // conversation so the tool context — and through it `buildPolicyContext` —
@@ -1085,6 +1104,7 @@ export async function runAgentLoopImpl(
           isNonInteractive,
           modelProfileKey,
           latencyTracker,
+          usageOriginSnapshot,
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,

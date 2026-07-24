@@ -170,3 +170,61 @@ export function classifyWorkOrigin(input: WorkOriginInput): WorkOrigin {
   }
   return "unknown";
 }
+
+/**
+ * An immutable, record-time attribution of an in-flight LLM call, carried on
+ * the provider send config so the managed-proxy transport can forward it to
+ * the billing backend as `X-Vellum-*` headers. Every field is explicitly
+ * nullable so a non-conversation auxiliary call stays distinguishable from a
+ * conversation-scoped one (null ≠ "unattributed default"). The {@link workOrigin}
+ * is the SAME bucket the `llm_usage` telemetry read path derives via
+ * {@link classifyWorkOrigin}, so managed billing rows and usage telemetry share
+ * one classifier and vocabulary.
+ *
+ * `turnIndex` is the 1-indexed position of the user turn the call belongs to,
+ * matching the `llm_usage` read-path convention. `parentConversationId` /
+ * `parentTurnIndex` carry the spawning conversation's linkage for billed
+ * descendant attribution (subagent spawns, background forks); null when the
+ * conversation was not spawned by another or the linkage is unresolved at send
+ * time (the usage telemetry resolves precise parent-turn attribution at flush).
+ */
+export interface UsageOriginSnapshot {
+  conversationType: string | null;
+  conversationSource: string | null;
+  workOrigin: WorkOrigin | null;
+  conversationId: string | null;
+  turnIndex: number | null;
+  parentConversationId: string | null;
+  parentTurnIndex: number | null;
+}
+
+/**
+ * Build a {@link UsageOriginSnapshot}, deriving {@link UsageOriginSnapshot.workOrigin}
+ * from the same {@link classifyWorkOrigin} the usage telemetry uses. Callers pass
+ * the record-time conversation metadata and call site; nulls are preserved
+ * verbatim so auxiliary (no-conversation) calls stay distinguishable.
+ */
+export function buildUsageOriginSnapshot(input: {
+  conversationType: string | null;
+  conversationSource: string | null;
+  callSite: string | null;
+  conversationId: string | null;
+  turnIndex: number | null;
+  parentConversationId: string | null;
+  parentTurnIndex: number | null;
+}): UsageOriginSnapshot {
+  return {
+    conversationType: input.conversationType,
+    conversationSource: input.conversationSource,
+    workOrigin: classifyWorkOrigin({
+      conversationType: input.conversationType,
+      conversationSource: input.conversationSource,
+      callSite: input.callSite,
+      parentConversationId: input.parentConversationId,
+    }),
+    conversationId: input.conversationId,
+    turnIndex: input.turnIndex,
+    parentConversationId: input.parentConversationId,
+    parentTurnIndex: input.parentTurnIndex,
+  };
+}

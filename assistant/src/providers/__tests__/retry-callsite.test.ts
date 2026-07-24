@@ -27,6 +27,7 @@ mock.module("../registry.js", () => ({
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
 import { CODE_DEFAULT_PROFILE_ENTRIES } from "../../config/default-profile-catalog.js";
+import type { UsageOriginSnapshot } from "../../usage/work-origin.js";
 import { RetryProvider } from "../retry.js";
 import type {
   Message,
@@ -77,6 +78,21 @@ function setLlmConfig(raw: unknown): void {
   // Seed the raw fixture; the real loader schema-merges it over defaults, the
   // same cascade `getConfig().llm` produces in production.
   setConfig("llm", raw);
+}
+
+function makeSnapshot(
+  overrides: Partial<UsageOriginSnapshot> = {},
+): UsageOriginSnapshot {
+  return {
+    conversationType: null,
+    conversationSource: null,
+    workOrigin: null,
+    conversationId: null,
+    turnIndex: null,
+    parentConversationId: null,
+    parentTurnIndex: null,
+    ...overrides,
+  };
 }
 
 beforeEach(() => {
@@ -740,6 +756,168 @@ describe("RetryProvider — callSite resolution", () => {
 
     const config = seen?.config as Record<string, unknown>;
     expect(config.model).toBe("explicit-override");
+  });
+});
+
+// ── RetryProvider — billing-origin (X-Vellum-*) headers ─────────────────────
+//
+// `usageOriginSnapshot` rides the per-call config from conversation-aware call
+// sites. On the managed-proxy transport (`forwardUsageAttributionHeaders:
+// true`) `RetryProvider` maps it to the seven billing-origin headers, merges
+// them into `usageAttributionHeaders`, and strips the snapshot from the wire
+// config. Direct/user-key transports must receive neither.
+
+describe("RetryProvider — billing-origin headers", () => {
+  async function sendWithSnapshot(
+    snapshot: UsageOriginSnapshot,
+    opts: { forward: boolean } = { forward: true },
+  ): Promise<Record<string, unknown>> {
+    setLlmConfig({
+      callSites: {
+        mainAgent: { provider: "anthropic", model: "claude-x" },
+      },
+    });
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+      opts.forward ? { forwardUsageAttributionHeaders: true } : {},
+    );
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent", usageOriginSnapshot: snapshot },
+    });
+    return seen?.config as Record<string, unknown>;
+  }
+
+  test("forwards the full snapshot as merged X-Vellum-* headers and strips the snapshot", async () => {
+    const config = await sendWithSnapshot(
+      makeSnapshot({
+        conversationType: "standard",
+        conversationSource: "user",
+        workOrigin: "delegated_child",
+        conversationId: "conv-123",
+        turnIndex: 3,
+        parentConversationId: "conv-parent",
+        parentTurnIndex: 2,
+      }),
+    );
+    const headers = config.usageAttributionHeaders as Record<string, string>;
+    expect(headers["X-Vellum-Conversation-Type"]).toBe("standard");
+    expect(headers["X-Vellum-Conversation-Source"]).toBe("user");
+    expect(headers["X-Vellum-Work-Origin"]).toBe("delegated_child");
+    expect(headers["X-Vellum-Conversation-Id"]).toBe("conv-123");
+    expect(headers["X-Vellum-Turn-Index"]).toBe("3");
+    expect(headers["X-Vellum-Parent-Conversation-Id"]).toBe("conv-parent");
+    expect(headers["X-Vellum-Parent-Turn-Index"]).toBe("2");
+    // Merged alongside the call-site attribution headers, not replacing them.
+    expect(headers["X-Vellum-LLM-Call-Site"]).toBe("mainAgent");
+    expect(headers["X-Vellum-Resolved-Provider"]).toBe("anthropic");
+    expect(headers["X-Vellum-Resolved-Model"]).toBe("claude-x");
+    // The snapshot itself is a routing concern and must never reach the wire.
+    expect(config.usageOriginSnapshot).toBeUndefined();
+  });
+
+  test("omits null fields from a partial snapshot", async () => {
+    const config = await sendWithSnapshot(
+      makeSnapshot({
+        conversationType: "background",
+        conversationSource: "subagent",
+        workOrigin: "user_created_background",
+        conversationId: "conv-partial",
+        // turnIndex + parent linkage unresolved at send time.
+      }),
+    );
+    const headers = config.usageAttributionHeaders as Record<string, string>;
+    expect(headers["X-Vellum-Conversation-Type"]).toBe("background");
+    expect(headers["X-Vellum-Conversation-Source"]).toBe("subagent");
+    expect(headers["X-Vellum-Work-Origin"]).toBe("user_created_background");
+    expect(headers["X-Vellum-Conversation-Id"]).toBe("conv-partial");
+    expect("X-Vellum-Turn-Index" in headers).toBe(false);
+    expect("X-Vellum-Parent-Conversation-Id" in headers).toBe(false);
+    expect("X-Vellum-Parent-Turn-Index" in headers).toBe(false);
+  });
+
+  test("auxiliary (no conversation) snapshot emits only the work-origin billing header", async () => {
+    const config = await sendWithSnapshot(
+      makeSnapshot({ workOrigin: "memory_maintenance" }),
+    );
+    const headers = config.usageAttributionHeaders as Record<string, string>;
+    // Work origin is the only non-null billing-origin field; the conversation
+    // ids/type/source headers are all omitted.
+    expect(headers["X-Vellum-Work-Origin"]).toBe("memory_maintenance");
+    expect("X-Vellum-Conversation-Type" in headers).toBe(false);
+    expect("X-Vellum-Conversation-Source" in headers).toBe(false);
+    expect("X-Vellum-Conversation-Id" in headers).toBe(false);
+    expect("X-Vellum-Turn-Index" in headers).toBe(false);
+    expect("X-Vellum-Parent-Conversation-Id" in headers).toBe(false);
+    expect("X-Vellum-Parent-Turn-Index" in headers).toBe(false);
+  });
+
+  test("parent-linked snapshot carries the parent conversation/turn headers", async () => {
+    const config = await sendWithSnapshot(
+      makeSnapshot({
+        conversationType: "background",
+        conversationSource: "subagent",
+        workOrigin: "delegated_child",
+        conversationId: "conv-child",
+        parentConversationId: "conv-root",
+        parentTurnIndex: 5,
+      }),
+    );
+    const headers = config.usageAttributionHeaders as Record<string, string>;
+    expect(headers["X-Vellum-Parent-Conversation-Id"]).toBe("conv-root");
+    expect(headers["X-Vellum-Parent-Turn-Index"]).toBe("5");
+    expect(headers["X-Vellum-Work-Origin"]).toBe("delegated_child");
+  });
+
+  test("turn index 0 is a valid non-negative integer and is emitted", async () => {
+    const config = await sendWithSnapshot(
+      makeSnapshot({ conversationId: "conv-zero", turnIndex: 0 }),
+    );
+    const headers = config.usageAttributionHeaders as Record<string, string>;
+    expect(headers["X-Vellum-Turn-Index"]).toBe("0");
+  });
+
+  test("omits values that violate the platform charset / integer contract", async () => {
+    const config = await sendWithSnapshot(
+      makeSnapshot({
+        // Space is outside `^[A-Za-z0-9._:@/-]+$` — omit the whole value
+        // rather than send a value the platform sanitizer would reject.
+        conversationId: "conv 123",
+        conversationType: "standard",
+        workOrigin: "user_interactive",
+        // Negative and non-integer indexes are not decimal turn indexes.
+        turnIndex: -1,
+        parentConversationId: "conv-ok",
+        parentTurnIndex: 2.5,
+      }),
+    );
+    const headers = config.usageAttributionHeaders as Record<string, string>;
+    expect("X-Vellum-Conversation-Id" in headers).toBe(false);
+    expect("X-Vellum-Turn-Index" in headers).toBe(false);
+    expect("X-Vellum-Parent-Turn-Index" in headers).toBe(false);
+    // Valid siblings still flow.
+    expect(headers["X-Vellum-Conversation-Type"]).toBe("standard");
+    expect(headers["X-Vellum-Work-Origin"]).toBe("user_interactive");
+    expect(headers["X-Vellum-Parent-Conversation-Id"]).toBe("conv-ok");
+  });
+
+  test("user-key / direct provider transports receive NO billing-origin headers", async () => {
+    const config = await sendWithSnapshot(
+      makeSnapshot({
+        conversationType: "standard",
+        conversationSource: "user",
+        workOrigin: "user_interactive",
+        conversationId: "conv-123",
+        turnIndex: 1,
+      }),
+      { forward: false },
+    );
+    // No managed proxy → no attribution headers at all (billing or call-site).
+    expect(config.usageAttributionHeaders).toBeUndefined();
+    // The snapshot is still stripped from the wire config on every transport.
+    expect(config.usageOriginSnapshot).toBeUndefined();
   });
 });
 
