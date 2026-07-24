@@ -47,12 +47,16 @@ function guardianDecisionAction(actionId: string): string {
  */
 export function guardianDecisionTone(
   actionId: string,
-  result: { applied?: boolean },
+  result: { applied?: boolean; decidedAction?: string },
 ): SurfaceCompletionTone {
   if (result.applied === false) {
     return "neutral";
   }
-  const action = guardianDecisionAction(actionId);
+  // Prefer the server's resolved outcome when present: for an access request the
+  // daemon folds `reject` onto the `leave_unverified` park, so keying tone off
+  // the raw button would mislabel that park as a denial. Fall back to the action
+  // id for paths that don't carry the resolved action.
+  const action = result.decidedAction ?? guardianDecisionAction(actionId);
   if (PARK_DECISION_ACTIONS.has(action)) {
     return "neutral";
   }
