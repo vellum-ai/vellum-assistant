@@ -739,10 +739,9 @@ export async function observeTurn(
         v3.selectorPromptPath,
         getWorkspaceDir(),
       ),
-      // Per-turn injection gate: the `memory.v3.gate` tuning with the raw
-      // config `enabled` overwritten by the effective enable (flag AND config).
-      // The spread is the compile-time drift guard — if the gate schema and
-      // `V3GateConfig` diverge, this stops typechecking.
+      // Per-turn injection gate: the `memory.v3.gate` tuning, `enabled`
+      // kill-switch included. Read-only downstream, so the config object is
+      // passed as-is.
       gateConfig: v3.gate,
     });
 

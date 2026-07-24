@@ -60,11 +60,16 @@ export function CredentialsPage() {
   const assistantId = useActiveAssistantId();
   // Older assistants don't serve the credentials-page routes (v0.10.8+); on
   // direct navigation render NotFound once the version is known, and nothing
-  // while it hydrates.
+  // while it hydrates. "Known" requires the identity snapshot to belong to
+  // THIS assistant: mid-switch the store can still hold the previous
+  // assistant's non-null version, which must read as unresolved, not 404.
   const supportsCredentials = useSupportsCredentialsSettings(assistantId);
-  const versionHydrated = useAssistantIdentityStore.use.version() !== null;
+  const identityAssistantId = useAssistantIdentityStore.use.assistantId();
+  const versionResolvedForOwner =
+    useAssistantIdentityStore.use.version() !== null &&
+    identityAssistantId === assistantId;
 
-  if (versionHydrated && !supportsCredentials) {
+  if (versionResolvedForOwner && !supportsCredentials) {
     return <NotFound />;
   }
   if (!supportsCredentials) {
