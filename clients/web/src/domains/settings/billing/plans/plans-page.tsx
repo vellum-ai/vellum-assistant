@@ -11,7 +11,11 @@ import {
   type SwitchRelation,
   tierRelation,
 } from "@/domains/settings/billing/package-types";
-import { machineLabel } from "@/domains/settings/billing/plan-spec";
+import {
+  machineLabel,
+  STANDARD_MACHINE_LABEL,
+} from "@/domains/settings/billing/plan-spec";
+import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
 import {
   FREE_CREDITS_USD,
   FREE_STORAGE_GIB,
@@ -30,6 +34,7 @@ import {
   getPlanTierCopy,
 } from "@/domains/settings/billing/plans/plans-copy";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
+import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
@@ -61,6 +66,7 @@ import {
 } from "@/hooks/use-platform-gate";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
+import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
@@ -105,6 +111,34 @@ function packageFeatures(pkg: ProPackage, extra: readonly string[]): string[] {
     `${formatDollars(credits * 100)} in credits included`,
     ...extra,
   ];
+}
+
+/**
+ * A one-line recap of a custom sub's current tiers for the Custom row, e.g.
+ * "Medium Machine · 30 GB · 50 credits". The machine reads from the tier label
+ * map (or the standard-machine baseline), storage from the resolved GiB, and
+ * the credit label from the live catalog's `CreditTier.label`; a dimension with
+ * no value is dropped. The wording mirrors `packageSpecs` in `plan-spec.ts`.
+ */
+function customCurrentSummary(current: CurrentTiers, proPlan: ProPlan): string {
+  const machine = current.machineTier
+    ? (MACHINE_TIER_LABEL[current.machineTier] ?? current.machineTier)
+    : STANDARD_MACHINE_LABEL;
+  const parts = [`${machine} Machine`];
+  if (current.storageGib != null) {
+    parts.push(`${current.storageGib} GB`);
+  }
+  if (current.creditTier != null) {
+    // A held/deprecated credit tier absent from the catalog can't resolve to a
+    // catalog label; derive the amount from the tier key (credits_<usd>) so the
+    // paid bundle still shows instead of being silently dropped.
+    const usd = current.creditTier.match(/^credits_(\d+)$/)?.[1];
+    parts.push(
+      findCreditTier(proPlan, current.creditTier)?.label ??
+        (usd != null ? `${usd} credits` : "Credit bundle"),
+    );
+  }
+  return parts.join(" · ");
 }
 
 /**
@@ -287,6 +321,21 @@ export function PlansPage() {
         : isCleanPin(subscription.package)
           ? subscription.package.key
           : null;
+
+    // A Pro sub with no clean pin (unpinned, customized, or legacy) — exactly
+    // the subs `currentTierKey` leaves null — is represented by the Custom row,
+    // not any named card. Mark that row as their current plan and summarize its
+    // tiers, once the current tiers have loaded.
+    const isCustomCurrent = isProUser && currentTierKey === null;
+    // Mark the row current only once the real current tiers have loaded.
+    // `currentReady` also flips true when the onboarding read settles with an
+    // error (tiers null), so require the provisioned storage as the loaded
+    // signal — otherwise the row is marked current next to a degraded summary.
+    const showCurrentPlan =
+      isCustomCurrent && currentReady && current.storageGib != null;
+    const currentSummary = showCurrentPlan
+      ? customCurrentSummary(current, proPlan)
+      : undefined;
 
     const selectTier = (tierKey: string) => {
       // A billing action is already in flight (checkout / package switch /
@@ -522,6 +571,8 @@ export function PlansPage() {
           className="mt-10"
           onConfigure={handleConfigure}
           configureDisabled={(isProUser && !currentReady) || billingActionPending}
+          isCurrent={showCurrentPlan}
+          currentSummary={currentSummary}
         />
 
         <CustomPlanModal

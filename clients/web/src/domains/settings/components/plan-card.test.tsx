@@ -559,10 +559,10 @@ describe("PlanCard action button", () => {
     expect(navigateArgs).toEqual([]);
   });
 
-  test("a customized Pro sub's Manage stays on onManage", async () => {
+  test("a customized Pro sub's Manage opens the plans takeover", async () => {
     const onManage = mock(() => {});
-    // A customized package's tiers differ from the stock package, so the
-    // takeover would misrepresent it — keep it on the manage modal.
+    // A customized pin routes to the takeover alongside every other Pro sub; the
+    // takeover's own CTAs handle the customized state's transitions.
     const subscription = proMightySubscription();
     subscription.package = {
       key: "mighty",
@@ -579,16 +579,115 @@ describe("PlanCard action button", () => {
     fireEvent.click(await findByTestId("plan-card-manage-button"));
 
     await waitFor(() => {
+      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    });
+    expect(onManage).not.toHaveBeenCalled();
+  });
+
+  test("a Pro sub without a pinned package opens the plans takeover", async () => {
+    const onManage = mock(() => {});
+    // A legacy/unpinned Custom Pro sub routes to the takeover with the rest; the
+    // takeover surfaces the Custom row as its current plan.
+    const subscription = { ...proMightySubscription(), package: undefined };
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    await waitFor(() => {
+      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    });
+    expect(onManage).not.toHaveBeenCalled();
+  });
+
+  test("a from-scratch custom Pro sub's Manage opens the plans takeover", async () => {
+    const onManage = mock(() => {});
+    // A Pro sub built from scratch — no stock lineage, pinned but customized —
+    // routes to the takeover like every other Pro sub with a live catalog.
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "custom",
+      name: "Custom",
+      version: 1,
+      customized: true,
+    };
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    await waitFor(() => {
+      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    });
+    expect(onManage).not.toHaveBeenCalled();
+  });
+
+  test("a cancelling custom Pro sub's Manage stays on the manage fallback", async () => {
+    const onManage = mock(() => {});
+    // A customized/unpinned sub pending cancellation keeps the manage modal,
+    // which surfaces the cancellation state and the "Keep your Plan" action; the
+    // takeover can't act on a cancelling sub.
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "mighty",
+      name: "Mighty",
+      version: 1,
+      customized: true,
+    };
+    subscription.cancel_at = "2026-08-23T12:36:05Z";
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    await waitFor(() => {
       expect(onManage).toHaveBeenCalledTimes(1);
     });
     expect(navigateArgs).toEqual([]);
   });
 
-  test("a Pro sub without a pinned package stays on onManage", async () => {
+  test("a cancelling clean-pin Pro sub still opens the plans takeover", async () => {
     const onManage = mock(() => {});
-    // A legacy/custom Pro sub (no package) would render as free in the takeover,
-    // so it stays on the manage modal even with a live catalog.
-    const subscription = { ...proMightySubscription(), package: undefined };
+    // A clean pin routes to the takeover even while cancelling; its package CTA
+    // reaches the manage surface from there.
+    const subscription = proMightySubscription();
+    subscription.cancel_at = "2026-08-23T12:36:05Z";
+    const { findByTestId } = renderCardInteractive(
+      subscription,
+      plansWithSuper(),
+      onManage,
+    );
+
+    fireEvent.click(await findByTestId("plan-card-manage-button"));
+
+    await waitFor(() => {
+      expect(navigateArgs).toEqual([[routes.plans, undefined]]);
+    });
+    expect(onManage).not.toHaveBeenCalled();
+  });
+
+  test("an unpaid custom Pro sub's Manage stays on the manage fallback", async () => {
+    const onManage = mock(() => {});
+    // A custom sub in a non-entitlement status (e.g. unpaid) is switch-ineligible,
+    // so it keeps the manage modal — the takeover would bounce every CTA back to
+    // the manage surface.
+    const subscription = proMightySubscription();
+    subscription.package = {
+      key: "mighty",
+      name: "Mighty",
+      version: 1,
+      customized: true,
+    };
+    subscription.status = "unpaid";
     const { findByTestId } = renderCardInteractive(
       subscription,
       plansWithSuper(),
