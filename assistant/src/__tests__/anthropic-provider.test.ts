@@ -455,8 +455,14 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   });
 
   test("strips ttl from a caller's block cache_control and omits the beta for Haiku", async () => {
-    // Haiku doesn't support the extended-cache-ttl beta, so a caller-stamped
-    // 1h ttl on a message block must be stripped before sending.
+    // The haiku family rejects the extended-cache-ttl beta and a custom cache
+    // `ttl` with a 400 (PR #25302), so a caller-stamped 1h ttl on a message
+    // block must be stripped and the beta omitted before sending. This is
+    // load-bearing for the memoryV3SelectL2 selector pin: the selector stamps a
+    // 1h breakpoint on its card-corpus prefix but runs a pinned haiku model
+    // (`claude-haiku-4-5-20251001`), so the breakpoint is served at the default
+    // 5m TTL rather than 1h. If a future change loosens the haiku gating, this
+    // assertion catches it here rather than as a 400 on the live pin.
     const haiku = new AnthropicProvider(
       "sk-ant-test",
       "claude-haiku-4-5-20251001",

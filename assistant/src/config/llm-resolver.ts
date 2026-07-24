@@ -101,10 +101,13 @@ export interface ResolveCallSiteOpts {
   /**
    * Invoked once per chain rung that named a profile the resolver could not
    * use (before resolution continues to the next rung), and once when a
-   * call-site default's model pin resolves to a provider this install cannot
-   * reach so the pin is dropped (`reason: "unroutable"`). Fallback is silent to
-   * the call but must be visible in logs — callers on user-facing paths should
-   * log at warn.
+   * default-owned call-site model pin resolves to a provider this install
+   * cannot reach so the pin is dropped (`reason: "unroutable"`). The pin is
+   * default-owned when it comes from the shipped call-site default or from a
+   * tuning-only workspace override that inherits it (an override setting
+   * neither `profile` nor its own `model`); an explicit user model pin is never
+   * dropped. Fallback is silent to the call but must be visible in logs —
+   * callers on user-facing paths should log at warn.
    */
   onResolutionFallback?: (info: {
     callSite: LLMCallSite;
@@ -375,12 +378,38 @@ function resolveOverrideOrDefault(
   // distinguishes an explicit workspace override from the shipped call-site
   // default so a bare model pin is treated differently in each case (below).
   const userSite = llm.callSites?.[callSite];
-  const site = userSite ?? CALL_SITE_DEFAULTS[callSite];
+  const shipped = CALL_SITE_DEFAULTS[callSite];
+  const site = userSite ?? shipped;
   const {
     profile: _siteProfile,
     logitBias: _siteBias,
     ...tweak
   } = (site ?? {}) as Record<string, unknown>;
+
+  // A tuning-only workspace override — a `llm.callSites[id]` entry that sets
+  // neither `profile` nor its own `model` (e.g. `{ temperature: 0.2 }`) —
+  // replaces the shipped call-site default wholesale, dropping the shipped
+  // model pin. Resolution would then fall back to the winning profile's model,
+  // silently disabling a shipped pin (e.g. memoryV3SelectL2's haiku
+  // cache-latency pin). Re-apply the shipped default's model as a
+  // default-owned pin so it keeps the SAME `unroutable` fall-through the
+  // shipped default gets (the `userSite == null` case below): it applies where
+  // the implied provider is reachable and is dropped, not fatal, where it is
+  // not. A user entry that sets its own `profile` or `model` is an explicit
+  // selection, so the shipped pin does not apply.
+  const userSiteRecord = userSite as Record<string, unknown> | null | undefined;
+  const tuningOnlyUserOverride =
+    userSiteRecord != null &&
+    userSiteRecord.profile === undefined &&
+    userSiteRecord.model === undefined;
+  if (tuningOnlyUserOverride && typeof shipped?.model === "string") {
+    tweak.model = shipped.model;
+  }
+  // A model pin is default-owned — and thus eligible for the graceful
+  // `unroutable` drop below — when it comes from the shipped call-site default
+  // (no user entry) or from a tuning-only override that inherited it above. A
+  // model the user set explicitly is honored as written, never dropped.
+  const modelPinIsDefaultOwned = userSite == null || tuningOnlyUserOverride;
 
   // A bare model tweak (a model with no sibling provider) is catalog-implied:
   // the winner's provider does not serve it, so the model's catalog owner is
@@ -391,8 +420,9 @@ function resolveOverrideOrDefault(
   //    connection by provider), unless it is the provider-agnostic Vellum
   //    managed connection, which routes any managed-routable upstream and must
   //    survive or platform installs lose their only connection.
-  //  - unreachable AND the pin is this call site's shipped default — drop the
-  //    pin and let the winner (the call site's profile/intent resolved through
+  //  - unreachable AND the pin is default-owned (the shipped call-site default,
+  //    or a tuning-only override that inherited it above) — drop the pin and let
+  //    the winner (the call site's profile/intent resolved through
   //    `llm.defaultProvider`) stand. This is the same graceful fall-through an
   //    unusable profile rung gets: a default pin is a best-effort optimization,
   //    not a hard requirement, so on a BYOK install with no connection for the
@@ -423,7 +453,7 @@ function resolveOverrideOrDefault(
       winnerFragment.provider_connection === VELLUM_MANAGED_CONNECTION_NAME &&
       MANAGED_ROUTABLE_PROVIDERS.has(implied);
     if (implied !== undefined) {
-      if (userSite == null && !managedRouteServesImplied) {
+      if (modelPinIsDefaultOwned && !managedRouteServesImplied) {
         delete tweak.model;
         opts.onResolutionFallback?.({
           callSite,

@@ -165,13 +165,15 @@ describe("resolver integration", () => {
     }
   });
 
-  test("memoryV3SelectL2 pins the haiku model over a managed route so its 1h cache breakpoint engages", () => {
-    // The selector's ~30k-token card-corpus prefix carries a 1h `cache_control`
-    // breakpoint that only an Anthropic-protocol model honors. The call-site
-    // default pins `claude-haiku-4-5-20251001` as a bare model pin: on a
-    // managed install the balanced winner is the `vellum` routing identity, and
-    // the managed route serves the anthropic-catalog model, so the pin keeps
-    // the provider-agnostic managed connection and just swaps the model.
+  test("memoryV3SelectL2 pins the haiku model over a managed route so its cache breakpoint engages", () => {
+    // The selector's ~30k-token card-corpus prefix carries a `cache_control`
+    // breakpoint that only an Anthropic-protocol model honors (the caller
+    // stamps a 1h TTL, but the provider serves it at the default 5m TTL on the
+    // haiku family). The call-site default pins `claude-haiku-4-5-20251001` as
+    // a bare model pin: on a managed install the balanced winner is the
+    // `vellum` routing identity, and the managed route serves the
+    // anthropic-catalog model, so the pin keeps the provider-agnostic managed
+    // connection and just swaps the model.
     const llm = LLMSchema.parse({
       activeProfile: "balanced",
       profiles: managedStubs(),
@@ -302,6 +304,78 @@ describe("resolver integration", () => {
     expect(resolved.model).toBe("claude-haiku-4-5-20251001");
     expect(resolved.provider).toBe("anthropic");
     expect(resolved.provider_connection).toBeUndefined();
+  });
+
+  test("a tuning-only override keeps the shipped haiku pin on a managed install", () => {
+    // A workspace override that sets neither `profile` nor its own `model`
+    // (here just `temperature`) replaces the shipped call-site default
+    // wholesale. The resolver re-applies the shipped model as a default-owned
+    // pin, so on a managed install the pin still resolves to the haiku model
+    // over the provider-agnostic managed route — the override tunes sampling
+    // without silently disabling the pin.
+    const llm = LLMSchema.parse({
+      activeProfile: "balanced",
+      profiles: managedStubs(),
+      callSites: { memoryV3SelectL2: { temperature: 0.2 } },
+    });
+    const resolved = resolveCallSiteConfig("memoryV3SelectL2", llm);
+    expect(String(resolved.provider)).toBe("vellum");
+    expect(resolved.model).toBe("claude-haiku-4-5-20251001");
+    expect(resolved.provider_connection).toBeUndefined();
+    // The override's own tuning wins.
+    expect(resolved.temperature).toBe(0.2);
+  });
+
+  test("a tuning-only override drops the unreachable haiku pin on a BYOK install", () => {
+    // Same tuning-only override on a BYOK-openai install with no Anthropic
+    // connection. The inherited haiku pin is default-owned, so it gets the
+    // graceful `unroutable` drop: resolution falls back to the balanced profile
+    // through openai, stays dispatchable, and reports the drop — no error, and
+    // the override's own tuning still applies.
+    const llm = LLMSchema.parse({
+      profiles: managedStubs(),
+      defaultProvider: { provider: "openai" },
+      callSites: { memoryV3SelectL2: { temperature: 0.2 } },
+    });
+    const fallbacks: { requested: string; reason: string }[] = [];
+    const resolved = resolveCallSiteConfig("memoryV3SelectL2", llm, {
+      onResolutionFallback: ({ requested, reason }) =>
+        fallbacks.push({ requested, reason }),
+    });
+    const balancedOnOpenai = resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      { provider: "openai" },
+    );
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.model).toBe(balancedOnOpenai?.model as string);
+    expect(resolved.model).not.toBe("claude-haiku-4-5-20251001");
+    expect(resolved.provider_connection).toBe(
+      balancedOnOpenai?.provider_connection,
+    );
+    expect(resolved.provider_connection).toBeDefined();
+    expect(resolved.temperature).toBe(0.2);
+    expect(fallbacks).toContainEqual({
+      requested: "claude-haiku-4-5-20251001",
+      reason: "unroutable",
+    });
+  });
+
+  test("a profile override outranks the shipped pin on a managed install too", () => {
+    // The shipped pin is selection, not tuning: pointing the call site at a
+    // profile means the winner supplies the model and the shipped haiku pin
+    // never enters resolution — on a managed install as well as the BYOK case
+    // above. Neither `profile` nor `model` is inherited from the shipped
+    // default when the user names a profile.
+    const llm = LLMSchema.parse({
+      profiles: managedStubs(),
+      callSites: { memoryV3SelectL2: { profile: "cost-optimized" } },
+    });
+    const resolved = resolveCallSiteConfig("memoryV3SelectL2", llm);
+    expect(resolved.model).toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES["cost-optimized"].model as string,
+    );
+    expect(resolved.model).not.toBe("claude-haiku-4-5-20251001");
   });
 
   test("thin managed stubs and fully seeded bodies resolve identically at every call site", () => {

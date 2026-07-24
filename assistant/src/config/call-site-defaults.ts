@@ -51,18 +51,25 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   memoryV3SelectL2: {
     profile: "balanced",
     // The selector's ~30k-token card-corpus prefix is emitted as its own
-    // content block carrying a 1h `cache_control` breakpoint, which only an
+    // content block carrying a `cache_control` breakpoint, which only an
     // Anthropic-protocol model honors — the balanced profile's managed model
     // is Fireworks-served, where the Anthropic breakpoint is inert and the
     // implicit cache misses because calls are spaced one per user turn. Pin a
     // latency-class Anthropic model so the breakpoint engages; the bare model
     // pin lets the catalog imply the provider, which preserves the
     // provider-agnostic managed connection (the managed route dispatches the
-    // model to its Anthropic upstream). Production shows ~81% of selector
-    // calls land within the 1h TTL, so the pin converts the recurring prefix
-    // from full-price input into cache reads. On a BYOK install that cannot
-    // reach Anthropic, the resolver drops the pin and the balanced profile's
-    // own model runs — the cache optimization is forgone, not an error.
+    // model to its Anthropic upstream).
+    //
+    // On the haiku family the breakpoint runs at the DEFAULT 5m TTL, not the
+    // 1h TTL the caller stamps: extended cache TTL is gated off for haiku
+    // (the Anthropic client strips `ttl` from cache_control blocks and omits
+    // the extended-cache-ttl beta, which the haiku family rejects). Production
+    // shows ~44% of selector calls land within 5m of the previous, converting
+    // that share of the recurring prefix into cache reads (~0.1x input); the
+    // remainder is re-billed as 5m cache writes at 1.25x. The pin also cuts
+    // latency. On a BYOK install that cannot reach Anthropic, the resolver
+    // drops the pin and the balanced profile's own model runs — the cache
+    // optimization is forgone, not an error.
     model: "claude-haiku-4-5-20251001",
     temperature: 0,
     thinking: { enabled: false, streamThinking: false },
