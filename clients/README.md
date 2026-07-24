@@ -10,12 +10,20 @@ clients/
 ├── web/               # Web app (Vite)
 ├── ios/               # iOS Capacitor shell
 ├── macos/             # macOS desktop wrapper (Electron / electron-vite)
+├── linux/             # Linux desktop wrapper (Electron / electron-vite, AppImage)
 └── chrome-extension/  # MV3 Chrome browser extension
 ```
 
 The iOS app is a Capacitor shell that lives in [`ios/`](./ios/); it loads the
 web app over HTTPS and does not consume any code from the other client
 surfaces.
+
+The macOS and Linux apps are Electron wrappers around the web app. They share a
+single main-process + preload runtime in
+[`packages/desktop-shell`](../packages/desktop-shell/); each client directory
+carries only its build config, packaging scripts, and native helpers.
+Platform-specific behavior is gated inside `desktop-shell`, so the two shells
+run identical code apart from their build/packaging commands.
 
 ## What belongs here
 
@@ -40,9 +48,11 @@ surfaces.
 
 ## Notes
 
-- **macOS workflow filenames** — `clients/macos/` is the canonical
-  platform-named directory, and its CI workflow files are `pr-macos.yaml` /
-  `ci-main-macos.yaml`.
+- **Desktop workflow filenames** — each Electron client is a canonical
+  platform-named directory with matching CI workflow files: `pr-macos.yaml` /
+  `ci-main-macos.yaml` for `clients/macos/`, and `pr-linux.yaml` /
+  `ci-main-linux.yaml` for `clients/linux/`. Their shared runtime has
+  `pr-desktop-shell.yaml` / `ci-main-desktop-shell.yaml`.
 
 ## Chrome Extension
 

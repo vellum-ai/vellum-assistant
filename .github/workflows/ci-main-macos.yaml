@@ -8,6 +8,7 @@ on:
       - 'bun.lock'
       - 'patches/**'
       - 'clients/macos/**'
+      - 'packages/desktop-shell/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
       - '.github/workflows/ci-main-macos.yaml'
