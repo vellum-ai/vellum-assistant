@@ -4,7 +4,6 @@
 // `api/events` wire schema; the remaining exports are HTTP-API response shapes
 // consumed by the skills routes.
 
-import type { SkillStateChangedEvent } from "../../api/events/skill-state-changed.js";
 import type { PartnerAudit } from "../../skills/skillssh-audit-types.js";
 import type { OwnerInfo } from "../../tools/types.js";
 
@@ -174,7 +173,3 @@ export interface SkillFileContentResponse {
   isBinary: boolean;
   content: string | null;
 }
-
-// --- Domain-level union aliases (consumed by the barrel file) ---
-
-export type _SkillsServerMessages = SkillStateChangedEvent;
