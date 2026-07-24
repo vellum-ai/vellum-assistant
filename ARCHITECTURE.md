@@ -461,7 +461,7 @@ subgraph "Text Q&A Session"
 
     %% Main Window Chat flow
     CHAT_VM -->|"conversation_create +<br/>user_message +<br/>cancel<br/>(HTTP POST)"| HTTP_RT
-    HTTP_RT -->|"conversation_info +<br/>conversation_title_updated +<br/>text deltas +<br/>message_complete +<br/>conversation_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff<br/>(SSE)"| CHAT_VM
+    HTTP_RT -->|"conversation_title_updated +<br/>text deltas +<br/>message_complete +<br/>conversation_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff<br/>(SSE)"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
     MW_STATE -->|"app_open_request<br/>(dashboard-first bootstrap)"| HTTP_RT
 
