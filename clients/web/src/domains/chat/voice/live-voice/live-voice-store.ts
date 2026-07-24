@@ -242,6 +242,15 @@ export interface LiveVoiceState {
    */
   handsFree: boolean;
   /**
+   * Whether the user (or the assistant, via the `minimize_room` frame) has
+   * dismissed the full-screen voice room for this session while keeping the
+   * session live. While true, the owning composer's voice bar (on the owning
+   * thread) and the title-bar session pill (elsewhere) are the session
+   * surfaces. Session-scoped: cleared by `reset()` so a new session always
+   * opens in the room.
+   */
+  roomMinimized: boolean;
+  /**
    * Viewport-space center of the control the user tapped to start the session
    * (the composer's voice button). The color room grows its entrance from here
    * — "the avatar on the screen" the user acted on — instead of a fixed
@@ -324,6 +333,8 @@ export interface LiveVoiceActions {
   setMuted: (muted: boolean) => void;
   /** Record whether the active session runs hands-free (server-VAD). */
   setHandsFree: (handsFree: boolean) => void;
+  /** Record whether the voice room is dismissed for the active session. */
+  setRoomMinimized: (roomMinimized: boolean) => void;
   /** Record the entry origin (the tapped control's center) for the entrance. */
   setEntryOrigin: (origin: LiveVoiceEntryOrigin | null) => void;
   /**
@@ -433,6 +444,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   inputAmplitude: 0,
   muted: false,
   handsFree: false,
+  roomMinimized: false,
   entryOrigin: null,
   lastTurnLatency: null,
   outputAmplitudeProvider: null,
@@ -469,6 +481,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
   setMuted: (muted) => set({ muted }),
   setHandsFree: (handsFree) => set({ handsFree }),
+  setRoomMinimized: (roomMinimized) => set({ roomMinimized }),
   setEntryOrigin: (entryOrigin) => set({ entryOrigin }),
   setLastTurnLatency: (lastTurnLatency) => set({ lastTurnLatency }),
   setOutputAmplitudeProvider: (outputAmplitudeProvider) =>
@@ -528,6 +541,32 @@ export function getLiveVoicePlaybackProgress(): LiveVoicePlaybackProgress | null
  */
 export function endLiveVoiceSession(): void {
   useLiveVoiceStore.getState().controls?.stop();
+}
+
+/**
+ * Dismiss the full-screen voice room while keeping the session live — the
+ * owning composer's voice bar and the title-bar pill become the session
+ * surfaces. No-op when no session is active, so it is safe to call at any
+ * time (e.g. from a server-driven `minimize_room` frame). See
+ * {@link endLiveVoiceSession} for why this is module-level.
+ */
+export function minimizeVoiceRoom(): void {
+  const { state, setRoomMinimized } = useLiveVoiceStore.getState();
+  if (isLiveVoiceSessionActive(state)) {
+    setRoomMinimized(true);
+  }
+}
+
+/**
+ * Bring the full-screen voice room back for the active session. No-op when no
+ * session is active. See {@link endLiveVoiceSession} for why this is
+ * module-level.
+ */
+export function restoreVoiceRoom(): void {
+  const { state, setRoomMinimized } = useLiveVoiceStore.getState();
+  if (isLiveVoiceSessionActive(state)) {
+    setRoomMinimized(false);
+  }
 }
 
 /**
