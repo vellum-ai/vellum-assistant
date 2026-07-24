@@ -49,6 +49,19 @@ describe("PaymentMethodRow", () => {
     expect(row.textContent).not.toContain("null");
   });
 
+  test("renders a long unmapped brand verbatim", () => {
+    const { getByTestId } = render(
+      <PaymentMethodRow
+        brand="internationalmaestro"
+        last4="0005"
+        onUpdateCard={() => {}}
+        onRemove={() => {}}
+      />,
+    );
+    const row = getByTestId("payment-method-row");
+    expect(row.textContent).toContain("internationalmaestro");
+  });
+
   test("fires onUpdateCard when Update Card is clicked", () => {
     const onUpdateCard = mock(() => {});
     const { getByTestId } = render(

@@ -556,7 +556,7 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                     Failed to load plans. Please try again later.
                   </Notice>
                 ) : (
-                  <div className="space-y-6">
+                  <div className="space-y-4 sm:space-y-6">
                     <div className="space-y-2 pb-2 pt-4 text-center">
                       <Typography as="p" variant="title-medium">
                         Your Assistant, Your Way
