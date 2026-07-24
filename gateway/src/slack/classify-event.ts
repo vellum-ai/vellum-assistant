@@ -3,8 +3,7 @@ import type {
   SlackChannelMessageEvent,
   SlackMessageChangedEvent,
   SlackMessageDeletedEvent,
-  SlackReactionAddedEvent,
-  SlackReactionRemovedEvent,
+  SlackReactionEvent,
 } from "./normalize.js";
 
 /**
@@ -26,8 +25,8 @@ export type ClassifiedSlackEvent =
   | { kind: "message"; event: SlackChannelMessageEvent }
   | { kind: "message_changed"; event: SlackMessageChangedEvent }
   | { kind: "message_deleted"; event: SlackMessageDeletedEvent }
-  | { kind: "reaction_added"; event: SlackReactionAddedEvent }
-  | { kind: "reaction_removed"; event: SlackReactionRemovedEvent };
+  | { kind: "reaction_added"; event: SlackReactionEvent }
+  | { kind: "reaction_removed"; event: SlackReactionEvent };
 
 /**
  * Classify a Slack inbound event by its `type` / `subtype` discriminators.
@@ -45,13 +44,10 @@ export function classifySlackEvent(
     return { kind: "app_mention", event: event as SlackChannelMessageEvent };
   }
   if (type === "reaction_added") {
-    return { kind: "reaction_added", event: event as SlackReactionAddedEvent };
+    return { kind: "reaction_added", event: event as SlackReactionEvent };
   }
   if (type === "reaction_removed") {
-    return {
-      kind: "reaction_removed",
-      event: event as SlackReactionRemovedEvent,
-    };
+    return { kind: "reaction_removed", event: event as SlackReactionEvent };
   }
   if (type === "message") {
     const subtype = (event as SlackMessageChangedEvent).subtype;

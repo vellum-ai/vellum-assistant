@@ -6,8 +6,7 @@ import type {
   SlackDirectMessageEvent,
   SlackMessageChangedEvent,
   SlackMessageDeletedEvent,
-  SlackReactionAddedEvent,
-  SlackReactionRemovedEvent,
+  SlackReactionEvent,
 } from "./normalize.js";
 
 const optionalString = () => z.string().optional().catch(undefined);
@@ -24,8 +23,7 @@ export type SlackInboundEvent =
   | SlackChannelMessageEvent
   | SlackMessageChangedEvent
   | SlackMessageDeletedEvent
-  | SlackReactionAddedEvent
-  | SlackReactionRemovedEvent;
+  | SlackReactionEvent;
 
 /**
  * The `payload` object on a Socket Mode envelope. Serves two envelope kinds:

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   normalizeSlackReactionAdded,
-  type SlackReactionAddedEvent,
+  type SlackReactionEvent,
 } from "../slack/normalize.js";
 import type { GatewayConfig } from "../config.js";
 
@@ -33,8 +33,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 }
 
 function makeReactionEvent(
-  overrides?: Partial<SlackReactionAddedEvent>,
-): SlackReactionAddedEvent {
+  overrides?: Partial<SlackReactionEvent>,
+): SlackReactionEvent {
   return {
     type: "reaction_added",
     user: "U001",

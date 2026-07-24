@@ -41,7 +41,7 @@ import {
   type SlackChannelMessageEvent,
   type SlackMessageChangedEvent,
   type SlackMessageDeletedEvent,
-  type SlackReactionAddedEvent,
+  type SlackReactionEvent,
   type NormalizedSlackEvent,
   type SlackTextRenderContext,
 } from "./normalize.js";
@@ -526,7 +526,7 @@ export class SlackSocketModeClient {
    * reaction_removed share this filter; the daemon dispatches by callbackData
    * prefix.
    */
-  private admitReaction(event: SlackReactionAddedEvent): boolean {
+  private admitReaction(event: SlackReactionEvent): boolean {
     const targetChannel = event.item?.channel;
     return (
       !!event.item?.ts &&

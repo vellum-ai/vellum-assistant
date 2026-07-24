@@ -4,8 +4,7 @@ import type {
   SlackDirectMessageEvent,
   SlackMessageChangedEvent,
   SlackMessageDeletedEvent,
-  SlackReactionAddedEvent,
-  SlackReactionRemovedEvent,
+  SlackReactionEvent,
 } from "./normalize.js";
 
 /** The Slack event shapes that flow through text extraction. */
@@ -15,8 +14,7 @@ export type SlackTextBearingEvent =
   | SlackChannelMessageEvent
   | SlackMessageChangedEvent
   | SlackMessageDeletedEvent
-  | SlackReactionAddedEvent
-  | SlackReactionRemovedEvent;
+  | SlackReactionEvent;
 
 /**
  * Extract the user-authored text from a Slack event for mention/channel label

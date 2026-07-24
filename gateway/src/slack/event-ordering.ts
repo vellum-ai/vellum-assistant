@@ -4,8 +4,7 @@ import type {
   SlackDirectMessageEvent,
   SlackMessageChangedEvent,
   SlackMessageDeletedEvent,
-  SlackReactionAddedEvent,
-  SlackReactionRemovedEvent,
+  SlackReactionEvent,
 } from "./normalize.js";
 
 /** The Slack event shapes that flow through ordered normalization. */
@@ -15,8 +14,7 @@ export type SlackOrderableEvent =
   | SlackChannelMessageEvent
   | SlackMessageChangedEvent
   | SlackMessageDeletedEvent
-  | SlackReactionAddedEvent
-  | SlackReactionRemovedEvent;
+  | SlackReactionEvent;
 
 /**
  * Ordering key that groups related Slack events onto a single sequential lane,
@@ -34,9 +32,7 @@ export function slackEventOrderingKey(
   eventId: string,
 ): string {
   if (event.type === "reaction_added" || event.type === "reaction_removed") {
-    const reaction = event as
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent;
+    const reaction = event as SlackReactionEvent;
     return `${reaction.item?.channel ?? eventId}:${reaction.item?.ts ?? eventId}`;
   }
 
