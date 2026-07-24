@@ -91,6 +91,7 @@ import {
   NotFoundError,
 } from "../../../../runtime/routes/errors.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
+import { readPendingBufferEntries } from "../graph-topology/pending-buffer.js";
 import { invalidatePageIndex } from "../v3/substrate/page-index.js";
 import { writePage } from "../v3/substrate/page-store.js";
 import type { ConceptPage } from "../v3/substrate/types.js";
@@ -1186,6 +1187,7 @@ describe("Memory Item Routes", () => {
     interface RememberBody {
       success: boolean;
       message: string;
+      pendingNodeId?: string;
     }
 
     test("appends a valid fact and returns { success, message }", async () => {
@@ -1196,6 +1198,39 @@ describe("Memory Item Routes", () => {
       const body = (await res.json()) as RememberBody;
       expect(body.success).toBe(true);
       expect(body.message.length).toBeGreaterThan(0);
+    });
+
+    test("returns the pending node id of the appended entry", async () => {
+      const res = await callHandler(getRoute("memory/remember", "POST"), {
+        body: { content: "Prefers window seats on morning flights" },
+      });
+      const body = (await res.json()) as RememberBody;
+      expect(body.success).toBe(true);
+      expect(body.pendingNodeId).toStartWith("buffer:");
+
+      // The id must resolve against the graph's own buffer parse — the same
+      // source the memory-graph endpoint renders pending nodes from.
+      const entries = await readPendingBufferEntries(tmpWorkspace);
+      expect(entries.at(-1)!.id).toBe(body.pendingNodeId!);
+      expect(entries.at(-1)!.text).toBe(
+        "Prefers window seats on morning flights",
+      );
+    });
+
+    test("duplicate content gets the deduped (suffixed) pending id", async () => {
+      const first = (await (
+        await callHandler(getRoute("memory/remember", "POST"), {
+          body: { content: "same fact twice" },
+        })
+      ).json()) as RememberBody;
+      const second = (await (
+        await callHandler(getRoute("memory/remember", "POST"), {
+          body: { content: "same fact twice" },
+        })
+      ).json()) as RememberBody;
+
+      expect(first.pendingNodeId).toStartWith("buffer:");
+      expect(second.pendingNodeId).toBe(`${first.pendingNodeId!}-2`);
     });
 
     test("nudges a consolidation run after a successful create", async () => {

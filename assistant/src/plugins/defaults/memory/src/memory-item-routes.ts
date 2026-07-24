@@ -73,6 +73,10 @@ import type {
   MemoryType,
   NewNode,
 } from "../graph/types.js";
+import {
+  findPendingEntryForContent,
+  readPendingBufferEntries,
+} from "../graph-topology/pending-buffer.js";
 import { consolidationBackoffRemainingMs } from "../jobs-worker.js";
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
@@ -1076,11 +1080,20 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Create a memory by remembering a fact",
     description:
-      "Append a user-authored fact to the memory buffer via handleRemember. The fact surfaces in the memory graph immediately as a pending node, and a consolidation run is nudged (deduped, backoff-respecting) so it files into concept pages promptly.",
+      "Append a user-authored fact to the memory buffer via handleRemember. The fact surfaces in the memory graph immediately as a pending node (its id is returned so clients can navigate to it), and a consolidation run is nudged (deduped, backoff-respecting) so it files into concept pages promptly.",
     tags: ["memory"],
     requestBody: z.object({ content: z.string() }),
-    responseBody: z.object({ message: z.string(), success: z.boolean() }),
-    handler: ({ body }) => {
+    responseBody: z.object({
+      message: z.string(),
+      success: z.boolean(),
+      pendingNodeId: z
+        .string()
+        .optional()
+        .describe(
+          "Graph node id (`buffer:<hash>`) of the pending entry this create appended, for fly-to-node navigation. Absent when the buffer can't be re-read.",
+        ),
+    }),
+    handler: async ({ body }) => {
       const parsed = z.object({ content: z.string() }).safeParse(body ?? {});
       if (!parsed.success) {
         throw new BadRequestError("content (string) is required");
@@ -1094,10 +1107,28 @@ export const ROUTES: RouteDefinition[] = [
         "web",
         config,
       );
-      if (result.success) {
-        maybeEnqueueConsolidationForCreate(config);
+      if (!result.success) {
+        return result;
       }
-      return result;
+      maybeEnqueueConsolidationForCreate(config);
+
+      // Resolve the pending graph-node id of the entry just appended so the
+      // client can fly the map to it. Matched by this request's content
+      // (normalized through the same buffer parse) rather than the buffer
+      // tail, so a concurrently interleaved remember from another writer is
+      // never reported as this one's entry. Best-effort — the create already
+      // succeeded, so a read failure returns no id rather than an error.
+      let pendingNodeId: string | undefined;
+      try {
+        const entries = await readPendingBufferEntries(getWorkspaceDir());
+        pendingNodeId = findPendingEntryForContent(
+          entries,
+          parsed.data.content,
+        )?.id;
+      } catch (err) {
+        log.warn({ err }, "Failed to resolve pending node id after create");
+      }
+      return pendingNodeId ? { ...result, pendingNodeId } : result;
     },
   },
 ];
