@@ -81,7 +81,7 @@ mock.module("../verification/text-verification.js", () => ({
 
 const { SlackSocketModeClient } = await import("../slack/socket-mode.js");
 const { clearChannelInfoCache, clearUserInfoCache, resolveSlackUser } =
-  await import("../slack/normalize.js");
+  await import("../slack/user-directory.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
 const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
 const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =

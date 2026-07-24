@@ -35,8 +35,6 @@ import {
   normalizeSlackReactionAdded,
   normalizeSlackReactionRemoved,
   enrichNormalizedActor,
-  resolveSlackChannel,
-  resolveSlackUser,
   type SlackAppMentionEvent,
   type SlackChannelMessageEvent,
   type SlackMessageChangedEvent,
@@ -45,6 +43,7 @@ import {
   type NormalizedSlackEvent,
   type SlackTextRenderContext,
 } from "./normalize.js";
+import { resolveSlackChannel, resolveSlackUser } from "./user-directory.js";
 
 const log = getLogger("slack-socket-mode");
 
