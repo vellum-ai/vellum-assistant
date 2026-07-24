@@ -719,11 +719,16 @@ function queuedMessageHeaders(conversationId: string) {
  * Steer the assistant to a queued message by aborting the current
  * generation and promoting the message to the head of the queue.
  */
+export type SteerQueuedMessageResult =
+  | "steered"
+  | "not_steerable"
+  | "request_failed";
+
 export async function steerToMessage(
   assistantId: string,
   conversationId: string,
   requestId: string,
-): Promise<boolean> {
+): Promise<SteerQueuedMessageResult> {
   try {
     const { response } = await messagesQueuedByIdSteerPost({
       path: { assistant_id: assistantId, id: requestId },
@@ -731,9 +736,15 @@ export async function steerToMessage(
       headers: queuedMessageHeaders(conversationId),
       throwOnError: false,
     });
-    return response?.ok ?? false;
+    if (response?.ok) {
+      return "steered";
+    }
+    if (response?.status === 400 || response?.status === 404) {
+      return "not_steerable";
+    }
+    return "request_failed";
   } catch {
-    return false;
+    return "request_failed";
   }
 }
 

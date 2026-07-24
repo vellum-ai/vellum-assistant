@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
+import type { SteerQueuedMessageResult } from "@/domains/chat/api/messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 const steerCalls: Array<{
@@ -8,7 +9,7 @@ const steerCalls: Array<{
   conversationId: string;
   requestId: string;
 }> = [];
-let steerResult = true;
+let steerResult: SteerQueuedMessageResult = "steered";
 const deleteCalls: Array<{
   assistantId: string;
   conversationId: string;
@@ -40,6 +41,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { registerHistoryCachePatcher } from "@/domains/chat/transcript/patch-transcript-messages";
 import { useTurnStore } from "@/domains/chat/turn-store";
+import { useConversationStore } from "@/stores/conversation-store";
 
 function queuedMessage(
   id: string,
@@ -75,13 +77,14 @@ function seedQueuedCopies(queuePosition = 1): void {
 
 beforeEach(() => {
   steerCalls.length = 0;
-  steerResult = true;
+  steerResult = "steered";
   deleteCalls.length = 0;
   deletePromise = new Promise<boolean>((resolve) => {
     resolveDelete = resolve;
   });
   registerHistoryCachePatcher(null);
   useTurnStore.getState().resetTurn();
+  useConversationStore.setState({ activeConversationId: "conversation-1" });
   useChatSessionStore.setState({
     optimisticSends: [],
     snapshot: null,
@@ -236,6 +239,7 @@ describe("useMessageQueue", () => {
         assistantId: "assistant-1",
         activeConversationId: "conversation-2",
       });
+      useConversationStore.setState({ activeConversationId: "conversation-2" });
       useChatSessionStore.setState({
         optimisticSends: [queuedMessage("client-2", "client-2")],
         requestIdToMessageId: new Map([["request-2", "client-2"]]),
@@ -311,7 +315,7 @@ describe("useMessageQueue", () => {
   });
 
   test("failed steering restores status and position on both queued copies", async () => {
-    steerResult = false;
+    steerResult = "request_failed";
     seedQueuedCopies(2);
     const { result } = renderHook(() =>
       useMessageQueue({
@@ -337,5 +341,28 @@ describe("useMessageQueue", () => {
     expect(
       useChatSessionStore.getState().snapshot?.messages[0]?.queuePosition,
     ).toBe(2);
+  });
+
+  test("does not restore a message that is no longer steerable", async () => {
+    steerResult = "not_steerable";
+    seedQueuedCopies();
+    const { result } = renderHook(() =>
+      useMessageQueue({
+        assistantId: "assistant-1",
+        activeConversationId: "conversation-1",
+      }),
+    );
+
+    await act(async () => {
+      result.current.handleSteerMessage("client-1");
+      await Promise.resolve();
+    });
+
+    expect(
+      useChatSessionStore.getState().optimisticSends[0]?.queueStatus,
+    ).toBeUndefined();
+    expect(
+      useChatSessionStore.getState().snapshot?.messages[0]?.queueStatus,
+    ).toBeUndefined();
   });
 });

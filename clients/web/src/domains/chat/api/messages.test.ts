@@ -208,12 +208,38 @@ describe("queued message request context", () => {
   test("sends conversation context in both the query and header when steering", async () => {
     expect(
       await steerToMessage("assistant-1", "conv-1", "request-1"),
-    ).toBe(true);
+    ).toBe("steered");
 
     expect(capturedPostOptions?.query).toEqual({ conversationId: "conv-1" });
     expect(capturedPostOptions?.headers).toEqual({
       "X-Vellum-Conversation-Id": "conv-1",
     });
+  });
+
+  test("classifies semantic steer rejections as not steerable", async () => {
+    for (const status of [400, 404]) {
+      nextPostResult = {
+        data: null,
+        error: { detail: "Cannot steer queued message" },
+        response: new Response(null, { status }),
+      };
+
+      expect(
+        await steerToMessage("assistant-1", "conv-1", "request-1"),
+      ).toBe("not_steerable");
+    }
+  });
+
+  test("classifies server steer failures as retryable request failures", async () => {
+    nextPostResult = {
+      data: null,
+      error: { detail: "Internal error" },
+      response: new Response(null, { status: 500 }),
+    };
+
+    expect(
+      await steerToMessage("assistant-1", "conv-1", "request-1"),
+    ).toBe("request_failed");
   });
 });
 

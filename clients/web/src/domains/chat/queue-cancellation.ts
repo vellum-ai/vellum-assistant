@@ -1,8 +1,8 @@
 import { deleteQueuedMessage } from "@/domains/chat/api/messages";
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { removeQueuedMessage } from "@/domains/chat/utils/stream-updaters/shared";
+import { useConversationStore } from "@/stores/conversation-store";
 
 interface ConfirmQueuedMessageDeletionParams {
   assistantId: string;
@@ -32,9 +32,7 @@ export async function confirmQueuedMessageDeletion({
     return false;
   }
 
-  if (
-    useChatSessionStore.getState().previousConversationId !== conversationId
-  ) {
+  if (useConversationStore.getState().activeConversationId !== conversationId) {
     return true;
   }
 

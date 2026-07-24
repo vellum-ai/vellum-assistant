@@ -134,8 +134,8 @@ export function useMessageQueue({
           clearQueueStatus(prev, messageId);
         patchMessageCopies(promoteMessage);
         steerToMessage(assistantId, activeConversationId, targetRequestId).then(
-          (ok) => {
-            if (!ok) {
+          (result) => {
+            if (result === "request_failed") {
               const restoreMessage = (prev: DisplayMessage[]) =>
                 markMessageQueued(prev, messageId, queuePosition);
               patchMessageCopies(restoreMessage);
