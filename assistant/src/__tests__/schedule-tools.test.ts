@@ -12,6 +12,7 @@ import {
 import { executeScheduleCreate as rawExecuteScheduleCreate } from "../tools/schedule/create.js";
 import { executeScheduleDelete } from "../tools/schedule/delete.js";
 import { executeScheduleList } from "../tools/schedule/list.js";
+import { ACTIVE_MODEL_SELECTION_NOTE } from "../tools/schedule/model-selection-note.js";
 import { executeScheduleUpdate } from "../tools/schedule/update.js";
 import type { Tool, ToolContext } from "../tools/types.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
@@ -397,6 +398,154 @@ describe("schedule_create with mode and routing", () => {
       .get() as { routing_intent: string; routing_hints_json: string };
     expect(row.routing_intent).toBe("single_channel");
     expect(JSON.parse(row.routing_hints_json)).toEqual({ channel: "slack" });
+  });
+});
+
+// ── active-model note (deliberate model choice) ─────────────────────
+
+describe("schedule tools — active-model note", () => {
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+    setOverridesForTesting({});
+  });
+  afterAll(() => {
+    setOverridesForTesting({});
+  });
+
+  test("recurring execute schedule with no inference_profile includes the note", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Daily digest",
+        expression: "0 9 * * *",
+        message: "Summarize my inbox",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: execute");
+    expect(result.content).toContain(ACTIVE_MODEL_SELECTION_NOTE);
+  });
+
+  test("one-shot execute schedule omits the note (fires once, no compounding cost)", async () => {
+    const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const result = await executeScheduleCreate(
+      {
+        name: "Later task",
+        fire_at: futureDate,
+        message: "Check my email and summarize it",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("One-shot schedule created successfully");
+    expect(result.content).toContain("Mode: execute");
+    expect(result.content).not.toContain(ACTIVE_MODEL_SELECTION_NOTE);
+  });
+
+  test("execute schedule with an inference_profile omits the note", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Pinned digest",
+        expression: "0 9 * * *",
+        message: "Summarize my inbox",
+        inference_profile: "cost-optimized",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Inference profile: cost-optimized");
+    expect(result.content).not.toContain(ACTIVE_MODEL_SELECTION_NOTE);
+  });
+
+  test("notify schedule omits the note (no mainAgent LLM turn)", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Reminder",
+        expression: "0 9 * * *",
+        message: "Take your meds",
+        mode: "notify",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: notify");
+    expect(result.content).not.toContain(ACTIVE_MODEL_SELECTION_NOTE);
+  });
+
+  test("script schedule omits the note (no mainAgent LLM turn)", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Cache refresh",
+        expression: "0 9 * * *",
+        message: "",
+        mode: "script",
+        script: "echo hi",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: script");
+    expect(result.content).not.toContain(ACTIVE_MODEL_SELECTION_NOTE);
+  });
+
+  test("workflow schedule omits the note (no mainAgent LLM turn)", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Nightly triage",
+        expression: "0 2 * * *",
+        mode: "workflow",
+        workflow_name: "inbox-triage",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: workflow");
+    expect(result.content).not.toContain(ACTIVE_MODEL_SELECTION_NOTE);
+  });
+
+  test("schedule_update echoes the note for an execute schedule with no profile", async () => {
+    await executeScheduleCreate(
+      { name: "Editable", expression: "0 9 * * *", message: "test" },
+      ctx,
+    );
+    const { id } = getRawDb()
+      .query("SELECT id FROM cron_jobs LIMIT 1")
+      .get() as { id: string };
+
+    const result = await executeScheduleUpdate(
+      { job_id: id, name: "Editable renamed" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Mode: execute");
+    expect(result.content).toContain(ACTIVE_MODEL_SELECTION_NOTE);
+  });
+
+  test("schedule_update omits the note once an inference_profile is pinned", async () => {
+    await executeScheduleCreate(
+      { name: "Pinning", expression: "0 9 * * *", message: "test" },
+      ctx,
+    );
+    const { id } = getRawDb()
+      .query("SELECT id FROM cron_jobs LIMIT 1")
+      .get() as { id: string };
+
+    const result = await executeScheduleUpdate(
+      { job_id: id, inference_profile: "cost-optimized" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Inference profile: cost-optimized");
+    expect(result.content).not.toContain(ACTIVE_MODEL_SELECTION_NOTE);
   });
 });
 
