@@ -53,6 +53,12 @@ import {
  * tweak); `logitBias` only ever from the winner. These are provider-coupled, so
  * a shadowed profile can never leak its sampling onto a different provider.
  *
+ * A default-owned call-site `model` pin (from the shipped call-site default, or
+ * a tuning-only workspace override inheriting it) is a best-effort optimization
+ * for the call site's DEFAULT resolution — it does NOT apply when an explicit
+ * `opts.overrideProfile` wins, so the override profile's own model stands. An
+ * explicit user call-site `model` is honored as written regardless.
+ *
  * `opts.forceOverrideProfile` is a no-op here: the override profile already
  * sits at the top of the chain for every call site.
  *
@@ -153,6 +159,10 @@ export function resolveCallSiteConfig(
 // tweaks (`thinking.enabled`) combine leaf-wise instead of wiping siblings.
 // `temperature`/`topP` come from the winner (or an explicit tweak);
 // `logitBias` only ever from the winner.
+// A default-owned `model` pin (shipped call-site default, or a tuning-only
+// override inheriting it) is suppressed when the winner is an explicit
+// `overrideProfile`, so the override profile's own model stands; an explicit
+// user call-site `model` still applies.
 // `forceOverrideProfile` is a no-op here (the override is already first).
 
 export interface ProfileWinnerSelection {
@@ -410,6 +420,19 @@ function resolveOverrideOrDefault(
   // (no user entry) or from a tuning-only override that inherited it above. A
   // model the user set explicitly is honored as written, never dropped.
   const modelPinIsDefaultOwned = userSite == null || tuningOnlyUserOverride;
+
+  // An explicit `overrideProfile` winner is a per-turn model selection that
+  // supersedes a default-owned pin: the caller (e.g. the image-fallback
+  // plugin's vision profile candidate) is choosing the profile precisely to
+  // run ITS model. A shipped default's `model` pin — a best-effort latency
+  // optimization for the call site's DEFAULT resolution — must not silently
+  // override that choice (which would run haiku for every candidate on managed
+  // installs, or force an unroutable concrete combination on BYOK). Drop the
+  // default-owned pin so the override profile's own model stands. An explicit
+  // user call-site `model` (not default-owned) is honored as written.
+  if (selection.source === "override" && modelPinIsDefaultOwned) {
+    delete tweak.model;
+  }
 
   // A bare model tweak (a model with no sibling provider) is catalog-implied:
   // the winner's provider does not serve it, so the model's catalog owner is

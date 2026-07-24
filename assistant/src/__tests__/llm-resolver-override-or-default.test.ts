@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { CALL_SITE_DEFAULTS } from "../config/call-site-defaults.js";
 import { CODE_DEFAULT_PROFILE_ENTRIES } from "../config/default-profile-catalog.js";
 import {
   type ResolutionFallbackReason,
@@ -528,5 +529,99 @@ describe("user shadows of default keys keep their intent", () => {
     });
     expect(pinned.model).toBe("gpt-5.4");
     expect(pinned.provider).toBe("openai");
+  });
+});
+
+describe("an overrideProfile winner suppresses a default-owned model pin", () => {
+  // `voiceFrontDecision` carries a shipped `model` pin (a best-effort latency
+  // optimization for its DEFAULT resolution). It is the vehicle here because it
+  // has a real shipped pin today; the image-fallback plugin's `vision` call
+  // site hits the identical resolver code the moment `vision` gets its own pin,
+  // and `vision` is the only production caller that passes `overrideProfile` to
+  // a pinned site. If this constant loses its pin, retarget to another pinned
+  // site (`voiceFrontDoor` / `memoryV3SelectL2`) — the assertions are generic.
+  const PINNED_SITE = "voiceFrontDecision" as const;
+  const pin = CALL_SITE_DEFAULTS[PINNED_SITE].model as string;
+
+  // An anthropic override profile: its provider SERVES the anthropic pin, so
+  // pre-fix the pin would stick (managed route / matching provider), which is
+  // exactly the silent-haiku bug. The override's own model must win instead.
+  const anthropicCustom = {
+    ...completeCustom,
+    provider: "anthropic" as const,
+    provider_connection: "anthropic-personal",
+    model: "claude-opus-4-6",
+  };
+
+  test("the shipped pin exists so these assertions are meaningful", () => {
+    expect(typeof pin).toBe("string");
+    expect(pin.length).toBeGreaterThan(0);
+  });
+
+  test("BYOK: the override profile's own model stands, not the pin", () => {
+    const llm = LLMSchema.parse({
+      profiles: { mine: anthropicCustom },
+      ...anthropicDp,
+    });
+    const { fallbacks, opts } = collect();
+    const resolved = resolveCallSiteConfig(PINNED_SITE, llm, {
+      overrideProfile: "mine",
+      forceOverrideProfile: true,
+      ...opts,
+    });
+    expect(resolved.model).toBe("claude-opus-4-6");
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).not.toBe(pin);
+    // Suppression is a deliberate semantic, not an `unroutable` drop — nothing
+    // is reported.
+    expect(fallbacks).toEqual([]);
+  });
+
+  test("managed: the override profile's own model stands, not the pin", () => {
+    const managedStubs = {
+      balanced: { source: "managed" as const },
+      "cost-optimized": { source: "managed" as const },
+    };
+    const llm = LLMSchema.parse({
+      profiles: managedStubs,
+      defaultProvider: { provider: "vellum" as const },
+    });
+    // The managed cost-optimized body through the vellum route.
+    const viaIntent = resolveCallSiteConfig("conversationSummarization", llm);
+    const { fallbacks, opts } = collect();
+    const resolved = resolveCallSiteConfig(PINNED_SITE, llm, {
+      overrideProfile: "cost-optimized",
+      forceOverrideProfile: true,
+      ...opts,
+    });
+    expect(resolved.model).toBe(viaIntent.model);
+    expect(resolved.model).not.toBe(pin);
+    expect(fallbacks).toEqual([]);
+  });
+
+  test("a user's explicit call-site model still beats the override profile", () => {
+    // Current semantics: an explicit `llm.callSites[id].model` is honored as
+    // written and wins over `overrideProfile`. Not default-owned, so the
+    // override-suppression rule leaves it untouched.
+    const llm = LLMSchema.parse({
+      profiles: { mine: anthropicCustom },
+      callSites: { [PINNED_SITE]: { model: "claude-sonnet-4-5-20250929" } },
+      ...anthropicDp,
+    });
+    const resolved = resolveCallSiteConfig(PINNED_SITE, llm, {
+      overrideProfile: "mine",
+      forceOverrideProfile: true,
+    });
+    expect(resolved.model).toBe("claude-sonnet-4-5-20250929");
+    expect(resolved.provider).toBe("anthropic");
+  });
+
+  test("no override: the pinned site still resolves to its shipped pin", () => {
+    const llm = LLMSchema.parse({
+      profiles: { mine: anthropicCustom },
+      ...anthropicDp,
+    });
+    const resolved = resolveCallSiteConfig(PINNED_SITE, llm);
+    expect(resolved.model).toBe(pin);
   });
 });
