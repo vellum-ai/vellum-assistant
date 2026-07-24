@@ -1,7 +1,7 @@
 import { v4 as uuid } from "uuid";
 
+import type { SecretRequestEvent } from "../api/index.js";
 import { getConfig } from "../config/loader.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -11,7 +11,7 @@ import type {
   SecretPromptResult,
 } from "./secret-prompt-types.js";
 
-type SecretRequestMessage = Extract<AssistantEvent, { type: "secret_request" }>;
+type SecretRequestMessage = SecretRequestEvent;
 
 const log = getLogger("secret-prompter");
 

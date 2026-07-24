@@ -12,10 +12,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import type {
-  AssistantEvent as AssistantEventMessage,
-  AssistantEventEnvelope,
-} from "../api/index.js";
+import type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
 
 // -- Generic base --------------------------------------------------------------
 
@@ -106,11 +103,8 @@ export type { AssistantEventEnvelope };
  * `AssistantEvent` message payload.
  */
 export function buildAssistantEvent(
-  message: AssistantEventMessage,
+  message: AssistantEvent,
   conversationId?: string,
 ): AssistantEventEnvelope {
-  return baseBuildAssistantEvent<AssistantEventMessage>(
-    message,
-    conversationId,
-  );
+  return baseBuildAssistantEvent<AssistantEvent>(message, conversationId);
 }

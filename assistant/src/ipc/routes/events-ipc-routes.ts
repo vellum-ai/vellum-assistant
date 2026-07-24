@@ -27,25 +27,11 @@ import {
   HOST_PROXY_CAPABILITIES,
   INTERFACE_IDS,
 } from "../../channels/types.js";
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
 
 /** IPC method name — the raw publish transport other processes call. */
 export const EVENTS_PUBLISH_IPC_METHOD = "/events/publish";
-
-/**
- * The event envelope reuses the shared wire schema's transport fields (`id`,
- * `emittedAt`, `conversationId`, `seq`) and overrides only `message`: the hub
- * publishes runtime `AssistantEvent`-typed events, whose union is defined
- * separately from the api schema's message union, so the override yields a
- * value assignable to `assistantEventHub.publish` without a cast.
- */
-const EventEnvelopeSchema = AssistantEventEnvelopeSchema.extend({
-  message: z.custom<AssistantEvent>(
-    (value) => value != null && typeof value === "object",
-  ),
-});
 
 /** Publish targeting/suppression options — see the hub's `publish`. */
 const PublishOptionsSchema = z.object({
@@ -56,7 +42,7 @@ const PublishOptionsSchema = z.object({
 });
 
 const EventsPublishParamsSchema = z.object({
-  event: EventEnvelopeSchema,
+  event: AssistantEventEnvelopeSchema,
   options: PublishOptionsSchema.optional(),
 });
 
