@@ -82,6 +82,7 @@ describe("fetchLatestHistoryPage URL construction", () => {
     expect(url.searchParams.get("conversationKey")).toBeNull();
     expect(url.searchParams.get("page")).toBe("latest");
     expect(url.searchParams.get("limit")).toBe("50");
+    expect(url.searchParams.get("attachmentContent")).toBeNull();
   });
 
   test("honours a custom limit", async () => {
@@ -96,6 +97,21 @@ describe("fetchLatestHistoryPage URL construction", () => {
 
     const url = new URL(captured[0]!.url, "http://localhost");
     expect(url.searchParams.get("limit")).toBe("25");
+  });
+
+  test("requests metadata attachments only when explicitly enabled", async () => {
+    nextResponse = makeJsonResponse({ messages: [], hasMore: false });
+
+    await fetchLatestHistoryPage(
+      "asst-1",
+      "K",
+      undefined,
+      undefined,
+      "metadata",
+    );
+
+    const url = new URL(captured[0]!.url, "http://localhost");
+    expect(url.searchParams.get("attachmentContent")).toBe("metadata");
   });
 
   test("threads an AbortSignal into the history request", async () => {
@@ -145,6 +161,7 @@ describe("fetchOlderHistoryPage URL construction", () => {
     expect(url.searchParams.get("beforeTimestamp")).toBe("1700000000000");
     expect(url.searchParams.get("limit")).toBe("50");
     expect(url.searchParams.get("page")).toBeNull();
+    expect(url.searchParams.get("attachmentContent")).toBeNull();
   });
 
   test("honours a custom limit", async () => {
@@ -159,6 +176,22 @@ describe("fetchOlderHistoryPage URL construction", () => {
 
     const url = new URL(captured[0]!.url, "http://localhost");
     expect(url.searchParams.get("limit")).toBe("10");
+  });
+
+  test("threads metadata attachment mode through older-page requests", async () => {
+    nextResponse = makeJsonResponse({ messages: [], hasMore: false });
+
+    await fetchOlderHistoryPage(
+      "asst-1",
+      "K",
+      1_700_000_000_000,
+      undefined,
+      undefined,
+      "metadata",
+    );
+
+    const url = new URL(captured[0]!.url, "http://localhost");
+    expect(url.searchParams.get("attachmentContent")).toBe("metadata");
   });
 
   test("threads an AbortSignal into an older-page request", async () => {

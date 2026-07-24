@@ -1,5 +1,20 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 
@@ -13,7 +28,9 @@ type ContentResult = { data: Blob | null; error: { message: string } | null };
 const attachmentsByIdContentGet = mock(
   async (_opts: {
     path: { assistant_id: string; id: string };
+    query?: { representation?: "original" | "display" };
     parseAs?: string;
+    signal?: AbortSignal;
     throwOnError?: boolean;
   }): Promise<ContentResult> => ({
     data: new Blob(["image-bytes"]),
@@ -45,6 +62,30 @@ const { ToolResultImages } = await import(
   "@/domains/chat/components/chat-attachments/tool-result-images"
 );
 
+let intersectionCallback: IntersectionObserverCallback | null = null;
+const originalIntersectionObserver = globalThis.IntersectionObserver;
+
+class TestIntersectionObserver implements IntersectionObserver {
+  readonly root = null;
+  readonly rootMargin: string;
+  readonly thresholds = [0];
+
+  constructor(
+    callback: IntersectionObserverCallback,
+    options?: IntersectionObserverInit,
+  ) {
+    intersectionCallback = callback;
+    this.rootMargin = options?.rootMargin ?? "0px";
+  }
+
+  disconnect(): void {}
+  observe(_target: Element): void {}
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
+  unobserve(_target: Element): void {}
+}
+
 function renderStrip(
   toolCalls: ChatMessageToolCall[],
   opts: { hasAttachments?: boolean; assistantId?: string | null } = {},
@@ -65,10 +106,31 @@ function renderStrip(
   render(ui);
 }
 
+function enterViewport(): void {
+  if (!intersectionCallback) {
+    throw new Error("IntersectionObserver was not registered");
+  }
+  act(() => {
+    intersectionCallback?.(
+      [{ isIntersecting: true } as IntersectionObserverEntry],
+      {} as IntersectionObserver,
+    );
+  });
+}
+
+beforeEach(() => {
+  intersectionCallback = null;
+  globalThis.IntersectionObserver = TestIntersectionObserver;
+});
+
 afterEach(() => {
   cleanup();
   attachmentsByIdContentGet.mockClear();
   saveFileMock.mockClear();
+});
+
+afterAll(() => {
+  globalThis.IntersectionObserver = originalIntersectionObserver;
 });
 
 describe("ToolResultImages referenced media", () => {
@@ -98,13 +160,18 @@ describe("ToolResultImages referenced media", () => {
       completedAt: 1,
     };
     renderStrip([toolCall]);
+    enterViewport();
 
     const img = await screen.findByTestId("tool-result-image");
     expect(img.getAttribute("src")).toBe("blob:tool-image-mock");
     expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
     expect(attachmentsByIdContentGet.mock.calls[0]![0]).toMatchObject({
       path: { assistant_id: "asst-1", id: "att-xyz" },
+      query: { representation: "display" },
     });
+    expect(attachmentsByIdContentGet.mock.calls[0]![0].signal).toBeInstanceOf(
+      AbortSignal,
+    );
   });
 
   test("shows a placeholder and never fetches when no assistantId is known", () => {
@@ -143,6 +210,7 @@ describe("ToolResultImages referenced media", () => {
     // Saved from the fetched blob (referenced media has no inline data URL).
     expect(saveFileMock.mock.calls[0]![0]).toBeInstanceOf(Blob);
     expect(saveFileMock.mock.calls[0]![1]).toBe("file-read.png");
+    expect(attachmentsByIdContentGet.mock.calls[0]![0].query).toBeUndefined();
   });
 
   test("suppresses itself once end-of-turn attachments have arrived", () => {

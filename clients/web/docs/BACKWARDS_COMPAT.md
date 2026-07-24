@@ -165,6 +165,7 @@ Each module owns one feature's old/new split. Current registry:
 | `complete-profile-snapshots.ts`     | `0.10.8`                          | Blank profile fields live-inherit (deep merge); no snapshot copy in the editor                            | Blanks are baked at save time; editor shows the snapshot helper line                        |
 | `use-supports-summarize-up-to-here.ts` | `0.10.8`                       | No `POST /v1/conversations/summarize`; the per-message "Summarize up to here" hover/long-press action is hidden | Endpoint exists; the action renders and posts to summarize working memory up to a message |
 | `use-supports-redacted-credential-chips.ts` | `0.10.10`                 | Sentinel-shaped transcript text renders as plain text (daemon neither mints nor neutralizes sentinels)   | Assistant-message sentinels upgrade to redacted-credential reveal chips                     |
+| `use-supports-metadata-attachment-history.ts` | `0.10.12`               | History embeds attachment and tool-image bytes inline                                                     | History returns attachment metadata; display bytes load near the transcript viewport        |
 | `use-supports-noninteractive-voice-turns.ts` | `0.11.0`                 | Voice turns can raise `oauth_connect` surfaces mid-call; the voice room renders its own reachable connect card | Voice turns force `supportsDynamicUi: false` (no mid-call surfaces); the room card stays hidden |
 
 When you delete a row here, also delete its module, its test, and the now-dead

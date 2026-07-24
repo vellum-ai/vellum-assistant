@@ -1,30 +1,32 @@
-
 import {
-    Archive,
-    Code2,
-    Download,
-    FileAudio,
-    File as FileIcon,
-    FileImage,
-    FileSpreadsheet,
-    FileText,
-    FileType2,
-    FileVideo,
+  Archive,
+  Code2,
+  Download,
+  FileAudio,
+  File as FileIcon,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileType2,
+  FileVideo,
 } from "lucide-react";
 import type { FC, MouseEvent, ReactNode } from "react";
 import { useCallback } from "react";
 
 import { Tooltip, Typography } from "@vellumai/design-library";
 
+import { LazyAttachmentImage } from "@/domains/chat/components/chat-attachments/lazy-attachment-image";
 import {
-    classifyAttachment,
-    formatAttachmentSize,
-    middleTruncate,
-    type AttachmentIconKind,
+  classifyAttachment,
+  formatAttachmentSize,
+  middleTruncate,
+  type AttachmentIconKind,
 } from "@/domains/chat/components/chat-attachments/utils";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 
 interface MessageAttachmentSquareProps {
+  attachmentId: string;
+  assistantId?: string | null;
   filename: string;
   mimeType: string;
   sizeBytes: number;
@@ -59,6 +61,8 @@ const ICON_BY_KIND: Record<AttachmentIconKind, ReactNode> = {
  * the thumbnail.
  */
 export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
+  attachmentId,
+  assistantId,
   filename,
   mimeType,
   sizeBytes,
@@ -68,13 +72,9 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
   onDownload,
 }) => {
   const kind = classifyAttachment(mimeType, filename);
-  const hasImagePreview = kind === "image" && previewUrl !== null;
+  const isImage = kind === "image";
   const hasVideoThumbnail = kind === "video" && thumbnailUrl != null;
-  const backgroundImageUrl = hasImagePreview
-    ? previewUrl
-    : hasVideoThumbnail
-      ? thumbnailUrl
-      : null;
+  const backgroundImageUrl = hasVideoThumbnail ? thumbnailUrl : null;
   const isClickable = onPreview != null;
   const displayName = middleTruncate(filename, 18);
   const displaySize = formatAttachmentSize(sizeBytes);
@@ -90,7 +90,7 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
 
   return (
     <div
-      role={isClickable ? "button" : hasImagePreview ? "img" : undefined}
+      role={isClickable ? "button" : isImage ? "img" : undefined}
       aria-label={filename}
       title={filename}
       tabIndex={isClickable ? 0 : undefined}
@@ -108,16 +108,28 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
       className={`group/square flex flex-col gap-1${isClickable ? " cursor-pointer" : ""}`}
     >
       <div className="relative w-fit">
-        <div
-          className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]"
-          style={
-            backgroundImageUrl
-              ? { backgroundImage: `url(${JSON.stringify(backgroundImageUrl)})` }
-              : undefined
-          }
-        >
-          {backgroundImageUrl ? null : ICON_BY_KIND[kind]}
-        </div>
+        {isImage ? (
+          <LazyAttachmentImage
+            assistantId={assistantId}
+            attachmentId={attachmentId}
+            filename={filename}
+            inlinePreviewUrl={previewUrl}
+            size="square"
+          />
+        ) : (
+          <div
+            className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]"
+            style={
+              backgroundImageUrl
+                ? {
+                    backgroundImage: `url(${JSON.stringify(backgroundImageUrl)})`,
+                  }
+                : undefined
+            }
+          >
+            {backgroundImageUrl ? null : ICON_BY_KIND[kind]}
+          </div>
+        )}
         {onDownload && (
           <div className="pointer-events-none absolute inset-0 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover/square:pointer-events-auto group-hover/square:opacity-100 group-focus-within/square:pointer-events-auto group-focus-within/square:opacity-100">
             <Tooltip content="Download">

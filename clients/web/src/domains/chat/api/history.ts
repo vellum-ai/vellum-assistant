@@ -35,6 +35,9 @@ const DEFAULT_OLDER_LIMIT = 50;
 
 type HistoryQuery = NonNullable<MessagesGetData["query"]>;
 
+/** Attachment payload policy for paginated transcript requests. */
+export type AttachmentHistoryContent = "inline" | "metadata";
+
 function parsePaginatedResponse(
   body: MessagesGetResponse | undefined,
 ): PaginatedHistoryResult {
@@ -148,6 +151,7 @@ export async function fetchLatestHistoryPage(
   conversationId: string,
   limit: number = DEFAULT_LATEST_LIMIT,
   signal?: AbortSignal,
+  attachmentContent: AttachmentHistoryContent = "inline",
 ): Promise<PaginatedHistoryResult> {
   return fetchPaginatedHistory(
     assistantId,
@@ -155,6 +159,9 @@ export async function fetchLatestHistoryPage(
       conversationId,
       page: "latest",
       limit,
+      ...(attachmentContent === "metadata"
+        ? { attachmentContent: "metadata" as const }
+        : {}),
     },
     signal,
   );
@@ -172,6 +179,7 @@ export async function fetchOlderHistoryPage(
   beforeTimestamp: number,
   limit: number = DEFAULT_OLDER_LIMIT,
   signal?: AbortSignal,
+  attachmentContent: AttachmentHistoryContent = "inline",
 ): Promise<PaginatedHistoryResult> {
   return fetchPaginatedHistory(
     assistantId,
@@ -179,6 +187,9 @@ export async function fetchOlderHistoryPage(
       conversationId,
       beforeTimestamp,
       limit,
+      ...(attachmentContent === "metadata"
+        ? { attachmentContent: "metadata" as const }
+        : {}),
     },
     signal,
   );
