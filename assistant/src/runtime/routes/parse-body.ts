@@ -5,13 +5,11 @@ import { BadRequestError } from "./errors.js";
 /**
  * Validate a route's request body against its declared Zod schema and return
  * the parsed, typed value. Throws {@link BadRequestError} — which both the HTTP
- * and IPC adapters already map to a `400` — when the body doesn't match.
+ * and IPC adapters map to a `400` — when the body doesn't match its schema.
  *
- * This replaces the `body as {…}` casts in route handlers: those assert a shape
- * at compile time but validate nothing at runtime, so malformed input reaches
- * handler logic (and today surfaces as a confusing `500`, since a raw `ZodError`
- * isn't a `RouteError`). Parsing here makes the declared `requestBody` schema
- * the single source of truth for both the wire contract and runtime enforcement.
+ * The route's declared `requestBody` schema is the single source of truth for
+ * both the OpenAPI/wire contract and runtime validation, so malformed input is
+ * rejected with a `400` rather than flowing into handler logic.
  */
 export function parseBody<Schema extends z.ZodTypeAny>(
   schema: Schema,

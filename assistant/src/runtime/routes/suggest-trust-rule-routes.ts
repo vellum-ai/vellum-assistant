@@ -30,9 +30,9 @@ interface DirectoryScopeOption {
   label: string;
 }
 
-// The request shape is derived from the Zod schema (`RequestSchema`, defined
-// below and declared as the route's `requestBody`) so the wire contract and the
-// handler's type are a single source of truth rather than two hand-kept copies.
+// The request shape is derived from the Zod schema (`RequestSchema`, declared
+// as the route's `requestBody`) so the wire contract and the handler's type
+// stay a single source of truth.
 type SuggestTrustRuleRequest = z.infer<typeof RequestSchema>;
 
 interface SuggestTrustRuleResponse {
