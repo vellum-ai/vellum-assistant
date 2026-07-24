@@ -11,12 +11,16 @@
  *   - saving sends the exact detected value to the credentials-set mutation,
  *     rewrites the composer draft (plaintext gone, placeholder present), and
  *     reports the saved slot via `onStored`;
- *   - cancelling leaves the draft untouched and saves nothing.
+ *   - cancelling leaves the draft untouched and saves nothing;
+ *   - switching conversations while the modal is open cancels the store
+ *     action — the save can never rewrite the wrong thread's draft or leave
+ *     the source plaintext behind under a success toast.
  *
  * Uses the real composer store (reset between tests). All tokens are
  * synthetic values invented for these tests.
  */
 
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   QueryClient,
@@ -135,6 +139,7 @@ function renderDialog(props: Partial<StoreCredentialDialogProps> = {}) {
     <QueryClientProvider client={queryClient}>
       <StoreCredentialDialog
         secret={detectedSecret}
+        conversationId="conv-A"
         open
         onClose={onClose}
         onStored={onStored}
@@ -343,6 +348,73 @@ describe("StoreCredentialDialog", () => {
     expect(setCalls.length).toBe(0);
     expect(onStored.mock.calls.length).toBe(0);
     expect(onClose.mock.calls.length).toBe(1);
+  });
+
+  // Regression: the staged secret is bound to the conversation it was
+  // detected in. If the user navigates to another conversation while the
+  // modal is still mounted (browser Back, deep link, sidebar switch), the
+  // save must not read/rewrite whatever draft is now current — that would
+  // leave conversation A's plaintext behind under a success toast, or drop
+  // the placeholder into the wrong thread. The dialog cancels on switch.
+  test("switching conversations while the dialog is open cancels the store action — nothing is saved and no draft is rewritten", () => {
+    // Conversation A's draft holds the secret.
+    useComposerStore.getState().setInput(DRAFT);
+    const onStored = mock<StoreCredentialDialogProps["onStored"]>(() => {});
+
+    // Host-faithful harness: the dialog is mounted only while a secret is
+    // staged and unmounts when it requests close (mirrors the host's
+    // `secretToStore` gate), and the active conversation id is switchable.
+    function Harness() {
+      const [queryClient] = useState(() => new QueryClient());
+      const [conversationId, setConversationId] = useState("conv-A");
+      const [staged, setStaged] = useState(true);
+      return (
+        <QueryClientProvider client={queryClient}>
+          <button
+            type="button"
+            onClick={() => {
+              setConversationId("conv-B");
+            }}
+          >
+            switch
+          </button>
+          {staged && (
+            <StoreCredentialDialog
+              secret={detectedSecret}
+              conversationId={conversationId}
+              open
+              onClose={() => {
+                setStaged(false);
+              }}
+              onStored={onStored}
+            />
+          )}
+        </QueryClientProvider>
+      );
+    }
+
+    render(<Harness />);
+
+    // Sanity: the dialog is open before the switch.
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+
+    // Switch conversations while the modal is open. The open modal marks the
+    // background inert (aria-hidden), so query the switch control with
+    // `hidden: true`.
+    fireEvent.click(
+      screen.getByRole("button", { name: "switch", hidden: true }),
+    );
+
+    // The dialog unstaged itself — Save is gone, nothing was saved, no
+    // success toast fired, and no rewrite landed on the now-current thread.
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(setCalls.length).toBe(0);
+    expect(toasts.length).toBe(0);
+    expect(onStored.mock.calls.length).toBe(0);
+    // Conversation A's draft still holds its plaintext (the guard re-fires on
+    // return) — the placeholder was never applied to the wrong conversation.
+    expect(useComposerStore.getState().input).toBe(DRAFT);
+    expect(useComposerStore.getState().input).toContain(SYNTHETIC_PROJECT_KEY);
   });
 
   test("a full PEM block is stored whole and rewritten out of the draft with no residue", async () => {

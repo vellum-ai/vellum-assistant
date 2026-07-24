@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import {
   isCompletePrivateKeyBlock,
   PRIVATE_KEY_LABEL,
@@ -106,6 +107,14 @@ export function rewriteDraftWithStoredCredential(
 export interface StoreCredentialDialogProps {
   /** The detected secret being stored; seeds the form when the dialog opens. */
   secret: DetectedSecret | null;
+  /**
+   * Routing-truth id of the conversation whose draft the staged secret was
+   * detected in. The save rewrites THIS conversation's draft; if the active
+   * conversation changes while the dialog is open (browser Back, a deep link,
+   * sidebar switch — the modal stays mounted), the dialog cancels rather than
+   * rewrite, or claim success against, whatever draft is now current.
+   */
+  conversationId: string | null;
   open: boolean;
   /** Called when the dialog closes — dismissal, Cancel, or a completed save. */
   onClose: () => void;
@@ -128,9 +137,17 @@ export interface StoreCredentialDialogProps {
  * Never opens for a non-{@link isStorableSecret} match (a header-only
  * private key): storing it would rewrite only the header and leave the key
  * body in the draft, undetected.
+ *
+ * The staged secret is bound to the conversation it was detected in. The
+ * composer store only mutates the ACTIVE conversation's draft (`setInput`),
+ * so if the active conversation changes while the modal is open the dialog
+ * cancels the store action rather than rewrite the wrong thread's draft — the
+ * source draft keeps its plaintext and the detection guard re-fires when the
+ * user returns.
  */
 export function StoreCredentialDialog({
   secret,
+  conversationId,
   open,
   onClose,
   onStored,
@@ -138,8 +155,33 @@ export function StoreCredentialDialog({
   const suggestion = suggestCredentialSlot(secret?.label ?? "");
   const storable = secret !== null && isStorableSecret(secret);
 
+  // The conversation this staged secret was detected in. The host mounts the
+  // dialog fresh per staged secret (it renders only while a secret is
+  // staged), so the first render's conversationId is the source thread.
+  const sourceConversationIdRef = useRef(conversationId);
+
+  // Cancel on conversation switch. When the active conversation changes while
+  // the modal stays mounted, a save would read and rewrite whatever composer
+  // draft is CURRENT at save time — not the draft that produced `secret` —
+  // which could leave the plaintext in the source draft under a success toast
+  // or drop the placeholder into the wrong thread. Close instead of rewrite.
+  // Layout effect so the unstage lands before the switched route paints,
+  // mirroring how the detection hook resets its notice on switch.
+  useLayoutEffect(() => {
+    if (conversationId === sourceConversationIdRef.current) {
+      return;
+    }
+    onClose();
+  }, [conversationId, onClose]);
+
   const handleSaved = (meta: { service: string; field: string }) => {
     if (!secret || !isStorableSecret(secret)) {
+      return;
+    }
+    // Backstop for the close-on-switch layout effect above: never rewrite a
+    // draft that is no longer the source thread's, even if a save somehow
+    // races a switch before the dialog unmounts.
+    if (conversationId !== sourceConversationIdRef.current) {
       return;
     }
     const slot: CredentialSlot = { service: meta.service, field: meta.field };

@@ -1251,6 +1251,10 @@ export function ChatMainPanel({
       {secretToStore !== null && (
         <StoreCredentialDialog
           secret={secretToStore}
+          // Routing-truth id: binds the staged secret to the conversation it
+          // was detected in, so a mid-save conversation switch cancels the
+          // store action instead of rewriting the wrong thread's draft.
+          conversationId={activeConversationId}
           open
           onClose={handleStoreSecretClose}
           // Leave the rewritten draft focused for the user to review and
