@@ -229,31 +229,38 @@ export async function hatchLocal(
       reporter.progress(3, 6, "Starting assistant...");
       const signingKey = generateLocalSigningKey();
       const bootstrapSecret = generateLocalSigningKey();
-      // Launch the CES sibling alongside the daemon, in parallel — matching the
-      // Docker topology. The assistant does not spawn its own CES, so a freshly
-      // hatched instance would otherwise come up with CES unavailable.
-      // startCes always launches the CES sibling.
-      await Promise.all([
-        startCes(watch, resources),
-        startLocalDaemon(watch, resources, {
-          defaultWorkspaceConfigPath,
-          signingKey,
-        }),
-      ]);
-
-      reporter.progress(4, 6, "Starting gateway...");
       let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
       try {
+        // Launch the CES sibling alongside the daemon, in parallel — matching the
+        // Docker topology. The assistant does not spawn its own CES, so a freshly
+        // hatched instance would otherwise come up with CES unavailable.
+        // startCes always launches the CES sibling.
+        const startupResults = await Promise.allSettled([
+          startCes(watch, resources),
+          startLocalDaemon(watch, resources, {
+            defaultWorkspaceConfigPath,
+            requireReady: true,
+            signingKey,
+          }),
+        ]);
+        const startupFailure = startupResults.find(
+          (result): result is PromiseRejectedResult =>
+            result.status === "rejected",
+        );
+        if (startupFailure) {
+          throw startupFailure.reason;
+        }
+
+        reporter.progress(4, 6, "Starting gateway...");
         runtimeUrl = await startGateway(watch, resources, {
           signingKey,
           bootstrapSecret,
           envOverrides: flagEnvVars,
+          requireReady: true,
         });
       } catch (error) {
-        // Gateway failed — stop the daemon we just started so we don't leave
-        // orphaned processes with no lock file entry.
         reporter.error(
-          `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
+          `\n❌ Local assistant startup failed — stopping partial processes.`,
         );
         await stopLocalProcesses(resources);
         throw error;
