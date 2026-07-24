@@ -1,0 +1,399 @@
+/**
+ * Behavioral tests for the post-payment provisioning wait behind the onboarding
+ * hatching screen.
+ *
+ * A Pro user hatches a small warm-pool assistant; the screen fires the
+ * idempotent ensure-provisioned reconcile once and holds completion until the
+ * machine/storage resize to the purchased specs converges (then re-probes
+ * healthz). Failures, free orgs, and the hard cap all fall through to completion
+ * so the user is never trapped. Local hatches never enter this path.
+ *
+ * The screen keeps module-level hatch guards, so every test drives the flow to a
+ * genuine completion (which releases them) to stay isolated. Self-contained
+ * mocks — run this file solo (`mock.module` leaks across a shared `bun test`
+ * run).
+ */
+
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
+import type { ReactNode } from "react";
+
+const RESIZE_LABEL = "Setting up your machine…";
+
+// --- Mutable per-test state, reset in beforeEach ------------------------------
+
+const navigateMock = mock((_to: string, _opts?: unknown) => {});
+let searchParams = new URLSearchParams();
+
+let isLocalModeValue = false;
+
+interface AssistantShape {
+  id: string;
+  status: string;
+  machine_size: string | null;
+  provisioned_storage_gib: number | null;
+}
+let currentAssistant: AssistantShape;
+
+// The active-detection poll is the first id-keyed getAssistant; later id-polls
+// are the resize loop and may advance the fake clock so the cap-expiry path is
+// exercised without a real 90s wait.
+let idPollCount = 0;
+let resizePollClockStepMs = 0;
+
+interface OnboardingShape {
+  max_machine_tier: string | null;
+  selected_storage_gib: number | null;
+}
+let onboardingData: OnboardingShape | null = null;
+let onboardingThrows = false;
+
+// --- Mocks --------------------------------------------------------------------
+
+const getAssistantMock = mock(async (id?: string) => {
+  if (!id) {
+    // Pre-flight with no id: no assistant exists yet (auto_hatch).
+    return { ok: false as const, status: 404, error: {} };
+  }
+  idPollCount += 1;
+  if (idPollCount >= 2 && resizePollClockStepMs > 0) {
+    setSystemTime(new Date(Date.now() + resizePollClockStepMs));
+  }
+  return { ok: true as const, status: 200, data: { ...currentAssistant } };
+});
+
+const getAssistantHealthzMock = mock(async (_id: string) => ({
+  ok: true as const,
+  status: 200,
+  data: {},
+}));
+
+const hatchAssistantMock = mock(async () => ({
+  ok: true as const,
+  status: 201,
+  data: { id: "asst-1", status: "provisioning" },
+}));
+
+const ensureProvisionedMock = mock(async () => ({
+  data: { state: "started", reason: null, targets: {} },
+}));
+
+const onboardingRetrieveMock = mock(async () => {
+  if (onboardingThrows) {
+    throw new Error("onboarding fetch failed");
+  }
+  return { data: onboardingData };
+});
+
+const hatchLocalAssistantMock = mock(async () => ({
+  ok: true as const,
+  assistantId: "local-1",
+}));
+
+mock.module("react-router", () => ({
+  useNavigate: () => navigateMock,
+  useSearchParams: () => [searchParams],
+}));
+
+mock.module("@/lib/sentry/capture-error", () => ({
+  captureError: () => {},
+}));
+
+mock.module("@sentry/react", () => ({
+  captureMessage: () => {},
+}));
+
+const stableQueryClient = {};
+mock.module("@tanstack/react-query", () => ({
+  useQueryClient: () => stableQueryClient,
+}));
+
+mock.module("@/assistant/api", () => ({
+  getAssistant: getAssistantMock,
+  getAssistantHealthz: getAssistantHealthzMock,
+  hatchAssistant: hatchAssistantMock,
+}));
+
+mock.module("@/generated/api/sdk.gen", () => ({
+  organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate:
+    ensureProvisionedMock,
+  organizationsBillingSubscriptionOnboardingRetrieve: onboardingRetrieveMock,
+}));
+
+mock.module("@/assistant/seed-hatch-avatar", () => ({
+  seedHatchAvatar: async () => {},
+}));
+
+mock.module("@/assistant/lifecycle", () => ({
+  isPlatformHostedDisabled: () => false,
+  PLATFORM_HOSTED_DISABLED_MESSAGE: "disabled",
+  shouldRecoverFromHatchFailure: () => true,
+  resolveAssistantLifecycleState: (result: {
+    ok?: boolean;
+    status?: number;
+    data?: { status?: string };
+  }) => {
+    if (result?.ok && result.data?.status === "active") {
+      return { kind: "active" };
+    }
+    if (!result?.ok && result.status === 404) {
+      return { kind: "auto_hatch" };
+    }
+    return { kind: "provisioning" };
+  },
+}));
+
+mock.module("@/assistant/lifecycle-service", () => ({
+  lifecycleService: {
+    checkAssistant: async () => {},
+    markExpectingFirstMessage: () => {},
+  },
+}));
+
+mock.module("@/domains/onboarding/components/onboarding-layout", () => ({
+  OnboardingLayout: ({ children }: { children: ReactNode }) => children,
+}));
+
+mock.module("@/domains/onboarding/prefs", () => ({
+  readSelectedVersion: () => "",
+  writeSelectedVersion: () => {},
+}));
+
+mock.module("@/domains/onboarding/provider-key", () => ({
+  applyPendingProviderKey: async () => {},
+}));
+
+mock.module("@/domains/onboarding/plugin-attribution", () => ({
+  ATTRIBUTED_PLUGIN_PARAM: "attributed_plugin",
+}));
+
+mock.module("@/lib/local-mode", () => ({
+  isLocalMode: () => isLocalModeValue,
+  getPlatformRuntimeUrl: () => "https://runtime.example",
+  loadLockfile: async () => {},
+  primeLocalGatewayConnection: async () => {},
+  probeLocalGatewayReady: async () => true,
+  saveLockfileAssistant: async () => {},
+}));
+
+mock.module("@/lib/auth/gateway-session", () => ({
+  clearGatewayToken: () => {},
+}));
+
+mock.module("@/lib/navigation/navigation-resolver", () => ({
+  resolveNavigation: () => ({ action: "proceed" }),
+}));
+
+mock.module("@/lib/navigation/build-state", () => ({
+  buildNavigationState: () => ({}),
+}));
+
+mock.module("@/runtime/local-mode-host", () => ({
+  hatchLocalAssistant: hatchLocalAssistantMock,
+}));
+
+mock.module("@/runtime/is-electron", () => ({
+  isElectron: () => false,
+}));
+
+mock.module("@/runtime/native-auth", () => ({
+  isNativePlatform: () => false,
+}));
+
+mock.module("@/assistant/selection", () => ({
+  setSelectedAssistant: () => {},
+}));
+
+mock.module("@/stores/auth-store", () => ({
+  useAuthStore: {
+    use: {
+      sessionStatus: () => "authenticated",
+    },
+    getState: () => ({
+      connectLocalAssistant: async () => {},
+    }),
+  },
+}));
+
+mock.module("@/stores/organization-store", () => ({
+  useOrganizationStore: {
+    getState: () => ({ currentOrganizationId: null }),
+  },
+}));
+
+mock.module("@/stores/resolved-assistants-store", () => ({
+  useResolvedAssistantsStore: {
+    getState: () => ({ upsertFromApi: () => {} }),
+  },
+}));
+
+mock.module("@/stores/session-status", () => ({
+  isSessionSettled: () => true,
+}));
+
+mock.module("@/utils/api-errors", () => ({
+  extractErrorMessage: (_error: unknown, _detail: unknown, fallback: string) =>
+    fallback,
+}));
+
+mock.module("@/utils/avatar-bundled-components", () => ({
+  BUNDLED_COMPONENTS: {},
+}));
+
+mock.module("@/utils/avatar-random", () => ({
+  randomCharacterTraits: () => ({
+    bodyShape: "a",
+    eyeStyle: "b",
+    color: "c",
+  }),
+}));
+
+mock.module("@/utils/avatar-svg-compositor", () => ({
+  composeSvg: () => "<svg></svg>",
+}));
+
+mock.module("@/utils/routes", () => ({
+  routes: {
+    assistant: "/assistant",
+    onboarding: {
+      research: "/onboarding/research",
+      hosting: "/onboarding/hosting",
+      privacy: "/onboarding/privacy",
+    },
+  },
+}));
+
+mock.module("@vellumai/design-library/components/button", () => ({
+  Button: ({ children }: { children: ReactNode }) => <button>{children}</button>,
+}));
+
+mock.module("@vellumai/design-library/components/progress-bar", () => ({
+  ProgressBar: () => <div data-testid="progress-bar" />,
+}));
+
+const { HatchingScreen } = await import(
+  "@/domains/onboarding/pages/hatching-screen"
+);
+
+// --- Suite --------------------------------------------------------------------
+
+describe("HatchingScreen — post-payment provisioning wait", () => {
+  beforeEach(() => {
+    setSystemTime();
+    navigateMock.mockClear();
+    getAssistantMock.mockClear();
+    getAssistantHealthzMock.mockClear();
+    hatchAssistantMock.mockClear();
+    ensureProvisionedMock.mockClear();
+    onboardingRetrieveMock.mockClear();
+    hatchLocalAssistantMock.mockClear();
+    searchParams = new URLSearchParams();
+    isLocalModeValue = false;
+    idPollCount = 0;
+    resizePollClockStepMs = 0;
+    onboardingThrows = false;
+    onboardingData = null;
+    currentAssistant = {
+      id: "asst-1",
+      status: "active",
+      machine_size: "small",
+      provisioned_storage_gib: 10,
+    };
+  });
+
+  afterEach(() => {
+    cleanup();
+    setSystemTime();
+  });
+
+  test(
+    "holds until actuals meet the purchased targets, then completes; reconcile fires once",
+    async () => {
+      onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
+
+      render(<HatchingScreen />);
+
+      // The resize wait is active — actuals (small/10) are below the purchased
+      // ceiling (extra_large/50), so the screen holds without completing.
+      await waitFor(() =>
+        expect(screen.getByText(RESIZE_LABEL)).toBeTruthy(),
+      );
+      expect(ensureProvisionedMock).toHaveBeenCalledTimes(1);
+      expect(navigateMock).not.toHaveBeenCalled();
+
+      // The server-side resize lands: actuals now meet the targets.
+      currentAssistant.machine_size = "extra_large";
+      currentAssistant.provisioned_storage_gib = 50;
+
+      await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+        timeout: 15000,
+      });
+      expect(ensureProvisionedMock).toHaveBeenCalledTimes(1);
+    },
+    20000,
+  );
+
+  test("free org with null targets completes with no added wait", async () => {
+    onboardingData = { max_machine_tier: null, selected_storage_gib: null };
+
+    render(<HatchingScreen />);
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+      timeout: 5000,
+    });
+    // No purchased ceiling to wait on: the resize phase is never entered.
+    expect(screen.queryByText(RESIZE_LABEL)).toBeNull();
+  });
+
+  test("a failed targets fetch completes as today", async () => {
+    onboardingThrows = true;
+
+    render(<HatchingScreen />);
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+      timeout: 5000,
+    });
+    expect(screen.queryByText(RESIZE_LABEL)).toBeNull();
+  });
+
+  test(
+    "the wait exceeding the hard cap completes anyway",
+    async () => {
+      onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
+      // Actuals stay below the targets; the resize poll jumps the clock past the
+      // RESIZE_WAIT_MAX_MS cap so completion falls through at baseline.
+      resizePollClockStepMs = 91_000;
+
+      render(<HatchingScreen />);
+
+      await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+        timeout: 15000,
+      });
+      // Never met the targets — completion came from the cap, not convergence.
+      expect(currentAssistant.machine_size).toBe("small");
+      expect(ensureProvisionedMock).toHaveBeenCalledTimes(1);
+    },
+    20000,
+  );
+
+  test("local hatches never fire the reconcile or targets fetch", async () => {
+    isLocalModeValue = true;
+    searchParams = new URLSearchParams("hosting=docker");
+
+    render(<HatchingScreen />);
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+      timeout: 5000,
+    });
+    expect(ensureProvisionedMock).not.toHaveBeenCalled();
+    expect(onboardingRetrieveMock).not.toHaveBeenCalled();
+  });
+});
