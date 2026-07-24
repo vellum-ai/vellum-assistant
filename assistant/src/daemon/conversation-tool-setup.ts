@@ -62,6 +62,7 @@ import {
   type UsageAttributionSnapshot,
 } from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
+import { conversationSupportsDynamicUi } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
 import { projectSkillTools } from "./conversation-skill-tools.js";
 import {
@@ -418,6 +419,10 @@ export function createToolExecutor(
         ctx.currentTurnIsNonInteractive !== undefined
           ? !ctx.currentTurnIsNonInteractive
           : !ctx.hasNoClient && !ctx.headlessLock,
+      // Lets UI-dependent tools (e.g. `ask_question`) degrade to text on
+      // channels that can't render dynamic surfaces (Telegram, SMS) instead of
+      // emitting one the channel silently drops.
+      supportsDynamicUi: conversationSupportsDynamicUi(ctx),
       proxyToolResolver: (
         toolName: string,
         proxyInput: Record<string, unknown>,

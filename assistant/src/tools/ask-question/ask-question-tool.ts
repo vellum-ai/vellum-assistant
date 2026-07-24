@@ -113,6 +113,47 @@ const OPTION_ITEMS_SCHEMA = {
   required: ["id", "label"],
 } as const;
 
+// ── Text fallback for channels without dynamic UI ───────────────────
+
+/**
+ * Render a batch of questions and their options as a plain-text block for
+ * channels that can't display the interactive question card (Telegram, SMS,
+ * …). Returned as the tool result so the model relays it to the user in its
+ * reply — which is what actually gets delivered to the channel — and waits for
+ * a free-text answer instead of re-invoking `ask_question`.
+ *
+ * Options are shown by `label` (+ optional `description`), never their `id`:
+ * the id is the machine value the card would return, meaningless to a user
+ * typing a free-text answer.
+ */
+export function formatQuestionsAsTextFallback(
+  questions: SingleQuestion[],
+): string {
+  const multi = questions.length > 1;
+  const header = multi
+    ? `This channel can't display tappable option buttons. Present these ${questions.length} questions to the user as a plain-text message — list every option so they can reply with a choice or in their own words — then wait for their answer. Do not call ask_question again for these.`
+    : "This channel can't display tappable option buttons. Present this question to the user as a plain-text message — list every option so they can reply with a choice or in their own words — then wait for their answer. Do not call ask_question again for this.";
+
+  const blocks = questions.map((q, i) => {
+    const lines: string[] = [];
+    lines.push(
+      multi ? `Question ${i + 1}: ${q.question}` : `Question: ${q.question}`,
+    );
+    if (q.description) {
+      lines.push(q.description);
+    }
+    lines.push("Options:");
+    for (const o of q.options) {
+      lines.push(
+        o.description ? `- ${o.label} — ${o.description}` : `- ${o.label}`,
+      );
+    }
+    return lines.join("\n");
+  });
+
+  return [header, "", blocks.join("\n\n")].join("\n");
+}
+
 // ── Tool ────────────────────────────────────────────────────────────
 
 /**
@@ -191,6 +232,23 @@ export const askQuestionTool = {
       return {
         content:
           "No interactive user is present to answer; proceeding with reasonable defaults.",
+        isError: false,
+      };
+    }
+
+    // The active channel can't render the interactive question card (e.g.
+    // Telegram, SMS). A broadcast question_request would reach app clients but
+    // never the channel the turn came from, so the user would see nothing.
+    // Degrade to text: hand the model the formatted question(s) and options to
+    // present in its reply — which IS what gets delivered to the channel — and
+    // wait for a free-text answer. Mirrors the isInteractive guard above:
+    // return immediately instead of parking on a prompt the surface can't
+    // answer. (UI surface tools like ui_show are instead dropped from the wire
+    // for these channels; ask_question stays available because a question with
+    // options reads cleanly as text.)
+    if (context.supportsDynamicUi === false) {
+      return {
+        content: formatQuestionsAsTextFallback(questions),
         isError: false,
       };
     }
