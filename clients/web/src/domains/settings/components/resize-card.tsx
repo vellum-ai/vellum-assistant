@@ -98,9 +98,7 @@ export function ResizeCard({
     null,
   );
   const displaySize = selectedSize ?? largestSize ?? currentSize;
-  const [upgradeModalOpen, setUpgradeModalOpen] = useState<
-    "storage" | "machine" | null
-  >(null);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const [resizeError, setResizeError] = useState<string | null>(null);
 
   const resizeMutation = useAssistantsResizeMutation({
@@ -223,7 +221,7 @@ export function ResizeCard({
     <Button
       variant="ghost"
       size="compact"
-      onClick={() => setUpgradeModalOpen("storage")}
+      onClick={() => setUpgradeModalOpen(true)}
     >
       Resize
     </Button>
@@ -254,7 +252,7 @@ export function ResizeCard({
     <Button
       variant="ghost"
       size="compact"
-      onClick={() => setUpgradeModalOpen("machine")}
+      onClick={() => setUpgradeModalOpen(true)}
     >
       Resize
     </Button>
@@ -385,9 +383,9 @@ export function ResizeCard({
 
       {/* Upgrade modal (free plan) */}
       <Modal.Root
-        open={upgradeModalOpen != null}
+        open={upgradeModalOpen}
         onOpenChange={(o) => {
-          if (!o) setUpgradeModalOpen(null);
+          if (!o) setUpgradeModalOpen(false);
         }}
       >
         <Modal.Content size="sm">
@@ -399,12 +397,12 @@ export function ResizeCard({
             </Modal.Description>
           </Modal.Header>
           <Modal.Footer>
-            <Button variant="ghost" onClick={() => setUpgradeModalOpen(null)}>
+            <Button variant="ghost" onClick={() => setUpgradeModalOpen(false)}>
               Cancel
             </Button>
             <Button
               onClick={() => {
-                setUpgradeModalOpen(null);
+                setUpgradeModalOpen(false);
                 void navigate(routes.plans);
               }}
             >
