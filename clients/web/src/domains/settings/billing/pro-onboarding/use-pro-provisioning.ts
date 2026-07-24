@@ -13,15 +13,16 @@
  * subscription error maps to `confirmError`, and a post-confirm onboarding
  * fetch failure with no cached data maps to `targetsError`.
  *
- * On top of the observation it also *acts* once: the moment the subscription
- * first reports Pro it calls the idempotent ensure-provisioned reconcile
- * endpoint, so a webhook that never fired (or whose resize was lost) still
- * gets provisioned. The returned verdict feeds the state machine's
- * `serverVerdict` slot; the endpoint failing never blocks the flow — the
- * polling above converges on its own. But a reconcile failure from *any*
- * source (auto, manual, or the fire-and-forget escape kick) is now held in
- * `ensureError` so the takeover can honestly surface the ≥90s snag variant;
- * any later success clears it.
+ * On top of the observation it also *acts*: the moment the subscription first
+ * reports Pro it fires the idempotent ensure-provisioned reconcile endpoint
+ * automatically, and `kickProvisioning` fires the same reconcile on demand, so
+ * a webhook that never fired (or whose resize was lost) still gets
+ * provisioned. The returned verdict feeds the state machine's `serverVerdict`
+ * slot; the endpoint failing never blocks the flow — the polling above
+ * converges on its own. A reconcile failure from any source is held in
+ * `ensureError` (exposed as `kickError`) so the takeover can honestly surface
+ * the ≥90s snag variant; any later success clears it. The reconcile carries no
+ * pending flag.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -90,17 +91,6 @@ export interface UseProProvisioningOptions {
   open: boolean;
 }
 
-/**
- * Stalled-state recovery affordance. `error` mirrors `ensureError`: a reconcile
- * failure from any source (auto, manual, or the fire-and-forget escape kick),
- * cleared by a later success.
- */
-export interface ProvisioningRetryAction {
-  onApply: () => void;
-  pending: boolean;
-  error: unknown;
-}
-
 export interface ProProvisioningResult {
   state: ProvisioningStateKind;
   softWaiting: boolean;
@@ -128,27 +118,22 @@ export interface ProProvisioningResult {
   /**
    * The watch has run long enough (without resolving) that the "continue in
    * the background" escape hatch may be offered. Re-bases with the stall clock
-   * after a manual-apply resume.
+   * after a successful `kickProvisioning` resume.
    */
   escapeEligible: boolean;
   /** Reset the confirm timeout and re-poll the subscription. */
   retryConfirm: () => void;
   /**
-   * STALLED-state recovery: re-calls the idempotent ensure-provisioned
+   * Fire-and-forget "escape" kick: fires the idempotent ensure-provisioned
    * reconcile (grow-only, in-flight-guarded, so a repeat never double-fires a
    * resize) and re-bases the stall clock on success so observation resumes.
-   */
-  stalledAction: ProvisioningRetryAction;
-  /**
-   * Fire-and-forget "escape" kick: fires the idempotent ensure-provisioned
-   * reconcile without touching the manual-pending flag, so a hung call can
-   * never strand later UI. Used when closing the takeover into the background.
+   * Carries no pending flag, so a hung call can never strand later UI. Used
+   * when closing the takeover into the background.
    */
   kickProvisioning: () => void;
   /**
    * Latest ensure-provisioned failure from any source; cleared by a later
-   * success. Drives the ≥90s snag variant on the takeover. (Alias of
-   * `stalledAction.error`.)
+   * success. Drives the ≥90s snag variant on the takeover.
    */
   kickError: unknown;
 }
@@ -169,7 +154,7 @@ export function useProProvisioning({
   // after this instant may confirm pro.
   const [openedAt, setOpenedAt] = useState<number | null>(null);
   const [proConfirmedAt, setProConfirmedAt] = useState<number | null>(null);
-  // Stall-clock re-base set by a successful manual reconcile; proConfirmedAt
+  // Stall-clock re-base set by a successful kick reconcile; proConfirmedAt
   // otherwise.
   const [resumedAt, setResumedAt] = useState<number | null>(null);
   // Latest adopted ensure-provisioned verdict; null while the endpoint hasn't
@@ -194,16 +179,9 @@ export function useProProvisioning({
   const [targetsMetAssistantId, setTargetsMetAssistantId] = useState<
     string | null
   >(null);
-  // Latest reconcile failure from any source (auto/manual/escape); cleared by a
-  // later success — see runEnsureProvisioned.
+  // Latest reconcile failure from any source (auto/escape); cleared by a later
+  // success — see runEnsureProvisioned.
   const [ensureError, setEnsureError] = useState<unknown>(null);
-  // Pending state for the *manual* reconcile only. The mutation's own
-  // `isPending` is shared with the automatic call fired on Pro confirm, and a
-  // hung automatic call is precisely the case that strands the user in
-  // STALLED — gating Apply & Restart on it would disable their only recovery
-  // path. The endpoint is idempotent and in-flight guarded, so letting a manual
-  // apply overlap a slow automatic one is safe.
-  const [manualPending, setManualPending] = useState(false);
   const [raceRetryScheduled, setRaceRetryScheduled] = useState(false);
   // Fire-once-per-open guard for the automatic reconcile. A ref (not state) so
   // it can't be lost to a re-render between the check and the call, and it
@@ -246,7 +224,6 @@ export function useProProvisioning({
     setTargetsMetAt(null);
     setTargetsMetAssistantId(null);
     setEnsureError(null);
-    setManualPending(false);
     setRaceRetryScheduled(false);
     ensureRequestedRef.current = false;
     ensureRaceRetriedRef.current = false;
@@ -326,11 +303,7 @@ export function useProProvisioning({
   const { mutate: ensureProvisioned } = ensureProvisionedMutation;
 
   const runEnsureProvisioned = useCallback(
-    (source: "auto" | "manual" | "escape") => {
-      if (source === "manual") {
-        setEnsureError(null);
-        setManualPending(true);
-      }
+    (source: "auto" | "escape") => {
       // The open this call belongs to. Both callbacks drop out when the wizard
       // has since closed, so a late response can't drive a later session.
       const generation = ensureGenerationRef.current;
@@ -355,21 +328,21 @@ export function useProProvisioning({
                 ensureRaceRetriedRef.current = true;
                 setRaceRetryScheduled(true);
                 // A re-ask is already queued, so observation may resume.
-                if (source !== "auto") {
+                if (source === "escape") {
                   resumeWatch();
                 }
               } else {
                 // Dead end: the verdict is deliberately not adopted, nothing
                 // was queued, and the once-per-open re-ask is spent. Re-basing
-                // the stall clock here would drop the user out of STALLED —
-                // hiding Apply & Restart for another stall window — with no
-                // resize running and nothing said. Hold the state and explain,
-                // regardless of source, so a repeat dead end surfaces why.
+                // the stall clock here would drop the user out of STALLED with
+                // no resize running and nothing said. Hold the state and
+                // explain, regardless of source, so a repeat dead end surfaces
+                // why.
                 setEnsureError({ error: "no_active_pro" });
               }
             } else {
               setServerVerdict(data.state);
-              if (source !== "auto") {
+              if (source === "escape") {
                 resumeWatch();
               }
             }
@@ -380,19 +353,10 @@ export function useProProvisioning({
             }
             // 503 (submission couldn't be queued) or a network blip: nothing
             // was queued and nothing is broken — the actuals polling still
-            // converges, so the flow never blocks on this. The automatic call
-            // no longer degrades *silently*, though: its error is held for the
-            // ≥90s snag variant on the takeover and cleared by any later
-            // success, so a failure from any source is captured alike.
+            // converges, so the flow never blocks on this. The error is held
+            // for the ≥90s snag variant on the takeover and cleared by any
+            // later success, so a failure from any source is captured alike.
             setEnsureError(error);
-          },
-          // Unconditional (not generation-gated): the button's pending state
-          // must clear even for a response that belongs to a closed wizard,
-          // otherwise a reopen inherits a stuck-disabled Apply & Restart.
-          onSettled: () => {
-            if (source === "manual") {
-              setManualPending(false);
-            }
           },
         },
       );
@@ -431,17 +395,8 @@ export function useProProvisioning({
     return () => clearTimeout(t);
   }, [raceRetryScheduled, runEnsureProvisioned]);
 
-  const stalledAction = useMemo<ProvisioningRetryAction>(
-    () => ({
-      onApply: () => runEnsureProvisioned("manual"),
-      pending: manualPending,
-      error: ensureError,
-    }),
-    [runEnsureProvisioned, manualPending, ensureError],
-  );
-
-  // Fire-and-forget escape kick: fires the reconcile but never flips
-  // manualPending, so a hung escape-fired call can't strand later UI.
+  // Fire-and-forget escape kick: fires the reconcile with no pending flag, so a
+  // hung escape-fired call can't strand later UI.
   const kickProvisioning = useCallback(
     () => runEnsureProvisioned("escape"),
     [runEnsureProvisioned],
@@ -647,7 +602,6 @@ export function useProProvisioning({
     escapeEligible:
       msSinceWatchStart != null && msSinceWatchStart >= PROVISION_ESCAPE_MS,
     retryConfirm,
-    stalledAction,
     kickProvisioning,
     kickError: ensureError,
   };
