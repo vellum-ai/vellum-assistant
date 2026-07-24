@@ -1,6 +1,6 @@
 import {
-    Crown,
     Loader2,
+    Mail,
     Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -278,21 +278,19 @@ export function EmailManagedContent({
     return (
       <Notice
         tone="info"
-        icon={<Crown className="h-4 w-4" aria-hidden />}
-        title="Get a dedicated email address for your assistant"
+        icon={<Mail className="h-4 w-4" aria-hidden />}
+        title="Give your assistant its own email address"
         actions={
           <Button
             size="compact"
-            onClick={() => navigate(`${routes.settings.usage}?tab=billing&adjust_plan`)}
+            onClick={() => navigate(routes.plans)}
           >
-            Upgrade to Pro
+            Upgrade
           </Button>
         }
       >
-        Pro plans include a managed{" "}
-        {`<your-subdomain>.${emailRootDomain}`} inbox — no provider
-        setup required. Or switch to <strong>Your Own</strong> to bring
-        an existing provider.
+        Upgrade to a plan that includes an email address for your
+        assistant. No provider setup required.
       </Notice>
     );
   }
