@@ -13,7 +13,7 @@ import type { ScheduleMode } from "../../schedule/schedule-store.js";
  * schedule fires once and carries no compounding cost.
  */
 export const ACTIVE_MODEL_SELECTION_NOTE =
-  "Model: this schedule's runs use the assistant's active chat-model selection. For routine recurring work (digests, inbox checks, reminders, status polls), pin a cost-efficient `inference_profile` to avoid compounding premium-model cost, and tell the user which model it will run on.";
+  "Model: with no `inference_profile` pinned, each firing dynamically inherits the assistant's active chat-model selection at that moment, so the model changes if the user later switches chat models. Pin an `inference_profile` to hold the model stable — a cost-efficient one for routine work (digests, inbox checks, reminders, status polls) to avoid compounding premium-model cost, or the desired quality profile for quality-sensitive work so a later switch can't silently degrade it. Tell the user which model it will run on.";
 
 /**
  * Whether to surface {@link ACTIVE_MODEL_SELECTION_NOTE} for a just

@@ -119,14 +119,15 @@ assistant conversations wake "$id" --hint "Summarize the new items" --external-c
 
 ## Inference Profile
 
-Execute-mode runs inherit the user's active `mainAgent` chat-model selection unless the schedule pins an `inference_profile` (a key from `llm.profiles`). This inheritance is the cost trap: a recurring schedule created while the user's main model is a premium one will silently run that premium model on every firing, and a daily job quietly compounds into real money over weeks. Pass `inference_profile: null` on update to revert to inheriting the active selection. The pinned profile is shown on the schedule's details page in settings.
+When a schedule pins an `inference_profile` (a key from `llm.profiles`), its execute-mode runs use that profile on every firing and the model stays stable no matter what the user later does. When no profile is pinned, each firing **dynamically inherits** the user's active `mainAgent` chat-model selection at the moment it fires, so the model can change out from under the schedule: if the user later switches to a premium model a recurring job silently compounds that cost over weeks, and if they switch to a weaker one a quality-sensitive job silently degrades. Pass `inference_profile: null` on update to clear the pin and return to dynamic inheritance. The pinned profile is shown on the schedule's details page in settings.
 
-Make a deliberate model choice for every recurring execute-mode schedule instead of defaulting to inheritance:
+Prefer pinning a profile for every recurring execute-mode schedule so its model is stable:
 
 - **Routine or mechanical work** — digests, inbox checks, reminders, status polls, scraping-and-summarizing — pin a **cost-efficient** profile (e.g. `cost-optimized`). These tasks rarely need a premium model, and the savings recur on every run.
-- **Quality-sensitive work** — reasoning, drafting, judgement, anything where a weaker model would degrade the result — keep the user's main model (omit `inference_profile`), and say so explicitly so the choice is intentional.
+- **Quality-sensitive work** — reasoning, drafting, judgement, anything where a weaker model would degrade the result — pin the **quality** profile you want (e.g. the model the user currently uses for chat), so a later change to their chat model can't silently degrade the schedule.
+- **Omit `inference_profile`** only when the user wants the schedule to follow whatever their current chat model is at each firing. Say so explicitly so the dynamic behavior is intentional.
 
-When you confirm a new recurring schedule, **tell the user which model it will run on** and, when it inherits the main model, note that they'll be paying for that model on an ongoing basis so they can decide whether to pin a cheaper profile. `inference_profile` only affects execute-mode runs; notify, script, and workflow schedules don't invoke the mainAgent model.
+When you confirm a new recurring schedule, **tell the user which model it will run on**. When it is left unpinned, note that its model will track their active chat-model selection at each firing — including any future switch — so they can decide whether to pin a profile instead. `inference_profile` only affects execute-mode runs; notify, script, and workflow schedules don't invoke the mainAgent model.
 
 ## Conversation Reuse
 
