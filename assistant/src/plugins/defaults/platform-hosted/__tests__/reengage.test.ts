@@ -12,6 +12,7 @@
  * Covers:
  * - Happy path: model writes valid JSON → structured subject/body, file cleaned up
  * - Runs in a fresh background conversation
+ * - Returns the most recent standard conversation to re-open (or null)
  * - Fenced JSON in the file → still parsed
  * - Model writes nothing → 502
  * - Model writes JSON missing a field → 502
@@ -38,6 +39,10 @@ let fileContents: string | null = JSON.stringify({
   body: "Just picking up where we left off.",
 });
 let lastOptions: RunConversationTurnOptions | undefined;
+// Rows the mocked `listConversations` returns, newest-first — the route reads
+// the first row's id as the conversation to re-open.
+let conversationRows: { id: string }[] = [{ id: "conv-42" }];
+let lastListArgs: unknown[] | undefined;
 
 function extractInjectedPath(prompt: string): string {
   const match = prompt.match(/`([^`]+)`/);
@@ -57,6 +62,10 @@ mock.module("@vellumai/plugin-api", () => ({
     }
     return { content: [], userMessageId: "msg-1", conversationId: "conv-1" };
   },
+  listConversations: async (...args: unknown[]) => {
+    lastListArgs = args;
+    return conversationRows;
+  },
 }));
 
 const { POST } = await import("../routes/reengage.js");
@@ -72,6 +81,8 @@ describe("platform-hosted /reengage POST", () => {
   beforeEach(() => {
     workspaceDir = mkdtempSync(join(tmpdir(), "reengage-test-"));
     lastOptions = undefined;
+    lastListArgs = undefined;
+    conversationRows = [{ id: "conv-42" }];
     fileContents = JSON.stringify({
       subject: "Ready when you are",
       body: "Just picking up where we left off.",
@@ -81,7 +92,11 @@ describe("platform-hosted /reengage POST", () => {
   test("returns the structured subject/body the model wrote, and cleans up", async () => {
     const response = await POST(postRequest());
     expect(response.status).toBe(200);
-    const json = (await response.json()) as { subject: string; body: string };
+    const json = (await response.json()) as {
+      subject: string;
+      body: string;
+      conversation: string | null;
+    };
     expect(json.subject).toBe("Ready when you are");
     expect(json.body).toBe("Just picking up where we left off.");
 
@@ -101,6 +116,23 @@ describe("platform-hosted /reengage POST", () => {
   test("runs on the fast inference call site rather than the main-agent default", async () => {
     await POST(postRequest());
     expect(lastOptions?.callSite).toBe("inference");
+  });
+
+  test("returns the most recent standard conversation to re-open", async () => {
+    conversationRows = [{ id: "conv-42" }, { id: "older" }];
+    const response = await POST(postRequest());
+    const json = (await response.json()) as { conversation: string | null };
+    expect(json.conversation).toBe("conv-42");
+    // Only the standard bucket is queried (background/scheduled/subagent rows
+    // — including the drafting turn's own — are excluded), limited to one row.
+    expect(lastListArgs).toEqual([1, "standard"]);
+  });
+
+  test("conversation is null when the owner has no standard conversations", async () => {
+    conversationRows = [];
+    const response = await POST(postRequest());
+    const json = (await response.json()) as { conversation: string | null };
+    expect(json.conversation).toBeNull();
   });
 
   test("tolerates JSON wrapped in a code fence", async () => {
