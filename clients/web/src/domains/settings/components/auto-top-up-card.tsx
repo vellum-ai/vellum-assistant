@@ -170,14 +170,48 @@ export function AutoTopUpCard() {
     }
   }, [showAddPm, configQuery.data?.has_payment_method]);
 
+  /**
+   * Transition into form mode. Resets any prior mutation errors so stale
+   * field-level errors (from `updateMutation`) or the disable-failure
+   * banner (from `disableMutation`) don't render the moment the form
+   * re-mounts (e.g. after Cancel + re-Edit, or after a failed Disable).
+   * Hoisted above the loading/error guards so the deeplink effect below can
+   * reuse it; depends only on the mutations and `setMode`, all bound above.
+   */
+  const enterFormMode = () => {
+    updateMutation.reset();
+    disableMutation.reset();
+    setMode("form");
+  };
+
+  /**
+   * Shared "turn Extra Usage on from disabled" flow, used by both the toggle
+   * (`handleToggleChange`) and the `?configure_top_up=1` deeplink effect: with
+   * no usable PM (none on file, or auto-reload paused after repeated declines)
+   * reveal the add-card gate, otherwise open the configure form. Never persists
+   * — Save still does. Both callers run it only while disabled, so
+   * `disabled_due_to_repeated_failures` alone matches `disabledAfterDeclines`.
+   */
+  const beginEnableFlow = (cfg: AutoTopUpConfigResponse) => {
+    setPendingEnable(true);
+    if (
+      !cfg.has_payment_method ||
+      cfg.disabled_due_to_repeated_failures === true
+    ) {
+      setShowAddPm(true);
+      setBannerDismissed(false);
+      return;
+    }
+    setShowAddPm(false);
+    enterFormMode();
+  };
+
   // Arriving with `?configure_top_up=1` (deeplinked from the Add Credits
   // modal) replays the toggle-on path once, then strips the param. Never
   // mutates the server; persistence still requires Save. Must sit before the
-  // loading/error guards below (rules-of-hooks), so — like the no-PM effect
-  // above — it reads through `configQuery.data` instead of the post-guard
-  // `config`/handlers, reproducing the disabled→on branch of
-  // `handleToggleChange`: reveal the add-card gate with no usable PM, else open
-  // the configure form (the two `reset()`s match `enterFormMode`).
+  // loading/error guards below (rules-of-hooks), so it reads through
+  // `configQuery.data` and reuses `beginEnableFlow` (the same flow the toggle
+  // runs) rather than the post-guard `config`/handlers.
   const configureTopUpRequested =
     searchParams.get("configure_top_up") === "1";
   useEffect(() => {
@@ -191,20 +225,7 @@ export function AutoTopUpCard() {
     if (cfg.enabled === true) {
       return;
     }
-    setPendingEnable(true);
-    // `cfg.enabled` is false here, so this matches `disabledAfterDeclines`.
-    if (
-      !cfg.has_payment_method ||
-      cfg.disabled_due_to_repeated_failures === true
-    ) {
-      setShowAddPm(true);
-      setBannerDismissed(false);
-    } else {
-      setShowAddPm(false);
-      updateMutation.reset();
-      disableMutation.reset();
-      setMode("form");
-    }
+    beginEnableFlow(cfg);
     const reduceMotion =
       typeof window !== "undefined" &&
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
@@ -212,7 +233,7 @@ export function AutoTopUpCard() {
       behavior: reduceMotion ? "auto" : "smooth",
       block: "center",
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per arrival; setters/mutations and `searchParams` intentionally excluded
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per arrival; `beginEnableFlow`/`searchParams` intentionally excluded
   }, [configureTopUpRequested, configQuery.data]);
 
   if (configQuery.isLoading) {
@@ -248,18 +269,6 @@ export function AutoTopUpCard() {
   // while the config is currently disabled (`if (next && !enabled)`).
   const disabledAfterDeclines =
     config.disabled_due_to_repeated_failures === true && !enabled;
-
-  /**
-   * Transition into form mode. Resets any prior mutation errors so stale
-   * field-level errors (from `updateMutation`) or the disable-failure
-   * banner (from `disableMutation`) don't render the moment the form
-   * re-mounts (e.g. after Cancel + re-Edit, or after a failed Disable).
-   */
-  const enterFormMode = () => {
-    updateMutation.reset();
-    disableMutation.reset();
-    setMode("form");
-  };
 
   const exitFormMode = () => {
     setMode("view");
@@ -434,14 +443,7 @@ export function AutoTopUpCard() {
    */
   const handleToggleChange = (next: boolean) => {
     if (next && !enabled) {
-      setPendingEnable(true);
-      if (!config.has_payment_method || disabledAfterDeclines) {
-        setShowAddPm(true);
-        setBannerDismissed(false);
-        return;
-      }
-      setShowAddPm(false);
-      enterFormMode();
+      beginEnableFlow(config);
       return;
     }
     if (!next && !enabled && pendingEnable) {
