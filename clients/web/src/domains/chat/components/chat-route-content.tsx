@@ -404,11 +404,16 @@ export function ChatMainPanel({
    */
   const onBillingRemediation = useCallback(
     (action: () => void) => () => {
-      useChatSessionStore
-        .getState()
-        .setError((prev) =>
-          getChatBillingBannerDecision(prev) !== null ? null : prev,
-        );
+      // Both sources, because the banner renders off `error ?? notice` — a
+      // billing-shaped `notice` (e.g. a non-terminal `conversation_notice`)
+      // would otherwise keep the paywall painted after the CTA was engaged.
+      const state = useChatSessionStore.getState();
+      state.setError((prev) =>
+        getChatBillingBannerDecision(prev) !== null ? null : prev,
+      );
+      state.setNotice((prev) =>
+        getChatBillingBannerDecision(prev) !== null ? null : prev,
+      );
       action();
     },
     [],
