@@ -1,14 +1,19 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Record enqueues instead of writing job rows — the trigger decision is the
-// unit under test here, not the jobs store's gating.
+// unit under test here, not the jobs store's gating. `enqueueResult` simulates
+// whether the real helper actually queued a job: an ineligible source (scheduled
+// thread, consolidation source, recursion guard) returns false; a normal enqueue
+// returns true. The daily budget must be consumed only on a true return.
 let enqueueCalls: Array<{ conversationId: string; trigger: string }> = [];
+let enqueueResult = true;
 mock.module("../memory-retrospective-enqueue.js", () => ({
   enqueueMemoryRetrospectiveIfEnabled: (args: {
     conversationId: string;
     trigger: string;
   }) => {
     enqueueCalls.push(args);
+    return enqueueResult;
   },
 }));
 
@@ -159,9 +164,37 @@ describe("shouldEnqueueRetrospective", () => {
 function resetTables(): void {
   const db = getDb();
   db.run(`DELETE FROM messages`);
-  // `memory_retrospective_state` lives on the memory connection now.
+  // `memory_retrospective_state` and the daily-attempt counter both live on
+  // the memory connection now.
   getMemorySqlite()!.exec(`DELETE FROM memory_retrospective_state`);
+  getMemorySqlite()!.exec(`DELETE FROM memory_retrospective_daily_count`);
   db.run(`DELETE FROM conversations`);
+}
+
+/** Today's UTC day key, matching `maybeEnqueueRetrospective`'s internal clock. */
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Pre-seed today's retrospective attempt count on the memory connection. */
+function seedDailyCount(count: number): void {
+  getMemorySqlite()!
+    .query(
+      `INSERT INTO memory_retrospective_daily_count (day_key, run_count)
+       VALUES (?, ?)
+       ON CONFLICT(day_key) DO UPDATE SET run_count = excluded.run_count`,
+    )
+    .run(todayKey(), count);
+}
+
+function readDailyCount(): number {
+  const row = getMemorySqlite()!
+    .query<
+      { run_count: number },
+      [string]
+    >(`SELECT run_count FROM memory_retrospective_daily_count WHERE day_key = ?`)
+    .get(todayKey());
+  return row?.run_count ?? 0;
 }
 
 let messageSeq = 0;
@@ -199,12 +232,22 @@ function insertSkillCardMessage(
   });
 }
 
+// High enough that the accounting tests never trip the cap; the cap-specific
+// tests pass an explicit low value.
+const DEFAULT_MAX_RUNS_PER_DAY = 10_000;
+
 function makeConfig(
-  overrides: Partial<typeof THRESHOLDS> = {},
+  overrides: Partial<typeof THRESHOLDS> & {
+    maxRunsPerAssistantPerDay?: number;
+  } = {},
 ): AssistantConfig {
   return {
     memory: {
-      retrospective: { ...THRESHOLDS, ...overrides },
+      retrospective: {
+        ...THRESHOLDS,
+        maxRunsPerAssistantPerDay: DEFAULT_MAX_RUNS_PER_DAY,
+        ...overrides,
+      },
     },
   } as unknown as AssistantConfig;
 }
@@ -213,6 +256,7 @@ describe("maybeEnqueueRetrospective — kind-aware accounting", () => {
   beforeEach(() => {
     resetTables();
     enqueueCalls = [];
+    enqueueResult = true;
   });
 
   test("card-only tail past the cursor: no enqueue, even when the interval threshold has long elapsed", async () => {
@@ -305,5 +349,173 @@ describe("maybeEnqueueRetrospective — kind-aware accounting", () => {
     expect(enqueueCalls).toEqual([
       { conversationId: conv.id, trigger: "interval" },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// maybeEnqueueRetrospective — daily runaway cap.
+//
+// The cap counts enqueue attempts across all conversations for the assistant in
+// a UTC day. A trigger that would otherwise fire is skipped once the day's
+// count reaches `maxRunsPerAssistantPerDay`. A firing enqueue reserves one unit
+// of the day's budget.
+// ---------------------------------------------------------------------------
+
+describe("maybeEnqueueRetrospective — daily runaway cap", () => {
+  beforeEach(() => {
+    resetTables();
+    enqueueCalls = [];
+    enqueueResult = true;
+  });
+
+  test("at the cap: a would-be trigger is skipped and the count is untouched", () => {
+    const conv = createConversation("conv");
+    insertMessage(conv.id, { createdAt: 2_000 }); // first-run interval would fire
+    seedDailyCount(40); // already at cap
+
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+    );
+
+    expect(enqueueCalls).toEqual([]);
+    expect(readDailyCount()).toBe(40);
+  });
+
+  test("one below the cap: the enqueue fires and consumes the last unit", () => {
+    const conv = createConversation("conv");
+    insertMessage(conv.id, { createdAt: 2_000 });
+    seedDailyCount(39);
+
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+    );
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "interval" },
+    ]);
+    expect(readDailyCount()).toBe(40);
+
+    // A subsequent qualifying turn is now capped.
+    insertMessage(conv.id, { createdAt: 3_000 });
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+    );
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "interval" },
+    ]);
+    expect(readDailyCount()).toBe(40);
+  });
+
+  test("the cap spans conversations: attempts from different conversations share the budget", () => {
+    const a = createConversation("conv-a");
+    const b = createConversation("conv-b");
+    insertMessage(a.id, { createdAt: 2_000 });
+    insertMessage(b.id, { createdAt: 2_000 });
+    seedDailyCount(1);
+
+    maybeEnqueueRetrospective(
+      a.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 2 }),
+    );
+    maybeEnqueueRetrospective(
+      b.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 2 }),
+    );
+
+    // conv-a takes the last unit; conv-b is capped even though it is a
+    // different conversation.
+    expect(enqueueCalls).toEqual([
+      { conversationId: a.id, trigger: "interval" },
+    ]);
+    expect(readDailyCount()).toBe(2);
+  });
+
+  test("a would-be-quiet turn under the cap never touches the counter", async () => {
+    const conv = createConversation("conv");
+    const cutoff = insertMessage(conv.id, { createdAt: 1_000 });
+    // Cooldown not elapsed and no new work → no trigger, so no reservation.
+    await upsertRetrospectiveState({
+      conversationId: conv.id,
+      lastProcessedMessageId: cutoff,
+      lastRunAt: Date.now() - 60_000,
+    });
+
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+    );
+
+    expect(enqueueCalls).toEqual([]);
+    expect(readDailyCount()).toBe(0);
+  });
+
+  test("an ineligible source the enqueue helper skips consumes no budget", () => {
+    const conv = createConversation("conv");
+    insertMessage(conv.id, { createdAt: 2_000 }); // first-run interval fires
+    seedDailyCount(5);
+    // The trigger fires and the budget is under cap, so the enqueue is
+    // attempted — but the helper skips this source (e.g. a scheduled thread or
+    // consolidation conversation), returning false. Nothing was queued, so the
+    // day's count must not move: a stream of low-yield turns can never exhaust
+    // the budget on its own.
+    enqueueResult = false;
+
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+    );
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "interval" },
+    ]);
+    expect(readDailyCount()).toBe(5);
+  });
+
+  test("an eligible enqueue consumes exactly one unit", () => {
+    const conv = createConversation("conv");
+    insertMessage(conv.id, { createdAt: 2_000 });
+    seedDailyCount(5);
+
+    maybeEnqueueRetrospective(
+      conv.id,
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+    );
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "interval" },
+    ]);
+    expect(readDailyCount()).toBe(6);
+  });
+
+  test("a trigger that coalesces into a pending job consumes no budget; a fresh job after it completes consumes one", () => {
+    const conv = createConversation("conv");
+    insertMessage(conv.id, { createdAt: 2_000 });
+    seedDailyCount(5);
+    const config = makeConfig({ maxRunsPerAssistantPerDay: 40 });
+
+    // First qualifying turn creates the pending job → one unit consumed.
+    enqueueResult = true;
+    maybeEnqueueRetrospective(conv.id, config);
+    expect(readDailyCount()).toBe(6);
+
+    // Subsequent qualifying turns while that job is still pending only
+    // coalesce (helper returns false). A slow/stopped worker could repeat this
+    // arbitrarily many times — none of them may drain the day's budget.
+    enqueueResult = false;
+    insertMessage(conv.id, { createdAt: 3_000 });
+    maybeEnqueueRetrospective(conv.id, config);
+    insertMessage(conv.id, { createdAt: 4_000 });
+    maybeEnqueueRetrospective(conv.id, config);
+    expect(readDailyCount()).toBe(6);
+
+    // Once the pending job completes, the next turn creates a genuinely new
+    // job → one more unit consumed.
+    enqueueResult = true;
+    insertMessage(conv.id, { createdAt: 5_000 });
+    maybeEnqueueRetrospective(conv.id, config);
+    expect(readDailyCount()).toBe(7);
   });
 });
