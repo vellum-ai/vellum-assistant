@@ -132,10 +132,12 @@ export function tierOverridesFromCells(
 /**
  * The two broader-scope default "buckets" the channel-type UI exposes:
  * `"channels"` writes an `adapter`-scope cell (the default for every room of
- * this adapter), `"dm"` writes a `channel_type: dm` cell (the default for direct
- * messages, which overrides the adapter default for DMs). Public/private are not
- * split — the gateway forwards Slack public and private rooms identically, so a
- * `channel_type: public|private` cell would never match at tool time.
+ * this adapter), `"dm"` writes a `channel_type: dm` cell that overrides it for
+ * 1:1 DMs. Only 1:1 DMs (`im`) reach the runtime as `channelType: "dm"`; the
+ * gateway collapses group DMs (mpim), private, and public rooms into `"channel"`
+ * with no type, so a `channel_type: dm|private|public` cell never matches for
+ * those. Group DMs therefore follow the `"channels"` default, and public/private
+ * can't be split here without a gateway change.
  */
 export type ChannelDefaultBucket = "channels" | "dm";
 
