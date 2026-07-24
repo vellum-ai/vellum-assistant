@@ -7,7 +7,7 @@ import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useSupportsRemoteWebPairing } from "@/lib/backwards-compat/remote-web-pairing-gate";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
-import { resolvePairDeviceGatewayBase } from "./pair-device-client";
+import { resolvePairDeviceTarget } from "./pair-device-client";
 import { PairDeviceReady } from "./pair-device-ready";
 import { usePairDevice } from "./use-pair-device";
 
@@ -18,27 +18,37 @@ import { usePairDevice } from "./use-pair-device";
  * https pair URL as a QR with a copyable link and expiry countdown.
  *
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
- * lives in {@link resolvePairDeviceGatewayBase}) whose assistant version
- * serves the pairing routes ({@link useSupportsRemoteWebPairing}); a remote or
- * platform session, or an older assistant, sees nothing. Generating also
- * requires the `web-remote-ingress` flag — checked before minting, like the
- * CLI, so a rendered QR always represents a scannable pairing.
+ * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
+ * pairing routes ({@link useSupportsRemoteWebPairing}); a remote or platform
+ * session, or an older assistant, sees nothing. Generating also requires the
+ * `web-remote-ingress` flag — checked before minting, like the CLI, so a
+ * rendered QR always represents a scannable pairing.
  */
 export function PairDeviceCard() {
-  const base = resolvePairDeviceGatewayBase();
+  const target = resolvePairDeviceTarget();
   const supported = useSupportsRemoteWebPairing();
   const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
-  const webRemoteIngressOn = useAssistantFeatureFlagStore.use.webRemoteIngress();
-  const pair = usePairDevice(base, webRemoteIngressOn);
+  const webRemoteIngressOn =
+    useAssistantFeatureFlagStore.use.webRemoteIngress();
+  const pair = usePairDevice(
+    target?.base ?? null,
+    webRemoteIngressOn,
+    target?.ingressUrl ?? null,
+  );
   const { copy, copied } = useCopyToClipboard();
 
-  if (!base || !supported) {
+  if (!target || !supported) {
     return null;
   }
 
   const { phase } = pair;
   const isMinting = phase.kind === "minting";
   const isReady = phase.kind === "ready";
+  const prefilledFromTunnel = pair.prefillSource === "tunnel";
+  // Honest empty state: no recorded tunnel URL, no stored value, field still
+  // empty. Advanced users can still type an address into the field below.
+  const showNoTunnelGuidance =
+    pair.prefillSource === "none" && pair.publicBaseUrl.trim() === "";
   // Until the feature-flag store hydrates, webRemoteIngressOn is the registry
   // default (false), not this assistant's real value, so the mint precheck
   // can't be trusted until hasHydrated is true.
@@ -62,15 +72,28 @@ export function PairDeviceCard() {
   return (
     <DetailCard
       title="Pair a device"
-      subtitle="Scan from your phone's camera to open this assistant on it."
+      subtitle={`Scan from your phone's camera to open ${
+        target.assistantName ?? "this assistant"
+      } on it.`}
     >
       <div className="flex flex-col gap-4">
+        {showNoTunnelGuidance && (
+          <Notice tone="info" title="No tunnel detected">
+            {
+              "On this computer, run `vellum tunnel --provider tailscale` (or another provider) — its address appears here."
+            }
+          </Notice>
+        )}
         <div className="flex flex-col gap-3">
           <Input
             label="Public URL"
             fullWidth
             placeholder="https://your-assistant.ts.net"
-            helperText="The https address your phone can reach this assistant at (e.g. your Tailscale or tunnel URL)."
+            helperText={
+              prefilledFromTunnel
+                ? "This address comes from `vellum tunnel` on this computer. Edit it if your phone reaches this assistant at a different URL."
+                : "The https address your phone can reach this assistant at (e.g. your Tailscale or tunnel URL)."
+            }
             value={pair.publicBaseUrl}
             errorText={pair.inputError ?? undefined}
             disabled={isMinting}

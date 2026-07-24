@@ -2,12 +2,29 @@ import { useQuery } from "@tanstack/react-query";
 
 import { organizationsBillingPlansRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type {
+  CreditTier,
   CreditTierEnum,
   PlanCatalogEntry,
   ProPlan,
 } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
+
+/**
+ * Finds a Pro plan's `credit_tiers` entry for a tier — the single source of the
+ * credit-tier lookup shared by the label helpers here and the plans-page custom
+ * row summary. Returns undefined for a null/undefined tier or when the tier
+ * can't be resolved (no Pro plan, no matching tier).
+ */
+export function findCreditTier(
+  proPlan: ProPlan | undefined,
+  tier: string | null | undefined,
+): CreditTier | undefined {
+  if (tier == null) {
+    return undefined;
+  }
+  return proPlan?.credit_tiers?.find((t) => t.tier === tier);
+}
 
 /**
  * Resolves a credit tier's catalog label from the Pro plan's `credit_tiers`.
@@ -18,11 +35,8 @@ function creditTierLabel(
   plans: PlanCatalogEntry[] | undefined,
   tier: CreditTierEnum | null | undefined,
 ): string | null {
-  if (tier == null) {
-    return null;
-  }
   const proPlan = plans?.find((p): p is ProPlan => p.id === "pro");
-  return proPlan?.credit_tiers?.find((t) => t.tier === tier)?.label ?? null;
+  return findCreditTier(proPlan, tier)?.label ?? null;
 }
 
 /**
@@ -53,11 +67,10 @@ export function useProvisioningCredits(
   if (proPlan == null) {
     return null;
   }
-  const creditTiers = proPlan.credit_tiers ?? [];
 
   if (intent.kind === "package") {
     const pkg = proPlan.packages.find((p) => p.key === intent.packageKey);
-    const label = creditTiers.find((t) => t.tier === pkg?.credit_tier)?.label;
+    const label = findCreditTier(proPlan, pkg?.credit_tier)?.label;
     if (label != null) {
       return label;
     }

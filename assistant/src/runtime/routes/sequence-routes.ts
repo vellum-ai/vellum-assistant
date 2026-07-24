@@ -22,6 +22,7 @@ import {
 } from "../../sequence/store.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Schemas ─────────────────────────────────────────────────────────
@@ -54,8 +55,8 @@ const GuardrailSetParams = z
 // ── Handlers ────────────────────────────────────────────────────────
 
 function handleSequenceList({ body = {} }: RouteHandlerArgs) {
+  const { status } = parseBody(SequenceListParams, body);
   getDb();
-  const { status } = SequenceListParams.parse(body);
   const filter = status ? { status } : undefined;
   const seqs = listSequences(filter);
 
@@ -68,8 +69,8 @@ function handleSequenceList({ body = {} }: RouteHandlerArgs) {
 }
 
 function handleSequenceGet({ body = {} }: RouteHandlerArgs) {
+  const { id } = parseBody(SequenceIdParams, body);
   getDb();
-  const { id } = SequenceIdParams.parse(body);
   const seq = getSequence(id);
   if (!seq) throw new NotFoundError(`Sequence not found: ${id}`);
 
@@ -90,8 +91,8 @@ function handleSequenceGet({ body = {} }: RouteHandlerArgs) {
 }
 
 function handleSequencePause({ body = {} }: RouteHandlerArgs) {
+  const { id } = parseBody(SequenceIdParams, body);
   getDb();
-  const { id } = SequenceIdParams.parse(body);
   const seq = getSequence(id);
   if (!seq) throw new NotFoundError(`Sequence not found: ${id}`);
   if (seq.status === "paused") {
@@ -102,8 +103,8 @@ function handleSequencePause({ body = {} }: RouteHandlerArgs) {
 }
 
 function handleSequenceResume({ body = {} }: RouteHandlerArgs) {
+  const { id } = parseBody(SequenceIdParams, body);
   getDb();
-  const { id } = SequenceIdParams.parse(body);
   const seq = getSequence(id);
   if (!seq) throw new NotFoundError(`Sequence not found: ${id}`);
   if (seq.status === "active") {
@@ -114,8 +115,8 @@ function handleSequenceResume({ body = {} }: RouteHandlerArgs) {
 }
 
 function handleCancelEnrollment({ body = {} }: RouteHandlerArgs) {
+  const { enrollmentId } = parseBody(CancelEnrollmentParams, body);
   getDb();
-  const { enrollmentId } = CancelEnrollmentParams.parse(body);
   exitEnrollment(enrollmentId, "cancelled");
   return { ok: true, message: `Enrollment ${enrollmentId} cancelled.` };
 }
@@ -144,7 +145,7 @@ function handleGuardrailsShow() {
 }
 
 function handleGuardrailsSet({ body = {} }: RouteHandlerArgs) {
-  const { key, value } = GuardrailSetParams.parse(body);
+  const { key, value } = parseBody(GuardrailSetParams, body);
   const numVal = Number(value);
   const boolVal =
     value === "true" ? true : value === "false" ? false : undefined;

@@ -72,6 +72,7 @@ async function handleSurfaceAction({
   applied?: boolean;
   reason?: string;
   replyText?: string;
+  decidedAction?: string;
 }> {
   const conversationId = body?.conversationId as string | null | undefined;
   const surfaceId = body?.surfaceId as string | undefined;
@@ -136,6 +137,9 @@ async function handleSurfaceAction({
       ...(!result.applied ? { reason: result.reason } : {}),
       ...(result.applied && result.replyText
         ? { replyText: result.replyText }
+        : {}),
+      ...(result.applied && result.decidedAction
+        ? { decidedAction: result.decidedAction }
         : {}),
     };
   }
@@ -313,6 +317,12 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .describe(
           "Guardian-facing reply from the resolver (e.g. verification code for access-request approvals). Present only when applied is true and the resolver produced a reply.",
+        )
+        .optional(),
+      decidedAction: z
+        .string()
+        .describe(
+          "The action to present on the resolved card — the resolved outcome, not necessarily the raw button (an access-request 'reject' resolves to the 'leave_unverified' park). Present only when applied is true; lets a client completing the card optimistically render the correct tone.",
         )
         .optional(),
     }),

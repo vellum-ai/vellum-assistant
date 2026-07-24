@@ -15,6 +15,10 @@
  * back to editing the message down to a status-only block — still an edit.
  */
 
+import {
+  isParkAction,
+  PARK_STATUS_LABEL,
+} from "../../../runtime/channel-approval-types.js";
 import { getLogger } from "../../../util/logger.js";
 import { callSlackApi, getSlackMessageBlocks } from "./api.js";
 
@@ -49,6 +53,13 @@ const STATUS_WORD: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
+/**
+ * Glyph for a parked (leave-unverified) decision. A neutral "on hold" mark
+ * rather than the `denied` red cross — the sender was neither trusted nor kept
+ * out, just left at `unverified`.
+ */
+const PARK_STATUS_GLYPH = ":pause_button:";
+
 export interface WithdrawSlackApprovalCardParams {
   /** Channel/DM id the approval message lives in. */
   channel: string;
@@ -56,6 +67,13 @@ export interface WithdrawSlackApprovalCardParams {
   messageTs: string;
   /** Terminal status of the request (e.g. "approved", "denied", "expired"). */
   status: string;
+  /**
+   * The action the guardian took, when known. A `denied` status reached by a
+   * park action (`leave_unverified`) reads as the neutral
+   * {@link PARK_STATUS_LABEL} rather than "Denied"; `block`/`reject` stay a
+   * denial. Omitted for status-only transitions (e.g. the expiry sweep).
+   */
+  decidedAction?: string;
   /** Slack user id of the decider, when the decision came from Slack. */
   decidedByExternalUserId?: string;
   /** Decision time (epoch ms) for the audit line. */
@@ -67,8 +85,11 @@ export interface WithdrawSlackApprovalCardParams {
  * Uses Slack's `<!date>` token so the time renders in each viewer's timezone.
  */
 function buildStatusText(params: WithdrawSlackApprovalCardParams): string {
-  const glyph = STATUS_GLYPH[params.status] ?? "";
-  const word = STATUS_WORD[params.status] ?? "Resolved";
+  const park = params.status === "denied" && isParkAction(params.decidedAction);
+  const glyph = park ? PARK_STATUS_GLYPH : (STATUS_GLYPH[params.status] ?? "");
+  const word = park
+    ? PARK_STATUS_LABEL
+    : (STATUS_WORD[params.status] ?? "Resolved");
   let line = glyph ? `${glyph} *${word}*` : `*${word}*`;
   if (params.decidedByExternalUserId) {
     line += ` by <@${params.decidedByExternalUserId}>`;

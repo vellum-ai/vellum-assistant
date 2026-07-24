@@ -239,3 +239,80 @@ describe("vellum flags --assistant routing", () => {
     expect(fetchCalls.length).toBe(0);
   });
 });
+
+describe("vellum flags cross-environment hint", () => {
+  let xdgDataHome: string;
+  let prevXdg: string | undefined;
+  let prevEnv: string | undefined;
+
+  beforeEach(() => {
+    process.env.VELLUM_LOCKFILE_DIR = testDir;
+    rmSync(join(testDir, ".vellum.lock.json"), { force: true });
+    prevXdg = process.env.XDG_DATA_HOME;
+    prevEnv = process.env.VELLUM_ENVIRONMENT;
+    xdgDataHome = mkdtempSync(join(tmpdir(), "cli-flags-hint-xdg-"));
+    process.env.XDG_DATA_HOME = xdgDataHome;
+    // Pin production so the detector skips it and the lockfile routes to
+    // testDir; the VELLUM_ENVIRONMENT var beats this machine's env config.
+    process.env.VELLUM_ENVIRONMENT = "production";
+    // An unreachable gateway: every request throws like a dead socket would.
+    // Cast through `unknown` since an always-throwing stub returns
+    // `Promise<never>`, which does not structurally overlap with `fetch`.
+    globalThis.fetch = (async () => {
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof globalThis.fetch;
+    process.exit = ((code?: number) => {
+      throw new Error(`process.exit:${code}`);
+    }) as typeof process.exit;
+    consoleLogSpy = spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    process.argv = originalArgv;
+    process.exit = originalExit;
+    globalThis.fetch = originalFetch;
+    consoleLogSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    if (prevXdg === undefined) {
+      delete process.env.XDG_DATA_HOME;
+    } else {
+      process.env.XDG_DATA_HOME = prevXdg;
+    }
+    if (prevEnv === undefined) {
+      delete process.env.VELLUM_ENVIRONMENT;
+    } else {
+      process.env.VELLUM_ENVIRONMENT = prevEnv;
+    }
+    rmSync(xdgDataHome, { recursive: true, force: true });
+  });
+
+  // A dev-env assistant lives under the dev data dir, invisible to this
+  // production CLI — the split the hint explains.
+  function seedDevAssistant(): void {
+    mkdirSync(join(xdgDataHome, "vellum-dev", "assistants", "dev-bot"), {
+      recursive: true,
+    });
+  }
+
+  test("gateway-unreachable error gains the hint when another env has assistants", async () => {
+    writeLockfile([makeEntry("alice-1", { name: "Alice" })], "alice-1");
+    seedDevAssistant();
+    process.argv = ["bun", "vellum", "flags", "set", "voice-mode", "true"];
+    await expect(flags()).rejects.toThrow(/Install vellum Command/);
+  });
+
+  test("gateway-unreachable error stays bare when no other env has assistants", async () => {
+    writeLockfile([makeEntry("alice-1", { name: "Alice" })], "alice-1");
+    // xdgDataHome is empty — detection finds nothing, so the message is intact.
+    process.argv = ["bun", "vellum", "flags", "set", "voice-mode", "true"];
+    let error: Error | undefined;
+    try {
+      await flags();
+    } catch (e) {
+      error = e as Error;
+    }
+    expect(error?.message).toContain("Could not reach the assistant gateway");
+    expect(error?.message).not.toContain("Install vellum Command");
+  });
+});

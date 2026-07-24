@@ -59,7 +59,10 @@ const sim = createGuardianGatewaySim();
 mock.module("../channels/gateway-guardian-requests.js", () => sim.module);
 
 import { applyGuardianDecision } from "../approvals/guardian-decision-primitive.js";
-import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
+import {
+  type ActorContext,
+  introductionOutcomeForAction,
+} from "../approvals/guardian-request-resolvers.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { serializeRequesterSignals } from "../runtime/introduction-policy.js";
 
@@ -222,6 +225,12 @@ describe("introduction card decisions", () => {
       });
 
       expect(result.applied).toBe(true);
+      if (!result.applied) {
+        continue;
+      }
+      // The primitive returns the resolved outcome so a caller completing the
+      // card optimistically (the in-app path) renders the park, not a denial.
+      expect(result.decidedAction).toBe("leave_unverified");
       expect(sim.getRequest(req.id)?.status).toBe("denied");
       expect(outcomesOfType("seed_unverified")).toHaveLength(1);
       expect(outcomesOfType("block")).toHaveLength(0);
@@ -229,6 +238,11 @@ describe("introduction card decisions", () => {
       // Silent park (docs/trusted-contact-access.md): leave-unverified never
       // sends the requester a notice — they only learn if they message again.
       expect(deliverReplyCalls).toHaveLength(0);
+      // The card projection reflects the resolved OUTCOME, not the raw button:
+      // a generic `reject` parks the contact just like `leave_unverified`, so
+      // the resolved card must read the neutral park — never "Denied".
+      expect(withdrawCalls).toHaveLength(1);
+      expect(withdrawCalls[0].decidedAction).toBe("leave_unverified");
     }
   });
 
@@ -242,6 +256,11 @@ describe("introduction card decisions", () => {
     });
 
     expect(result.applied).toBe(true);
+    if (!result.applied) {
+      return;
+    }
+    // Block stays an active denial in the returned outcome too.
+    expect(result.decidedAction).toBe("block");
     expect(sim.getRequest(req.id)?.status).toBe("denied");
     const blocks = outcomesOfType("block");
     expect(blocks).toHaveLength(1);
@@ -256,8 +275,10 @@ describe("introduction card decisions", () => {
         c.payload.text.includes("Your access request was declined."),
     );
     expect(declineNotices).toHaveLength(1);
-    // The terminal decision projects onto the delivered cards.
+    // The terminal decision projects onto the delivered cards, and block stays
+    // an active denial on the card — never normalized to a park.
     expect(withdrawCalls).toHaveLength(1);
+    expect(withdrawCalls[0].decidedAction).toBe("block");
   });
 
   test("block persist failure leaves the request pending and retryable (fail closed)", async () => {
@@ -362,5 +383,22 @@ describe("introduction card decisions", () => {
     }
     // The request is untouched by the rejected actions.
     expect(sim.getRequest(req.id)?.status).toBe("pending");
+  });
+});
+
+describe("introductionOutcomeForAction", () => {
+  test("folds the generic decision pair onto the introduction outcomes", () => {
+    // `reject` and `leave_unverified` both park the contact at `unverified`;
+    // `approve_once` starts the handshake. Introduction actions map to
+    // themselves. Callers that must present the resolved outcome (the card
+    // projection) rely on this so a `reject` park never reads as "Denied".
+    expect(introductionOutcomeForAction("reject")).toBe("leave_unverified");
+    expect(introductionOutcomeForAction("leave_unverified")).toBe(
+      "leave_unverified",
+    );
+    expect(introductionOutcomeForAction("approve_once")).toBe("verify_code");
+    expect(introductionOutcomeForAction("verify_code")).toBe("verify_code");
+    expect(introductionOutcomeForAction("trust")).toBe("trust");
+    expect(introductionOutcomeForAction("block")).toBe("block");
   });
 });

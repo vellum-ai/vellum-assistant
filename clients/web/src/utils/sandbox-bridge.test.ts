@@ -276,9 +276,9 @@ describe("buildLinkInterceptorScript", () => {
     expect(out).toContain(FRAME_ID);
   });
 
-  it("intercepts workspace, host, and open vellum:// authorities", () => {
+  it("intercepts only the workspace and host vellum:// authorities", () => {
     const out = buildLinkInterceptorScript(FRAME_ID);
-    expect(out).toContain("(workspace|host|open)");
+    expect(out).toContain("(workspace|host)");
   });
 
   it("checks vellum:// scheme before external http(s) schemes", () => {

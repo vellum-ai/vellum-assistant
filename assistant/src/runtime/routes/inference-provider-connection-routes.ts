@@ -38,6 +38,7 @@ import {
   MANAGED_CONNECTION_NAMES,
   updateConnection,
 } from "../../providers/inference/connections.js";
+import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { deleteSecureKeyAsync } from "../../security/secure-keys.js";
 import {
@@ -217,6 +218,57 @@ function handleGetConnection({ pathParams = {} }: RouteHandlerArgs) {
   return conn;
 }
 
+/**
+ * Custom providers share the flat provider list with built-ins, so their
+ * display identity (label, falling back to name) must not collide with a
+ * built-in provider's id or display name, nor with another custom
+ * provider's identity. Enforced daemon-side: every client (web, CLI, API)
+ * goes through these routes.
+ */
+function assertValidCustomProviderIdentity(
+  provider: string,
+  labelRaw: unknown,
+  selfName: string,
+): void {
+  if (provider !== "openai-compatible") {
+    return;
+  }
+  // The display identity is the label, falling back to the name — a
+  // label-less row named "openai" impersonates a built-in just as well as
+  // a labeled one.
+  const label = typeof labelRaw === "string" ? labelRaw.trim() : "";
+  const identity = label || selfName;
+  const lower = identity.toLowerCase();
+  if (RESERVED_PROVIDER_IDENTITIES.has(lower)) {
+    throw new BadRequestError(
+      `Invalid ${label ? "label" : "name"}: "${identity}" belongs to a built-in provider. Pick another name.`,
+    );
+  }
+  const duplicate = listConnections(getDb(), {
+    provider: "openai-compatible",
+  }).find(
+    (c) =>
+      c.name !== selfName &&
+      (c.label?.trim() || c.name).toLowerCase() === lower,
+  );
+  if (duplicate) {
+    throw new BadRequestError(
+      `Invalid ${label ? "label" : "name"}: a custom provider named "${identity}" already exists.`,
+    );
+  }
+}
+
+/** Built-in provider ids, display names, and routing identities, lowercased. */
+const RESERVED_PROVIDER_IDENTITIES = new Set<string>([
+  ...PROVIDER_CATALOG.flatMap((p) => [
+    p.id.toLowerCase(),
+    p.displayName.toLowerCase(),
+  ]),
+  "vellum",
+  "chatgpt",
+  "chatgpt subscription",
+]);
+
 async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
   const name = body.name;
   const provider = body.provider;
@@ -243,10 +295,10 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
   if (
     labelRaw !== undefined &&
     labelRaw !== null &&
-    (typeof labelRaw !== "string" || labelRaw.length === 0)
+    (typeof labelRaw !== "string" || labelRaw.trim().length === 0)
   ) {
     throw new BadRequestError(
-      `Invalid label: must be a non-empty string or null`,
+      `Invalid label: must be a non-blank string or null`,
     );
   }
 
@@ -254,6 +306,10 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     body,
     providerResult.data,
   );
+
+  // Same event-loop turn as the write: no await separates this check from
+  // createConnection, so concurrent requests cannot both pass it.
+  assertValidCustomProviderIdentity(providerResult.data, labelRaw, name);
 
   const result = createConnection(getDb(), {
     name,
@@ -334,13 +390,12 @@ async function handleUpdateConnection({
   if (
     labelRaw !== undefined &&
     labelRaw !== null &&
-    (typeof labelRaw !== "string" || labelRaw.length === 0)
+    (typeof labelRaw !== "string" || labelRaw.trim().length === 0)
   ) {
     throw new BadRequestError(
-      `Invalid label: must be a non-empty string or null`,
+      `Invalid label: must be a non-blank string or null`,
     );
   }
-
   // Managed connections: lock auth to `{type:"platform"}`. The boot upsert in
   // `seedCanonicalConnections` would revert any other value on next restart;
   // reject the write here so the surprise loop never happens. Label remains
@@ -355,6 +410,20 @@ async function handleUpdateConnection({
   }
 
   const customFields = await parseCustomProviderFields(body, existing.provider);
+
+  // Only a CHANGED label is validated: keeping a stored label — whatever it
+  // is — must never block unrelated edits (key rotation, models).
+  // Labels compare trimmed, the same normalization the identity check
+  // applies, so a stored padded label resent trimmed is not a change.
+  // Checked in the same event-loop turn as the write so concurrent requests
+  // cannot both pass.
+  const labelChanging =
+    labelRaw !== undefined &&
+    (typeof labelRaw === "string" ? labelRaw.trim() : "") !==
+      (existing.label ?? "").trim();
+  if (labelChanging) {
+    assertValidCustomProviderIdentity(existing.provider, labelRaw, name);
+  }
 
   const result = updateConnection(getDb(), name, {
     auth: authResult.data,

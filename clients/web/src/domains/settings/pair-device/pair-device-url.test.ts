@@ -4,6 +4,7 @@ import {
   buildRemoteWebPairingUrl,
   isLoopbackUrl,
   normalizePublicBaseUrl,
+  publicBaseUrlRejectionMessage,
   resolvePublicBaseUrl,
 } from "./pair-device-url";
 
@@ -72,6 +73,58 @@ describe("resolvePublicBaseUrl", () => {
       ok: false,
       reason: "unparseable",
     });
+  });
+
+  test("rejects a tunnel provider's website (e.g. a Tailscale admin invite link)", () => {
+    // The exact papercut: a lost user pastes a Tailscale admin invite URL, which
+    // is https and non-loopback and so would otherwise be accepted.
+    expect(
+      resolvePublicBaseUrl("https://login.tailscale.com/admin/invite/abc123"),
+    ).toEqual({ ok: false, reason: "service-website" });
+    expect(resolvePublicBaseUrl("https://ngrok.com")).toEqual({
+      ok: false,
+      reason: "service-website",
+    });
+    expect(resolvePublicBaseUrl("https://dash.cloudflare.com/login")).toEqual({
+      ok: false,
+      reason: "service-website",
+    });
+  });
+
+  test("accepts a user's real Tailscale endpoint, not just the vendor site", () => {
+    // A genuine *.ts.net endpoint is never a listed vendor host.
+    expect(resolvePublicBaseUrl("https://my-box.tail1234.ts.net")).toEqual({
+      ok: true,
+      url: "https://my-box.tail1234.ts.net",
+    });
+  });
+});
+
+describe("publicBaseUrlRejectionMessage", () => {
+  test("names the specific vendor for a service-website URL", () => {
+    expect(
+      publicBaseUrlRejectionMessage(
+        "service-website",
+        "https://login.tailscale.com/admin/invite/abc",
+      ),
+    ).toBe(
+      "This is Tailscale's website, not your assistant's address. Run `vellum tunnel` on the host to get one.",
+    );
+    expect(
+      publicBaseUrlRejectionMessage("service-website", "https://ngrok.com"),
+    ).toContain("ngrok's website");
+    expect(
+      publicBaseUrlRejectionMessage(
+        "service-website",
+        "https://dash.cloudflare.com",
+      ),
+    ).toContain("Cloudflare's website");
+  });
+
+  test("falls back to a generic vendor label without a value", () => {
+    expect(publicBaseUrlRejectionMessage("service-website")).toContain(
+      "the tunnel provider's website",
+    );
   });
 });
 

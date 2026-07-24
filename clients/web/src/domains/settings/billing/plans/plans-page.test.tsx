@@ -881,13 +881,108 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
     expect(changePackageCall!.body).toEqual({ package: "mighty" });
   });
 
-  test("a Custom sub's Free card is a downgrade and no named card renders as current", () => {
+  test("a Custom sub's Free card is a downgrade and no named card is current", () => {
     const html = renderStatic(proCustomizedMightySubscription(), fullCatalog());
     // Pro → Free is always a downgrade.
     expect(html).toContain("Downgrade to Free");
     expect(html).not.toContain("Start Free");
-    // A Custom sub has no catalog rank, so no card is the current plan.
-    expect(count(html, /Current Plan/g)).toBe(0);
+    // A Custom sub has no catalog rank, so no named column card is its current
+    // plan. The Custom row's own current-plan tag is gated on the onboarding
+    // read, which a single-pass static render never resolves — the interactive
+    // "Custom row current-plan marker" suite covers that tag.
+    expect(html).not.toContain("Current Plan");
+  });
+});
+
+// A custom Pro sub (unpinned, customized, or legacy) is represented by the
+// Custom row, not any named card: the row is marked as their current plan and
+// summarizes the tiers they actually hold. Base and clean-pinned subs — whose
+// current plan IS a named card — see no marker on the Custom row.
+describe("PlansPage — Custom row current-plan marker", () => {
+  function proCustomizedWithCredits(): SubscriptionResponse {
+    return {
+      ...proMightySubscription(),
+      package: { key: "mighty", name: "Mighty", version: 1, customized: true },
+      selected_credit_tier: "credits_50",
+    };
+  }
+
+  // A legacy/unpinned Pro sub carries no package at all, so it too is a Custom
+  // sub represented by the Custom row rather than any named card.
+  function proUnpinnedWithCredits(): SubscriptionResponse {
+    return {
+      ...proMightySubscription(),
+      package: null,
+      selected_credit_tier: "credits_50",
+    };
+  }
+
+  test("a custom Pro sub sees the Custom row marked current with a tier summary", async () => {
+    // onboarding() supplies medium machine / 10 GB; the sub carries credits_50.
+    const { findByText } = renderInteractive(proCustomizedWithCredits(), {
+      plans: customCatalog(),
+    });
+
+    await findByText("Your Current Plan");
+    await findByText("Medium Machine · 10 GB · 50 credits");
+  });
+
+  test("a legacy/unpinned Pro sub sees the Custom row marked current with a tier summary", async () => {
+    // No package pin — the same Custom-row current marker as the customized case.
+    const { findByText } = renderInteractive(proUnpinnedWithCredits(), {
+      plans: customCatalog(),
+    });
+
+    await findByText("Your Current Plan");
+    await findByText("Medium Machine · 10 GB · 50 credits");
+  });
+
+  test("a custom sub holding a deprecated credit tier shows a derived credit label", async () => {
+    // credits_45 is a valid tier the sub holds but the catalog no longer lists,
+    // so the summary derives "45 credits" from the key instead of dropping it.
+    const { findByText } = renderInteractive(
+      { ...proCustomizedWithCredits(), selected_credit_tier: "credits_45" },
+      { plans: customCatalog() },
+    );
+
+    await findByText("Your Current Plan");
+    await findByText("Medium Machine · 10 GB · 45 credits");
+  });
+
+  test("a clean-pinned Pro sub sees no marker on the Custom row", async () => {
+    const { findByRole, queryByText } = renderInteractive(
+      proMightySubscription(),
+      { plans: customCatalog() },
+    );
+
+    // The body is mounted once the Configure CTA is present.
+    await findByRole("button", { name: "Configure" });
+    expect(queryByText("Your Current Plan")).toBeNull();
+  });
+
+  test("a base user sees no marker on the Custom row", async () => {
+    const { findByRole, queryByText } = renderInteractive(freeSubscription(), {
+      plans: customCatalog(),
+    });
+
+    await findByRole("button", { name: "Configure" });
+    expect(queryByText("Your Current Plan")).toBeNull();
+  });
+
+  test("a custom sub with no loaded current tiers shows no marker", async () => {
+    // When the onboarding read yields no provisioned storage (e.g. it errors),
+    // the row isn't marked current — no "Your Current Plan" tag next to a
+    // degraded summary.
+    const { findByRole, queryByText } = renderInteractive(
+      proCustomizedWithCredits(),
+      {
+        plans: customCatalog(),
+        onboardingData: onboarding({ selected_storage_gib: null }),
+      },
+    );
+
+    await findByRole("button", { name: "Configure" });
+    expect(queryByText("Your Current Plan")).toBeNull();
   });
 });
 

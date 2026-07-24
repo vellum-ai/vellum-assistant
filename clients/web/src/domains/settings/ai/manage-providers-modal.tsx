@@ -186,6 +186,7 @@ export function ManageProvidersModal({
             connection={editingConnection ?? undefined}
             assistantId={assistantId}
             existingNames={existingNames}
+            connections={connections}
             onSave={handleEditorSave}
             onCancel={cancelEditor}
           />
