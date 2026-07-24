@@ -65,6 +65,15 @@ describe("PlanColumnCard CTA", () => {
     expect(button).toHaveProperty("disabled", false);
     expect(button.className).toContain("bg-[var(--primary-base)]");
   });
+
+  test("compacts card padding on phones, restoring it at sm", async () => {
+    const { container } = render(
+      <PlanColumnCard {...baseProps} isCurrent={false} />,
+    );
+    const root = container.querySelector("[data-theme]");
+    expect(root?.className).toContain("p-3");
+    expect(root?.className).toContain("sm:p-4");
+  });
 });
 
 describe("PlanColumnCard Recommended badge", () => {

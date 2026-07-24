@@ -500,10 +500,9 @@ export function PlansPage() {
       <div className="my-auto flex w-full flex-col items-center">
         <header className="flex flex-col items-center gap-2 text-center">
           <h1
-            className="text-[var(--content-emphasised)]"
+            className="text-[40px] text-[var(--content-emphasised)] sm:text-[60px]"
             style={{
               fontFamily: "var(--font-serif)",
-              fontSize: "60px",
               fontWeight: 400,
               lineHeight: 1.2,
               letterSpacing: "1.2px",
@@ -520,7 +519,7 @@ export function PlansPage() {
             to two-up then one-up; `items-start` keeps each card at its natural
             content height, so the four-feature Super/Ultra columns are taller
             than the featured Mighty column. */}
-        <div className="mt-10 grid w-full max-w-[1312px] grid-cols-1 items-start gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-6 grid w-full max-w-[1312px] grid-cols-1 items-start gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
           <PlanColumnCard
             tierKey="free"
             name="Free"
@@ -568,7 +567,7 @@ export function PlansPage() {
         </div>
 
         <CustomPlanRow
-          className="mt-10"
+          className="mt-6 sm:mt-10"
           onConfigure={handleConfigure}
           configureDisabled={(isProUser && !currentReady) || billingActionPending}
           isCurrent={showCurrentPlan}
@@ -620,7 +619,7 @@ export function PlansPage() {
           resizeCredits={resizeCreditTier}
         />
 
-        <p className="mt-10 text-center text-[12px] font-medium text-[var(--content-tertiary)]">
+        <p className="mt-6 text-center text-[12px] font-medium text-[var(--content-tertiary)] sm:mt-10">
           You can cancel or change your plan anytime you want. To learn more{" "}
           <a
             href={DOCS_URL}
@@ -667,7 +666,7 @@ export function PlansPage() {
       </div>
 
       <div
-        className="plans-takeover-content-enter flex min-h-full flex-col items-center px-6 pb-8"
+        className="plans-takeover-content-enter flex min-h-full flex-col items-center px-4 pb-8 sm:px-6"
         style={{ paddingTop: electron ? "5rem" : "4rem" }}
       >
         {body}
