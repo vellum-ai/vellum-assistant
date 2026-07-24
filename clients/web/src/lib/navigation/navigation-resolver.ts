@@ -298,10 +298,18 @@ function allowSetupRoutes(
 
 function requireAssistant(
   state: NavigationState,
-  _path: string,
+  path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
   if (state.hasAssistants) return null;
+
+  // The marketing pricing CTAs deep-link a brand-new user (no assistant yet)
+  // straight into Stripe checkout for a chosen package. Exempt that route from
+  // the no-assistant funnel redirect only here — `requireConsent` runs after
+  // this step, so consent is still enforced before any paid checkout starts.
+  // Every other billing surface still funnels a no-assistant user into
+  // provisioning first.
+  if (path === routes.checkout) return null;
 
   if (state.isLocalMode) {
     if (state.platformSession === "unknown") return { action: "wait" };

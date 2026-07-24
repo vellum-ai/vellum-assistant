@@ -525,6 +525,40 @@ describe("resolveNavigation", () => {
       });
     });
 
+    // The marketing pricing CTAs deep-link a brand-new (no-assistant) user
+    // into `/assistant/checkout` to start Stripe checkout, so that route must
+    // NOT be funneled into onboarding — while every other billing surface still
+    // is, so a no-assistant user returning to a billing URL provisions first.
+    test("does not funnel a consent-settled no-assistant user off /assistant/checkout", () => {
+      expect(
+        guard(s({ hasAssistants: false }), "/assistant/checkout?package=super"),
+      ).toEqual(ALLOW);
+    });
+
+    // Checkout is exempt from the no-assistant funnel, NOT from consent: a
+    // no-assistant user with a stale consent toggle deep-linking to checkout is
+    // routed to review-terms first, never straight into a paid Stripe session.
+    test("routes a stale-consent no-assistant user off /assistant/checkout to review-terms", () => {
+      expect(
+        guard(
+          s({ hasAssistants: false, analyticsConsentCurrent: false }),
+          "/assistant/checkout?package=super",
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fcheckout%3Fpackage%3Dsuper",
+      });
+    });
+
+    test("still funnels a no-assistant user returning to a billing URL", () => {
+      expect(
+        guard(
+          s({ hasAssistants: false }),
+          "/assistant/settings/usage?tab=billing&session_id=x",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+    });
+
     test("redirects brand-new platform user with no assistant to privacy, unaffected by stale-toggle gate", () => {
       expect(
         guard(
