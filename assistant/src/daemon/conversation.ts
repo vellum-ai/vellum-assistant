@@ -516,6 +516,15 @@ export class Conversation {
    * @internal
    */
   source?: string;
+  /**
+   * The source conversation this one was forked from
+   * (`conversations.fork_parent_conversation_id`), cached on load so the
+   * usage-attribution snapshot resolves a background fork's spawn parent
+   * (retrospective forks) without a per-turn DB row read. Undefined when the
+   * conversation is not a fork.
+   * @internal
+   */
+  forkParentConversationId?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;
@@ -991,6 +1000,7 @@ export class Conversation {
     this.originInterface = parseInterfaceId(conv?.originInterface) ?? undefined;
     this.originChannel = parseChannelId(conv?.originChannel) ?? undefined;
     this.source = conv?.source ?? undefined;
+    this.forkParentConversationId = conv?.forkParentConversationId ?? undefined;
     this.contextSummary = conv?.contextSummary ?? null;
     this.slackContextCompactionWatermarkTs =
       conv?.slackContextCompactionWatermarkTs ?? null;

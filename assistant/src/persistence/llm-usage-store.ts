@@ -18,7 +18,7 @@ import {
   type ScheduleAttributionFilter,
   type ScheduleAttributionSqlParam,
 } from "./schedule-attribution-sql.js";
-import { conversations, llmUsageEvents } from "./schema/index.js";
+import { conversations, llmUsageEvents, messages } from "./schema/index.js";
 import {
   bucketEventsByDay,
   bucketEventsByHour,
@@ -131,6 +131,46 @@ export function recordUsageEvent(
     })
     .run();
   return event;
+}
+
+/**
+ * Count the conversation's real user turns — the same population the
+ * `llm_usage` telemetry `turn_index` subquery counts in
+ * {@link queryUnreportedUsageEvents}: `role='user'` rows that survive
+ * {@link realUserTurnContentFilter} (tool-result continuations excluded).
+ * Shared through that filter so a call's billing-origin `turnIndex` (stamped
+ * live at agent-loop start) agrees with the `turn_index` the telemetry read
+ * path derives for the same call.
+ *
+ * Evaluated at loop start, once the turn's user message(s) are persisted, this
+ * equals telemetry's `created_at <=` count for the turn's LLM calls: a coalesced
+ * batch of N user messages persists all N rows before the single agent-loop run,
+ * and the processing lock blocks any further real user turn from landing until
+ * the run finishes — so no unbounded/bounded skew arises. Returns 0 for a
+ * conversation with no real user turn yet (matching the read path's
+ * pre-first-turn 0).
+ *
+ * Best-effort (mirroring {@link lookupConversationAttribution}): a query failure
+ * degrades to 0 rather than throwing, so a billing-attribution detail can never
+ * abort the user's turn.
+ */
+export function countRealUserTurns(conversationId: string): number {
+  try {
+    const row = getDb()
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, conversationId),
+          eq(messages.role, "user"),
+          realUserTurnContentFilter("messages"),
+        ),
+      )
+      .get();
+    return row?.count ? Number(row.count) : 0;
+  } catch {
+    return 0;
+  }
 }
 
 // ---------------------------------------------------------------------------

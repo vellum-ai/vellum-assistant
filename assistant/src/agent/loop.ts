@@ -49,6 +49,7 @@ import {
   applyStreamingSubstitution,
   applySubstitutions,
 } from "../tools/sensitive-output-placeholders.js";
+import type { UsageOriginSnapshot } from "../usage/work-origin.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
@@ -623,6 +624,14 @@ interface AgentLoopRunOptionsBase {
     mark(name: string): void;
     markFirstToken(kind: "thinking" | "text"): void;
   };
+  /**
+   * Immutable record-time usage attribution for every LLM call this run emits,
+   * built once by the conversation orchestrator from the turn's conversation
+   * metadata and call site. Threaded onto each send's `SendMessageConfig` so
+   * `RetryProvider` can forward it as billing-origin headers on the managed
+   * proxy. Absent for standalone loop runs with no conversation attribution.
+   */
+  usageOriginSnapshot?: UsageOriginSnapshot;
 }
 
 interface AgentLoopRunOptionsWithContextWindow extends AgentLoopRunOptionsBase {
@@ -1004,6 +1013,7 @@ export class AgentLoop {
       isNonInteractive = false,
       model: runModel,
       latencyTracker,
+      usageOriginSnapshot,
     } = options;
     // Snapshot the system prompt once per run. The instance field is mutable
     // (the conversation may update it between turns), but a single run must
@@ -1444,6 +1454,14 @@ export class AgentLoop {
           if (this.conversationId) {
             providerConfig.selectionSeed = this.conversationId;
           }
+        }
+
+        // Immutable record-time usage attribution, rides the same per-call
+        // config as `callSite`/`selectionSeed`. `RetryProvider` maps it to the
+        // billing-origin headers on the managed-proxy path and strips it before
+        // the wire request; harmless (and stripped) on every other transport.
+        if (usageOriginSnapshot) {
+          providerConfig.usageOriginSnapshot = usageOriginSnapshot;
         }
 
         // Per-call inference-profile override. The resolver layers

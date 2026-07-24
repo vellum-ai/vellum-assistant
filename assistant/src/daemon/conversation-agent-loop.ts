@@ -68,6 +68,7 @@ import {
   startToolProfilingRequest,
 } from "../tools/tool-profiler.js";
 import type { UsageActor } from "../usage/actors.js";
+import { buildTurnUsageOriginSnapshot } from "../usage/usage-origin-snapshot.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
@@ -353,6 +354,18 @@ export async function runAgentLoopImpl(
   // Expose the turn's call site on the live conversation so the runtime
   // injection assembly self-resolves it for the turn's plugin contexts.
   ctx.currentCallSite = turnCallSite;
+
+  // Immutable record-time usage attribution for every LLM call this turn emits,
+  // carrying the same work-origin classification the `llm_usage` telemetry
+  // derives so managed billing rows and usage telemetry share one vocabulary.
+  // Both turn indexes are derived from the same real-user-turn population the
+  // telemetry read path counts (via `countRealUserTurns` inside
+  // `buildTurnUsageOriginSnapshot`), and the subagent/background-fork spawn
+  // precedence is resolved to match the telemetry `parentIdSql` — so a
+  // retrospective fork classifies as `delegated_child` and carries its parent
+  // turn index on both paths. The wake path builds the identical snapshot via
+  // the same helper.
+  const usageOriginSnapshot = buildTurnUsageOriginSnapshot(ctx, turnCallSite);
 
   // Expose the turn's request origin (e.g. "memory_consolidation") on the live
   // conversation so the tool context — and through it `buildPolicyContext` —
@@ -1085,6 +1098,7 @@ export async function runAgentLoopImpl(
           isNonInteractive,
           modelProfileKey,
           latencyTracker,
+          usageOriginSnapshot,
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,
