@@ -28,13 +28,18 @@ const match: DetectedSecret = {
   wholeMessage: false,
 };
 
-const BLOCKED_TITLE =
-  "Message not sent — it looks like it contains an API key";
+const BLOCKED_TITLE = "Message not sent — it looks like it contains an API key";
 
 function renderNotice(overrides: Partial<ComposerSecretNoticeProps> = {}) {
+  // Default the composer input to one that CONTAINS the previewed secret, so
+  // "Store securely" is offered wherever the match itself is storable — the
+  // input-origin case. Tests that exercise a quote/path-reference-originated
+  // secret pass a `composerInput` that omits the value.
+  const firstValue = (overrides.matches?.[0] ?? match).value;
   return render(
     <ComposerSecretNotice
       matches={[match]}
+      composerInput={`here is ${firstValue} for the deploy`}
       sendBlocked={false}
       onDismiss={() => {}}
       onSendAnyway={() => {}}
@@ -107,16 +112,12 @@ describe("ComposerSecretNotice (non-storable match)", () => {
 
   test("passive state omits Store securely for a header-only private key", () => {
     renderNotice({ matches: [headerOnlyPem] });
-    expect(
-      screen.queryByRole("button", { name: "Store securely" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Store securely" })).toBeNull();
   });
 
   test("blocked state omits Store securely but keeps Send anyway / Dismiss", () => {
     renderNotice({ matches: [headerOnlyPem], sendBlocked: true });
-    expect(
-      screen.queryByRole("button", { name: "Store securely" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Store securely" })).toBeNull();
     expect(screen.getByRole("button", { name: "Send anyway" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
   });
@@ -131,9 +132,35 @@ describe("ComposerSecretNotice (non-storable match)", () => {
       wholeMessage: false,
     };
     renderNotice({ matches: [fullBlock] });
-    expect(
-      screen.getByRole("button", { name: "Store securely" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Store securely" })).toBeTruthy();
+  });
+});
+
+describe("ComposerSecretNotice (secret outside the raw input)", () => {
+  // The pre-send gate scans the assembled outgoing content (staged quote text
+  // + appended path references + input), so a secret can be flagged while
+  // living ONLY in a quote or a path reference, never in the raw composer
+  // input. "Store securely" rewrites only `input`, so offering it here would
+  // fire a "Stored securely" toast while the untouched secret still rides the
+  // follow-up "Send anyway" — a false success. The action must be suppressed.
+  const QUOTE_ONLY_INPUT = "please rotate this — see the quote above";
+
+  test("passive state omits Store securely when the secret isn't in the input", () => {
+    renderNotice({ composerInput: QUOTE_ONLY_INPUT });
+    expect(screen.queryByRole("button", { name: "Store securely" })).toBeNull();
+  });
+
+  test("blocked state omits Store securely but keeps Send anyway / Dismiss", () => {
+    renderNotice({ composerInput: QUOTE_ONLY_INPUT, sendBlocked: true });
+    expect(screen.queryByRole("button", { name: "Store securely" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Send anyway" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+  });
+
+  test("the same secret IS offered Store securely once it's present in the input", () => {
+    // Control: identical match, input that contains the value → offered.
+    renderNotice({ composerInput: `here is ${SYNTHETIC_PROJECT_KEY} inline` });
+    expect(screen.getByRole("button", { name: "Store securely" })).toBeTruthy();
   });
 });
 
@@ -147,9 +174,7 @@ describe("ComposerSecretNotice (blocked send)", () => {
     expect(container.innerHTML).not.toContain(SYNTHETIC_PROJECT_KEY);
     // Copy stays generic — never names the detected vendor.
     expect(container.textContent).not.toContain("OpenAI");
-    expect(
-      screen.getByRole("button", { name: "Send anyway" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send anyway" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Store securely" })).toBeTruthy();
   });

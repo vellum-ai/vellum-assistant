@@ -91,6 +91,7 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 const {
   StoreCredentialDialog,
   isStorableSecret,
+  isStorableFromInput,
   rewriteDraftWithStoredCredential,
   suggestCredentialSlot,
 } = await import("@/domains/chat/components/store-credential-dialog");
@@ -238,6 +239,35 @@ describe("isStorableSecret", () => {
 
   test("a header-only private-key match is not storable", () => {
     expect(isStorableSecret(headerOnlyPemSecret)).toBe(false);
+  });
+});
+
+describe("isStorableFromInput", () => {
+  test("storable when the value is present in the composer input", () => {
+    expect(isStorableFromInput(detectedSecret, DRAFT)).toBe(true);
+  });
+
+  test("NOT storable when the value is absent from the input", () => {
+    // The match reached the pre-send scan via a staged quote or a path
+    // reference — the raw input never held it, so rewriting the input would
+    // remove nothing while a success toast falsely claimed the key was stored.
+    expect(isStorableFromInput(detectedSecret, "no secret in this draft")).toBe(
+      false,
+    );
+  });
+
+  test("NOT storable for a header-only PEM even when present in the input", () => {
+    // The header-only guard still applies: the input contains the header, but
+    // storing it would strip only the header and leave the key body behind.
+    expect(
+      isStorableFromInput(headerOnlyPemSecret, `x ${FAKE_PEM_HEADER} y`),
+    ).toBe(false);
+  });
+
+  test("storable for a full PEM block present in the input", () => {
+    expect(isStorableFromInput(fullPemSecret, `x ${FAKE_PEM_BLOCK} y`)).toBe(
+      true,
+    );
   });
 });
 
@@ -444,6 +474,26 @@ describe("StoreCredentialDialog", () => {
     expect(rewritten).not.toContain(FAKE_PEM_BODY);
     expect(rewritten).not.toContain("END");
     expect(document.body.innerHTML).not.toContain(FAKE_PEM_BODY);
+  });
+
+  test("a secret absent from the input (quote/path-reference-originated) — the dialog never opens and no false success is possible", () => {
+    // The pre-send gate can flag a secret that lives only in a staged quote or
+    // a path reference, never in the raw composer input. "Store securely"
+    // rewrites only `input`, so it must not open here: doing so would fire a
+    // "Stored securely" toast while the untouched secret still rides the
+    // follow-up "Send anyway".
+    useComposerStore
+      .getState()
+      .setInput("please rotate the key in the quote above");
+    renderDialog({ secret: detectedSecret });
+
+    // Modal never mounts its form — nothing to save, no toast can fire.
+    expect(screen.queryByLabelText("Value")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    // The input the flow would rewrite is left exactly as it was.
+    expect(useComposerStore.getState().input).toBe(
+      "please rotate the key in the quote above",
+    );
   });
 
   test("a header-only private-key match is not storable — the dialog never opens", () => {

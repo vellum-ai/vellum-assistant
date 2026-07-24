@@ -17,7 +17,19 @@
  * - `useChatBannerSlots` — nudge/queued banner assembly
  */
 
-import { type Dispatch, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type MutableRefObject,
+  type ReactNode,
+  type RefObject,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useAcpRunRehydration } from "@/domains/chat/hooks/use-acp-run-rehydration";
 import { useBackgroundTaskRehydration } from "@/domains/chat/hooks/use-background-task-rehydration";
@@ -74,7 +86,10 @@ import { BottomSheet } from "@vellumai/design-library";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
-import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
+import type {
+  TranscriptHandle,
+  TranscriptProps,
+} from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import {
@@ -96,7 +111,10 @@ import {
 } from "@/hooks/use-billing-cta-experiment";
 import { useIsFreePlan } from "@/hooks/use-is-free-plan";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/types/types";
+import type {
+  DisplayAttachment,
+  DisplayMessage,
+} from "@/domains/chat/types/types";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
@@ -115,8 +133,15 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { UseDiskPressureMonitorResult } from "@/assistant/use-disk-pressure-monitor";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
-import { handleConfirmationSubmit, handleAllowAndCreateRule } from "@/domains/chat/confirmation-actions";
-import { handleOpenRuleEditorForToolCall, handleSaveRule, handleSaveAsNewRule } from "@/domains/chat/rule-editor-actions";
+import {
+  handleConfirmationSubmit,
+  handleAllowAndCreateRule,
+} from "@/domains/chat/confirmation-actions";
+import {
+  handleOpenRuleEditorForToolCall,
+  handleSaveRule,
+  handleSaveAsNewRule,
+} from "@/domains/chat/rule-editor-actions";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
@@ -288,12 +313,14 @@ export function ChatMainPanel({
   // on the active model and so can't move into the composer.
   // -------------------------------------------------------------------------
   const addChatAttachmentFiles = useCallback(
-    (files: FileList | File[]) => useComposerStore.getState().addFiles(files, assistantId),
+    (files: FileList | File[]) =>
+      useComposerStore.getState().addFiles(files, assistantId),
     [assistantId],
   );
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantName = useAssistantIdentityStore.use.name();
-  const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
+  const chatPullToRefreshEnabled =
+    useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
 
   // -------------------------------------------------------------------------
   // Store reads — per-conversation state
@@ -303,7 +330,8 @@ export function ChatMainPanel({
   const notice = useChatSessionStore.use.notice();
   const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
   const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
-  const compactionCircuitOpenUntil = useChatSessionStore.use.compactionCircuitOpenUntil();
+  const compactionCircuitOpenUntil =
+    useChatSessionStore.use.compactionCircuitOpenUntil();
   const transcriptPagination = useChatSessionStore.use.transcriptPagination();
 
   // -------------------------------------------------------------------------
@@ -338,22 +366,25 @@ export function ChatMainPanel({
     handleOpenMicSettings,
   } = useVoiceInput({ assistantId, inputRef });
 
-
-
   const showRuleEditor = useRuleEditorStore.use.showRuleEditor();
   const ruleEditorContext = useRuleEditorStore.use.ruleEditorContext();
   const isSavingRule = useRuleEditorStore.use.isSavingRule();
-  const unknownNudgeToolCallIds = useInteractionStore.use.unknownNudgeToolCallIds();
+  const unknownNudgeToolCallIds =
+    useInteractionStore.use.unknownNudgeToolCallIds();
 
   const handleOpenApp = useOpenAppFromChat();
 
   // -------------------------------------------------------------------------
   // Action callbacks
   // -------------------------------------------------------------------------
-  const handleOpenDocument = useCallback((surfaceId: string) => {
-    haptic.light();
-    if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
-  }, [assistantId]);
+  const handleOpenDocument = useCallback(
+    (surfaceId: string) => {
+      haptic.light();
+      if (assistantId)
+        void useViewerStore.getState().loadDocument(assistantId, surfaceId);
+    },
+    [assistantId],
+  );
 
   const { overlays: activeProcessOverlays, hasAny: hasActiveProcess } =
     useActiveProcessSlots();
@@ -371,7 +402,8 @@ export function ChatMainPanel({
   }, []);
 
   const onStopSubagent = useCallback(
-    (subagentId: string) => void useSubagentStore.getState().abortSubagent(subagentId),
+    (subagentId: string) =>
+      void useSubagentStore.getState().abortSubagent(subagentId),
     [],
   );
 
@@ -396,22 +428,32 @@ export function ChatMainPanel({
     void navigate(routes.plans);
   }, [navigate]);
 
-  const checkAssistant = useCallback(() => lifecycleService.checkAssistant(), []);
+  const checkAssistant = useCallback(
+    () => lifecycleService.checkAssistant(),
+    [],
+  );
 
   const handleDismissUnknownNudge = useCallback(
-    (toolCallId: string) => useInteractionStore.getState().removeUnknownNudgeToolCallId(toolCallId),
+    (toolCallId: string) =>
+      useInteractionStore.getState().removeUnknownNudgeToolCallId(toolCallId),
     [],
   );
 
   const handleSurfaceActionCallback = useCallback(
     (surfaceId: string, action: string, input: unknown) => {
-      return handleSurfaceAction(surfaceId, action, input as Record<string, unknown> | undefined);
+      return handleSurfaceAction(
+        surfaceId,
+        action,
+        input as Record<string, unknown> | undefined,
+      );
     },
     [],
   );
 
   const handleForkConversationCallback = useCallback(
-    (messageId: string) => { void handleForkConversation(messageId); },
+    (messageId: string) => {
+      void handleForkConversation(messageId);
+    },
     [handleForkConversation],
   );
 
@@ -488,17 +530,21 @@ export function ChatMainPanel({
     sendMessage,
   });
 
-  const renderOnboardingChoice = useCallback(() => (
-    <OnboardingChoiceCard
-      onSelectSpecific={handleSelectSpecific}
-      onSubmitTasks={handleSubmitTasks}
-    />
-  ), [handleSelectSpecific, handleSubmitTasks]);
+  const renderOnboardingChoice = useCallback(
+    () => (
+      <OnboardingChoiceCard
+        onSelectSpecific={handleSelectSpecific}
+        onSubmitTasks={handleSubmitTasks}
+      />
+    ),
+    [handleSelectSpecific, handleSubmitTasks],
+  );
 
   // -------------------------------------------------------------------------
   // Edit-message recall (up-arrow)
   // -------------------------------------------------------------------------
-  const { editingMessageId, isEditing, startEditing, cancelEditing } = useEditMessage(messages);
+  const { editingMessageId, isEditing, startEditing, cancelEditing } =
+    useEditMessage(messages);
 
   const handleRecallLastMessage = useCallback(() => {
     const content = startEditing();
@@ -520,14 +566,19 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Nudges + ghost text
   // -------------------------------------------------------------------------
-  const nudges = useAppNudges(messages, conversations.length, liveAssistantMessageId, activeConversationId);
+  const nudges = useAppNudges(
+    messages,
+    conversations.length,
+    liveAssistantMessageId,
+    activeConversationId,
+  );
 
   const lastCompleteAssistantMsgId = useMemo<string | null>(() => {
     const last = messages[messages.length - 1];
     return last &&
       last.role === "assistant" &&
       last.id !== liveAssistantMessageId
-      ? last.id ?? null
+      ? (last.id ?? null)
       : null;
   }, [messages, liveAssistantMessageId]);
 
@@ -556,8 +607,12 @@ export function ChatMainPanel({
     };
   }, [uiContextRef, uiContext]);
 
-  useLayoutEffect(() => { sanitizedMessagesRef.current = sanitizedMessages; });
-  useLayoutEffect(() => { transcriptItemsRef.current = transcriptItems; });
+  useLayoutEffect(() => {
+    sanitizedMessagesRef.current = sanitizedMessages;
+  });
+  useLayoutEffect(() => {
+    transcriptItemsRef.current = transcriptItems;
+  });
 
   // -------------------------------------------------------------------------
   // Remaining derived values
@@ -571,7 +626,8 @@ export function ChatMainPanel({
 
   const typingDisabled =
     isLoadingHistory ||
-    (assistantState.kind === "active" && !!assistantState.maintenanceMode?.enabled) ||
+    (assistantState.kind === "active" &&
+      !!assistantState.maintenanceMode?.enabled) ||
     diskPressureInputDisabled;
 
   const sendDisabled = isSendDisabledFromTurn || typingDisabled;
@@ -595,15 +651,16 @@ export function ChatMainPanel({
     // conversation switch, which resets the snapshot mid-turn).
     !activeConversationIsProcessing &&
     !isAssistantBusy &&
-    !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
+    !(
+      assistantState.kind === "active" &&
+      assistantState.maintenanceMode?.enabled
+    );
 
   const showDoctorAction =
     assistantState.kind === "active" && !assistantState.isLocal;
   const doctorAction = showDoctorAction ? (
     <Button asChild variant="outlined" size="compact">
-      <Link to={`${routes.settings.debug}?tab=doctor`}>
-        Go to Doctor
-      </Link>
+      <Link to={`${routes.settings.debug}?tab=doctor`}>Go to Doctor</Link>
     </Button>
   ) : undefined;
 
@@ -628,16 +685,17 @@ export function ChatMainPanel({
       </Button>
     ) : undefined;
 
-  const genericChatError = shouldShowGenericChatErrorNotice(error) && error
-    ? {
-        message: error.message,
-        tone: "error" as const,
-        actions:
-          buildOpenUrlAction(error.actionUrl, () =>
-            useChatSessionStore.getState().setError(null),
-          ) ?? doctorAction,
-      }
-    : null;
+  const genericChatError =
+    shouldShowGenericChatErrorNotice(error) && error
+      ? {
+          message: error.message,
+          tone: "error" as const,
+          actions:
+            buildOpenUrlAction(error.actionUrl, () =>
+              useChatSessionStore.getState().setError(null),
+            ) ?? doctorAction,
+        }
+      : null;
   const hasGenericChatError = genericChatError !== null;
   const genericChatNotice =
     shouldShowGenericChatErrorNotice(notice) && notice
@@ -695,7 +753,7 @@ export function ChatMainPanel({
   const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
   const activeDraftProfile =
     !activeConversation && activeConversationId
-      ? pendingDraftProfiles.get(activeConversationId) ?? undefined
+      ? (pendingDraftProfiles.get(activeConversationId) ?? undefined)
       : undefined;
   const activeProfileModel = useActiveProfileModel(
     assistantId,
@@ -717,9 +775,10 @@ export function ChatMainPanel({
   const handleDroppedFiles = useCallback(
     (files: FileList | File[]) => {
       const arr = Array.from(files);
-      const allowed = !visionGateActive || activeModelSupportsVision
-        ? arr
-        : arr.filter((f) => !f.type.startsWith("image/"));
+      const allowed =
+        !visionGateActive || activeModelSupportsVision
+          ? arr
+          : arr.filter((f) => !f.type.startsWith("image/"));
       if (allowed.length < arr.length) {
         useComposerStore.setState({
           attachmentLastError:
@@ -843,10 +902,13 @@ export function ChatMainPanel({
     setSecretToStore(null);
   }, []);
 
-  const handleSelectStarter = useCallback((starter: { prompt: string }) => {
-    useComposerStore.getState().setInput(starter.prompt);
-    void submitMessage(starter.prompt);
-  }, [submitMessage]);
+  const handleSelectStarter = useCallback(
+    (starter: { prompt: string }) => {
+      useComposerStore.getState().setInput(starter.prompt);
+      void submitMessage(starter.prompt);
+    },
+    [submitMessage],
+  );
 
   // -------------------------------------------------------------------------
   // New-thread suggestion drawer (behind the flag, empty-state only)
@@ -872,7 +934,10 @@ export function ChatMainPanel({
 
   // Close, and Save-for-later, both just dismiss the drawer: persisting saved
   // suggestions is not implemented yet.
-  const handleCloseSuggestion = useCallback(() => setSelectedSuggestion(null), []);
+  const handleCloseSuggestion = useCallback(
+    () => setSelectedSuggestion(null),
+    [],
+  );
 
   const handleConfirmSuggestion = useCallback(
     (s: ThreadSuggestion) => {
@@ -1000,7 +1065,9 @@ export function ChatMainPanel({
     <ChatComposer
       cmdEnterMode={cmdEnterMode}
       placeholder={
-        isEmptyConversation ? emptyStatePlaceholder : "What would you like to do?"
+        isEmptyConversation
+          ? emptyStatePlaceholder
+          : "What would you like to do?"
       }
       onSubmit={handleFormSubmit}
       inputRef={inputRef}
@@ -1022,7 +1089,9 @@ export function ChatMainPanel({
       // session should attach to the thread the user is looking at — draft
       // ids included (the runtime accepts client-generated conversation ids).
       conversationId={activeConversationId}
-      onRecallLastMessage={isIdle && isNativeConversation ? handleRecallLastMessage : undefined}
+      onRecallLastMessage={
+        isIdle && isNativeConversation ? handleRecallLastMessage : undefined
+      }
       onCancelEdit={isEditing ? handleCancelEdit : undefined}
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}
@@ -1058,6 +1127,13 @@ export function ChatMainPanel({
               draftSecretDetection.sendBlocked) && (
               <ComposerSecretNotice
                 matches={draftSecretDetection.matches}
+                // Non-reactive read — the mount point deliberately never
+                // subscribes to composer input (typing must not re-render it).
+                // This render is already driven by `matches` changing, and a
+                // secret only leaves `input` via an edit that re-scans and
+                // updates `matches`, so the value read here stays in step with
+                // what "Store securely" (input-origin gated) can remove.
+                composerInput={useComposerStore.getState().input}
                 sendBlocked={draftSecretDetection.sendBlocked}
                 onDismiss={draftSecretDetection.dismiss}
                 onSendAnyway={handleSecretSendAnyway}
@@ -1084,9 +1160,7 @@ export function ChatMainPanel({
               ) : null
             }
             diskPressureBanner={diskPressureBannerSlot}
-            showMissingApiKeyBanner={
-              error?.code === "PROVIDER_NOT_CONFIGURED"
-            }
+            showMissingApiKeyBanner={error?.code === "PROVIDER_NOT_CONFIGURED"}
             onOpenAiSettings={pushToAiSettings}
             onDismissApiKeyError={handleDismissApiKeyError}
             compactionCircuitOpenUntil={compactionCircuitOpenUntil}
@@ -1121,8 +1195,10 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
-  const editingConversationId = useConversationStore.use.editingConversationId();
-  const isSidePanel = mainView === "app-editing" && !!openedAppState && !!editingConversationId;
+  const editingConversationId =
+    useConversationStore.use.editingConversationId();
+  const isSidePanel =
+    mainView === "app-editing" && !!openedAppState && !!editingConversationId;
   const variant = isSidePanel ? "side-panel" : "main";
 
   // Mobile-only: while the app overlay is minimized to its bottom strip, the
@@ -1143,7 +1219,9 @@ export function ChatMainPanel({
       bottomInset={appStripBottomInset}
       scrollAreaProps={{
         ...chatBodyScrollAreaPropsBase,
-        showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
+        showMaintenanceRecoveryCard: isSidePanel
+          ? false
+          : isInMaintenanceWithNoMessages,
       }}
       composerSlot={composerNode}
       pluginPillsSlot={newChatPluginsSlot}

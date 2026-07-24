@@ -88,6 +88,32 @@ export function isStorableSecret(secret: DetectedSecret): boolean {
 }
 
 /**
+ * True when rewriting the composer INPUT actually removes this secret from
+ * everything that will be submitted.
+ *
+ * "Store securely" can only rewrite the raw composer `input` — staged quotes
+ * and path references live in separate stores this flow never touches. The
+ * pre-send gate (`checkBeforeSend`), however, scans the fully assembled
+ * outgoing content (quote text + appended path references + input), so a
+ * secret can be flagged (and staged as `matches[0]`) while living ONLY in a
+ * quote or a path reference, never in `input`. Rewriting `input` would then
+ * remove nothing, yet a success toast would falsely claim the key was
+ * stored — and the untouched secret still rides the follow-up "Send anyway".
+ *
+ * Restricting the action to input-originated matches keeps the save honest:
+ * the value must be present in `input` (so `replaceAll` removes it) AND the
+ * whole secret must be storable ({@link isStorableSecret}, the header-only
+ * PEM guard). For a quote/path-reference-originated match the user removes the
+ * quote/reference or uses "Send anyway" deliberately — no false success.
+ */
+export function isStorableFromInput(
+  secret: DetectedSecret,
+  composerInput: string,
+): boolean {
+  return isStorableSecret(secret) && composerInput.includes(secret.value);
+}
+
+/**
  * Replaces every occurrence of a stored secret in the draft with a plaintext
  * placeholder naming its vault slot. The placeholder is model-actionable: the
  * assistant discovers stored credentials via `assistant credentials list` and
@@ -134,9 +160,12 @@ export interface StoreCredentialDialogProps {
  * the plaintext key never enters the transcript. Cancel leaves the draft —
  * and the composer secret notice — untouched.
  *
- * Never opens for a non-{@link isStorableSecret} match (a header-only
- * private key): storing it would rewrite only the header and leave the key
- * body in the draft, undetected.
+ * Never opens for a non-{@link isStorableFromInput} match: a header-only
+ * private key (storing it would rewrite only the header and leave the key
+ * body in the draft), or a secret that reached the pre-send scan via a staged
+ * quote / path reference and so is absent from the raw `input` this flow
+ * rewrites (storing it would remove nothing yet claim success while the key
+ * still rides the follow-up "Send anyway").
  *
  * The staged secret is bound to the conversation it was detected in. The
  * composer store only mutates the ACTIVE conversation's draft (`setInput`),
@@ -153,7 +182,14 @@ export function StoreCredentialDialog({
   onStored,
 }: StoreCredentialDialogProps) {
   const suggestion = suggestCredentialSlot(secret?.label ?? "");
-  const storable = secret !== null && isStorableSecret(secret);
+  // Reactively track the raw composer input: "Store securely" rewrites only
+  // `input`, so the dialog may open only while the secret actually lives in it.
+  // If the value leaves `input` (edited out, or it originated in a staged
+  // quote / path reference and never was in `input`), the modal closes rather
+  // than fire a false "Stored securely" toast over a secret it can't remove.
+  const composerInput = useComposerStore((s) => s.input);
+  const storable =
+    secret !== null && isStorableFromInput(secret, composerInput);
 
   // The conversation this staged secret was detected in. The host mounts the
   // dialog fresh per staged secret (it renders only while a secret is
@@ -175,9 +211,6 @@ export function StoreCredentialDialog({
   }, [conversationId, onClose]);
 
   const handleSaved = (meta: { service: string; field: string }) => {
-    if (!secret || !isStorableSecret(secret)) {
-      return;
-    }
     // Backstop for the close-on-switch layout effect above: never rewrite a
     // draft that is no longer the source thread's, even if a save somehow
     // races a switch before the dialog unmounts.
@@ -186,6 +219,15 @@ export function StoreCredentialDialog({
     }
     const slot: CredentialSlot = { service: meta.service, field: meta.field };
     const { input, setInput } = useComposerStore.getState();
+    // Fail closed: only rewrite + report success when the value is actually
+    // present in `input` at save time. If it isn't — a header-only PEM, or a
+    // quote/path-reference-originated match that never lived in `input`, or an
+    // edit that removed it after the modal opened — `replaceAll` would be a
+    // no-op and `onStored` would falsely advance the success path over a
+    // secret still headed for the wire. Skip both.
+    if (!secret || !isStorableFromInput(secret, input)) {
+      return;
+    }
     setInput(rewriteDraftWithStoredCredential(input, secret.value, slot));
     onStored(slot);
   };

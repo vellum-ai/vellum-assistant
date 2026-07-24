@@ -1,7 +1,7 @@
 import { Button, Notice } from "@vellumai/design-library";
 import type { DetectedSecret } from "@vellumai/service-contracts/secret-detection";
 
-import { isStorableSecret } from "@/domains/chat/components/store-credential-dialog";
+import { isStorableFromInput } from "@/domains/chat/components/store-credential-dialog";
 
 /** Leading characters of the detected value kept visible in the masked preview. */
 const MASK_VISIBLE_CHARS = 6;
@@ -18,6 +18,15 @@ export function maskSecretValue(value: string): string {
 export interface ComposerSecretNoticeProps {
   /** Detected secrets ordered by draft position; the first is previewed. */
   matches: DetectedSecret[];
+  /**
+   * The raw composer input. "Store securely" rewrites only this string, so it
+   * is offered only when the previewed secret is present here — where the
+   * rewrite actually removes it. A match that reached the pre-send gate via a
+   * staged quote or a path reference (absent from `input`) gets no action: the
+   * rewrite would remove nothing while a success toast falsely claimed the key
+   * was stored, and the secret would still ride the follow-up "Send anyway".
+   */
+  composerInput: string;
   /**
    * True when the pre-send gate intercepted the last submit. Switches the
    * notice from the passive warning to the blocked-send state with explicit
@@ -53,7 +62,10 @@ export interface ComposerSecretNoticeProps {
  *
  * Both states lead with "Store securely" — the recommended path — which
  * opens the store-credential dialog for the previewed secret. The action is
- * omitted for a non-storable match (see {@link isStorableSecret}).
+ * omitted for a match that rewriting the composer input can't remove (see
+ * {@link isStorableFromInput}): a header-only private key, or a secret that
+ * reached the pre-send gate via a staged quote / path reference and so is
+ * absent from the raw input this flow rewrites.
  *
  * The copy is deliberately generic — the detection label (which names the
  * vendor) stays internal and is never rendered. The detected value appears
@@ -67,6 +79,7 @@ export interface ComposerSecretNoticeProps {
  */
 export function ComposerSecretNotice({
   matches,
+  composerInput,
   sendBlocked,
   onDismiss,
   onSendAnyway,
@@ -76,10 +89,13 @@ export function ComposerSecretNotice({
   if (!first) {
     return null;
   }
-  // A non-storable match (a private key detected by its header alone — the
-  // END footer never arrived) gets no "Store securely" action: the store +
-  // rewrite would remove only the header and leave the key body behind.
-  const storeSecurelyButton = isStorableSecret(first) ? (
+  // "Store securely" is offered only when rewriting the composer input would
+  // actually remove the previewed secret: it must be present in `input` and
+  // fully storable. A header-only private key (rewrite would strip just the
+  // header) or a quote / path-reference-originated match (absent from `input`,
+  // so the rewrite is a no-op yet the toast would claim success) gets no
+  // action — leaving "Send anyway" / "Dismiss" as the deliberate paths.
+  const storeSecurelyButton = isStorableFromInput(first, composerInput) ? (
     <Button variant="primary" size="compact" onClick={onStoreSecurely}>
       Store securely
     </Button>
