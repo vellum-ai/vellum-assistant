@@ -15,14 +15,14 @@ Why: the gateway is the single point of ingress, handling TLS termination, auth,
 
 ### Provider Webhook Payload Validation
 
-Provider webhook payloads (Telegram, WhatsApp, Slack, email/Resend, …) are **untrusted external input**. Parse them with tolerant Zod schemas in the provider's `normalize.ts` (or the webhook route, where normalization is split) — never trust a blanket `as` / `as unknown as` cast off `JSON.parse`.
+Provider webhook payloads (Telegram, WhatsApp, Slack, email/Resend, …) are **untrusted external input**. Parse them with tolerant Zod schemas co-located in the provider module — a `normalize.ts`, a dedicated schemas file (`slack/message-schemas.ts`), or the webhook route where normalization is split — never trust a blanket `as` / `as unknown as` cast off `JSON.parse`.
 
-- **Schema-first, co-located.** Define the schema inline in the module that consumes it and derive the type with `z.infer` (single source of truth). These input schemas have a single consumer, so they stay local — do **not** hoist them to `packages/gateway-client` (that package is for schemas that cross the gateway↔daemon↔web wire, e.g. the normalized `GatewayInboundEvent` output).
+- **Schema-first, co-located.** Define the schema in a module co-located with the normalizer(s) that consume it and derive the type with `z.infer` (single source of truth). These input schemas stay local to the provider directory — do **not** hoist them to `packages/gateway-client` (that package is for schemas that cross the gateway↔daemon↔web wire, e.g. the normalized `GatewayInboundEvent` output).
 - **Tolerant, not strict.** Validate each field's type but `.optional().catch(undefined)` it so a malformed field collapses rather than rejecting the whole payload; the existing downstream null-checks then drop an unprocessable message. Require only the fields the normalizer actually keys on (identity / dedup). `safeParse` at the boundary and drop-or-acknowledge malformed input **individually**, so one bad message can't crash a batch.
 - **`receivedAt` is the gateway's wall clock** (`new Date().toISOString()`), never a provider-supplied timestamp — routing an untrusted time into `new Date()` is a crash class, and receipt time is the correct semantic anyway.
 - **Preserve `raw`.** In a direct normalizer, keep the original payload verbatim on the event (`raw: payload`); only the parsed working copy is schema-shaped. Split-normalization paths that first map the provider payload onto a shared canonical shape (the email family — email/Resend/Mailgun → `VellumEmailPayload`) carry that canonical payload as `raw`, by the email channel's design.
 
-Reference implementations: `telegram/normalize.ts` (plus a compile-time cross-check against the `@grammyjs/types` dev dependency), `whatsapp/normalize.ts`, and `http/routes/resend-webhook.ts`.
+Reference implementations: `telegram/normalize.ts` (plus a compile-time cross-check against the `@grammyjs/types` dev dependency), `whatsapp/normalize.ts`, `http/routes/resend-webhook.ts`, and the `slack/` module — schemas in `slack/message-schemas.ts` (cross-checked against `@slack/types`), with normalizers split by event family (see _Module Organization_).
 
 ### Gateway-Only API Consumption
 
@@ -103,7 +103,7 @@ Organize gateway code **by concern, not by technical layer** — group by what c
 - **No single-file directories.** A directory holding exactly one file should be flattened up a level — directories organize multiple files.
 - **Split by concern, not by line count** — but a file that has grown to span multiple concerns (past a few hundred lines) is the signal to extract, not to keep appending.
 
-The `slack/` module is being reorganized to this shape and is the worked example.
+The `slack/` module is the worked example of this shape.
 
 ## Channel Trust Classification & Admission Policy
 
