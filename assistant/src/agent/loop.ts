@@ -1061,6 +1061,14 @@ export class AgentLoop {
     const iterationBudget = options.iterationBudget;
     let llmCallCount = 0;
     let iterationBudgetNudged = false;
+    // Set at a retry/repair re-entry (overflow reduction, post-model-call
+    // repair, or a discarded-reply re-query) to mark that the NEXT iteration is
+    // recovering a provider call already counted this run — its `llm_call_started`
+    // reservation is still pending, not finalized. The hard cap consults it so it
+    // never truncates recovery of an already-started call: the cap bounds NEW
+    // work, so a pending retry runs to completion (or surfaces its failure)
+    // first. Consumed (reset) at the top of every iteration.
+    let pendingProviderCallRetry = false;
     let exitReason: ExitReason | null = null;
     // Armed at the end of a tool-use iteration so the budget gate runs at the
     // top of the NEXT iteration — before that iteration's provider call —
@@ -1196,6 +1204,14 @@ export class AgentLoop {
         break;
       }
 
+      // Consume the retry marker for this iteration. When set, the previous
+      // provider call failed (or its reply was discarded) on a retryable path
+      // and this trip is its recovery — its reserved assistant row is still
+      // pending. Reset before the cap check so the flag suspends the cap for
+      // exactly this one recovery iteration.
+      const retryingPreviousCall = pendingProviderCallRetry;
+      pendingProviderCallRetry = false;
+
       // ── Iteration-budget hard cap ─────────────────────────────────
       // A subagent run that has already made `maxCallsPerRun` provider calls
       // stops here — before issuing another — so cost is bounded. The prior
@@ -1203,7 +1219,23 @@ export class AgentLoop {
       // normal completion (`iteration_budget_reached`), and the parent-facing
       // truncation notice is attached by the subagent manager off this exit
       // reason. Inert when no budget is configured (interactive turns).
-      if (iterationBudget && llmCallCount >= iterationBudget.maxCallsPerRun) {
+      //
+      // The cap bounds NEW work only. A retry/repair re-entry
+      // (`retryingPreviousCall`) is recovering a call already counted this run
+      // whose `llm_call_started` row is still pending — the overflow reduction
+      // ladder, a post-model-call history repair, or a discarded-reply re-query.
+      // Stopping here would strand that empty row and swallow the provider's real
+      // error as a clean `iteration_budget_reached`. So a pending retry always
+      // runs first: it either completes (finalizing the row) and lets a later
+      // clean boundary trip the cap, or surfaces its failure as the failure it
+      // is. That retry may push `llmCallCount` one past the cap; accepting one
+      // extra call is the cost of never truncating recovery of an already-started
+      // call, and the retry mechanisms carry their own independent ceilings.
+      if (
+        iterationBudget &&
+        llmCallCount >= iterationBudget.maxCallsPerRun &&
+        !retryingPreviousCall
+      ) {
         rlog.warn(
           {
             turn: toolUseTurns,
@@ -2061,6 +2093,10 @@ export class AgentLoop {
               "post-model-call requested a retry — re-querying the model",
             );
             history = postModelCallMessages;
+            // This re-query discards the reply without finalizing its reserved
+            // row, so the next trip is recovering an already-counted call — the
+            // hard cap must let it run rather than strand the empty row.
+            pendingProviderCallRetry = true;
             continue;
           } else {
             rlog.warn(
@@ -2495,6 +2531,10 @@ export class AgentLoop {
             isInteractive: !isNonInteractive,
           };
           budgetGateArmed = true;
+          // The provider rejected this call; the next trip reduces context and
+          // re-issues it. That is recovery of an already-counted call whose
+          // reserved row is still pending, so the hard cap must not truncate it.
+          pendingProviderCallRetry = true;
           rlog.warn(
             {
               turn: toolUseTurns,
@@ -2553,6 +2593,11 @@ export class AgentLoop {
             // onto the new array; the repaired history is the base the retry's
             // output appends after.
             newMessagesStart = history.length;
+            // The provider call failed and the hook repaired the history to
+            // re-issue it, so the next trip is recovering an already-counted
+            // call whose reserved row is still pending — the hard cap must let it
+            // run rather than convert the rejection into a clean budget stop.
+            pendingProviderCallRetry = true;
             continue;
           }
         }

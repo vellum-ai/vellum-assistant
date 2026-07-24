@@ -141,6 +141,37 @@ function truncateInlinedToolResult(text: string): {
 }
 
 /**
+ * Compose the text a synchronous `spawnAndAwait` caller receives for a
+ * budget-capped run. A capped run breaks the tool-use loop right after appending
+ * the final iteration's tool results, so `preamble` (the trailing assistant
+ * text) is only the pre-tool snapshot — the last real work lives in the trailing
+ * tool-result message. The synchronous caller gets the child's text directly
+ * with no `subagent_read` round-trip, so a bounded excerpt of that tool output
+ * is inlined after the preamble (mirroring the async terminal-message path). A
+ * tool-less run (the advisor consult) has no trailing tool output, so the
+ * preamble is returned unchanged. The shared truncation note is appended by the
+ * caller.
+ */
+function inlineCappedSyncToolOutput(
+  preamble: string,
+  finalToolResultText: string | undefined,
+): string {
+  const trimmedToolResult = finalToolResultText?.trim() ?? "";
+  if (!trimmedToolResult) {
+    return preamble;
+  }
+  const excerpt = truncateInlinedToolResult(trimmedToolResult);
+  const truncatedClause = excerpt.truncated
+    ? ` (truncated to the first ${MAX_INLINED_TOOL_RESULT_CHARS} characters)`
+    : "";
+  const trimmedPreamble = preamble.trim();
+  return (
+    (trimmedPreamble ? `${trimmedPreamble}\n\n` : "") +
+    `Final tool output${truncatedClause}:\n\n${excerpt.text}`
+  );
+}
+
+/**
  * Pull the user-visible text out of a streaming delta event, or null for any
  * other event type. Used by the synchronous `onText` tap to forward
  * `assistant_text_delta` / `assistant_thinking_delta` chunks to the caller.
@@ -971,10 +1002,16 @@ export class SubagentManager {
         } else if (iterationBudgetReached) {
           // The synchronous caller (advisor consult, voice continuation)
           // receives this text directly instead of a parent-injected
-          // notification, so append the same truncation note here — otherwise a
-          // capped run returns a possibly-partial answer with no indication it
-          // stopped early.
-          finalText += iterationBudgetTruncationNote(managed.state.isFork);
+          // notification. A capped run breaks the loop after appending the final
+          // iteration's tool results, so `finalText` is only the pre-tool
+          // preamble — the last real work is stranded in the trailing
+          // tool-result message. Inline a bounded excerpt of it (the async path
+          // does the same via `finalToolResultText`; the read pointer that path
+          // relies on is unavailable here), then append the same truncation note
+          // so the caller knows the run stopped early and may be incomplete.
+          finalText =
+            inlineCappedSyncToolOutput(finalText, finalToolResultText) +
+            iterationBudgetTruncationNote(managed.state.isFork);
         }
       }
     } catch (err) {
