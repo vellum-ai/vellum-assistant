@@ -16,8 +16,8 @@ export type MutationStatus = "idle" | "pending" | "success" | "error";
 
 /**
  * Slack's create-app entry point. Deliberately carries no `manifest_json`
- * payload: the modal Slack rolled out in Jul 2026 intercepts this URL and
- * ignores the parameter, so the manifest travels via the clipboard instead.
+ * payload: Slack's modal intercepts this URL and ignores the parameter, so
+ * the manifest travels via the clipboard instead.
  */
 const SLACK_NEW_APP_URL = "https://api.slack.com/apps?new_app=1";
 
@@ -138,8 +138,8 @@ export function SlackSetupWizard({
 
   // Slack's install flow can return a healthy-looking token carrying only a
   // fraction of the requested scopes. Check once the credentials land, so the
-  // user fixes it with one reinstall now instead of hitting dead features
-  // later. probeSlackScopes never rejects, so there's nothing to catch.
+  // user fixes it with one reinstall instead of hitting dead features later.
+  // probeSlackScopes never rejects, so there's nothing to catch.
   useEffect(() => {
     if (saveStatus !== "success") {return;}
     const token = botToken.trim();
@@ -147,11 +147,20 @@ export function SlackSetupWizard({
     probedToken.current = token;
 
     let cancelled = false;
+    let settled = false;
     void probeScopes(token).then((result) => {
+      settled = true;
       if (!cancelled) {setScopeProbe(result);}
     });
     return () => {
       cancelled = true;
+      // Release the guard when this run delivered no result, so the next run
+      // probes again instead of honoring a reservation nothing fulfilled.
+      // Without this, any teardown between reserving the token and resolving
+      // (a remount, an effect re-run) permanently suppresses the drift card.
+      if (!settled && probedToken.current === token) {
+        probedToken.current = null;
+      }
     };
   }, [saveStatus, botToken, probeScopes]);
 

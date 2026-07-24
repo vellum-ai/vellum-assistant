@@ -67,10 +67,10 @@ const manifest = {
       display_name: safeName,
       always_online: true,
     },
-    // `agent_view` supersedes `assistant_view` (Slack Agent messaging,
-    // Jun 30 2026). The description field is renamed — `agent_view` declares
-    // `additionalProperties: false`, so the old `assistant_description` key
-    // would be rejected outright. Migration is one-way per Slack's docs.
+    // `agent_view` drives the Agent messaging experience. It declares
+    // `additionalProperties: false` and names its description
+    // `agent_description`, so an `assistant_description` key is rejected.
+    // Slack treats the switch away from `assistant_view` as one-way.
     agent_view: {
       // Slack caps `agent_description` at 300 characters.
       agent_description: (desc || safeName).slice(0, 300),
@@ -78,17 +78,20 @@ const manifest = {
     },
   },
   oauth_config: {
-    // Scopes are split required vs optional. Slack lists optional scopes
-    // separately on the install consent screen, so a workspace that declines
-    // one makes a visible choice instead of silently dropping it. Optional
-    // means "degrades gracefully", not "unwanted".
+    // `bot`/`user` carry the complete request; `bot_optional`/`user_optional`
+    // mark the subset a workspace may decline on the consent screen. An
+    // optional entry must also appear in its parent list — a scope named only
+    // in the optional array is never requested.
     scopes: {
       bot: [
         "app_mentions:read",
         "assistant:write",
         "channels:history",
+        "channels:join",
         "channels:read",
         "chat:write",
+        "files:read",
+        "files:write",
         "groups:history",
         "groups:read",
         "im:history",
@@ -96,6 +99,8 @@ const manifest = {
         "im:write",
         "mpim:history",
         "mpim:read",
+        "reactions:read",
+        "reactions:write",
         "users:read",
       ],
       bot_optional: [
@@ -114,9 +119,11 @@ const manifest = {
         "im:read",
         "mpim:history",
         "mpim:read",
+        "reactions:read",
+        "search:read",
         "users:read",
       ],
-      user_optional: ["search:read", "reactions:read"],
+      user_optional: ["reactions:read", "search:read"],
     },
   },
   settings: {

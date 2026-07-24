@@ -1,13 +1,19 @@
 /**
- * Bot scopes the app cannot function without. A workspace that declines any of
- * these gets a failed install rather than a silently degraded one.
+ * Every bot scope the manifest requests.
+ *
+ * The scope-drift probe diffs against this full list on purpose: marking a
+ * scope optional changes how Slack asks for it, not whether we want it. A
+ * dropped optional scope still surfaces the reinstall nudge.
  */
-const SLACK_BOT_SCOPES_REQUIRED = [
+export const SLACK_MANIFEST_BOT_SCOPES = [
   "app_mentions:read",
   "assistant:write",
   "channels:history",
+  "channels:join",
   "channels:read",
   "chat:write",
+  "files:read",
+  "files:write",
   "groups:history",
   "groups:read",
   "im:history",
@@ -15,14 +21,19 @@ const SLACK_BOT_SCOPES_REQUIRED = [
   "im:write",
   "mpim:history",
   "mpim:read",
+  "reactions:read",
+  "reactions:write",
   "users:read",
 ] as const;
 
 /**
- * Bot scopes the app degrades gracefully without. Slack lists these separately
- * on the install consent screen, so a workspace that declines them makes a
- * visible choice instead of tripping the silent-drop trap (see LUM-2830).
- * Optional does not mean unwanted — the scope-drift probe still checks them.
+ * Bot scopes a workspace may decline at install without breaking the app.
+ * Slack lists them separately on the consent screen, so declining one is a
+ * visible choice rather than a silent drop (see LUM-2830).
+ *
+ * Must be a subset of {@link SLACK_MANIFEST_BOT_SCOPES}: Slack reads `bot` as
+ * the complete request and `bot_optional` as the opt-out subset within it, so
+ * a scope listed only here is never requested at all.
  */
 const SLACK_BOT_SCOPES_OPTIONAL = [
   "channels:join",
@@ -32,7 +43,7 @@ const SLACK_BOT_SCOPES_OPTIONAL = [
   "reactions:write",
 ] as const;
 
-const SLACK_USER_SCOPES_REQUIRED = [
+const SLACK_MANIFEST_USER_SCOPES = [
   "channels:history",
   "channels:read",
   "groups:history",
@@ -41,22 +52,13 @@ const SLACK_USER_SCOPES_REQUIRED = [
   "im:read",
   "mpim:history",
   "mpim:read",
+  "reactions:read",
+  "search:read",
   "users:read",
 ] as const;
 
-const SLACK_USER_SCOPES_OPTIONAL = ["search:read", "reactions:read"] as const;
-
-/**
- * Every bot scope the manifest asks for, required and optional alike.
- *
- * The scope-drift probe diffs against this full list on purpose: marking a
- * scope optional changes how Slack asks for it, not whether we want it. A
- * dropped optional scope should still surface the reinstall nudge.
- */
-export const SLACK_MANIFEST_BOT_SCOPES = [
-  ...SLACK_BOT_SCOPES_REQUIRED,
-  ...SLACK_BOT_SCOPES_OPTIONAL,
-] as const;
+/** Subset of {@link SLACK_MANIFEST_USER_SCOPES}, same contract as the bot side. */
+const SLACK_USER_SCOPES_OPTIONAL = ["reactions:read", "search:read"] as const;
 
 /** Slack caps `display_information.name` at 35 characters. */
 const MAX_NAME_LENGTH = 35;
@@ -95,10 +97,10 @@ export function buildSlackManifest(name: string, desc = "") {
         display_name: safeName,
         always_online: true,
       },
-      // `agent_view` supersedes `assistant_view` (Slack Agent messaging,
-      // Jun 30 2026). The description field is renamed — `agent_view` declares
-      // `additionalProperties: false`, so the old `assistant_description` key
-      // would be rejected outright. Migration is one-way per Slack's docs.
+      // `agent_view` drives the Agent messaging experience. It declares
+      // `additionalProperties: false` and names its description
+      // `agent_description`, so an `assistant_description` key is rejected.
+      // Slack treats the switch away from `assistant_view` as one-way.
       agent_view: {
         agent_description: (desc || safeName).slice(
           0,
@@ -109,9 +111,9 @@ export function buildSlackManifest(name: string, desc = "") {
     },
     oauth_config: {
       scopes: {
-        bot: [...SLACK_BOT_SCOPES_REQUIRED],
+        bot: [...SLACK_MANIFEST_BOT_SCOPES],
         bot_optional: [...SLACK_BOT_SCOPES_OPTIONAL],
-        user: [...SLACK_USER_SCOPES_REQUIRED],
+        user: [...SLACK_MANIFEST_USER_SCOPES],
         user_optional: [...SLACK_USER_SCOPES_OPTIONAL],
       },
     },
@@ -137,12 +139,12 @@ export function buildSlackManifest(name: string, desc = "") {
 }
 
 /**
- * Legacy deep link that pre-fills Slack's create-app form from a manifest.
+ * Deep link that pre-fills Slack's create-app form from a manifest.
  *
- * Slack's new create-app modal (rolled out ~Jul 2026) ignores the
- * `manifest_json` query parameter, so the wizard now uses the copy-paste flow
- * built on {@link buildSlackManifest} instead. Kept as a fallback for older
- * Slack surfaces and for the setup skill.
+ * Slack's create-app modal ignores the `manifest_json` query parameter, so the
+ * wizard builds its copy-paste flow on {@link buildSlackManifest} instead.
+ * This remains a fallback for Slack surfaces that still honor the parameter,
+ * and for the setup skill.
  */
 export function buildSlackManifestUrl(name: string, desc = ""): string {
   return (
