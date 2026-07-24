@@ -687,10 +687,10 @@ describe("BillingOnboardingModal", () => {
         { timeout: 5000 },
       );
 
-      // Open the confirm, then dismiss it with "Wait".
+      // Open the confirm, then dismiss it with "Keep waiting".
       fireEvent.click(getByTestId("provisioning-escape"));
       expect(getByText("Continue in the background?")).toBeTruthy();
-      fireEvent.click(getByText("Wait"));
+      fireEvent.click(getByText("Keep waiting"));
 
       // The dialog closes and nothing was kicked or closed — still upgrading.
       await waitFor(() =>
@@ -706,8 +706,8 @@ describe("BillingOnboardingModal", () => {
     "a resize settling while the background confirm is open dismisses it without force-closing the advanced step",
     async () => {
       subscriptionPlanId = "pro";
-      // Route to complete so the dialog's own "Continue"/"Wait" are the only
-      // ones on screen — the domain step renders its own "Continue" button.
+      // Route to complete so the dialog's own "Continue"/"Keep waiting" are the
+      // only ones on screen — the domain step renders its own "Continue" button.
       onboardingResponse = makeOnboarding({ domain_setup_available: false });
       const { client, getByText, getByTestId, queryByText, onClose } =
         renderModal();
@@ -751,7 +751,7 @@ describe("BillingOnboardingModal", () => {
         ),
       ).toBeNull();
       expect(queryByText("Continue")).toBeNull();
-      expect(queryByText("Wait")).toBeNull();
+      expect(queryByText("Keep waiting")).toBeNull();
       expect(onClose).not.toHaveBeenCalled();
     },
     20_000,

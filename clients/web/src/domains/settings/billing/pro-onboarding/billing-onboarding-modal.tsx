@@ -430,7 +430,7 @@ export function BillingOnboardingModal({
         title="Continue in the background?"
         message="Your assistant is still upgrading. Chatting won't be available until it finishes — you can keep waiting here, or continue and we'll let you know when it's ready."
         confirmLabel="Continue"
-        cancelLabel="Wait"
+        cancelLabel="Keep waiting"
         onConfirm={confirmBackgroundExit}
         onCancel={cancelBackgroundExit}
       />
