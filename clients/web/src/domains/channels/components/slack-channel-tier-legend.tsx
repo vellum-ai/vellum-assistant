@@ -24,7 +24,7 @@ import { routes } from "@/utils/routes";
  * channel's tier. At `none` nothing is within threshold, so every action
  * prompts; Trust Rules move an action between levels (changing when it asks)
  * but cannot bypass Strict or hard-block at Full access, which is why the
- * footnote describes them as tuning, not overriding.
+ * description frames them as tuning, not overriding.
  *
  * Channel actors are non-guardians, so the sensitive-tool floor applies on top
  * of the tier: every side-effect tool (file writes, bash, web fetches —
@@ -62,13 +62,14 @@ export interface SlackChannelTierLegendProps {
 }
 
 /**
- * Always-visible Assistant Access key at the foot of the channel list card:
- * every tier as a compact "label + what it does" pair in a two-column grid, so
- * the meaning is on screen without opening anything. The terse sublabel shows
- * inline (the touch-reachable case); the full behavior sentence rides each
- * pair's hover/description `title` as progressive enhancement. The tier the
- * global default resolves to is marked "· default", matching the per-row picker
- * so the two read together.
+ * Always-visible Assistant Access key in the default-access card footer: a
+ * heading, a one-line description of what the levels do (and what always
+ * escalates), then every tier as a compact "label + what it does" pair in a
+ * two-column grid, so the meaning is on screen without opening anything. The
+ * terse sublabel shows inline (the touch-reachable case); the full behavior
+ * sentence rides each pair's hover/description `title` as progressive
+ * enhancement. The tier the global default resolves to is marked "· default",
+ * matching the per-row picker so the two read together.
  */
 export function SlackChannelTierLegend({
   assistantName,
@@ -78,6 +79,21 @@ export function SlackChannelTierLegend({
     <div className="flex flex-col gap-2 px-4 py-3">
       <Typography as="span" variant="body-small-emphasised">
         Assistant Access levels
+      </Typography>
+      <Typography
+        as="p"
+        variant="body-small-default"
+        className="text-[color:var(--content-tertiary)]"
+      >
+        These levels only cover how much it looks up on its own before answering.
+        Writing, sending, and spending always ask first — at every level. Your{" "}
+        <Link
+          to={routes.settings.privacy}
+          className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
+        >
+          Trust Rules
+        </Link>{" "}
+        fine-tune when it asks.
       </Typography>
       <ul className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
         {CAPABILITY_TIER_VALUES.map((tier) => {
@@ -104,21 +120,6 @@ export function SlackChannelTierLegend({
           );
         })}
       </ul>
-      <Typography
-        as="p"
-        variant="body-small-default"
-        className="text-[color:var(--content-tertiary)]"
-      >
-        These levels only cover how much it looks up on its own before answering.
-        Writing, sending, and spending always ask first — at every level. Your{" "}
-        <Link
-          to={routes.settings.privacy}
-          className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
-        >
-          Trust Rules
-        </Link>{" "}
-        fine-tune when it asks.
-      </Typography>
     </div>
   );
 }

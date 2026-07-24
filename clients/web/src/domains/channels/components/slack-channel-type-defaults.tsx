@@ -88,7 +88,9 @@ export function SlackChannelTypeDefaults({
           </Typography>
         </div>
       </Card.Header>
-      <Card.Body>
+      {/* Rows carry their own py-3, so keep the body's vertical padding small
+          to avoid a doubled gap above the first / below the last row. */}
+      <Card.Body className="py-1">
         {BUCKET_ROWS.map(({ bucket, icon: Icon, title, description }) => {
           // DMs fall through to the Channels default, then the global default;
           // Channels falls through to the global default.
