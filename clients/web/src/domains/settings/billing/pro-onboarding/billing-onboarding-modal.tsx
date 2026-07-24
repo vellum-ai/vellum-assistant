@@ -317,16 +317,6 @@ export function BillingOnboardingModal({
     setBackgroundConfirmOpen(false);
   }, []);
 
-  // A resize that settles while the confirm is open dismisses it: the moment
-  // provisioning stops being busy the wizard advances to the domain or complete
-  // step, so a lingering confirm would cover that step — and its "Continue"
-  // would force-close the wizard over it.
-  useEffect(() => {
-    if (!machineBusy && backgroundConfirmOpen) {
-      setBackgroundConfirmOpen(false);
-    }
-  }, [machineBusy, backgroundConfirmOpen]);
-
   // The fetch-error variant of the provisioning step is a standard dismissible
   // card, not the locked full-bleed takeover — otherwise the light error UI is
   // marooned in the dark full-screen viewport and the user can't act on it.
