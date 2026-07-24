@@ -266,6 +266,20 @@ describe("POST inference/provider-connections (create)", () => {
     expect(result.auth).toEqual({ type: "platform" });
   });
 
+  test("rejects a whitespace-only label", async () => {
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "blank-label",
+          provider: "openai-compatible",
+          label: "   ",
+          base_url: "http://localhost:1234/v1",
+          models: [{ id: "my-model" }],
+        },
+      }),
+    ).rejects.toThrow(/non-blank string or null/);
+  });
+
   test("rejects a custom-provider label matching a built-in provider", async () => {
     await expect(
       call(findHandler("inference_provider_connections_create"), {

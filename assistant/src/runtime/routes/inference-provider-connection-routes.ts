@@ -295,10 +295,10 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
   if (
     labelRaw !== undefined &&
     labelRaw !== null &&
-    (typeof labelRaw !== "string" || labelRaw.length === 0)
+    (typeof labelRaw !== "string" || labelRaw.trim().length === 0)
   ) {
     throw new BadRequestError(
-      `Invalid label: must be a non-empty string or null`,
+      `Invalid label: must be a non-blank string or null`,
     );
   }
 
@@ -390,10 +390,10 @@ async function handleUpdateConnection({
   if (
     labelRaw !== undefined &&
     labelRaw !== null &&
-    (typeof labelRaw !== "string" || labelRaw.length === 0)
+    (typeof labelRaw !== "string" || labelRaw.trim().length === 0)
   ) {
     throw new BadRequestError(
-      `Invalid label: must be a non-empty string or null`,
+      `Invalid label: must be a non-blank string or null`,
     );
   }
   // Managed connections: lock auth to `{type:"platform"}`. The boot upsert in
