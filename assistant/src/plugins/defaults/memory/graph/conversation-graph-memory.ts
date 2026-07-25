@@ -26,7 +26,9 @@ import { memorySummaries } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 import { getWorkspaceDir } from "../paths.js";
-// v1 read engine — legacy-graph retrieval and block assembly
+// V1 — delete with v1. The v1 read engine: legacy-graph retrieval and block
+// assembly, feeding the v1 fallback arms of `loadContextMemory` /
+// `retrieveForTurn` below.
 import {
   assembleContextBlock,
   assembleInjectionBlock,

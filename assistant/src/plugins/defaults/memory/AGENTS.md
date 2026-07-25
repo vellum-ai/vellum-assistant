@@ -72,10 +72,22 @@ startup.ts
 The list is frozen: new multi-tier composition belongs in one of these files,
 and shrinking the list is how the deletion runbooks below retire an engine.
 Inside them the tier arms carry `// V1 — delete with v1` /
-`// V2 ENGINE — delete with v2` / `// SUBSTRATE (v2+v3)` banners —
-`grep -rn 'delete with v1' src/plugins/defaults/memory/` finds every v1 arm,
-and the `indexer.ts` / `injectors.ts` banners follow the same convention even
-where the file touches a single tier.
+`// V2 ENGINE — delete with v2` / `// SUBSTRATE (v2+v3)` banners, so
+`grep -rn 'delete with v1' src/plugins/defaults/memory/` finds every v1 arm.
+Two conventions keep that grep honest, and both are load-bearing:
+
+- **The banner phrase is exact.** `startup.ts` labels its sections
+  `// ---- <tier> ... ----` rather than `// V1 …`, so its v1 labels spell out
+  `— delete with v1` too (`// ---- v1 (legacy engine) — delete with v1 ----`);
+  otherwise its four v1 blocks would be invisible to the grep.
+- **Dispatch call sites are banner-marked, not just function bodies.** A v1
+  helper is typically an `else` arm calling a banner-marked function
+  (`jobs-worker.ts`'s `enqueueV1MaintenanceJobs`, `indexer.ts`'s
+  `enqueueV1IndexTriggers`). Deleting only the marked bodies leaves the calls
+  dangling, so the call sites carry their own banner.
+
+`indexer.ts`, `injectors.ts`, and `context-search/sources/memory.ts` follow the
+same convention even where the file touches a single tier.
 
 Both rules are enforced by `__tests__/memory-tier-boundary-guard.test.ts`, which
 also carries a reverse stale-exemption test: an allowlist entry whose multi-tier
@@ -84,11 +96,19 @@ import disappears fails loudly instead of lingering. Related guards:
 - `src/__tests__/plugin-import-boundary-guard.test.ts` — relative-specifier
   baseline for the whole plugin tree.
 - `src/__tests__/persistence-layering-guard.test.ts` — one-way
-  memory → persistence direction, with the migration registry's
-  `v1/graph/bootstrap` entry as a standing exception. It is not permanent: the
-  v1 runbook moves `migrateToolCreatedItems` to a surviving home (the
-  registration is append-only and must keep running), and the allowlist entry
-  is repointed or dropped with it.
+  memory → persistence direction. It holds **two** separate maps, and they mean
+  opposite things:
+  - `PERSISTENCE_TO_MEMORY_ALLOWLIST` — genuine tech debt, ratcheting to zero.
+    Today it holds exactly one file, `persistence/conversation-crud.ts`
+    (`fork-conversation-memory`, `indexer`).
+  - `MIGRATION_REGISTRY_MEMORY_IMPORTS` — a **permanent** exception, not tech
+    debt: `persistence/steps.ts` is the migration registry and references each
+    migration in the domain that owns it, today
+    `{"v1/graph/bootstrap"}`. Deleting v1 does not retire the exemption, it
+    moves the **pointer**: the v1 runbook relocates `migrateToolCreatedItems`
+    to a surviving home (the registration is append-only and must keep
+    running), and this entry is repointed at that module — or drops out only
+    if the function lands inside `persistence/` itself.
 - `src/plugins/__tests__/plugin-state-boundary-guard.test.ts` — the
   grandfathered main-DB exception for this plugin (do not grow its surface).
 
@@ -102,7 +122,7 @@ frozen (path, namespace) exemptions.
 | Predicate                      | True when                                                           | Gates                                                                              |
 | ------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | `isMemoryEnabled`              | `memory.enabled !== false` (master switch, defaults on)             | the whole memory system, the retrospective family, the jobs worker's memory drain  |
-| `isMemoryV1Active`             | memory on AND no concept-page consumer                              | everything under `v1/`, the v1 Qdrant collection lifecycle, the v1 job handlers    |
+| `isMemoryV1Active`             | memory on AND no concept-page consumer                              | everything under `v1/`, the v1 job handlers, the v1 maintenance/index triggers     |
 | `isV2InjectionEngineActive`    | memory on AND `memory.v2.enabled === true` AND v3 not live          | v2's turn-time selection — the ONLY correct "should v2 select this turn" check     |
 | `isMemoryV2ExplicitlyDisabled` | `memory.v2.enabled === false` (deliberately not the negation above) | `daemon/embedding-reconcile.ts`'s explicit-opt-out suppression                     |
 | `usesConceptPageMemory`        | memory on AND (`memory.v3.live` OR `memory.v2.enabled`)             | everything under `substrate/`, the graph tool handlers, the static `<info>` block  |
@@ -113,6 +133,18 @@ frozen (path, namespace) exemptions.
 `memory.v2.enabled` defaults **true** and typically stays set on v3-live
 assistants, so a direct read of it misbehaves under v3. That is exactly why
 `isV2InjectionEngineActive` exists — reach for the predicate, never the key.
+
+**`isMemoryV1Active` is not the only v1 gate.** Several v1 code paths key on
+`!usesConceptPageMemory(config.memory)` instead — notably the v1 Qdrant
+collection lifecycle and the PKB index reconcile in `startup.ts`, and the
+tier dispatch in `jobs-worker.ts` / `indexer.ts` / `context-search/sources/`.
+The two agree everywhere except when memory is OFF: `isMemoryV1Active` is
+false, but `!usesConceptPageMemory` is **true**, so those paths still run.
+That is observable in `startup.ts`, which has no memory-enabled guard of its
+own — a `memory.enabled: false` assistant still ensures/migrates the v1
+collection on boot (only the follow-up `rebuild_index` enqueue is
+`isMemoryEnabled()`-gated). Read the actual gate before assuming a v1 block
+is inert on an off assistant.
 
 `assistant/src/config/memory-tier.ts`'s `memoryTier()` is fully DERIVED from
 these predicates (`off` → `v3` → `v2` → `v1`, in that precedence), so the
@@ -294,7 +326,36 @@ consumed by generated clients:
 | `memory_v3_injection_gate`, `memory_v3_selection`, `memory_retrospective_run` | watchdog check names | platform dashboards |
 
 Renaming any of these silently breaks a dashboard rather than failing a build —
-coordinate with the platform before touching them.
+coordinate with the platform before touching them. The `memory_tier` contract
+(check name plus the exact `off`/`v1`/`v2`/`v3` bucket strings) is specified in
+`src/telemetry/AGENTS.md` — that is the authoritative statement; do not restate
+its rules here.
+
+### Log component names
+
+`getLogger("<scope>")` tags every line the module emits with that scope, so a
+scope name is **observable**: saved log queries, `vellum logs` filters, and
+support runbooks grep on it. Renaming one does not fail a build and does not
+lose data — it silently empties whatever was filtering on the old name. Not
+frozen the way a table or a wire string is, but rename deliberately and expect
+to update queries.
+
+Two scopes changed in the tier split and are called out here so a stale query
+is diagnosable:
+
+| Module                       | Scope now           | Was                                                   |
+| ---------------------------- | ------------------- | ----------------------------------------------------- |
+| `substrate/boot-maintenance` | `boot-maintenance`  | `memory-v2-startup`                                   |
+| `substrate/reembed-job`      | `memory-v2-reembed` | `memory-v2-backfill` (shared with `v2/backfill-jobs`) |
+
+The reembed job was extracted out of `v2/backfill-jobs.ts`, so its lines moved
+from the shared `memory-v2-backfill` scope to a dedicated one; the surviving
+`memory_v2_migrate` / `memory_v2_activation_recompute` jobs still log under
+`memory-v2-backfill`. Note that most substrate scopes keep their `memory-v2-*`
+spelling (`memory-v2-qdrant`, `memory-v2-page-index`, `memory-v2-consolidate`,
+`memory-v2-sweep`, …) — same rule as the frozen names above: the `v2` spelling
+does not make them the v2 engine's, and they must not be renamed
+opportunistically with it.
 
 ## Deletion runbook: v1
 
@@ -370,12 +431,17 @@ before or alongside step 1.
      edge.
    - **Its position** in the ordered `steps.ts` list — it must still run before
      `migrateDropMemoryItemsTables`.
-   - **The persistence-layering guard's allowlist.**
+   - **The persistence-layering guard's exemption.**
      `assistant/src/__tests__/persistence-layering-guard.test.ts` maps
      `assistant/src/persistence/steps.ts` → `{"v1/graph/bootstrap"}` in
-     `PERSISTENCE_TO_MEMORY_ALLOWLIST`. Repoint that entry at the new module,
-     or drop it entirely if the function lands inside `persistence/`; the
-     guard's stale-entry test fails on a left-behind exemption.
+     **`MIGRATION_REGISTRY_MEMORY_IMPORTS`** — NOT in
+     `PERSISTENCE_TO_MEMORY_ALLOWLIST`, which holds only
+     `persistence/conversation-crud.ts`. Editing the wrong map leaves the
+     exemption in place and fails the guard. The exemption itself is permanent
+     (a migration registry referencing the domain that owns each step is the
+     registry's job); what moves is the pointer. Repoint the entry at the new
+     module, or drop it only if the function lands inside `persistence/`; the
+     guard's stale-entry test fails on a left-behind exemption either way.
 
    The function reads and writes only `memory_items`, `memory_graph_nodes`, and
    its own memory checkpoint, so `persistence/migrations/` or the all-tier
@@ -388,6 +454,25 @@ accrue:
 `grep -rnE '(from|import\() *"[^"]*v1/' assistant/src --include='*.ts' --include='*.tsx' --exclude-dir=__tests__ --exclude-dir=v1 | grep -v '\.test\.'`
 (spine hits are the composition points the steps below already cover; anything
 else is a new external consumer needing its own repoint-or-retire decision).
+
+**Then re-run it WITHOUT the test exclusions** — drop `--exclude-dir=__tests__`
+and the `grep -v '\.test\.'`. Test files import `v1/` too, and not all of them
+are v1 tier tests that die with the tier; the non-tier ones get **repointed,
+not deleted**. Today the test-only hits are:
+
+- v1 tier tests, deleted with the tier: `src/__tests__/pkb-autoinject.test.ts`,
+  `injection-block.test.ts`, `graph-extraction-event-date.test.ts`,
+  `memory-identity-context-parity.test.ts`,
+  `rebuild-index-graph-nodes.test.ts`, and
+  `injector-pkb-v2-silenced.test.ts` (its subject is the v1 PKB pair being
+  silenced under the substrate — keep its one tier-agnostic `now-md` case by
+  moving it, rather than losing the coverage).
+- **not** v1 tests — repoint: `src/__tests__/injector-chain.test.ts` and
+  `src/__tests__/conversation-runtime-assembly.test.ts` both pull `getPkbRoot`
+  from `v1/pkb/types.js` purely to place a temp workspace; they cover the
+  injector chain and runtime assembly on every tier.
+- a false positive: `MEM/__tests__/memory-tier-boundary-guard.test.ts` matches
+  on `"./v1/a.js"`-style string literals in its own parser tests.
 
 ### Steps
 
@@ -410,10 +495,18 @@ else is a new external consumer needing its own repoint-or-retire decision).
 5. Remove the v1 branch of `context-search/sources/memory.ts` — it is the file's
    only non-substrate path (`searchGraphNodes` from `v1/graph/graph-search.ts`),
    so the source collapses to its `usesConceptPageMemory` early return.
-6. Delete the v1 sections of the spine files, marked
-   `// V1 — delete with v1` / `// ── V1 (legacy engine) …`:
-   `startup.ts` (three blocks), `jobs-worker.ts`, `job-handlers.ts`,
-   `indexer.ts`, `injectors.ts` (the PKB injector pair).
+6. Delete the v1 sections of the spine files. Every one is banner-marked, so
+   `grep -rn 'delete with v1' src/plugins/defaults/memory/` is the authoritative
+   list — it covers `startup.ts`'s `---- v1 (legacy engine) ----` section labels
+   (which spell out the banner phrase for exactly this reason) and the dispatch
+   call sites, not only the function bodies:
+   `startup.ts` (**four** blocks — the v1 Qdrant ensure and the PKB reconcile,
+   both covered by step 8; the v1-entry reconcile claim; and the graph-bootstrap
+   tail), `jobs-worker.ts` (`enqueueV1MaintenanceJobs` **and** the `else` arm
+   that calls it), `job-handlers.ts`, `indexer.ts` (`enqueueV1IndexTriggers`
+   **and** its call site), `injectors.ts` (the PKB injector pair). The same grep
+   also returns `graph/conversation-graph-memory.ts` and
+   `context-search/sources/memory.ts` — steps 4 and 5 above.
 7. Delete `V1_QDRANT_JOB_TYPES` and the `SweepPostponedUnderV2Error` postpone
    path in `jobs-worker.ts`, plus the v1 job handlers
    (`v1/job-handlers/{backfill,embedding,index-maintenance}.ts`) and their
@@ -421,12 +514,27 @@ else is a new external consumer needing its own repoint-or-retire decision).
    `LEGACY_JOB_TYPES`; do NOT remove them from `MemoryJobType`.
 8. Delete the v1 Qdrant collection lifecycle in `startup.ts` (the
    `config.memory.qdrant.collection` `ensureCollection` block and the PKB index
-   reconcile). Leave the lexical-messages collection alone — it is independent.
-9. Collapse `isMemoryV1Active` call sites, then delete the predicate.
-10. `memoryTier()`'s `"v1"` bucket becomes unreachable. **Coordinate with the
-    platform telemetry dashboard before removing the bucket** — the
-    `memory_tier` watchdog's value set is a dashboard contract.
-11. Shrink the boundary guard: drop `v1` from `TIER_DIRS` /
+   reconcile). Both are gated on `!usesConceptPageMemory(config.memory)`, **not
+   on `isMemoryV1Active`** — and `runMemoryStartup` has no memory-enabled guard
+   of its own, so today they run on `memory.enabled: false` assistants too.
+   Delete them outright rather than assuming step 9 already reaches them. Leave
+   the lexical-messages collection alone — it is independent.
+9. Collapse `isMemoryV1Active` call sites, then delete the predicate. Sweep for
+   `!usesConceptPageMemory(...)` separately: it is the actual v1 gate in
+   `startup.ts`, `jobs-worker.ts`, `indexer.ts`, and
+   `context-search/sources/memory.ts`, and those arms collapse the other way
+   (the substrate branch becomes unconditional).
+10. Repoint or delete the tests pinned to v1 — the test-inclusive re-scan above
+    lists the ones the import scan finds. One more it cannot find:
+    `src/__tests__/memory-jobs-worker-lanes.test.ts` sets
+    `memory.v2.enabled: false` so v1 is the live tier and its slow-lane job
+    (`graph_consolidate`) genuinely runs instead of no-opping under the
+    substrate. Repoint it at a surviving slow-lane job type — the lane
+    independence it covers is tier-agnostic and worth keeping.
+11. `memoryTier()`'s `"v1"` bucket becomes unreachable. **Coordinate with the
+    platform telemetry dashboard before removing the bucket** — see
+    `src/telemetry/AGENTS.md` for the `memory_tier` contract.
+12. Shrink the boundary guard: drop `v1` from `TIER_DIRS` /
     `FORBIDDEN_TIER_IMPORTS`, and drop any `SPINE_ALLOWLIST` entry whose second
     tier was v1 (the reverse stale-exemption test will name them for you).
 
@@ -443,9 +551,11 @@ not be renamed opportunistically.
 
 ### External consumers to repoint or retire
 
-Beyond the composition points the steps below name, four production files still
-import `v2/` — three of them from outside the plugin entirely. Deleting the tier
-without handling them cannot produce a buildable tree.
+Eight production files import `v2/` today. Three are composition points the
+steps below already name (`graph/conversation-graph-memory.ts`,
+`job-handlers.ts`, `MEM/src/memory-v2-routes.ts`); the remaining **five** are
+itemized here, and **four of the five sit outside the plugin entirely**.
+Deleting the tier without handling them cannot produce a buildable tree.
 
 1. **`MEM/fork-conversation-memory.ts`** (spine, on the `SPINE_ALLOWLIST`) →
    `forkActivationState` / `seedForkActivationState` from
@@ -475,8 +585,11 @@ without handling them cannot produce a buildable tree.
    which step 1 already retires with the engine. Drop the import together with
    the subcommand and its `memory-v2-compare-render.js` imports; the surviving
    `reembed` / `reembed-skills` / `validate` subcommands never touch
-   `harness/`. (`cli/commands/memory/memory-v2-compare-render.ts` carries the
-   same type import and is deleted whole in step 1.)
+   `harness/`.
+5. **`cli/commands/memory/memory-v2-compare-render.ts`** → the same
+   `import type { ComparisonReport }`. The renderer for `memory v2 compare`;
+   deleted whole in step 1, so it needs no separate decision — it is listed
+   only so the scan below reconciles against a complete list.
 
 **The activation-log chain, end to end.** Retiring `memory_v2_activation_logs`
 spans five layers, split across this section and steps 7–8. Land them together
@@ -501,6 +614,31 @@ accrue:
 `grep -rnE '(from|import\() *"[^"]*v2/' assistant/src --include='*.ts' --include='*.tsx' --exclude-dir=__tests__ --exclude-dir=v2 | grep -v '\.test\.'`
 (hits inside `MEM/` are the composition points the steps below cover; anything
 else is a new external consumer needing its own repoint-or-retire decision).
+
+**Then re-run it WITHOUT the test exclusions** — drop `--exclude-dir=__tests__`
+and the `grep -v '\.test\.'`. Test files import `v2/` too, and not all of them
+are v2 tier tests that die with the tier; the non-tier ones get **repointed,
+not deleted**. Today the test-only hits are:
+
+- v2 tier tests and fixtures, deleted with the tier:
+  `MEM/__tests__/memory-v2-activation-log-store.test.ts`,
+  `MEM/__tests__/memory-v2-concept-frequency.test.ts`,
+  `MEM/__tests__/fixtures/memory-v2-activation-fixtures.ts` (a fixture module,
+  not a `.test.` file — the `grep -v '\.test\.'` misses it either way),
+  `MEM/graph/__tests__/conversation-graph-memory-v2-routing.test.ts` (the v2
+  half of the dispatch spine), and
+  `cli/commands/memory/__tests__/memory-v2-compare-render.test.ts`.
+- **not** v2 tests — repoint by dropping their v2 arms:
+  `src/__tests__/injector-v3-suppression.test.ts` (pulls `INJECTION_HEADER`
+  from `v2/injection.js` to assert the v3 suppression),
+  `src/__tests__/conversation-fork-crud.test.ts` (pulls `hydrate` from
+  `v2/activation-store.js` while covering all-tier fork behavior),
+  `MEM/__tests__/memory-log-stores-degraded.test.ts` (degraded-mode coverage
+  spanning the recall log, the v2 activation log, and v3 stores), and
+  `runtime/routes/__tests__/conversation-query-routes.test.ts` (the route test
+  whose sibling recall-log and v3-selection assertions stay).
+- a false positive: `MEM/__tests__/memory-tier-boundary-guard.test.ts` matches
+  on `"./v2/a.js"`-style string literals in its own parser tests.
 
 ### Steps
 

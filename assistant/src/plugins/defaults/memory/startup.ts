@@ -14,11 +14,13 @@
  * claims its first job.
  *
  * This is a multi-tier composition point, so the body carries `// ---- ... ----`
- * section labels naming which tier owns each group of steps. The labels do not
- * form a single contiguous run per tier: the v1 Qdrant collection ensure has to
- * precede the shared embedding-identity reconcile, and the v1 graph bootstrap
- * belongs to the post-worker seeding tail. Steps only move when the move is
- * provably unobservable.
+ * section labels naming which tier owns each group of steps. The v1 labels also
+ * carry the `delete with v1` banner the deletion runbook greps for (see
+ * `../AGENTS.md`), so none of the four v1 blocks here can be missed at deletion
+ * time. The labels do not form a single contiguous run per tier: the v1 Qdrant
+ * collection ensure has to precede the shared embedding-identity reconcile, and
+ * the v1 graph bootstrap belongs to the post-worker seeding tail. Steps only
+ * move when the move is provably unobservable.
  */
 
 import { join } from "node:path";
@@ -99,7 +101,7 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
   }
 
   if (qdrantStarted) {
-    // ---- v1 (legacy engine) ----
+    // ---- v1 (legacy engine) — delete with v1 ----
     // Stays ahead of the shared embedding-identity reconcile below: that
     // reconcile persists a new `memory.qdrant.vectorSize` on a commit-fresh or
     // migrate action, and the v1 client must have been constructed at the
@@ -188,7 +190,7 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
       );
     }
 
-    // ---- v1 (legacy engine) ----
+    // ---- v1 (legacy engine) — delete with v1 ----
     // Reconcile the PKB Qdrant index against the on-disk tree. Gated off
     // while concept-page memory is active because PKB is the v1 storage
     // layer; in that state the v1 collection is not initialized, so calling
@@ -245,7 +247,7 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
     }
   }
 
-  // ---- v1 (legacy engine) ----
+  // ---- v1 (legacy engine) — delete with v1 ----
   // Claim the one-shot v1-entry reconcile for this boot. The seeding and
   // bootstrap steps below are exactly what the worker's `maybeRunV1EntryReconcile`
   // runs, and they run here on every boot, so the worker only owes v1 the HOT
@@ -290,7 +292,7 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
     log.warn({ err }, "Graph capability seeding failed — continuing");
   }
 
-  // ---- v1 (legacy engine) ----
+  // ---- v1 (legacy engine) — delete with v1 ----
   // Auto-bootstrap: if the graph has no non-procedural nodes but historical
   // segments exist, enqueue a one-time graph_bootstrap job to populate the
   // graph from conversation history and journal files.
