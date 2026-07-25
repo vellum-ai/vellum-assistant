@@ -5,6 +5,7 @@ import {
   isMemoryEnabled,
   isMemoryV1Active,
   isMemoryV2ExplicitlyDisabled,
+  isMemoryV3Live,
   isV2InjectionEngineActive,
   usesConceptPageMemory,
 } from "./memory-v3-gate.js";
@@ -149,12 +150,19 @@ describe("tier predicate truth table", () => {
       expect(isMemoryV1Active(config)).toBe(expV1);
       expect(isV2InjectionEngineActive(config)).toBe(expV2Engine);
       expect(isMemoryV2ExplicitlyDisabled(config)).toBe(expV2Disabled);
-      // The predicates and memoryTier() share one implementation; assert the
-      // tier buckets agree with the predicates on every combination.
+      // The predicates and memoryTier() share one implementation; assert every
+      // tier bucket agrees with the predicates on every combination. This is
+      // memoryTier()'s coverage — all four buckets are pinned here, so it needs
+      // no separate test file.
       expect(isMemoryEnabled(config)).toBe(memoryTier(config) !== "off");
       expect(isMemoryV1Active(config)).toBe(memoryTier(config) === "v1");
       expect(isV2InjectionEngineActive(config)).toBe(
         memoryTier(config) === "v2",
+      );
+      // `"off"` outranks `"v3"`, so the v3 bucket is the live-AND-enabled
+      // conjunction rather than `isMemoryV3Live` alone.
+      expect(isMemoryV3Live(config) && isMemoryEnabled(config)).toBe(
+        memoryTier(config) === "v3",
       );
     });
   }

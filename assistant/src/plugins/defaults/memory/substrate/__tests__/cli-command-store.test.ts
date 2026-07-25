@@ -117,7 +117,7 @@ mock.module("../sparse-bm25.js", () => ({
   getConceptPageCorpusStats: () => null,
 }));
 
-mock.module("../../../../../memory/v2/anisotropy.js", () => ({
+mock.module("../../anisotropy.js", () => ({
   applyCorrectionIfCalibrated: async (v: number[]) => v,
 }));
 
