@@ -513,6 +513,13 @@ export function HatchingScreen() {
     const awaitPurchasedProvisioning = async (
       assistantId: string,
     ): Promise<void> => {
+      // Local hatches never provision purchased specs — a self-hosted daemon has
+      // no billing surface to read. Short-circuit so a local-mode reload that
+      // falls through the platform preflight path (hosting=vellum-cloud or no
+      // param, where useLocalHatch is false) stays byte-identical to today.
+      if (isLocalMode()) {
+        return;
+      }
       // Fire the idempotent grow-only reconcile — the same resize the subscribe
       // webhook triggers — covering a webhook that never fired or whose resize
       // was lost. It is marked done only when it SUCCEEDS: a 503 ("nothing

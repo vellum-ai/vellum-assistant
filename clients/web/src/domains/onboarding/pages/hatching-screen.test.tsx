@@ -784,4 +784,24 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     expect(subscriptionRetrieveMock).not.toHaveBeenCalled();
     expect(operationalStatusReadMock).not.toHaveBeenCalled();
   });
+
+  test("a local-mode preflight-active reload completes without provisioning", async () => {
+    // A local-mode session with no hosting param (or hosting=vellum-cloud) makes
+    // useLocalHatch false, so a reload onto an already-active assistant flows
+    // through the platform preflight path into finishActiveHatch. The
+    // provisioning wait must still short-circuit for local mode — no billing
+    // reads, no resize wait — so local hatching stays byte-identical.
+    isLocalModeValue = true;
+    preflightActive = true;
+
+    render(<HatchingScreen />);
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+      timeout: 5000,
+    });
+    expect(ensureProvisionedMock).not.toHaveBeenCalled();
+    expect(subscriptionRetrieveMock).not.toHaveBeenCalled();
+    expect(onboardingRetrieveMock).not.toHaveBeenCalled();
+    expect(operationalStatusReadMock).not.toHaveBeenCalled();
+  });
 });

@@ -26,23 +26,7 @@ function parseCheckoutDestination(destination: string): {
 }
 
 /**
- * The `package` slug of a deep-link checkout destination
- * (`/assistant/checkout?package=`), or null when the destination is not a
- * checkout link or carries no package.
- */
-export function checkoutPackageFromDestination(destination: string): string | null {
-  return parseCheckoutDestination(destination).packageKey;
-}
-
-export interface SignupCheckoutResolution {
-  /** Where the auth should land. */
-  destination: string;
-  /** The package stashed for post-consent checkout resume, or null. */
-  stashedPackage: string | null;
-}
-
-/**
- * The shared post-auth checkout decision for both the web
+ * The shared post-auth checkout destination for both the web
  * (`resolvePostAuth`) and native (`resolveNativePostAuthDestination`) paths.
  *
  * A signup that carries a pricing-CTA checkout deep link stashes the package
@@ -56,7 +40,7 @@ export interface SignupCheckoutResolution {
 export function resolveSignupCheckoutDestination(args: {
   intent: "login" | "signup";
   returnTo: string;
-}): SignupCheckoutResolution {
+}): string {
   const { intent, returnTo } = args;
   const { isCheckout, packageKey } = parseCheckoutDestination(returnTo);
 
@@ -70,8 +54,8 @@ export function resolveSignupCheckoutDestination(args: {
       // screen resumes it — an ordinary billing-surface stash stays inert here.
       saveCheckoutIntent({ kind: "package", packageKey, resumeAfterOnboarding: true });
     }
-    return { destination: routes.onboarding.privacy, stashedPackage: packageKey };
+    return routes.onboarding.privacy;
   }
 
-  return { destination: returnTo, stashedPackage: null };
+  return returnTo;
 }

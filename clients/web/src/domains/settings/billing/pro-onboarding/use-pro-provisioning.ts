@@ -73,10 +73,6 @@ const TERMINAL_STATES: readonly ProvisioningStateKind[] = [
   "CONFIRM_TIMEOUT",
 ];
 
-// The resize-in-flight primitive lives in lib/billing (shared across domains);
-// re-export it as the pro-onboarding entrypoint, mirroring targetsMet.
-export { isResizeOperationInFlight };
-
 export interface UseProProvisioningOptions {
   open: boolean;
 }

@@ -6,26 +6,7 @@ import {
   saveCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 
-import {
-  checkoutPackageFromDestination,
-  resolveSignupCheckoutDestination,
-} from "./post-auth-checkout";
-
-describe("checkoutPackageFromDestination", () => {
-  test("returns the package slug for a checkout deep link", () => {
-    expect(
-      checkoutPackageFromDestination("/assistant/checkout?package=super"),
-    ).toBe("super");
-  });
-
-  test("returns null for a checkout link without a package", () => {
-    expect(checkoutPackageFromDestination("/assistant/checkout")).toBeNull();
-  });
-
-  test("returns null for a non-checkout destination", () => {
-    expect(checkoutPackageFromDestination("/assistant/home")).toBeNull();
-  });
-});
+import { resolveSignupCheckoutDestination } from "./post-auth-checkout";
 
 describe("resolveSignupCheckoutDestination", () => {
   beforeEach(() => {
@@ -40,10 +21,7 @@ describe("resolveSignupCheckoutDestination", () => {
       returnTo: "/assistant/checkout?package=super",
     });
 
-    expect(result).toEqual({
-      destination: "/assistant/onboarding/privacy",
-      stashedPackage: "super",
-    });
+    expect(result).toBe("/assistant/onboarding/privacy");
     // The signup carry marks its stash so only the onboarding privacy screen
     // resumes it — an ordinary billing-surface stash carries no such marker.
     expect(readCheckoutIntent()).toMatchObject({
@@ -59,10 +37,7 @@ describe("resolveSignupCheckoutDestination", () => {
       returnTo: "/assistant/checkout",
     });
 
-    expect(result).toEqual({
-      destination: "/assistant/onboarding/privacy",
-      stashedPackage: null,
-    });
+    expect(result).toBe("/assistant/onboarding/privacy");
     expect(readCheckoutIntent()).toBeNull();
   });
 
@@ -74,10 +49,7 @@ describe("resolveSignupCheckoutDestination", () => {
       returnTo: "/assistant/home",
     });
 
-    expect(result).toEqual({
-      destination: "/assistant/onboarding/privacy",
-      stashedPackage: null,
-    });
+    expect(result).toBe("/assistant/onboarding/privacy");
     expect(readCheckoutIntent()).toBeNull();
   });
 
@@ -89,10 +61,7 @@ describe("resolveSignupCheckoutDestination", () => {
       returnTo: "/assistant/home",
     });
 
-    expect(result).toEqual({
-      destination: "/assistant/home",
-      stashedPackage: null,
-    });
+    expect(result).toBe("/assistant/home");
     expect(readCheckoutIntent()).toBeNull();
   });
 
@@ -104,10 +73,7 @@ describe("resolveSignupCheckoutDestination", () => {
       returnTo: "/assistant/checkout?package=super",
     });
 
-    expect(result).toEqual({
-      destination: "/assistant/checkout?package=super",
-      stashedPackage: null,
-    });
+    expect(result).toBe("/assistant/checkout?package=super");
     // A checkout deep link is never treated as an unrelated auth, so the
     // stash is left in place rather than discarded.
     expect(readCheckoutIntent()).toMatchObject({

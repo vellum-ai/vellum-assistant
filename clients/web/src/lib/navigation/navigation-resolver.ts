@@ -440,7 +440,7 @@ function resolvePostAuth(
   // The shared resolver stashes a pricing-CTA checkout package across signup,
   // discards a stale stash for any non-checkout auth, and picks the
   // destination (privacy for signup, the sanitized `returnTo` for login).
-  const { destination: resolved } = resolveSignupCheckoutDestination({
+  const resolved = resolveSignupCheckoutDestination({
     intent: authIntent,
     returnTo: destination,
   });
