@@ -52,6 +52,7 @@ import {
   generateBm25DocEmbedding,
   getConceptPageCorpusStats,
 } from "../substrate/sparse-bm25.js";
+import { resolveSubstrateTuning } from "../substrate/tuning.js";
 
 const log = getLogger("memory-v2-embed-concept-page");
 
@@ -236,11 +237,12 @@ export async function embedConceptPageJob(
   // corpus for the first time), fall back to the legacy TF-only encoding —
   // the next reembed pass overwrites the page once stats are available.
   const corpusStats = getConceptPageCorpusStats();
+  const { bm25_k1, bm25_b } = resolveSubstrateTuning(config.memory);
   const encodeSparse = (input: string) =>
     corpusStats
       ? generateBm25DocEmbedding(input, corpusStats, {
-          k1: config.memory.v2.bm25_k1,
-          b: config.memory.v2.bm25_b,
+          k1: bm25_k1,
+          b: bm25_b,
         })
       : generateSparseEmbedding(input);
   const sparse = encodeSparse(text);

@@ -74,6 +74,7 @@ import {
   countBufferLines,
   readConsolidationFailureState,
 } from "./substrate/consolidation-job.js";
+import { resolveSubstrateTuning } from "./substrate/tuning.js";
 import { spawnMemoryWorkerProcess } from "./worker-control.js";
 
 const log = getLogger("memory-jobs-worker");
@@ -1111,12 +1112,13 @@ export function maybeEnqueueGraphMaintenanceJobs(
   }
 
   const conceptPagesActive = usesConceptPageMemory(config.memory);
+  const tuning = resolveSubstrateTuning(config.memory);
 
   // The single buffer-drainer entry for the concept-page branch. Referenced
   // again below by the size-based trigger.
   const consolidateEntry = {
     key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
-    intervalMs: config.memory.v2.consolidation_interval_hours * 60 * 60 * 1000,
+    intervalMs: tuning.consolidation_interval_hours * 60 * 60 * 1000,
     jobType: "memory_v2_consolidate" as MemoryJobType,
   };
 
@@ -1251,7 +1253,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
   // The failure backoff gates it too: a failed run never trims the buffer, so
   // the size trigger alone would re-fire a failing run on every tick. A
   // backoff skip leaves the checkpoint alone.
-  const maxLines = config.memory.v2.consolidation_max_buffer_lines;
+  const maxLines = tuning.consolidation_max_buffer_lines;
   if (
     conceptPagesActive &&
     !enqueuedConsolidate &&

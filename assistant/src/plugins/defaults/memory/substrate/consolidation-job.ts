@@ -104,6 +104,7 @@ import { getWorkspaceDir } from "../paths.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { getPageIndex, type PageParseFailure } from "./page-index.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
+import { resolveSubstrateTuning } from "./tuning.js";
 
 const log = getLogger("memory-v2-consolidate");
 
@@ -386,7 +387,8 @@ export async function memoryV2ConsolidateJob(
     // lines belong to the preceding entry, not the count.
     let cutoff = formatBufferTimestamp(new Date());
     let deferredEntries = 0;
-    const maxEntries = config.memory.v2.consolidation_max_entries_per_run;
+    const tuning = resolveSubstrateTuning(config.memory);
+    const maxEntries = tuning.consolidation_max_entries_per_run;
     if (maxEntries != null) {
       const entryTimestamps = bufferContent
         .split("\n")
@@ -435,7 +437,7 @@ export async function memoryV2ConsolidateJob(
     // Sentry-side reporting is unchanged.
     //
     // The prompt body comes from `resolveConsolidationPrompt`, which honors
-    // the `memory.v2.consolidation_prompt_path` config override but bounds
+    // the `consolidation_prompt_path` substrate tunable but bounds
     // it to a regular file under 1 MiB before substitution so a stray path
     // (or a `/dev/zero`-style pseudo-file) cannot exfiltrate megabytes of
     // bytes through the wake hint. The core-pages curation section and the
@@ -458,7 +460,7 @@ export async function memoryV2ConsolidateJob(
       );
     }
     const prompt = resolveConsolidationPrompt(
-      config.memory.v2.consolidation_prompt_path,
+      tuning.consolidation_prompt_path,
       cutoff,
       {
         includeCorePagesSection: memoryV3Live,

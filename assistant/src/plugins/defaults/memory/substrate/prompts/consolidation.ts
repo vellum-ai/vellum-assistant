@@ -114,7 +114,7 @@ export const CORE_PAGES_PLACEHOLDER = "{{CORE_PAGES_SECTION}}";
 
 /**
  * Legacy placeholder kept only for backward compatibility. A custom
- * `memory.v2.consolidation_prompt_path` override copied from an older bundled
+ * `consolidation_prompt_path` override copied from an older bundled
  * prompt may still contain `{{PROC_TO_SKILLS_SECTION}}`; it is always replaced
  * with an empty string so the raw token never reaches the consolidation LLM.
  */
@@ -932,7 +932,8 @@ export function renderConsolidationPrompt(
 
 /**
  * Load the consolidation prompt template, optionally overridden from the file
- * referenced by `memory.v2.consolidation_prompt_path`, then substitute
+ * referenced by the `consolidation_prompt_path` substrate tunable, then
+ * substitute
  * `{{CUTOFF}}`. File loading (path resolution, size guard, and the permissive
  * fall-back to the bundled prompt on a missing/unreadable/empty/oversized
  * override) is handled by the shared {@link loadPromptOverride}.

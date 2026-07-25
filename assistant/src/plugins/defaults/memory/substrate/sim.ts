@@ -42,6 +42,7 @@ import { embedWithBackend } from "../embeddings.js";
 import { clampUnitInterval } from "../validation.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
 import { generateBm25QueryEmbedding } from "./sparse-bm25.js";
+import { resolveSubstrateTuning } from "./tuning.js";
 
 /**
  * Clamp a value into the closed unit interval [0, 1]. Re-exported under the
@@ -106,10 +107,9 @@ export function effectiveWeights(
   }
   const spread = max - min;
 
-  const minSpread =
-    config.memory.v2.min_sparse_spread ?? ADAPTIVE_SPARSE_MIN_SPREAD;
-  const fullSpread =
-    config.memory.v2.full_sparse_spread ?? ADAPTIVE_SPARSE_FULL_SPREAD;
+  const tuning = resolveSubstrateTuning(config.memory);
+  const minSpread = tuning.min_sparse_spread ?? ADAPTIVE_SPARSE_MIN_SPREAD;
+  const fullSpread = tuning.full_sparse_spread ?? ADAPTIVE_SPARSE_FULL_SPREAD;
   // Degenerate config (full <= min): no interpolation range. Don't try to
   // adapt; trust the operator's base weights and report the measured spread
   // for diagnostics.
@@ -215,7 +215,7 @@ export async function simBatch(
   const maxBodySparse = computeMaxSparse(hits, (h) => h.sparseScore);
   const maxSummarySparse = computeMaxSparse(hits, (h) => h.summarySparseScore);
   const { dense_weight: baseDense, sparse_weight: baseSparse } =
-    config.memory.v2;
+    resolveSubstrateTuning(config.memory);
   const { dense: bodyDenseWeight, sparse: bodySparseWeight } = effectiveWeights(
     hits.map((h) => ({ sparseScore: h.sparseScore })),
     maxBodySparse,

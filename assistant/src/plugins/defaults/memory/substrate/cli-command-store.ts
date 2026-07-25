@@ -45,6 +45,7 @@ import {
   generateBm25DocEmbedding,
   getConceptPageCorpusStats,
 } from "./sparse-bm25.js";
+import { resolveSubstrateTuning } from "./tuning.js";
 import type { CliCommandEntry } from "./types.js";
 
 const log = getLogger("memory-v2-cli-command-store");
@@ -188,11 +189,12 @@ async function runSeedV2CliCommandEntries(generation: number): Promise<void> {
       // start window before corpus stats finish building — same rationale as
       // the skill-store path.
       const corpusStats = getConceptPageCorpusStats();
+      const { bm25_k1, bm25_b } = resolveSubstrateTuning(config.memory);
       encodeSparse = (input: string) =>
         corpusStats
           ? generateBm25DocEmbedding(input, corpusStats, {
-              k1: config.memory.v2.bm25_k1,
-              b: config.memory.v2.bm25_b,
+              k1: bm25_k1,
+              b: bm25_b,
             })
           : generateSparseEmbedding(input);
       try {

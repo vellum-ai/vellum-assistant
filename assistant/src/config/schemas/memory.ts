@@ -17,6 +17,7 @@ import {
   MemorySegmentationConfigSchema,
   QdrantConfigSchema,
 } from "./memory-storage.js";
+import { MemorySubstrateConfigSchema } from "./memory-substrate.js";
 import { MemoryV2ConfigSchema } from "./memory-v2.js";
 import { MemoryV3ConfigSchema } from "./memory-v3.js";
 
@@ -53,6 +54,9 @@ export const MemoryConfigSchema = z
     ),
     summarization: MemorySummarizationConfigSchema.default(
       MemorySummarizationConfigSchema.parse({}),
+    ),
+    substrate: MemorySubstrateConfigSchema.default(
+      MemorySubstrateConfigSchema.parse({}),
     ),
     v2: MemoryV2ConfigSchema.default(MemoryV2ConfigSchema.parse({})),
     v3: MemoryV3ConfigSchema.default(MemoryV3ConfigSchema.parse({})),

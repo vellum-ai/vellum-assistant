@@ -27,6 +27,7 @@ import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueu
 import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";
 import { extractMediaBlockMeta } from "./message-media.js";
 import { segmentText } from "./segmenter.js";
+import { resolveSubstrateTuning } from "./substrate/tuning.js";
 
 const log = getLogger("memory-indexer");
 
@@ -259,7 +260,10 @@ export async function indexMessageNow(
       // is just the dedup key — one pending row per active conversation.
       // `sweep_enabled` defaults to false because `remember()` is the
       // primary capture path; the sweep is opt-in.
-      if (conceptConfig != null && conceptConfig.memory.v2.sweep_enabled) {
+      if (
+        conceptConfig != null &&
+        resolveSubstrateTuning(conceptConfig.memory).sweep_enabled
+      ) {
         upsertDebouncedJob(
           "memory_v2_sweep",
           { conversationId: input.conversationId },

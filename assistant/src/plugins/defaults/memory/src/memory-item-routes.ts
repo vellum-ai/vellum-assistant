@@ -82,6 +82,7 @@ import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
 import { getWorkspaceDir } from "../paths.js";
 import { getPageIndex } from "../substrate/page-index.js";
+import { resolveSubstrateTuning } from "../substrate/tuning.js";
 
 const log = getLogger("memory-item-routes");
 
@@ -712,7 +713,10 @@ function maybeEnqueueConsolidationForCreate(config: AssistantConfig): void {
       return;
     }
     const intervalMs =
-      config.memory.v2.consolidation_interval_hours * 60 * 60 * 1000;
+      resolveSubstrateTuning(config.memory).consolidation_interval_hours *
+      60 *
+      60 *
+      1000;
     if (consolidationBackoffRemainingMs(intervalMs, Date.now()) > 0) {
       return;
     }
