@@ -32,7 +32,6 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { AssistantConfig } from "../../../../../config/schema.js";
 
 const proxyState = { prereqs: true };
-const v3State = { live: true };
 const seedSkill = mock(async () => {});
 const seedCli = mock(async () => {});
 const enqueueJob = mock(
@@ -72,16 +71,11 @@ mock.module("../../../../../providers/platform-proxy/context.js", () => ({
   hasManagedProxyPrereqs: async () => proxyState.prereqs,
 }));
 
-mock.module("../../../../../config/memory-v3-gate.js", () => ({
-  isMemoryV3Live: () => v3State.live,
-  usesConceptPageMemory: (memory?: {
-    enabled?: boolean;
-    v2?: { enabled?: boolean };
-    v3?: { live?: boolean };
-  }) =>
-    memory?.enabled !== false &&
-    (memory?.v3?.live === true || memory?.v2?.enabled === true),
-}));
+// `config/memory-v3-gate.js` is deliberately NOT mocked. It is pure (its only
+// import is a type) and it is the predicate under test as much as
+// `boot-maintenance.ts` is: the tiers are selected by real config here, so a
+// semantics change in `usesConceptPageMemory` / `isMemoryV3Live` fails these
+// tests instead of passing against a hand-inlined copy.
 
 mock.module("../../../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (type: string, payload: Record<string, unknown>) =>
@@ -124,8 +118,23 @@ const {
   maybeReseedCapabilitiesAfterManagedCredential,
 } = await import("../boot-maintenance.js");
 
+/**
+ * Substrate active (or not) via the v2 injection engine, with v3 NOT live:
+ * `usesConceptPageMemory` follows `enabled`, `isMemoryV3Live` is false.
+ */
 function configWithV2(enabled: boolean): AssistantConfig {
   return { memory: { v2: { enabled } } } as unknown as AssistantConfig;
+}
+
+/**
+ * Substrate active with memory-v3 as the live injected source — the shape a
+ * v3-live assistant actually carries (`v2.enabled` stays set alongside
+ * `v3.live`).
+ */
+function configWithV3(): AssistantConfig {
+  return {
+    memory: { v2: { enabled: true }, v3: { live: true } },
+  } as unknown as AssistantConfig;
 }
 
 /** Poll until `m` has been called at least `n` times, or `timeoutMs` elapses. */
@@ -145,7 +154,6 @@ afterEach(() => {
   seedCli.mockClear();
   enqueueJob.mockClear();
   proxyState.prereqs = true;
-  v3State.live = true;
 });
 
 describe("maybeReseedCapabilitiesAfterManagedCredential", () => {
@@ -160,9 +168,8 @@ describe("maybeReseedCapabilitiesAfterManagedCredential", () => {
 
   test("enqueues a v3 maintain pass after reseeding when v3 is live", async () => {
     proxyState.prereqs = true;
-    v3State.live = true;
 
-    await maybeReseedCapabilitiesAfterManagedCredential(configWithV2(true));
+    await maybeReseedCapabilitiesAfterManagedCredential(configWithV3());
 
     expect(enqueueJob).toHaveBeenCalledTimes(1);
     expect(enqueueJob).toHaveBeenCalledWith("memory_v3_maintain", {});
@@ -170,7 +177,6 @@ describe("maybeReseedCapabilitiesAfterManagedCredential", () => {
 
   test("reseeds but does not enqueue a v3 maintain pass when v3 is not live", async () => {
     proxyState.prereqs = true;
-    v3State.live = false;
 
     await maybeReseedCapabilitiesAfterManagedCredential(configWithV2(true));
 
@@ -212,12 +218,11 @@ describe("maybeReseedCapabilitiesAfterManagedCredential", () => {
 
   test("enqueues the v3 maintain pass even when one catalog reseed rejects", async () => {
     proxyState.prereqs = true;
-    v3State.live = true;
     seedSkill.mockImplementationOnce(async () => {
       throw new Error('Embedding backend "gemini" is not configured');
     });
 
-    await maybeReseedCapabilitiesAfterManagedCredential(configWithV2(true));
+    await maybeReseedCapabilitiesAfterManagedCredential(configWithV3());
 
     // The CLI catalog seeded, so v3 must still rebuild its lanes — a single
     // catalog failure cannot suppress the maintain pass.
@@ -228,12 +233,11 @@ describe("maybeReseedCapabilitiesAfterManagedCredential", () => {
 
   test("enqueues the v3 maintain pass without blocking when a catalog reseed exceeds the timeout", async () => {
     proxyState.prereqs = true;
-    v3State.live = true;
     // Skill reseed never settles — mirrors the wedged getCatalog()/embed seen in
     // the field. The CLI reseed completes normally.
     seedSkill.mockImplementationOnce(() => new Promise<void>(() => {}));
 
-    await maybeReseedCapabilitiesAfterManagedCredential(configWithV2(true), {
+    await maybeReseedCapabilitiesAfterManagedCredential(configWithV3(), {
       reseedTimeoutMs: 20,
     });
 
@@ -246,7 +250,6 @@ describe("maybeReseedCapabilitiesAfterManagedCredential", () => {
 
   test("re-enqueues the v3 maintain pass when a straggler catalog finishes after the timeout", async () => {
     proxyState.prereqs = true;
-    v3State.live = true;
     let resolveSkill!: () => void;
     seedSkill.mockImplementationOnce(
       () =>
@@ -255,7 +258,7 @@ describe("maybeReseedCapabilitiesAfterManagedCredential", () => {
         }),
     );
 
-    await maybeReseedCapabilitiesAfterManagedCredential(configWithV2(true), {
+    await maybeReseedCapabilitiesAfterManagedCredential(configWithV3(), {
       reseedTimeoutMs: 10,
     });
 

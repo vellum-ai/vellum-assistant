@@ -28,7 +28,6 @@ import { eq } from "drizzle-orm";
 let triggerHandlerCalls = 0;
 
 mock.module("../graph/graph-search.js", () => ({
-  searchGraphNodes: async () => [],
   embedGraphNodeDirect: async () => {},
   embedGraphNodeJob: async (): Promise<void> => {},
   enqueueGraphNodeEmbed: () => {},
@@ -36,6 +35,15 @@ mock.module("../graph/graph-search.js", () => ({
     triggerHandlerCalls += 1;
   },
   enqueueGraphTriggerEmbed: () => {},
+}));
+
+// `searchGraphNodes` lives in the v1 tier, and the handler-registration import
+// graph still reaches it (`job-handlers.js` → `v1/graph/extraction-job.js` →
+// `v1/graph/extraction.js`). Stubbing it keeps the real Qdrant search module —
+// and its client graph — out of this test, which is what makes the file
+// hermetic and fast.
+mock.module("../v1/graph/graph-search.js", () => ({
+  searchGraphNodes: async () => [],
 }));
 
 mock.module("../../../../persistence/db-maintenance.js", () => ({
