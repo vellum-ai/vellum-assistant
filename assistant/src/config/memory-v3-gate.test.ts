@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { memoryTier } from "./memory-tier.js";
 import {
   isMemoryEnabled,
   isMemoryV1Active,
@@ -148,6 +149,13 @@ describe("tier predicate truth table", () => {
       expect(isMemoryV1Active(config)).toBe(expV1);
       expect(isV2InjectionEngineActive(config)).toBe(expV2Engine);
       expect(isMemoryV2ExplicitlyDisabled(config)).toBe(expV2Disabled);
+      // The predicates and memoryTier() share one implementation; assert the
+      // tier buckets agree with the predicates on every combination.
+      expect(isMemoryEnabled(config)).toBe(memoryTier(config) !== "off");
+      expect(isMemoryV1Active(config)).toBe(memoryTier(config) === "v1");
+      expect(isV2InjectionEngineActive(config)).toBe(
+        memoryTier(config) === "v2",
+      );
     });
   }
 
