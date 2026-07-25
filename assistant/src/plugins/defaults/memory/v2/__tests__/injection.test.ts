@@ -195,7 +195,7 @@ const telemetryState = {
   recordShouldThrow: false,
 };
 
-mock.module("../../memory-v2-activation-log-store.js", () => ({
+mock.module("../activation-log-store.js", () => ({
   recordMemoryV2ActivationLog: (params: Record<string, unknown>) => {
     if (telemetryState.recordShouldThrow) {
       throw new Error("simulated telemetry write failure");

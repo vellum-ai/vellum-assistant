@@ -100,6 +100,9 @@ mock.module("../plugins/defaults/memory/v2/backfill-jobs.js", () => ({
     return 0;
   },
   memoryV2MigrateJob: async (): Promise<void> => {},
+}));
+
+mock.module("../plugins/defaults/memory/substrate/reembed-job.js", () => ({
   memoryV2ReembedJob: async (): Promise<void> => {},
 }));
 
