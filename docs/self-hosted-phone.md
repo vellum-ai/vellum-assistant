@@ -1,18 +1,19 @@
-# Your self-hosted assistant on your phone
+# Your self-hosted assistant on your devices
 
-Reach a self-hosted Vellum assistant from your phone with no dependency on
-hosted Vellum. Everything runs on your own machine; your phone connects
-straight to it over an HTTPS address you control, and a QR code pairs the
-device in a single scan.
+Reach a self-hosted Vellum assistant from your other devices — a phone, a
+tablet, another computer — with no dependency on hosted Vellum. Everything
+runs on your own machine; each device connects straight to it over an HTTPS
+address you control, and a QR code (or its printed URL) pairs a device in a
+single scan.
 
-Connect from a mobile browser (add it to your home screen for a full-screen
-PWA) or from the native **Vellum iOS app** pointed at your own server (see
-[Using the Vellum iOS app](#6-using-the-vellum-ios-app)). Both reach the same
-assistant.
+Connect from any browser (on phones and tablets, add it to your home screen
+for a full-screen PWA) or from the native **Vellum iOS app** pointed at your
+own server (see [Using the Vellum iOS app](#6-using-the-vellum-ios-app)). All
+paths reach the same assistant.
 
 This is a CLI-driven flow for people who already run their assistant locally
 (`vellum wake`). If you use the managed Vellum Cloud app, you don't need any of
-this; sign in and your phone is already connected.
+this; sign in and your devices are already connected.
 
 > **Check your version first.** This flow uses recent additions to the `vellum`
 > CLI and the assistant it runs: remote web ingress (Step 1), `vellum tunnel`
@@ -28,7 +29,7 @@ this; sign in and your phone is already connected.
 ## How it works
 
 ```
-phone (Safari · installed PWA · Vellum app)
+your devices (any browser · PWA · Vellum iOS app)
    │  HTTPS
    ▼
 Tailscale front  (https://your-assistant.ts.net)
@@ -42,7 +43,7 @@ gateway ──► assistant
 
 The nginx edge is the single public surface: it serves the web app and
 forwards API traffic to the gateway. An HTTPS front (Tailscale by default)
-terminates TLS and makes the edge reachable from your phone.
+terminates TLS and makes the edge reachable from your devices.
 
 ## Before you start
 
@@ -51,11 +52,12 @@ terminates TLS and makes the edge reachable from your phone.
 - **nginx** installed:
   - macOS: `brew install nginx`
   - Linux: `sudo apt install nginx`
-- **Tailscale** installed on both the host machine and your phone, both
-  signed into the same tailnet. (Only needed for the default private path;
-  see [Step 4](#4-put-an-https-address-in-front) for public alternatives.)
-- If you run more than one local assistant, decide which one goes on your
-  phone: every step below applies to a single assistant (see
+- **Tailscale** installed on the host machine and on every device you'll
+  connect, all signed into the same tailnet. (Only needed for the default
+  private path; see [Step 4](#4-put-an-https-address-in-front) for public
+  alternatives.)
+- If you run more than one local assistant, decide which one your devices
+  connect to: every step below applies to a single assistant (see
   [Step 1](#1-enable-remote-web-ingress)).
 
 ## 1. Enable remote web ingress
@@ -102,8 +104,8 @@ cd clients/web && VITE_PLATFORM_MODE=false bun run build
 
 **Verify:** `vellum client --interface web` prints
 `Vellum web interface: http://localhost:<port>/assistant/` and that page loads
-your assistant on the host. Press Ctrl+C to stop it — your phone doesn't use
-this local server.
+your assistant on the host. Press Ctrl+C to stop it — your other devices
+don't use this local server.
 
 ## 3. Start the nginx edge
 
@@ -128,8 +130,11 @@ something else.
 
 ## 4. Put an HTTPS address in front
 
-Your phone needs an HTTPS URL that reaches the nginx edge. The default path
-keeps the assistant private to your own devices via Tailscale.
+Your devices need an HTTPS URL that reaches the nginx edge. **Tailscale is
+the recommended front**: the assistant stays private to your own devices and
+the address is permanent, so each device pairs once and stays connected. The
+public alternatives below are instant but temporary and internet-exposed —
+fine for trying the flow, not for living with it.
 
 ```bash
 vellum tunnel --provider tailscale
@@ -145,14 +150,14 @@ Tunnel established: https://your-machine.your-tailnet.ts.net
 ```
 
 That `https://<machine>.<tailnet>.ts.net` is **your own machine's address on
-your tailnet, not a Tailscale website** — it's the URL your phone opens. You
+your tailnet, not a Tailscale website** — it's the URL your devices open. You
 won't type it again by hand: the pairing step reuses this saved address
 automatically.
 
-**Verify:** open that `https://…ts.net` address in your **phone's** browser
-(with Tailscale connected). You should get the assistant's sign-in page. If it
-doesn't load, stop and fix this before pairing — a broken HTTPS front is the
-most common reason later steps fail.
+**Verify:** open that `https://…ts.net` address in the browser of a device
+you want to connect (with Tailscale connected on it). You should get the
+assistant's sign-in page. If it doesn't load, stop and fix this before
+pairing — a broken HTTPS front is the most common reason later steps fail.
 
 <details>
 <summary>Manual Tailscale fallback (no <code>vellum tunnel</code> needed)</summary>
@@ -166,7 +171,7 @@ tailscale serve status   # prints your https://<host>.<tailnet>.ts.net URL
 ```
 
 That URL fronts the nginx edge over your tailnet with automatic HTTPS. Use it
-as the `--url` value in [Step 5](#5-pair-your-phone). To let channel
+as the `--url` value in [Step 5](#5-pair-your-devices). To let channel
 integrations use it as well, run `vellum tunnel --provider tailscale` instead,
 which also writes it to `ingress.publicBaseUrl`.
 
@@ -187,6 +192,11 @@ address (ngrok prints a similar per-tunnel URL). Either one is the public
 address of **your** machine — use it wherever this guide asks for your HTTPS
 URL.
 
+**Temporary by design:** a quick-tunnel URL changes every time the tunnel
+restarts, and paired devices point at the old address — you re-pair each
+device after every restart. Good for trying the flow; switch to Tailscale for
+a permanent setup.
+
 **Privacy trade-off:** these publish a public-internet URL, so anyone who
 learns the URL can reach your assistant's sign-in and pairing page (pairing
 still requires local approval, but the surface is public). The Tailscale path
@@ -194,7 +204,7 @@ keeps the edge visible only to devices on your own tailnet.
 
 </details>
 
-## 5. Pair your phone
+## 5. Pair your devices
 
 On the host, generate a single-scan pairing QR:
 
@@ -220,17 +230,19 @@ refuses loopback and plain-HTTP addresses. It mints a pairing challenge and
 approves it locally (running it on the host is the proof of presence), then
 renders a QR code and the same URL as text in your terminal.
 
-On your phone:
+On the device you're pairing:
 
-1. Make sure Tailscale is connected (for a `ts.net` address) or that you're
-   on any network (for a public tunnel).
-2. Open the **system camera** and point it at the QR code, then tap the
-   notification to open the pairing page in Safari. On iOS the page first
-   offers **Open in the Vellum app** or **Continue in this browser**; tap
+1. Make sure Tailscale is connected on it (for a `ts.net` address) or that
+   it's on any network (for a public tunnel).
+2. On a phone or tablet, open the **system camera** and point it at the QR
+   code, then tap the notification to open the pairing page. On a device
+   without a camera (another computer), open the URL printed under the QR in
+   its browser instead — same result. On iOS the page first offers
+   **Open in the Vellum app** or **Continue in this browser**; tap
    **Continue in this browser** to pair here (see
    [Using the Vellum iOS app](#6-using-the-vellum-ios-app) for the app path).
-3. Use the browser **Share → Add to Home Screen** to install the assistant as
-   an app icon.
+3. On phones and tablets, use the browser **Share → Add to Home Screen** to
+   install the assistant as an app icon.
 
 **Verify:** after scanning, the pairing page shows **Connected** — pairing is
 already approved, so there's nothing to confirm — and your assistant loads.
@@ -255,7 +267,7 @@ connects changes.
 > **Build requirement.** The app's connect handler ships in the next app
 > release (TestFlight, then the App Store) — see the version note at the top of
 > this guide. On an older build, use the browser / Add to Home Screen path in
-> [Step 5](#5-pair-your-phone), which keeps working unchanged. Building the
+> [Step 5](#5-pair-your-devices), which keeps working unchanged. Building the
 > shell from source ([Step 7](#7-native-ios-shell-optional-for-developers))
 > produces a build that carries it today.
 
@@ -335,7 +347,7 @@ URL — you reach your own assistant, not Vellum Cloud.
 ## Good to know
 
 - **Your laptop has to be awake.** The assistant runs on your machine, so if
-  it's asleep or offline, the phone can't reach it.
+  it's asleep or offline, your devices can't reach it.
 - **No background push in this mode.** You get live streaming while the app is
   in the foreground, but no push notifications. For proactive pings, connect a
   channel like Telegram, which delivers notifications independently.

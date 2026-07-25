@@ -390,7 +390,7 @@ export async function pair(): Promise<void> {
       `Re-run with a reachable URL, e.g.:\n  vellum pair --url ${suggestion}`,
     );
     console.error(
-      "Pairing a phone by QR instead? Use: vellum pair --qr " +
+      "Pairing another device by QR instead? Use: vellum pair --qr " +
         "(needs an https URL — run `vellum tunnel --provider tailscale` first).",
     );
     process.exit(1);
@@ -478,7 +478,7 @@ export async function pair(): Promise<void> {
         }'s website, not your assistant's address`,
       };
       console.error(
-        "Error: --qr needs a public https URL the phone can open — " +
+        "Error: --qr needs a public https URL the scanning device can open — " +
           `${detailByReason[qrResult.reason]}.`,
       );
       console.error(
