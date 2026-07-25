@@ -23,7 +23,7 @@ let embedCallCount = 0;
 // mock behavior: takes the first text input and returns a matching vector.
 let embedRouter: ((text: string) => number[]) | null = null;
 
-mock.module("../../../../persistence/embeddings/embed.js", () => ({
+mock.module("../../../../../persistence/embeddings/embed.js", () => ({
   embedWithRetry: async (
     _config: unknown,
     texts: unknown[],
@@ -45,9 +45,12 @@ mock.module("../../../../persistence/embeddings/embed.js", () => ({
   },
 }));
 
-mock.module("../../../../persistence/embeddings/embedding-backend.js", () => ({
-  selectedBackendSupportsMultimodal: async () => false,
-}));
+mock.module(
+  "../../../../../persistence/embeddings/embedding-backend.js",
+  () => ({
+    selectedBackendSupportsMultimodal: async () => false,
+  }),
+);
 
 // Optional input-aware search router. When set, chooses a candidate list
 // based on the query vector's identity (vector equality on the first 3 dims).
@@ -72,15 +75,15 @@ mock.module("@vellumai/plugin-api", () => ({
   getConfiguredProvider: async () => null,
 }));
 
-import { resetDbForTesting } from "../../../../__tests__/db-test-helpers.js";
-import { DEFAULT_CONFIG } from "../../../../config/defaults.js";
-import type { AssistantConfig } from "../../../../config/types.js";
-import { getMemorySqlite } from "../../../../persistence/db-connection.js";
-import { initializeDb } from "../../../../persistence/db-init.js";
-import { InContextTracker } from "./injection.js";
+import { resetDbForTesting } from "../../../../../__tests__/db-test-helpers.js";
+import { DEFAULT_CONFIG } from "../../../../../config/defaults.js";
+import type { AssistantConfig } from "../../../../../config/types.js";
+import { getMemorySqlite } from "../../../../../persistence/db-connection.js";
+import { initializeDb } from "../../../../../persistence/db-init.js";
+import { InContextTracker } from "../../graph/in-context-tracker.js";
+import { createNode } from "../../graph/store.js";
+import type { NewNode } from "../../graph/types.js";
 import { loadContextMemory, retrieveForTurn } from "./retriever.js";
-import { createNode } from "./store.js";
-import type { NewNode } from "./types.js";
 
 // These tests exercise v1 retrieval. `memory.v2.enabled` (default `true`)
 // makes `loadContextMemory` short-circuit, so disable it here to keep the

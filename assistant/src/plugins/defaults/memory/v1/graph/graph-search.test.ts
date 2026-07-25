@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { setConfig } from "../../../../__tests__/helpers/set-config.js";
+import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 
 // This test exercises the v1 graph search path. `config.memory.v2.enabled`
 // (default `true`) makes graph-search short-circuit to keep traffic off
@@ -22,7 +22,7 @@ const searchCalls: Array<{
 }> = [];
 
 mock.module(
-  "../../../../persistence/embeddings/qdrant-circuit-breaker.js",
+  "../../../../../persistence/embeddings/qdrant-circuit-breaker.js",
   () => ({
     isQdrantBreakerOpen: () => breakerOpen,
     withQdrantBreaker: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
@@ -32,7 +32,7 @@ mock.module(
   }),
 );
 
-mock.module("../../../../persistence/embeddings/qdrant-client.js", () => ({
+mock.module("../../../../../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     hybridSearch: async (params: {
       denseVector: number[];

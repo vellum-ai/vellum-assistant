@@ -11,18 +11,18 @@ import {
 
 import { eq } from "drizzle-orm";
 
-import { assertNotLiveDb } from "../../../../__tests__/assert-not-live-db.js";
-import { setConfig } from "../../../../__tests__/helpers/set-config.js";
-import { setMemoryCheckpoint } from "../../../../persistence/checkpoints.js";
-import { getMemoryDb } from "../../../../persistence/db-connection.js";
-import { initializeDb } from "../../../../persistence/db-init.js";
+import { assertNotLiveDb } from "../../../../../__tests__/assert-not-live-db.js";
+import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
+import { setMemoryCheckpoint } from "../../../../../persistence/checkpoints.js";
+import { getMemoryDb } from "../../../../../persistence/db-connection.js";
+import { initializeDb } from "../../../../../persistence/db-init.js";
 import {
   rawAll,
   rawGet,
   rawRun,
   resetTestTables,
-} from "../../../../persistence/raw-query.js";
-import { memoryJobs } from "../../../../persistence/schema/index.js";
+} from "../../../../../persistence/raw-query.js";
+import { memoryJobs } from "../../../../../persistence/schema/index.js";
 import {
   maybeEnqueueGraphBootstrap,
   migrateToolCreatedItems,

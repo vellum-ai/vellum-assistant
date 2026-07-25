@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
+import type { MemoryTrigger } from "../../graph/types.js";
 import {
   evaluateEventTriggers,
   evaluateSemanticTriggers,
   evaluateTemporalTriggers,
 } from "./triggers.js";
-import type { MemoryTrigger } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

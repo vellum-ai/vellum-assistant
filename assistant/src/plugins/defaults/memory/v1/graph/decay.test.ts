@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import type { EmotionalCharge } from "../../graph/types.js";
 import { computeDecayedIntensity, computeFidelityLevel } from "./decay.js";
-import type { EmotionalCharge } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

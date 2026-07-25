@@ -1,9 +1,12 @@
 // ---------------------------------------------------------------------------
 // Memory Graph — Conversation-level memory integration
 //
-// Replaces the old `prepareMemoryContext` from conversation-memory.ts.
-// Manages the InContextTracker lifecycle and dispatches to the correct
-// retrieval mode based on conversation state.
+// `graph/` is the all-tier legacy-graph store + tier dispatcher: `store.ts`,
+// `capability-seed.ts`, and `tool-handlers.ts` are written on every tier
+// (capability nodes feed `list_memory`), while the read ENGINE lives in
+// `../v1/graph/`. This class manages the InContextTracker lifecycle,
+// dispatches retrieval to the active tier's engine, and owns compaction
+// eviction of v2/v3 per-conversation state.
 // ---------------------------------------------------------------------------
 
 import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
@@ -23,6 +26,17 @@ import { memorySummaries } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 import { getWorkspaceDir } from "../paths.js";
+// v1 read engine — legacy-graph retrieval and block assembly
+import {
+  assembleContextBlock,
+  assembleInjectionBlock,
+  MAX_CONTEXT_LOAD_IMAGES,
+  MAX_PER_TURN_IMAGES,
+  type ResolvedImage,
+  resolveInjectionImages,
+} from "../v1/graph/injection.js";
+import { loadContextMemory, retrieveForTurn } from "../v1/graph/retriever.js";
+// v2 injection engine — turn-time selection over the concept-page substrate
 import {
   clearEverInjected as clearV2EverInjected,
   hydrate as hydrateV2State,
@@ -34,22 +48,16 @@ import {
 } from "../v2/injection.js";
 import { loadNowText } from "../v2/now-text.js";
 import type { RouterTurnPair } from "../v2/router.js";
+// v3 per-conversation state — evicted here on compaction
 import { clearConversation as clearV3EverInjected } from "../v3/ever-injected-store.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
 } from "./graph-memory-state-store.js";
 import {
-  assembleContextBlock,
-  assembleInjectionBlock,
   InContextTracker,
   type InContextTrackerSnapshot,
-  MAX_CONTEXT_LOAD_IMAGES,
-  MAX_PER_TURN_IMAGES,
-  type ResolvedImage,
-  resolveInjectionImages,
-} from "./injection.js";
-import { loadContextMemory, retrieveForTurn } from "./retriever.js";
+} from "./in-context-tracker.js";
 import type { RetrievalMetrics } from "./types.js";
 
 const log = getLogger("graph-conversation-memory");

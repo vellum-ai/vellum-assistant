@@ -19,16 +19,10 @@ import {
 import type { AssistantConfig } from "../../../config/types.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import type { JobHandlerEntry } from "../../types.js";
-import { bootstrapFromHistory } from "./graph/bootstrap.js";
-import { runConsolidation } from "./graph/consolidation.js";
-import { runDecayTick } from "./graph/decay.js";
-import { graphExtractJob } from "./graph/extraction-job.js";
 import {
   embedGraphNodeJob,
   embedGraphTriggerJob,
 } from "./graph/graph-search.js";
-import { runNarrativeRefinement } from "./graph/narrative.js";
-import { runPatternScan } from "./graph/pattern-scan.js";
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { getLogger } from "./logging.js";
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
@@ -38,6 +32,12 @@ import { memoryV2ConsolidateJob } from "./substrate/consolidation-job.js";
 import { memoryV2ReembedJob } from "./substrate/reembed-job.js";
 import { memoryV2SweepJob } from "./substrate/sweep-job.js";
 import { pkbCompactionJob, pkbFilingJob } from "./v1/filing-jobs.js";
+import { bootstrapFromHistory } from "./v1/graph/bootstrap.js";
+import { runConsolidation } from "./v1/graph/consolidation.js";
+import { runDecayTick } from "./v1/graph/decay.js";
+import { graphExtractJob } from "./v1/graph/extraction-job.js";
+import { runNarrativeRefinement } from "./v1/graph/narrative.js";
+import { runPatternScan } from "./v1/graph/pattern-scan.js";
 import { backfillJob } from "./v1/job-handlers/backfill.js";
 import {
   embedAttachmentJob,

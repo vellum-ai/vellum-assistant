@@ -15,31 +15,35 @@ import { join } from "node:path";
 import { and, asc, ne, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getConfig } from "../../../../config/loader.js";
-import { isMemoryV1Active } from "../../../../config/memory-v3-gate.js";
+import { getConfig } from "../../../../../config/loader.js";
+import { isMemoryV1Active } from "../../../../../config/memory-v3-gate.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../../../../persistence/checkpoints.js";
-import { getDb } from "../../../../persistence/db-connection.js";
-import { initQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
+} from "../../../../../persistence/checkpoints.js";
+import { getDb } from "../../../../../persistence/db-connection.js";
+import { initQdrantClient } from "../../../../../persistence/embeddings/qdrant-client.js";
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,
   isMemoryEnabled,
-} from "../../../../persistence/jobs-store.js";
-import { rawAll, rawGet, rawRun } from "../../../../persistence/raw-query.js";
+} from "../../../../../persistence/jobs-store.js";
+import {
+  rawAll,
+  rawGet,
+  rawRun,
+} from "../../../../../persistence/raw-query.js";
 import {
   conversations,
   memoryGraphNodes,
   memorySegments,
-} from "../../../../persistence/schema/index.js";
-import { resolveQdrantUrl } from "../embeddings.js";
-import { getLogger } from "../logging.js";
-import { memoryDbOrNull } from "../memory-db.js";
-import { getWorkspaceDir } from "../paths.js";
+} from "../../../../../persistence/schema/index.js";
+import { resolveQdrantUrl } from "../../embeddings.js";
+import { countNodes } from "../../graph/store.js";
+import { getLogger } from "../../logging.js";
+import { memoryDbOrNull } from "../../memory-db.js";
+import { getWorkspaceDir } from "../../paths.js";
 import { runGraphExtraction } from "./extraction.js";
-import { countNodes } from "./store.js";
 
 const log = getLogger("graph-bootstrap");
 
@@ -538,7 +542,7 @@ export async function cleanupStaleItemVectors(): Promise<void> {
   let qdrant;
   try {
     qdrant = (
-      await import("../../../../persistence/embeddings/qdrant-client.js")
+      await import("../../../../../persistence/embeddings/qdrant-client.js")
     ).getQdrantClient();
   } catch {
     // Qdrant not initialized yet — skip; will run on next startup.

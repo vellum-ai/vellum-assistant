@@ -9,9 +9,9 @@
 
 import { eq, sql } from "drizzle-orm";
 
-import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
-import { memoryDbOrNull } from "../memory-db.js";
-import type { EmotionalCharge, Fidelity } from "./types.js";
+import { memoryGraphNodes } from "../../../../../persistence/schema/index.js";
+import type { EmotionalCharge, Fidelity } from "../../graph/types.js";
+import { memoryDbOrNull } from "../../memory-db.js";
 
 // ---------------------------------------------------------------------------
 // Emotional intensity decay

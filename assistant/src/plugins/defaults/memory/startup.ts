@@ -233,7 +233,7 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
   // graph from conversation history and journal files.
   try {
     const { maybeEnqueueGraphBootstrap, cleanupStaleItemVectors } =
-      await import("./graph/bootstrap.js");
+      await import("./v1/graph/bootstrap.js");
     maybeEnqueueGraphBootstrap();
     // Fire-and-forget: clean up orphaned Qdrant vectors from dropped memory_items table
     void cleanupStaleItemVectors().catch((err) =>
