@@ -17,10 +17,7 @@
  * is a readability convenience.
  */
 
-import {
-  isMemoryV1Active,
-  usesConceptPageMemory,
-} from "../../../config/memory-v3-gate.js";
+import { isMemoryV1Active } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import type { JobHandlerEntry } from "../../types.js";
@@ -75,11 +72,19 @@ const log = getLogger("memory-job-handlers");
 // ── Graph lifecycle job handlers ──────────────────────────────────
 
 /**
- * Tier gate shared by the v1 graph lifecycle handlers below. These jobs
- * mutate (and some LLM-process into) the legacy v1 graph, which only the v1
- * tier reads — so a stale or hand-enqueued row claimed while v1 is not the
- * active memory tier must complete as a logged no-op instead of doing that
- * work. Returns true when the row should be skipped.
+ * Tier gate shared by the v1 graph handlers below (the lifecycle jobs and
+ * `graph_extract`). These jobs mutate — and some LLM-process into — the legacy
+ * v1 graph, which only the v1 tier reads, so a stale or hand-enqueued row
+ * claimed while v1 is not the active memory tier must complete as a logged
+ * no-op instead of doing that work. Returns true when the row should be
+ * skipped.
+ *
+ * The condition is `isMemoryV1Active` and nothing else — the same predicate
+ * `processJob` applies to `V1_QDRANT_JOB_TYPES` in `jobs-worker.ts`, so every
+ * v1 job type answers to one definition of "v1 is the live tier". That
+ * predicate's docstring carries the memory-off semantics the two share: memory
+ * being off is not v1, so v1 work is skipped there exactly as it is under the
+ * concept-page substrate.
  */
 function isStaleV1GraphJob(job: MemoryJob, config: AssistantConfig): boolean {
   if (isMemoryV1Active(config)) {
@@ -173,9 +178,9 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   // V1 — delete with v1.
   // Segment/summary/media embedding, the Qdrant index-maintenance jobs, the
   // graph lifecycle, and PKB filing. Their stale-row guards live at dispatch
-  // (`V1_QDRANT_JOB_TYPES` in `jobs-worker.ts`, `isStaleV1GraphJob` above,
-  // the inline `graph_extract` check) and at the `jobs-worker.ts` scheduling
-  // sites.
+  // (`V1_QDRANT_JOB_TYPES` in `jobs-worker.ts`), in `isStaleV1GraphJob` above,
+  // and at the `jobs-worker.ts` scheduling sites — all three on the one
+  // `isMemoryV1Active` condition.
   {
     type: "embed_segment",
     handler: (job) => embedSegmentJob(job),
@@ -211,8 +216,8 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
     type: "graph_extract",
     handler: async (job, config) => {
       // Stale rows enqueued by any unguarded v1 path must not consume
-      // embedding/extraction budget while concept-page memory is active.
-      if (usesConceptPageMemory(config.memory)) {
+      // embedding/extraction budget while v1 is not the live tier.
+      if (isStaleV1GraphJob(job, config)) {
         return;
       }
       await graphExtractJob(job, config);

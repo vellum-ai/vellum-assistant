@@ -13,7 +13,10 @@ import {
 } from "../../../../../persistence/embeddings/qdrant-client.js";
 import { getLogger } from "../../logging.js";
 
-const log = getLogger("graph-search");
+// Distinct from the all-tier `graph/graph-search.ts` module, which owns the
+// bare `graph-search` scope. The tier split left both emitting under one name;
+// log scopes are observable, so the v1 half takes its own.
+const log = getLogger("v1-graph-search");
 
 export interface GraphSearchResult {
   nodeId: string;

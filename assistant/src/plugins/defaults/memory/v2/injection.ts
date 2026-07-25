@@ -34,12 +34,12 @@ import { getEdgeIndex } from "../substrate/edge-index.js";
 import { getPageIndex } from "../substrate/page-index.js";
 import { readPage, renderPageContent } from "../substrate/page-store.js";
 import { getSkillCapability, isSkillSlug } from "../substrate/skill-store.js";
+import { spreadActivation } from "../substrate/spread.js";
 import type { ActivationState, EverInjectedEntry } from "../substrate/types.js";
 import {
   computeOwnActivation,
   selectCandidates,
   selectInjections,
-  spreadActivation,
 } from "./activation.js";
 import {
   type MemoryV2ConceptRowRecord,

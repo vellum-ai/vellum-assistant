@@ -33,7 +33,7 @@ import { z } from "zod";
 
 import { getConfig } from "../../../../config/loader.js";
 import {
-  isMemoryGraphSupported,
+  isV3TierActive,
   usesConceptPageMemory,
 } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
@@ -498,7 +498,7 @@ function handleGetMemoryItem(id: string) {
  * concept graph is deliberately kept off identity-page load.
  *
  * `graph_supported` reports whether the memory-concept graph is available for
- * this assistant — the same `isMemoryGraphSupported` condition under which
+ * this assistant — the same `isV3TierActive` condition under which
  * `GET /memory-graph` returns `supported: true` (memory enabled + v3 live). It
  * is a cheap config read (no page I/O), so glanceable surfaces can gate the
  * graph entry point on real availability without triggering the graph build.
@@ -508,7 +508,7 @@ async function handleGetMemoryStats(
 ): Promise<{ concepts: number; graph_supported: boolean }> {
   const pageIndex = await getPageIndex(getWorkspaceDir());
   const concepts = pageIndex.entries.filter((e) => e.modifiedAt > 0).length;
-  return { concepts, graph_supported: isMemoryGraphSupported(config) };
+  return { concepts, graph_supported: isV3TierActive(config) };
 }
 
 async function handleCreateMemoryItem(body: Record<string, unknown>) {
@@ -706,7 +706,10 @@ async function handleUpdateMemoryItem(
  */
 function maybeEnqueueConsolidationForCreate(config: AssistantConfig): void {
   try {
-    if (!usesConceptPageMemory(config.memory) || !isMemoryEnabled()) {
+    // `usesConceptPageMemory` already covers the memory-off case (an explicit
+    // `memory.enabled === false` makes it false), so a second
+    // `isMemoryEnabled()` clause would be unreachable.
+    if (!usesConceptPageMemory(config.memory)) {
       return;
     }
     if (hasActiveJobOfType("memory_v2_consolidate")) {

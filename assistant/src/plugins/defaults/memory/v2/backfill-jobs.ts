@@ -27,11 +27,8 @@ import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
 import { getEdgeIndex } from "../substrate/edge-index.js";
-import {
-  computeOwnActivation,
-  selectCandidates,
-  spreadActivation,
-} from "./activation.js";
+import { spreadActivation } from "../substrate/spread.js";
+import { computeOwnActivation, selectCandidates } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
 import {
   MigrationAlreadyAppliedError,

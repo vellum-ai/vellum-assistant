@@ -44,6 +44,7 @@ import { z } from "zod";
 import { type AgentEvent, AgentLoop } from "../agent/loop.js";
 import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
+import { isMemoryEnabled } from "../config/memory-v3-gate.js";
 import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { isPersonalMemoryAllowed } from "../daemon/trust-context.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -142,7 +143,7 @@ async function injectPersonaMemory(
   if (!isPersonalMemoryAllowed(opts.trustContext)) {return messages;}
 
   const config = getConfig();
-  if (config.memory?.enabled === false) {return messages;}
+  if (!isMemoryEnabled(config)) {return messages;}
 
   const ephemeralConversationId = `workflow-leaf:${randomUUID()}`;
   const graphMemory = new ConversationGraphMemory(ephemeralConversationId);

@@ -13,7 +13,10 @@ import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
 import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
-import { isV2InjectionEngineActive } from "../../../../config/memory-v3-gate.js";
+import {
+  isMemoryEnabled,
+  isV2InjectionEngineActive,
+} from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { estimateTextTokens } from "../../../../context/token-estimator.js";
 import type { AssistantEvent } from "../../../../daemon/message-protocol.js";
@@ -476,7 +479,7 @@ export class ConversationGraphMemory {
       metrics: null as RetrievalMetrics | null,
     };
 
-    if (config.memory.enabled === false) {
+    if (!isMemoryEnabled(config)) {
       // Clear any cached injection so a later overflow-reduction
       // re-injection via `reinjectCachedMemory()` cannot reintroduce a
       // stale <memory> block after the user disables memory.

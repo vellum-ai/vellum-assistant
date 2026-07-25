@@ -6,6 +6,7 @@ import {
 import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
 import type { ChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
+import { isMemoryEnabled } from "../config/memory-v3-gate.js";
 import type { AutoApproveThreshold } from "../permissions/approval-policy.js";
 import { isDynamicSkillLoadInvocation } from "../permissions/checker.js";
 import {
@@ -570,7 +571,7 @@ export class ToolApprovalHandler {
     if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
       let memoryEnabled = true;
       try {
-        memoryEnabled = getConfig().memory?.enabled !== false;
+        memoryEnabled = isMemoryEnabled(getConfig());
       } catch {
         // Config unavailable — leave the memory hint out rather than guess.
       }
