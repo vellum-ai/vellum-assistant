@@ -124,6 +124,24 @@ setConfig("memory", {
   jobs: { slowLlmConcurrency: 8, fastConcurrency: 8 },
 });
 
+// Instrument the checkpoint module before `jobs-worker.js` binds it, so the
+// worker's writes go through this wrapper: the maintenance tick must reach
+// `deleteMemoryCheckpoint` only when the v1-entry marker is actually present,
+// and a spy is the only way to see a delete that targets an absent row.
+// The snapshot is taken eagerly: `mock.module` rebinds the live namespace, so
+// a wrapper reading `deleteMemoryCheckpoint` off it would call itself.
+const realCheckpoints = {
+  ...(await import("../../../../persistence/checkpoints.js")),
+};
+const checkpointDeletes: string[] = [];
+mock.module("../../../../persistence/checkpoints.js", () => ({
+  ...realCheckpoints,
+  deleteMemoryCheckpoint: (key: string) => {
+    checkpointDeletes.push(key);
+    realCheckpoints.deleteMemoryCheckpoint(key);
+  },
+}));
+
 const { applyNestedDefaults } = await import("../../../../config/loader.js");
 const { getMemoryDb } =
   await import("../../../../persistence/db-connection.js");
@@ -141,7 +159,7 @@ const {
   maybeEnqueueGraphMaintenanceJobs,
   runMemoryJobsOnce,
 } = await import("../jobs-worker.js");
-const { deleteMemoryCheckpoint, getMemoryCheckpoint } =
+const { deleteMemoryCheckpoint, getMemoryCheckpoint, setMemoryCheckpoint } =
   await import("../../../../persistence/checkpoints.js");
 
 const V1_ENTRY_RECONCILE_KEY = GRAPH_MAINTENANCE_CHECKPOINTS.v1EntryReconcile;
@@ -195,6 +213,12 @@ function v1Config(): AssistantConfig {
   return config;
 }
 
+function memoryDisabledConfig(): AssistantConfig {
+  const config = applyNestedDefaults({});
+  config.memory.enabled = false;
+  return config;
+}
+
 function v3LiveConfig(): AssistantConfig {
   const config = applyNestedDefaults({});
   config.memory.v3.live = true;
@@ -220,6 +244,7 @@ describe("v1 graph jobs under concept-page memory", () => {
   beforeEach(() => {
     getMemoryDb()!.run("DELETE FROM memory_jobs");
     resetCallCounts();
+    checkpointDeletes.length = 0;
     _resetQdrantBreaker();
   });
 
@@ -322,5 +347,68 @@ describe("v1 graph jobs under concept-page memory", () => {
     expect(seedSkillGraphNodeCalls).toBe(2);
     expect(seedCliGraphNodeCalls).toBe(2);
     expect(getMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY)).not.toBeNull();
+  });
+
+  test("a memory-disabled tick re-arms the reconcile so re-enabling into v1 runs it", () => {
+    deleteMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY);
+
+    maybeEnqueueGraphMaintenanceJobs(v1Config(), Date.now());
+
+    expect(maybeEnqueueBootstrapCalls).toBe(1);
+    expect(getMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY)).not.toBeNull();
+
+    // Memory off is leaving v1: capability nodes keep being written with no
+    // `embed_graph_node` rows behind them, so the marker is cleared.
+    maybeEnqueueGraphMaintenanceJobs(memoryDisabledConfig(), Date.now());
+
+    expect(maybeEnqueueBootstrapCalls).toBe(1);
+    expect(seedSkillGraphNodeCalls).toBe(1);
+    expect(getMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY)).toBeNull();
+
+    // Re-enabling straight back into v1 reconciles instead of reading a stale
+    // done-marker and skipping.
+    maybeEnqueueGraphMaintenanceJobs(v1Config(), Date.now());
+
+    expect(maybeEnqueueBootstrapCalls).toBe(2);
+    expect(seedSkillGraphNodeCalls).toBe(2);
+    expect(seedCliGraphNodeCalls).toBe(2);
+    expect(getMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY)).not.toBeNull();
+  });
+
+  test("ticks off v1 issue no checkpoint delete while the marker is absent", () => {
+    deleteMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY);
+    checkpointDeletes.length = 0;
+
+    // The steady state of every v2/v3 (and memory-off) assistant: the marker
+    // was never written, so each tick is one indexed read and no write.
+    maybeEnqueueGraphMaintenanceJobs(applyNestedDefaults({}), Date.now());
+    maybeEnqueueGraphMaintenanceJobs(applyNestedDefaults({}), Date.now());
+    maybeEnqueueGraphMaintenanceJobs(memoryDisabledConfig(), Date.now());
+
+    expect(checkpointDeletes).toEqual([]);
+
+    // A marker left by a stay on v1 is cleared exactly once; the ticks after it
+    // are reads again.
+    maybeEnqueueGraphMaintenanceJobs(v1Config(), Date.now());
+    checkpointDeletes.length = 0;
+
+    maybeEnqueueGraphMaintenanceJobs(applyNestedDefaults({}), Date.now());
+    maybeEnqueueGraphMaintenanceJobs(applyNestedDefaults({}), Date.now());
+
+    expect(checkpointDeletes).toEqual([V1_ENTRY_RECONCILE_KEY]);
+  });
+
+  test("a v1 tick whose marker startup already claimed runs no seeding", () => {
+    // `runMemoryStartup` runs the bootstrap check and both seeders in the
+    // daemon and claims the marker before it spawns this worker, so the
+    // worker's first tick of a v1 boot must not repeat that pass against the
+    // same `memory_graph_nodes` rows.
+    setMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY, String(Date.now()));
+
+    maybeEnqueueGraphMaintenanceJobs(v1Config(), Date.now());
+
+    expect(maybeEnqueueBootstrapCalls).toBe(0);
+    expect(seedSkillGraphNodeCalls).toBe(0);
+    expect(seedCliGraphNodeCalls).toBe(0);
   });
 });
