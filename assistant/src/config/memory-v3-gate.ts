@@ -4,18 +4,24 @@ import type { AssistantConfig } from "./schema.js";
  * Whether memory as a whole is on — the user-facing master switch. Memory is
  * on unless `memory.enabled` is explicitly set to `false`. Canonical home for
  * the check; the config-singleton `isMemoryEnabled()` in
- * `persistence/jobs-store.ts` delegates here.
+ * `persistence/jobs-store.ts` delegates here. Accepts any object carrying the
+ * `memory` slice, so callers holding only the plugin-resolved slice (e.g. the
+ * memory plugin's `getMemoryConfig()`) can gate without the full config.
  */
-export function isMemoryEnabled(config: AssistantConfig): boolean {
+export function isMemoryEnabled(
+  config: Pick<AssistantConfig, "memory">,
+): boolean {
   return config.memory?.enabled !== false;
 }
 
 /**
  * Whether the legacy graph/PKB memory engine (tier v1) is the live tier:
  * memory is on and no concept-page consumer (v3 live or the v2 injection
- * engine) is.
+ * engine) is. Like {@link isMemoryEnabled}, accepts a `memory`-slice view.
  */
-export function isMemoryV1Active(config: AssistantConfig): boolean {
+export function isMemoryV1Active(
+  config: Pick<AssistantConfig, "memory">,
+): boolean {
   return isMemoryEnabled(config) && !usesConceptPageMemory(config.memory);
 }
 

@@ -10,6 +10,7 @@ import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
 import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
+import { isV2InjectionEngineActive } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { estimateTextTokens } from "../../../../context/token-estimator.js";
 import type { AssistantEvent } from "../../../../daemon/message-protocol.js";
@@ -581,7 +582,9 @@ export class ConversationGraphMemory {
       };
     }
 
-    // v1 fallback — only reached when the v2 flag or workspace config is off.
+    // v1 fallback — only reached when the v2 engine is not the live tier (v2
+    // disabled, memory off, or v3 live; under the concept-page substrate the
+    // retriever short-circuits to zero nodes).
     const result = await loadContextMemory({
       recentSummaries,
       userQuery,
@@ -703,8 +706,8 @@ export class ConversationGraphMemory {
       if (userLastBlocks.length > 0 && assistantLast) {break;}
     }
 
-    // v2 path — skip v1 retrieval entirely when v2 is enabled. See the
-    // matching comment in `runContextLoad` for rationale.
+    // v2 path — skip v1 retrieval entirely when the v2 engine is the live
+    // tier. See the matching comment in `runContextLoad` for rationale.
     const startedAt = Date.now();
     const v2 = await this.maybeRouteV2Injection(
       messages,
@@ -747,7 +750,9 @@ export class ConversationGraphMemory {
       };
     }
 
-    // v1 path (only reached when the v2 flag or workspace config is off).
+    // v1 path (only reached when the v2 engine is not the live tier — v2
+    // disabled, memory off, or v3 live; under the concept-page substrate the
+    // retriever short-circuits to zero nodes).
     const result = await retrieveForTurn({
       assistantLastMessage: assistantLast,
       userLastMessage: userLast,
@@ -851,11 +856,16 @@ export class ConversationGraphMemory {
   }
 
   /**
-   * Run the v2 activation pipeline when the workspace config
-   * (`memory.v2.enabled`) is on.
+   * Run the v2 activation pipeline when the v2 injection engine is the live
+   * tier ({@link isV2InjectionEngineActive}) — memory on, `memory.v2.enabled`
+   * set, and v3 not live. Every `prepareMemory` entry point shares this gate,
+   * including callers without their own v3 guard (e.g. the persona
+   * workflow-leaf runner), so a v3-live assistant never runs the v2
+   * router/activation pipeline or writes its activation/injection logs.
    *
    * The two outcomes the caller distinguishes via `routed`:
-   *   - `routed: false` — v2 disabled; caller falls through to the legacy v1
+   *   - `routed: false` — v2 engine not active (disabled, memory off, or v3
+   *                        live); caller falls through to the legacy v1
    *                        retrieval path.
    *   - `routed: true`  — v2 ran. `runMessages` is either the v2-prepended
    *                        message list (block was non-null) or the input
@@ -880,7 +890,7 @@ export class ConversationGraphMemory {
     runMessages: Message[];
     injectedBlockText: string | null;
   }> {
-    if (!config.memory.v2.enabled) {
+    if (!isV2InjectionEngineActive(config)) {
       return { routed: false, runMessages: messages, injectedBlockText: null };
     }
 
