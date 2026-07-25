@@ -13,7 +13,7 @@
 //               + c_assistant · α · r_norm(Assistant_t, n)   [n ∈ topK]
 //
 // The spread step that turns A_o into the final A(n, t+1) lives in the
-// substrate (`v3/substrate/spread.ts` — `spreadActivation`, re-exported here
+// substrate (`substrate/spread.ts` — `spreadActivation`, re-exported here
 // for the v2 engine's callers) because the `memory` recall source also
 // spreads activation under v3.
 //
@@ -30,13 +30,10 @@ import type { AssistantConfig } from "../../../../config/types.js";
 import { isEmbeddingDimensionAvailable } from "../../../../persistence/embeddings/embedding-backend.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embeddings.js";
-import { hybridQueryConceptPages } from "../v3/substrate/qdrant.js";
-import { simBatch } from "../v3/substrate/sim.js";
-import { generateBm25QueryEmbedding } from "../v3/substrate/sparse-bm25.js";
-import type {
-  ActivationState,
-  EverInjectedEntry,
-} from "../v3/substrate/types.js";
+import { hybridQueryConceptPages } from "../substrate/qdrant.js";
+import { simBatch } from "../substrate/sim.js";
+import { generateBm25QueryEmbedding } from "../substrate/sparse-bm25.js";
+import type { ActivationState, EverInjectedEntry } from "../substrate/types.js";
 import { clampUnitInterval } from "../validation.js";
 import { rerankCandidates } from "./reranker.js";
 
@@ -44,7 +41,7 @@ import { rerankCandidates } from "./reranker.js";
 // under v3 too); re-exported here so the v2 engine's callers keep importing
 // the whole activation pipeline from one module. v2 → substrate is the
 // sanctioned import direction.
-export { spreadActivation } from "../v3/substrate/spread.js";
+export { spreadActivation } from "../substrate/spread.js";
 
 /**
  * Sentinel passed to Qdrant when `config.memory.v2.ann_candidate_limit` is
@@ -118,7 +115,7 @@ export async function selectCandidates(
   if (priorState) {
     const epsilon = config.memory.v2.epsilon;
     for (const [slug, activation] of Object.entries(priorState.state)) {
-      if (activation > epsilon) fromPrior.add(slug);
+      if (activation > epsilon) {fromPrior.add(slug);}
     }
   }
 
@@ -154,7 +151,7 @@ export async function selectCandidates(
     const limit =
       config.memory.v2.ann_candidate_limit ?? UNLIMITED_ANN_CANDIDATE_LIMIT;
     const hits = await hybridQueryConceptPages(dense, sparse, limit);
-    for (const hit of hits) fromAnn.add(hit.slug);
+    for (const hit of hits) {fromAnn.add(hit.slug);}
   }
 
   const candidates = new Set<string>([...fromPrior, ...fromAnn]);
@@ -240,7 +237,7 @@ export async function computeOwnActivation(
 
   const activation = new Map<string, number>();
   const breakdown = new Map<string, OwnActivationBreakdown>();
-  if (candidates.size === 0) return { activation, breakdown };
+  if (candidates.size === 0) {return { activation, breakdown };}
 
   const { d, c_user, c_assistant, c_now } = config.memory.v2;
   const slugList = [...candidates];
@@ -355,12 +352,12 @@ function normalizeRerankScores(
   alpha: number,
 ): Map<string, number> {
   const out = new Map<string, number>();
-  if (rawScores.size === 0) return out;
+  if (rawScores.size === 0) {return out;}
   let maxScore = 0;
   for (const v of rawScores.values()) {
-    if (v > maxScore) maxScore = v;
+    if (v > maxScore) {maxScore = v;}
   }
-  if (maxScore === 0) return out;
+  if (maxScore === 0) {return out;}
   for (const [slug, raw] of rawScores) {
     out.set(slug, alpha * (raw / maxScore));
   }
@@ -410,7 +407,7 @@ export function selectInjections(
   }
 
   const ranked = [...A.entries()].sort(([slugA, valA], [slugB, valB]) => {
-    if (valB !== valA) return valB - valA; // higher activation first
+    if (valB !== valA) {return valB - valA;} // higher activation first
     return slugA < slugB ? -1 : slugA > slugB ? 1 : 0; // stable tie-break
   });
 

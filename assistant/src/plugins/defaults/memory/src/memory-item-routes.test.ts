@@ -68,7 +68,7 @@ mock.module(
 // stats test seed synthetic (modifiedAt: 0) rows and assert they're excluded.
 let mockSkillEntries: Array<{ id: string; content: string }> = [];
 
-mock.module("../v3/substrate/skill-store.js", () => ({
+mock.module("../substrate/skill-store.js", () => ({
   SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => mockSkillEntries,
 }));
@@ -92,9 +92,9 @@ import {
 } from "../../../../runtime/routes/errors.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
 import { readPendingBufferEntries } from "../graph-topology/pending-buffer.js";
-import { invalidatePageIndex } from "../v3/substrate/page-index.js";
-import { writePage } from "../v3/substrate/page-store.js";
-import type { ConceptPage } from "../v3/substrate/types.js";
+import { invalidatePageIndex } from "../substrate/page-index.js";
+import { writePage } from "../substrate/page-store.js";
+import type { ConceptPage } from "../substrate/types.js";
 import { ROUTES } from "./memory-item-routes.js";
 
 // ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ function getRoute(endpoint: string, method: string): RouteDefinition {
   const route = ROUTES.find(
     (r: RouteDefinition) => r.endpoint === endpoint && r.method === method,
   );
-  if (!route) throw new Error(`No route: ${method} ${endpoint}`);
+  if (!route) {throw new Error(`No route: ${method} ${endpoint}`);}
   return route;
 }
 

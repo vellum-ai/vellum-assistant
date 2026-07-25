@@ -62,16 +62,16 @@ const realOrchestrate = { ...(await import("../orchestrate.js")) };
 const realLearnedEdges = { ...(await import("../learned-edges.js")) };
 const realPlatform = { ...(await import("../../../../../util/platform.js")) };
 const realPageStore = {
-  ...(await import("../substrate/page-store.js")),
+  ...(await import("../../substrate/page-store.js")),
 };
 const realConversationCrud = {
   ...(await import("../../../../../persistence/conversation-crud.js")),
 };
 const realSkillStore = {
-  ...(await import("../substrate/skill-store.js")),
+  ...(await import("../../substrate/skill-store.js")),
 };
 const realCliCommandStore = {
-  ...(await import("../substrate/cli-command-store.js")),
+  ...(await import("../../substrate/cli-command-store.js")),
 };
 const realCoreSet = { ...(await import("../core-set.js")) };
 const realHotSet = { ...(await import("../hot-set.js")) };
@@ -265,7 +265,7 @@ mock.module("../hot-set.js", () => ({
   computeHotSet: (
     ...args: Parameters<typeof realHotSet.computeHotSet>
   ): HotSetEntry[] => {
-    if (!shadowMockActive) return realHotSet.computeHotSet(...args);
+    if (!shadowMockActive) {return realHotSet.computeHotSet(...args);}
     hotSetOpts = args[0];
     return hotSetResult;
   },
@@ -286,7 +286,7 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
     memoryDbAvailable ? drizzle(memorySqlite, { schema }) : null,
 }));
 
-mock.module("../substrate/page-index.js", () => ({
+mock.module("../../substrate/page-index.js", () => ({
   getPageIndex: async () => ({
     entries: [
       {
@@ -332,7 +332,7 @@ mock.module("../substrate/page-index.js", () => ({
 }));
 
 // `pageContent` (live mode) reads the full page via `readPage`/`renderPageContent`.
-mock.module("../substrate/page-store.js", () => ({
+mock.module("../../substrate/page-store.js", () => ({
   ...realPageStore,
   readPage: async (workspaceDir: string, slug: string) =>
     shadowMockActive
@@ -365,7 +365,7 @@ mock.module("../../../../../util/platform.js", () => ({
 // synthetic slugs through these. Spread the real module so the prefix
 // predicates (`isSkillSlug`/`isCliCommandSlug`) stay intact; override only the
 // content lookup so the capability slug resolves.
-mock.module("../substrate/skill-store.js", () => ({
+mock.module("../../substrate/skill-store.js", () => ({
   ...realSkillStore,
   getSkillCapability: (idOrSlug: string) =>
     shadowMockActive
@@ -375,7 +375,7 @@ mock.module("../substrate/skill-store.js", () => ({
       : realSkillStore.getSkillCapability(idOrSlug),
 }));
 
-mock.module("../substrate/cli-command-store.js", () => ({
+mock.module("../../substrate/cli-command-store.js", () => ({
   ...realCliCommandStore,
   getCliCommandCapability: (idOrSlug: string) =>
     shadowMockActive
@@ -388,7 +388,7 @@ mock.module("../sections.js", () => ({
   buildSectionIndex: async (
     ...args: Parameters<typeof realSections.buildSectionIndex>
   ) => {
-    if (!shadowMockActive) return realSections.buildSectionIndex(...args);
+    if (!shadowMockActive) {return realSections.buildSectionIndex(...args);}
     sectionBuilds++;
     // Capture the `pageBody` resolver so a test can exercise the capability
     // branch directly. Returning the FAKE index keeps the other tests cheap.
@@ -402,7 +402,7 @@ mock.module("../section-needle.js", () => ({
   buildSectionNeedle: (
     ...args: Parameters<typeof realSectionNeedle.buildSectionNeedle>
   ) => {
-    if (!shadowMockActive) return realSectionNeedle.buildSectionNeedle(...args);
+    if (!shadowMockActive) {return realSectionNeedle.buildSectionNeedle(...args);}
     needleBuilds++;
     return { query: () => [], bestSection: () => -1 };
   },
@@ -413,7 +413,7 @@ mock.module("../edge.js", () => ({
   buildEdgeGraph: async (
     ...args: Parameters<typeof realEdge.buildEdgeGraph>
   ) => {
-    if (!shadowMockActive) return realEdge.buildEdgeGraph(...args);
+    if (!shadowMockActive) {return realEdge.buildEdgeGraph(...args);}
     edgeBuilds++;
     return { adjacency: new Map(), hubs: new Set(), slugs: new Set() };
   },
@@ -425,7 +425,7 @@ mock.module("../learned-edges.js", () => ({
     ...args: Parameters<typeof realLearnedEdges.computeLearnedEdgeGraph>
   ) => {
     if (!shadowMockActive)
-      return realLearnedEdges.computeLearnedEdgeGraph(...args);
+      {return realLearnedEdges.computeLearnedEdgeGraph(...args);}
     learnedGraphBuilds++;
     return { adjacency: new Map(), hubs: new Set(), slugs: new Set() };
   },
@@ -440,7 +440,7 @@ mock.module("../section-dense-store.js", () => ({
       return realSectionDenseStore.ensureSectionCollection(...args);
     }
     ensureCollectionCalls++;
-    if (ensureCollectionThrows) throw new Error("qdrant unavailable");
+    if (ensureCollectionThrows) {throw new Error("qdrant unavailable");}
   },
 }));
 
@@ -460,7 +460,7 @@ mock.module("../lanes-version-store.js", () => ({
     }
     // The store swallows read errors and returns `undefined`; mirror that so
     // `getLanes` exercises its "cannot judge staleness → serve memo" branch.
-    if (lanesVersionReadThrows) return undefined;
+    if (lanesVersionReadThrows) {return undefined;}
     return mockLanesVersion;
   },
   bumpLanesVersion: (workspaceDir: string) => {
@@ -555,7 +555,7 @@ async function produce(conversationId: string, turnIndex: number) {
     trust: {} as never,
   });
   const commit = block?.meta?.[MEMORY_V3_COMMIT_META_KEY];
-  if (typeof commit === "function") (commit as () => void)();
+  if (typeof commit === "function") {(commit as () => void)();}
   return block;
 }
 

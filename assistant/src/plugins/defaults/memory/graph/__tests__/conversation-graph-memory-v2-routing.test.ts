@@ -192,7 +192,7 @@ const { getActiveSlugs: getV3ActiveSlugs, recordInjected: recordV3Injected } =
   await import("../../v3/ever-injected-store.js");
 const schema = await import("../../../../../persistence/schema/index.js");
 const { _resetMemoryV2QdrantForTests } =
-  await import("../../v3/substrate/qdrant.js");
+  await import("../../substrate/qdrant.js");
 const { hydrate: hydrateActivationState, save: saveActivationState } =
   await import("../../v2/activation-store.js");
 const { setStoredDb, clearStoredDb } =
@@ -212,7 +212,7 @@ const realDbModule =
 mock.module("../../../../../persistence/db-connection.js", () => ({
   ...realDbModule,
   getDb: () => {
-    if (!testDbHandle) throw new Error("test db not initialized");
+    if (!testDbHandle) {throw new Error("test db not initialized");}
     return testDbHandle;
   },
   getMemorySqlite: () => memorySqliteHandle,
@@ -396,7 +396,7 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
     expect(lastMsg?.role).toBe("user");
     const firstBlock = lastMsg?.content[0];
     expect(firstBlock?.type).toBe("text");
-    if (firstBlock?.type !== "text") throw new Error("unexpected block type");
+    if (firstBlock?.type !== "text") {throw new Error("unexpected block type");}
     expect(firstBlock.text.startsWith("<memory>\n")).toBe(true);
     expect(firstBlock.text.endsWith("\n</memory>")).toBe(true);
     // No nested wrapper.
@@ -431,7 +431,7 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
     const lastMsg = reinjected.runMessages[reinjected.runMessages.length - 1];
     const firstBlock = lastMsg?.content[0];
     expect(firstBlock?.type).toBe("text");
-    if (firstBlock?.type !== "text") throw new Error("unexpected block type");
+    if (firstBlock?.type !== "text") {throw new Error("unexpected block type");}
     expect(firstBlock.text.startsWith("<memory>\n")).toBe(true);
     expect(firstBlock.text.endsWith("\n</memory>")).toBe(true);
     expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
@@ -537,7 +537,7 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (context-load pat
     expect(result.injectedBlockText).not.toContain("<memory>");
     const lastMsg = result.runMessages[result.runMessages.length - 1];
     const firstBlock = lastMsg?.content[0];
-    if (firstBlock?.type !== "text") throw new Error("unexpected block type");
+    if (firstBlock?.type !== "text") {throw new Error("unexpected block type");}
     expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
 
     // v1 retrieval is fully bypassed when v2 is enabled.

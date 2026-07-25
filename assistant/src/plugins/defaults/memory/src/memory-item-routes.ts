@@ -81,7 +81,7 @@ import { consolidationBackoffRemainingMs } from "../jobs-worker.js";
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
 import { getWorkspaceDir } from "../paths.js";
-import { getPageIndex } from "../v3/substrate/page-index.js";
+import { getPageIndex } from "../substrate/page-index.js";
 
 const log = getLogger("memory-item-routes");
 
@@ -211,13 +211,13 @@ async function searchNodesSemantic(
     // search (the caller's `null` branch) instead of querying the v1
     // collection, which is in active retirement and a corrupted sparse
     // segment can OOM-crash the shared Qdrant process.
-    if (usesConceptPageMemory(config.memory)) return null;
+    if (usesConceptPageMemory(config.memory)) {return null;}
     const backendStatus = await getMemoryBackendStatus(config);
-    if (!backendStatus.provider) return null;
+    if (!backendStatus.provider) {return null;}
 
     const embedded = await embedWithBackend(config, [query]);
     const queryVector = embedded.vectors[0];
-    if (!queryVector) return null;
+    if (!queryVector) {return null;}
 
     const sparse = generateSparseEmbedding(query);
     const sparseVector = { indices: sparse.indices, values: sparse.values };
@@ -320,7 +320,7 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
   }
 
   const db = memoryDbOrNull("listMemoryItems");
-  if (!db) throw new Error("memory database unavailable");
+  if (!db) {throw new Error("memory database unavailable");}
 
   // Build fidelity filter based on status param
   const fidelityFilter =
@@ -343,7 +343,7 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
       const kindCountConditions = [
         inArray(memoryGraphNodes.id, semanticResult.ids),
       ];
-      if (fidelityFilter) kindCountConditions.push(fidelityFilter);
+      if (fidelityFilter) {kindCountConditions.push(fidelityFilter);}
 
       const kindCountRows = db
         .select({ kind: memoryGraphNodes.type, count: count() })
@@ -365,7 +365,7 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
         if (kindParam) {
           filterConditions.push(eq(memoryGraphNodes.type, kindParam));
         }
-        if (fidelityFilter) filterConditions.push(fidelityFilter);
+        if (fidelityFilter) {filterConditions.push(fidelityFilter);}
 
         if (filterConditions.length > 1) {
           const validIdSet = new Set(
@@ -393,9 +393,9 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
 
       // Hydrate nodes from DB
       const hydrationConditions = [inArray(memoryGraphNodes.id, pageIds)];
-      if (fidelityFilter) hydrationConditions.push(fidelityFilter);
+      if (fidelityFilter) {hydrationConditions.push(fidelityFilter);}
       if (kindParam)
-        hydrationConditions.push(eq(memoryGraphNodes.type, kindParam));
+        {hydrationConditions.push(eq(memoryGraphNodes.type, kindParam));}
 
       const rows = db
         .select()
@@ -419,7 +419,7 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
 
   // ── Kind counts for SQL path ───────────────────────────────────────
   const kindCountConditions = [];
-  if (fidelityFilter) kindCountConditions.push(fidelityFilter);
+  if (fidelityFilter) {kindCountConditions.push(fidelityFilter);}
   if (searchParam) {
     kindCountConditions.push(
       like(memoryGraphNodes.content, `%${searchParam}%`),
@@ -441,8 +441,8 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
 
   // ── SQL path (default or fallback) ──────────────────────────────────
   const conditions = [];
-  if (fidelityFilter) conditions.push(fidelityFilter);
-  if (kindParam) conditions.push(eq(memoryGraphNodes.type, kindParam));
+  if (fidelityFilter) {conditions.push(fidelityFilter);}
+  if (kindParam) {conditions.push(eq(memoryGraphNodes.type, kindParam));}
   if (searchParam) {
     conditions.push(like(memoryGraphNodes.content, `%${searchParam}%`));
   }
@@ -538,7 +538,7 @@ async function handleCreateMemoryItem(body: Record<string, unknown>) {
 
   // Check for duplicate content
   const db = memoryDbOrNull("createMemoryItem");
-  if (!db) throw new Error("memory database unavailable");
+  if (!db) {throw new Error("memory database unavailable");}
   const existing = db
     .select({ id: memoryGraphNodes.id })
     .from(memoryGraphNodes)
@@ -658,7 +658,7 @@ async function handleUpdateMemoryItem(
   if (contentChanged || reactivating) {
     const contentToCheck = changes.content ?? existing.content;
     const db = memoryDbOrNull("updateMemoryItem");
-    if (!db) throw new Error("memory database unavailable");
+    if (!db) {throw new Error("memory database unavailable");}
     const collision = db
       .select({ id: memoryGraphNodes.id })
       .from(memoryGraphNodes)

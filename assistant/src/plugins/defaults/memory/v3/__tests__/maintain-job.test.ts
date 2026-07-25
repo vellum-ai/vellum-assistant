@@ -7,6 +7,7 @@ import { EmbeddingBackendUnavailableError } from "../../../../../persistence/emb
 import { EmbeddingBillingBlockError } from "../../../../../persistence/embeddings/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../../../persistence/jobs-store.js";
 import type { SkillInstallMeta } from "../../../../../skills/install-meta.js";
+import { skillSlugFor } from "../../substrate/skill-store.js";
 import { renderCapabilityBody } from "../capabilities.js";
 import {
   backfillAllSections,
@@ -17,7 +18,6 @@ import {
   type MaintainJobDeps,
 } from "../maintain-job.js";
 import { buildSectionIndex } from "../sections.js";
-import { skillSlugFor } from "../substrate/skill-store.js";
 import type { Section, SectionIndex, Slug } from "../types.js";
 
 // The skill usage-prune stage reads `memory.maintenance.skillPruneDays`; default

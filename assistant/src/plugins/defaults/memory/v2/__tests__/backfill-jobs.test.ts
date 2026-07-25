@@ -201,7 +201,7 @@ const { initializeDb } = await import("../../../../../persistence/db-init.js");
 const { rawExec } = await import("../../../../../persistence/raw-query.js");
 const { conversations, memoryJobs, messages } =
   await import("../../../../../persistence/schema/index.js");
-const { writePage } = await import("../../v3/substrate/page-store.js");
+const { writePage } = await import("../../substrate/page-store.js");
 const { save: saveActivation, hydrate: hydrateActivation } =
   await import("../activation-store.js");
 const {
@@ -271,7 +271,7 @@ beforeEach(async () => {
     "buffer.md",
   ]) {
     const filePath = join(tmpWorkspace, "memory", filename);
-    if (existsSync(filePath)) rmSync(filePath);
+    if (existsSync(filePath)) {rmSync(filePath);}
   }
 
   migrationCalls.length = 0;

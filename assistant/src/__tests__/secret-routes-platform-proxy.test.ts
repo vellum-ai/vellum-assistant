@@ -90,13 +90,10 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 
 // `handleAddSecret` fires this detached when a managed-proxy credential lands —
 // a v2-memory side effect outside this suite's provider-registry scope. Stub it
-// to a no-op; its behavior is covered by memory-v2-startup.test.ts.
-mock.module(
-  "../plugins/defaults/memory/v3/substrate/memory-v2-startup.js",
-  () => ({
-    maybeReseedCapabilitiesAfterManagedCredential: async () => {},
-  }),
-);
+// to a no-op; its behavior is covered by boot-maintenance.test.ts.
+mock.module("../plugins/defaults/memory/substrate/boot-maintenance.js", () => ({
+  maybeReseedCapabilitiesAfterManagedCredential: async () => {},
+}));
 
 // secret-routes evicts conversations after a credential change so the next turn
 // rebuilds against the new providers; count the calls to assert that happens.

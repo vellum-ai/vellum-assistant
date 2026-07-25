@@ -56,6 +56,8 @@ export type MemoryJobType =
   | "graph_trigger_embed"
   | "graph_bootstrap"
   | "embed_concept_page"
+  // FROZEN: `memory_v2_*` job type values are persisted in job rows — never
+  // rename them.
   | "memory_v2_sweep"
   | "memory_v2_consolidate"
   | "memory_v2_migrate"

@@ -26,6 +26,19 @@ import {
   getConceptFrequencySummary,
 } from "../memory-v2-concept-frequency.js";
 import { getWorkspaceDir } from "../paths.js";
+import {
+  getEdgeIndex,
+  totalEdgeCount,
+  validateEdgeTargets,
+} from "../substrate/edge-index.js";
+import { getPageIndex } from "../substrate/page-index.js";
+import {
+  getConceptsDir,
+  listPages,
+  readPage,
+  renderPageContent,
+} from "../substrate/page-store.js";
+import { seedV2SkillEntries } from "../substrate/skill-store.js";
 import { runComparisonOverHistory } from "../v2/harness/compare.js";
 import type { Retriever } from "../v2/harness/retriever.js";
 import { createRouterRetriever } from "../v2/harness/router-retriever.js";
@@ -34,19 +47,6 @@ import { computeInjectionScores } from "../v2/injection-events.js";
 import { loadNowText } from "../v2/now-text.js";
 import { ROUTER_PROMPT } from "../v2/prompts/router.js";
 import { type RouterSource, runRouter } from "../v2/router.js";
-import {
-  getEdgeIndex,
-  totalEdgeCount,
-  validateEdgeTargets,
-} from "../v3/substrate/edge-index.js";
-import { getPageIndex } from "../v3/substrate/page-index.js";
-import {
-  getConceptsDir,
-  listPages,
-  readPage,
-  renderPageContent,
-} from "../v3/substrate/page-store.js";
-import { seedV2SkillEntries } from "../v3/substrate/skill-store.js";
 
 const log = getLogger("memory-v2-routes");
 
@@ -143,7 +143,7 @@ async function handleValidate({
   for (const slug of slugs) {
     try {
       const page = await readPage(workspaceDir, slug);
-      if (!page) continue;
+      if (!page) {continue;}
       knownSlugs.add(slug);
       const chars = page.body.length;
       if (chars > maxPageChars) {
@@ -242,7 +242,7 @@ async function handleListConceptPages({
     slugs.map(async (slug) => {
       try {
         const page = await readPage(workspaceDir, slug);
-        if (!page) return null;
+        if (!page) {return null;}
         const stats = await stat(join(conceptsDir, `${slug}.md`));
         return {
           slug,
@@ -346,7 +346,7 @@ async function handleEmaScores({
     modifiedAt: entry.modifiedAt,
   }));
   entries.sort((a, b) => {
-    if (a.score !== b.score) return b.score - a.score;
+    if (a.score !== b.score) {return b.score - a.score;}
     return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
   });
   return { entries };
@@ -455,7 +455,7 @@ function applySimulateOverrides(
   live: AssistantConfig,
   overrides: z.infer<typeof SimulateRouterOverridesSchema> | undefined,
 ): AssistantConfig {
-  if (!overrides) return live;
+  if (!overrides) {return live;}
   const liveRouter = live.memory.v2.router;
   const mergedRouter = {
     ...liveRouter,

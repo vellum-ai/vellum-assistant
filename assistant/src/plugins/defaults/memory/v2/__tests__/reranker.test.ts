@@ -29,7 +29,7 @@ mock.module("../../rerank-local.js", () => ({
         queries: [...queries],
         passages: [...passages],
       });
-      if (backendState.shouldThrow) throw new Error("backend down");
+      if (backendState.shouldThrow) {throw new Error("backend down");}
       return backendState.scores.slice(0, passages.length);
     },
   }),
@@ -42,8 +42,8 @@ const pageState = {
 // Partial mock — Bun's `mock.module` is process-wide, so we re-export every
 // real symbol and override only `readPage`. Without this, sibling test files
 // that import `listPages` etc. would crash with "Export not found".
-const realPageStore = await import("../../v3/substrate/page-store.js");
-mock.module("../../v3/substrate/page-store.js", () => ({
+const realPageStore = await import("../../substrate/page-store.js");
+mock.module("../../substrate/page-store.js", () => ({
   ...realPageStore,
   readPage: async (_dir: string, slug: string) => {
     if (pageState.failingSlugs.has(slug)) {
