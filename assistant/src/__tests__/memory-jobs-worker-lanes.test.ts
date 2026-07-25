@@ -68,7 +68,7 @@ const completions: CompletionRecord[] = [];
 // job completes before any slow job — a single 200ms window is plenty.
 const SLOW_DELAY_MS = 200;
 
-mock.module("../plugins/defaults/memory/graph/consolidation.js", () => ({
+mock.module("../plugins/defaults/memory/v1/graph/consolidation.js", () => ({
   runConsolidation: async (
     scopeId: string,
   ): Promise<{

@@ -2,7 +2,7 @@
 // Memory Graph — Scoring functions for retrieval
 // ---------------------------------------------------------------------------
 
-import type { MemoryEdge, MemoryNode, ScoredNode } from "./types.js";
+import type { MemoryEdge, MemoryNode, ScoredNode } from "../../graph/types.js";
 
 // ---------------------------------------------------------------------------
 // Temporal boost — cyclical similarity on hour / dayOfWeek / month

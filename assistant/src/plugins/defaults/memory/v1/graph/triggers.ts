@@ -2,7 +2,7 @@
 // Memory Graph — Trigger evaluation
 // ---------------------------------------------------------------------------
 
-import type { MemoryTrigger } from "./types.js";
+import type { MemoryTrigger } from "../../graph/types.js";
 
 export interface TriggeredResult {
   trigger: MemoryTrigger;

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { MemoryNode } from "../../graph/types.js";
 import {
   computeActivationSpread,
   computeEffectiveSignificance,
@@ -12,7 +13,6 @@ import {
   type ScoringWeights,
   weightsForContextLoad,
 } from "./scoring.js";
-import type { MemoryNode } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers

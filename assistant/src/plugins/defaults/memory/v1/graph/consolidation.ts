@@ -12,16 +12,8 @@
 
 import { getConfiguredProvider } from "@vellumai/plugin-api";
 
-import type { AssistantConfig } from "../../../../config/types.js";
-import { getMemoryDb } from "../../../../persistence/db-connection.js";
-import { BackendUnavailableError } from "../host-utils.js";
-import { extractToolUse, userMessage } from "../llm-helpers.js";
-import { getLogger } from "../logging.js";
-import {
-  EVENT_DATE_PROMPT_RULES,
-  formatAuthoritativeConversationTimestamp,
-  parseEpochMs,
-} from "./extraction.js";
+import type { AssistantConfig } from "../../../../../config/types.js";
+import { getMemoryDb } from "../../../../../persistence/db-connection.js";
 import {
   createTrigger,
   deduplicateParagraphs,
@@ -31,9 +23,17 @@ import {
   queryNodes,
   recordNodeEdit,
   updateNode,
-} from "./store.js";
-import type { MemoryNode } from "./types.js";
-import { isCapabilityNode } from "./types.js";
+} from "../../graph/store.js";
+import type { MemoryNode } from "../../graph/types.js";
+import { isCapabilityNode } from "../../graph/types.js";
+import { BackendUnavailableError } from "../../host-utils.js";
+import { extractToolUse, userMessage } from "../../llm-helpers.js";
+import { getLogger } from "../../logging.js";
+import {
+  EVENT_DATE_PROMPT_RULES,
+  formatAuthoritativeConversationTimestamp,
+  parseEpochMs,
+} from "./extraction.js";
 
 const log = getLogger("graph-consolidation");
 
@@ -536,7 +536,7 @@ async function consolidateChunk(
   }
 
   // Apply merge edges (before deletion so the edge can reference the node)
-  const { createEdge } = await import("./store.js");
+  const { createEdge } = await import("../../graph/store.js");
   for (const merge of input.merge_edges ?? []) {
     if (!nodeIds.has(merge.survivor_id) || !nodeIds.has(merge.deleted_id))
       continue;

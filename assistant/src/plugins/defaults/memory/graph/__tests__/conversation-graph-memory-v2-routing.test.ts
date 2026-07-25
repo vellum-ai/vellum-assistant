@@ -60,7 +60,7 @@ const retrieveForTurnMock = mock(async () => ({
   queryVector: undefined,
   sparseVector: undefined,
 }));
-mock.module("../retriever.js", () => ({
+mock.module("../../v1/graph/retriever.js", () => ({
   loadContextMemory: loadContextMemoryMock,
   retrieveForTurn: retrieveForTurnMock,
 }));

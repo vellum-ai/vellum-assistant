@@ -10,11 +10,11 @@
 
 import { getConfiguredProvider } from "@vellumai/plugin-api";
 
-import type { AssistantConfig } from "../../../../config/types.js";
-import { BackendUnavailableError } from "../host-utils.js";
-import { extractToolUse, userMessage } from "../llm-helpers.js";
-import { getLogger } from "../logging.js";
-import { createEdge, createNode, queryNodes } from "./store.js";
+import type { AssistantConfig } from "../../../../../config/types.js";
+import { createEdge, createNode, queryNodes } from "../../graph/store.js";
+import { BackendUnavailableError } from "../../host-utils.js";
+import { extractToolUse, userMessage } from "../../llm-helpers.js";
+import { getLogger } from "../../logging.js";
 
 const log = getLogger("graph-pattern-scan");
 

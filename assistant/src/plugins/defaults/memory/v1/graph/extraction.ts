@@ -16,22 +16,22 @@ import {
 } from "@vellumai/plugin-api";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 
-import type { AssistantConfig } from "../../../../config/types.js";
-import { getDb } from "../../../../persistence/db-connection.js";
+import type { AssistantConfig } from "../../../../../config/types.js";
+import { getDb } from "../../../../../persistence/db-connection.js";
 import {
   conversations,
   messages,
-} from "../../../../persistence/schema/index.js";
-import { BackendUnavailableError } from "../host-utils.js";
-import { extractToolUse, userMessage } from "../llm-helpers.js";
-import { getLogger } from "../logging.js";
-import { buildIdentityContext } from "../v1/identity-context.js";
+} from "../../../../../persistence/schema/index.js";
 import {
   enqueueGraphNodeEmbed,
   enqueueGraphTriggerEmbed,
-  searchGraphNodes,
-} from "./graph-search.js";
-import { applyDiff, createEdge, getNodesByIds, queryNodes } from "./store.js";
+} from "../../graph/graph-search.js";
+import {
+  applyDiff,
+  createEdge,
+  getNodesByIds,
+  queryNodes,
+} from "../../graph/store.js";
 import type {
   DecayCurve,
   EmotionalCharge,
@@ -45,7 +45,12 @@ import type {
   NewTrigger,
   SourceType,
   TriggerType,
-} from "./types.js";
+} from "../../graph/types.js";
+import { BackendUnavailableError } from "../../host-utils.js";
+import { extractToolUse, userMessage } from "../../llm-helpers.js";
+import { getLogger } from "../../logging.js";
+import { buildIdentityContext } from "../identity-context.js";
+import { searchGraphNodes } from "./graph-search.js";
 
 const log = getLogger("graph-extraction");
 
@@ -1288,7 +1293,7 @@ export async function runGraphExtraction(
     edgesCreated++;
   }
 
-  const { createTrigger } = await import("./store.js");
+  const { createTrigger } = await import("../../graph/store.js");
 
   for (const dt of deferredTriggers) {
     const newNodeId = createdNodeIds[dt.newNodeIndex];
@@ -1310,7 +1315,8 @@ export async function runGraphExtraction(
   // 10. Embed new nodes — inline for bootstrap, async for live conversations
   const createdNodes = getNodesByIds(createdNodeIds);
   if (opts?.embedInline) {
-    const { embedGraphNodeDirect } = await import("./graph-search.js");
+    const { embedGraphNodeDirect } =
+      await import("../../graph/graph-search.js");
     for (const node of createdNodes) {
       try {
         await embedGraphNodeDirect(node);
@@ -1606,7 +1612,7 @@ async function findCandidateNodes(
   } else {
     // Live mode: semantic search via Qdrant
     const { embedWithRetry } =
-      await import("../../../../persistence/embeddings/embed.js");
+      await import("../../../../../persistence/embeddings/embed.js");
     const searchText =
       transcript.length > 3000
         ? transcript.slice(0, 1500) + "\n...\n" + transcript.slice(-1500)

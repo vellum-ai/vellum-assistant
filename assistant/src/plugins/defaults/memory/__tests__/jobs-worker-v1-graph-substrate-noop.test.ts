@@ -40,7 +40,7 @@ let consolidateCalls = 0;
 let patternScanCalls = 0;
 let narrativeCalls = 0;
 
-mock.module("../graph/bootstrap.js", () => ({
+mock.module("../v1/graph/bootstrap.js", () => ({
   bootstrapFromHistory: async () => {
     bootstrapCalls += 1;
     return {
@@ -75,28 +75,28 @@ mock.module("../graph/capability-seed.js", () => ({
   seedUninstalledCatalogSkillMemories: async () => {},
 }));
 
-mock.module("../graph/decay.js", () => ({
+mock.module("../v1/graph/decay.js", () => ({
   runDecayTick: () => {
     decayCalls += 1;
     return { nodesProcessed: 0, fidelityTransitions: 0, nodesGone: 0 };
   },
 }));
 
-mock.module("../graph/consolidation.js", () => ({
+mock.module("../v1/graph/consolidation.js", () => ({
   runConsolidation: async () => {
     consolidateCalls += 1;
     return { totalUpdated: 0, totalDeleted: 0, totalMergeEdges: 0 };
   },
 }));
 
-mock.module("../graph/pattern-scan.js", () => ({
+mock.module("../v1/graph/pattern-scan.js", () => ({
   runPatternScan: async () => {
     patternScanCalls += 1;
     return { patternsDetected: 0, edgesCreated: 0 };
   },
 }));
 
-mock.module("../graph/narrative.js", () => ({
+mock.module("../v1/graph/narrative.js", () => ({
   runNarrativeRefinement: async () => {
     narrativeCalls += 1;
     return { nodesUpdated: 0, arcsIdentified: 0 };

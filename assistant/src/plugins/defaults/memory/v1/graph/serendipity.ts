@@ -6,7 +6,7 @@
 // creates unexpected associations that can spark new connections.
 // ---------------------------------------------------------------------------
 
-import type { ScoredNode } from "./types.js";
+import type { ScoredNode } from "../../graph/types.js";
 
 /**
  * Sample `reserveSlots` candidates from the 30th–70th percentile band

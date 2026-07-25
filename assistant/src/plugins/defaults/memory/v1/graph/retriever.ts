@@ -13,15 +13,29 @@ import {
 } from "@vellumai/plugin-api";
 import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
 
-import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
-import type { AssistantConfig } from "../../../../config/types.js";
-import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
-import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
-import type { QdrantSparseVector } from "../../../../persistence/embeddings/qdrant-client.js";
-import { extractToolUse, userMessage } from "../llm-helpers.js";
-import { getLogger } from "../logging.js";
+import { usesConceptPageMemory } from "../../../../../config/memory-v3-gate.js";
+import type { AssistantConfig } from "../../../../../config/types.js";
+import { embedWithRetry } from "../../../../../persistence/embeddings/embed.js";
+import { generateSparseEmbedding } from "../../../../../persistence/embeddings/embedding-backend.js";
+import type { QdrantSparseVector } from "../../../../../persistence/embeddings/qdrant-client.js";
+import type { InContextTracker } from "../../graph/in-context-tracker.js";
+import {
+  getEdgesForNode,
+  getNodesByIds,
+  queryCapabilityNodes,
+  queryNodes,
+} from "../../graph/store.js";
+import { getActiveTriggersByType } from "../../graph/store.js";
+import type {
+  MemoryEdge,
+  MemoryNode,
+  RetrievalMetrics,
+  ScoredNode,
+} from "../../graph/types.js";
+import { isCapabilityNode } from "../../graph/types.js";
+import { extractToolUse, userMessage } from "../../llm-helpers.js";
+import { getLogger } from "../../logging.js";
 import { searchGraphNodes } from "./graph-search.js";
-import type { InContextTracker } from "./injection.js";
 import {
   computeActivationSpread,
   computeEffectiveSignificance,
@@ -33,25 +47,11 @@ import {
 } from "./scoring.js";
 import { sampleSerendipity } from "./serendipity.js";
 import {
-  getEdgesForNode,
-  getNodesByIds,
-  queryCapabilityNodes,
-  queryNodes,
-} from "./store.js";
-import { getActiveTriggersByType } from "./store.js";
-import {
   evaluateEventTriggers,
   evaluateSemanticTriggers,
   evaluateTemporalTriggers,
   type TriggeredResult,
 } from "./triggers.js";
-import type {
-  MemoryEdge,
-  MemoryNode,
-  RetrievalMetrics,
-  ScoredNode,
-} from "./types.js";
-import { isCapabilityNode } from "./types.js";
 
 const log = getLogger("graph-retriever");
 

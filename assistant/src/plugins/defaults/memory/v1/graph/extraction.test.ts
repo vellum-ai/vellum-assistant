@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
+import type { MemoryDiff, MemoryNode, NewNode } from "../../graph/types.js";
 import type { DeferredEdge } from "./extraction.js";
 import {
   applySupersessionDurability,
   parseExtractionResponse,
 } from "./extraction.js";
-import type { MemoryDiff, MemoryNode, NewNode } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

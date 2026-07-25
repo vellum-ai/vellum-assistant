@@ -60,7 +60,6 @@ import {
 } from "../../../persistence/jobs-store.js";
 import type { JobHandler } from "../../types.js";
 import { sweepOrphanConversationMemoryTables } from "./conversation-memory-orphan-sweep.js";
-import { maybeEnqueueGraphBootstrap } from "./graph/bootstrap.js";
 import {
   seedCliGraphNodes,
   seedSkillGraphNodes,
@@ -74,6 +73,7 @@ import {
   readConsolidationFailureState,
 } from "./substrate/consolidation-job.js";
 import { resolveSubstrateTuning } from "./substrate/tuning.js";
+import { maybeEnqueueGraphBootstrap } from "./v1/graph/bootstrap.js";
 import { hasPkbBufferContent } from "./v1/pkb-schedule.js";
 import { spawnMemoryWorkerProcess } from "./worker-control.js";
 

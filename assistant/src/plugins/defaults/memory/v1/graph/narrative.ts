@@ -11,12 +11,12 @@
 
 import { getConfiguredProvider } from "@vellumai/plugin-api";
 
-import type { AssistantConfig } from "../../../../config/types.js";
-import { BackendUnavailableError } from "../host-utils.js";
-import { extractToolUse, userMessage } from "../llm-helpers.js";
-import { getLogger } from "../logging.js";
-import { queryNodes, updateNode } from "./store.js";
-import type { MemoryNode } from "./types.js";
+import type { AssistantConfig } from "../../../../../config/types.js";
+import { queryNodes, updateNode } from "../../graph/store.js";
+import type { MemoryNode } from "../../graph/types.js";
+import { BackendUnavailableError } from "../../host-utils.js";
+import { extractToolUse, userMessage } from "../../llm-helpers.js";
+import { getLogger } from "../../logging.js";
 
 const log = getLogger("graph-narrative");
 

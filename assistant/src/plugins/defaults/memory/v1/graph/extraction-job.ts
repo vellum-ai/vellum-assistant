@@ -6,14 +6,14 @@
 // - End-of-conversation extraction (full transcript)
 // ---------------------------------------------------------------------------
 
-import type { AssistantConfig } from "../../../../config/types.js";
+import type { AssistantConfig } from "../../../../../config/types.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../../../../persistence/checkpoints.js";
-import { asString } from "../../../../persistence/job-utils.js";
-import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { getLogger } from "../logging.js";
+} from "../../../../../persistence/checkpoints.js";
+import { asString } from "../../../../../persistence/job-utils.js";
+import type { MemoryJob } from "../../../../../persistence/jobs-store.js";
+import { getLogger } from "../../logging.js";
 import { runGraphExtraction } from "./extraction.js";
 
 const log = getLogger("graph-extraction-job");

@@ -1,10 +1,10 @@
 import { usesConceptPageMemory } from "../../../../../config/memory-v3-gate.js";
 import { embedWithRetry } from "../../../../../persistence/embeddings/embed.js";
 import { generateSparseEmbedding } from "../../../../../persistence/embeddings/embedding-backend.js";
-import { searchGraphNodes } from "../../graph/graph-search.js";
 import { getNodesByIds } from "../../graph/store.js";
 import type { MemoryNode, MemoryType } from "../../graph/types.js";
 import { getLogger } from "../../logging.js";
+import { searchGraphNodes } from "../../v1/graph/graph-search.js";
 import type {
   RecallEvidence,
   RecallSearchContext,
