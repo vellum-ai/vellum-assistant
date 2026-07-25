@@ -455,6 +455,36 @@ export function upsertEmbedConceptPageJob(payload: { slug: string }): string {
   return enqueueMemoryJob("embed_concept_page", { slug: payload.slug });
 }
 
+/**
+ * Enqueue an `embed_graph_node` job, coalescing with an existing pending row
+ * for the same node id. The payload carries only the node id — the handler
+ * reads the node's content at execution time — so a pending row is exactly
+ * equivalent to a fresh enqueue and a duplicate would only redo identical
+ * embedding work and Qdrant upserts. A running row never matches: it may have
+ * embedded a pre-write snapshot of the node, so the new enqueue must survive
+ * it. Same synchronous check-then-insert rationale as
+ * {@link upsertEmbedConceptPageJob}. Returns the id of the pending row,
+ * existing or newly inserted.
+ */
+export function upsertEmbedGraphNodeJob(payload: { nodeId: string }): string {
+  const db = memoryDb();
+  const existing = db
+    .select({ id: memoryJobs.id })
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "embed_graph_node"),
+        eq(memoryJobs.status, "pending"),
+        sql`json_extract(${memoryJobs.payload}, '$.nodeId') = ${payload.nodeId}`,
+      ),
+    )
+    .get();
+  if (existing) {
+    return existing.id;
+  }
+  return enqueueMemoryJob("embed_graph_node", { nodeId: payload.nodeId });
+}
+
 export function enqueuePruneOldLlmRequestLogsJob(retentionMs?: number): string {
   const db = memoryDb();
   const existing = db

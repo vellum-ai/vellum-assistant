@@ -40,8 +40,13 @@ setDefaultTimeout(30_000);
 // claimed jobs without lane awareness and ran them through a single
 // workerConcurrency-sized pool — would pin its slots on the first claimed
 // slow jobs and force the fast jobs to queue behind a 200ms LLM call.
+// `memory.v2.enabled` is off so v1 is the active memory tier: the slow-lane
+// job here is `graph_consolidate`, whose handler completes v1 graph rows as
+// a no-op while concept-page memory is active — this test needs it to
+// genuinely run.
 // Everything else (including `memory.enabled: true`) is the schema default.
 setConfig("memory", {
+  v2: { enabled: false },
   jobs: {
     slowLlmConcurrency: 1,
     fastConcurrency: 5,

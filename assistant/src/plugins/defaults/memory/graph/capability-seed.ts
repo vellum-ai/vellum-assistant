@@ -10,16 +10,21 @@ import { and, eq, like, sql } from "drizzle-orm";
 
 import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../../config/loader.js";
+import { isMemoryV1Active } from "../../../../config/memory-v3-gate.js";
 import { resolveSkillStates } from "../../../../config/skill-state.js";
 import {
   loadSkillCatalog,
   type SkillSummary,
 } from "../../../../config/skills.js";
+import { getDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
-  isMemoryEnabled,
+  upsertEmbedGraphNodeJob,
 } from "../../../../persistence/jobs-store.js";
-import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
+import {
+  memoryEmbeddings,
+  memoryGraphNodes,
+} from "../../../../persistence/schema/index.js";
 import {
   getCachedCatalogSync,
   getCatalog,
@@ -254,15 +259,59 @@ function buildSkillContent(input: SkillCapabilityInput): string {
 }
 
 /**
+ * Reconcile a capability node that lacks a stored dense embedding: enqueue
+ * `embed_graph_node` for it. A capability seeded or updated while
+ * concept-page memory is active gets no embed row, so when the assistant
+ * runs under v1 the unchanged-content short-circuit alone would leave its
+ * v1 Qdrant point missing. One indexed `memory_embeddings` prefix lookup
+ * per capability node, on the v1 path only. The enqueue coalesces with a
+ * pending `embed_graph_node` row for the same node, so back-to-back seed
+ * passes (e.g. `refreshSkillCapabilityMemories` seeding before and after
+ * the catalog resolves) queue at most one job per node while the first is
+ * still pending. Fail-open: a lookup error logs and skips — reconciliation
+ * never blocks seeding.
+ */
+function enqueueEmbedIfMissing(nodeId: string): void {
+  try {
+    const row = getDb()
+      .select({ id: memoryEmbeddings.id })
+      .from(memoryEmbeddings)
+      .where(
+        and(
+          eq(memoryEmbeddings.targetType, "graph_node"),
+          eq(memoryEmbeddings.targetId, nodeId),
+        ),
+      )
+      .get();
+    if (!row) {
+      upsertEmbedGraphNodeJob({ nodeId });
+    }
+  } catch (err) {
+    log.warn(
+      { err, nodeId },
+      "Capability embedding reconcile failed; skipping",
+    );
+  }
+}
+
+/**
  * Core upsert: find an existing capability node by its sourceKey,
  * create or update as needed.
  *
  * We store the sourceKey in sourceConversations[0] as a stable identifier
  * (capability nodes aren't tied to a real conversation).
+ *
+ * The node write itself is all-tier — the `list_memory` surface reads
+ * capability nodes on every tier. The `embed_graph_node` enqueue is v1-only:
+ * those rows target the v1 Qdrant collection, and dispatch discards them
+ * while concept-page memory is active. On the v1 path an unchanged node with
+ * no stored embedding still enqueues (see {@link enqueueEmbedIfMissing}).
  */
 function upsertCapabilityNode(sourceKey: string, content: string): void {
   const db = memoryDbOrNull("upsertCapabilityNode");
-  if (!db) return;
+  if (!db) {
+    return;
+  }
 
   // Find existing node by sourceKey stored in source_conversations JSON
   const existing = db
@@ -291,6 +340,9 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
         .set(updates)
         .where(eq(memoryGraphNodes.id, existing.id))
         .run();
+      if (isMemoryV1Active(getConfig())) {
+        enqueueEmbedIfMissing(existing.id);
+      }
       return;
     }
 
@@ -304,8 +356,8 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
       })
       .where(eq(memoryGraphNodes.id, existing.id))
       .run();
-    if (isMemoryEnabled()) {
-      enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
+    if (isMemoryV1Active(getConfig())) {
+      upsertEmbedGraphNodeJob({ nodeId: existing.id });
     }
     return;
   }
@@ -338,8 +390,8 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     imageRefs: null,
   });
 
-  if (isMemoryEnabled()) {
-    enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
+  if (isMemoryV1Active(getConfig())) {
+    upsertEmbedGraphNodeJob({ nodeId: node.id });
   }
   log.info({ sourceKey, nodeId: node.id }, "Created capability graph node");
 }
