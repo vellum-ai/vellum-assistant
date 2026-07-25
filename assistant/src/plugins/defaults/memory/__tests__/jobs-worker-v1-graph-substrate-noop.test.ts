@@ -33,6 +33,8 @@ import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 
 let bootstrapCalls = 0;
 let maybeEnqueueBootstrapCalls = 0;
+let seedSkillGraphNodeCalls = 0;
+let seedCliGraphNodeCalls = 0;
 let decayCalls = 0;
 let consolidateCalls = 0;
 let patternScanCalls = 0;
@@ -60,6 +62,17 @@ mock.module("../graph/bootstrap.js", () => ({
   resetBootstrapCheckpoint: () => {},
   migrateToolCreatedItems: () => {},
   cleanupStaleItemVectors: async () => {},
+}));
+
+mock.module("../graph/capability-seed.js", () => ({
+  deleteSkillCapabilityNode: () => {},
+  seedSkillGraphNodes: () => {
+    seedSkillGraphNodeCalls += 1;
+  },
+  seedCliGraphNodes: async () => {
+    seedCliGraphNodeCalls += 1;
+  },
+  seedUninstalledCatalogSkillMemories: async () => {},
 }));
 
 mock.module("../graph/decay.js", () => ({
@@ -123,12 +136,21 @@ const { memoryJobs } = await import("../../../../persistence/schema/index.js");
 const { memoryJobHandlers } = await import("../job-handlers.js");
 const { registerMemoryPluginJobHandlers } =
   await import("../job-handler-registration.js");
-const { maybeEnqueueGraphMaintenanceJobs, runMemoryJobsOnce } =
-  await import("../jobs-worker.js");
+const {
+  GRAPH_MAINTENANCE_CHECKPOINTS,
+  maybeEnqueueGraphMaintenanceJobs,
+  runMemoryJobsOnce,
+} = await import("../jobs-worker.js");
+const { deleteMemoryCheckpoint, getMemoryCheckpoint } =
+  await import("../../../../persistence/checkpoints.js");
+
+const V1_ENTRY_RECONCILE_KEY = GRAPH_MAINTENANCE_CHECKPOINTS.v1EntryReconcile;
 
 function resetCallCounts(): void {
   bootstrapCalls = 0;
   maybeEnqueueBootstrapCalls = 0;
+  seedSkillGraphNodeCalls = 0;
+  seedCliGraphNodeCalls = 0;
   decayCalls = 0;
   consolidateCalls = 0;
   patternScanCalls = 0;
@@ -257,15 +279,48 @@ describe("v1 graph jobs under concept-page memory", () => {
     expect(decayCalls).toBe(1);
   });
 
-  test("the periodic maintenance scheduler re-checks bootstrap on a v1 config", () => {
+  test("the first v1 tick runs the entry reconcile once, checkpoints it, and later ticks skip it", () => {
+    deleteMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY);
+
     maybeEnqueueGraphMaintenanceJobs(v1Config(), Date.now());
 
     expect(maybeEnqueueBootstrapCalls).toBe(1);
+    expect(seedSkillGraphNodeCalls).toBe(1);
+    expect(seedCliGraphNodeCalls).toBe(1);
+    expect(getMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY)).not.toBeNull();
+
+    // Second tick: the persisted checkpoint suppresses the reconcile even
+    // though the (mocked, empty) graph is unchanged — the tight re-enqueue
+    // loop the per-tick bootstrap check allowed is impossible.
+    maybeEnqueueGraphMaintenanceJobs(v1Config(), Date.now());
+
+    expect(maybeEnqueueBootstrapCalls).toBe(1);
+    expect(seedSkillGraphNodeCalls).toBe(1);
+    expect(seedCliGraphNodeCalls).toBe(1);
   });
 
-  test("the periodic maintenance scheduler skips the bootstrap check under concept-page memory", () => {
+  test("a substrate tick clears the checkpoint so a hot transition back to v1 reconciles again", () => {
+    deleteMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY);
+
+    maybeEnqueueGraphMaintenanceJobs(v1Config(), Date.now());
+
+    expect(maybeEnqueueBootstrapCalls).toBe(1);
+    expect(getMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY)).not.toBeNull();
+
+    // Substrate tick: never runs the reconcile, and re-arms it by clearing
+    // the checkpoint.
     maybeEnqueueGraphMaintenanceJobs(applyNestedDefaults({}), Date.now());
 
-    expect(maybeEnqueueBootstrapCalls).toBe(0);
+    expect(maybeEnqueueBootstrapCalls).toBe(1);
+    expect(seedSkillGraphNodeCalls).toBe(1);
+    expect(getMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY)).toBeNull();
+
+    // Returning to v1 runs the reconcile exactly once more.
+    maybeEnqueueGraphMaintenanceJobs(v1Config(), Date.now());
+
+    expect(maybeEnqueueBootstrapCalls).toBe(2);
+    expect(seedSkillGraphNodeCalls).toBe(2);
+    expect(seedCliGraphNodeCalls).toBe(2);
+    expect(getMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY)).not.toBeNull();
   });
 });

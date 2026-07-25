@@ -13,6 +13,7 @@ import {
   shouldLogDiskPressureBackgroundSkip,
 } from "../../../daemon/disk-pressure-background-gate.js";
 import {
+  deleteMemoryCheckpoint,
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../../persistence/checkpoints.js";
@@ -60,6 +61,10 @@ import {
 import type { JobHandler } from "../../types.js";
 import { sweepOrphanConversationMemoryTables } from "./conversation-memory-orphan-sweep.js";
 import { maybeEnqueueGraphBootstrap } from "./graph/bootstrap.js";
+import {
+  seedCliGraphNodes,
+  seedSkillGraphNodes,
+} from "./graph/capability-seed.js";
 import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { getWorkspaceDir } from "./paths.js";
@@ -843,6 +848,11 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   memoryV3Maintain: "memory_v3_maintain_last_run",
   pkbFiling: "pkb_filing_last_run",
   pkbCompaction: "pkb_compaction_last_run",
+  // One-shot done-marker (epoch-ms), not a cadence checkpoint like the
+  // entries above: present while the assistant stays on v1, cleared by the
+  // substrate branch so the next return to v1 reconciles again. See
+  // `maybeRunV1EntryReconcile`.
+  v1EntryReconcile: "v1_entry_reconcile_done",
 } as const;
 
 /**
@@ -1036,6 +1046,60 @@ export function consolidationBackoffRemainingMs(
   return Math.max(0, state.lastFailureAt + backoffMs - nowMs);
 }
 
+/**
+ * Run the one-time v1-entry reconcile unless it already ran for the current
+ * stay on the v1 tier: the graph bootstrap check (populates an empty graph
+ * from historical segments; self-guarded by tier/populated/has-history/
+ * active-job gates) plus both capability seeders (their unchanged-content
+ * path backfills v1 embeddings missing for nodes seeded under another tier).
+ * The checkpoint is written even when individual steps fail — this is a
+ * transition-edge trigger, not a retry loop; a failed step gets another
+ * chance on the next transition or restart.
+ */
+function maybeRunV1EntryReconcile(nowMs: number): void {
+  try {
+    const done = getMemoryCheckpoint(
+      GRAPH_MAINTENANCE_CHECKPOINTS.v1EntryReconcile,
+    );
+    if (done !== null) {
+      return;
+    }
+  } catch (err) {
+    // A failed read skips this tick instead of running unmarked — running
+    // without the durable marker is exactly what makes a per-tick re-enqueue
+    // loop possible.
+    log.warn({ err }, "Reading the v1-entry reconcile checkpoint failed");
+    return;
+  }
+
+  try {
+    maybeEnqueueGraphBootstrap();
+  } catch (err) {
+    log.warn({ err }, "V1-entry graph bootstrap check failed");
+  }
+  try {
+    seedSkillGraphNodes();
+  } catch (err) {
+    log.warn({ err }, "V1-entry skill capability seeding failed");
+  }
+  try {
+    void seedCliGraphNodes().catch((err) => {
+      log.warn({ err }, "V1-entry CLI capability seeding failed");
+    });
+  } catch (err) {
+    log.warn({ err }, "V1-entry CLI capability seeding failed");
+  }
+
+  try {
+    setMemoryCheckpoint(
+      GRAPH_MAINTENANCE_CHECKPOINTS.v1EntryReconcile,
+      String(nowMs),
+    );
+  } catch (err) {
+    log.warn({ err }, "Writing the v1-entry reconcile checkpoint failed");
+  }
+}
+
 export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
@@ -1084,20 +1148,26 @@ export function maybeEnqueueGraphMaintenanceJobs(
         },
       ];
 
-  // Bootstrap re-check on the v1 branch. Startup runs this once, but a
-  // config hot-reload that flips concept-page memory off lands the assistant
-  // on v1 without a restart — so the maintenance tick re-checks whenever v1
-  // is active, and an assistant entering v1 with an empty graph still
-  // bootstraps from its historical segments. The callee self-guards (tier
-  // gate, populated-graph, has-history, and active-job checks), so the call
-  // is cheap and idempotent. Best-effort: a failure logs and never blocks
-  // the maintenance enqueues below.
-  if (!conceptPagesActive) {
+  // One-shot v1-entry reconcile. Startup covers a fresh v1 boot (capability
+  // seeding and the bootstrap check in `startup.ts`), but a config hot-reload
+  // that flips concept-page memory off lands the assistant on v1 without a
+  // restart — leaving capability nodes without v1 embeddings and the graph
+  // possibly empty despite existing history. A durable checkpoint marks the
+  // reconcile done for the current stay on v1, so it runs exactly once per
+  // transition regardless of the bootstrap's outcome — an unconditional
+  // per-tick bootstrap check would tight-loop when extraction yields no
+  // non-procedural nodes (the emptiness test stays true while the processed
+  // job zeroes the next poll delay). The substrate branch clears the
+  // checkpoint so a later return to v1 reconciles again. Best-effort: every
+  // step logs on failure and never blocks the maintenance enqueues below.
+  if (conceptPagesActive) {
     try {
-      maybeEnqueueGraphBootstrap();
+      deleteMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.v1EntryReconcile);
     } catch (err) {
-      log.warn({ err }, "Periodic graph bootstrap check failed");
+      log.warn({ err }, "Clearing the v1-entry reconcile checkpoint failed");
     }
+  } else {
+    maybeRunV1EntryReconcile(nowMs);
   }
 
   // v3 self-maintenance backstop. Orthogonal to the mutual exclusion above:
