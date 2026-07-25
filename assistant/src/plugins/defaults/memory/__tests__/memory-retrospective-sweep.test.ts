@@ -274,18 +274,45 @@ describe("runRetrospectiveSweep", () => {
     expect(result).toEqual({ scanned: 4, enqueued: 1 });
   });
 
-  test("a lookback below the sweep interval is clamped up to the interval", async () => {
-    // lookback 1 minute, interval 8h: without clamping, work appearing
-    // between passes would age out of the window before the next pass runs.
+  test("a running retrospective does not suppress the sweep — a mid-run arrival needs a follow-up row", async () => {
+    // The running job's fork and cursor are pre-run snapshots; the sweep must
+    // still be able to enqueue the follow-up behind it (the upsert's
+    // pending-only coalescing creates a fresh pending row).
     const conv = createConversation({ id: "conv-a" });
     insertMessage(conv.id, { createdAt: 1_000 });
-    setLastMessageAt(conv.id, Date.now() - 2 * 60 * 60 * 1000); // 2h ago
+    upsertMemoryRetrospectiveJob({ conversationId: conv.id });
+    getMemorySqlite()!.exec(
+      `UPDATE memory_jobs SET status = 'running' WHERE type = 'memory_retrospective'`,
+    );
 
-    await runRetrospectiveSweep(makeConfig(SWEEP_INTERVAL_MS, 60_000));
+    const result = await runRetrospectiveSweep(makeConfig());
 
     expect(enqueueCalls).toEqual([
       { conversationId: conv.id, trigger: "sweep" },
     ]);
+    expect(result).toEqual({ scanned: 1, enqueued: 1 });
+  });
+
+  test("a lookback below the sweep cadence is clamped to twice the interval", async () => {
+    // lookback 1 minute, interval 8h → effective window 16h. The doubled
+    // floor covers work that lands in the scheduler/queue skew right after a
+    // pass (older than one interval by the time the next pass executes)
+    // while staying bounded across extended downtime.
+    const seen = createConversation({ id: "conv-seen" });
+    insertMessage(seen.id, { createdAt: 1_000 });
+    setLastMessageAt(seen.id, Date.now() - 10 * 60 * 60 * 1000); // 10h: past one interval
+    const beyond = createConversation({ id: "conv-beyond" });
+    insertMessage(beyond.id, { createdAt: 1_000 });
+    setLastMessageAt(beyond.id, Date.now() - 17 * 60 * 60 * 1000); // 17h: past the floor
+
+    const result = await runRetrospectiveSweep(
+      makeConfig(SWEEP_INTERVAL_MS, 60_000),
+    );
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: seen.id, trigger: "sweep" },
+    ]);
+    expect(result).toEqual({ scanned: 1, enqueued: 1 });
   });
 
   test("enqueues clamp at the per-pass cap and defer the remainder", async () => {

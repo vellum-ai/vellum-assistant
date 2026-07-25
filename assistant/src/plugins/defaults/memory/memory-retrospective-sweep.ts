@@ -47,8 +47,10 @@
 //     the lookback window, organic stalled work is a handful of conversations;
 //     a pass wanting more signals an anomalous backlog. Each pass re-scans
 //     from the start, so the deferred remainder is picked up by later passes.
-//     Sources with an already-pending/running retrospective job are skipped
-//     before the cap, so coalescing no-ops never consume it.
+//     Sources with an already-pending retrospective job are skipped before
+//     the cap, so coalescing no-ops never consume it; a running job does not
+//     suppress the sweep (its cursor is a pre-run snapshot — a mid-run
+//     arrival needs a follow-up row behind it).
 //   - The scan is keyset-paginated in bounded batches with a yield between
 //     pages (mirrors `conversation-memory-orphan-sweep.ts`), so a large history
 //     never materializes all ids at once or holds the event loop.
@@ -67,7 +69,7 @@ import { getDb } from "../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import {
   isMemoryEnabled,
-  listActiveMemoryRetrospectiveSourceConversationIds,
+  listPendingMemoryRetrospectiveSourceConversationIds,
 } from "../../../persistence/jobs-store.js";
 import { conversations } from "../../../persistence/schema/index.js";
 import { getLogger } from "./logging.js";
@@ -137,18 +139,25 @@ function breathe(): Promise<void> {
 }
 
 /**
- * The lookback window the sweep actually applies. A configured lookback
- * shorter than the sweep cadence would leave a blind span in every interval —
- * work appearing right after one pass would age out of the window before the
- * next pass runs — so the effective window is never smaller than
- * `sweepIntervalMs`. Shared by the sweep scan and the retrospective job's
- * execution-time gate; the two must agree or the gate would kill jobs the
- * scan legitimately enqueued.
+ * The lookback window the sweep actually applies: never smaller than TWICE
+ * `sweepIntervalMs`. One interval is not enough — the pass checkpoint is
+ * stamped at enqueue but the cutoff is computed at execution, so tick, queue,
+ * and runtime delay stretch the gap between consecutive executions past the
+ * nominal cadence, and a message landing in that skew right after a pass
+ * would sit permanently outside an exact-interval window. The doubled floor
+ * absorbs the skew while staying BOUNDED: deriving the window from elapsed
+ * time since the previous pass would cover arbitrary gaps, but after
+ * extended downtime it would recreate the cold-start backfill this window
+ * exists to prevent. Outages longer than a full interval can therefore still
+ * leave tails outside the window — accepted by design, like the cold start.
+ * Shared by the sweep scan and the retrospective job's execution-time gate;
+ * the two must agree or the gate would kill jobs the scan legitimately
+ * enqueued.
  */
 export function effectiveSweepLookbackMs(config: AssistantConfig): number {
   return Math.max(
     config.memory.retrospective.sweepLookbackMs,
-    config.memory.retrospective.sweepIntervalMs,
+    2 * config.memory.retrospective.sweepIntervalMs,
   );
 }
 
@@ -209,8 +218,8 @@ export async function runRetrospectiveSweep(
   }
   const sweepIntervalMs = config.memory.retrospective.sweepIntervalMs;
   const lookbackCutoff = now - effectiveSweepLookbackMs(config);
-  const activeSourceIds = new Set(
-    listActiveMemoryRetrospectiveSourceConversationIds(),
+  const pendingSourceIds = new Set(
+    listPendingMemoryRetrospectiveSourceConversationIds(),
   );
 
   let scanned = 0;
@@ -230,12 +239,14 @@ export async function runRetrospectiveSweep(
     for (const conversationId of page) {
       scanned += 1;
 
-      // An already-queued source has nothing for the sweep to add — its
-      // pending row runs on its own. Skipping it up front keeps coalescing
-      // upserts from consuming the per-pass enqueue cap: counted no-ops would
-      // starve conversations later in id order across passes (every pass
-      // restarts from the lowest id) until they age out of the lookback.
-      if (activeSourceIds.has(conversationId)) {
+      // A source with a pending row has nothing for the sweep to add — the
+      // row runs on its own. Skipping it up front keeps coalescing upserts
+      // from consuming the per-pass enqueue cap: counted no-ops would starve
+      // conversations later in id order across passes (every pass restarts
+      // from the lowest id). A RUNNING job does not suppress the sweep — its
+      // cursor is a pre-run snapshot, so a mid-run arrival needs a follow-up
+      // row, and the upsert's pending-only coalescing creates exactly that.
+      if (pendingSourceIds.has(conversationId)) {
         continue;
       }
 

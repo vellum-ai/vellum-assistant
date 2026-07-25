@@ -375,17 +375,16 @@ function mergeSkillCardEntries(
 }
 
 /**
- * Check whether a pending or running job of the given type already exists.
- * Used to prevent duplicate enqueues for long-running maintenance jobs.
+ * Source-conversation ids of every PENDING `memory_retrospective` job. The
+ * retrospective sweep skips these up front: a pending row already covers the
+ * source's unprocessed span, and a coalescing upsert against it must not
+ * consume the sweep's per-pass enqueue cap. Deliberately excludes `running`
+ * rows — a running job's fork and cursor are pre-run snapshots, so messages
+ * arriving mid-run need a follow-up row behind it, and the sweep must be able
+ * to create that follow-up. Mirrors `upsertMemoryRetrospectiveJob`'s
+ * pending-only coalescing.
  */
-/**
- * Source-conversation ids of every pending or running `memory_retrospective`
- * job. The retrospective sweep skips these up front: an already-queued source
- * has nothing for the sweep to add (the row will run on its own), and a
- * coalescing upsert against it must not consume the sweep's per-pass enqueue
- * cap.
- */
-export function listActiveMemoryRetrospectiveSourceConversationIds(): string[] {
+export function listPendingMemoryRetrospectiveSourceConversationIds(): string[] {
   return memoryDb()
     .select({
       conversationId: sql<string>`json_extract(${memoryJobs.payload}, '$.conversationId')`,
@@ -394,7 +393,7 @@ export function listActiveMemoryRetrospectiveSourceConversationIds(): string[] {
     .where(
       and(
         eq(memoryJobs.type, "memory_retrospective"),
-        inArray(memoryJobs.status, ["pending", "running"]),
+        eq(memoryJobs.status, "pending"),
       ),
     )
     .all()
@@ -402,6 +401,10 @@ export function listActiveMemoryRetrospectiveSourceConversationIds(): string[] {
     .filter((id): id is string => typeof id === "string" && id.length > 0);
 }
 
+/**
+ * Check whether a pending or running job of the given type already exists.
+ * Used to prevent duplicate enqueues for long-running maintenance jobs.
+ */
 export function hasActiveJobOfType(type: MemoryJobType): boolean {
   const db = memoryDb();
   return (
