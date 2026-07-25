@@ -91,47 +91,59 @@ describe("135-copy-substrate-tunables", () => {
     expect(existsSync(configPath + ".tmp")).toBe(false);
   });
 
-  test("throws on a write failure, leaving config.json byte-for-byte intact (retryable via failed checkpoint)", () => {
-    write({ memory: { v2: { bm25_b: 0.6 } } });
-    const before = readRaw();
+  // Root bypasses file permission checks, so chmod cannot make the workspace
+  // read-only — skip rather than assert a failure path that cannot be
+  // exercised.
+  test.skipIf(process.getuid?.() === 0)(
+    "throws on a write failure, leaving config.json byte-for-byte intact (retryable via failed checkpoint)",
+    () => {
+      write({ memory: { v2: { bm25_b: 0.6 } } });
+      const before = readRaw();
 
-    // A read-only workspace dir blocks creation of the config.json.tmp
-    // staging file, standing in for any persistence failure.
-    chmodSync(workspaceDir, 0o555);
-    try {
-      expect(() => MIG.run(workspaceDir)).toThrow();
-    } finally {
-      chmodSync(workspaceDir, 0o755);
-    }
+      // A read-only workspace dir blocks creation of the config.json.tmp
+      // staging file, standing in for any persistence failure.
+      chmodSync(workspaceDir, 0o555);
+      try {
+        expect(() => MIG.run(workspaceDir)).toThrow();
+      } finally {
+        chmodSync(workspaceDir, 0o755);
+      }
 
-    // The failure surfaces to the runner (failed checkpoint, not completed)
-    // and the migration opts into retrying that checkpoint on the next boot.
-    expect(MIG.retryFailedCheckpoint).toBe(true);
-    // config.json is untouched — the failed write targeted the temp file.
-    expect(readRaw()).toBe(before);
-    expect(existsSync(configPath + ".tmp")).toBe(false);
+      // The failure surfaces to the runner (failed checkpoint, not completed)
+      // and the migration opts into retrying that checkpoint on the next boot.
+      expect(MIG.retryFailedCheckpoint).toBe(true);
+      // config.json is untouched — the failed write targeted the temp file.
+      expect(readRaw()).toBe(before);
+      expect(existsSync(configPath + ".tmp")).toBe(false);
 
-    // The retry succeeds once the workspace is writable again.
-    MIG.run(workspaceDir);
-    expect(memory().substrate).toEqual({ bm25_b: 0.6 });
-  });
+      // The retry succeeds once the workspace is writable again.
+      MIG.run(workspaceDir);
+      expect(memory().substrate).toEqual({ bm25_b: 0.6 });
+    },
+  );
 
-  test("throws on a filesystem read failure so the failed checkpoint retries; malformed JSON stays a no-op", () => {
-    write({ memory: { v2: { bm25_b: 0.6 } } });
+  // Root bypasses file permission checks, so chmod 0o000 cannot make the
+  // file unreadable — skip rather than assert a failure path that cannot be
+  // exercised.
+  test.skipIf(process.getuid?.() === 0)(
+    "throws on a filesystem read failure so the failed checkpoint retries; malformed JSON stays a no-op",
+    () => {
+      write({ memory: { v2: { bm25_b: 0.6 } } });
 
-    // An unreadable config.json is a transient fs failure, not malformed
-    // content — it must surface to the runner instead of completing.
-    chmodSync(configPath, 0o000);
-    try {
-      expect(() => MIG.run(workspaceDir)).toThrow();
-    } finally {
-      chmodSync(configPath, 0o644);
-    }
+      // An unreadable config.json is a transient fs failure, not malformed
+      // content — it must surface to the runner instead of completing.
+      chmodSync(configPath, 0o000);
+      try {
+        expect(() => MIG.run(workspaceDir)).toThrow();
+      } finally {
+        chmodSync(configPath, 0o644);
+      }
 
-    // The retry succeeds once the file is readable again.
-    MIG.run(workspaceDir);
-    expect(memory().substrate).toEqual({ bm25_b: 0.6 });
-  });
+      // The retry succeeds once the file is readable again.
+      MIG.run(workspaceDir);
+      expect(memory().substrate).toEqual({ bm25_b: 0.6 });
+    },
+  );
 
   test("renames k→spread_k and hops→spread_hops; a tuned bm25_b lands on the substrate key (v2-fallback removal safe)", () => {
     write({
@@ -163,37 +175,93 @@ describe("135-copy-substrate-tunables", () => {
     expect(memory().v2).toEqual({ bm25_b: 0.6, max_page_chars: 9000 });
   });
 
-  test("copies explicit nulls on nullable keys (explicit substrate null counts as set)", () => {
+  test("skips loader-seeded values equal to the shipped defaults, including null-default keys", () => {
+    // The config loader persists the fully-parsed config for normally-created
+    // workspaces, so every defaulted v2 leaf is present in config.json. None
+    // of these are user intent — the migration must not pin them into the
+    // override-only substrate namespace.
     write({
       memory: {
-        v2: { ann_candidate_limit: null, consolidation_prompt_path: null },
+        v2: {
+          enabled: true,
+          sweep_enabled: false,
+          dense_weight: 0.85,
+          sparse_weight: 0.15,
+          bm25_k1: 1.2,
+          bm25_b: 0.4,
+          consolidation_interval_hours: 8,
+          consolidation_max_buffer_lines: 100,
+          consolidation_max_entries_per_run: 150,
+          max_page_chars: 5000,
+          consolidation_prompt_path: null,
+          k: 0.5,
+          hops: 2,
+          ann_candidate_limit: null,
+        },
+      },
+    });
+    const before = readRaw();
+
+    MIG.run(workspaceDir);
+
+    // Nothing differs from a shipped default → no copy, no write at all.
+    expect(readRaw()).toBe(before);
+  });
+
+  test("copies non-default values on nullable keys but skips their seeded null defaults", () => {
+    write({
+      memory: {
+        v2: {
+          ann_candidate_limit: 500,
+          consolidation_prompt_path: null,
+        },
+      },
+    });
+
+    MIG.run(workspaceDir);
+
+    // 500 differs from the shipped null default and copies; the seeded null
+    // equals its default and stays out of the substrate namespace.
+    expect(memory().substrate).toEqual({ ann_candidate_limit: 500 });
+  });
+
+  test("copies the no-default spread keys on presence alone", () => {
+    // min_sparse_spread / full_sparse_spread ship with no schema default, so
+    // the loader never seeds them — raw presence IS user intent.
+    write({
+      memory: {
+        v2: { min_sparse_spread: 0.05, full_sparse_spread: 0.3 },
       },
     });
 
     MIG.run(workspaceDir);
 
     expect(memory().substrate).toEqual({
-      ann_candidate_limit: null,
-      consolidation_prompt_path: null,
+      min_sparse_spread: 0.05,
+      full_sparse_spread: 0.3,
     });
   });
 
-  test("a lone explicit memory.v2.dense_weight still parses after migration (resolved-pair weight check)", () => {
-    // 0.85 is valid against v2's default sparse_weight 0.15; after migration
-    // the lone substrate dense_weight resolves against the SAME v2 fallback
-    // pair, so the parent schema's resolved-pair check must still accept it.
-    write({ memory: { v2: { dense_weight: 0.85 } } });
+  test("a tuned weight pair copies whole and still parses after migration (resolved-pair weight check)", () => {
+    // The v2 refinement validates dense_weight + sparse_weight on the
+    // persisted values, so a valid config with a non-default dense_weight
+    // necessarily persists its non-default twin — both copy, and the copied
+    // substrate pair is exactly the pair v2 already accepted.
+    write({ memory: { v2: { dense_weight: 0.9, sparse_weight: 0.1 } } });
 
     MIG.run(workspaceDir);
 
-    expect(memory().substrate).toEqual({ dense_weight: 0.85 });
+    expect(memory().substrate).toEqual({
+      dense_weight: 0.9,
+      sparse_weight: 0.1,
+    });
     expect(() => MemoryConfigSchema.parse(memory())).not.toThrow();
   });
 
   test("is idempotent — a second run leaves the file byte-for-byte unchanged", () => {
     write({
       memory: {
-        v2: { bm25_b: 0.6, k: 0.4, ann_candidate_limit: null },
+        v2: { bm25_b: 0.6, k: 0.4, ann_candidate_limit: 500 },
         substrate: { sweep_enabled: true },
       },
     });
@@ -207,7 +275,7 @@ describe("135-copy-substrate-tunables", () => {
       sweep_enabled: true,
       bm25_b: 0.6,
       spread_k: 0.4,
-      ann_candidate_limit: null,
+      ann_candidate_limit: 500,
     });
   });
 
