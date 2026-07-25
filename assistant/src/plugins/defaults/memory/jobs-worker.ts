@@ -67,12 +67,15 @@ import {
 import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { getWorkspaceDir } from "./paths.js";
+// SUBSTRATE (v2+v3) — feeds `enqueueSubstrateMaintenanceJobs`.
 import {
   type ConsolidationFailureKind,
   countBufferLines,
   readConsolidationFailureState,
 } from "./substrate/consolidation-job.js";
 import { resolveSubstrateTuning } from "./substrate/tuning.js";
+// V1 — delete with v1. Feeds `enqueueV1MaintenanceJobs` and the one-shot
+// v1-entry reconcile.
 import { maybeEnqueueGraphBootstrap } from "./v1/graph/bootstrap.js";
 import { hasPkbBufferContent } from "./v1/pkb-schedule.js";
 import { spawnMemoryWorkerProcess } from "./worker-control.js";
@@ -914,35 +917,6 @@ export function maybeEnqueueRetrospectiveSweepJob(
 }
 
 /**
- * Enqueue periodic graph maintenance jobs.
- *
- * Mutually exclusive between v1 and concept-page memory:
- *   - concept-page memory active ({@link usesConceptPageMemory}) → only one
- *     buffer-drainer is scheduled (see below).
- *   - inactive → the four v1 entries (decay, consolidate, pattern_scan,
- *     narrative) are scheduled instead.
- *
- * The `memory/buffer.md` is shared, so exactly one consolidator owns the drain
- * at a time. When concept-page memory is active, the concept-page consolidator
- * (`memory_v2_consolidate`) is the sole buffer-drainer.
- *
- * Read/write paths route to concept pages when the gate is on, so v1 graph
- * data goes unread; running v1 maintenance alongside it is wasted compute and
- * LLM spend. The v1 code path remains live so disabling concept-page memory
- * fully re-engages v1.
- *
- * Uses durable checkpoints so intervals survive daemon restarts — jobs only
- * fire when the actual elapsed time since last run exceeds the interval.
- * Sweep is intentionally not on this schedule: it is debounced from the
- * live `graph_extract` trigger path (see `indexMessageNow` in `indexer.ts`)
- * so it runs on the same idle/message-count cadence.
- *
- * Independently of the v1/concept-page split, a flag-gated
- * `memory_v3_maintain` backstop is appended when a v3 path is active so the
- * topic tree self-heals even if the primary post-consolidation follow-up
- * enqueue is missed.
- */
-/**
  * Whether `hour` falls inside the PKB jobs' configured active window. A `null`
  * bound on either side means no restriction. Windows may wrap midnight
  * (start > end, e.g. 22–6).
@@ -1102,6 +1076,35 @@ function maybeRunV1EntryReconcile(nowMs: number): void {
   }
 }
 
+/**
+ * Enqueue periodic graph maintenance jobs.
+ *
+ * Mutually exclusive between v1 and concept-page memory:
+ *   - concept-page memory active ({@link usesConceptPageMemory}) → only one
+ *     buffer-drainer is scheduled ({@link enqueueSubstrateMaintenanceJobs}).
+ *   - inactive → the four v1 entries (decay, consolidate, pattern_scan,
+ *     narrative) are scheduled instead ({@link enqueueV1MaintenanceJobs}).
+ *
+ * The `memory/buffer.md` is shared, so exactly one consolidator owns the drain
+ * at a time. When concept-page memory is active, the concept-page consolidator
+ * (`memory_v2_consolidate`) is the sole buffer-drainer.
+ *
+ * Read/write paths route to concept pages when the gate is on, so v1 graph
+ * data goes unread; running v1 maintenance alongside it is wasted compute and
+ * LLM spend. The v1 code path remains live so disabling concept-page memory
+ * fully re-engages v1.
+ *
+ * Uses durable checkpoints so intervals survive daemon restarts — jobs only
+ * fire when the actual elapsed time since last run exceeds the interval.
+ * Sweep is intentionally not on this schedule: it is debounced from the
+ * live `graph_extract` trigger path (see `indexMessageNow` in `indexer.ts`)
+ * so it runs on the same idle/message-count cadence.
+ *
+ * Independently of the v1/concept-page split, a flag-gated
+ * `memory_v3_maintain` backstop is scheduled when a v3 path is active so the
+ * topic tree self-heals even if the primary post-consolidation follow-up
+ * enqueue is missed ({@link enqueueV3BackstopJobs}).
+ */
 export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
@@ -1111,135 +1114,62 @@ export function maybeEnqueueGraphMaintenanceJobs(
     return;
   }
 
-  const conceptPagesActive = usesConceptPageMemory(config.memory);
+  if (usesConceptPageMemory(config.memory)) {
+    // The substrate branch also re-arms the one-shot v1-entry reconcile:
+    // clearing its done-marker means the next transition back to v1
+    // reconciles again (see {@link maybeRunV1EntryReconcile}).
+    try {
+      deleteMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.v1EntryReconcile);
+    } catch (err) {
+      log.warn({ err }, "Clearing the v1-entry reconcile checkpoint failed");
+    }
+    enqueueSubstrateMaintenanceJobs(config, nowMs);
+  } else {
+    enqueueV1MaintenanceJobs(config, nowMs);
+  }
+
+  // v3 self-maintenance backstop. Orthogonal to the mutual exclusion above:
+  // it owns its own checkpoint and operates on the v3 topic tree. Gated on
+  // the same config that gates the v3 plugin so it stays inert when v3 is
+  // off. The job handler itself no-ops when v3 is off, so this guard is
+  // belt-and-suspenders that also avoids a wasted enqueue.
+  if (isMemoryV3Live(config)) {
+    enqueueV3BackstopJobs(nowMs);
+  }
+}
+
+// ── SUBSTRATE (v2+v3) maintenance ─────────────────────────────────
+
+/**
+ * Substrate maintenance entries; scheduled only while concept-page memory is
+ * active. The concept-page consolidator (`memory_v2_consolidate`) is the sole
+ * buffer-drainer, enqueued on an interval cadence plus a size-based trigger,
+ * both gated by the consolidation failure backoff.
+ */
+function enqueueSubstrateMaintenanceJobs(
+  config: AssistantConfig,
+  nowMs: number,
+): void {
   const tuning = resolveSubstrateTuning(config.memory);
 
-  // The single buffer-drainer entry for the concept-page branch. Referenced
-  // again below by the size-based trigger.
+  // The single buffer-drainer entry, shared by the interval cadence and the
+  // size-based trigger below.
   const consolidateEntry = {
     key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
     intervalMs: tuning.consolidation_interval_hours * 60 * 60 * 1000,
     jobType: "memory_v2_consolidate" as MemoryJobType,
   };
 
-  const schedule: Array<{
-    key: string;
-    intervalMs: number;
-    jobType: MemoryJobType;
-  }> = conceptPagesActive
-    ? [consolidateEntry]
-    : [
-        {
-          key: GRAPH_MAINTENANCE_CHECKPOINTS.decay,
-          intervalMs: GRAPH_DECAY_INTERVAL_MS,
-          jobType: "graph_decay",
-        },
-        {
-          key: GRAPH_MAINTENANCE_CHECKPOINTS.consolidate,
-          intervalMs: GRAPH_CONSOLIDATE_INTERVAL_MS,
-          jobType: "graph_consolidate",
-        },
-        {
-          key: GRAPH_MAINTENANCE_CHECKPOINTS.patternScan,
-          intervalMs: GRAPH_PATTERN_SCAN_INTERVAL_MS,
-          jobType: "graph_pattern_scan",
-        },
-        {
-          key: GRAPH_MAINTENANCE_CHECKPOINTS.narrative,
-          intervalMs: GRAPH_NARRATIVE_INTERVAL_MS,
-          jobType: "graph_narrative_refine",
-        },
-      ];
-
-  // One-shot v1-entry reconcile. Startup covers a fresh v1 boot (capability
-  // seeding and the bootstrap check in `startup.ts`), but a config hot-reload
-  // that flips concept-page memory off lands the assistant on v1 without a
-  // restart — leaving capability nodes without v1 embeddings and the graph
-  // possibly empty despite existing history. A durable checkpoint marks the
-  // reconcile done for the current stay on v1, so it runs exactly once per
-  // transition regardless of the bootstrap's outcome — an unconditional
-  // per-tick bootstrap check would tight-loop when extraction yields no
-  // non-procedural nodes (the emptiness test stays true while the processed
-  // job zeroes the next poll delay). The substrate branch clears the
-  // checkpoint so a later return to v1 reconciles again. Best-effort: every
-  // step logs on failure and never blocks the maintenance enqueues below.
-  if (conceptPagesActive) {
-    try {
-      deleteMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.v1EntryReconcile);
-    } catch (err) {
-      log.warn({ err }, "Clearing the v1-entry reconcile checkpoint failed");
-    }
-  } else {
-    maybeRunV1EntryReconcile(nowMs);
-  }
-
-  // v3 self-maintenance backstop. Orthogonal to the mutual exclusion above:
-  // it owns its own checkpoint and operates on the v3 topic tree, so it
-  // runs under either branch. Gated on the same config that gates the v3 plugin
-  // so it stays inert when v3 is off. The post-consolidation follow-up in
-  // `consolidation-job.ts` remains the primary trigger; this interval only
-  // self-heals when that follow-up is missed (failed enqueue). The job handler
-  // itself no-ops when v3 is off, so
-  // this guard is belt-and-suspenders that also avoids a wasted enqueue.
-  if (isMemoryV3Live(config)) {
-    schedule.push({
-      key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV3Maintain,
-      intervalMs: GRAPH_V3_MAINTAIN_INTERVAL_MS,
-      jobType: "memory_v3_maintain",
-    });
-  }
-
+  const lastRun = parseInt(
+    getMemoryCheckpoint(consolidateEntry.key) ?? "0",
+    10,
+  );
   let enqueuedConsolidate = false;
-  for (const { key, intervalMs, jobType } of schedule) {
-    const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);
-    if (nowMs - lastRun >= intervalMs) {
-      // Noop scheduled consolidation when the buffer has too few entries to
-      // justify an LLM run — mirrors the heartbeat max-consecutive-runs skip.
-      // The checkpoint advances so the next check fires after the regular
-      // interval. Manual "Run now" is unaffected (routes layer, not schedule).
-      if (jobType === consolidateEntry.jobType) {
-        // Failure backoff: skip WITHOUT advancing the checkpoint so the
-        // enqueue fires on the first tick after the window elapses instead
-        // of a full interval later.
-        const backoffRemainingMs = consolidationBackoffRemainingMs(
-          intervalMs,
-          nowMs,
-        );
-        if (backoffRemainingMs > 0) {
-          log.debug(
-            { backoffRemainingMs },
-            "Scheduled consolidation skipped: failure backoff active",
-          );
-          continue;
-        }
-        const bufferLines = memoryBufferLineCount();
-        if (bufferLines < MIN_BUFFER_LINES_FOR_CONSOLIDATION) {
-          // Staleness override: the minimum only defers while entries are
-          // still arriving. Once a non-empty buffer has sat unwritten for a
-          // full interval, drain it anyway — otherwise a buffer that never
-          // reaches the minimum re-skips every interval forever and its
-          // facts never become concept pages.
-          const stale =
-            bufferLines > 0 && memoryBufferIdleMs(nowMs) >= intervalMs;
-          if (!stale) {
-            log.debug(
-              "Scheduled consolidation skipped: buffer under minimum line threshold",
-            );
-            setMemoryCheckpoint(key, String(nowMs));
-            continue;
-          }
-        }
-      }
-      const payload =
-        jobType === consolidateEntry.jobType
-          ? AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD
-          : {};
-      enqueueMemoryJob(jobType, payload);
-      setMemoryCheckpoint(key, String(nowMs));
-      if (jobType === consolidateEntry.jobType) {
-        enqueuedConsolidate = true;
-      }
-    }
+  if (nowMs - lastRun >= consolidateEntry.intervalMs) {
+    enqueuedConsolidate = maybeEnqueueScheduledConsolidation(
+      consolidateEntry,
+      nowMs,
+    );
   }
 
   // Size-based trigger: when the shared buffer crosses the configured line
@@ -1255,7 +1185,6 @@ export function maybeEnqueueGraphMaintenanceJobs(
   // backoff skip leaves the checkpoint alone.
   const maxLines = tuning.consolidation_max_buffer_lines;
   if (
-    conceptPagesActive &&
     !enqueuedConsolidate &&
     maxLines !== null &&
     !hasActiveJobOfType(consolidateEntry.jobType)
@@ -1279,6 +1208,117 @@ export function maybeEnqueueGraphMaintenanceJobs(
       }
     }
   }
+}
+
+/**
+ * Interval-cadence arm of the substrate consolidation schedule: enqueue the
+ * consolidate job unless the failure backoff or the minimum-buffer-lines gate
+ * (with its staleness override) skips it. Returns true when the job was
+ * enqueued.
+ */
+function maybeEnqueueScheduledConsolidation(
+  entry: { key: string; intervalMs: number; jobType: MemoryJobType },
+  nowMs: number,
+): boolean {
+  // Failure backoff: skip WITHOUT advancing the checkpoint so the enqueue
+  // fires on the first tick after the window elapses instead of a full
+  // interval later.
+  const backoffRemainingMs = consolidationBackoffRemainingMs(
+    entry.intervalMs,
+    nowMs,
+  );
+  if (backoffRemainingMs > 0) {
+    log.debug(
+      { backoffRemainingMs },
+      "Scheduled consolidation skipped: failure backoff active",
+    );
+    return false;
+  }
+  // Noop scheduled consolidation when the buffer has too few entries to
+  // justify an LLM run — mirrors the heartbeat max-consecutive-runs skip.
+  // The checkpoint advances so the next check fires after the regular
+  // interval. Manual "Run now" is unaffected (routes layer, not schedule).
+  const bufferLines = memoryBufferLineCount();
+  if (bufferLines < MIN_BUFFER_LINES_FOR_CONSOLIDATION) {
+    // Staleness override: the minimum only defers while entries are still
+    // arriving. Once a non-empty buffer has sat unwritten for a full
+    // interval, drain it anyway — otherwise a buffer that never reaches the
+    // minimum re-skips every interval forever and its facts never become
+    // concept pages.
+    const stale =
+      bufferLines > 0 && memoryBufferIdleMs(nowMs) >= entry.intervalMs;
+    if (!stale) {
+      log.debug(
+        "Scheduled consolidation skipped: buffer under minimum line threshold",
+      );
+      setMemoryCheckpoint(entry.key, String(nowMs));
+      return false;
+    }
+  }
+  enqueueMemoryJob(entry.jobType, AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD);
+  setMemoryCheckpoint(entry.key, String(nowMs));
+  return true;
+}
+
+// ── V1 (legacy engine) maintenance — delete with v1 ───────────────
+
+/**
+ * v1-only maintenance entries; scheduled only when the legacy graph engine is
+ * the live memory tier. Covers the one-shot v1-entry reconcile, the four v1
+ * graph lifecycle jobs (decay, consolidate, pattern_scan, narrative), and the
+ * PKB filing/compaction schedule.
+ */
+function enqueueV1MaintenanceJobs(
+  config: AssistantConfig,
+  nowMs: number,
+): void {
+  // One-shot v1-entry reconcile. Startup covers a fresh v1 boot (capability
+  // seeding and the bootstrap check in `startup.ts`), but a config hot-reload
+  // that flips concept-page memory off lands the assistant on v1 without a
+  // restart — leaving capability nodes without v1 embeddings and the graph
+  // possibly empty despite existing history. A durable checkpoint marks the
+  // reconcile done for the current stay on v1, so it runs exactly once per
+  // transition regardless of the bootstrap's outcome — an unconditional
+  // per-tick bootstrap check would tight-loop when extraction yields no
+  // non-procedural nodes (the emptiness test stays true while the processed
+  // job zeroes the next poll delay). The substrate branch clears the
+  // checkpoint so a later return to v1 reconciles again. Best-effort: every
+  // step logs on failure and never blocks the maintenance enqueues below.
+  maybeRunV1EntryReconcile(nowMs);
+
+  const schedule: Array<{
+    key: string;
+    intervalMs: number;
+    jobType: MemoryJobType;
+  }> = [
+    {
+      key: GRAPH_MAINTENANCE_CHECKPOINTS.decay,
+      intervalMs: GRAPH_DECAY_INTERVAL_MS,
+      jobType: "graph_decay",
+    },
+    {
+      key: GRAPH_MAINTENANCE_CHECKPOINTS.consolidate,
+      intervalMs: GRAPH_CONSOLIDATE_INTERVAL_MS,
+      jobType: "graph_consolidate",
+    },
+    {
+      key: GRAPH_MAINTENANCE_CHECKPOINTS.patternScan,
+      intervalMs: GRAPH_PATTERN_SCAN_INTERVAL_MS,
+      jobType: "graph_pattern_scan",
+    },
+    {
+      key: GRAPH_MAINTENANCE_CHECKPOINTS.narrative,
+      intervalMs: GRAPH_NARRATIVE_INTERVAL_MS,
+      jobType: "graph_narrative_refine",
+    },
+  ];
+  for (const { key, intervalMs, jobType } of schedule) {
+    const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);
+    if (nowMs - lastRun >= intervalMs) {
+      enqueueMemoryJob(jobType, {});
+      setMemoryCheckpoint(key, String(nowMs));
+    }
+  }
 
   // PKB filing/compaction — v1-only, like the v1 graph entries above (under
   // concept-page memory the consolidation job owns periodic background memory
@@ -1294,60 +1334,80 @@ export function maybeEnqueueGraphMaintenanceJobs(
   //  - either PKB job already pending/running: skip WITHOUT advancing, so the
   //    next worker tick retries. Filing and compaction both rewrite the PKB
   //    tree, so at most one of the two is ever in the queue.
-  if (!conceptPagesActive) {
-    const filingConfig = config.filing;
-    const withinActiveHours = isWithinPkbActiveHours(
-      new Date(nowMs).getHours(),
-      filingConfig.activeHoursStart ?? null,
-      filingConfig.activeHoursEnd ?? null,
-    );
-    const pkbSchedule: Array<{
-      key: string;
-      intervalMs: number;
-      jobType: MemoryJobType;
-      enabled: boolean;
-      hasWork: () => boolean;
-    }> = [
-      {
-        key: GRAPH_MAINTENANCE_CHECKPOINTS.pkbFiling,
-        intervalMs: filingConfig.intervalMs,
-        jobType: "pkb_filing",
-        enabled: filingConfig.enabled,
-        hasWork: () => hasPkbBufferContent(),
-      },
-      {
-        key: GRAPH_MAINTENANCE_CHECKPOINTS.pkbCompaction,
-        intervalMs: filingConfig.compactionIntervalMs,
-        jobType: "pkb_compaction",
-        enabled: filingConfig.compactionEnabled,
-        hasWork: () => true,
-      },
-    ];
-    for (const { key, intervalMs, jobType, enabled, hasWork } of pkbSchedule) {
-      if (!enabled) {
-        continue;
-      }
-      const checkpoint = getMemoryCheckpoint(key);
-      if (checkpoint === null) {
-        setMemoryCheckpoint(key, String(nowMs));
-        continue;
-      }
-      const lastRun = parseInt(checkpoint, 10);
-      if (nowMs - lastRun < intervalMs) {
-        continue;
-      }
-      if (!withinActiveHours || !hasWork()) {
-        setMemoryCheckpoint(key, String(nowMs));
-        continue;
-      }
-      if (
-        hasActiveJobOfType("pkb_filing") ||
-        hasActiveJobOfType("pkb_compaction")
-      ) {
-        continue;
-      }
-      enqueueMemoryJob(jobType, {});
-      setMemoryCheckpoint(key, String(nowMs));
+  const filingConfig = config.filing;
+  const withinActiveHours = isWithinPkbActiveHours(
+    new Date(nowMs).getHours(),
+    filingConfig.activeHoursStart ?? null,
+    filingConfig.activeHoursEnd ?? null,
+  );
+  const pkbSchedule: Array<{
+    key: string;
+    intervalMs: number;
+    jobType: MemoryJobType;
+    enabled: boolean;
+    hasWork: () => boolean;
+  }> = [
+    {
+      key: GRAPH_MAINTENANCE_CHECKPOINTS.pkbFiling,
+      intervalMs: filingConfig.intervalMs,
+      jobType: "pkb_filing",
+      enabled: filingConfig.enabled,
+      hasWork: () => hasPkbBufferContent(),
+    },
+    {
+      key: GRAPH_MAINTENANCE_CHECKPOINTS.pkbCompaction,
+      intervalMs: filingConfig.compactionIntervalMs,
+      jobType: "pkb_compaction",
+      enabled: filingConfig.compactionEnabled,
+      hasWork: () => true,
+    },
+  ];
+  for (const { key, intervalMs, jobType, enabled, hasWork } of pkbSchedule) {
+    if (!enabled) {
+      continue;
     }
+    const checkpoint = getMemoryCheckpoint(key);
+    if (checkpoint === null) {
+      setMemoryCheckpoint(key, String(nowMs));
+      continue;
+    }
+    const lastRun = parseInt(checkpoint, 10);
+    if (nowMs - lastRun < intervalMs) {
+      continue;
+    }
+    if (!withinActiveHours || !hasWork()) {
+      setMemoryCheckpoint(key, String(nowMs));
+      continue;
+    }
+    if (
+      hasActiveJobOfType("pkb_filing") ||
+      hasActiveJobOfType("pkb_compaction")
+    ) {
+      continue;
+    }
+    enqueueMemoryJob(jobType, {});
+    setMemoryCheckpoint(key, String(nowMs));
+  }
+}
+
+// ── V3 backstop ───────────────────────────────────────────────────
+
+/**
+ * v3 self-maintenance backstop on its own durable checkpoint. The
+ * post-consolidation follow-up in `consolidation-job.ts` is the primary
+ * trigger; this interval only self-heals when that follow-up is missed
+ * (failed enqueue).
+ */
+function enqueueV3BackstopJobs(nowMs: number): void {
+  const lastRun = parseInt(
+    getMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.memoryV3Maintain) ?? "0",
+    10,
+  );
+  if (nowMs - lastRun >= GRAPH_V3_MAINTAIN_INTERVAL_MS) {
+    enqueueMemoryJob("memory_v3_maintain", {});
+    setMemoryCheckpoint(
+      GRAPH_MAINTENANCE_CHECKPOINTS.memoryV3Maintain,
+      String(nowMs),
+    );
   }
 }

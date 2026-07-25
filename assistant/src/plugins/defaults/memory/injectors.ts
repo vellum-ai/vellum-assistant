@@ -37,7 +37,9 @@ import { getMemoryConfig } from "./config.js";
 import { getLiveGraphMemory } from "./graph/conversation-graph-memory.js";
 import { getLogger } from "./logging.js";
 import { getSandboxWorkingDir } from "./paths.js";
+// SUBSTRATE (v2+v3) — feeds `memoryV2StaticInjector`.
 import { readMemoryV2StaticContent } from "./substrate/static-context.js";
+// V1 — delete with v1. Feeds the PKB injector pair.
 import { getPkbAutoInjectList } from "./v1/pkb/autoinject.js";
 import { readPkbContext } from "./v1/pkb/context.js";
 import { searchPkbFiles } from "./v1/pkb/pkb-search.js";
@@ -384,7 +386,14 @@ function buildMemoryV2StaticBlock(content: string): string {
  * readability convenience.
  */
 export const memoryInjectors: Injector[] = [
+  // V1 — delete with v1. The PKB pair is the legacy engine's entire injection
+  // surface; both self-silence through `isPkbInjectionSilenced` whenever v1 is
+  // not the live tier.
   pkbContextInjector,
   pkbReminderInjector,
+  // SUBSTRATE (v2+v3). Emits the static `<info>` block read off the concept
+  // pages, so it serves the v2 injection engine and v3 alike. Its block id
+  // `memory-v2-static` is FROZEN: `daemon/conversation-runtime-assembly.ts`
+  // switches on it to capture the block into persisted message metadata.
   memoryV2StaticInjector,
 ];
