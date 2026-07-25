@@ -10,6 +10,11 @@
  * Each handler is wrapped in an arrow that reads the imported binding at
  * dispatch time rather than capturing it eagerly, so a per-test `mock.module` of
  * the underlying handler is honored.
+ *
+ * The table is grouped into labeled per-tier sections (V1 / SUBSTRATE / V2
+ * ENGINE / V3 / RETROSPECTIVE) so retiring a tier is deleting its section and
+ * its import group. Registration keys off `type` alone, so the literal order
+ * is a readability convenience.
  */
 
 import {
@@ -19,18 +24,24 @@ import {
 import type { AssistantConfig } from "../../../config/types.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import type { JobHandlerEntry } from "../../types.js";
+// The all-tier graph store: `embedGraphNodeJob` serves the V1 section,
+// `embedGraphTriggerJob` the SUBSTRATE one.
 import {
   embedGraphNodeJob,
   embedGraphTriggerJob,
 } from "./graph/graph-search.js";
+// SUBSTRATE (v2+v3).
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { getLogger } from "./logging.js";
+// RETROSPECTIVE (all tiers).
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
 import { skillCardInsertJob } from "./memory-retrospective-skill-card.js";
 import { memoryRetrospectiveSweepJob } from "./memory-retrospective-sweep.js";
+// SUBSTRATE (v2+v3).
 import { memoryV2ConsolidateJob } from "./substrate/consolidation-job.js";
 import { memoryV2ReembedJob } from "./substrate/reembed-job.js";
 import { memoryV2SweepJob } from "./substrate/sweep-job.js";
+// V1 — delete with v1.
 import { pkbCompactionJob, pkbFilingJob } from "./v1/filing-jobs.js";
 import { bootstrapFromHistory } from "./v1/graph/bootstrap.js";
 import { runConsolidation } from "./v1/graph/consolidation.js";
@@ -51,10 +62,12 @@ import {
   sweepOrphanedGraphNodePointsJob,
 } from "./v1/job-handlers/index-maintenance.js";
 import { embedPkbFileJob } from "./v1/jobs/embed-pkb-file.js";
+// V2 ENGINE — delete with v2.
 import {
   memoryV2ActivationRecomputeJob,
   memoryV2MigrateJob,
 } from "./v2/backfill-jobs.js";
+// V3.
 import { maintainJob as memoryV3MaintainJob } from "./v3/maintain-job.js";
 
 const log = getLogger("memory-job-handlers");
@@ -157,6 +170,12 @@ async function graphBootstrapJob(
  * worker dispatch table by the memory plugin's `init` hook.
  */
 export const memoryJobHandlers: readonly JobHandlerEntry[] = [
+  // V1 — delete with v1.
+  // Segment/summary/media embedding, the Qdrant index-maintenance jobs, the
+  // graph lifecycle, and PKB filing. Their stale-row guards live at dispatch
+  // (`V1_QDRANT_JOB_TYPES` in `jobs-worker.ts`, `isStaleV1GraphJob` above,
+  // the inline `graph_extract` check) and at the `jobs-worker.ts` scheduling
+  // sites.
   {
     type: "embed_segment",
     handler: (job) => embedSegmentJob(job),
@@ -189,10 +208,6 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
     handler: (job, config) => embedPkbFileJob(job, config),
   },
   {
-    type: "graph_trigger_embed",
-    handler: (job, config) => embedGraphTriggerJob(job, config),
-  },
-  {
     type: "graph_extract",
     handler: async (job, config) => {
       // Stale rows enqueued by any unguarded v1 path must not consume
@@ -221,6 +236,25 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
     handler: (job, config) => graphBootstrapJob(job, config),
   },
   {
+    type: "pkb_filing",
+    handler: (job) => pkbFilingJob(job),
+  },
+  {
+    type: "pkb_compaction",
+    handler: () => pkbCompactionJob(),
+  },
+
+  // SUBSTRATE (v2+v3).
+  // Concept-page embedding, the buffer sweep and consolidator, and the
+  // corpus reembed — shared by the v2 injection engine and v3, so they
+  // outlive v1 and v2 alike. `graph_trigger_embed` deliberately lives here
+  // rather than with the v1 graph jobs: it embeds trigger text the substrate
+  // reads (locked by `__tests__/jobs-worker-v2-graph-trigger-embed.test.ts`).
+  {
+    type: "graph_trigger_embed",
+    handler: (job, config) => embedGraphTriggerJob(job, config),
+  },
+  {
     type: "embed_concept_page",
     handler: (job, config) => embedConceptPageJob(job, config),
   },
@@ -233,29 +267,35 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
     handler: (job, config) => memoryV2ConsolidateJob(job, config),
   },
   {
-    type: "pkb_filing",
-    handler: (job) => pkbFilingJob(job),
+    type: "memory_v2_reembed",
+    handler: (job, config) => memoryV2ReembedJob(job, config),
   },
-  {
-    type: "pkb_compaction",
-    handler: () => pkbCompactionJob(),
-  },
+
+  // V2 ENGINE — delete with v2.
+  // Operator-triggered backfills owned by the activation/router engine: the
+  // one-shot v1→v2 synthesis and the persisted-activation recompute. The job
+  // types share the `memory_v2_` prefix with the substrate entries above, but
+  // the work is engine-local.
   {
     type: "memory_v2_migrate",
     handler: (job, config) => memoryV2MigrateJob(job, config),
   },
   {
-    type: "memory_v2_reembed",
-    handler: (job, config) => memoryV2ReembedJob(job, config),
-  },
-  {
     type: "memory_v2_activation_recompute",
     handler: (job, config) => memoryV2ActivationRecomputeJob(job, config),
   },
+
+  // V3.
+  // Topic-tree self-maintenance; the handler no-ops when v3 is not live.
   {
     type: "memory_v3_maintain",
     handler: (job, config) => memoryV3MaintainJob(job, config),
   },
+
+  // RETROSPECTIVE (all tiers).
+  // The retrospective pass and its cross-conversation sweep are tier-agnostic
+  // and survive every tier deletion. `skill_card_insert` is emitted only on
+  // v3 but is owned by the retrospective, so it groups here.
   {
     type: "memory_retrospective",
     handler: (job, config) => memoryRetrospectiveJob(job, config),
