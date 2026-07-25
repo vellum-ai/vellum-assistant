@@ -90,9 +90,13 @@ export const copySubstrateTunablesMigration: WorkspaceMigration = {
       return;
     }
 
+    // A filesystem read failure propagates so the failed checkpoint retries
+    // on the next boot; only malformed JSON is a permanent no-op (the config
+    // loader owns surfacing that error).
+    const rawText = readFileSync(configPath, "utf-8");
     let config: Record<string, unknown>;
     try {
-      const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+      const raw = JSON.parse(rawText);
       if (!isPlainObject(raw)) {
         return;
       }

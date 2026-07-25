@@ -116,6 +116,23 @@ describe("135-copy-substrate-tunables", () => {
     expect(memory().substrate).toEqual({ bm25_b: 0.6 });
   });
 
+  test("throws on a filesystem read failure so the failed checkpoint retries; malformed JSON stays a no-op", () => {
+    write({ memory: { v2: { bm25_b: 0.6 } } });
+
+    // An unreadable config.json is a transient fs failure, not malformed
+    // content — it must surface to the runner instead of completing.
+    chmodSync(configPath, 0o000);
+    try {
+      expect(() => MIG.run(workspaceDir)).toThrow();
+    } finally {
+      chmodSync(configPath, 0o644);
+    }
+
+    // The retry succeeds once the file is readable again.
+    MIG.run(workspaceDir);
+    expect(memory().substrate).toEqual({ bm25_b: 0.6 });
+  });
+
   test("renames k→spread_k and hops→spread_hops; a tuned bm25_b lands on the substrate key (v2-fallback removal safe)", () => {
     write({
       memory: {
