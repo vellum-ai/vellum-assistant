@@ -70,7 +70,7 @@ mock.module("../plugins/defaults/memory/memory-recall-log-store.js", () => ({
 }));
 
 mock.module(
-  "../plugins/defaults/memory/memory-v2-activation-log-store.js",
+  "../plugins/defaults/memory/v2/activation-log-store.js",
   () => ({
     backfillMemoryV2ActivationMessageId: () => {},
   }),

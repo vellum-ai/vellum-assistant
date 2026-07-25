@@ -2,7 +2,7 @@
  * Wire contract for the memory v2 activation log surfaced in the
  * inspector's Memory tab. Mirrors the return value of
  * `getMemoryV2ActivationLogByMessageIds` in
- * `assistant/src/memory/memory-v2-activation-log-store.ts`.
+ * `assistant/src/plugins/defaults/memory/v2/activation-log-store.ts`.
  *
  * Canonical wire-contract source. Assistant code imports the types
  * directly from this file via relative paths; external consumers
@@ -20,7 +20,7 @@ import { z } from "zod";
 /**
  * One concept row in the V2 activation log. Mirrors
  * `MemoryV2ConceptRowRecord` from
- * `assistant/src/memory/memory-v2-activation-log-store.ts`.
+ * `assistant/src/plugins/defaults/memory/v2/activation-log-store.ts`.
  *
  * `source` and `status` are open-ended strings on the wire — the
  * daemon emits known values like `prior_state`, `ann_top50`, `both`

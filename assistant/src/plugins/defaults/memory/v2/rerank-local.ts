@@ -1,11 +1,11 @@
 /** Local cross-encoder rerank backend — drives the rerank-worker subprocess. */
 import { existsSync } from "node:fs";
 
-import type { RerankDtype } from "../../../config/schemas/memory-v2.js";
-import { EmbeddingRuntimeManager } from "../../../persistence/embeddings/embedding-runtime-manager.js";
-import { PromiseGuard, workerMemoryEnv } from "./host-utils.js";
-import { getLogger } from "./logging.js";
-import { getEmbeddingModelsDir } from "./paths.js";
+import type { RerankDtype } from "../../../../config/schemas/memory-v2.js";
+import { EmbeddingRuntimeManager } from "../../../../persistence/embeddings/embedding-runtime-manager.js";
+import { PromiseGuard, workerMemoryEnv } from "../host-utils.js";
+import { getLogger } from "../logging.js";
+import { getEmbeddingModelsDir } from "../paths.js";
 
 const log = getLogger("memory-rerank-local");
 
@@ -52,7 +52,9 @@ export class LocalRerankBackend {
     if (this.disposeRequested) {
       throw new Error("Local rerank backend is shutting down");
     }
-    if (passages.length === 0) return [];
+    if (passages.length === 0) {
+      return [];
+    }
     if (queries.length !== passages.length) {
       throw new Error(
         `Rerank backend got ${queries.length} queries for ${passages.length} passages`,
@@ -107,7 +109,9 @@ export class LocalRerankBackend {
   }
 
   private async ensureInitialized(): Promise<void> {
-    if (this.workerProc) return;
+    if (this.workerProc) {
+      return;
+    }
     await this.initGuard.run(() => this.initialize());
   }
 
@@ -203,9 +207,13 @@ export class LocalRerankBackend {
       try {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            break;
+          }
           const text = decoder.decode(value, { stream: true }).trim();
-          if (text) log.debug({ workerStderr: text }, "Rerank worker stderr");
+          if (text) {
+            log.debug({ workerStderr: text }, "Rerank worker stderr");
+          }
         }
       } catch {
         /* expected on shutdown */
@@ -214,7 +222,9 @@ export class LocalRerankBackend {
   }
 
   private startStdoutReader(): void {
-    if (this.stdoutReaderActive || !this.workerProc) return;
+    if (this.stdoutReaderActive || !this.workerProc) {
+      return;
+    }
     this.stdoutReaderActive = true;
 
     const proc = this.workerProc;
@@ -225,7 +235,9 @@ export class LocalRerankBackend {
       try {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            break;
+          }
           this.stdoutBuffer += decoder.decode(value, { stream: true });
           this.processStdoutBuffer();
         }
@@ -253,7 +265,9 @@ export class LocalRerankBackend {
     while ((idx = this.stdoutBuffer.indexOf("\n")) !== -1) {
       const line = this.stdoutBuffer.slice(0, idx);
       this.stdoutBuffer = this.stdoutBuffer.slice(idx + 1);
-      if (!line.trim()) continue;
+      if (!line.trim()) {
+        continue;
+      }
 
       let msg: WorkerResponse;
       try {
@@ -321,10 +335,18 @@ export class LocalRerankBackend {
   }
 
   private disposeIfIdle(): void {
-    if (!this.disposeRequested) return;
-    if (this.activeRequests > 0) return;
-    if (this.pendingRequests.size > 0) return;
-    if (this.readyResolve || this.readyReject) return;
+    if (!this.disposeRequested) {
+      return;
+    }
+    if (this.activeRequests > 0) {
+      return;
+    }
+    if (this.pendingRequests.size > 0) {
+      return;
+    }
+    if (this.readyResolve || this.readyReject) {
+      return;
+    }
 
     const proc = this.workerProc;
     this.workerProc = null;
@@ -332,7 +354,9 @@ export class LocalRerankBackend {
     this.stdoutBuffer = "";
     this.initGuard.reset();
 
-    if (!proc) return;
+    if (!proc) {
+      return;
+    }
 
     try {
       proc.kill();
@@ -350,7 +374,9 @@ export function getOrCreateRerankBackend(
   model: string,
   dtype: RerankDtype,
 ): LocalRerankBackend {
-  if (_backend?.model === model && _backend.dtype === dtype) return _backend;
+  if (_backend?.model === model && _backend.dtype === dtype) {
+    return _backend;
+  }
   if (_backend) {
     try {
       _backend.dispose();

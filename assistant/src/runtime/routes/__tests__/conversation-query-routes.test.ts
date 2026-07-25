@@ -71,7 +71,7 @@ import {
   type MemoryV2ConceptRowRecord,
   type MemoryV2ConfigSnapshot,
   recordMemoryV2ActivationLog,
-} from "../../../plugins/defaults/memory/memory-v2-activation-log-store.js";
+} from "../../../plugins/defaults/memory/v2/activation-log-store.js";
 import {
   createConnection,
   getConnection,
