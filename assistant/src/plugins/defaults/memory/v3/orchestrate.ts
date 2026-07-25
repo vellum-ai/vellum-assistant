@@ -462,18 +462,27 @@ export async function orchestrate(
   // Step 1b: dense hits — `section` is the matched ORDINAL; resolve it to the
   // concrete `Section` via the section index. Falls back to undefined (blank
   // descriptor) if the ordinal is not in the in-memory index.
+  //
+  // `denseOwnedSection` tracks the articles whose recorded matched section
+  // came from THIS loop (needle records first and wins ties), along with the
+  // hit's cosine score — the span pass upgrades those sections when a clause
+  // query finds a strictly stronger match under the same metric.
+  const denseOwnedSection = new Map<Slug, number>();
   for (const hit of densed) {
     // A deleted page's points can linger in Qdrant; keep only live-index
     // articles. The section index is rebuilt from `getPageIndex` at `initLanes`,
     // so `byArticle` holds exactly the live pages (synthetic capability slugs
     // included) — only truly-deleted pages are dropped here.
     if (!deps.sectionIndex.byArticle.has(hit.article)) continue;
-    addFinder(
+    const section = sectionByOrdinal(
+      deps.sectionIndex,
       hit.article,
-      sectionByOrdinal(deps.sectionIndex, hit.article, hit.section),
-      undefined,
-      "dense",
+      hit.section,
     );
+    if (section && !matchedSections.has(hit.article)) {
+      denseOwnedSection.set(hit.article, hit.score);
+    }
+    addFinder(hit.article, section, undefined, "dense");
   }
 
   // Step 1b': reply-query hits — candidates the user-message lanes already
@@ -512,14 +521,30 @@ export async function orchestrate(
       bestSpanHits.set(hit.article, hit);
     }
   }
+  // For an article a primary lane already surfaced, upgrade its matched
+  // section/descriptor ONLY when the existing section was recorded by the
+  // full-message dense hit and the span's cosine is strictly higher — same
+  // encoder, same collection, so the comparison is evidence, not judgment.
+  // Needle- and reply-recorded sections stay (BM25 and cosine scores are not
+  // comparable, and the reply pass's own convention is first-wins); lane
+  // attribution never changes here.
   for (const hit of bestSpanHits.values()) {
     if (!deps.sectionIndex.byArticle.has(hit.article)) continue;
-    addFinder(
+    const section = sectionByOrdinal(
+      deps.sectionIndex,
       hit.article,
-      sectionByOrdinal(deps.sectionIndex, hit.article, hit.section),
-      undefined,
-      "span",
+      hit.section,
     );
+    const denseScore = denseOwnedSection.get(hit.article);
+    if (section && denseScore !== undefined && hit.score > denseScore) {
+      matchedSections.set(hit.article, section);
+      const existing = finder.find((c) => c.slug === hit.article);
+      if (existing) {
+        existing.descriptor = section.text;
+      }
+      continue;
+    }
+    addFinder(hit.article, section, undefined, "span");
   }
 
   // Step 1b''': entity lane — sections whose `## ` heading NAMES a distinctive

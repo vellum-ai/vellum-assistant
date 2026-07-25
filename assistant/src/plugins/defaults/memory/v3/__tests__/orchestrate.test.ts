@@ -1880,4 +1880,54 @@ describe("orchestrate — span-query pass", () => {
       result.lanes.finder.filter((c) => c.slug === "topic-d"),
     ).toHaveLength(1);
   });
+
+  test("a strictly stronger span cosine upgrades a dense-recorded section, keeping the lane", async () => {
+    const lanes = await buildLanes();
+    // Full-message dense records topic-b's lead (ordinal 0) at cosine 0.4;
+    // chunk 2 finds `## More` (ordinal 1) at 0.9 — same encoder and
+    // collection, strictly stronger, so the recorded section and finder
+    // descriptor upgrade while the lane attribution stays "dense".
+    denseHits = [{ article: "topic-b", section: 0, score: 0.4 }];
+    denseHitsByQuery.set(CHUNK_2, [
+      { article: "topic-b", section: 1, score: 0.9 },
+    ]);
+
+    const result = await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(result.matchedSections.get("topic-b")?.ordinal).toBe(1);
+    expect(result.matchedSections.get("topic-b")?.text).toContain(
+      "cherry date",
+    );
+    const entry = result.lanes.finder.find((c) => c.slug === "topic-b");
+    expect(entry?.lane).toBe("dense");
+    expect(entry?.descriptor).toContain("cherry date");
+  });
+
+  test("weaker span hits and needle-recorded sections are not overridden", async () => {
+    const lanes = await buildLanes();
+    // topic-b: span cosine 0.3 < full-message 0.4 — the lead stays recorded.
+    // topic-a: needle recorded the `## Details` match; span scores are not
+    // comparable to BM25, so the span hit must not touch it.
+    denseHits = [{ article: "topic-b", section: 0, score: 0.4 }];
+    denseHitsByQuery.set(CHUNK_1, [
+      { article: "topic-a", section: 0, score: 0.99 },
+    ]);
+    denseHitsByQuery.set(CHUNK_2, [
+      { article: "topic-b", section: 1, score: 0.3 },
+    ]);
+
+    const result = await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(result.matchedSections.get("topic-b")?.ordinal).toBe(0);
+    expect(result.matchedSections.get("topic-a")?.text).toContain("apple");
+    expect(result.lanes.finder.find((c) => c.slug === "topic-a")?.lane).toBe(
+      "needle",
+    );
+  });
 });
