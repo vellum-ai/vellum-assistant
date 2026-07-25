@@ -1,5 +1,17 @@
-import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
+import { eq } from "drizzle-orm";
+
+import { setConfig } from "../../../../__tests__/helpers/set-config.js";
 import { setMemoryCheckpoint } from "../../../../persistence/checkpoints.js";
 import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
@@ -9,7 +21,11 @@ import {
   rawRun,
   resetTestTables,
 } from "../../../../persistence/raw-query.js";
-import { migrateToolCreatedItems } from "./bootstrap.js";
+import { memoryJobs } from "../../../../persistence/schema/index.js";
+import {
+  maybeEnqueueGraphBootstrap,
+  migrateToolCreatedItems,
+} from "./bootstrap.js";
 
 // ---------------------------------------------------------------------------
 // The checkpoint key used by migrateToolCreatedItems (not exported, so we
@@ -54,6 +70,50 @@ beforeEach(() => {
   // memory_jobs lives in the dedicated memory connection; the rest in main.
   resetTestTables("memory_graph_nodes", "memory_checkpoints");
   getMemoryDb()!.run("DELETE FROM memory_jobs");
+});
+
+// ---------------------------------------------------------------------------
+// maybeEnqueueGraphBootstrap
+// ---------------------------------------------------------------------------
+
+describe("maybeEnqueueGraphBootstrap", () => {
+  // A journal directory counts as historical data to bootstrap from, so on a
+  // v1 config an empty graph plus this directory triggers an enqueue.
+  const journalDir = join(process.env.VELLUM_WORKSPACE_DIR!, "journal");
+
+  beforeEach(() => {
+    mkdirSync(journalDir, { recursive: true });
+  });
+
+  afterAll(() => {
+    rmSync(journalDir, { recursive: true, force: true });
+    setConfig("memory", {});
+  });
+
+  function countBootstrapJobs(): number {
+    return getMemoryDb()!
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, "graph_bootstrap"))
+      .all().length;
+  }
+
+  test("does not enqueue while concept-page memory is active", () => {
+    // `memory.v2.enabled` defaults true, so the substrate is active.
+    setConfig("memory", {});
+
+    maybeEnqueueGraphBootstrap();
+
+    expect(countBootstrapJobs()).toBe(0);
+  });
+
+  test("enqueues on a v1 config when historical data exists", () => {
+    setConfig("memory", { v2: { enabled: false } });
+
+    maybeEnqueueGraphBootstrap();
+
+    expect(countBootstrapJobs()).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

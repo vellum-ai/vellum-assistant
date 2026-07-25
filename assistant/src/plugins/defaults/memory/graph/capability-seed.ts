@@ -10,15 +10,13 @@ import { and, eq, like, sql } from "drizzle-orm";
 
 import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../../config/loader.js";
+import { isMemoryV1Active } from "../../../../config/memory-v3-gate.js";
 import { resolveSkillStates } from "../../../../config/skill-state.js";
 import {
   loadSkillCatalog,
   type SkillSummary,
 } from "../../../../config/skills.js";
-import {
-  enqueueMemoryJob,
-  isMemoryEnabled,
-} from "../../../../persistence/jobs-store.js";
+import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
 import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
 import {
   getCachedCatalogSync,
@@ -259,10 +257,17 @@ function buildSkillContent(input: SkillCapabilityInput): string {
  *
  * We store the sourceKey in sourceConversations[0] as a stable identifier
  * (capability nodes aren't tied to a real conversation).
+ *
+ * The node write itself is all-tier — the `list_memory` surface reads
+ * capability nodes on every tier. The `embed_graph_node` enqueue is v1-only:
+ * those rows target the v1 Qdrant collection, and dispatch discards them
+ * while concept-page memory is active.
  */
 function upsertCapabilityNode(sourceKey: string, content: string): void {
   const db = memoryDbOrNull("upsertCapabilityNode");
-  if (!db) return;
+  if (!db) {
+    return;
+  }
 
   // Find existing node by sourceKey stored in source_conversations JSON
   const existing = db
@@ -304,7 +309,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
       })
       .where(eq(memoryGraphNodes.id, existing.id))
       .run();
-    if (isMemoryEnabled()) {
+    if (isMemoryV1Active(getConfig())) {
       enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
     }
     return;
@@ -338,7 +343,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     imageRefs: null,
   });
 
-  if (isMemoryEnabled()) {
+  if (isMemoryV1Active(getConfig())) {
     enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
   }
   log.info({ sourceKey, nodeId: node.id }, "Created capability graph node");

@@ -16,6 +16,7 @@ import { and, asc, ne, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../../../../config/loader.js";
+import { isMemoryV1Active } from "../../../../config/memory-v3-gate.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
@@ -319,9 +320,17 @@ export function resetBootstrapCheckpoint(): void {
  * already pending/running.
  */
 export function maybeEnqueueGraphBootstrap(): void {
+  // The bootstrap LLM-extracts history into the legacy v1 graph, which only
+  // the v1 tier reads — so enqueue only when v1 is the active memory tier.
+  if (!isMemoryV1Active(getConfig())) {
+    return;
+  }
+
   // Graph nodes live on the memory connection; segments still live on main.
   const memoryDb = memoryDbOrNull("maybeEnqueueGraphBootstrap");
-  if (!memoryDb) return;
+  if (!memoryDb) {
+    return;
+  }
 
   // Check for non-procedural graph nodes (procedural = capability seeds, not real memories)
   const nonProceduralCount =
@@ -336,7 +345,9 @@ export function maybeEnqueueGraphBootstrap(): void {
       )
       .get()?.count ?? 0;
 
-  if (nonProceduralCount > 0) return; // Graph already populated
+  if (nonProceduralCount > 0) {
+    return; // Graph already populated
+  }
 
   // Check for historical data to bootstrap from
   const segmentCount =
@@ -347,12 +358,14 @@ export function maybeEnqueueGraphBootstrap(): void {
 
   const hasJournalFiles = existsSync(join(getWorkspaceDir(), "journal"));
 
-  if (segmentCount === 0 && !hasJournalFiles) return; // Nothing to bootstrap from
+  if (segmentCount === 0 && !hasJournalFiles) {
+    return; // Nothing to bootstrap from
+  }
 
   // Don't enqueue if already in progress
-  if (hasActiveJobOfType("graph_bootstrap")) return;
-
-  if (!isMemoryEnabled()) return;
+  if (hasActiveJobOfType("graph_bootstrap")) {
+    return;
+  }
 
   log.info(
     { segmentCount, hasJournalFiles },

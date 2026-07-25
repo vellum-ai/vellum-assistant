@@ -12,7 +12,10 @@
  * the underlying handler is honored.
  */
 
-import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
+import {
+  isMemoryV1Active,
+  usesConceptPageMemory,
+} from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import type { JobHandlerEntry } from "../../types.js";
@@ -58,7 +61,28 @@ const log = getLogger("memory-job-handlers");
 
 // ── Graph lifecycle job handlers ──────────────────────────────────
 
-function graphDecayJob(job: MemoryJob): void {
+/**
+ * Tier gate shared by the v1 graph lifecycle handlers below. These jobs
+ * mutate (and some LLM-process into) the legacy v1 graph, which only the v1
+ * tier reads — so a stale or hand-enqueued row claimed while v1 is not the
+ * active memory tier must complete as a logged no-op instead of doing that
+ * work. Returns true when the row should be skipped.
+ */
+function isStaleV1GraphJob(job: MemoryJob, config: AssistantConfig): boolean {
+  if (isMemoryV1Active(config)) {
+    return false;
+  }
+  log.info(
+    { jobId: job.id, type: job.type },
+    "Skipping v1 graph job — the legacy graph is not the active memory tier",
+  );
+  return true;
+}
+
+function graphDecayJob(job: MemoryJob, config: AssistantConfig): void {
+  if (isStaleV1GraphJob(job, config)) {
+    return;
+  }
   const result = runDecayTick();
   log.info({ jobId: job.id, ...result }, "Graph decay tick complete");
 }
@@ -67,6 +91,9 @@ async function graphConsolidateJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
+  if (isStaleV1GraphJob(job, config)) {
+    return;
+  }
   const result = await runConsolidation(config);
   log.info(
     {
@@ -83,6 +110,9 @@ async function graphPatternScanJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
+  if (isStaleV1GraphJob(job, config)) {
+    return;
+  }
   const result = await runPatternScan(config);
   log.info(
     {
@@ -98,6 +128,9 @@ async function graphNarrativeRefineJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
+  if (isStaleV1GraphJob(job, config)) {
+    return;
+  }
   const result = await runNarrativeRefinement(config);
   log.info(
     {
@@ -107,6 +140,16 @@ async function graphNarrativeRefineJob(
     },
     "Graph narrative refinement complete",
   );
+}
+
+async function graphBootstrapJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  if (isStaleV1GraphJob(job, config)) {
+    return;
+  }
+  await bootstrapFromHistory();
 }
 
 /**
@@ -160,7 +203,7 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
       await graphExtractJob(job, config);
     },
   },
-  { type: "graph_decay", handler: (job) => graphDecayJob(job) },
+  { type: "graph_decay", handler: (job, config) => graphDecayJob(job, config) },
   {
     type: "graph_consolidate",
     handler: (job, config) => graphConsolidateJob(job, config),
@@ -173,7 +216,10 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
     type: "graph_narrative_refine",
     handler: (job, config) => graphNarrativeRefineJob(job, config),
   },
-  { type: "graph_bootstrap", handler: () => bootstrapFromHistory() },
+  {
+    type: "graph_bootstrap",
+    handler: (job, config) => graphBootstrapJob(job, config),
+  },
   {
     type: "embed_concept_page",
     handler: (job, config) => embedConceptPageJob(job, config),
