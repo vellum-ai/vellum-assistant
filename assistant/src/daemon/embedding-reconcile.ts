@@ -19,7 +19,10 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../config/loader.js";
-import { isMemoryV3Live } from "../config/memory-v3-gate.js";
+import {
+  isMemoryV2ExplicitlyDisabled,
+  isMemoryV3Live,
+} from "../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../config/types.js";
 import {
   probeBackendDimension,
@@ -239,8 +242,9 @@ export async function reconcileEmbeddingIdentity(
   // dimension recreate). Running here would enqueue `memory_v2_reembed` against
   // the disabled v2 index and persist a `vectorSize` after the v1 client was
   // already initialized at the old dimension. Defaults to true; gate strictly
-  // on the explicit `false` (and tolerate a missing `v2` node in test configs).
-  if (config.memory.v2?.enabled === false) {
+  // on the explicit `false` (and tolerate a missing `v2` node in test
+  // configs) — the semantics `isMemoryV2ExplicitlyDisabled` names.
+  if (isMemoryV2ExplicitlyDisabled(config)) {
     log.info(
       "Memory v2 disabled — skipping embedding-identity reconcile; v1 path owns its collection dimension",
     );

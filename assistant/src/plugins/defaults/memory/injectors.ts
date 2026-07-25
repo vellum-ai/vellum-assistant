@@ -5,7 +5,7 @@
  * (with hybrid-search hints), and the memory-v2 static `<info>` block. Each
  * reads its inputs directly off the {@link TurnContext} (and the workspace
  * memory/PKB files), runs its own gating (injection mode, the personal-memory
- * trust gate, the v2 cutover guard, null-input short-circuits), and returns an
+ * trust gate, the memory-tier gate, null-input short-circuits), and returns an
  * {@link InjectionBlock} with the placement that yields the canonical
  * positional semantics.
  *
@@ -20,7 +20,7 @@ import { resolve } from "node:path";
 
 import type { Message } from "@vellumai/plugin-api";
 
-import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
+import { isMemoryV1Active } from "../../../config/memory-v3-gate.js";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
@@ -56,18 +56,18 @@ const PKB_HINT_THRESHOLD = 0.5;
 const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
 
 /**
- * Read-side cutover guard. Under concept-page memory both `pkb-context` and
- * `pkb-reminder` silence themselves entirely — the `<knowledge_base>` content
- * and the generic recall/remember nudge are both supplanted by the static
- * memory block. They are also silenced when memory is disabled outright:
- * these injectors have no other `memory.enabled` gate, and a workspace with
- * leftover `pkb/*` files must not keep surfacing long-term memory after the
- * user turns memory off. NOW.md is workspace state independent of PKB and
- * fires unchanged.
+ * Read-side tier gate. The PKB injectors (`pkb-context`, `pkb-reminder`) are
+ * the v1 injection surface, active only when v1 is the live memory tier
+ * ({@link isMemoryV1Active}). Under concept-page memory both silence
+ * themselves entirely — the `<knowledge_base>` content and the generic
+ * recall/remember nudge are both supplanted by the static memory block. They
+ * are also silenced when memory is disabled outright: these injectors have no
+ * other `memory.enabled` gate, and a workspace with leftover `pkb/*` files
+ * must not keep surfacing long-term memory after the user turns memory off.
+ * NOW.md is workspace state independent of PKB and fires unchanged.
  */
 function isPkbInjectionSilenced(): boolean {
-  const memory = getMemoryConfig();
-  return memory.enabled === false || usesConceptPageMemory(memory);
+  return !isMemoryV1Active({ memory: getMemoryConfig() });
 }
 
 /**

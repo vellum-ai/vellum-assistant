@@ -24,6 +24,9 @@ export async function searchMemorySource(
     return { evidence: [] };
   }
 
+  // Tier dispatch: under the concept-page substrate (v2/v3) recall reads
+  // concept pages; on v1 it falls through to the legacy graph-node search
+  // below.
   if (usesConceptPageMemory(context.config.memory)) {
     return searchMemoryV2Source(query, context, normalizedLimit);
   }
