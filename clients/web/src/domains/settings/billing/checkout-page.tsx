@@ -7,7 +7,10 @@ import { useMutation } from "@tanstack/react-query";
 import { organizationsBillingSubscriptionUpgradeCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
+import {
+  clearCheckoutIntent,
+  saveCheckoutIntent,
+} from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl } from "@/runtime/browser";
 import { routes } from "@/utils/routes";
@@ -66,8 +69,10 @@ export function CheckoutPage() {
         void openUrl(result.checkout_url);
         return;
       }
-      // `no_op` — already Pro, nothing to provision. Hand off to the plans
-      // takeover rather than stranding the user on a blank splash.
+      // `no_op` — already Pro, nothing to provision. Clear the marked stash so
+      // an already-Pro bounce doesn't leave it lingering for its TTL, then hand
+      // off to the plans takeover rather than stranding the user on a blank splash.
+      clearCheckoutIntent();
       navigate(routes.plans, { replace: true });
     } catch {
       setFailed(true);

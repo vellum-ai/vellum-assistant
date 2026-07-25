@@ -12,6 +12,7 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 
+import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
 import * as orgReadyMod from "@/hooks/use-is-org-ready";
@@ -155,8 +156,15 @@ describe("CheckoutPage", () => {
     await waitFor(() => expect(upgradeCalls.length).toBe(1));
   });
 
-  test("a no_op result navigates to plans and stashes no intent", async () => {
+  test("a no_op result navigates to plans and clears any marked stash", async () => {
     upgradeData = { status: "no_op", checkout_url: null, message: "" };
+    // A marked stash from the onboarding signup carry survives into this bounce;
+    // the already-Pro no_op must clear it rather than leave it lingering its TTL.
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
     const { getByTestId } = renderCheckout("/assistant/checkout?package=super");
 
     await waitFor(() => expect(upgradeCalls.length).toBe(1));

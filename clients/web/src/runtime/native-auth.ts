@@ -241,7 +241,7 @@ export function resolveNativePostAuthDestination(
   returnTo: string | null | undefined,
 ): string | null {
   const isSignup = intent === "signup";
-  const { destination } = resolveSignupCheckoutDestination({
+  const destination = resolveSignupCheckoutDestination({
     intent: isSignup ? "signup" : "login",
     returnTo: returnTo ?? "",
   });
