@@ -1,21 +1,49 @@
 # Memory Architecture
 
-Assistant memory and context-injection architecture.
+Assistant memory and context-injection architecture. For the memory plugin's
+internal layering contract — the tier/directory map, the frozen-name registry,
+and the v1/v2 deletion runbooks — see
+`src/plugins/defaults/memory/AGENTS.md`.
 
 ## Tiers
 
 An assistant runs exactly one memory tier, derived by `memoryTier()` in
 `src/config/memory-tier.ts`:
 
-| Tier  | Selected when                                | Injection source                              |
-| ----- | -------------------------------------------- | --------------------------------------------- |
-| `off` | `memory.enabled === false`                   | none                                          |
-| `v3`  | `memory.v3.live === true`                    | v3 lanes + card (`v3/injector.ts`)            |
-| `v2`  | `memory.v2.enabled === true` and v3 not live | v2 activation/router engine (`v2/`)           |
-| `v1`  | otherwise                                    | PKB `<knowledge_base>` block (`pkb/`, legacy) |
+| Tier  | Selected when                                | Injection source                                 |
+| ----- | -------------------------------------------- | ------------------------------------------------ |
+| `off` | `memory.enabled === false`                   | none                                             |
+| `v3`  | `memory.v3.live === true`                    | v3 lanes + card (`v3/injector.ts`)               |
+| `v2`  | `memory.v2.enabled === true` and v3 not live | v2 activation/router engine (`v2/`)              |
+| `v1`  | otherwise                                    | PKB `<knowledge_base>` block (`v1/pkb/`, legacy) |
 
 New workspaces are switched to `v3` at creation (workspace migration 105).
 `v1` and the `v2` injection engine are in retirement; v3 is the target state.
+
+### Tier predicates
+
+`memoryTier()` is fully derived from the named predicates in
+`src/config/memory-v3-gate.ts`, so the telemetry buckets and the runtime gates
+can never disagree:
+
+| Predicate                      | True when                                                     |
+| ------------------------------ | ------------------------------------------------------------- |
+| `isMemoryEnabled`              | `memory.enabled !== false` — the user-facing master switch    |
+| `isMemoryV1Active`             | memory on and no concept-page consumer is active              |
+| `isV2InjectionEngineActive`    | memory on, `memory.v2.enabled === true`, and v3 not live      |
+| `isMemoryV2ExplicitlyDisabled` | `memory.v2.enabled === false` (not the negation of the above) |
+| `usesConceptPageMemory`        | memory on and (`memory.v3.live` or `memory.v2.enabled`)       |
+| `isMemoryV3Live`               | `memory.v3.live === true`                                     |
+| `isMemoryGraphSupported`       | memory on and v3 live                                         |
+| `isProcToSkillsActive`         | v3 live — procedural-memory-as-skills                         |
+
+`memory.v2.enabled` defaults true and typically stays set on v3-live
+assistants, so a direct read misbehaves under v3: tier decisions go through
+these predicates, never the raw keys. The memory plugin is layered into tier
+directories (`substrate/`, `v1/`, `v2/`, `v3/`) that never import each other —
+multi-tier composition is confined to a frozen set of spine files, and both
+rules plus the raw-tier-key ban are enforced by
+`src/plugins/defaults/memory/__tests__/memory-tier-boundary-guard.test.ts`.
 
 ## The concept-page substrate (`substrate/`)
 
@@ -94,9 +122,11 @@ substrate as a backend-agnostic node/edge graph for the web Memory tab:
 concept pages as nodes, authored links + learned co-selection associations as
 edges, and `memory/buffer.md` entries as `pending` nodes
 (`graph-topology/pending-buffer.ts`) so a just-saved fact appears before
-consolidation files it. Gated on the `memory-concept-graph` feature flag +
-`memory.v3.live`. `GET /v1/memory-graph-node` serves node detail, including
-`buffer:` ids for pending entries.
+consolidation files it. Gated on `isMemoryGraphSupported()` — memory enabled
+and `memory.v3.live` — which is also the source of the cheap `graph_supported`
+bit on `GET /v1/memory/stats`, so the advertised capability and the actual
+build can never drift. `GET /v1/memory-graph-node` serves node detail,
+including `buffer:` ids for pending entries.
 
 ## Capture beyond `remember`
 
@@ -114,9 +144,18 @@ intervals/limits, embedding + retrieval weights, BM25 parameters, sweep
 toggle) is optional under `memory.substrate`, and `resolveSubstrateTuning`
 (`substrate/tuning.ts`) — the substrate's single config choke point — falls
 back per key to the `memory.v2` twin, which supplies the effective defaults
-and which the v2 injection engine also reads. `spread_k` / `spread_hops`
-are the substrate names for `memory.v2.k` / `memory.v2.hops`. v2
-engine-only keys (activation weights, router, rerank) live only under
-`memory.v2.*`, and v3 lane tuning under `memory.v3.*`. The
+and which the v2 injection engine also reads. `spread_k` / `spread_hops` /
+`ann_candidate_limit` are the substrate names for `memory.v2.k` /
+`memory.v2.hops` / `memory.v2.ann_candidate_limit`; every other key shares its
+name with its twin. v2 engine-only keys (activation weights, router, rerank)
+live only under `memory.v2.*`, and v3 lane tuning under `memory.v3.*`. The
 `memory.v2.enabled` flag gates only the v2 injection engine's turn-time
 selection; the substrate runs whenever `usesConceptPageMemory()` holds.
+
+Because one substrate weight pairs with its v2 twin, the dense/sparse
+sum-to-1 invariant is checked over the RESOLVED pair by the parent
+`MemoryConfigSchema.superRefine` (the mixed case), alongside the substrate and
+v2 schemas' own refinements (both-set and neither-set). Workspace migration 135
+copies explicitly-set NON-DEFAULT `memory.v2` substrate tunables into
+`memory.substrate`, skipping loader-seeded defaults so an assistant is not
+permanently pinned to today's values when substrate defaults are retuned.

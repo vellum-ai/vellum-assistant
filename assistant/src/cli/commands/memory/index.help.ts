@@ -46,7 +46,8 @@ memory v2 subsystem. Unlike 'memory items', which addresses nodes by UUID, these
 commands address nodes by content text — matching the way an operator refers to
 a remembered fact without first looking up its ID.
 
-All subcommands require memory v2 to be enabled and the assistant to be running.
+All subcommands require concept-page memory (memory.v3.live or
+memory.v2.enabled) and the assistant to be running.
 
 Examples:
   $ assistant memory nodes stats
