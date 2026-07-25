@@ -13,6 +13,8 @@ mock.module("../memory-retrospective-enqueue.js", () => ({
   },
 }));
 
+import { eq } from "drizzle-orm";
+
 import type { AssistantConfig } from "../../../../config/types.js";
 import { AUTO_ANALYSIS_SOURCE } from "../../../../persistence/auto-analysis-constants.js";
 import { createConversation } from "../../../../persistence/conversation-crud.js";
@@ -21,7 +23,10 @@ import {
   getMemorySqlite,
 } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
-import { messages } from "../../../../persistence/schema/index.js";
+import {
+  conversations,
+  messages,
+} from "../../../../persistence/schema/index.js";
 import {
   MEMORY_RETROSPECTIVE_SOURCE,
   SKILL_CARD_MESSAGE_KIND,
@@ -30,17 +35,30 @@ import { upsertRetrospectiveState } from "../memory-retrospective-state.js";
 import {
   listSweepCandidateConversationIds,
   runRetrospectiveSweep,
+  SWEEP_MAX_ENQUEUES_PER_PASS,
 } from "../memory-retrospective-sweep.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../v3/substrate/constants.js";
 
 await initializeDb();
 
 const SWEEP_INTERVAL_MS = 8 * 60 * 60 * 1000; // 8h
+const SWEEP_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000; // 7d
 
-function makeConfig(sweepIntervalMs = SWEEP_INTERVAL_MS): AssistantConfig {
+function makeConfig(
+  sweepIntervalMs = SWEEP_INTERVAL_MS,
+  sweepLookbackMs = SWEEP_LOOKBACK_MS,
+): AssistantConfig {
   return {
-    memory: { retrospective: { sweepIntervalMs } },
+    memory: { retrospective: { sweepIntervalMs, sweepLookbackMs } },
   } as unknown as AssistantConfig;
+}
+
+function setLastMessageAt(conversationId: string, ts: number | null): void {
+  getDb()
+    .update(conversations)
+    .set({ lastMessageAt: ts })
+    .where(eq(conversations.id, conversationId))
+    .run();
 }
 
 function resetTables(): void {
@@ -71,6 +89,12 @@ function insertMessage(
       metadata: opts.metadata ? JSON.stringify(opts.metadata) : null,
     })
     .run();
+  // Mirrors `addMessage`'s conversation-stamp bump so seeded conversations
+  // sit inside the sweep lookback window. The stamp is wall-clock (like
+  // production), independent of the message's logical `createdAt`, which the
+  // cursor accounting reads from the message rows. Dormancy tests override
+  // via `setLastMessageAt`.
+  setLastMessageAt(conversationId, Date.now());
   return id;
 }
 
@@ -211,6 +235,35 @@ describe("runRetrospectiveSweep", () => {
       { conversationId: conv.id, trigger: "sweep" },
     ]);
   });
+
+  test("conversation dormant beyond the lookback is not swept — a cold start over deep history enqueues nothing", async () => {
+    const conv = createConversation({ id: "conv-a" });
+    // Unprocessed tail exists (no state row at all), which is the shape of
+    // every historical conversation on a first sweep — but the conversation
+    // has been dormant past the lookback, so its tail is an ordinary
+    // end-of-conversation remainder, not stalled work.
+    insertMessage(conv.id, { createdAt: 1_000 });
+    setLastMessageAt(conv.id, Date.now() - SWEEP_LOOKBACK_MS - 60_000);
+
+    const result = await runRetrospectiveSweep(makeConfig());
+
+    expect(enqueueCalls).toEqual([]);
+    expect(result).toEqual({ scanned: 0, enqueued: 0 });
+  });
+
+  test("enqueues clamp at the per-pass cap and defer the remainder", async () => {
+    for (let i = 0; i < SWEEP_MAX_ENQUEUES_PER_PASS + 5; i++) {
+      const conv = createConversation({
+        id: `conv-${String(i).padStart(3, "0")}`,
+      });
+      insertMessage(conv.id, { createdAt: 1_000 });
+    }
+
+    const result = await runRetrospectiveSweep(makeConfig());
+
+    expect(result.enqueued).toBe(SWEEP_MAX_ENQUEUES_PER_PASS);
+    expect(enqueueCalls.length).toBe(SWEEP_MAX_ENQUEUES_PER_PASS);
+  });
 });
 
 describe("listSweepCandidateConversationIds", () => {
@@ -231,21 +284,45 @@ describe("listSweepCandidateConversationIds", () => {
     });
     createConversation({ id: "conv-auto", source: AUTO_ANALYSIS_SOURCE });
     createConversation({ id: "conv-scheduled", conversationType: "scheduled" });
+    for (const id of [
+      "conv-a",
+      "conv-b",
+      "conv-retro",
+      "conv-consolidate",
+      "conv-auto",
+      "conv-scheduled",
+    ]) {
+      setLastMessageAt(id, 5_000);
+    }
 
-    const ids = listSweepCandidateConversationIds("", 100);
+    const ids = listSweepCandidateConversationIds("", 100, 0);
 
     expect(ids).toEqual(["conv-a", "conv-b"]);
   });
 
   test("keyset cursor resumes past the given id", () => {
-    createConversation({ id: "conv-a" });
-    createConversation({ id: "conv-b" });
-    createConversation({ id: "conv-c" });
+    for (const id of ["conv-a", "conv-b", "conv-c"]) {
+      createConversation({ id });
+      setLastMessageAt(id, 5_000);
+    }
 
-    expect(listSweepCandidateConversationIds("conv-a", 100)).toEqual([
+    expect(listSweepCandidateConversationIds("conv-a", 100, 0)).toEqual([
       "conv-b",
       "conv-c",
     ]);
-    expect(listSweepCandidateConversationIds("", 1)).toEqual(["conv-a"]);
+    expect(listSweepCandidateConversationIds("", 1, 0)).toEqual(["conv-a"]);
+  });
+
+  test("lookback cutoff excludes dormant and never-stamped conversations", () => {
+    createConversation({ id: "conv-recent" });
+    setLastMessageAt("conv-recent", 5_000);
+    createConversation({ id: "conv-dormant" });
+    setLastMessageAt("conv-dormant", 1_000);
+    // No message stamp at all — `gt` NULL semantics exclude it.
+    createConversation({ id: "conv-unstamped" });
+
+    expect(listSweepCandidateConversationIds("", 100, 2_000)).toEqual([
+      "conv-recent",
+    ]);
   });
 });

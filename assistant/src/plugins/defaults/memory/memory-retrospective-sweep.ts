@@ -27,6 +27,14 @@
 // (filtered in `EXCLUDED_SOURCES`).
 //
 // Cost discipline:
+//   - The scan is bounded to conversations whose last message falls inside
+//     `memory.retrospective.sweepLookbackMs`. A crash-orphaned turn is by
+//     definition recent, so a conversation dormant beyond the window is not
+//     stalled work — its unprocessed tail is an ordinary end-of-conversation
+//     remainder. Without this bound, the scan degenerates into a full-history
+//     backfill: nearly every conversation ever carries a tail past its final
+//     retrospective cursor, so a cold start would enqueue an inference pass
+//     per conversation across the entire history.
 //   - The per-conversation gate skips any conversation whose last retrospective
 //     attempt is newer than the sweep interval, so the sweep never competes
 //     with the responsive event triggers on active conversations — it only
@@ -35,11 +43,18 @@
 //     `upsertMemoryRetrospectiveJob` coalesces against any already-pending job,
 //     so a conversation already queued by an event trigger is never
 //     double-processed.
+//   - Enqueues are capped at `SWEEP_MAX_ENQUEUES_PER_PASS` per pass. Inside
+//     the lookback window, organic stalled work is a handful of conversations;
+//     a pass wanting more signals an anomalous backlog. Each pass re-scans
+//     from the start, so the deferred remainder is picked up by later passes.
 //   - The scan is keyset-paginated in bounded batches with a yield between
 //     pages (mirrors `conversation-memory-orphan-sweep.ts`), so a large history
-//     never materializes all ids at once or holds the event loop. Every
-//     eligible conversation is examined each pass — there is no front-of-list
-//     limit that could starve later conversations.
+//     never materializes all ids at once or holds the event loop.
+//
+// The retrospective job re-applies the lookback window at execution time
+// (`runForkBasedRetrospective`'s `enforceSweepLookback` gate), so pending rows
+// that outlive the window — e.g. a backlog drained long after enqueue — are
+// completed as no-ops instead of run.
 
 import { and, asc, gt, ne, notInArray } from "drizzle-orm";
 
@@ -61,6 +76,15 @@ const log = getLogger("memory-retrospective-sweep");
 
 /** Rows per keyset-paginated page — bounds each statement and the id set held. */
 const SWEEP_BATCH = 200;
+
+/**
+ * Hard ceiling on retrospectives enqueued by a single sweep pass. Each
+ * enqueue fans out an LLM inference pass, so a pass that wants more than this
+ * many is anomalous (organic in-window stalled work is a handful of
+ * conversations at most) and gets clamped with a warning. Safe to defer: every
+ * pass re-scans from the start, so the remainder is enqueued by later passes.
+ */
+export const SWEEP_MAX_ENQUEUES_PER_PASS = 50;
 
 /**
  * Conversation `source` values excluded from the sweep up front:
@@ -112,10 +136,16 @@ function breathe(): Promise<void> {
  * string sorts before any real id, so the first page starts at the beginning.
  * `scheduled`-type conversations are filtered here (low-yield, matching the
  * enqueue guard); other low-yield cases are caught by the enqueue itself.
+ *
+ * `lastMessageAtCutoff` bounds the scan to the sweep's lookback window
+ * (indexed via `idx_conversations_last_message_at`). `gt` NULL semantics
+ * exclude rows with no recorded message stamp: absent any evidence of recent
+ * activity, a conversation is not sweepable.
  */
 export function listSweepCandidateConversationIds(
   cursor: string,
   limit: number,
+  lastMessageAtCutoff: number,
 ): string[] {
   return getDb()
     .select({ id: conversations.id })
@@ -123,6 +153,7 @@ export function listSweepCandidateConversationIds(
     .where(
       and(
         gt(conversations.id, cursor),
+        gt(conversations.lastMessageAt, lastMessageAtCutoff),
         notInArray(conversations.source, EXCLUDED_SOURCES),
         ne(conversations.conversationType, "scheduled"),
       ),
@@ -141,11 +172,12 @@ export interface RetrospectiveSweepResult {
 }
 
 /**
- * Scan all sweep-eligible conversations and enqueue a `sweep`-triggered
- * retrospective for any with unprocessed messages whose last attempt is older
- * than `sweepIntervalMs`. Idempotent and best-effort: enqueue coalescing
- * prevents duplicates, and the scan degrades to a no-op when memory is
- * disabled.
+ * Scan sweep-eligible conversations with activity inside the lookback window
+ * and enqueue a `sweep`-triggered retrospective for any with unprocessed
+ * messages whose last attempt is older than `sweepIntervalMs`, up to
+ * {@link SWEEP_MAX_ENQUEUES_PER_PASS} per pass. Idempotent and best-effort:
+ * enqueue coalescing prevents duplicates, and the scan degrades to a no-op
+ * when memory is disabled.
  */
 export async function runRetrospectiveSweep(
   config: AssistantConfig,
@@ -155,12 +187,17 @@ export async function runRetrospectiveSweep(
     return { scanned: 0, enqueued: 0 };
   }
   const sweepIntervalMs = config.memory.retrospective.sweepIntervalMs;
+  const lookbackCutoff = now - config.memory.retrospective.sweepLookbackMs;
 
   let scanned = 0;
   let enqueued = 0;
   let cursor = "";
   for (;;) {
-    const page = listSweepCandidateConversationIds(cursor, SWEEP_BATCH);
+    const page = listSweepCandidateConversationIds(
+      cursor,
+      SWEEP_BATCH,
+      lookbackCutoff,
+    );
     if (page.length === 0) {
       break;
     }
@@ -198,6 +235,13 @@ export async function runRetrospectiveSweep(
 
       enqueueMemoryRetrospectiveIfEnabled({ conversationId, trigger: "sweep" });
       enqueued += 1;
+      if (enqueued >= SWEEP_MAX_ENQUEUES_PER_PASS) {
+        log.warn(
+          { scanned, enqueued },
+          "Memory retrospective sweep hit the per-pass enqueue cap; deferring the remainder to the next pass",
+        );
+        return { scanned, enqueued };
+      }
     }
 
     await breathe();
