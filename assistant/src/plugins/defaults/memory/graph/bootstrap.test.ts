@@ -11,6 +11,7 @@ import {
 
 import { eq } from "drizzle-orm";
 
+import { assertNotLiveDb } from "../../../../__tests__/assert-not-live-db.js";
 import { setConfig } from "../../../../__tests__/helpers/set-config.js";
 import { setMemoryCheckpoint } from "../../../../persistence/checkpoints.js";
 import { getMemoryDb } from "../../../../persistence/db-connection.js";
@@ -86,6 +87,7 @@ describe("maybeEnqueueGraphBootstrap", () => {
   });
 
   afterAll(() => {
+    assertNotLiveDb(journalDir);
     rmSync(journalDir, { recursive: true, force: true });
     setConfig("memory", {});
   });

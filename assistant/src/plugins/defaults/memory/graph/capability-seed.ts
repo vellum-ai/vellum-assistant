@@ -16,8 +16,12 @@ import {
   loadSkillCatalog,
   type SkillSummary,
 } from "../../../../config/skills.js";
+import { getDb } from "../../../../persistence/db-connection.js";
 import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
-import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
+import {
+  memoryEmbeddings,
+  memoryGraphNodes,
+} from "../../../../persistence/schema/index.js";
 import {
   getCachedCatalogSync,
   getCatalog,
@@ -252,6 +256,38 @@ function buildSkillContent(input: SkillCapabilityInput): string {
 }
 
 /**
+ * Reconcile a capability node that lacks a stored dense embedding: enqueue
+ * `embed_graph_node` for it. A capability seeded or updated while
+ * concept-page memory is active gets no embed row, so when the assistant
+ * runs under v1 the unchanged-content short-circuit alone would leave its
+ * v1 Qdrant point missing. One indexed `memory_embeddings` prefix lookup
+ * per capability node, on the v1 path only. Fail-open: a lookup error logs
+ * and skips — reconciliation never blocks seeding.
+ */
+function enqueueEmbedIfMissing(nodeId: string): void {
+  try {
+    const row = getDb()
+      .select({ id: memoryEmbeddings.id })
+      .from(memoryEmbeddings)
+      .where(
+        and(
+          eq(memoryEmbeddings.targetType, "graph_node"),
+          eq(memoryEmbeddings.targetId, nodeId),
+        ),
+      )
+      .get();
+    if (!row) {
+      enqueueMemoryJob("embed_graph_node", { nodeId });
+    }
+  } catch (err) {
+    log.warn(
+      { err, nodeId },
+      "Capability embedding reconcile failed; skipping",
+    );
+  }
+}
+
+/**
  * Core upsert: find an existing capability node by its sourceKey,
  * create or update as needed.
  *
@@ -261,7 +297,8 @@ function buildSkillContent(input: SkillCapabilityInput): string {
  * The node write itself is all-tier — the `list_memory` surface reads
  * capability nodes on every tier. The `embed_graph_node` enqueue is v1-only:
  * those rows target the v1 Qdrant collection, and dispatch discards them
- * while concept-page memory is active.
+ * while concept-page memory is active. On the v1 path an unchanged node with
+ * no stored embedding still enqueues (see {@link enqueueEmbedIfMissing}).
  */
 function upsertCapabilityNode(sourceKey: string, content: string): void {
   const db = memoryDbOrNull("upsertCapabilityNode");
@@ -296,6 +333,9 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
         .set(updates)
         .where(eq(memoryGraphNodes.id, existing.id))
         .run();
+      if (isMemoryV1Active(getConfig())) {
+        enqueueEmbedIfMissing(existing.id);
+      }
       return;
     }
 
