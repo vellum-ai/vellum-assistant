@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
@@ -54,9 +54,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /**
  * Copy explicitly-set substrate tunables from `memory.v2` to
- * `memory.substrate` so the substrate namespace becomes self-sufficient before
- * the runtime resolver's substrate→v2 fallback (and eventually the whole
- * `memory.v2` subtree) is deleted.
+ * `memory.substrate` so the substrate namespace carries the user's tuned
+ * values itself, independent of the runtime resolver's substrate→v2 fallback.
  *
  * Presence-based, not value-based: a key is copied when it is EXPLICITLY
  * present under `memory.v2` and absent under `memory.substrate` — an explicit
@@ -65,9 +64,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * the resolver treats an explicit substrate `null` as set. The common case is
  * a no-op: `memory.v2` tuning defaults were never persisted to config.json.
  *
- * `memory.v2.*` is never modified — the v2 injection engine still reads it
- * until the whole subtree is deleted with v2. An already-present
- * `memory.substrate` key is never clobbered. `memory.substrate` is only
+ * `memory.v2.*` is never modified — the v2 injection engine still reads it.
+ * An already-present `memory.substrate` key is never clobbered. `memory.substrate` is only
  * written at all when at least one key copies, so a fresh config never gains
  * an empty object.
  *
@@ -82,6 +80,9 @@ export const copySubstrateTunablesMigration: WorkspaceMigration = {
   id: "135-copy-substrate-tunables",
   description:
     "Copy explicitly-set memory.v2 substrate tunables to memory.substrate (k→spread_k, hops→spread_hops) without touching memory.v2 or clobbering existing memory.substrate values",
+  // run() only ever adds missing memory.substrate keys and never clobbers
+  // present ones, so retrying after a failed write attempt is safe.
+  retryFailedCheckpoint: true,
 
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
@@ -132,14 +133,18 @@ export const copySubstrateTunablesMigration: WorkspaceMigration = {
     }
     memory.substrate = substrate;
 
-    try {
-      writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-      log.info(
-        "Copied explicitly-set memory.v2 substrate tunables to memory.substrate",
-      );
-    } catch (err) {
-      log.warn({ err }, "Failed to write config.json with copied tunables");
-    }
+    // Write-then-rename keeps the migration rerunnable: a crash mid-write
+    // must not leave a truncated config.json that a retry reads as malformed
+    // and "completes" past, stranding the user's v2 overrides. A write or
+    // rename failure propagates to the runner, which checkpoints this
+    // migration as failed and (via retryFailedCheckpoint) retries it on the
+    // next boot instead of recording it as completed.
+    const tmpPath = `${configPath}.tmp`;
+    writeFileSync(tmpPath, JSON.stringify(config, null, 2) + "\n");
+    renameSync(tmpPath, configPath);
+    log.info(
+      "Copied explicitly-set memory.v2 substrate tunables to memory.substrate",
+    );
   },
 
   down(_workspaceDir: string): void {

@@ -1,4 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -80,6 +87,33 @@ describe("135-copy-substrate-tunables", () => {
       v2: { enabled: true, consolidation_interval_hours: 6 },
       substrate: { consolidation_interval_hours: 6 },
     });
+    // Temp-then-rename persistence leaves no temp file behind on success.
+    expect(existsSync(configPath + ".tmp")).toBe(false);
+  });
+
+  test("throws on a write failure, leaving config.json byte-for-byte intact (retryable via failed checkpoint)", () => {
+    write({ memory: { v2: { bm25_b: 0.6 } } });
+    const before = readRaw();
+
+    // A read-only workspace dir blocks creation of the config.json.tmp
+    // staging file, standing in for any persistence failure.
+    chmodSync(workspaceDir, 0o555);
+    try {
+      expect(() => MIG.run(workspaceDir)).toThrow();
+    } finally {
+      chmodSync(workspaceDir, 0o755);
+    }
+
+    // The failure surfaces to the runner (failed checkpoint, not completed)
+    // and the migration opts into retrying that checkpoint on the next boot.
+    expect(MIG.retryFailedCheckpoint).toBe(true);
+    // config.json is untouched — the failed write targeted the temp file.
+    expect(readRaw()).toBe(before);
+    expect(existsSync(configPath + ".tmp")).toBe(false);
+
+    // The retry succeeds once the workspace is writable again.
+    MIG.run(workspaceDir);
+    expect(memory().substrate).toEqual({ bm25_b: 0.6 });
   });
 
   test("renames k→spread_k and hops→spread_hops; a tuned bm25_b lands on the substrate key (v2-fallback removal safe)", () => {
