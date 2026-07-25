@@ -85,7 +85,10 @@ import disappears fails loudly instead of lingering. Related guards:
   baseline for the whole plugin tree.
 - `src/__tests__/persistence-layering-guard.test.ts` — one-way
   memory → persistence direction, with the migration registry's
-  `v1/graph/bootstrap` entry as a permanent exception.
+  `v1/graph/bootstrap` entry as a standing exception. It is not permanent: the
+  v1 runbook moves `migrateToolCreatedItems` to a surviving home (the
+  registration is append-only and must keep running), and the allowlist entry
+  is repointed or dropped with it.
 - `src/plugins/__tests__/plugin-state-boundary-guard.test.ts` — the
   grandfathered main-DB exception for this plugin (do not grow its surface).
 
@@ -312,11 +315,78 @@ on v1-era machinery.
    re-run bootstrap + capability seeders when an assistant enters v1; delete
    both in the same change.
 
+### External consumers to repoint or retire
+
+The steps below cover the plugin's own spine. These three production files sit
+**outside** `MEM/` and import `v1/` directly, so a deletion that skips them
+leaves broken imports and an unbuildable tree. Handle them in the same change,
+before or alongside step 1.
+
+1. **`runtime/routes/global-search-routes.ts`** → `semanticSearch` from
+   `v1/semantic-search.ts`. **Retire the route arm.** It backs only
+   `searchMemoriesSemantic`, the `deep=true` half of the `memories` category,
+   and `semanticSearch` already returns `[]` on any concept-page assistant (its
+   own `usesConceptPageMemory` early return), so the arm is dead on every
+   non-v1 install. Delete `searchMemoriesSemantic` and its `deep` call site.
+   Do **not** repoint it at the substrate: the sibling `searchMemoryItems` is a
+   lexical scan of `memory_graph_nodes` — all-tier, and it keeps the category
+   answering — while surfacing concept pages here is a new feature over a
+   different id space (page slugs, not node ids) and belongs in its own change.
+   Both the `deep` query parameter and the response `source` enum
+   (`lexical` | `semantic`) are published in `assistant/openapi.yaml`: `deep`
+   becomes a no-op and `semantic` an unreachable variant, and narrowing either
+   is a separate, client-coordinated spec change.
+2. **`tools/filesystem/write.ts`** → `enqueuePkbIndexJob` from
+   `v1/jobs/embed-pkb-file.ts`. **Delete the call site.** It fire-and-forgets a
+   PKB re-index after a `file_write` under `workspace/pkb/**.md`, and
+   `enqueuePkbIndexJob` already returns `""` when `usesConceptPageMemory()`
+   holds — the call is inert under the substrate. Drop the whole `pkbRoot` /
+   `isInsidePkbRoot` try block; keep the local `isInsidePkbRoot` helper, which
+   the apps-dir containment check earlier in the file still uses. There is no
+   substrate equivalent to repoint to — concept pages are re-embedded by
+   `jobs/embed-concept-page.ts` off the page-write path.
+3. **`persistence/steps.ts`** → `migrateToolCreatedItems` from
+   `v1/graph/bootstrap.ts`. **MOVE THIS FUNCTION — DO NOT DELETE IT.** It is a
+   registered entry in the append-only migration list (slot "101b", between
+   `migrateMemoryGraphImageRefs` and `migrateDropMemoryItemsTables`) that
+   copies legacy `memory_items` rows into `memory_graph_nodes` — an all-tier
+   table that outlives v1. Every fresh install replays the whole chain, so
+   deleting the function strands those rows on upgrade paths and defeats
+   `migrateDropMemoryItemsTables`'s "already migrated" safety check. Three
+   things to preserve when moving it:
+   - **The exported name.** Bare-function steps are identified by
+     `Function.name` for checkpointing, and `migrateMoveMemoryGraphTablesToMemoryDb`
+     names the string `"migrateToolCreatedItems"` in its `dependsOn`. Renaming
+     it re-runs the migration on existing installs and breaks that dependency
+     edge.
+   - **Its position** in the ordered `steps.ts` list — it must still run before
+     `migrateDropMemoryItemsTables`.
+   - **The persistence-layering guard's allowlist.**
+     `assistant/src/__tests__/persistence-layering-guard.test.ts` maps
+     `assistant/src/persistence/steps.ts` → `{"v1/graph/bootstrap"}` in
+     `PERSISTENCE_TO_MEMORY_ALLOWLIST`. Repoint that entry at the new module,
+     or drop it entirely if the function lands inside `persistence/`; the
+     guard's stale-entry test fails on a left-behind exemption.
+
+   The function reads and writes only `memory_items`, `memory_graph_nodes`, and
+   its own memory checkpoint, so `persistence/migrations/` or the all-tier
+   `graph/` are both viable homes. `bootstrap.ts`'s other exports
+   (`bootstrapFromHistory`, `maybeEnqueueGraphBootstrap`) are genuinely v1 and
+   go with the tier.
+
+**Re-run the scan at deletion time** rather than trusting this list — consumers
+accrue:
+`grep -rnE '(from|import\() *"[^"]*v1/' assistant/src --include='*.ts' --include='*.tsx' --exclude-dir=__tests__ --exclude-dir=v1 | grep -v '\.test\.'`
+(spine hits are the composition points the steps below already cover; anything
+else is a new external consumer needing its own repoint-or-retire decision).
+
 ### Steps
 
 1. Delete `MEM/v1/**` (including `v1/README.md` and `v1/graph/graph-search.ts`,
-   the hybrid node-SEARCH half). `graph/graph-search.ts` is the all-tier
-   embedding plumbing and **stays**.
+   the hybrid node-SEARCH half) — **after** `migrateToolCreatedItems` has been
+   moved out of `v1/graph/bootstrap.ts` per the external-consumers section
+   above. `graph/graph-search.ts` is the all-tier embedding plumbing and
+   **stays**.
 2. Delete `runtime/routes/filing-routes.ts` and drop its `ROUTES` entry from
    `runtime/routes/index.ts`.
 3. Retire the `memory-items` route family (`MEM/src/memory-item-routes.ts`'s
@@ -361,6 +431,67 @@ conversation source, the `memoryV2Consolidation` call-site id, the
 `memory-v2-static` injector id, and `memoryV2StaticBlock` — belong to the
 **substrate**, which outlives the v2 engine. They survive this deletion and must
 not be renamed opportunistically.
+
+### External consumers to repoint or retire
+
+Beyond the composition points the steps below name, four production files still
+import `v2/` — three of them from outside the plugin entirely. Deleting the tier
+without handling them cannot produce a buildable tree.
+
+1. **`MEM/fork-conversation-memory.ts`** (spine, on the `SPINE_ALLOWLIST`) →
+   `forkActivationState` / `seedForkActivationState` from
+   `v2/activation-store.ts`. Remove the v2 arm; the module survives as a
+   substrate + v3 fork path (injected-block slugs, `v3/ever-injected-store`,
+   graph state, retrospective state). It stays on the `SPINE_ALLOWLIST` after
+   the cut — `substrate` is itself a tier directory in the guard's `TIER_DIRS`,
+   so substrate + v3 is still multi-tier and step 10 must **not** drop this
+   entry.
+2. **`runtime/routes/conversation-query-routes.ts`** →
+   `getMemoryV2ActivationLogByMessageIds` from `v2/activation-log-store.ts`.
+   This is the route end of the inspector chain below: it fills the
+   `memoryV2Activation` field of the LLM-context response. It is **deleted**
+   with that surface, not replaced — the tier-agnostic
+   `getMemoryRecallLogByMessageIds` and the v3
+   `getMemoryV3SelectionForInspectorByMessageIds` reads alongside it stay.
+3. **`daemon/conversation-agent-loop-handlers.ts`** →
+   `backfillMemoryV2ActivationMessageId` from `v2/activation-log-store.ts`. The
+   turn-end stamp that keys the activation row to the assistant `messageId` so
+   the inspector can find it. **Delete the try block**; no replacement is
+   needed, because with the engine gone nothing writes the log in the first
+   place (`v2/injection.ts`'s `recordMemoryV2ActivationLog` call dies with
+   step 1). Its two siblings — the memory-recall-log and v3-selection backfills
+   — are unaffected.
+4. **`cli/commands/memory/memory-v2.ts`** → `import type { ComparisonReport }`
+   from `v2/harness/runner.ts`. Type-only, and it feeds `memory v2 compare`,
+   which step 1 already retires with the engine. Drop the import together with
+   the subcommand and its `memory-v2-compare-render.js` imports; the surviving
+   `reembed` / `reembed-skills` / `validate` subcommands never touch
+   `harness/`. (`cli/commands/memory/memory-v2-compare-render.ts` carries the
+   same type import and is deleted whole in step 1.)
+
+**The activation-log chain, end to end.** Retiring `memory_v2_activation_logs`
+spans five layers, split across this section and steps 7–8. Land them together
+or the tree and the published spec go out of sync:
+
+- **writer** — `v2/injection.ts`'s `recordMemoryV2ActivationLog`, deleted with
+  `MEM/v2/**` (step 1), plus the daemon's turn-end `messageId` backfill
+  (item 3 above);
+- **route** — `conversation-query-routes.ts`'s read (item 2 above);
+- **wire contract** — `assistant/src/api/responses/memory-v2-activation-log.ts`
+  (`MemoryV2ActivationLogSchema`, re-exported from `src/api/index.ts` and so
+  published through `@vellumai/assistant-api`), embedded in
+  `api/responses/llm-context-response.ts`. `memoryV2Activation` is a
+  **required** property on both LLM-context responses in
+  `assistant/openapi.yaml`, so removing it regenerates the spec and the
+  generated client types — coordinate it with the web change;
+- **web consumer** — the inspector's `memoryV2Activation` surface (step 8);
+- **table** — the `memory_v2_activation_logs` drop (step 7).
+
+**Re-run the scan at deletion time** rather than trusting this list — consumers
+accrue:
+`grep -rnE '(from|import\() *"[^"]*v2/' assistant/src --include='*.ts' --include='*.tsx' --exclude-dir=__tests__ --exclude-dir=v2 | grep -v '\.test\.'`
+(hits inside `MEM/` are the composition points the steps below cover; anything
+else is a new external consumer needing its own repoint-or-retire decision).
 
 ### Steps
 
@@ -427,7 +558,11 @@ not be renamed opportunistically.
 8. Web surfaces to retire or repoint:
    - the inspector memory tab's `memoryV2Activation` context
      (`clients/web/src/domains/chat/inspector/inspector-api.ts`,
-     `components/tabs/memory-tab.tsx`, `inspector-export.ts`),
+     `components/tabs/memory-tab.tsx`, `inspector-export.ts`) — this is the web
+     end of the activation-log chain spelled out in the external-consumers
+     section above; land it with the route, the daemon backfill, the
+     `api/responses/memory-v2-activation-log.ts` wire contract, and the step-7
+     table drop,
    - the router playground (`memory-router-playground-page.tsx`,
      `memory-router-simulator-api.ts`, and its `routes.tsx` entry),
    - `concept-page-api.ts` and
@@ -438,7 +573,10 @@ not be renamed opportunistically.
    `memory_v2_activation_recompute`) into `LEGACY_JOB_TYPES`.
 10. Shrink the boundary guard: drop `v2` from `TIER_DIRS` /
     `FORBIDDEN_TIER_IMPORTS` and from `TIER_KEY_READ_ALLOWLIST`, and remove the
-    `SPINE_ALLOWLIST` entries that were v2 composition points.
+    `SPINE_ALLOWLIST` entries that were v2 composition points — only those left
+    importing fewer than two tier directories. `fork-conversation-memory.ts`
+    still spans `substrate/` + `v3/` and stays; let the reverse
+    stale-exemption test tell you which entries actually went single-tier.
 
 ## Where to add new code
 
