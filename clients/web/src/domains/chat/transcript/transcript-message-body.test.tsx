@@ -680,6 +680,44 @@ describe("TranscriptMessageBody", () => {
     expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
   });
 
+  test("animates earlier activity closed when streaming completes", async () => {
+    const message: DisplayMessage = {
+      id: "settling-response",
+      role: "assistant",
+      contentBlocks: [
+        textBlock("I am checking that."),
+        toolUseBlock({
+          id: "tc-settling-check",
+          name: "bash",
+          input: {},
+          completedAt: 1,
+        }),
+        textBlock("Here is the final answer."),
+      ],
+    };
+    const { getByRole, getByTestId, rerender } = render(
+      <TranscriptMessageBody
+        message={message}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    rerender(
+      <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
+    );
+
+    const trigger = getByRole("button", { name: "Earlier activity" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      getByTestId("assistant-earlier-activity").style.animationDuration,
+    ).toBe("var(--anim-standard)");
+
+    await waitFor(() => {
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    });
+  });
+
   test("keeps result artifacts visible outside collapsed earlier activity", () => {
     const toolCall: ChatMessageToolCall = {
       id: "tc-result-image",

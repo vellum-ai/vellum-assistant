@@ -1059,7 +1059,7 @@ export function TranscriptMessageBody({
   });
   const collapsibleGroupIndexSet = new Set(collapsibleGroupIndexes);
   const assistantContent =
-    !isStreaming && collapsibleGroupIndexes.length > 0
+    collapsibleGroupIndexes.length > 0
       ? renderedGroups.map((renderedGroup, groupIndex) => {
           if (
             collapsibleGroupIndexSet.has(groupIndex) &&
@@ -1070,7 +1070,10 @@ export function TranscriptMessageBody({
               runEndIndex += 1;
             }
             return (
-              <AssistantContentDisclosure key={`earlier-activity-${groupIndex}`}>
+              <AssistantContentDisclosure
+                key={`earlier-activity-${groupIndex}`}
+                isStreaming={isStreaming}
+              >
                 {renderedGroups.slice(groupIndex, runEndIndex)}
               </AssistantContentDisclosure>
             );
