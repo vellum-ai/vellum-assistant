@@ -194,19 +194,40 @@ Persisted in job rows; unknown types either throw or get silently drained.
   `sweep_orphaned_graph_node_points`
 - All-tier embedding: `embed_graph_node`, `graph_trigger_embed`,
   `embed_segment`, `embed_summary`, `embed_media`, `embed_attachment`
+- Retired, still in the union: `memory_v3_consolidate`,
+  `memory_v3_index_maintenance`, `memory_v3_edge_learning` (v3-rip casualties —
+  handlers removed) and `conversation_analyze` — never enqueued, but they stay
+  `MemoryJobType` members **and** `LEGACY_JOB_TYPES` members so pre-upgrade rows
+  drain silently
+- Retired, `LEGACY_JOB_TYPES` only (already out of the union):
+  `memory_v2_rebuild_edges`, `memory_proc_distill`, and the pre-memory batch
+  (`embed_item`, `extract_items`, `batch_extract`, `extract_entities`,
+  `cleanup_stale_superseded_items`, `backfill_entity_relations`,
+  `refresh_weekly_summary`, `refresh_monthly_summary`, `journal_carry_forward`,
+  `generate_capability_cards`, `generate_thread_starters`)
 
 Retired types are never deleted from the `MemoryJobType` union — they move to
 `LEGACY_JOB_TYPES` in `jobs-worker.ts` so pre-upgrade rows drain instead of
-throwing.
+throwing. Dropping a name from **either** list strands the persisted rows that
+still carry it: the worker's dispatch falls through to
+`Unknown memory job type: <type>` and the row fails forever instead of
+completing. The `LEGACY_JOB_TYPES` set is therefore append-only in practice —
+prune it only after you can prove no install still holds a pending row.
 
 ### Checkpoint keys (`memory_checkpoints.key`)
 
-`GRAPH_MAINTENANCE_CHECKPOINTS` in `jobs-worker.ts` plus the consolidation
-failure record:
+`GRAPH_MAINTENANCE_CHECKPOINTS` in `jobs-worker.ts`, plus the consolidation
+failure record and the section re-embed high-water:
 
 - `memory_v2_consolidate_last_run`, `memory_v3_maintain_last_run` — cadence
 - `memory_v2_consolidate_failure_state` (`substrate/consolidation-job.ts`) —
   the consolidation backoff record
+- `memory_v3_maintain:sections_embedded_through_ms`
+  (`v3/section-dense-store.ts`'s `MAINTAIN_EMBED_HIGH_WATER_KEY`) — durable
+  epoch-ms high-water of the last successful section re-embed pass; when it is
+  absent the maintain job re-embeds EVERY page, so losing or renaming it forces
+  a full rebuild. Distinct from the `memory_v3_maintain_last_run` cadence key
+  despite the shared prefix
 - `v1_entry_reconcile_done` — the one-shot v1-entry reconcile marker
 - v1: `graph_maintenance:{decay,consolidate,pattern_scan,narrative}:last_run`,
   `pkb_filing_last_run`, `pkb_compaction_last_run`,
@@ -343,18 +364,39 @@ not be renamed opportunistically.
 
 ### Steps
 
-1. Delete `MEM/v2/**`, `cli/commands/memory/memory-v2.ts`, and
-   `cli/commands/memory/memory-v2-compare-render.ts`.
-   `MEM/src/memory-v2-routes.ts` **splits** rather than deletes: it is the only
-   multi-tier route module. Four of its handlers read the substrate and must
-   survive — `memory/v2/concept-page`, `memory/v2/list-concept-pages`,
-   `memory/v2/reembed-skills`, `memory/v2/validate` — so move them (endpoint
-   strings, operation ids, and the `MEMORY_V2_DISABLED` code unchanged; they
-   are frozen wire surface) into a substrate-owned routes module. Delete only
-   the engine-only routes: `backfill`, `compare-retrievers`,
-   `concept-frequency`, `ema-scores`, `now-text`, `router-prompt-template`,
-   `simulate-router`. Publishing substrate-named aliases and retiring the
-   `memory/v2/*` spellings is a separate, client-coordinated change.
+1. Delete `MEM/v2/**` and `cli/commands/memory/memory-v2-compare-render.ts`.
+   Two modules **split** rather than delete:
+   - `MEM/src/memory-v2-routes.ts` — the only multi-tier route module. Four of
+     its handlers read the substrate and must survive —
+     `memory/v2/concept-page`, `memory/v2/list-concept-pages`,
+     `memory/v2/reembed-skills`, `memory/v2/validate` — so move them (endpoint
+     strings, operation ids, and the `MEMORY_V2_DISABLED` code unchanged; they
+     are frozen wire surface) into a substrate-owned routes module.
+     `memory/v2/backfill` (operation id `memory_v2_backfill`) splits **by
+     operation** rather than dying whole: `MemoryV2BackfillParams`'s `op` enum
+     accepts three values, and `OP_TO_JOB_TYPE` sends `migrate` →
+     `memory_v2_migrate` and `activation-recompute` →
+     `memory_v2_activation_recompute` (both v2-engine jobs, retired in step 9)
+     but `reembed` → `memory_v2_reembed`, a **substrate** job whose handler
+     lives at `substrate/reembed-job.ts` and survives this deletion. Carry the
+     `reembed` arm across with its frozen operation id and endpoint intact —
+     narrow the `op` enum to `["reembed"]` and move the route with the other
+     survivors — or land a compatibility-preserving replacement first. Deleting
+     the route wholesale removes the only on-demand concept-page reembed
+     command an operator has; every other enqueue of that job is automatic
+     (consolidation follow-ups, boot maintenance, the embedding reconciler,
+     workspace migrations). Delete the remaining engine-only routes:
+     `compare-retrievers`, `concept-frequency`, `ema-scores`, `now-text`,
+     `router-prompt-template`, `simulate-router`. Publishing substrate-named
+     aliases and retiring the `memory/v2/*` spellings is a separate,
+     client-coordinated change.
+   - `cli/commands/memory/memory-v2.ts` — follows its routes rather than being
+     deleted outright. `memory v2 reembed` (which posts the surviving `reembed`
+     backfill op), `memory v2 reembed-skills`, and `memory v2 validate` keep
+     working and move with the substrate routes; `memory v2 activation` (the
+     `activation-recompute` op), `memory v2 ema`, `memory v2 simulate`, and
+     `memory v2 compare` go with the engine. There is no `migrate` subcommand —
+     the route is that job's only enqueue path.
 2. Remove the v2 arm of `graph/conversation-graph-memory.ts` (activation-store,
    injection, now-text, router-pair imports) and the
    `shouldRunLegacyMemoryRetrieval` path in `hooks/user-prompt-submit.ts`.
