@@ -143,6 +143,12 @@ disjoint cases: the substrate schema's own refinement (both set), the v2
 schema's (neither set), and the parent `MemoryConfigSchema.superRefine` (the
 mixed case, over the RESOLVED pair). Keep all three when touching the weights.
 
+Because `memory.substrate` wins, a `config set` on a shadowed `memory.v2` twin
+persists but changes nothing. `config/substrate-twin-shadowing.ts` pairs the two
+namespaces so that no-op is visible: the `config_set` route returns a `warning`
+naming the winning key, and `assistant config get` prints a `Shadowed:` line
+with the value actually in effect.
+
 Workspace migration 135 copies explicitly-set NON-DEFAULT `memory.v2` substrate
 tunables into `memory.substrate`. It skips loader-seeded defaults — including
 `bm25_b`'s earlier `0.75` default — because raw presence in `config.json` is not

@@ -125,6 +125,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * override-only surface. The two no-default keys (`min_sparse_spread`,
  * `full_sparse_spread`) copy on presence alone.
  *
+ * That rule is narrower than "explicitly present", and the gap is deliberate:
+ * a value equal to a shipped default never copies, even when the user typed it
+ * on purpose. For every key whose shipped default is the current one that costs
+ * nothing — `memory.substrate` plus the shipped defaults resolve to exactly
+ * what the resolver's fallback produces. `bm25_b`'s retired `0.75` is the sole
+ * exception: it is skipped as seeded yet differs from today's `0.4`, so on a
+ * workspace carrying it the value survives only through the resolver's
+ * `memory.v2` fallback. That is the one case where dropping the fallback would
+ * change behavior — see the equivalence proof in this migration's test.
+ *
  * `memory.v2.*` is never modified — the v2 injection engine still reads it.
  * An already-present `memory.substrate` key is never clobbered. `memory.substrate` is only
  * written at all when at least one key copies, so a fresh config never gains
