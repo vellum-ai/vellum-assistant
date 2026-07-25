@@ -378,6 +378,30 @@ function mergeSkillCardEntries(
  * Check whether a pending or running job of the given type already exists.
  * Used to prevent duplicate enqueues for long-running maintenance jobs.
  */
+/**
+ * Source-conversation ids of every pending or running `memory_retrospective`
+ * job. The retrospective sweep skips these up front: an already-queued source
+ * has nothing for the sweep to add (the row will run on its own), and a
+ * coalescing upsert against it must not consume the sweep's per-pass enqueue
+ * cap.
+ */
+export function listActiveMemoryRetrospectiveSourceConversationIds(): string[] {
+  return memoryDb()
+    .select({
+      conversationId: sql<string>`json_extract(${memoryJobs.payload}, '$.conversationId')`,
+    })
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "memory_retrospective"),
+        inArray(memoryJobs.status, ["pending", "running"]),
+      ),
+    )
+    .all()
+    .map((row) => row.conversationId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+}
+
 export function hasActiveJobOfType(type: MemoryJobType): boolean {
   const db = memoryDb();
   return (

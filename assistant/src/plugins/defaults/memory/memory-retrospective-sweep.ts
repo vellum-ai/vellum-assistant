@@ -47,6 +47,8 @@
 //     the lookback window, organic stalled work is a handful of conversations;
 //     a pass wanting more signals an anomalous backlog. Each pass re-scans
 //     from the start, so the deferred remainder is picked up by later passes.
+//     Sources with an already-pending/running retrospective job are skipped
+//     before the cap, so coalescing no-ops never consume it.
 //   - The scan is keyset-paginated in bounded batches with a yield between
 //     pages (mirrors `conversation-memory-orphan-sweep.ts`), so a large history
 //     never materializes all ids at once or holds the event loop.
@@ -63,7 +65,10 @@ import { AUTO_ANALYSIS_SOURCE } from "../../../persistence/auto-analysis-constan
 import { getConversationRecentProvenanceTrustClass } from "../../../persistence/conversation-crud.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
-import { isMemoryEnabled } from "../../../persistence/jobs-store.js";
+import {
+  isMemoryEnabled,
+  listActiveMemoryRetrospectiveSourceConversationIds,
+} from "../../../persistence/jobs-store.js";
 import { conversations } from "../../../persistence/schema/index.js";
 import { getLogger } from "./logging.js";
 import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
@@ -132,6 +137,22 @@ function breathe(): Promise<void> {
 }
 
 /**
+ * The lookback window the sweep actually applies. A configured lookback
+ * shorter than the sweep cadence would leave a blind span in every interval —
+ * work appearing right after one pass would age out of the window before the
+ * next pass runs — so the effective window is never smaller than
+ * `sweepIntervalMs`. Shared by the sweep scan and the retrospective job's
+ * execution-time gate; the two must agree or the gate would kill jobs the
+ * scan legitimately enqueued.
+ */
+export function effectiveSweepLookbackMs(config: AssistantConfig): number {
+  return Math.max(
+    config.memory.retrospective.sweepLookbackMs,
+    config.memory.retrospective.sweepIntervalMs,
+  );
+}
+
+/**
  * One keyset page of sweep-eligible conversation ids past `cursor`. The empty
  * string sorts before any real id, so the first page starts at the beginning.
  * `scheduled`-type conversations are filtered here (low-yield, matching the
@@ -187,7 +208,10 @@ export async function runRetrospectiveSweep(
     return { scanned: 0, enqueued: 0 };
   }
   const sweepIntervalMs = config.memory.retrospective.sweepIntervalMs;
-  const lookbackCutoff = now - config.memory.retrospective.sweepLookbackMs;
+  const lookbackCutoff = now - effectiveSweepLookbackMs(config);
+  const activeSourceIds = new Set(
+    listActiveMemoryRetrospectiveSourceConversationIds(),
+  );
 
   let scanned = 0;
   let enqueued = 0;
@@ -205,6 +229,15 @@ export async function runRetrospectiveSweep(
 
     for (const conversationId of page) {
       scanned += 1;
+
+      // An already-queued source has nothing for the sweep to add — its
+      // pending row runs on its own. Skipping it up front keeps coalescing
+      // upserts from consuming the per-pass enqueue cap: counted no-ops would
+      // starve conversations later in id order across passes (every pass
+      // restarts from the lowest id) until they age out of the lookback.
+      if (activeSourceIds.has(conversationId)) {
+        continue;
+      }
 
       // Memory trust boundary: never enqueue a retrospective (which runs under
       // guardian trust with `remember`) for a conversation whose actor isn't

@@ -23,6 +23,7 @@ import {
   getMemorySqlite,
 } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
+import { upsertMemoryRetrospectiveJob } from "../../../../persistence/jobs-store.js";
 import {
   conversations,
   messages,
@@ -65,6 +66,7 @@ function resetTables(): void {
   const db = getDb();
   db.run(`DELETE FROM messages`);
   getMemorySqlite()!.exec(`DELETE FROM memory_retrospective_state`);
+  getMemorySqlite()!.exec(`DELETE FROM memory_jobs`);
   db.run(`DELETE FROM conversations`);
 }
 
@@ -249,6 +251,41 @@ describe("runRetrospectiveSweep", () => {
 
     expect(enqueueCalls).toEqual([]);
     expect(result).toEqual({ scanned: 0, enqueued: 0 });
+  });
+
+  test("source with an already-pending job is skipped and does not consume the cap", async () => {
+    // Three stalled sources already have pending rows (e.g. the worker is
+    // backed up); one fresh source has none. The pending ones must be skipped
+    // outright — counting their coalescing upserts toward the cap would
+    // starve later ids across passes.
+    for (const id of ["conv-a", "conv-b", "conv-c"]) {
+      const conv = createConversation({ id });
+      insertMessage(conv.id, { createdAt: 1_000 });
+      upsertMemoryRetrospectiveJob({ conversationId: conv.id });
+    }
+    const fresh = createConversation({ id: "conv-d" });
+    insertMessage(fresh.id, { createdAt: 1_000 });
+
+    const result = await runRetrospectiveSweep(makeConfig());
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: fresh.id, trigger: "sweep" },
+    ]);
+    expect(result).toEqual({ scanned: 4, enqueued: 1 });
+  });
+
+  test("a lookback below the sweep interval is clamped up to the interval", async () => {
+    // lookback 1 minute, interval 8h: without clamping, work appearing
+    // between passes would age out of the window before the next pass runs.
+    const conv = createConversation({ id: "conv-a" });
+    insertMessage(conv.id, { createdAt: 1_000 });
+    setLastMessageAt(conv.id, Date.now() - 2 * 60 * 60 * 1000); // 2h ago
+
+    await runRetrospectiveSweep(makeConfig(SWEEP_INTERVAL_MS, 60_000));
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "sweep" },
+    ]);
   });
 
   test("enqueues clamp at the per-pass cap and defer the remainder", async () => {

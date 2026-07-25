@@ -343,6 +343,7 @@ function makeConfig(
         keepSupersededRuns: overrides.keepSupersededRuns ?? false,
         matchConversationProfile: overrides.matchConversationProfile ?? false,
         promptPath: overrides.promptPath ?? null,
+        sweepIntervalMs: 8 * 60 * 60 * 1000,
         sweepLookbackMs: 7 * 24 * 60 * 60 * 1000,
       },
     },

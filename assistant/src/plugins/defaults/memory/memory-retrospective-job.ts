@@ -97,6 +97,7 @@ import {
   getRetrospectiveState,
   upsertRetrospectiveState,
 } from "./memory-retrospective-state.js";
+import { effectiveSweepLookbackMs } from "./memory-retrospective-sweep.js";
 
 const log = getLogger("memory-retrospective-job");
 
@@ -235,7 +236,7 @@ export async function runForkBasedRetrospective(
     const lastMessageAt = sourceConversation.lastMessageAt;
     if (
       typeof lastMessageAt === "number" &&
-      startedAtMs - lastMessageAt > config.memory.retrospective.sweepLookbackMs
+      startedAtMs - lastMessageAt > effectiveSweepLookbackMs(config)
     ) {
       log.info(
         { sourceConversationId, lastMessageAt },

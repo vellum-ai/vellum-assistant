@@ -62,7 +62,7 @@ export const MemoryRetrospectiveConfigSchema = z
       )
       .default(7 * 24 * 60 * 60 * 1000)
       .describe(
-        "How far back the scheduled retrospective sweep looks for stalled work. The sweep backstops turns that ended abnormally (crash / IPC drop), and such turns are by definition recent — so only conversations whose last message falls inside this window are scanned, and the retrospective job re-applies the same window at execution time so a stale queued backlog is skipped instead of run. Conversations dormant beyond the window are outside the sweep's scope entirely: their unprocessed tails are ordinary end-of-conversation remainders, not stalled work.",
+        "How far back the scheduled retrospective sweep looks for stalled work. The sweep backstops turns that ended abnormally (crash / IPC drop), and such turns are by definition recent — so only conversations whose last message falls inside this window are scanned, and the retrospective job re-applies the same window at execution time so a stale queued backlog is skipped instead of run. Conversations dormant beyond the window are outside the sweep's scope entirely: their unprocessed tails are ordinary end-of-conversation remainders, not stalled work. Values below memory.retrospective.sweepIntervalMs are treated as equal to it — a lookback shorter than the sweep cadence would leave a blind span between passes.",
       ),
 
     keepSupersededRuns: z
