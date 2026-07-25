@@ -359,23 +359,23 @@ export async function listPages(workspaceDir: string): Promise<string[]> {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         // Root missing → return []. Nested missing dir is impossible mid-walk
         // (we only enqueue what readdir surfaced) but treat the same defensively.
-        if (dir === root) return [];
+        if (dir === root) {return [];}
         continue;
       }
       throw err;
     }
 
     for (const entry of entries) {
-      if (entry.name.startsWith(".")) continue;
+      if (entry.name.startsWith(".")) {continue;}
       const fullPath = join(dir, entry.name);
       if (entry.isDirectory()) {
         queue.push(fullPath);
         continue;
       }
-      if (!entry.isFile()) continue;
-      if (!entry.name.endsWith(PAGE_EXTENSION)) continue;
+      if (!entry.isFile()) {continue;}
+      if (!entry.name.endsWith(PAGE_EXTENSION)) {continue;}
       // Skip orphaned temp files left behind by a crashed atomic write.
-      if (entry.name.includes(".tmp.")) continue;
+      if (entry.name.includes(".tmp.")) {continue;}
       slugs.push(slugFromConceptPath(root, fullPath));
     }
   }
@@ -401,21 +401,21 @@ export async function hasConceptPages(workspaceDir: string): Promise<boolean> {
       entries = await readdir(dir, { withFileTypes: true });
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        if (dir === root) return false;
+        if (dir === root) {return false;}
         continue;
       }
       throw err;
     }
 
     for (const entry of entries) {
-      if (entry.name.startsWith(".")) continue;
+      if (entry.name.startsWith(".")) {continue;}
       if (entry.isDirectory()) {
         queue.push(join(dir, entry.name));
         continue;
       }
-      if (!entry.isFile()) continue;
-      if (!entry.name.endsWith(PAGE_EXTENSION)) continue;
-      if (entry.name.includes(".tmp.")) continue;
+      if (!entry.isFile()) {continue;}
+      if (!entry.name.endsWith(PAGE_EXTENSION)) {continue;}
+      if (entry.name.includes(".tmp.")) {continue;}
       return true;
     }
   }

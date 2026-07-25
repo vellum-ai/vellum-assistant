@@ -81,7 +81,7 @@ export async function embedConceptPageJob(
   config: AssistantConfig,
 ): Promise<void> {
   const slug = asString(job.payload.slug);
-  if (!slug) return;
+  if (!slug) {return;}
 
   const workspaceDir = getWorkspaceDir();
   const page = await readPage(workspaceDir, slug);
@@ -214,7 +214,7 @@ export async function embedConceptPageJob(
     writeModel = embedded.model;
     for (let i = 0; i < appliedSlots.length; i++) {
       const vector = embedded.vectors[i];
-      if (!vector) continue;
+      if (!vector) {continue;}
       if (appliedSlots[i] === "body") {
         bodyDense = vector;
         bodyFresh = true;
@@ -227,7 +227,7 @@ export async function embedConceptPageJob(
   // Body embedding is the ground truth — without it the page can't surface.
   // (Cache hit paths populate `bodyDense` above; a fresh embed that returned
   // no vectors short-circuits here too.)
-  if (!bodyDense) return;
+  if (!bodyDense) {return;}
 
   // Sparse is cheap (in-process tokenization) and changes any time the body
   // changes, so we always recompute it rather than caching alongside dense.
@@ -344,10 +344,10 @@ function readEmbeddingCache(
       ),
     )
     .get();
-  if (!row || row.dimensions !== expectedDim) return null;
+  if (!row || row.dimensions !== expectedDim) {return null;}
   // A row without a contentHash is a legacy/corrupt entry — treat as a miss
   // and force a re-embed rather than misalign the cache key.
-  if (row.contentHash === null) return null;
+  if (row.contentHash === null) {return null;}
   const dense = row.vectorBlob
     ? blobToVector(row.vectorBlob as Buffer)
     : (JSON.parse(row.vectorJson!) as number[]);

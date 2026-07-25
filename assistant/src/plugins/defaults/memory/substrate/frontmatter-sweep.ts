@@ -46,7 +46,7 @@ export async function sweepConceptPageFrontmatter(
   config: AssistantConfig,
   workspaceDir: string,
 ): Promise<void> {
-  if (!usesConceptPageMemory(config.memory)) return;
+  if (!usesConceptPageMemory(config.memory)) {return;}
 
   let slugs: string[];
   try {
@@ -84,7 +84,7 @@ export async function sweepConceptPageFrontmatter(
     }
 
     const result = ConceptPageFrontmatterSchema.safeParse(parsed);
-    if (result.success) continue;
+    if (result.success) {continue;}
 
     for (const issue of result.error.issues) {
       log.warn(

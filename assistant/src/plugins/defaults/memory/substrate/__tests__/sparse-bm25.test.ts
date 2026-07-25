@@ -44,11 +44,11 @@ function dotProduct(
 ): number {
   const dMap = new Map<number, number>();
   for (let i = 0; i < d.indices.length; i++)
-    dMap.set(d.indices[i], d.values[i]);
+    {dMap.set(d.indices[i], d.values[i]);}
   let sum = 0;
   for (let i = 0; i < q.indices.length; i++) {
     const dv = dMap.get(q.indices[i]);
-    if (dv !== undefined) sum += q.values[i] * dv;
+    if (dv !== undefined) {sum += q.values[i] * dv;}
   }
   return sum;
 }
@@ -234,7 +234,7 @@ describe("generateBm25QueryEmbedding", () => {
   test("emits binary occurrence per distinct token", () => {
     const vec = generateBm25QueryEmbedding("supplements supplements zinc");
     expect(vec.indices.length).toBe(2);
-    for (const v of vec.values) expect(v).toBe(1);
+    for (const v of vec.values) {expect(v).toBe(1);}
   });
 
   test("empty input yields empty vector", () => {
@@ -263,7 +263,7 @@ describe("end-to-end ranking: BM25 fixes the supplements bug", () => {
       const seen = new Set<number>();
       for (const t of tokens) {
         const idx = tokenHash(t, SPARSE_VOCAB_SIZE);
-        if (seen.has(idx)) continue;
+        if (seen.has(idx)) {continue;}
         seen.add(idx);
         df.set(idx, (df.get(idx) ?? 0) + 1);
       }

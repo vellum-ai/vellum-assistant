@@ -103,12 +103,12 @@ const pkbContextInjector: Injector = {
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
-    if (mode !== "full") return null;
-    if (isPkbInjectionSilenced()) return null;
+    if (mode !== "full") {return null;}
+    if (isPkbInjectionSilenced()) {return null;}
     const content = readGatedPkbContext(ctx.trust);
-    if (!content) return null;
+    if (!content) {return null;}
     if (hasInjectedUserTextBlock(runMessages, KNOWLEDGE_BASE_BLOCK_PREFIXES))
-      return null;
+      {return null;}
     return {
       id: "pkb-context",
       text: buildPkbContextBlock(content),
@@ -138,9 +138,9 @@ const pkbReminderInjector: Injector = {
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
-    if (mode !== "full") return null;
-    if (!isPkbActive(ctx.trust)) return null;
-    if (isPkbInjectionSilenced()) return null;
+    if (mode !== "full") {return null;}
+    if (!isPkbActive(ctx.trust)) {return null;}
+    if (isPkbInjectionSilenced()) {return null;}
     const reminder = await buildPkbReminderWithHints(ctx, runMessages);
     return {
       id: "pkb-reminder",
@@ -277,7 +277,7 @@ async function buildPkbReminderWithHints(
       hints = results
         .filter((r) => {
           const abs = resolve(pkbRoot, r.path);
-          if (inContext.has(abs)) return false;
+          if (inContext.has(abs)) {return false;}
           const threshold = r.path.replace(/\\/g, "/").startsWith("archive/")
             ? PKB_HINT_ARCHIVE_THRESHOLD
             : PKB_HINT_THRESHOLD;
@@ -286,8 +286,8 @@ async function buildPkbReminderWithHints(
         .sort((a, b) => {
           const aHasHybrid = a.hybridScore !== undefined;
           const bHasHybrid = b.hybridScore !== undefined;
-          if (aHasHybrid && !bHasHybrid) return -1;
-          if (!aHasHybrid && bHasHybrid) return 1;
+          if (aHasHybrid && !bHasHybrid) {return -1;}
+          if (!aHasHybrid && bHasHybrid) {return 1;}
           if (aHasHybrid && bHasHybrid) {
             return b.hybridScore! - a.hybridScore!;
           }
@@ -344,16 +344,16 @@ const memoryV2StaticInjector: Injector = {
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
-    if (mode !== "full") return null;
+    if (mode !== "full") {return null;}
     // The consolidation agent reads and rewrites memory/buffer.md through
     // file tools; injecting the buffer section here would duplicate the
     // entire backlog into its context (and go stale as it edits the file).
     const content = readGatedMemoryV2Static(ctx.trust, {
       excludeBuffer: ctx.callSite === "memoryV2Consolidation",
     });
-    if (!content) return null;
+    if (!content) {return null;}
     if (hasInjectedUserTextBlock(runMessages, MEMORY_V2_STATIC_BLOCK_MATCHERS))
-      return null;
+      {return null;}
     return {
       id: "memory-v2-static",
       text: buildMemoryV2StaticBlock(content),

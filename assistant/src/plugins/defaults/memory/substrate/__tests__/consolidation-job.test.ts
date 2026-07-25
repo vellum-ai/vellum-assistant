@@ -299,7 +299,7 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
     );
 
     expect(outcome.kind).toBe("invoked");
-    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    if (outcome.kind !== "invoked") {throw new Error("unreachable");}
     expect(outcome.cutoff).toBe("Apr 27, 9:03 AM");
     expect(outcome.deferredEntries).toBe(2);
     expect(runnerCalls).toBe(1);
@@ -315,7 +315,7 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
     );
 
     expect(outcome.kind).toBe("invoked");
-    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    if (outcome.kind !== "invoked") {throw new Error("unreachable");}
     expect(outcome.deferredEntries).toBe(0);
     // Cutoff is the run-start timestamp, not any buffer entry's.
     expect(outcome.cutoff).not.toBe("Apr 27, 9:03 AM");
@@ -330,7 +330,7 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
     );
 
     expect(outcome.kind).toBe("invoked");
-    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    if (outcome.kind !== "invoked") {throw new Error("unreachable");}
     expect(outcome.deferredEntries).toBe(0);
   });
 
@@ -340,7 +340,7 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
     const outcome = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(outcome.kind).toBe("invoked");
-    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    if (outcome.kind !== "invoked") {throw new Error("unreachable");}
     expect(outcome.deferredEntries).toBe(0);
   });
 
@@ -361,7 +361,7 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
     return memoryV2ConsolidateJob(makeJob(), configWithMaxEntries(2)).then(
       (outcome) => {
         expect(outcome.kind).toBe("invoked");
-        if (outcome.kind !== "invoked") throw new Error("unreachable");
+        if (outcome.kind !== "invoked") {throw new Error("unreachable");}
         expect(outcome.deferredEntries).toBe(0);
         expect(outcome.cutoff).not.toBe("Apr 27, 9:00 AM");
       },
@@ -389,7 +389,7 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
     );
 
     expect(outcome.kind).toBe("invoked");
-    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    if (outcome.kind !== "invoked") {throw new Error("unreachable");}
     expect(outcome.cutoff).toBe("Apr 27, 9:03 AM");
     expect(outcome.deferredEntries).toBe(1);
   });
@@ -414,7 +414,7 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
     );
 
     expect(outcome.kind).toBe("invoked");
-    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    if (outcome.kind !== "invoked") {throw new Error("unreachable");}
     // Two real entries, cap 2 → no chunking, full-buffer cutoff.
     expect(outcome.deferredEntries).toBe(0);
     expect(outcome.cutoff).not.toBe(" ");
@@ -438,7 +438,7 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
     );
 
     expect(outcome.kind).toBe("invoked");
-    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    if (outcome.kind !== "invoked") {throw new Error("unreachable");}
     expect(outcome.deferredEntries).toBe(0);
     expect(outcome.cutoff).not.toBe("Apr 27, 9:01 AM");
   });
@@ -763,7 +763,7 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("invoked");
-    if (result.kind !== "invoked") throw new Error("unreachable");
+    if (result.kind !== "invoked") {throw new Error("unreachable");}
     expect(result.noProgress).toBe(false);
     expect(result.followUpJobIds).toEqual(["job-1"]);
     expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
@@ -781,7 +781,7 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("invoked");
-    if (result.kind !== "invoked") throw new Error("unreachable");
+    if (result.kind !== "invoked") {throw new Error("unreachable");}
     expect(result.noProgress).toBe(false);
     expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
   });
@@ -795,7 +795,7 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("invoked");
-    if (result.kind !== "invoked") throw new Error("unreachable");
+    if (result.kind !== "invoked") {throw new Error("unreachable");}
     expect(result.noProgress).toBe(true);
     expect(result.followUpJobIds).toEqual([]);
     expect(enqueuedJobs).toHaveLength(0);
@@ -815,7 +815,7 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("invoked");
-    if (result.kind !== "invoked") throw new Error("unreachable");
+    if (result.kind !== "invoked") {throw new Error("unreachable");}
     expect(result.noProgress).toBe(true);
     expect(result.followUpJobIds).toEqual([]);
     expect(enqueuedJobs).toHaveLength(0);
@@ -828,7 +828,7 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("invoked");
-    if (result.kind !== "invoked") throw new Error("unreachable");
+    if (result.kind !== "invoked") {throw new Error("unreachable");}
     expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v3_maintain"]);
     expect(result.followUpJobIds).toHaveLength(1);
   });
@@ -841,7 +841,7 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("invoked");
-    if (result.kind !== "invoked") throw new Error("unreachable");
+    if (result.kind !== "invoked") {throw new Error("unreachable");}
     // Dedup is not no-progress: the run drained the buffer; the follow-ups
     // are simply already covered by pending rows.
     expect(result.noProgress).toBe(false);

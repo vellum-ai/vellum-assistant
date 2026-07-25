@@ -401,7 +401,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
  */
 function deleteCapabilityNode(sourceKey: string): void {
   const db = memoryDbOrNull("deleteCapabilityNode");
-  if (!db) return;
+  if (!db) {return;}
   const existing = db
     .select()
     .from(memoryGraphNodes)
@@ -432,7 +432,7 @@ function deleteCapabilityNode(sourceKey: string): void {
  */
 function cleanupOldFormatCapabilityNodes(): void {
   const db = memoryDbOrNull("cleanupOldFormatCapabilityNodes");
-  if (!db) return;
+  if (!db) {return;}
   const now = Date.now();
 
   // --- skill:* old-format nodes ---
@@ -499,7 +499,7 @@ function cleanupOldFormatCapabilityNodes(): void {
  */
 function pruneStaleCapabilities(prefix: string, activeKeys: Set<string>): void {
   const db = memoryDbOrNull("pruneStaleCapabilities");
-  if (!db) return;
+  if (!db) {return;}
   const allCapabilities = db
     .select()
     .from(memoryGraphNodes)

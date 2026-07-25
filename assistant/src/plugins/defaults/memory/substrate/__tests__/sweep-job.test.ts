@@ -168,7 +168,7 @@ function makeEntriesProvider(entries: string[]): Provider {
  */
 function extractFirstUserText(msgs: { content: unknown }[]): string {
   const first = msgs[0];
-  if (!first || !Array.isArray(first.content)) return "";
+  if (!first || !Array.isArray(first.content)) {return "";}
   const block = first.content.find(
     (b: unknown) =>
       typeof b === "object" &&

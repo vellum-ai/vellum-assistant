@@ -48,14 +48,14 @@ import { getLogger } from "./logging.js";
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
 import { skillCardInsertJob } from "./memory-retrospective-skill-card.js";
 import { memoryRetrospectiveSweepJob } from "./memory-retrospective-sweep.js";
+import { memoryV2ConsolidateJob } from "./substrate/consolidation-job.js";
+import { memoryV2SweepJob } from "./substrate/sweep-job.js";
 import {
   memoryV2ActivationRecomputeJob,
   memoryV2MigrateJob,
   memoryV2ReembedJob,
 } from "./v2/backfill-jobs.js";
 import { maintainJob as memoryV3MaintainJob } from "./v3/maintain-job.js";
-import { memoryV2ConsolidateJob } from "./substrate/consolidation-job.js";
-import { memoryV2SweepJob } from "./substrate/sweep-job.js";
 
 const log = getLogger("memory-job-handlers");
 

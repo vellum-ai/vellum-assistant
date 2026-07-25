@@ -5,8 +5,8 @@ import {
   seedUninstalledCatalogSkillMemories,
 } from "../plugins/defaults/memory/graph/capability-seed.js";
 import {
-  maybeSeedCliCommandCards,
   maybeSeedCapabilitySkills,
+  maybeSeedCliCommandCards,
 } from "../plugins/defaults/memory/substrate/boot-maintenance.js";
 import { getLogger } from "../util/logger.js";
 

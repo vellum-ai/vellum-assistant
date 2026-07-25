@@ -81,13 +81,13 @@ export async function getEdgeIndex(workspaceDir: string): Promise<EdgeIndex> {
       } catch {
         return;
       }
-      if (!page) return;
+      if (!page) {return;}
       const out = new Set<string>();
       for (const target of page.frontmatter.edges) {
-        if (target === slug) continue;
+        if (target === slug) {continue;}
         out.add(target);
       }
-      if (out.size > 0) outgoing.set(slug, out);
+      if (out.size > 0) {outgoing.set(slug, out);}
       for (const target of out) {
         ensureSet(incoming, target).add(slug);
       }
@@ -105,7 +105,7 @@ export async function getEdgeIndex(workspaceDir: string): Promise<EdgeIndex> {
  * workspaces); omit it to clear unconditionally.
  */
 export function invalidateEdgeIndex(workspaceDir?: string): void {
-  if (!cache) return;
+  if (!cache) {return;}
   if (workspaceDir === undefined || cache.workspaceDir === workspaceDir) {
     cache = null;
   }
@@ -128,7 +128,7 @@ export function getReachable(
   direction: EdgeDirection,
 ): Set<string> {
   const result = new Set<string>();
-  if (hops <= 0) return result;
+  if (hops <= 0) {return result;}
 
   const adjacency = direction === "out" ? index.outgoing : index.incoming;
   const visited = new Set<string>([slug]);
@@ -138,9 +138,9 @@ export function getReachable(
     const next: string[] = [];
     for (const node of frontier) {
       const neighbors = adjacency.get(node);
-      if (!neighbors) continue;
+      if (!neighbors) {continue;}
       for (const neighbor of neighbors) {
-        if (visited.has(neighbor)) continue;
+        if (visited.has(neighbor)) {continue;}
         visited.add(neighbor);
         result.add(neighbor);
         next.push(neighbor);
@@ -175,7 +175,7 @@ export function validateEdgeTargets(
   for (const from of sources) {
     const targets = [...(index.outgoing.get(from) ?? [])].sort();
     for (const to of targets) {
-      if (!knownSlugs.has(to)) missing.push({ from, to });
+      if (!knownSlugs.has(to)) {missing.push({ from, to });}
     }
   }
   return { ok: missing.length === 0, missing };

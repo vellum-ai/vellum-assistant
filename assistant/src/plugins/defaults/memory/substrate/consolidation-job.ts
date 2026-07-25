@@ -617,7 +617,7 @@ function readBufferContent(bufferPath: string): string {
   try {
     return readFileSync(bufferPath, "utf-8");
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return "";
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {return "";}
     throw err;
   }
 }
@@ -690,9 +690,9 @@ function tryAcquireLock(lockPath: string): string | null {
   mkdirSync(dirname(lockPath), { recursive: true });
 
   const firstHolder = tryCreate(lockPath);
-  if (firstHolder === null) return null;
+  if (firstHolder === null) {return null;}
   const staleReason = holderStaleReason(firstHolder);
-  if (staleReason === null) return firstHolder;
+  if (staleReason === null) {return firstHolder;}
 
   log.info(
     { lockPath, holder: firstHolder, reason: staleReason },
@@ -726,7 +726,7 @@ function tryCreate(lockPath: string): string | null {
   try {
     fd = openSync(lockPath, "wx");
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") {throw err;}
     try {
       return readFileSync(lockPath, "utf-8").trim() || "unknown";
     } catch {
@@ -765,9 +765,9 @@ function parseHolder(
   holder: string,
 ): { pid: number; timestamp: number | null } | null {
   const match = /^(\d+)(?:\s+(\d+))?/.exec(holder);
-  if (!match) return null;
+  if (!match) {return null;}
   const pid = Number.parseInt(match[1], 10);
-  if (!Number.isFinite(pid) || pid <= 0) return null;
+  if (!Number.isFinite(pid) || pid <= 0) {return null;}
   const timestamp =
     match[2] !== undefined ? Number.parseInt(match[2], 10) : null;
   return {
@@ -795,8 +795,8 @@ function parseHolder(
  */
 function holderStaleReason(holder: string): StaleReason | null {
   const parsed = parseHolder(holder);
-  if (parsed === null) return "unparseable";
-  if (!isProcessAlive(parsed.pid)) return "pid_dead";
+  if (parsed === null) {return "unparseable";}
+  if (!isProcessAlive(parsed.pid)) {return "pid_dead";}
   if (
     parsed.timestamp !== null &&
     Date.now() - parsed.timestamp > STALE_LOCK_TTL_MS
@@ -817,7 +817,7 @@ function releaseLock(lockPath: string): void {
     unlinkSync(lockPath);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") return;
+    if (code === "ENOENT") {return;}
     log.warn(
       { err, lockPath },
       "consolidation: failed to release lock (best-effort)",

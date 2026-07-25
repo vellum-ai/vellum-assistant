@@ -67,7 +67,7 @@ mock.module("../plugins/defaults/memory/substrate/skill-store.js", () => ({
   }): Promise<void> => {
     state.seedCallCount += 1;
     state.seedCallOpts.push(opts);
-    if (state.seedShouldReject) throw state.seedShouldReject;
+    if (state.seedShouldReject) {throw state.seedShouldReject;}
   },
 }));
 
@@ -84,7 +84,7 @@ mock.module(
 mock.module("../plugins/defaults/memory/substrate/qdrant.js", () => ({
   ensureConceptPageCollection: async (): Promise<{ migrated: boolean }> => {
     state.ensureCollectionCallCount += 1;
-    if (state.ensureCollectionThrows) throw state.ensureCollectionThrows;
+    if (state.ensureCollectionThrows) {throw state.ensureCollectionThrows;}
     return state.ensureCollectionResult;
   },
   countConceptPagePoints: async (): Promise<number> => state.countResult,
@@ -104,7 +104,7 @@ mock.module("../plugins/defaults/memory/substrate/page-store.js", () => ({
 mock.module("../plugins/defaults/memory/substrate/sparse-bm25.js", () => ({
   rebuildConceptPageCorpusStats: async (): Promise<void> => {
     state.corpusStatsBuildCount += 1;
-    if (state.corpusStatsThrows) throw state.corpusStatsThrows;
+    if (state.corpusStatsThrows) {throw state.corpusStatsThrows;}
   },
 }));
 
