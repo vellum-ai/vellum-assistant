@@ -27,7 +27,7 @@ const enqueueCalls: Array<{
 }> = [];
 let enqueueThrows = false;
 
-mock.module("../plugins/defaults/memory/jobs/embed-pkb-file.js", () => ({
+mock.module("../plugins/defaults/memory/v1/jobs/embed-pkb-file.js", () => ({
   enqueuePkbIndexJob: (input: { pkbRoot: string; absPath: string }) => {
     if (enqueueThrows) {
       throw new Error("simulated enqueue failure");

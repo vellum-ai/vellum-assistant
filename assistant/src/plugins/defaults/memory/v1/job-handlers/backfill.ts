@@ -1,19 +1,19 @@
 import { parseMessageMetadata } from "@vellumai/plugin-api";
 import { and, asc, eq, gt, or } from "drizzle-orm";
 
-import type { AssistantConfig } from "../../../../config/types.js";
+import type { AssistantConfig } from "../../../../../config/types.js";
 import {
   readMessageCursorCheckpoint,
   resetMessageCursorCheckpoint,
   writeMessageCursorCheckpoint,
-} from "../../../../persistence/checkpoints.js";
-import { getDb } from "../../../../persistence/db-connection.js";
+} from "../../../../../persistence/checkpoints.js";
+import { getDb } from "../../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
-} from "../../../../persistence/jobs-store.js";
-import { messages } from "../../../../persistence/schema/index.js";
-import { indexMessageNow } from "../indexer.js";
+} from "../../../../../persistence/jobs-store.js";
+import { messages } from "../../../../../persistence/schema/index.js";
+import { indexMessageNow } from "../../indexer.js";
 
 const BACKFILL_CHECKPOINT_KEY = "memory:backfill:last_created_at";
 const BACKFILL_CHECKPOINT_ID_KEY = "memory:backfill:last_message_id";

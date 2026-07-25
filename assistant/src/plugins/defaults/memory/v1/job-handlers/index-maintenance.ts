@@ -4,16 +4,16 @@ import {
 } from "@vellumai/plugin-api";
 import { and, eq, isNotNull, like, ne } from "drizzle-orm";
 
-import { getDb } from "../../../../persistence/db-connection.js";
-import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
+import { getDb } from "../../../../../persistence/db-connection.js";
+import { withQdrantBreaker } from "../../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import {
   asString,
   requireQdrantClient,
-} from "../../../../persistence/job-utils.js";
+} from "../../../../../persistence/job-utils.js";
 import {
   enqueueMemoryJob,
   type MemoryJob,
-} from "../../../../persistence/jobs-store.js";
+} from "../../../../../persistence/jobs-store.js";
 import {
   mediaAssets,
   memoryEmbeddings,
@@ -22,10 +22,10 @@ import {
   memorySegments,
   memorySummaries,
   messages,
-} from "../../../../persistence/schema/index.js";
-import { getLogger } from "../logging.js";
-import { memoryDbOrNull } from "../memory-db.js";
-import { extractMediaBlockMeta } from "../message-media.js";
+} from "../../../../../persistence/schema/index.js";
+import { getLogger } from "../../logging.js";
+import { memoryDbOrNull } from "../../memory-db.js";
+import { extractMediaBlockMeta } from "../../message-media.js";
 
 const log = getLogger("memory-jobs-worker");
 

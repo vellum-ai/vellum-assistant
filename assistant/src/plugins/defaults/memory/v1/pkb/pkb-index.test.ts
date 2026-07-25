@@ -12,7 +12,7 @@ const embedAndUpsertCalls: Array<{
   extraPayload: unknown;
 }> = [];
 
-mock.module("../../../../persistence/job-utils.js", () => ({
+mock.module("../../../../../persistence/job-utils.js", () => ({
   embedAndUpsert: async (
     config: unknown,
     targetType: string,
@@ -53,7 +53,7 @@ const qdrantScrollCalls: Array<{
   path?: string;
 }> = [];
 
-mock.module("../../../../persistence/embeddings/qdrant-client.js", () => ({
+mock.module("../../../../../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     deleteByTargetTypeAndPath: async (targetType: string, path: string) => {
       qdrantDeleteCalls.push({ targetType, path });
@@ -80,7 +80,7 @@ mock.module("../../../../persistence/embeddings/qdrant-client.js", () => ({
 
 // The circuit breaker is a thin wrapper; just call the function through.
 mock.module(
-  "../../../../persistence/embeddings/qdrant-circuit-breaker.js",
+  "../../../../../persistence/embeddings/qdrant-circuit-breaker.js",
   () => ({
     withQdrantBreaker: async <T>(fn: () => Promise<T>) => fn(),
   }),

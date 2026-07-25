@@ -2,18 +2,18 @@
 // PKB — Qdrant hybrid search for indexed PKB markdown files
 // ---------------------------------------------------------------------------
 
-import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
+import { usesConceptPageMemory } from "../../../../../config/memory-v3-gate.js";
 import {
   isQdrantBreakerOpen,
   withQdrantBreaker,
-} from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
+} from "../../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import type {
   QdrantSearchResult,
   QdrantSparseVector,
-} from "../../../../persistence/embeddings/qdrant-client.js";
-import { getQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
-import { getMemoryConfig } from "../config.js";
-import { getLogger } from "../logging.js";
+} from "../../../../../persistence/embeddings/qdrant-client.js";
+import { getQdrantClient } from "../../../../../persistence/embeddings/qdrant-client.js";
+import { getMemoryConfig } from "../../config.js";
+import { getLogger } from "../../logging.js";
 import type { PkbSearchResult } from "./types.js";
 import { PKB_TARGET_TYPE } from "./types.js";
 

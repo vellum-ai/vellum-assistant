@@ -37,11 +37,11 @@ import { getMemoryConfig } from "./config.js";
 import { getLiveGraphMemory } from "./graph/conversation-graph-memory.js";
 import { getLogger } from "./logging.js";
 import { getSandboxWorkingDir } from "./paths.js";
-import { getPkbAutoInjectList } from "./pkb/autoinject.js";
-import { readPkbContext } from "./pkb/context.js";
-import { searchPkbFiles } from "./pkb/pkb-search.js";
-import { getPkbRoot } from "./pkb/types.js";
 import { readMemoryV2StaticContent } from "./substrate/static-context.js";
+import { getPkbAutoInjectList } from "./v1/pkb/autoinject.js";
+import { readPkbContext } from "./v1/pkb/context.js";
+import { searchPkbFiles } from "./v1/pkb/pkb-search.js";
+import { getPkbRoot } from "./v1/pkb/types.js";
 
 const pkbReminderLog = getLogger("pkb-reminder");
 

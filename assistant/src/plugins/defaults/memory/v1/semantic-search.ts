@@ -14,7 +14,7 @@ import {
 } from "../../../../persistence/schema/index.js";
 import { getMemoryConfig } from "../config.js";
 import { mapCosineToUnit } from "../validation.js";
-// ── Types (inlined from deleted types.ts) ──────────────────────────
+// ── Types ──────────────────────────────────────────────────────────
 
 type CandidateType = "segment" | "item" | "summary" | "media";
 

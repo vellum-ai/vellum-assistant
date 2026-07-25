@@ -23,9 +23,9 @@ import {
   messages,
 } from "../../../../persistence/schema/index.js";
 import { BackendUnavailableError } from "../host-utils.js";
-import { buildIdentityContext } from "../identity-context.js";
 import { extractToolUse, userMessage } from "../llm-helpers.js";
 import { getLogger } from "../logging.js";
+import { buildIdentityContext } from "../v1/identity-context.js";
 import {
   enqueueGraphNodeEmbed,
   enqueueGraphTriggerEmbed,
