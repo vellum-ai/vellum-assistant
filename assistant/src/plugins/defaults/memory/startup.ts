@@ -185,7 +185,8 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
     if (!usesConceptPageMemory(config.memory)) {
       void (async () => {
         try {
-          const { reconcilePkbIndex } = await import("./pkb/pkb-reconcile.js");
+          const { reconcilePkbIndex } =
+            await import("./v1/pkb/pkb-reconcile.js");
           const pkbRoot = join(getWorkspaceDir(), "pkb");
           await reconcilePkbIndex(pkbRoot);
         } catch (err) {

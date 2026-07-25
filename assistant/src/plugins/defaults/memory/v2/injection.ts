@@ -25,10 +25,6 @@
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getLogger } from "../logging.js";
-import {
-  type MemoryV2ConceptRowRecord,
-  recordMemoryV2ActivationLog,
-} from "../memory-v2-activation-log-store.js";
 import { getWorkspaceDir } from "../paths.js";
 import {
   getCliCommandCapability,
@@ -45,6 +41,10 @@ import {
   selectInjections,
   spreadActivation,
 } from "./activation.js";
+import {
+  type MemoryV2ConceptRowRecord,
+  recordMemoryV2ActivationLog,
+} from "./activation-log-store.js";
 import { hydrate, save } from "./activation-store.js";
 import { recordInjectionEvents } from "./injection-events.js";
 import { type RouterTurnPair, runRouter } from "./router.js";

@@ -22,7 +22,7 @@ const backendState = {
   shouldThrow: false,
   calls: [] as Array<{ queries: string[]; passages: string[] }>,
 };
-mock.module("../../rerank-local.js", () => ({
+mock.module("../rerank-local.js", () => ({
   getOrCreateRerankBackend: (_model: string, _dtype: string) => ({
     score: async (queries: string[], passages: string[]): Promise<number[]> => {
       backendState.calls.push({
@@ -294,7 +294,7 @@ describe("rerankCandidates", () => {
     const dtypes: string[] = [];
 
     // Re-mock the factory just for this test to capture the dtype arg.
-    mock.module("../../rerank-local.js", () => ({
+    mock.module("../rerank-local.js", () => ({
       getOrCreateRerankBackend: (_model: string, dtype: string) => {
         dtypes.push(dtype);
         return {

@@ -1,7 +1,7 @@
 import { v4 as uuid } from "uuid";
 
-import { getLogger } from "./logging.js";
-import { memorySqliteOrNull } from "./memory-db.js";
+import { getLogger } from "../logging.js";
+import { memorySqliteOrNull } from "../memory-db.js";
 
 const log = getLogger("memory-v2-activation-log-store");
 

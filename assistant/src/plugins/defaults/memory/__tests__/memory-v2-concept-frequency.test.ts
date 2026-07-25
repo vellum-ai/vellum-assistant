@@ -18,8 +18,8 @@ import * as schema from "../../../../persistence/schema/index.js";
 import {
   type MemoryV2ConceptRowRecord,
   recordMemoryV2ActivationLog,
-} from "../memory-v2-activation-log-store.js";
-import { getConceptFrequencySummary } from "../memory-v2-concept-frequency.js";
+} from "../v2/activation-log-store.js";
+import { getConceptFrequencySummary } from "../v2/concept-frequency.js";
 import { sampleConfig } from "./fixtures/memory-v2-activation-fixtures.js";
 
 // The store and aggregator resolve the dedicated memory connection through

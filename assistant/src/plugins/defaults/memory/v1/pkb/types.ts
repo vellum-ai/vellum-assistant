@@ -1,13 +1,11 @@
 /**
- * Shared types and constants for PKB (Personal Knowledge Base) indexing.
- *
- * Scaffolding for upcoming PKB Qdrant indexing work — consumers (search,
- * index writer) land in later PRs.
+ * Shared types and constants for PKB (Personal Knowledge Base) indexing —
+ * consumed by the index writer (`pkb-index.ts`) and search (`pkb-search.ts`).
  */
 
 import { join } from "node:path";
 
-import { getWorkspaceDir } from "../paths.js";
+import { getWorkspaceDir } from "../../paths.js";
 
 export const PKB_TARGET_TYPE = "pkb_file" as const;
 

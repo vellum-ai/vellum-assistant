@@ -68,13 +68,13 @@ import {
 import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { getWorkspaceDir } from "./paths.js";
-import { hasPkbBufferContent } from "./pkb-schedule.js";
 import {
   type ConsolidationFailureKind,
   countBufferLines,
   readConsolidationFailureState,
 } from "./substrate/consolidation-job.js";
 import { resolveSubstrateTuning } from "./substrate/tuning.js";
+import { hasPkbBufferContent } from "./v1/pkb-schedule.js";
 import { spawnMemoryWorkerProcess } from "./worker-control.js";
 
 const log = getLogger("memory-jobs-worker");

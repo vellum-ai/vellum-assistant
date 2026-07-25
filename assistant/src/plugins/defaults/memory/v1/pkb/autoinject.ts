@@ -10,7 +10,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { stripCommentLines } from "../host-utils.js";
+import { stripCommentLines } from "../../host-utils.js";
 
 const PKB_DEFAULT_FILES = [
   "INDEX.md",

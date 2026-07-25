@@ -19,15 +19,15 @@ import {
   test,
 } from "bun:test";
 
-import { createMockLoggerModule } from "../../../../__tests__/helpers/mock-logger.js";
+import { createMockLoggerModule } from "../../../../../__tests__/helpers/mock-logger.js";
 
-mock.module("../../../../util/logger.js", () => createMockLoggerModule());
+mock.module("../../../../../util/logger.js", () => createMockLoggerModule());
 
 const runBackgroundJobMock = mock(
   async (_opts: Record<string, unknown>) =>
     ({ ok: true, conversationId: "conv-filing-test" }) as const,
 );
-mock.module("../../../../runtime/background-job-runner.js", () => ({
+mock.module("../../../../../runtime/background-job-runner.js", () => ({
   runBackgroundJob: (opts: Record<string, unknown>) =>
     runBackgroundJobMock(opts),
 }));
@@ -54,7 +54,7 @@ afterAll(() => {
 
 const { pkbCompactionJob, pkbFilingJob } = await import("../filing-jobs.js");
 
-import type { MemoryJob } from "../../../../persistence/jobs-store.js";
+import type { MemoryJob } from "../../../../../persistence/jobs-store.js";
 
 function makeJob(payload: Record<string, unknown> = {}): MemoryJob {
   return {

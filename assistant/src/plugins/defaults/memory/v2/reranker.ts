@@ -5,8 +5,8 @@ import { createHash } from "node:crypto";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
-import { getOrCreateRerankBackend } from "../rerank-local.js";
 import { readPage } from "../substrate/page-store.js";
+import { getOrCreateRerankBackend } from "./rerank-local.js";
 
 const log = getLogger("memory-v2-reranker");
 

@@ -21,10 +21,6 @@ import { RouteError } from "../../../../runtime/routes/errors.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
 import type { RouteHandlerArgs } from "../../../../runtime/routes/types.js";
 import { getLogger } from "../logging.js";
-import {
-  type ConceptFrequencyResponse,
-  getConceptFrequencySummary,
-} from "../memory-v2-concept-frequency.js";
 import { getWorkspaceDir } from "../paths.js";
 import {
   getEdgeIndex,
@@ -40,6 +36,10 @@ import {
 } from "../substrate/page-store.js";
 import { seedV2SkillEntries } from "../substrate/skill-store.js";
 import { resolveSubstrateTuning } from "../substrate/tuning.js";
+import {
+  type ConceptFrequencyResponse,
+  getConceptFrequencySummary,
+} from "../v2/concept-frequency.js";
 import { runComparisonOverHistory } from "../v2/harness/compare.js";
 import type { Retriever } from "../v2/harness/retriever.js";
 import { createRouterRetriever } from "../v2/harness/router-retriever.js";
