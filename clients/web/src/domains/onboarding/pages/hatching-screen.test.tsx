@@ -106,9 +106,19 @@ const hatchAssistantMock = mock(async () => ({
   data: { id: "asst-1", status: "provisioning" },
 }));
 
-const ensureProvisionedMock = mock(async () => ({
-  data: { state: "started", reason: null, targets: {} },
-}));
+// How many leading reconcile calls resolve with NO data — a 503 "nothing
+// queued" / network blip under throwOnError:false — before one succeeds. 0 =
+// always succeed. Infinity = never succeeds.
+let ensureProvisionedFailFirstN = 0;
+let ensureProvisionedCallCount = 0;
+
+const ensureProvisionedMock = mock(async () => {
+  ensureProvisionedCallCount += 1;
+  if (ensureProvisionedCallCount <= ensureProvisionedFailFirstN) {
+    return { data: undefined };
+  }
+  return { data: { state: "started", reason: null, targets: {} } };
+});
 
 const onboardingRetrieveMock = mock(async () => {
   if (onboardingThrows) {
@@ -361,6 +371,8 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     resizePollClockStepMs = 0;
     subscriptionCallCount = 0;
     subscriptionPollClockStepMs = 0;
+    ensureProvisionedFailFirstN = 0;
+    ensureProvisionedCallCount = 0;
     onboardingThrows = false;
     onboardingData = null;
     currentAssistant = {
@@ -665,6 +677,95 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
       await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
         timeout: 15000,
       });
+    },
+    20000,
+  );
+
+  test(
+    "a reconcile that fails on the first attempt re-fires on a later poll and provisioning proceeds",
+    async () => {
+      subscriptionPlanId = "pro";
+      onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
+      // The first reconcile fails (a 503 "nothing queued" resolves with no data
+      // under throwOnError:false); a failed reconcile must not permanently
+      // consume the fire-once guard, so a later poll re-fires it and it lands.
+      ensureProvisionedFailFirstN = 1;
+      // Actuals already sit at the ceiling so the resize completes promptly once
+      // the reconcile lands.
+      currentAssistant.machine_size = "extra_large";
+      currentAssistant.provisioned_storage_gib = 50;
+
+      render(<HatchingScreen />);
+
+      // The reconcile is re-fired after the first failure (called more than once).
+      await waitFor(
+        () =>
+          expect(
+            ensureProvisionedMock.mock.calls.length,
+          ).toBeGreaterThanOrEqual(2),
+        { timeout: 15000 },
+      );
+      // Provisioning still converges and the screen completes.
+      await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+        timeout: 15000,
+      });
+    },
+    20000,
+  );
+
+  test(
+    "a persistently-failing reconcile still completes at the hard cap",
+    async () => {
+      subscriptionPlanId = "pro";
+      onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
+      // The reconcile never succeeds (always resolves with no data), so it
+      // re-fires on every poll — but the RESIZE_WAIT_MAX_MS cap is the ultimate
+      // escape so the user is never trapped.
+      ensureProvisionedFailFirstN = Number.POSITIVE_INFINITY;
+      // Actuals stay below the ceiling; the resize poll jumps the clock past the
+      // cap so completion falls through at baseline.
+      resizePollClockStepMs = 91_000;
+
+      render(<HatchingScreen />);
+
+      await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+        timeout: 15000,
+      });
+      // Re-fired more than once before the cap released it.
+      expect(ensureProvisionedMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+      // Completion came from the cap, not convergence.
+      expect(currentAssistant.machine_size).toBe("small");
+    },
+    20000,
+  );
+
+  test(
+    "the resize deadline expiring while still in flight still health-probes before completing",
+    async () => {
+      subscriptionPlanId = "pro";
+      onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
+      // The resize never converges: the operation reads as perpetually in
+      // flight, so the loop can exit only via the RESIZE_WAIT_MAX_MS cap. Even
+      // on that deadline-expiry path a healthz probe must run before completion
+      // so the user is never routed onto a pod mid-restart.
+      currentAssistant.machine_size = "extra_large";
+      currentAssistant.provisioned_storage_gib = 50;
+      opStatusInFlight = true;
+      // The resize poll jumps the clock past the cap so the deadline fires
+      // without a real 90s wait.
+      resizePollClockStepMs = 91_000;
+
+      render(<HatchingScreen />);
+
+      await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+        timeout: 15000,
+      });
+      // The connecting phase probes healthz once; the post-resize probe on the
+      // deadline path is the second — proving completion went through a health
+      // check even when the cap fired.
+      expect(
+        getAssistantHealthzMock.mock.calls.length,
+      ).toBeGreaterThanOrEqual(2);
     },
     20000,
   );

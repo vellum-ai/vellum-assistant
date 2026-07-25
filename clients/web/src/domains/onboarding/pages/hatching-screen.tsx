@@ -513,17 +513,31 @@ export function HatchingScreen() {
     const awaitPurchasedProvisioning = async (
       assistantId: string,
     ): Promise<void> => {
-      // Fire the idempotent reconcile exactly once. It submits the same grow-only
-      // resize the subscribe webhook triggers, covering a webhook that never
-      // fired or whose resize was lost. A failure here never blocks hatching.
-      if (!provisioningReconcileFiredRef.current) {
-        provisioningReconcileFiredRef.current = true;
+      // Fire the idempotent grow-only reconcile — the same resize the subscribe
+      // webhook triggers — covering a webhook that never fired or whose resize
+      // was lost. It is marked done only when it SUCCEEDS: a 503 ("nothing
+      // queued"), a network error, or a pre-org-hydration mount leaves the guard
+      // unset so a later poll iteration re-fires the nudge. It never blocks
+      // completion (which keys off targets + op-status); the re-fires stay
+      // bounded by the RESIZE_WAIT_MAX_MS cap below.
+      const fireProvisioningReconcile = (): void => {
+        if (provisioningReconcileFiredRef.current) {
+          return;
+        }
         void organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate({
           throwOnError: false,
-        }).catch(() => {
-          // Fire-and-forget: the server converges the resize on its own.
-        });
-      }
+        })
+          .then((result) => {
+            // Success carries a body; a 503/5xx resolves with no data under
+            // throwOnError:false. Only a real success consumes the guard.
+            if (result.data != null) {
+              provisioningReconcileFiredRef.current = true;
+            }
+          })
+          .catch(() => {
+            // Network/thrown error: leave the guard unset to re-fire on a later poll.
+          });
+      };
 
       // The cap covers both waits below — the entitlement/targets confirmation
       // and the resize itself — so a lagging subscription can never hold the
@@ -538,6 +552,9 @@ export function HatchingScreen() {
       // the cap instead of completing at baseline.
       let targets: ProvisioningDimensions | null = null;
       while (!cancelled) {
+        // Re-fire the reconcile until it succeeds (or the cap): a failed first
+        // attempt must not permanently consume the guard.
+        fireProvisioningReconcile();
         // Tri-state entitlement read. Only a CONFIRMED non-Pro plan — a
         // successful response whose plan_id is definitively not "pro" —
         // completes early. An unknown result (a thrown error, or a 5xx that
@@ -614,6 +631,9 @@ export function HatchingScreen() {
       transitionPhase("resizing");
 
       while (!cancelled) {
+        // Keep nudging the resize in case the reconcile hasn't landed yet; the
+        // guard stops the re-fire once it succeeds.
+        fireProvisioningReconcile();
         let actuals: ProvisioningDimensions | null = null;
         try {
           const actualsResult = await getAssistant(assistantId);
@@ -660,8 +680,10 @@ export function HatchingScreen() {
           break;
         }
         if (Date.now() >= resizeDeadline) {
-          // Cap reached: proceed at baseline; the server reconciles later.
-          return;
+          // Cap reached: stop waiting for the resize but still fall through to
+          // the healthz probe below, so completion never routes onto a pod
+          // mid-restart. The server reconciles the remaining resize later.
+          break;
         }
         await new Promise<void>((resolve) => {
           pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
@@ -672,8 +694,9 @@ export function HatchingScreen() {
         return;
       }
 
-      // The resize restarts the pod, so re-probe healthz before completing to
-      // avoid landing on a mid-restart daemon.
+      // The resize restarts the pod, so re-probe healthz before completing —
+      // on both the converged and the cap-expiry exit above — to avoid landing
+      // on a mid-restart daemon.
       while (!cancelled) {
         try {
           const health = await getAssistantHealthz(assistantId);
