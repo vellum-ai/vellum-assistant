@@ -34,6 +34,12 @@ const SUBSTRATE_KEY_PAIRS: ReadonlyArray<{
   v2Key: string;
   substrateKey: string;
   shippedDefault: number | boolean | string | null | typeof NO_DEFAULT;
+  /**
+   * Additional values the loader has seeded as this key's default in earlier
+   * releases (multi-default keys, mirroring migration 119). A persisted value
+   * matching any of them is seeded, not a user override.
+   */
+  priorDefaults?: ReadonlyArray<number | boolean | string | null>;
 }> = [
   {
     v2Key: "sweep_enabled",
@@ -57,7 +63,13 @@ const SUBSTRATE_KEY_PAIRS: ReadonlyArray<{
     shippedDefault: NO_DEFAULT,
   },
   { v2Key: "bm25_k1", substrateKey: "bm25_k1", shippedDefault: 1.2 },
-  { v2Key: "bm25_b", substrateKey: "bm25_b", shippedDefault: 0.4 },
+  {
+    v2Key: "bm25_b",
+    substrateKey: "bm25_b",
+    shippedDefault: 0.4,
+    // Workspaces seeded before migration 075 carry the earlier 0.75 default.
+    priorDefaults: [0.75],
+  },
   {
     v2Key: "consolidation_interval_hours",
     substrateKey: "consolidation_interval_hours",
@@ -175,14 +187,24 @@ export const copySubstrateTunablesMigration: WorkspaceMigration = {
       : {};
 
     let copied = false;
-    for (const { v2Key, substrateKey, shippedDefault } of SUBSTRATE_KEY_PAIRS) {
+    for (const {
+      v2Key,
+      substrateKey,
+      shippedDefault,
+      priorDefaults,
+    } of SUBSTRATE_KEY_PAIRS) {
       if (!(v2Key in v2) || substrateKey in substrate) {
         continue;
       }
-      // A persisted value equal to the shipped default is loader-seeded, not a
-      // user override — skip it so the substrate namespace stays override-only.
-      // Strict equality suffices: every tunable value is a primitive or null.
-      if (shippedDefault !== NO_DEFAULT && v2[v2Key] === shippedDefault) {
+      // A persisted value equal to a shipped default (current or from an
+      // earlier release) is loader-seeded, not a user override — skip it so
+      // the substrate namespace stays override-only. Strict equality
+      // suffices: every tunable value is a primitive or null.
+      const value = v2[v2Key];
+      if (shippedDefault !== NO_DEFAULT && value === shippedDefault) {
+        continue;
+      }
+      if (priorDefaults?.some((seeded) => seeded === value)) {
         continue;
       }
       substrate[substrateKey] = v2[v2Key];

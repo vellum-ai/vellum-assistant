@@ -225,6 +225,20 @@ describe("135-copy-substrate-tunables", () => {
     expect(memory().substrate).toEqual({ ann_candidate_limit: 500 });
   });
 
+  test("skips bm25_b values seeded by the earlier 0.75 default (multi-default key)", () => {
+    write({
+      memory: {
+        v2: { bm25_b: 0.75, bm25_k1: 1.5 },
+      },
+    });
+
+    MIG.run(workspaceDir);
+
+    // 0.75 matches the pre-migration-075 shipped default and is seeded, not a
+    // user override; the tuned bm25_k1 still copies.
+    expect(memory().substrate).toEqual({ bm25_k1: 1.5 });
+  });
+
   test("copies the no-default spread keys on presence alone", () => {
     // min_sparse_spread / full_sparse_spread ship with no schema default, so
     // the loader never seeds them — raw presence IS user intent.
