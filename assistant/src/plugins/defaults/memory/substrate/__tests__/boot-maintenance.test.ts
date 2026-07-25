@@ -17,10 +17,15 @@
  *   in-flight `memory_v2_reembed` job.
  *
  * Dynamic-imported collaborators are mocked; `bun:test` isolates
- * `mock.module` per test file. The reseed describe uses the module-scope
- * mocks below; the rebuild describe retargets the shared jobs-store
- * delegates and installs its own collaborator mocks per test via
- * `withMocks`, so it must stay declared after the reseed describe.
+ * `mock.module` per test file. Every collaborator mock is installed at module
+ * scope, BEFORE the first import of the module under test, behind swappable
+ * delegate objects; tests retarget delegates instead of calling `mock.module`
+ * mid-file. This ordering is load-bearing: `mock.module` on a module that has
+ * already been evaluated is not reliably re-linked for a subsequent dynamic
+ * import across bun versions (CI's bun served the real, cached
+ * `qdrant.js` — pulled in via the real `embedding-reconcile.js` import graph —
+ * to the first rebuild test even after `mock.module` ran). Module-scope
+ * registration means the real collaborators never load at all.
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
@@ -35,10 +40,9 @@ const enqueueJob = mock(
 );
 
 /**
- * Swappable delegates behind the single jobs-store module mock. A module
- * namespace's export set is fixed at instantiation, so both exports are
- * declared up front and `withMocks` retargets the delegates instead of
- * re-installing the mock.
+ * Swappable delegates behind the module-scope mocks. A module namespace's
+ * export set is fixed at instantiation, so every export is declared up front
+ * and `withMocks` retargets the delegates instead of re-installing a mock.
  */
 const jobsStoreDelegates: {
   enqueueMemoryJob: (type: string, payload: Record<string, unknown>) => unknown;
@@ -46,6 +50,22 @@ const jobsStoreDelegates: {
 } = {
   enqueueMemoryJob: enqueueJob,
   hasActiveJobOfType: () => false,
+};
+
+const qdrantDelegates: {
+  ensureConceptPageCollection: () => Promise<{ migrated: boolean }>;
+  countConceptPagePoints: () => Promise<number>;
+  clearReembedSentinel: () => Promise<void>;
+} = {
+  ensureConceptPageCollection: async () => ({ migrated: false }),
+  countConceptPagePoints: async () => 0,
+  clearReembedSentinel: async () => {},
+};
+
+const pageStoreDelegates: {
+  hasConceptPages: (workspaceDir: string) => Promise<boolean>;
+} = {
+  hasConceptPages: async () => true,
 };
 
 mock.module("../../../../../providers/platform-proxy/context.js", () => ({
@@ -78,8 +98,31 @@ mock.module("../cli-command-store.js", () => ({
   seedV2CliCommandEntries: seedCli,
 }));
 
-const { maybeReseedCapabilitiesAfterManagedCredential } =
-  await import("../boot-maintenance.js");
+mock.module("../qdrant.js", () => ({
+  ensureConceptPageCollection: () =>
+    qdrantDelegates.ensureConceptPageCollection(),
+  countConceptPagePoints: () => qdrantDelegates.countConceptPagePoints(),
+  clearReembedSentinel: () => qdrantDelegates.clearReembedSentinel(),
+  dropLegacySkillsCollection: async () => {},
+}));
+
+mock.module("../page-store.js", () => ({
+  hasConceptPages: (workspaceDir: string) =>
+    pageStoreDelegates.hasConceptPages(workspaceDir),
+}));
+
+// The real embedding-reconcile statically imports the real `../qdrant.js`
+// (among a large daemon graph); mocking it keeps that graph out of the module
+// cache entirely. No test here asserts on the reconcile itself — the reseed
+// path contains its failures by contract.
+mock.module("../../../../../daemon/embedding-reconcile.js", () => ({
+  reconcileEmbeddingIdentity: async () => {},
+}));
+
+const {
+  maybeRebuildConceptCollection,
+  maybeReseedCapabilitiesAfterManagedCredential,
+} = await import("../boot-maintenance.js");
 
 function configWithV2(enabled: boolean): AssistantConfig {
   return { memory: { v2: { enabled } } } as unknown as AssistantConfig;
@@ -229,17 +272,17 @@ describe("maybeReseedCapabilitiesAfterManagedCredential", () => {
 });
 
 /**
- * Retarget the jobs-store delegates and install the mocks for the other
- * collaborator modules `maybeRebuildConceptCollection` pulls in, then
- * re-import the module under test so its dynamic imports resolve to the
- * freshly-mocked collaborators. Returns the spies plus the re-imported
- * function.
+ * Retarget the module-scope delegates at fresh spies for one
+ * `maybeRebuildConceptCollection` test and return them.
  *
  * Drives the empty-after-create branch (collection not migrated, zero points,
  * pages on disk) so the reembed enqueue decision is reached, and lets the test
  * choose whether a `memory_v2_reembed` job is already in-flight.
+ * `hasConceptPages` ignores its workspace-dir argument, so the real
+ * `getWorkspaceDir()` (resolving to the preload's per-test temp workspace)
+ * needs no mock.
  */
-async function withMocks(opts: { reembedInFlight: boolean }) {
+function withMocks(opts: { reembedInFlight: boolean }) {
   const spies = {
     enqueueMemoryJob: mock(() => "job-id"),
     hasActiveJobOfType: mock(
@@ -253,32 +296,18 @@ async function withMocks(opts: { reembedInFlight: boolean }) {
 
   jobsStoreDelegates.enqueueMemoryJob = spies.enqueueMemoryJob;
   jobsStoreDelegates.hasActiveJobOfType = spies.hasActiveJobOfType;
-  mock.module("../qdrant.js", () => ({
-    ensureConceptPageCollection: spies.ensureConceptPageCollection,
-    countConceptPagePoints: spies.countConceptPagePoints,
-    clearReembedSentinel: spies.clearReembedSentinel,
-  }));
-  mock.module("../page-store.js", () => ({
-    hasConceptPages: spies.hasConceptPages,
-  }));
-  const realPlatform = await import("../../../../../util/platform.js");
-  mock.module("../../../../../util/platform.js", () => ({
-    ...realPlatform,
-    getWorkspaceDir: () => "/tmp/workspace",
-  }));
+  qdrantDelegates.ensureConceptPageCollection =
+    spies.ensureConceptPageCollection;
+  qdrantDelegates.countConceptPagePoints = spies.countConceptPagePoints;
+  qdrantDelegates.clearReembedSentinel = spies.clearReembedSentinel;
+  pageStoreDelegates.hasConceptPages = spies.hasConceptPages;
 
-  const mod = await import("../boot-maintenance.js");
-  return {
-    spies,
-    maybeRebuildConceptCollection: mod.maybeRebuildConceptCollection,
-  };
+  return spies;
 }
 
 describe("maybeRebuildConceptCollection reembed dedup", () => {
   test("does NOT enqueue a second reembed when one is already in-flight", async () => {
-    const { spies, maybeRebuildConceptCollection } = await withMocks({
-      reembedInFlight: true,
-    });
+    const spies = withMocks({ reembedInFlight: true });
 
     await maybeRebuildConceptCollection(configWithV2(true));
 
@@ -289,9 +318,7 @@ describe("maybeRebuildConceptCollection reembed dedup", () => {
   });
 
   test("enqueues the reembed when none is in-flight", async () => {
-    const { spies, maybeRebuildConceptCollection } = await withMocks({
-      reembedInFlight: false,
-    });
+    const spies = withMocks({ reembedInFlight: false });
 
     await maybeRebuildConceptCollection(configWithV2(true));
 
