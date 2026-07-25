@@ -17,7 +17,10 @@ import {
   type SkillSummary,
 } from "../../../../config/skills.js";
 import { getDb } from "../../../../persistence/db-connection.js";
-import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
+import {
+  enqueueMemoryJob,
+  upsertEmbedGraphNodeJob,
+} from "../../../../persistence/jobs-store.js";
 import {
   memoryEmbeddings,
   memoryGraphNodes,
@@ -261,8 +264,12 @@ function buildSkillContent(input: SkillCapabilityInput): string {
  * concept-page memory is active gets no embed row, so when the assistant
  * runs under v1 the unchanged-content short-circuit alone would leave its
  * v1 Qdrant point missing. One indexed `memory_embeddings` prefix lookup
- * per capability node, on the v1 path only. Fail-open: a lookup error logs
- * and skips — reconciliation never blocks seeding.
+ * per capability node, on the v1 path only. The enqueue coalesces with a
+ * pending `embed_graph_node` row for the same node, so back-to-back seed
+ * passes (e.g. `refreshSkillCapabilityMemories` seeding before and after
+ * the catalog resolves) queue at most one job per node while the first is
+ * still pending. Fail-open: a lookup error logs and skips — reconciliation
+ * never blocks seeding.
  */
 function enqueueEmbedIfMissing(nodeId: string): void {
   try {
@@ -277,7 +284,7 @@ function enqueueEmbedIfMissing(nodeId: string): void {
       )
       .get();
     if (!row) {
-      enqueueMemoryJob("embed_graph_node", { nodeId });
+      upsertEmbedGraphNodeJob({ nodeId });
     }
   } catch (err) {
     log.warn(
@@ -350,7 +357,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
       .where(eq(memoryGraphNodes.id, existing.id))
       .run();
     if (isMemoryV1Active(getConfig())) {
-      enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
+      upsertEmbedGraphNodeJob({ nodeId: existing.id });
     }
     return;
   }
@@ -384,7 +391,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
   });
 
   if (isMemoryV1Active(getConfig())) {
-    enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
+    upsertEmbedGraphNodeJob({ nodeId: node.id });
   }
   log.info({ sourceKey, nodeId: node.id }, "Created capability graph node");
 }

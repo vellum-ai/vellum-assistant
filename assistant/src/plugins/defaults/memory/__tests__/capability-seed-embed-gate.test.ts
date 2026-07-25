@@ -6,6 +6,8 @@
  * writes those rows only when v1 is the active tier. On the v1 path the
  * seeder also reconciles unchanged nodes that lack a stored embedding, so a
  * capability seeded while a higher tier was active still gets its v1 point.
+ * Enqueues coalesce with a pending `embed_graph_node` row for the same node,
+ * so back-to-back seed passes queue at most one job per node.
  */
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -132,6 +134,17 @@ describe("capability seeding embed_graph_node gate", () => {
     expect(countEmbedGraphNodeJobs()).toBe(0);
 
     setConfig("memory", { v2: { enabled: false }, v3: { live: false } });
+    await seedCliGraphNodes();
+
+    const nodes = countCapabilityNodes();
+    expect(nodes).toBeGreaterThan(0);
+    expect(countEmbedGraphNodeJobs()).toBe(nodes);
+  });
+
+  test("v1 double-seed with no embedding rows: exactly one pending embed job per node", async () => {
+    setConfig("memory", { v2: { enabled: false }, v3: { live: false } });
+
+    await seedCliGraphNodes();
     await seedCliGraphNodes();
 
     const nodes = countCapabilityNodes();

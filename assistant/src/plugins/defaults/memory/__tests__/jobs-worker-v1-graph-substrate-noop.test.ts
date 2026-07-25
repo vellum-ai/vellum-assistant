@@ -32,6 +32,7 @@ import type { AssistantConfig } from "../../../../config/types.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 
 let bootstrapCalls = 0;
+let maybeEnqueueBootstrapCalls = 0;
 let decayCalls = 0;
 let consolidateCalls = 0;
 let patternScanCalls = 0;
@@ -53,7 +54,9 @@ mock.module("../graph/bootstrap.js", () => ({
     };
   },
   bootstrapFromJournal: async () => ({ extracted: 0, errors: 0 }),
-  maybeEnqueueGraphBootstrap: () => {},
+  maybeEnqueueGraphBootstrap: () => {
+    maybeEnqueueBootstrapCalls += 1;
+  },
   resetBootstrapCheckpoint: () => {},
   migrateToolCreatedItems: () => {},
   cleanupStaleItemVectors: async () => {},
@@ -120,10 +123,12 @@ const { memoryJobs } = await import("../../../../persistence/schema/index.js");
 const { memoryJobHandlers } = await import("../job-handlers.js");
 const { registerMemoryPluginJobHandlers } =
   await import("../job-handler-registration.js");
-const { runMemoryJobsOnce } = await import("../jobs-worker.js");
+const { maybeEnqueueGraphMaintenanceJobs, runMemoryJobsOnce } =
+  await import("../jobs-worker.js");
 
 function resetCallCounts(): void {
   bootstrapCalls = 0;
+  maybeEnqueueBootstrapCalls = 0;
   decayCalls = 0;
   consolidateCalls = 0;
   patternScanCalls = 0;
@@ -250,5 +255,17 @@ describe("v1 graph jobs under concept-page memory", () => {
     await handlerFor("graph_decay")(fakeJob("graph_decay"), v1Config());
 
     expect(decayCalls).toBe(1);
+  });
+
+  test("the periodic maintenance scheduler re-checks bootstrap on a v1 config", () => {
+    maybeEnqueueGraphMaintenanceJobs(v1Config(), Date.now());
+
+    expect(maybeEnqueueBootstrapCalls).toBe(1);
+  });
+
+  test("the periodic maintenance scheduler skips the bootstrap check under concept-page memory", () => {
+    maybeEnqueueGraphMaintenanceJobs(applyNestedDefaults({}), Date.now());
+
+    expect(maybeEnqueueBootstrapCalls).toBe(0);
   });
 });

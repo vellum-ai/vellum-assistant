@@ -313,8 +313,10 @@ export function resetBootstrapCheckpoint(): void {
 
 /**
  * Enqueue a graph_bootstrap job if the graph is empty (no non-procedural nodes)
- * but historical data exists (segments or journal files). Called on daemon startup
- * to auto-populate the graph for users upgrading from the old extraction system.
+ * but historical data exists (segments or journal files). Called on daemon
+ * startup to auto-populate the graph for users upgrading from the old
+ * extraction system, and again from the v1 branch of the periodic maintenance
+ * scheduler so a config hot-reload onto v1 bootstraps without a restart.
  *
  * Idempotent: does nothing if graph nodes already exist or a bootstrap job is
  * already pending/running.

@@ -59,6 +59,7 @@ import {
 } from "../../../persistence/jobs-store.js";
 import type { JobHandler } from "../../types.js";
 import { sweepOrphanConversationMemoryTables } from "./conversation-memory-orphan-sweep.js";
+import { maybeEnqueueGraphBootstrap } from "./graph/bootstrap.js";
 import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { getWorkspaceDir } from "./paths.js";
@@ -1082,6 +1083,22 @@ export function maybeEnqueueGraphMaintenanceJobs(
           jobType: "graph_narrative_refine",
         },
       ];
+
+  // Bootstrap re-check on the v1 branch. Startup runs this once, but a
+  // config hot-reload that flips concept-page memory off lands the assistant
+  // on v1 without a restart — so the maintenance tick re-checks whenever v1
+  // is active, and an assistant entering v1 with an empty graph still
+  // bootstraps from its historical segments. The callee self-guards (tier
+  // gate, populated-graph, has-history, and active-job checks), so the call
+  // is cheap and idempotent. Best-effort: a failure logs and never blocks
+  // the maintenance enqueues below.
+  if (!conceptPagesActive) {
+    try {
+      maybeEnqueueGraphBootstrap();
+    } catch (err) {
+      log.warn({ err }, "Periodic graph bootstrap check failed");
+    }
+  }
 
   // v3 self-maintenance backstop. Orthogonal to the mutual exclusion above:
   // it owns its own checkpoint and operates on the v3 topic tree, so it
