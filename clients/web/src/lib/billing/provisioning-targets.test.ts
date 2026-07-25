@@ -1,6 +1,41 @@
 import { describe, expect, test } from "bun:test";
 
-import { targetsMet } from "./provisioning-targets";
+import type { OperationalStatus } from "@/generated/api/types.gen";
+
+import { isResizeOperationInFlight, targetsMet } from "./provisioning-targets";
+
+function opStatus(
+  overrides: Partial<OperationalStatus>,
+): OperationalStatus {
+  return {
+    state: "active",
+    detail_state: "",
+    poll_after_ms: 0,
+    updated_at: "",
+    state_started_at: null,
+    active_operation: null,
+    assistant: {
+      id: "asst-1",
+      status: "active",
+      machine_id: null,
+      vembda_cluster_id: null,
+    },
+    pod: {
+      statefulset_found: null,
+      spec_replicas: null,
+      ready_replicas: null,
+      pod_name: null,
+      pod_phase: null,
+      has_restart_history: false,
+      max_restart_count: null,
+      fatal_reason: null,
+    },
+    runtime: { healthz_ok: true, assistant_version: null, checked_at: null },
+    storage: null,
+    detail: { reason: null, message: null },
+    ...overrides,
+  };
+}
 
 describe("targetsMet", () => {
   test("null targets are never met", () => {
@@ -83,6 +118,67 @@ describe("targetsMet", () => {
       targetsMet(
         { machineSize: null, storageGib: 50 },
         { machineSize: null, storageGib: null },
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("isResizeOperationInFlight", () => {
+  test("null / undefined status is not in flight", () => {
+    expect(isResizeOperationInFlight(null)).toBe(false);
+    expect(isResizeOperationInFlight(undefined)).toBe(false);
+  });
+
+  test("a resizing_machine state is in flight", () => {
+    expect(
+      isResizeOperationInFlight(opStatus({ state: "resizing_machine" })),
+    ).toBe(true);
+  });
+
+  test("a resizing_storage state is in flight", () => {
+    expect(
+      isResizeOperationInFlight(opStatus({ state: "resizing_storage" })),
+    ).toBe(true);
+  });
+
+  test("a resize active_operation is in flight even when the state is active", () => {
+    expect(
+      isResizeOperationInFlight(
+        opStatus({
+          state: "active",
+          active_operation: {
+            operation: "resize_machine",
+            operation_id: "op-1",
+            phase: "WAITING_FOR_PVC",
+            started_at: "",
+            updated_at: "",
+            target: {},
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("an active state with no resize operation is not in flight", () => {
+    expect(isResizeOperationInFlight(opStatus({ state: "active" }))).toBe(
+      false,
+    );
+  });
+
+  test("a non-resize active_operation is not in flight", () => {
+    expect(
+      isResizeOperationInFlight(
+        opStatus({
+          state: "restarting",
+          active_operation: {
+            operation: "restart",
+            operation_id: "op-2",
+            phase: "",
+            started_at: "",
+            updated_at: "",
+            target: {},
+          },
+        }),
       ),
     ).toBe(false);
   });

@@ -39,9 +39,9 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
-import type { OperationalStatus } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
+import { isResizeOperationInFlight } from "@/lib/billing/provisioning-targets";
 import { useOrganizationStore } from "@/stores/organization-store";
 
 import {
@@ -73,19 +73,9 @@ const TERMINAL_STATES: readonly ProvisioningStateKind[] = [
   "CONFIRM_TIMEOUT",
 ];
 
-function isResizeOperationInFlight(
-  status: OperationalStatus | null | undefined,
-): boolean {
-  if (!status) return false;
-  if (
-    status.state === "resizing_machine" ||
-    status.state === "resizing_storage"
-  ) {
-    return true;
-  }
-  const operation = status.active_operation?.operation;
-  return typeof operation === "string" && operation.startsWith("resize");
-}
+// The resize-in-flight primitive lives in lib/billing (shared across domains);
+// re-export it as the pro-onboarding entrypoint, mirroring targetsMet.
+export { isResizeOperationInFlight };
 
 export interface UseProProvisioningOptions {
   open: boolean;

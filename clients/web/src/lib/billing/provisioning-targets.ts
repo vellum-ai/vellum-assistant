@@ -7,7 +7,10 @@
  * hatching screen — can reuse it without an ESLint-banned cross-domain import.
  */
 
-import type { MachineSizeEnum } from "@/generated/api/types.gen";
+import type {
+  MachineSizeEnum,
+  OperationalStatus,
+} from "@/generated/api/types.gen";
 import { machineSizeRank } from "./machine-sizes";
 
 export interface ProvisioningDimensions {
@@ -36,4 +39,27 @@ export function targetsMet(
     targets.storageGib == null ||
     (actuals?.storageGib != null && actuals.storageGib >= targets.storageGib);
   return machineMet && storageMet;
+}
+
+/**
+ * True while a machine/storage resize is still rolling out: the operational
+ * state is itself a resize state, or the active operation is a resize. The
+ * platform persists the effective machine size / provisioned storage before the
+ * pod finishes restarting, so `targetsMet` can read true while a resize is still
+ * in flight — completion must also wait for this to clear.
+ */
+export function isResizeOperationInFlight(
+  status: OperationalStatus | null | undefined,
+): boolean {
+  if (!status) {
+    return false;
+  }
+  if (
+    status.state === "resizing_machine" ||
+    status.state === "resizing_storage"
+  ) {
+    return true;
+  }
+  const operation = status.active_operation?.operation;
+  return typeof operation === "string" && operation.startsWith("resize");
 }
