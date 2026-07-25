@@ -482,13 +482,16 @@ function handleWorkspaceWrite({ body, headers }: RouteHandlerArgs) {
       ? Buffer.from(content ?? "", "base64")
       : Buffer.from(content ?? "", "utf-8");
 
-  if (existsSync(resolved) && statSync(resolved).isDirectory()) {
+  const pathExists = existsSync(resolved);
+  if (pathExists && statSync(resolved).isDirectory()) {
     throw new ConflictError("Path is a directory");
   }
 
   mkdirSync(dirname(resolved), { recursive: true });
   writeFileSync(resolved, buffer);
-  workspacePathCatalog.invalidate();
+  if (!pathExists) {
+    workspacePathCatalog.invalidate();
+  }
   publishSoundsConfigUpdatedForPaths(
     [path],
     headers?.["x-vellum-client-id"]?.trim() || undefined,

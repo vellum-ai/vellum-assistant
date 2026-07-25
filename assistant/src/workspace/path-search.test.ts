@@ -348,35 +348,44 @@ describe("WorkspacePathCatalog caching and cancellation", () => {
     expect((await activeSearch).results.length).toBeGreaterThan(0);
   });
 
-  test("invalidation cancels an active catalog build", async () => {
+  test("invalidation transparently refreshes an active catalog build", async () => {
+    const root = join(testWorkspaceDir, "path-search-active-invalidation");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "existing.txt"), "");
+
     let firstBuild = true;
-    let markBuildStarted: (() => void) | undefined;
-    const buildStarted = new Promise<void>((resolve) => {
-      markBuildStarted = resolve;
+    let markFirstScanComplete: (() => void) | undefined;
+    const firstScanComplete = new Promise<void>((resolve) => {
+      markFirstScanComplete = resolve;
     });
-    const catalog = createCatalog(fixtureRoot, {
+    let releaseFirstBuild: (() => void) | undefined;
+    const firstBuildGate = new Promise<void>((resolve) => {
+      releaseFirstBuild = resolve;
+    });
+    const catalog = createCatalog(root, {
       openDirectory: async function* (path, signal) {
+        yield* readDirectory(path, signal);
         if (firstBuild) {
           firstBuild = false;
-          markBuildStarted?.();
-          await new Promise<void>((_, reject) => {
-            signal.addEventListener("abort", () => reject(signal.reason), {
-              once: true,
-            });
-          });
+          markFirstScanComplete?.();
+          await firstBuildGate;
         }
-        yield* readDirectory(path, signal);
       },
     });
 
-    const staleSearch = catalog.search({ query: "agentwatch", limit: 20 });
-    await buildStarted;
+    const staleSearch = catalog.search({ query: "added", limit: 20 });
+    await firstScanComplete;
+    writeFileSync(join(root, "added.txt"), "");
     catalog.invalidate();
+    const freshSearch = catalog.search({ query: "added", limit: 20 });
+    releaseFirstBuild?.();
 
-    await expect(staleSearch).rejects.toMatchObject({ name: "AbortError" });
-    expect(
-      (await catalog.search({ query: "agentwatch", limit: 20 })).results.length,
-    ).toBeGreaterThan(0);
+    expect((await staleSearch).results.map((entry) => entry.path)).toEqual([
+      "added.txt",
+    ]);
+    expect((await freshSearch).results.map((entry) => entry.path)).toEqual([
+      "added.txt",
+    ]);
   });
 });
 

@@ -117,6 +117,7 @@ interface CachedSnapshot {
 
 interface InFlightBuild {
   controller: AbortController;
+  generation: number;
   promise: Promise<CatalogSnapshot>;
   settled: boolean;
   waiters: number;
@@ -395,9 +396,6 @@ export class WorkspacePathCatalog {
   invalidate(): void {
     this.generation += 1;
     this.cache.clear();
-    for (const build of this.inFlight.values()) {
-      build.controller.abort();
-    }
     this.inFlight.clear();
   }
 
@@ -424,14 +422,19 @@ export class WorkspacePathCatalog {
     }
 
     build.waiters += 1;
+    let snapshot: CatalogSnapshot;
     try {
-      return await awaitWithAbort(build.promise, signal);
+      snapshot = await awaitWithAbort(build.promise, signal);
     } finally {
       build.waiters -= 1;
       if (!build.settled && build.waiters === 0) {
         build.controller.abort();
       }
     }
+    if (build.generation !== this.generation) {
+      return this.getSnapshot(showHidden, signal);
+    }
+    return snapshot;
   }
 
   private startBuild(
@@ -441,8 +444,9 @@ export class WorkspacePathCatalog {
   ): InFlightBuild {
     const controller = new AbortController();
     const generation = this.generation;
-    const build = {
+    const build: InFlightBuild = {
       controller,
+      generation,
       promise: Promise.resolve({} as CatalogSnapshot),
       settled: false,
       waiters: 0,
