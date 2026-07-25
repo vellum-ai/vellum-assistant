@@ -19,7 +19,6 @@ import {
 import type { AssistantConfig } from "../../../config/types.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import type { JobHandlerEntry } from "../../types.js";
-import { pkbCompactionJob, pkbFilingJob } from "./filing-jobs.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
 import { runConsolidation } from "./graph/consolidation.js";
 import { runDecayTick } from "./graph/decay.js";
@@ -30,20 +29,7 @@ import {
 } from "./graph/graph-search.js";
 import { runNarrativeRefinement } from "./graph/narrative.js";
 import { runPatternScan } from "./graph/pattern-scan.js";
-import { backfillJob } from "./job-handlers/backfill.js";
-import {
-  embedAttachmentJob,
-  embedMediaJob,
-  embedSegmentJob,
-  embedSummaryJob,
-} from "./job-handlers/embedding.js";
-import {
-  deleteQdrantVectorsJob,
-  rebuildIndexJob,
-  sweepOrphanedGraphNodePointsJob,
-} from "./job-handlers/index-maintenance.js";
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
-import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
 import { getLogger } from "./logging.js";
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
 import { skillCardInsertJob } from "./memory-retrospective-skill-card.js";
@@ -51,6 +37,20 @@ import { memoryRetrospectiveSweepJob } from "./memory-retrospective-sweep.js";
 import { memoryV2ConsolidateJob } from "./substrate/consolidation-job.js";
 import { memoryV2ReembedJob } from "./substrate/reembed-job.js";
 import { memoryV2SweepJob } from "./substrate/sweep-job.js";
+import { pkbCompactionJob, pkbFilingJob } from "./v1/filing-jobs.js";
+import { backfillJob } from "./v1/job-handlers/backfill.js";
+import {
+  embedAttachmentJob,
+  embedMediaJob,
+  embedSegmentJob,
+  embedSummaryJob,
+} from "./v1/job-handlers/embedding.js";
+import {
+  deleteQdrantVectorsJob,
+  rebuildIndexJob,
+  sweepOrphanedGraphNodePointsJob,
+} from "./v1/job-handlers/index-maintenance.js";
+import { embedPkbFileJob } from "./v1/jobs/embed-pkb-file.js";
 import {
   memoryV2ActivationRecomputeJob,
   memoryV2MigrateJob,

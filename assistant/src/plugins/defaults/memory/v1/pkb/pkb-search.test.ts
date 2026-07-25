@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // This test exercises the v1 PKB search path. `config.memory.v2.enabled`
 // (default `true`) makes pkb-search short-circuit to keep traffic off the
 // legacy collection — force it off so the v1 path stays under test.
-mock.module("../config.js", () => ({
+mock.module("../../config.js", () => ({
   getMemoryConfig: () => ({ v2: { enabled: false } }),
 }));
 
@@ -36,14 +36,14 @@ let hybridThrows: Error | null = null;
 let denseThrows: Error | null = null;
 
 mock.module(
-  "../../../../persistence/embeddings/qdrant-circuit-breaker.js",
+  "../../../../../persistence/embeddings/qdrant-circuit-breaker.js",
   () => ({
     isQdrantBreakerOpen: () => breakerOpen,
     withQdrantBreaker: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
   }),
 );
 
-mock.module("../../../../persistence/embeddings/qdrant-client.js", () => ({
+mock.module("../../../../../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     hybridSearch: async (params: {
       denseVector: number[];

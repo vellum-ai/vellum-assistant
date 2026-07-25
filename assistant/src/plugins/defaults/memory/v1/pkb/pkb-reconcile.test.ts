@@ -20,7 +20,7 @@ mock.module("../jobs/embed-pkb-file.js", () => ({
 let scrollPoints: Array<{ id: string; payload: Record<string, unknown> }> = [];
 const deleteCalls: Array<{ path: string }> = [];
 
-mock.module("../../../../persistence/embeddings/qdrant-client.js", () => ({
+mock.module("../../../../../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     scrollByTargetType: async (_targetType: string) => scrollPoints,
     deleteByTargetTypeAndPath: async (_targetType: string, path: string) => {
@@ -32,7 +32,7 @@ mock.module("../../../../persistence/embeddings/qdrant-client.js", () => ({
 
 // Circuit breaker — pass-through.
 mock.module(
-  "../../../../persistence/embeddings/qdrant-circuit-breaker.js",
+  "../../../../../persistence/embeddings/qdrant-circuit-breaker.js",
   () => ({
     withQdrantBreaker: async <T>(fn: () => Promise<T>) => fn(),
   }),
@@ -41,7 +41,7 @@ mock.module(
 // indexPkbFile is not invoked from the reconcile path (we enqueue jobs
 // instead), but the pkb-index module imports the embedding pipeline which
 // pulls in a config. Stub it so module import doesn't explode.
-mock.module("../../../../persistence/job-utils.js", () => ({
+mock.module("../../../../../persistence/job-utils.js", () => ({
   embedAndUpsert: async () => {},
 }));
 

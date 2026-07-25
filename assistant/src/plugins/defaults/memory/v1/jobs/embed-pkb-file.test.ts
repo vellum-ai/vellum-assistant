@@ -17,20 +17,20 @@ mock.module("../pkb/pkb-index.js", () => ({
 // helper consults memory.v2.enabled.
 let v2Enabled = false;
 
-mock.module("../config.js", () => ({
+mock.module("../../config.js", () => ({
   getMemoryConfig: () => ({ v2: { enabled: v2Enabled } }),
 }));
 
-import { DEFAULT_CONFIG } from "../../../../config/defaults.js";
-import type { AssistantConfig } from "../../../../config/types.js";
-import { getMemoryDb } from "../../../../persistence/db-connection.js";
-import { initializeDb } from "../../../../persistence/db-init.js";
+import { DEFAULT_CONFIG } from "../../../../../config/defaults.js";
+import type { AssistantConfig } from "../../../../../config/types.js";
+import { getMemoryDb } from "../../../../../persistence/db-connection.js";
+import { initializeDb } from "../../../../../persistence/db-init.js";
 import {
   claimMemoryJobs,
   type MemoryJob,
   type MemoryJobType,
-} from "../../../../persistence/jobs-store.js";
-import { memoryJobs } from "../../../../persistence/schema/index.js";
+} from "../../../../../persistence/jobs-store.js";
+import { memoryJobs } from "../../../../../persistence/schema/index.js";
 import { embedPkbFileJob, enqueuePkbIndexJob } from "./embed-pkb-file.js";
 
 const TEST_CONFIG: AssistantConfig = DEFAULT_CONFIG;

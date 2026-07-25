@@ -1,12 +1,12 @@
-import { usesConceptPageMemory } from "../../../../config/memory-v3-gate.js";
-import type { AssistantConfig } from "../../../../config/types.js";
-import { asString } from "../../../../persistence/job-utils.js";
+import { usesConceptPageMemory } from "../../../../../config/memory-v3-gate.js";
+import type { AssistantConfig } from "../../../../../config/types.js";
+import { asString } from "../../../../../persistence/job-utils.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
   type MemoryJob,
-} from "../../../../persistence/jobs-store.js";
-import { getMemoryConfig } from "../config.js";
+} from "../../../../../persistence/jobs-store.js";
+import { getMemoryConfig } from "../../config.js";
 import { indexPkbFile } from "../pkb/pkb-index.js";
 
 /**
