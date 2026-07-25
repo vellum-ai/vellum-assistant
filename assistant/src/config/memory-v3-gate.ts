@@ -1,6 +1,52 @@
 import type { AssistantConfig } from "./schema.js";
 
 /**
+ * Whether memory as a whole is on — the user-facing master switch. Memory is
+ * on unless `memory.enabled` is explicitly set to `false`. Canonical home for
+ * the check; `persistence/jobs-store.ts` carries a config-singleton twin of it
+ * for its many call sites.
+ */
+export function isMemoryEnabled(config: AssistantConfig): boolean {
+  return config.memory?.enabled !== false;
+}
+
+/**
+ * Whether the legacy graph/PKB memory engine (tier v1) is the live tier:
+ * memory is on and no concept-page consumer (v3 live or the v2 injection
+ * engine) is. Deleting v1 removes this predicate and every site it gates.
+ */
+export function isMemoryV1Active(config: AssistantConfig): boolean {
+  return isMemoryEnabled(config) && !usesConceptPageMemory(config.memory);
+}
+
+/**
+ * Whether the v2 activation/router engine performs turn-time selection:
+ * memory is on, `memory.v2.enabled` is set, and v3 is NOT the live injected
+ * source. Distinct from `usesConceptPageMemory`: `memory.v2.enabled` defaults
+ * true and no migration ever writes it false, so on v3-live assistants this
+ * predicate is the ONLY correct way to ask "should v2 select this turn" — a
+ * direct `memory.v2.enabled` read misbehaves under v3.
+ */
+export function isV2InjectionEngineActive(config: AssistantConfig): boolean {
+  return (
+    isMemoryEnabled(config) &&
+    config.memory?.v2?.enabled === true &&
+    !isMemoryV3Live(config)
+  );
+}
+
+/**
+ * Whether `memory.v2.enabled` is explicitly `false` — deliberately NOT the
+ * negation of `isV2InjectionEngineActive`, since the key defaults true. Names
+ * the odd explicit-false semantics `daemon/embedding-reconcile.ts` relies on
+ * (an explicit opt-out suppresses concept-page reconcile work even where the
+ * default would allow it); a v2-deletion-day decision point.
+ */
+export function isMemoryV2ExplicitlyDisabled(config: AssistantConfig): boolean {
+  return config.memory?.v2?.enabled === false;
+}
+
+/**
  * Whether memory-v3 is the live injected memory source for this assistant,
  * suppressing v2 injection. Gated by workspace config (`memory.v3.live`): new
  * assistants are switched on at creation via a workspace migration, while
