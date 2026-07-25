@@ -74,7 +74,9 @@ export function spreadActivation(
 ): SpreadActivationResult {
   const final = new Map<string, number>();
   const contribution = new Map<string, number>();
-  if (ownActivation.size === 0) return { final, contribution };
+  if (ownActivation.size === 0) {
+    return { final, contribution };
+  }
 
   // Short-circuit: with no spread the formula collapses to A == A_o.
   if (hops <= 0 || k <= 0) {
@@ -99,7 +101,9 @@ export function spreadActivation(
     const ringSquareSums: number[] = new Array(hops + 1).fill(0);
     for (const [predecessor, hop] of distance) {
       const predValue = ownActivation.get(predecessor);
-      if (predValue === undefined) continue;
+      if (predValue === undefined) {
+        continue;
+      }
       ringActiveCounts[hop] += 1;
       ringSquareSums[hop] += predValue * predValue;
     }
@@ -109,7 +113,9 @@ export function spreadActivation(
     let kPow = 1;
     for (let r = 1; r <= hops; r++) {
       kPow *= k;
-      if (ringActiveCounts[r] === 0) continue;
+      if (ringActiveCounts[r] === 0) {
+        continue;
+      }
       const rms = Math.sqrt(ringSquareSums[r] / ringActiveCounts[r]);
       numerator += kPow * rms;
       denominator += kPow;
@@ -141,9 +147,13 @@ function bfsPredecessorDistances(
     const next: string[] = [];
     for (const node of frontier) {
       const predecessors = incoming.get(node);
-      if (!predecessors) continue;
+      if (!predecessors) {
+        continue;
+      }
       for (const predecessor of predecessors) {
-        if (visited.has(predecessor)) continue;
+        if (visited.has(predecessor)) {
+          continue;
+        }
         visited.add(predecessor);
         distance.set(predecessor, hop);
         next.push(predecessor);

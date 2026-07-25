@@ -24,7 +24,9 @@ function buildEdgeIndex(edges: Array<[string, string]>): EdgeIndex {
   const outgoing = new Map<string, Set<string>>();
   const incoming = new Map<string, Set<string>>();
   for (const [from, to] of edges) {
-    if (from === to) continue;
+    if (from === to) {
+      continue;
+    }
     let outSet = outgoing.get(from);
     if (!outSet) {
       outSet = new Set<string>();
@@ -162,9 +164,9 @@ describe("spreadActivation", () => {
 
   test("predecessors not in the candidate set are dropped from both numerator and denominator", () => {
     // Edge alice→bob: bob has structural predecessor alice, but alice is not
-    // in `ownActivation`. With the new formula she contributes nothing —
-    // hop1 has no active predecessors so the whole hop drops out of both
-    // sides of the ratio. Bob therefore stays at his own activation.
+    // in `ownActivation`, so she contributes nothing — hop1 has no active
+    // predecessors, so the whole hop drops out of both sides of the ratio.
+    // Bob therefore stays at his own activation.
     const edges = buildEdgeIndex([["alice", "bob"]]);
     const own = new Map([["bob", 0.6]]);
     const out = spreadActivation(own, edges, 0.5, 2);
@@ -198,11 +200,13 @@ describe("spreadActivation", () => {
 
   test("high-in-degree hub with mostly-inactive predecessors stays near A_o", () => {
     // 100 structural predecessors point at hub; only one (`pred0`) is in
-    // the candidate set. The old formula would crush hub by the structural
-    // count (denominator ≈ 51); the new formula folds the empty bulk out
-    // and the L_2 averages over the single active predecessor only.
+    // the candidate set. Inactive structural predecessors affect neither
+    // side of the ratio — the structural in-degree never enters the
+    // denominator, and the L_2 averages over the single active predecessor.
     const rawEdges: Array<[string, string]> = [];
-    for (let i = 0; i < 100; i++) rawEdges.push([`pred${i}`, "hub"]);
+    for (let i = 0; i < 100; i++) {
+      rawEdges.push([`pred${i}`, "hub"]);
+    }
     const edges = buildEdgeIndex(rawEdges);
     const own = new Map([
       ["hub", 0.6],
