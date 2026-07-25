@@ -473,7 +473,9 @@ export async function orchestrate(
     // articles. The section index is rebuilt from `getPageIndex` at `initLanes`,
     // so `byArticle` holds exactly the live pages (synthetic capability slugs
     // included) — only truly-deleted pages are dropped here.
-    if (!deps.sectionIndex.byArticle.has(hit.article)) continue;
+    if (!deps.sectionIndex.byArticle.has(hit.article)) {
+      continue;
+    }
     const section = sectionByOrdinal(
       deps.sectionIndex,
       hit.article,
@@ -529,7 +531,9 @@ export async function orchestrate(
   // comparable, and the reply pass's own convention is first-wins); lane
   // attribution never changes here.
   for (const hit of bestSpanHits.values()) {
-    if (!deps.sectionIndex.byArticle.has(hit.article)) continue;
+    if (!deps.sectionIndex.byArticle.has(hit.article)) {
+      continue;
+    }
     const section = sectionByOrdinal(
       deps.sectionIndex,
       hit.article,
