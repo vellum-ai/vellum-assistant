@@ -24,6 +24,10 @@
 import type { AssistantConfig } from "../../../config/types.js";
 import { getLogger } from "./logging.js";
 import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
+import {
+  isDailyRetrospectiveBudgetExhausted,
+  recordDailyRetrospectiveRun,
+} from "./memory-retrospective-daily-count.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "./memory-retrospective-enqueue.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";
 
@@ -53,12 +57,20 @@ export function shouldEnqueueRetrospective(args: {
     minCooldownMs,
   } = args;
 
-  if (state && now - state.lastRunAt < minCooldownMs) return null;
+  if (state && now - state.lastRunAt < minCooldownMs) {
+    return null;
+  }
 
-  if (state && now - state.lastRunAt >= timeThresholdMs) return "interval";
-  if (!state) return "interval";
+  if (state && now - state.lastRunAt >= timeThresholdMs) {
+    return "interval";
+  }
+  if (!state) {
+    return "interval";
+  }
 
-  if (newMessageCount >= messageThreshold) return "message_count";
+  if (newMessageCount >= messageThreshold) {
+    return "message_count";
+  }
   return null;
 }
 
@@ -77,19 +89,42 @@ export function maybeEnqueueRetrospective(
       conversationId,
       state?.lastProcessedMessageId ?? null,
     );
-    if (newMessageCount === 0) return;
+    if (newMessageCount === 0) {
+      return;
+    }
 
+    const now = Date.now();
     const trigger = shouldEnqueueRetrospective({
       state,
       newMessageCount,
-      now: Date.now(),
+      now,
       timeThresholdMs: config.memory.retrospective.timeThresholdMs,
       messageThreshold: config.memory.retrospective.messageThreshold,
       minCooldownMs: config.memory.retrospective.minCooldownMs,
     });
-    if (!trigger) return;
+    if (!trigger) {
+      return;
+    }
 
-    enqueueMemoryRetrospectiveIfEnabled({ conversationId, trigger });
+    // Runaway backstop: skip once the assistant's daily budget for this UTC day
+    // is exhausted. The budget is consumed only when a NEW pending job is
+    // created (below), so a source the enqueue helper skips (scheduled thread,
+    // consolidation source, recursion guard) — and a trigger that merely
+    // coalesces into an already-pending job — costs nothing. Pre-compaction
+    // enqueues route around this path entirely, so they bypass the cap exactly
+    // as they bypass the cooldown gate above.
+    const maxRunsPerDay = config.memory.retrospective.maxRunsPerAssistantPerDay;
+    if (isDailyRetrospectiveBudgetExhausted(maxRunsPerDay, now)) {
+      log.debug(
+        { conversationId, trigger },
+        "daily retrospective cap reached; skipping enqueue",
+      );
+      return;
+    }
+
+    if (enqueueMemoryRetrospectiveIfEnabled({ conversationId, trigger })) {
+      recordDailyRetrospectiveRun(maxRunsPerDay, now);
+    }
   } catch (err) {
     log.warn({ err, conversationId }, "trigger-check failed; skipping enqueue");
   }

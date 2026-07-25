@@ -110,3 +110,17 @@ export const memoryRetrospectiveState = sqliteTable(
     rememberedLog: text("remembered_log"),
   },
 );
+
+// Assistant-wide count of retrospective enqueue attempts per UTC day, the
+// backstop for `memory.retrospective.maxRunsPerAssistantPerDay`. One row per
+// day (`day_key` is a UTC `YYYY-MM-DD` string), spanning all conversations —
+// not conversation-keyed, so it survives conversation deletion. Lives in the
+// dedicated memory database (`assistant-memory.db`), not main — access it via
+// the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
+export const memoryRetrospectiveDailyCount = sqliteTable(
+  "memory_retrospective_daily_count",
+  {
+    dayKey: text("day_key").primaryKey(),
+    runCount: integer("run_count").notNull(),
+  },
+);

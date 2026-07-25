@@ -245,6 +245,12 @@ export function upsertDebouncedJob(
  * does NOT push a sooner-scheduled row further out (consumer takes the
  * minimum). The trigger metadata is intentionally not retained — it is only
  * useful for observability at enqueue time.
+ *
+ * Returns `true` only when a NEW pending job is inserted; `false` when the
+ * call coalesced into an already-pending row (whether or not it pulled
+ * `runAfter` earlier). Budget-metered callers count one unit of the daily cap
+ * only on a `true` return, so repeated coalesced triggers against one pending
+ * row never drain the day's budget for a single retrospective.
  */
 export function upsertMemoryRetrospectiveJob(
   payload: { conversationId: string },
@@ -254,7 +260,7 @@ export function upsertMemoryRetrospectiveJob(
   ) => unknown
     ? T
     : never,
-): void {
+): boolean {
   const db = dbOverride ?? memoryDb();
   const existing = db
     .select()
@@ -277,9 +283,10 @@ export function upsertMemoryRetrospectiveJob(
         .where(eq(memoryJobs.id, existing.id))
         .run();
     }
-    return;
+    return false;
   }
   enqueueMemoryJob("memory_retrospective", payload, runAfter, dbOverride);
+  return true;
 }
 
 /**

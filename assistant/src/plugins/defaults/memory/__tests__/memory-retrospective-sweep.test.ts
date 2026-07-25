@@ -3,13 +3,17 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Record enqueues instead of writing job rows — the sweep's scan/gate decision
 // is the unit under test, not the jobs store's coalescing. The enqueue's own
 // recursion/low-yield guards are covered by memory-retrospective-enqueue tests.
+// `enqueueResult` simulates whether the real helper actually queued a job: a
+// source it skips returns false, and the sweep must consume no budget for it.
 let enqueueCalls: Array<{ conversationId: string; trigger: string }> = [];
+let enqueueResult = true;
 mock.module("../memory-retrospective-enqueue.js", () => ({
   enqueueMemoryRetrospectiveIfEnabled: (args: {
     conversationId: string;
     trigger: string;
   }) => {
     enqueueCalls.push(args);
+    return enqueueResult;
   },
 }));
 
@@ -37,9 +41,21 @@ await initializeDb();
 
 const SWEEP_INTERVAL_MS = 8 * 60 * 60 * 1000; // 8h
 
-function makeConfig(sweepIntervalMs = SWEEP_INTERVAL_MS): AssistantConfig {
+// High enough that the trust/interval/accounting tests never trip the cap; the
+// cap-specific tests pass an explicit low value.
+const DEFAULT_MAX_RUNS_PER_DAY = 10_000;
+
+function makeConfig(
+  opts: { sweepIntervalMs?: number; maxRunsPerAssistantPerDay?: number } = {},
+): AssistantConfig {
   return {
-    memory: { retrospective: { sweepIntervalMs } },
+    memory: {
+      retrospective: {
+        sweepIntervalMs: opts.sweepIntervalMs ?? SWEEP_INTERVAL_MS,
+        maxRunsPerAssistantPerDay:
+          opts.maxRunsPerAssistantPerDay ?? DEFAULT_MAX_RUNS_PER_DAY,
+      },
+    },
   } as unknown as AssistantConfig;
 }
 
@@ -47,7 +63,31 @@ function resetTables(): void {
   const db = getDb();
   db.run(`DELETE FROM messages`);
   getMemorySqlite()!.exec(`DELETE FROM memory_retrospective_state`);
+  getMemorySqlite()!.exec(`DELETE FROM memory_retrospective_daily_count`);
   db.run(`DELETE FROM conversations`);
+}
+
+/** Pre-seed a UTC day's retrospective attempt count on the memory connection. */
+function seedDailyCount(now: number, count: number): void {
+  const dayKey = new Date(now).toISOString().slice(0, 10);
+  getMemorySqlite()!
+    .query(
+      `INSERT INTO memory_retrospective_daily_count (day_key, run_count)
+       VALUES (?, ?)
+       ON CONFLICT(day_key) DO UPDATE SET run_count = excluded.run_count`,
+    )
+    .run(dayKey, count);
+}
+
+function readDailyCount(now: number): number {
+  const dayKey = new Date(now).toISOString().slice(0, 10);
+  const row = getMemorySqlite()!
+    .query<
+      { run_count: number },
+      [string]
+    >(`SELECT run_count FROM memory_retrospective_daily_count WHERE day_key = ?`)
+    .get(dayKey);
+  return row?.run_count ?? 0;
 }
 
 let messageSeq = 0;
@@ -78,6 +118,7 @@ describe("runRetrospectiveSweep", () => {
   beforeEach(() => {
     resetTables();
     enqueueCalls = [];
+    enqueueResult = true;
   });
 
   test("never-run conversation with unprocessed messages is swept", async () => {
@@ -210,6 +251,117 @@ describe("runRetrospectiveSweep", () => {
     expect(enqueueCalls).toEqual([
       { conversationId: conv.id, trigger: "sweep" },
     ]);
+  });
+
+  test("at the daily cap: no conversation is swept even with unprocessed work", async () => {
+    const now = Date.now();
+    const conv = createConversation({ id: "conv-a" });
+    insertMessage(conv.id, { createdAt: 1_000 });
+    seedDailyCount(now, 40); // already at cap
+
+    const result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+      now,
+    );
+
+    expect(enqueueCalls).toEqual([]);
+    expect(result.enqueued).toBe(0);
+  });
+
+  test("halts once the shared daily budget is exhausted mid-pass", async () => {
+    const now = Date.now();
+    // Two conversations both have unprocessed work; the budget only affords one.
+    createConversation({ id: "conv-a" });
+    insertMessage("conv-a", { createdAt: 1_000 });
+    createConversation({ id: "conv-b" });
+    insertMessage("conv-b", { createdAt: 1_000 });
+
+    const result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 1 }),
+      now,
+    );
+
+    // conv-a (sorted first) takes the last unit; conv-b is left for a later
+    // pass once the budget refreshes.
+    expect(enqueueCalls).toEqual([
+      { conversationId: "conv-a", trigger: "sweep" },
+    ]);
+    expect(result.enqueued).toBe(1);
+  });
+
+  test("an eligible sweep enqueue consumes exactly one unit", async () => {
+    const now = Date.now();
+    const conv = createConversation({ id: "conv-a" });
+    insertMessage(conv.id, { createdAt: 1_000 });
+    seedDailyCount(now, 5);
+
+    const result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+      now,
+    );
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "sweep" },
+    ]);
+    expect(result.enqueued).toBe(1);
+    expect(readDailyCount(now)).toBe(6);
+  });
+
+  test("a sweep enqueue that coalesces into a pending job consumes no budget; a fresh creation after it completes consumes one", async () => {
+    const now = Date.now();
+    const conv = createConversation({ id: "conv-a" });
+    insertMessage(conv.id, { createdAt: 1_000 });
+    seedDailyCount(now, 5);
+
+    // A conversation already queued by an event trigger: the sweep's enqueue
+    // coalesces into the pending row (helper returns false). No matter how many
+    // sweep passes run while that job stays pending, none may drain the budget.
+    enqueueResult = false;
+    let result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+      now,
+    );
+    expect(result).toEqual({ scanned: 1, enqueued: 0 });
+    expect(readDailyCount(now)).toBe(5);
+
+    result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+      now,
+    );
+    expect(result.enqueued).toBe(0);
+    expect(readDailyCount(now)).toBe(5);
+
+    // Once that job completes, a later pass creates a genuinely new job → one
+    // unit consumed.
+    enqueueResult = true;
+    result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+      now,
+    );
+    expect(result.enqueued).toBe(1);
+    expect(readDailyCount(now)).toBe(6);
+  });
+
+  test("a source the enqueue helper skips consumes no budget and is not counted", async () => {
+    const now = Date.now();
+    const conv = createConversation({ id: "conv-a" });
+    insertMessage(conv.id, { createdAt: 1_000 });
+    seedDailyCount(now, 5);
+    // The enqueue is attempted (budget under cap), but the helper skips this
+    // source and queues nothing, so the day's count must not move and the sweep
+    // reports it as scanned-not-enqueued.
+    enqueueResult = false;
+
+    const result = await runRetrospectiveSweep(
+      makeConfig({ maxRunsPerAssistantPerDay: 40 }),
+      now,
+    );
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "sweep" },
+    ]);
+    expect(result).toEqual({ scanned: 1, enqueued: 0 });
+    expect(readDailyCount(now)).toBe(5);
   });
 });
 

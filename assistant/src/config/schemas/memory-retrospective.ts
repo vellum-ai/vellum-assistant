@@ -23,9 +23,9 @@ export const MemoryRetrospectiveConfigSchema = z
       .positive(
         "memory.retrospective.messageThreshold must be a positive integer",
       )
-      .default(10)
+      .default(25)
       .describe(
-        "New messages since the last successful retrospective run before the message-count trigger fires.",
+        "New messages since the last successful retrospective run before the message-count trigger fires. A single agentic turn easily adds ten-plus messages, so a low threshold re-arms the trigger every turn; batching more messages per run keeps memory coverage identical while spreading the fixed per-run fork overhead across more content.",
       ),
 
     minCooldownMs: z
@@ -34,9 +34,23 @@ export const MemoryRetrospectiveConfigSchema = z
       .nonnegative(
         "memory.retrospective.minCooldownMs must be a non-negative integer",
       )
-      .default(5 * 60 * 1000)
+      .default(10 * 60 * 1000)
       .describe(
         "Minimum milliseconds between attempts (success or failure). Prevents tight retry loops across trigger types. Pre-compaction bypasses this gate.",
+      ),
+
+    maxRunsPerAssistantPerDay: z
+      .number({
+        error:
+          "memory.retrospective.maxRunsPerAssistantPerDay must be a number",
+      })
+      .int("memory.retrospective.maxRunsPerAssistantPerDay must be an integer")
+      .positive(
+        "memory.retrospective.maxRunsPerAssistantPerDay must be a positive integer",
+      )
+      .default(40)
+      .describe(
+        "Runaway backstop: the maximum number of retrospective enqueue attempts the assistant makes in a UTC day, counted across all conversations. Normal usage sits far below it (median is roughly eight attempts/day), so this only clips pathological tails where a single conversation loops thousands of times. The interval and message-count thresholds do the broad volume reduction; this is the ceiling. Pre-compaction bypasses this gate exactly as it bypasses the cooldown — the last-chance capture before context truncation neither checks nor consumes the daily budget.",
       ),
 
     sweepIntervalMs: z

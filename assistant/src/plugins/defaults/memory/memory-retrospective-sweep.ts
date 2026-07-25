@@ -53,6 +53,10 @@ import { conversations } from "../../../persistence/schema/index.js";
 import { getLogger } from "./logging.js";
 import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
+import {
+  isDailyRetrospectiveBudgetExhausted,
+  recordDailyRetrospectiveRun,
+} from "./memory-retrospective-daily-count.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "./memory-retrospective-enqueue.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./v3/substrate/constants.js";
@@ -155,10 +159,12 @@ export async function runRetrospectiveSweep(
     return { scanned: 0, enqueued: 0 };
   }
   const sweepIntervalMs = config.memory.retrospective.sweepIntervalMs;
+  const maxRunsPerDay = config.memory.retrospective.maxRunsPerAssistantPerDay;
 
   let scanned = 0;
   let enqueued = 0;
   let cursor = "";
+  let capReached = false;
   for (;;) {
     const page = listSweepCandidateConversationIds(cursor, SWEEP_BATCH);
     if (page.length === 0) {
@@ -196,12 +202,34 @@ export async function runRetrospectiveSweep(
         continue;
       }
 
-      enqueueMemoryRetrospectiveIfEnabled({ conversationId, trigger: "sweep" });
-      enqueued += 1;
+      // Runaway backstop: stop scanning once the assistant's daily budget
+      // (shared with the responsive trigger-check path) is exhausted. The budget
+      // is consumed only when a NEW pending job is created, so a source the
+      // enqueue helper skips — and a conversation already queued by an event
+      // trigger, whose sweep enqueue merely coalesces — costs nothing. The
+      // compaction path never routes through here, so it bypasses the cap.
+      if (isDailyRetrospectiveBudgetExhausted(maxRunsPerDay, now)) {
+        log.debug(
+          { scanned, enqueued },
+          "daily retrospective cap reached; halting sweep",
+        );
+        capReached = true;
+        break;
+      }
+
+      if (
+        enqueueMemoryRetrospectiveIfEnabled({
+          conversationId,
+          trigger: "sweep",
+        })
+      ) {
+        recordDailyRetrospectiveRun(maxRunsPerDay, now);
+        enqueued += 1;
+      }
     }
 
     await breathe();
-    if (page.length < SWEEP_BATCH) {
+    if (capReached || page.length < SWEEP_BATCH) {
       break;
     }
   }
