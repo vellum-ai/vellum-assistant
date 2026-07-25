@@ -23,10 +23,14 @@
 
 import { join } from "node:path";
 
-import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
+import {
+  isMemoryV1Active,
+  usesConceptPageMemory,
+} from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/schema.js";
 import { reconcileEmbeddingIdentity } from "../../../daemon/embedding-reconcile.js";
 import { refreshSkillCapabilityMemories } from "../../../daemon/skill-memory-refresh.js";
+import { setMemoryCheckpoint } from "../../../persistence/checkpoints.js";
 import { selectEmbeddingBackend } from "../../../persistence/embeddings/embedding-backend.js";
 import {
   initMessagesLexicalIndex,
@@ -42,7 +46,10 @@ import {
   isMemoryEnabled,
 } from "../../../persistence/jobs-store.js";
 import { resolveQdrantUrl } from "./embeddings.js";
-import { startMemoryJobsWorker } from "./jobs-worker.js";
+import {
+  GRAPH_MAINTENANCE_CHECKPOINTS,
+  startMemoryJobsWorker,
+} from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
 import { getWorkspaceDir } from "./paths.js";
 // ---- substrate (v2+v3) ---- the only tier-owned static import group here;
@@ -235,6 +242,28 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
         { err },
         "Concept page frontmatter sweep threw — continuing startup",
       );
+    }
+  }
+
+  // ---- v1 (legacy engine) ----
+  // Claim the one-shot v1-entry reconcile for this boot. The seeding and
+  // bootstrap steps below are exactly what the worker's `maybeRunV1EntryReconcile`
+  // runs, and they run here on every boot, so the worker only owes v1 the HOT
+  // config transition. Writing the marker synchronously BEFORE the worker is
+  // spawned is what makes that ordering total: the worker process does not
+  // exist yet, so its first tick reads a marker that is already present and
+  // skips, and the two processes never upsert the same `memory_graph_nodes`
+  // rows concurrently. A crash between this write and the steps below re-runs
+  // both on the next boot. Best-effort — a checkpoint failure must not block
+  // the worker start.
+  if (isMemoryV1Active(config)) {
+    try {
+      setMemoryCheckpoint(
+        GRAPH_MAINTENANCE_CHECKPOINTS.v1EntryReconcile,
+        String(Date.now()),
+      );
+    } catch (err) {
+      log.warn({ err }, "Claiming the v1-entry reconcile checkpoint failed");
     }
   }
 

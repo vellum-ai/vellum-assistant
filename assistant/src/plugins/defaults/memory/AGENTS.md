@@ -312,8 +312,11 @@ on v1-era machinery.
    move to a tier-neutral home first.
 3. **The v1-entry reconcile goes with v1.** `maybeRunV1EntryReconcile` in
    `jobs-worker.ts` and its `v1_entry_reconcile_done` checkpoint exist only to
-   re-run bootstrap + capability seeders when an assistant enters v1; delete
-   both in the same change.
+   re-run bootstrap + capability seeders when an assistant enters v1. Three
+   sites carry it and all go in the same change: the reconcile itself,
+   `rearmV1EntryReconcile` (clears the marker on every tick that is off v1), and
+   the boot-time claim in `startup.ts` that keeps the daemon's own seeding pass
+   from racing the worker's.
 
 ### External consumers to repoint or retire
 
