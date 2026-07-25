@@ -30,18 +30,27 @@ import { Glob } from "bun";
  * `src/config/memory-v3-gate.ts` (from which `src/config/memory-tier.ts`
  * derives) and substrate tunables resolve via `substrate/tuning.ts`, so raw
  * tier-key reads outside the frozen {@link TIER_KEY_READ_ALLOWLIST} are a
- * layering leak. Detection strips comments and string/template literals
- * first (so job names like "memory.v2.sweep" and schema error strings do not
- * false-positive), then matches `memory.v2` / `memory.v3` property chains —
- * including optional chaining and reads inside template interpolations.
+ * layering leak. Each finding carries WHICH key it read, and every exemption
+ * is a (path, keys) pair — so the `v2/` engine stays exempt for `memory.v2`
+ * only and `v3/` for `memory.v3` only, matching the documented boundary that
+ * an engine reads its own tuning namespace and no other.
  *
- * Both allowlists carry a reverse "stale exemption" test so an entry whose
- * multi-tier import or tier-key read disappears fails loudly and gets
- * removed instead of lingering.
+ * Detection strips comments and string/template literals first (so job names
+ * like "memory.v2.sweep" and schema error strings do not false-positive),
+ * then matches three read forms: dot chains (`config.memory?.v3?.live`),
+ * computed literal access (`config.memory["v3"]`), and destructuring off a
+ * `memory` object (`const { v2 } = config.memory`, `const { memory: { v3 } }
+ * = config`). Bare `"v2"` / `"v3"` string literals survive stripping so
+ * computed access stays visible; every other literal is blanked.
+ *
+ * Both allowlists carry a reverse "stale exemption" test — per (path, keys)
+ * pair for tier keys — so an entry whose multi-tier import or tier-key read
+ * disappears fails loudly and gets removed instead of lingering.
  *
  * Tests run from `assistant/`, so paths resolve against `process.cwd()`.
- * Test files (`*.test.ts`, `__tests__/`) are out of scope — the boundary
- * guarded is the shipped runtime.
+ * Both `.ts` and `.tsx` production files are scanned (the assistant tsconfig
+ * ships both); test files (`*.test.ts`, `*.test.tsx`, `__tests__/`) are out
+ * of scope — the boundary guarded is the shipped runtime.
  */
 
 /** `assistant/src/plugins/defaults/memory`, relative to the `assistant/` cwd. */
@@ -78,42 +87,67 @@ const SPINE_ALLOWLIST: ReadonlySet<string> = new Set([
   "startup.ts",
 ]);
 
+/** The two tier config namespaces this guard tracks. */
+type TierKey = "v2" | "v3";
+
+interface TierKeyExemption {
+  /**
+   * Path relative to the `assistant/` cwd, posix-separated; a trailing `/`
+   * marks a directory prefix.
+   */
+  readonly path: string;
+  /** Tier namespaces this path may read — and only these. */
+  readonly keys: readonly TierKey[];
+}
+
 /**
- * Files allowed to read `memory.v2.*` / `memory.v3.*` config keys directly.
- * Paths are relative to the `assistant/` cwd, posix-separated; a trailing
- * `/` marks a directory prefix. Frozen — do not add: route new tier
- * decisions through `src/config/memory-v3-gate.ts` (or `memory-tier.ts`) and
- * new substrate tunables through `substrate/tuning.ts`; see the tier
- * deletion runbooks before touching this list.
+ * Files allowed to read `memory.v2.*` / `memory.v3.*` config keys directly,
+ * paired with the exact namespaces each may read. Frozen — do not add and do
+ * not widen an entry's keys: route new tier decisions through
+ * `src/config/memory-v3-gate.ts` (or `memory-tier.ts`) and new substrate
+ * tunables through `substrate/tuning.ts`; see the tier deletion runbooks
+ * before touching this list.
  *
- * - `config/memory-v3-gate.ts` — the gate module; the one sanctioned home
- *   for raw tier-predicate reads.
- * - `config/loader.ts` — seeds/normalizes the persisted `memory.v3` shape.
- * - `telemetry/config-setting-snapshot.ts` — reports tier keys as-is.
- * - migrations (persistence + workspace) — append-only history that rewrites
- *   or reads historical tier keys.
- * - `substrate/tuning.ts` — the substrate tunable resolver (`memory.v2`
- *   fallback lives here by design).
- * - `v2/`, `v3/` — each engine reads its own tier's tuning namespace.
- * - `graph/conversation-graph-memory.ts` — reads `memory.v2.router` for the
- *   all-tier dispatcher's historical-pairs routing.
- * - `graph-topology/build-memory-graph.ts` — reads `memory.v3.edge` tuning
- *   when building the graph view.
- * - `src/memory-v2-routes.ts` — the v2 tuning routes read and merge
+ * - `config/memory-v3-gate.ts` (both) — the gate module; the one sanctioned
+ *   home for raw tier-predicate reads, and it compares v2 against v3.
+ * - `config/loader.ts` (v3) — seeds/normalizes the persisted `memory.v3`
+ *   shape.
+ * - `telemetry/config-setting-snapshot.ts` (both) — reports both tier keys
+ *   as-is.
+ * - `persistence/migrations/` (v2), `workspace/migrations/` (both) —
+ *   append-only history that rewrites or reads historical tier keys.
+ * - `substrate/tuning.ts` (v2) — the substrate tunable resolver; the
+ *   substrate→`memory.v2` fallback lives here by design.
+ * - `v2/` (v2), `v3/` (v3) — each engine reads its own tuning namespace and
+ *   never the other engine's.
+ * - `graph/conversation-graph-memory.ts` (v2) — reads `memory.v2.router` for
+ *   the all-tier dispatcher's historical-pairs routing.
+ * - `graph-topology/build-memory-graph.ts` (v3) — reads `memory.v3.edge`
+ *   tuning when building the graph view.
+ * - `src/memory-v2-routes.ts` (v2) — the v2 tuning routes read and merge
  *   `memory.v2` config directly.
  */
-const TIER_KEY_READ_ALLOWLIST: readonly string[] = [
-  "src/config/loader.ts",
-  "src/config/memory-v3-gate.ts",
-  "src/persistence/migrations/",
-  "src/plugins/defaults/memory/graph-topology/build-memory-graph.ts",
-  "src/plugins/defaults/memory/graph/conversation-graph-memory.ts",
-  "src/plugins/defaults/memory/src/memory-v2-routes.ts",
-  "src/plugins/defaults/memory/substrate/tuning.ts",
-  "src/plugins/defaults/memory/v2/",
-  "src/plugins/defaults/memory/v3/",
-  "src/telemetry/config-setting-snapshot.ts",
-  "src/workspace/migrations/",
+const TIER_KEY_READ_ALLOWLIST: readonly TierKeyExemption[] = [
+  { path: "src/config/loader.ts", keys: ["v3"] },
+  { path: "src/config/memory-v3-gate.ts", keys: ["v2", "v3"] },
+  { path: "src/persistence/migrations/", keys: ["v2"] },
+  {
+    path: "src/plugins/defaults/memory/graph-topology/build-memory-graph.ts",
+    keys: ["v3"],
+  },
+  {
+    path: "src/plugins/defaults/memory/graph/conversation-graph-memory.ts",
+    keys: ["v2"],
+  },
+  {
+    path: "src/plugins/defaults/memory/src/memory-v2-routes.ts",
+    keys: ["v2"],
+  },
+  { path: "src/plugins/defaults/memory/substrate/tuning.ts", keys: ["v2"] },
+  { path: "src/plugins/defaults/memory/v2/", keys: ["v2"] },
+  { path: "src/plugins/defaults/memory/v3/", keys: ["v3"] },
+  { path: "src/telemetry/config-setting-snapshot.ts", keys: ["v2", "v3"] },
+  { path: "src/workspace/migrations/", keys: ["v2", "v3"] },
 ];
 
 /** Matches `import ... from "X"`, `export ... from "X"`, `import("X")`,
@@ -131,12 +165,20 @@ function tierOf(relToMem: string): Tier | "spine" {
     : "spine";
 }
 
-/** Production `.ts` files under `root`, posix-relative, tests excluded. */
+/**
+ * Production `.ts`/`.tsx` files under `root`, posix-relative, tests excluded.
+ * TSX ships too (the assistant tsconfig includes TSX under `src/`), so it is
+ * scanned alongside TS.
+ */
 function productionFiles(root: string): string[] {
   const files: string[] = [];
-  for (const rel of new Glob("**/*.ts").scanSync({ cwd: root })) {
+  for (const rel of new Glob("**/*.{ts,tsx}").scanSync({ cwd: root })) {
     const posix = rel.split("\\").join("/");
-    if (posix.endsWith(".test.ts") || posix.split("/").includes("__tests__")) {
+    if (
+      posix.endsWith(".test.ts") ||
+      posix.endsWith(".test.tsx") ||
+      posix.split("/").includes("__tests__")
+    ) {
       continue;
     }
     files.push(posix);
@@ -203,11 +245,14 @@ function spineTierUsage(imports: TierImport[]): Map<string, Set<Tier>> {
 
 /**
  * Source with comments and string/template literals blanked out, so tier-key
- * matching only sees executable property chains. Line structure is
- * preserved. Template interpolations (`${...}`) are kept — they are code —
- * via a mode stack that tracks nested templates and interpolation braces.
- * Regex literals are not lexed; single/double-quoted string skipping stops
- * at end-of-line so a quote inside a regex desyncs at most one line.
+ * matching only sees executable property chains. Bare `"v2"` / `"v3"`
+ * literals survive verbatim — they are the key half of computed access
+ * (`config.memory["v3"]`) — while every other literal, including compound
+ * names like "memory.v2.sweep", is dropped. Line structure is preserved.
+ * Template interpolations (`${...}`) are kept — they are code — via a mode
+ * stack that tracks nested templates and interpolation braces. Regex
+ * literals are not lexed; single/double-quoted string skipping stops at
+ * end-of-line so a quote inside a regex desyncs at most one line.
  */
 function stripCommentsAndStrings(source: string): string {
   let out = "";
@@ -265,12 +310,17 @@ function stripCommentsAndStrings(source: string): string {
       continue;
     }
     if (c === '"' || c === "'") {
-      i++;
+      const start = ++i;
       while (i < n && source[i] !== c && source[i] !== "\n") {
         i += source[i] === "\\" ? 2 : 1;
       }
+      const content = source.slice(start, i);
       if (source[i] === c) {
         i++;
+      }
+      // Tier-key literals stay so computed access survives stripping.
+      if (content === "v2" || content === "v3") {
+        out += `${c}${content}${c}`;
       }
       continue;
     }
@@ -297,26 +347,100 @@ function stripCommentsAndStrings(source: string): string {
   return out;
 }
 
-/** Matches a `memory.v2` / `memory.v3` property chain, including optional
- *  chaining (`config.memory?.v3?.live`). Runs on stripped source only. */
-const TIER_KEY_READ = /\bmemory\s*\??\.\s*v[23]\b/;
+/** `memory.v2` / `memory.v3` property chain, incl. `config.memory?.v3?.live`. */
+const TIER_KEY_DOT_READ = /\bmemory\s*\??\.\s*(v[23])\b/g;
 
-function isTierKeyExempt(file: string): boolean {
-  return TIER_KEY_READ_ALLOWLIST.some((entry) =>
-    entry.endsWith("/") ? file.startsWith(entry) : file === entry,
+/** Computed literal access — `config.memory["v3"]`, `memory?.['v2']`. */
+const TIER_KEY_COMPUTED_READ =
+  /\bmemory\s*(?:\?\.)?\s*\[\s*(['"])(v[23])\1\s*\]/g;
+
+/** A `const`/`let`/`var` destructuring declaration: pattern and its source. */
+const DESTRUCTURING_DECLARATION =
+  /\b(?:const|let|var)\s+(\{[\s\S]*?\})\s*=\s*([^;\n]+)/g;
+
+/** A right-hand side that is (a chain ending in) a `memory` object. */
+const DESTRUCTURED_FROM_MEMORY = /(?:^|\.)\s*memory\s*$/;
+
+/** A `memory: { ... }` sub-pattern inside a destructuring pattern. */
+const NESTED_MEMORY_PATTERN = /\bmemory\s*:\s*(\{[^{}]*\})/g;
+
+/** A tier key bound at the top level of an object pattern: `{ v2, v3: t }`. */
+const PATTERN_TIER_KEY = /[{,]\s*(v[23])\s*(?=[,:}=])/g;
+
+/**
+ * Pattern text at the outermost brace depth, with nested groups blanked, so
+ * only the keys destructured directly off the object are read.
+ */
+function topLevelPatternContent(pattern: string): string {
+  let depth = 0;
+  let out = "";
+  for (const char of pattern) {
+    if (char === "{" || char === "[") {
+      depth++;
+      out += depth === 1 ? char : " ";
+      continue;
+    }
+    if (char === "}" || char === "]") {
+      out += depth === 1 ? char : " ";
+      depth--;
+      continue;
+    }
+    out += depth === 1 ? char : " ";
+  }
+  return out;
+}
+
+/**
+ * Tier namespaces the stripped source reads: dot chains, computed literal
+ * access, and destructuring off a `memory` object. Dynamic computed keys
+ * (`memory[key]`) are out of reach of a lexer this size.
+ */
+function tierKeysRead(stripped: string): Set<TierKey> {
+  const keys = new Set<TierKey>();
+  for (const match of stripped.matchAll(TIER_KEY_DOT_READ)) {
+    keys.add(match[1] as TierKey);
+  }
+  for (const match of stripped.matchAll(TIER_KEY_COMPUTED_READ)) {
+    keys.add(match[2] as TierKey);
+  }
+  for (const declaration of stripped.matchAll(DESTRUCTURING_DECLARATION)) {
+    const pattern = declaration[1]!;
+    const patterns: string[] = [];
+    if (DESTRUCTURED_FROM_MEMORY.test(declaration[2]!.trim())) {
+      patterns.push(topLevelPatternContent(pattern));
+    }
+    for (const nested of pattern.matchAll(NESTED_MEMORY_PATTERN)) {
+      patterns.push(nested[1]!);
+    }
+    for (const candidate of patterns) {
+      for (const key of candidate.matchAll(PATTERN_TIER_KEY)) {
+        keys.add(key[1] as TierKey);
+      }
+    }
+  }
+  return keys;
+}
+
+function isTierKeyExempt(file: string, key: TierKey): boolean {
+  return TIER_KEY_READ_ALLOWLIST.some(
+    (entry) =>
+      (entry.path.endsWith("/")
+        ? file.startsWith(entry.path)
+        : file === entry.path) && entry.keys.includes(key),
   );
 }
 
-/** Production files under `src/` with a tier-key config read, sorted. */
-function collectTierKeyReaders(): string[] {
-  const readers: string[] = [];
+/** Production files under `src/` mapped to the tier keys each one reads. */
+function collectTierKeyReaders(): Map<string, Set<TierKey>> {
+  const readers = new Map<string, Set<TierKey>>();
   for (const file of productionFiles(join(process.cwd(), "src"))) {
     const posix = `src/${file}`;
     const stripped = stripCommentsAndStrings(
       readFileSync(join(process.cwd(), posix), "utf-8"),
     );
-    if (TIER_KEY_READ.test(stripped)) {
-      readers.push(posix);
+    const keys = tierKeysRead(stripped);
+    if (keys.size > 0) {
+      readers.set(posix, keys);
     }
   }
   return readers;
@@ -387,12 +511,19 @@ describe("memory tier boundary guard", () => {
   });
 
   test("tier-key config reads are frozen to the gate module and exemptions", () => {
-    const violations = collectTierKeyReaders()
-      .filter((file) => !isTierKeyExempt(file))
-      .map((file) => `  - ${file}`);
+    const violations: string[] = [];
+    for (const [file, keys] of collectTierKeyReaders()) {
+      for (const key of [...keys].sort()) {
+        if (!isTierKeyExempt(file, key)) {
+          violations.push(`  - ${file} reads memory.${key}.*`);
+        }
+      }
+    }
+    violations.sort();
     const message = [
       "New memory.v2.* / memory.v3.* config reads outside the frozen",
-      "TIER_KEY_READ_ALLOWLIST:",
+      "TIER_KEY_READ_ALLOWLIST (an engine directory is exempt for its own",
+      "tier key only):",
       ...violations,
       "",
       "Tier decisions go through src/config/memory-v3-gate.ts (or",
@@ -402,20 +533,26 @@ describe("memory tier boundary guard", () => {
     expect(violations, message).toEqual([]);
   });
 
-  test("every tier-key exemption still has a tier-key read", () => {
+  test("every tier-key exemption still has a matching tier-key read", () => {
     const readers = collectTierKeyReaders();
     const stale: string[] = [];
     for (const entry of TIER_KEY_READ_ALLOWLIST) {
-      const matched = entry.endsWith("/")
-        ? readers.some((file) => file.startsWith(entry))
-        : readers.includes(entry);
-      if (!matched) {
-        stale.push(`  - ${entry}`);
+      for (const key of entry.keys) {
+        const matched = [...readers].some(
+          ([file, keys]) =>
+            (entry.path.endsWith("/")
+              ? file.startsWith(entry.path)
+              : file === entry.path) && keys.has(key),
+        );
+        if (!matched) {
+          stale.push(`  - ${entry.path} (memory.${key}.*)`);
+        }
       }
     }
+    stale.sort();
     const message = [
-      "Stale TIER_KEY_READ_ALLOWLIST entries (no tier-key read matches —",
-      "remove them so the freeze stays tight):",
+      "Stale TIER_KEY_READ_ALLOWLIST (path, key) pairs (no tier-key read",
+      "matches — remove them so the freeze stays tight):",
       ...stale,
     ].join("\n");
     expect(stale, message).toEqual([]);
@@ -423,35 +560,66 @@ describe("memory tier boundary guard", () => {
 });
 
 describe("tier-key read detection", () => {
-  const detects = (source: string): boolean =>
-    TIER_KEY_READ.test(stripCommentsAndStrings(source));
+  const keysOf = (source: string): TierKey[] =>
+    [...tierKeysRead(stripCommentsAndStrings(source))].sort();
 
   test("property chains are detected, with and without optional chaining", () => {
-    expect(detects(`const on = config.memory.v2.enabled;`)).toBe(true);
-    expect(detects(`return config.memory?.v3?.live === true;`)).toBe(true);
-    expect(detects(`seed.memory.v3 = { live: seed.memory.v3.live };`)).toBe(
-      true,
-    );
+    expect(keysOf(`const on = config.memory.v2.enabled;`)).toEqual(["v2"]);
+    expect(keysOf(`return config.memory?.v3?.live === true;`)).toEqual(["v3"]);
+    expect(keysOf(`seed.memory.v3 = { live: seed.memory.v3.live };`)).toEqual([
+      "v3",
+    ]);
+  });
+
+  test("computed literal access is detected", () => {
+    expect(keysOf(`const live = config.memory["v3"].live;`)).toEqual(["v3"]);
+    expect(keysOf(`const k = config.memory['v2'].k;`)).toEqual(["v2"]);
+    expect(keysOf(`const live = config.memory?.["v3"]?.live;`)).toEqual(["v3"]);
+    expect(keysOf(`const both = [memory["v2"], memory["v3"]];`)).toEqual([
+      "v2",
+      "v3",
+    ]);
+  });
+
+  test("destructuring off a memory object is detected", () => {
+    expect(keysOf(`const { v2 } = config.memory;`)).toEqual(["v2"]);
+    expect(keysOf(`const { v3: tuning } = getConfig().memory;`)).toEqual([
+      "v3",
+    ]);
+    expect(keysOf(`const { v2, v3 } = config?.memory;`)).toEqual(["v2", "v3"]);
+    expect(keysOf(`const { memory: { v3 } } = config;`)).toEqual(["v3"]);
   });
 
   test("string literals and comments are ignored", () => {
-    expect(detects(`enqueue("memory.v2.sweep");`)).toBe(false);
-    expect(detects(`// falls back to memory.v2.k\nconst k = 1;`)).toBe(false);
-    expect(detects(`/** memory.v3.live gates injection */\nconst x = 1;`)).toBe(
-      false,
-    );
-    expect(detects("const label = `memory.v3.edge tuning`;")).toBe(false);
+    expect(keysOf(`enqueue("memory.v2.sweep");`)).toEqual([]);
+    expect(keysOf(`const job = { name: "memory.v2.sweep" };`)).toEqual([]);
+    expect(keysOf(`// falls back to memory.v2.k\nconst k = 1;`)).toEqual([]);
+    expect(
+      keysOf(`/** memory.v3.live gates injection */\nconst x = 1;`),
+    ).toEqual([]);
+    expect(keysOf("const label = `memory.v3.edge tuning`;")).toEqual([]);
+  });
+
+  test("bare tier-key literals survive stripping without matching alone", () => {
+    expect(keysOf(`const tier = "v3";`)).toEqual([]);
+    expect(keysOf(`log("v2", "memory.v2.sweep");`)).toEqual([]);
+    expect(keysOf(`const t = pages["v2"];`)).toEqual([]);
   });
 
   test("reads inside template interpolations are detected", () => {
-    expect(detects("const msg = `k=${config.memory.v2.k}`;")).toBe(true);
+    expect(keysOf("const msg = `k=${config.memory.v2.k}`;")).toEqual(["v2"]);
     expect(
-      detects("const msg = `memory.v3.live=${config.memory?.v3?.live}`;"),
-    ).toBe(true);
+      keysOf("const msg = `memory.v3.live=${config.memory?.v3?.live}`;"),
+    ).toEqual(["v3"]);
+    expect(keysOf('const msg = `live=${config.memory["v3"].live}`;')).toEqual([
+      "v3",
+    ]);
   });
 
   test("unrelated identifiers do not match", () => {
-    expect(detects(`const memoryV2 = loadV2();`)).toBe(false);
-    expect(detects(`const x = inMemory.v2Cache;`)).toBe(false);
+    expect(keysOf(`const memoryV2 = loadV2();`)).toEqual([]);
+    expect(keysOf(`const x = inMemory.v2Cache;`)).toEqual([]);
+    expect(keysOf(`const { v2 } = engines;`)).toEqual([]);
+    expect(keysOf(`const { lanes: { v3 } } = registry;`)).toEqual([]);
   });
 });
