@@ -36,14 +36,25 @@ import ts from "typescript";
  * only and `v3/` for `memory.v3` only, matching the documented boundary that
  * an engine reads its own tuning namespace and no other.
  *
- * Detection parses each production file into a TypeScript AST
- * (`ts.createSourceFile`, no type-checker) and walks it for reads off a
- * `memory` object: property access including optional chaining
- * (`config.memory?.v3.live`), element access with a string literal
- * (`config.memory["v3"]`), and destructuring in any position — variable
- * declarations (`const { v2 } = config.memory ?? {}`), assignments
+ * Both guards read one TypeScript AST per file (`ts.createSourceFile`, no
+ * type-checker): {@link scanProductionSources} parses every production file
+ * under `src/` once and hands each guard the projection it needs, so a file
+ * inside the memory plugin is never parsed twice.
+ *
+ * Guard 1 collects module specifiers from the AST — `import`/`export ... from`
+ * (including `import type`), `import x = require("…")`, dynamic `import("…")`,
+ * `require("…")`, and type-position `import("…").Foo` — so import-shaped text
+ * in a comment or string literal can neither invent an edge nor hide a real
+ * one.
+ *
+ * Guard 2 walks the AST for reads off a `memory` object: property access
+ * including optional chaining (`config.memory?.v3.live`), element access with
+ * a string literal (`config.memory["v3"]`), and destructuring in any position
+ * — variable declarations (`const { v2 } = config.memory ?? {}`), assignments
  * (`({ v3 } = config.memory)`), function and catch parameters, and nested
- * patterns (`const { memory: { v3 } } = config`). The parser classifies
+ * patterns (`const { memory: { v3 } } = config`). Identifiers aliased to a
+ * memory object (`const memoryConfig = getConfig().memory`) count as memory
+ * objects too — see {@link collectMemoryAliases}. The parser classifies
  * comments and string, template, and regex literals for us, so job names
  * like "memory.v2.sweep" and doc comments never false-positive and no
  * literal can desync the scan.
@@ -58,9 +69,12 @@ import ts from "typescript";
  * of scope — the boundary guarded is the shipped runtime.
  */
 
-/** `assistant/src/plugins/defaults/memory`, relative to the `assistant/` cwd. */
-const MEM_REL = join("src", "plugins", "defaults", "memory");
-const MEM_ABS = join(process.cwd(), MEM_REL);
+/**
+ * `assistant/src/plugins/defaults/memory`, relative to the `assistant/` cwd
+ * and posix-separated (every path this guard compares is posix).
+ */
+const MEM_REL = "src/plugins/defaults/memory";
+const MEM_ABS = join(process.cwd(), ...MEM_REL.split("/"));
 
 const TIER_DIRS = ["substrate", "v1", "v2", "v3", "v3-eval"] as const;
 type Tier = (typeof TIER_DIRS)[number];
@@ -155,13 +169,6 @@ const TIER_KEY_READ_ALLOWLIST: readonly TierKeyExemption[] = [
   { path: "src/workspace/migrations/", keys: ["v2", "v3"] },
 ];
 
-/** Matches `import ... from "X"`, `export ... from "X"`, `import("X")`,
- *  `require("X")`, and side-effect `import "X"` — including multi-line forms,
- *  since the between-keyword-and-`from` span never contains a quote. */
-function importSpecifierRegex(): RegExp {
-  return /(?:import|export)\b[^'"]*?from\s*['"]([^'"]+)['"]|(?:import|require)\(\s*['"]([^'"]+)['"]\s*\)|^\s*import\s+['"]([^'"]+)['"]/gm;
-}
-
 /** Tier directory a plugin-root-relative path lives in, or `"spine"`. */
 function tierOf(relToMem: string): Tier | "spine" {
   const first = relToMem.split("/")[0]!;
@@ -200,16 +207,17 @@ interface TierImport {
 }
 
 /** Every intra-plugin import that lands in a tier directory. */
-function collectTierImports(): TierImport[] {
+function collectTierImports(sources: readonly ScannedSource[]): TierImport[] {
   const imports: TierImport[] = [];
-  for (const file of productionFiles(MEM_ABS)) {
-    const absPath = join(MEM_ABS, file);
-    const source = readFileSync(absPath, "utf-8");
-    const regex = importSpecifierRegex();
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(source)) !== null) {
-      const specifier = match[1] ?? match[2] ?? match[3];
-      if (!specifier || !specifier.startsWith(".")) {
+  const memPrefix = `${MEM_REL}/`;
+  for (const source of sources) {
+    if (!source.path.startsWith(memPrefix)) {
+      continue;
+    }
+    const file = source.path.slice(memPrefix.length);
+    const absPath = join(MEM_ABS, ...file.split("/"));
+    for (const specifier of source.specifiers) {
+      if (!specifier.startsWith(".")) {
         continue;
       }
       const resolved = resolve(dirname(absPath), specifier);
@@ -292,6 +300,52 @@ function literalText(node: ts.Node | undefined): string | undefined {
     : undefined;
 }
 
+/**
+ * Module specifiers a file depends on, taken from the AST: `import ... from`
+ * and re-exporting `export ... from` declarations, `import x = require("…")`,
+ * dynamic `import("…")`, `require("…")`, and type-position
+ * `import("…").Foo`. Type-only imports count — the guard freezes layering,
+ * not emitted code, and a `v3/` file importing a `v1/` type is still a tier
+ * edge. Only string-literal specifiers are collected; a computed
+ * `import(path)` has no static target to attribute.
+ */
+function importSpecifiers(sourceFile: ts.SourceFile): string[] {
+  const specifiers: string[] = [];
+  const add = (node: ts.Node | undefined): void => {
+    const text = literalText(node);
+    if (text !== undefined) {
+      specifiers.push(text);
+    }
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      // An `export { x }` with no module specifier is not an edge.
+      add(node.moduleSpecifier);
+    } else if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference)
+    ) {
+      add(node.moduleReference.expression);
+    } else if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const isImportCall = callee.kind === ts.SyntaxKind.ImportKeyword;
+      const isRequireCall =
+        ts.isIdentifier(callee) && callee.text === "require";
+      if (isImportCall || isRequireCall) {
+        add(node.arguments[0]);
+      }
+    } else if (
+      ts.isImportTypeNode(node) &&
+      ts.isLiteralTypeNode(node.argument)
+    ) {
+      add(node.argument.literal);
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return specifiers;
+}
+
 /** Static name of a property or binding name, or `undefined` if computed. */
 function staticNameText(
   name: ts.PropertyName | ts.BindingName | undefined,
@@ -311,13 +365,17 @@ function staticNameText(
 
 /**
  * Whether an expression resolves to a `memory` object: a bare `memory`
- * identifier, any `.memory` / `["memory"]` access, or either arm of a
- * `??`/`||` fallback or a conditional (`config.memory ?? {}`).
+ * identifier or a known `aliases` identifier, any `.memory` / `["memory"]`
+ * access, or either arm of a `??`/`||` fallback or a conditional
+ * (`config.memory ?? {}`).
  */
-function resolvesToMemory(node: ts.Expression): boolean {
+function resolvesToMemory(
+  node: ts.Expression,
+  aliases: ReadonlySet<string>,
+): boolean {
   const expr = unwrapExpression(node);
   if (ts.isIdentifier(expr)) {
-    return expr.text === "memory";
+    return expr.text === "memory" || aliases.has(expr.text);
   }
   if (ts.isPropertyAccessExpression(expr)) {
     return expr.name.text === "memory";
@@ -330,12 +388,95 @@ function resolvesToMemory(node: ts.Expression): boolean {
     (expr.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
       expr.operatorToken.kind === ts.SyntaxKind.BarBarToken)
   ) {
-    return resolvesToMemory(expr.left) || resolvesToMemory(expr.right);
+    return (
+      resolvesToMemory(expr.left, aliases) ||
+      resolvesToMemory(expr.right, aliases)
+    );
   }
   if (ts.isConditionalExpression(expr)) {
-    return resolvesToMemory(expr.whenTrue) || resolvesToMemory(expr.whenFalse);
+    return (
+      resolvesToMemory(expr.whenTrue, aliases) ||
+      resolvesToMemory(expr.whenFalse, aliases)
+    );
   }
   return false;
+}
+
+/** A binding that may name a `memory` object. */
+interface AliasCandidate {
+  /** Identifier the binding introduces. */
+  readonly name: string;
+  /** Initializer (or default value) the binding takes, if any. */
+  readonly initializer: ts.Expression | undefined;
+  /** Whether the binding destructures a `memory` property off its source. */
+  readonly fromMemoryProperty: boolean;
+}
+
+/** Every identifier binding in a file that could name a `memory` object. */
+function aliasCandidates(sourceFile: ts.SourceFile): AliasCandidate[] {
+  const candidates: AliasCandidate[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isVariableDeclaration(node) ||
+        ts.isParameter(node) ||
+        ts.isBindingElement(node)) &&
+      ts.isIdentifier(node.name)
+    ) {
+      candidates.push({
+        name: node.name.text,
+        initializer: node.initializer,
+        fromMemoryProperty:
+          ts.isBindingElement(node) &&
+          staticNameText(node.propertyName ?? node.name) === "memory",
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return candidates;
+}
+
+/**
+ * Identifiers a file binds to a `memory` config object, so later reads through
+ * the alias are seen: `const memoryConfig = getConfig().memory` (the shape
+ * `workspace/migrations/105-enable-memory-v3-live-for-new-workspaces.ts`
+ * uses), `const m = config.memory ?? {}`, `const { memory: m } = config`, and
+ * a parameter defaulted to any of those. Aliases of aliases resolve too — the
+ * pass iterates to a fixed point, so `const a = config.memory; const b = a;`
+ * makes both `a` and `b` memory objects.
+ *
+ * The set is file-level and scope-free on purpose: an inner scope that
+ * shadows an alias name with something unrelated is deliberately still
+ * treated as the alias. That over-detects rather than under-detects, which is
+ * the safe direction for a freeze guard — the cost of a shadowed name is one
+ * exemption discussion, while missing an aliased read is a silent layering
+ * leak. Reassignment (`let m; m = config.memory;`) is out of scope; use a
+ * declaration.
+ */
+function collectMemoryAliases(sourceFile: ts.SourceFile): Set<string> {
+  const candidates = aliasCandidates(sourceFile);
+  const aliases = new Set<string>();
+  for (const candidate of candidates) {
+    if (candidate.fromMemoryProperty) {
+      aliases.add(candidate.name);
+    }
+  }
+  // Alias chains resolve in any declaration order, so iterate until the set
+  // stops growing (bounded by the number of candidates).
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const candidate of candidates) {
+      if (aliases.has(candidate.name) || candidate.initializer === undefined) {
+        continue;
+      }
+      if (resolvesToMemory(candidate.initializer, aliases)) {
+        aliases.add(candidate.name);
+        grew = true;
+      }
+    }
+  }
+  return aliases;
 }
 
 /** Assignment-pattern target with its parentheses and `= default` removed. */
@@ -419,18 +560,22 @@ function addNestedMemoryPatternKeys(
  * its TypeScript AST: property access (`config.memory?.v3.live`), element
  * access with a string literal (`config.memory["v3"]`), and destructuring in
  * every position — declarations, assignments, parameters, and nested
- * patterns. Comments and string, template, and regex literals are classified
- * by the parser, so no literal reads as code or desyncs the walk. Dynamic
- * computed keys (`memory[key]`) stay out of reach without a type-checker.
+ * patterns. Identifiers aliased to a memory object count as memory objects
+ * (see {@link collectMemoryAliases}), so `alias.v3.live`, `alias["v2"]`, and
+ * `const { v3 } = alias` are all reads. Comments and string, template, and
+ * regex literals are classified by the parser, so no literal reads as code or
+ * desyncs the walk. Dynamic computed keys (`memory[key]`) stay out of reach
+ * without a type-checker.
  */
-function tierKeysRead(sourceText: string, fileName: string): Set<TierKey> {
+function tierKeysOf(sourceFile: ts.SourceFile): Set<TierKey> {
   const keys = new Set<TierKey>();
+  const aliases = collectMemoryAliases(sourceFile);
 
   const readPattern = (
     pattern: ObjectPattern,
     source: ts.Expression | undefined,
   ): void => {
-    if (source !== undefined && resolvesToMemory(source)) {
+    if (source !== undefined && resolvesToMemory(source, aliases)) {
       addTopLevelTierKeys(pattern, keys);
     }
     addNestedMemoryPatternKeys(pattern, keys);
@@ -439,7 +584,7 @@ function tierKeysRead(sourceText: string, fileName: string): Set<TierKey> {
   const visit = (node: ts.Node): void => {
     if (
       ts.isPropertyAccessExpression(node) &&
-      resolvesToMemory(node.expression)
+      resolvesToMemory(node.expression, aliases)
     ) {
       const key = node.name.text;
       if (key === "v2" || key === "v3") {
@@ -447,7 +592,7 @@ function tierKeysRead(sourceText: string, fileName: string): Set<TierKey> {
       }
     } else if (
       ts.isElementAccessExpression(node) &&
-      resolvesToMemory(node.expression)
+      resolvesToMemory(node.expression, aliases)
     ) {
       const key = literalText(node.argumentExpression);
       if (key === "v2" || key === "v3") {
@@ -474,7 +619,7 @@ function tierKeysRead(sourceText: string, fileName: string): Set<TierKey> {
     ts.forEachChild(node, visit);
   };
 
-  ts.forEachChild(parseSourceFile(fileName, sourceText), visit);
+  ts.forEachChild(sourceFile, visit);
   return keys;
 }
 
@@ -488,24 +633,65 @@ function isTierKeyExempt(file: string, key: TierKey): boolean {
 }
 
 /** Production files under `src/` mapped to the tier keys each one reads. */
-function collectTierKeyReaders(): Map<string, Set<TierKey>> {
+function collectTierKeyReaders(
+  sources: readonly ScannedSource[],
+): Map<string, Set<TierKey>> {
   const readers = new Map<string, Set<TierKey>>();
-  for (const file of productionFiles(join(process.cwd(), "src"))) {
-    const posix = `src/${file}`;
-    const absolute = join(process.cwd(), posix);
-    const keys = tierKeysRead(readFileSync(absolute, "utf-8"), absolute);
-    if (keys.size > 0) {
-      readers.set(posix, keys);
+  for (const source of sources) {
+    if (source.tierKeys.size > 0) {
+      readers.set(source.path, source.tierKeys);
     }
   }
   return readers;
 }
 
+/** One production source file, parsed once and projected for both guards. */
+interface ScannedSource {
+  /** Path relative to the `assistant/` cwd, posix-separated. */
+  readonly path: string;
+  /**
+   * Module specifiers this file imports, re-exports, or requires — collected
+   * only for files inside the memory plugin, the only ones guard 1 attributes
+   * a tier edge to.
+   */
+  readonly specifiers: readonly string[];
+  /** Tier namespaces this file reads off a `memory` object. */
+  readonly tierKeys: Set<TierKey>;
+}
+
+/**
+ * Every production file under `src/`, parsed once. Both guards read this one
+ * pass — the memory plugin's files are a subset of it, so no file is parsed
+ * twice.
+ */
+function scanProductionSources(): ScannedSource[] {
+  const srcRoot = join(process.cwd(), "src");
+  const memPrefix = `${MEM_REL}/`;
+  const sources: ScannedSource[] = [];
+  for (const file of productionFiles(srcRoot)) {
+    const path = `src/${file}`;
+    const absolute = join(srcRoot, ...file.split("/"));
+    const sourceFile = parseSourceFile(
+      absolute,
+      readFileSync(absolute, "utf-8"),
+    );
+    sources.push({
+      path,
+      specifiers: path.startsWith(memPrefix)
+        ? importSpecifiers(sourceFile)
+        : [],
+      tierKeys: tierKeysOf(sourceFile),
+    });
+  }
+  return sources;
+}
+
 describe("memory tier boundary guard", () => {
-  const tierImports = collectTierImports();
-  // Scanned once and shared: the forward and reverse tier-key tests read the
-  // same snapshot of the tree.
-  const tierKeyReaders = collectTierKeyReaders();
+  // Parsed once and shared: every guard test reads the same snapshot of the
+  // tree, and no file is parsed twice.
+  const sources = scanProductionSources();
+  const tierImports = collectTierImports(sources);
+  const tierKeyReaders = collectTierKeyReaders(sources);
 
   test("tier directories only import their allowed tiers", () => {
     const violations: string[] = [];
@@ -619,7 +805,7 @@ describe("memory tier boundary guard", () => {
 
 describe("tier-key read detection", () => {
   const keysOf = (source: string): TierKey[] =>
-    [...tierKeysRead(source, "guard-fixture.ts")].sort();
+    [...tierKeysOf(parseSourceFile("guard-fixture.ts", source))].sort();
 
   test("property chains are detected, with and without optional chaining", () => {
     expect(keysOf(`const on = config.memory.v2.enabled;`)).toEqual(["v2"]);
@@ -706,5 +892,108 @@ describe("tier-key read detection", () => {
     expect(keysOf(`const seed = { memory: { v3: { live: true } } };`)).toEqual(
       [],
     );
+  });
+
+  test("reads through an aliased memory object are detected", () => {
+    expect(
+      keysOf(`const memoryConfig = getConfig().memory;\nmemoryConfig.v3.live;`),
+    ).toEqual(["v3"]);
+    expect(
+      keysOf(`const m = config.memory ?? {};\nconst k = m["v2"].k;`),
+    ).toEqual(["v2"]);
+    expect(keysOf(`const m = config.memory;\nconst { v3 } = m;`)).toEqual([
+      "v3",
+    ]);
+    expect(keysOf(`const { memory: m } = config;\nm.v2.enabled;`)).toEqual([
+      "v2",
+    ]);
+    expect(
+      keysOf(`function read(m = config.memory) { return m.v3.live; }`),
+    ).toEqual(["v3"]);
+    // The migration-105 shape: cast, then re-alias the cast.
+    expect(
+      keysOf(
+        `const memory = config.memory;\nconst memoryConfig = memory as Record<string, unknown>;\nif (memoryConfig.v3 === undefined) memoryConfig.v3 = {};`,
+      ),
+    ).toEqual(["v3"]);
+  });
+
+  test("alias chains resolve in any declaration order", () => {
+    expect(keysOf(`const a = config.memory;\nconst b = a;\nb.v2.k;`)).toEqual([
+      "v2",
+    ]);
+    expect(
+      keysOf(
+        `function f() { return b.v3.live; }\nconst b = a;\nconst a = m.memory;`,
+      ),
+    ).toEqual(["v3"]);
+  });
+
+  test("aliases of unrelated objects do not match", () => {
+    expect(keysOf(`const cfg = getConfig();\nconst k = cfg.v2;`)).toEqual([]);
+    expect(keysOf(`const store = memories.byId;\nstore.v3.live;`)).toEqual([]);
+  });
+});
+
+describe("import specifier detection", () => {
+  const specifiersOf = (source: string): string[] =>
+    importSpecifiers(parseSourceFile("guard-fixture.ts", source)).sort();
+
+  test("every import form is collected", () => {
+    expect(specifiersOf(`import { a } from "./v1/a.js";`)).toEqual([
+      "./v1/a.js",
+    ]);
+    expect(specifiersOf(`import "./v1/side-effect.js";`)).toEqual([
+      "./v1/side-effect.js",
+    ]);
+    expect(specifiersOf(`import type { A } from "./v1/types.js";`)).toEqual([
+      "./v1/types.js",
+    ]);
+    expect(specifiersOf(`export { a } from "./v2/a.js";`)).toEqual([
+      "./v2/a.js",
+    ]);
+    expect(specifiersOf(`export * from "./v2/all.js";`)).toEqual([
+      "./v2/all.js",
+    ]);
+    expect(specifiersOf(`const m = await import("./v3/lazy.js");`)).toEqual([
+      "./v3/lazy.js",
+    ]);
+    expect(specifiersOf(`const m = require("./v3/legacy.js");`)).toEqual([
+      "./v3/legacy.js",
+    ]);
+    expect(specifiersOf(`import a = require("./v1/legacy.js");`)).toEqual([
+      "./v1/legacy.js",
+    ]);
+    expect(specifiersOf(`type A = import("./v1/types.js").A;`)).toEqual([
+      "./v1/types.js",
+    ]);
+    expect(
+      specifiersOf(
+        `import {\n  a,\n} from\n  "./v1/multiline.js";\nexport { b };`,
+      ),
+    ).toEqual(["./v1/multiline.js"]);
+  });
+
+  test("import-shaped text in comments and strings is not an edge", () => {
+    expect(
+      specifiersOf(`// import { x } from "./v1/x.js";\nconst a = 1;`),
+    ).toEqual([]);
+    expect(
+      specifiersOf(
+        `/** Replaces \`import { x } from "./v1/x.js"\`. */\nconst a = 1;`,
+      ),
+    ).toEqual([]);
+    expect(
+      specifiersOf(`throw new Error('add import { x } from "./v2/x.js"');`),
+    ).toEqual([]);
+    expect(specifiersOf('const hint = `import("./v3/x.js")`;')).toEqual([]);
+  });
+
+  test("a quote in a comment cannot hide a real import", () => {
+    expect(
+      specifiersOf(
+        `import {\n  // the plugin's loader\n  a,\n} from "./v1/a.js";`,
+      ),
+    ).toEqual(["./v1/a.js"]);
   });
 });
