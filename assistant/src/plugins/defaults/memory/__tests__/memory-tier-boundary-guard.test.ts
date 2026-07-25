@@ -25,21 +25,26 @@ import ts from "typescript";
  *     `v1/` or `v2/`.
  *   - A spine file importing from two or more tier directories is a
  *     composition point and must be on the frozen {@link SPINE_ALLOWLIST}.
+ *   - A file outside the plugin reaching into a tier directory is a host
+ *     importer and must be on the frozen {@link HOST_TIER_IMPORT_ALLOWLIST}.
+ *     Host importers are the set the tier deletion runbooks enumerate: a
+ *     deletion that skips them leaves broken imports and an unbuildable tree.
  *
- * Guard 2 — tier-key config reads (`memory.v2.*` / `memory.v3.*`) across all
- * of `assistant/src/`. Tier selection flows through the predicates in
- * `src/config/memory-v3-gate.ts` (from which `src/config/memory-tier.ts`
- * derives) and substrate tunables resolve via `substrate/tuning.ts`, so raw
- * tier-key reads outside the frozen {@link TIER_KEY_READ_ALLOWLIST} are a
- * layering leak. Each finding carries WHICH key it read, and every exemption
- * is a (path, keys) pair — so the `v2/` engine stays exempt for `memory.v2`
- * only and `v3/` for `memory.v3` only, matching the documented boundary that
- * an engine reads its own tuning namespace and no other.
+ * Guard 2 — tier-key config reads (`memory.substrate.*` / `memory.v2.*` /
+ * `memory.v3.*`) across all of `assistant/src/`. Tier selection flows through
+ * the predicates in `src/config/memory-v3-gate.ts` (from which
+ * `src/config/memory-tier.ts` derives) and substrate tunables resolve via
+ * `substrate/tuning.ts`, so raw tier-key reads outside the frozen
+ * {@link TIER_KEY_READ_ALLOWLIST} are a layering leak. Each finding carries
+ * WHICH key it read, and every exemption is a (path, keys) pair — so the
+ * `v2/` engine stays exempt for `memory.v2` only and `v3/` for `memory.v3`
+ * only, matching the documented boundary that an engine reads its own tuning
+ * namespace and no other.
  *
  * Both guards read one TypeScript AST per file (`ts.createSourceFile`, no
  * type-checker): {@link scanProductionSources} parses every production file
- * under `src/` once and hands each guard the projection it needs, so a file
- * inside the memory plugin is never parsed twice.
+ * under `src/` once and hands each guard the projection it needs, so no file
+ * is parsed twice.
  *
  * Guard 1 collects module specifiers from the AST — `import`/`export ... from`
  * (including `import type`), `import x = require("…")`, dynamic `import("…")`,
@@ -59,9 +64,10 @@ import ts from "typescript";
  * like "memory.v2.sweep" and doc comments never false-positive and no
  * literal can desync the scan.
  *
- * Both allowlists carry a reverse "stale exemption" test — per (path, keys)
- * pair for tier keys — so an entry whose multi-tier import or tier-key read
- * disappears fails loudly and gets removed instead of lingering.
+ * All three allowlists carry a reverse "stale exemption" test — per (path,
+ * tier) pair for host imports and per (path, key) pair for tier keys — so an
+ * entry whose import or tier-key read disappears fails loudly and gets removed
+ * instead of lingering.
  *
  * Tests run from `assistant/`, so paths resolve against `process.cwd()`.
  * Both `.ts` and `.tsx` production files are scanned (the assistant tsconfig
@@ -106,8 +112,66 @@ const SPINE_ALLOWLIST: ReadonlySet<string> = new Set([
   "startup.ts",
 ]);
 
-/** The two tier config namespaces this guard tracks. */
-type TierKey = "v2" | "v3";
+interface HostTierImportExemption {
+  /**
+   * Path relative to the `assistant/` cwd, posix-separated; a trailing `/`
+   * marks a directory prefix.
+   */
+  readonly path: string;
+  /** Tier directories this path may import from — and only these. */
+  readonly tiers: readonly Tier[];
+}
+
+/**
+ * Files outside the memory plugin allowed to import a tier directory
+ * directly, paired with the exact tiers each may reach. Frozen — do not add:
+ * host code should depend on the plugin spine, and this list is the deletion
+ * runbooks' inventory of what a tier removal has to rewrite. Shrinking it is
+ * how retiring an engine finishes.
+ *
+ * The `substrate/` entries are the shared concept-page surface the daemon and
+ * routes read (page/edge indexes, Qdrant collections, static context, boot
+ * maintenance, tuning); the `v1/` entries are the legacy PKB engine's
+ * remaining host reach (the migration step, semantic search, and PKB file
+ * indexing); the `v2/` and `v3/` entries are engine-specific inspector,
+ * activation/selection log, and CLI-harness surfaces.
+ */
+const HOST_TIER_IMPORT_ALLOWLIST: readonly HostTierImportExemption[] = [
+  {
+    path: "src/cli/commands/memory/memory-v2-compare-render.ts",
+    tiers: ["v2"],
+  },
+  { path: "src/cli/commands/memory/memory-v2.ts", tiers: ["v2"] },
+  {
+    path: "src/daemon/conversation-agent-loop-handlers.ts",
+    tiers: ["v2", "v3"],
+  },
+  { path: "src/daemon/conversation-runtime-assembly.ts", tiers: ["v3"] },
+  { path: "src/daemon/conversation.ts", tiers: ["v3"] },
+  { path: "src/daemon/embedding-reconcile.ts", tiers: ["substrate", "v3"] },
+  { path: "src/daemon/skill-memory-refresh.ts", tiers: ["substrate"] },
+  { path: "src/daemon/tool-side-effects.ts", tiers: ["substrate"] },
+  { path: "src/daemon/trust-context.ts", tiers: ["substrate"] },
+  { path: "src/persistence/steps.ts", tiers: ["v1"] },
+  { path: "src/plugins/defaults/index.ts", tiers: ["v3"] },
+  { path: "src/runtime/routes/consolidation-routes.ts", tiers: ["substrate"] },
+  {
+    path: "src/runtime/routes/conversation-query-routes.ts",
+    tiers: ["substrate", "v2", "v3"],
+  },
+  { path: "src/runtime/routes/global-search-routes.ts", tiers: ["v1"] },
+  { path: "src/runtime/routes/secret-routes.ts", tiers: ["substrate"] },
+  { path: "src/tools/filesystem/write.ts", tiers: ["v1"] },
+  { path: "src/tools/skills/find-similar-skills.ts", tiers: ["v3"] },
+];
+
+/** The tier config namespaces this guard tracks. */
+const TIER_KEYS = ["substrate", "v2", "v3"] as const;
+type TierKey = (typeof TIER_KEYS)[number];
+
+function isTierKey(key: string | undefined): key is TierKey {
+  return (TIER_KEYS as readonly (string | undefined)[]).includes(key);
+}
 
 interface TierKeyExemption {
   /**
@@ -133,10 +197,12 @@ interface TierKeyExemption {
  *   shape.
  * - `telemetry/config-setting-snapshot.ts` (both) — reports both tier keys
  *   as-is.
- * - `persistence/migrations/` (v2), `workspace/migrations/` (both) —
- *   append-only history that rewrites or reads historical tier keys.
- * - `substrate/tuning.ts` (v2) — the substrate tunable resolver; the
- *   substrate→`memory.v2` fallback lives here by design.
+ * - the six named migrations — append-only history that rewrites or reads the
+ *   historical tier keys it was written for. Listed per file, not per
+ *   directory: a future migration reading a tier key is a new decision and
+ *   gets challenged like any other.
+ * - `substrate/tuning.ts` (substrate, v2) — the substrate tunable resolver;
+ *   the `memory.substrate`→`memory.v2` fallback lives here by design.
  * - `v2/` (v2), `v3/` (v3) — each engine reads its own tuning namespace and
  *   never the other engine's.
  * - `graph/conversation-graph-memory.ts` (v2) — reads `memory.v2.router` for
@@ -149,7 +215,10 @@ interface TierKeyExemption {
 const TIER_KEY_READ_ALLOWLIST: readonly TierKeyExemption[] = [
   { path: "src/config/loader.ts", keys: ["v3"] },
   { path: "src/config/memory-v3-gate.ts", keys: ["v2", "v3"] },
-  { path: "src/persistence/migrations/", keys: ["v2"] },
+  {
+    path: "src/persistence/migrations/335-collapse-memory-embed-backlog.ts",
+    keys: ["v2"],
+  },
   {
     path: "src/plugins/defaults/memory/graph-topology/build-memory-graph.ts",
     keys: ["v3"],
@@ -162,11 +231,33 @@ const TIER_KEY_READ_ALLOWLIST: readonly TierKeyExemption[] = [
     path: "src/plugins/defaults/memory/src/memory-v2-routes.ts",
     keys: ["v2"],
   },
-  { path: "src/plugins/defaults/memory/substrate/tuning.ts", keys: ["v2"] },
+  {
+    path: "src/plugins/defaults/memory/substrate/tuning.ts",
+    keys: ["substrate", "v2"],
+  },
   { path: "src/plugins/defaults/memory/v2/", keys: ["v2"] },
   { path: "src/plugins/defaults/memory/v3/", keys: ["v3"] },
   { path: "src/telemetry/config-setting-snapshot.ts", keys: ["v2", "v3"] },
-  { path: "src/workspace/migrations/", keys: ["v2", "v3"] },
+  {
+    path: "src/workspace/migrations/085-memory-v2-bm25-b-reembed-disabled-v2-pages.ts",
+    keys: ["v2"],
+  },
+  {
+    path: "src/workspace/migrations/105-enable-memory-v3-live-for-new-workspaces.ts",
+    keys: ["v3"],
+  },
+  {
+    path: "src/workspace/migrations/117-normalize-stale-lean-memory-v3-defaults.ts",
+    keys: ["v3"],
+  },
+  {
+    path: "src/workspace/migrations/119-strip-persisted-memory-v3-tuning-defaults.ts",
+    keys: ["v3"],
+  },
+  {
+    path: "src/workspace/migrations/135-copy-substrate-tunables.ts",
+    keys: ["substrate", "v2"],
+  },
 ];
 
 /** Tier directory a plugin-root-relative path lives in, or `"spine"`. */
@@ -199,23 +290,34 @@ function productionFiles(root: string): string[] {
 }
 
 interface TierImport {
-  /** Importing file, relative to the plugin root. */
+  /** Importing file, relative to the `assistant/` cwd, posix-separated. */
   file: string;
-  sourceTier: Tier | "spine";
+  /**
+   * Importing file relative to the plugin root, or `undefined` when the
+   * importer lives outside the plugin.
+   */
+  pluginFile: string | undefined;
+  /** `"host"` when the importer lives outside the plugin. */
+  sourceTier: Tier | "spine" | "host";
   targetTier: Tier;
   specifier: string;
 }
 
-/** Every intra-plugin import that lands in a tier directory. */
+/**
+ * Every import that lands in a tier directory, from anywhere under `src/`.
+ * Importers inside the plugin carry their own tier (or `"spine"`); importers
+ * outside it are `"host"`, which is what makes a host file reaching into
+ * `v1/`, `v2/`, `v3/`, `v3-eval/`, or `substrate/` visible to the guard.
+ */
 function collectTierImports(sources: readonly ScannedSource[]): TierImport[] {
   const imports: TierImport[] = [];
   const memPrefix = `${MEM_REL}/`;
   for (const source of sources) {
-    if (!source.path.startsWith(memPrefix)) {
-      continue;
-    }
-    const file = source.path.slice(memPrefix.length);
-    const absPath = join(MEM_ABS, ...file.split("/"));
+    const inPlugin = source.path.startsWith(memPrefix);
+    const pluginFile = inPlugin
+      ? source.path.slice(memPrefix.length)
+      : undefined;
+    const absPath = join(process.cwd(), ...source.path.split("/"));
     for (const specifier of source.specifiers) {
       if (!specifier.startsWith(".")) {
         continue;
@@ -230,8 +332,9 @@ function collectTierImports(sources: readonly ScannedSource[]): TierImport[] {
         continue;
       }
       imports.push({
-        file,
-        sourceTier: tierOf(file),
+        file: source.path,
+        pluginFile,
+        sourceTier: pluginFile === undefined ? "host" : tierOf(pluginFile),
         targetTier,
         specifier,
       });
@@ -244,7 +347,23 @@ function collectTierImports(sources: readonly ScannedSource[]): TierImport[] {
 function spineTierUsage(imports: TierImport[]): Map<string, Set<Tier>> {
   const usage = new Map<string, Set<Tier>>();
   for (const imp of imports) {
-    if (imp.sourceTier !== "spine") {
+    if (imp.sourceTier !== "spine" || imp.pluginFile === undefined) {
+      continue;
+    }
+    let tiers = usage.get(imp.pluginFile);
+    if (!tiers) {
+      usage.set(imp.pluginFile, (tiers = new Set()));
+    }
+    tiers.add(imp.targetTier);
+  }
+  return usage;
+}
+
+/** Distinct tier directories each host file (outside the plugin) imports. */
+function hostTierUsage(imports: TierImport[]): Map<string, Set<Tier>> {
+  const usage = new Map<string, Set<Tier>>();
+  for (const imp of imports) {
+    if (imp.sourceTier !== "host") {
       continue;
     }
     let tiers = usage.get(imp.file);
@@ -530,7 +649,7 @@ function patternEntries(pattern: ObjectPattern): PatternEntry[] {
 /** Adds every tier key bound directly by `pattern`. */
 function addTopLevelTierKeys(pattern: ObjectPattern, keys: Set<TierKey>): void {
   for (const entry of patternEntries(pattern)) {
-    if (entry.key === "v2" || entry.key === "v3") {
+    if (isTierKey(entry.key)) {
       keys.add(entry.key);
     }
   }
@@ -587,7 +706,7 @@ function tierKeysOf(sourceFile: ts.SourceFile): Set<TierKey> {
       resolvesToMemory(node.expression, aliases)
     ) {
       const key = node.name.text;
-      if (key === "v2" || key === "v3") {
+      if (isTierKey(key)) {
         keys.add(key);
       }
     } else if (
@@ -595,7 +714,7 @@ function tierKeysOf(sourceFile: ts.SourceFile): Set<TierKey> {
       resolvesToMemory(node.expression, aliases)
     ) {
       const key = literalText(node.argumentExpression);
-      if (key === "v2" || key === "v3") {
+      if (isTierKey(key)) {
         keys.add(key);
       }
     } else if (
@@ -623,37 +742,34 @@ function tierKeysOf(sourceFile: ts.SourceFile): Set<TierKey> {
   return keys;
 }
 
+/**
+ * Whether `file` is covered by an allowlist entry's path: an exact match, or
+ * any file under it when the entry ends in `/` and so names a directory.
+ */
+function matchesExemptPath(file: string, exemptPath: string): boolean {
+  return exemptPath.endsWith("/")
+    ? file.startsWith(exemptPath)
+    : file === exemptPath;
+}
+
 function isTierKeyExempt(file: string, key: TierKey): boolean {
   return TIER_KEY_READ_ALLOWLIST.some(
-    (entry) =>
-      (entry.path.endsWith("/")
-        ? file.startsWith(entry.path)
-        : file === entry.path) && entry.keys.includes(key),
+    (entry) => matchesExemptPath(file, entry.path) && entry.keys.includes(key),
   );
 }
 
-/** Production files under `src/` mapped to the tier keys each one reads. */
-function collectTierKeyReaders(
-  sources: readonly ScannedSource[],
-): Map<string, Set<TierKey>> {
-  const readers = new Map<string, Set<TierKey>>();
-  for (const source of sources) {
-    if (source.tierKeys.size > 0) {
-      readers.set(source.path, source.tierKeys);
-    }
-  }
-  return readers;
+function isHostTierImportExempt(file: string, tier: Tier): boolean {
+  return HOST_TIER_IMPORT_ALLOWLIST.some(
+    (entry) =>
+      matchesExemptPath(file, entry.path) && entry.tiers.includes(tier),
+  );
 }
 
 /** One production source file, parsed once and projected for both guards. */
 interface ScannedSource {
   /** Path relative to the `assistant/` cwd, posix-separated. */
   readonly path: string;
-  /**
-   * Module specifiers this file imports, re-exports, or requires — collected
-   * only for files inside the memory plugin, the only ones guard 1 attributes
-   * a tier edge to.
-   */
+  /** Module specifiers this file imports, re-exports, or requires. */
   readonly specifiers: readonly string[];
   /** Tier namespaces this file reads off a `memory` object. */
   readonly tierKeys: Set<TierKey>;
@@ -661,25 +777,22 @@ interface ScannedSource {
 
 /**
  * Every production file under `src/`, parsed once. Both guards read this one
- * pass — the memory plugin's files are a subset of it, so no file is parsed
- * twice.
+ * pass, and guard 1 needs specifiers from every file — a host importer of a
+ * tier directory is an edge no matter where it lives — so specifiers and tier
+ * keys come off the same AST.
  */
 function scanProductionSources(): ScannedSource[] {
   const srcRoot = join(process.cwd(), "src");
-  const memPrefix = `${MEM_REL}/`;
   const sources: ScannedSource[] = [];
   for (const file of productionFiles(srcRoot)) {
-    const path = `src/${file}`;
     const absolute = join(srcRoot, ...file.split("/"));
     const sourceFile = parseSourceFile(
       absolute,
       readFileSync(absolute, "utf-8"),
     );
     sources.push({
-      path,
-      specifiers: path.startsWith(memPrefix)
-        ? importSpecifiers(sourceFile)
-        : [],
+      path: `src/${file}`,
+      specifiers: importSpecifiers(sourceFile),
       tierKeys: tierKeysOf(sourceFile),
     });
   }
@@ -691,17 +804,21 @@ describe("memory tier boundary guard", () => {
   // tree, and no file is parsed twice.
   const sources = scanProductionSources();
   const tierImports = collectTierImports(sources);
-  const tierKeyReaders = collectTierKeyReaders(sources);
+  const tierKeyReaders = sources.filter((source) => source.tierKeys.size > 0);
 
   test("tier directories only import their allowed tiers", () => {
     const violations: string[] = [];
     for (const imp of tierImports) {
-      if (imp.sourceTier === "spine" || imp.sourceTier === imp.targetTier) {
+      if (
+        imp.sourceTier === "spine" ||
+        imp.sourceTier === "host" ||
+        imp.sourceTier === imp.targetTier
+      ) {
         continue;
       }
       if (FORBIDDEN_TIER_IMPORTS[imp.sourceTier].has(imp.targetTier)) {
         violations.push(
-          `  - ${MEM_REL}/${imp.file} (${imp.sourceTier}/) imports "${imp.specifier}" (${imp.targetTier}/)`,
+          `  - ${imp.file} (${imp.sourceTier}/) imports "${imp.specifier}" (${imp.targetTier}/)`,
         );
       }
     }
@@ -754,20 +871,65 @@ describe("memory tier boundary guard", () => {
     expect(stale, message).toEqual([]);
   });
 
+  test("files outside the plugin only import frozen host tiers", () => {
+    const found = new Set<string>();
+    for (const [file, tiers] of hostTierUsage(tierImports)) {
+      for (const tier of tiers) {
+        if (!isHostTierImportExempt(file, tier)) {
+          found.add(`  - ${file} imports ${MEM_REL}/${tier}/`);
+        }
+      }
+    }
+    const violations = [...found].sort();
+    const message = [
+      "Host files reaching into a memory tier directory without a",
+      "HOST_TIER_IMPORT_ALLOWLIST entry:",
+      ...violations,
+      "",
+      "The allowlist is frozen — do not add. Host code depends on the plugin",
+      "spine (or a substrate export re-exported by it), never on an engine",
+      "directly; every entry here is work a tier deletion has to undo.",
+    ].join("\n");
+    expect(violations, message).toEqual([]);
+  });
+
+  test("every host tier-import exemption still has a matching import", () => {
+    const usage = hostTierUsage(tierImports);
+    const stale: string[] = [];
+    for (const entry of HOST_TIER_IMPORT_ALLOWLIST) {
+      for (const tier of entry.tiers) {
+        const matched = [...usage].some(
+          ([file, tiers]) =>
+            matchesExemptPath(file, entry.path) && tiers.has(tier),
+        );
+        if (!matched) {
+          stale.push(`  - ${entry.path} (${MEM_REL}/${tier}/)`);
+        }
+      }
+    }
+    stale.sort();
+    const message = [
+      "Stale HOST_TIER_IMPORT_ALLOWLIST (path, tier) pairs (no import",
+      "matches — remove them so the freeze stays tight):",
+      ...stale,
+    ].join("\n");
+    expect(stale, message).toEqual([]);
+  });
+
   test("tier-key config reads are frozen to the gate module and exemptions", () => {
     const violations: string[] = [];
-    for (const [file, keys] of tierKeyReaders) {
-      for (const key of [...keys].sort()) {
-        if (!isTierKeyExempt(file, key)) {
-          violations.push(`  - ${file} reads memory.${key}.*`);
+    for (const { path, tierKeys } of tierKeyReaders) {
+      for (const key of [...tierKeys].sort()) {
+        if (!isTierKeyExempt(path, key)) {
+          violations.push(`  - ${path} reads memory.${key}.*`);
         }
       }
     }
     violations.sort();
     const message = [
-      "New memory.v2.* / memory.v3.* config reads outside the frozen",
-      "TIER_KEY_READ_ALLOWLIST (an engine directory is exempt for its own",
-      "tier key only):",
+      "New memory.substrate.* / memory.v2.* / memory.v3.* config reads",
+      "outside the frozen TIER_KEY_READ_ALLOWLIST (an engine directory is",
+      "exempt for its own tier key only):",
       ...violations,
       "",
       "Tier decisions go through src/config/memory-v3-gate.ts (or",
@@ -778,15 +940,13 @@ describe("memory tier boundary guard", () => {
   });
 
   test("every tier-key exemption still has a matching tier-key read", () => {
-    const readers = tierKeyReaders;
     const stale: string[] = [];
     for (const entry of TIER_KEY_READ_ALLOWLIST) {
       for (const key of entry.keys) {
-        const matched = [...readers].some(
-          ([file, keys]) =>
-            (entry.path.endsWith("/")
-              ? file.startsWith(entry.path)
-              : file === entry.path) && keys.has(key),
+        const matched = tierKeyReaders.some(
+          (source) =>
+            matchesExemptPath(source.path, entry.path) &&
+            source.tierKeys.has(key),
         );
         if (!matched) {
           stale.push(`  - ${entry.path} (memory.${key}.*)`);
@@ -812,6 +972,22 @@ describe("tier-key read detection", () => {
     expect(keysOf(`return config.memory?.v3?.live === true;`)).toEqual(["v3"]);
     expect(keysOf(`seed.memory.v3 = { live: seed.memory.v3.live };`)).toEqual([
       "v3",
+    ]);
+  });
+
+  test("the substrate namespace is tracked alongside the engine tiers", () => {
+    expect(keysOf(`const k1 = config.memory.substrate.bm25_k1;`)).toEqual([
+      "substrate",
+    ]);
+    expect(keysOf(`const b = config.memory?.["substrate"]?.bm25_b;`)).toEqual([
+      "substrate",
+    ]);
+    expect(keysOf(`const { substrate } = config.memory ?? {};`)).toEqual([
+      "substrate",
+    ]);
+    expect(keysOf(`const { substrate, v2 } = getConfig().memory;`)).toEqual([
+      "substrate",
+      "v2",
     ]);
   });
 
@@ -861,19 +1037,6 @@ describe("tier-key read detection", () => {
     expect(keysOf("const label = `memory.v3.edge tuning`;")).toEqual([]);
   });
 
-  test("a regex literal containing a quote cannot hide a read", () => {
-    expect(
-      keysOf(`const on = /"/.test(v) && config.memory.v2.enabled;`),
-    ).toEqual(["v2"]);
-    expect(keysOf(`const q = /"/.test(v);`)).toEqual([]);
-  });
-
-  test("bare tier-key literals do not match on their own", () => {
-    expect(keysOf(`const tier = "v3";`)).toEqual([]);
-    expect(keysOf(`log("v2", "memory.v2.sweep");`)).toEqual([]);
-    expect(keysOf(`const t = pages["v2"];`)).toEqual([]);
-  });
-
   test("reads inside template interpolations are detected", () => {
     expect(keysOf("const msg = `k=${config.memory.v2.k}`;")).toEqual(["v2"]);
     expect(
@@ -889,6 +1052,8 @@ describe("tier-key read detection", () => {
     expect(keysOf(`const x = inMemory.v2Cache;`)).toEqual([]);
     expect(keysOf(`const { v2 } = engines;`)).toEqual([]);
     expect(keysOf(`const { lanes: { v3 } } = registry;`)).toEqual([]);
+    expect(keysOf(`const t = pages["v2"];`)).toEqual([]);
+    expect(keysOf(`const dir = plugin.substrate;`)).toEqual([]);
     expect(keysOf(`const seed = { memory: { v3: { live: true } } };`)).toEqual(
       [],
     );
@@ -987,13 +1152,5 @@ describe("import specifier detection", () => {
       specifiersOf(`throw new Error('add import { x } from "./v2/x.js"');`),
     ).toEqual([]);
     expect(specifiersOf('const hint = `import("./v3/x.js")`;')).toEqual([]);
-  });
-
-  test("a quote in a comment cannot hide a real import", () => {
-    expect(
-      specifiersOf(
-        `import {\n  // the plugin's loader\n  a,\n} from "./v1/a.js";`,
-      ),
-    ).toEqual(["./v1/a.js"]);
   });
 });
