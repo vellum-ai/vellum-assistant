@@ -22,28 +22,22 @@ New workspaces are switched to `v3` at creation (workspace migration 105).
 
 ### Tier predicates
 
-`memoryTier()` is fully derived from the named predicates in
-`src/config/memory-v3-gate.ts`, so the telemetry buckets and the runtime gates
-can never disagree:
+Tier decisions are made through named predicates in
+`src/config/memory-v3-gate.ts`, never by reading `memory.v2.*` / `memory.v3.*`
+directly — `memory.v2.enabled` defaults true and typically stays set on v3-live
+assistants, so a raw read misbehaves under v3. `memoryTier()` is fully derived
+from those predicates, so the telemetry buckets and the runtime gates can never
+disagree. The two that shape this document are `usesConceptPageMemory()` (the
+substrate is live) and `isMemoryV3Live()` (v3 is the injected source).
 
-| Predicate                      | True when                                                     |
-| ------------------------------ | ------------------------------------------------------------- |
-| `isMemoryEnabled`              | `memory.enabled !== false` — the user-facing master switch    |
-| `isMemoryV1Active`             | memory on and no concept-page consumer is active              |
-| `isV2InjectionEngineActive`    | memory on, `memory.v2.enabled === true`, and v3 not live      |
-| `isMemoryV2ExplicitlyDisabled` | `memory.v2.enabled === false` (not the negation of the above) |
-| `usesConceptPageMemory`        | memory on and (`memory.v3.live` or `memory.v2.enabled`)       |
-| `isMemoryV3Live`               | `memory.v3.live === true`                                     |
-| `isMemoryGraphSupported`       | memory on and v3 live                                         |
-| `isProcToSkillsActive`         | v3 live — procedural-memory-as-skills                         |
+The full predicate table — what each one is true for and, importantly, exactly
+which machinery it gates — is in `src/plugins/defaults/memory/AGENTS.md`, which
+is authoritative. Consult it before gating new code.
 
-`memory.v2.enabled` defaults true and typically stays set on v3-live
-assistants, so a direct read misbehaves under v3: tier decisions go through
-these predicates, never the raw keys. The memory plugin is layered into tier
-directories (`substrate/`, `v1/`, `v2/`, `v3/`) that never import each other —
-multi-tier composition is confined to a frozen set of spine files, and both
-rules plus the raw-tier-key ban are enforced by
-`src/plugins/defaults/memory/__tests__/memory-tier-boundary-guard.test.ts`.
+The memory plugin is layered into tier directories (`substrate/`, `v1/`, `v2/`,
+`v3/`) that never import each other — multi-tier composition is confined to a
+frozen set of spine files, and both rules plus the raw-tier-key ban are enforced
+by `src/plugins/defaults/memory/__tests__/memory-tier-boundary-guard.test.ts`.
 
 ## The concept-page substrate (`substrate/`)
 
@@ -144,18 +138,14 @@ intervals/limits, embedding + retrieval weights, BM25 parameters, sweep
 toggle) is optional under `memory.substrate`, and `resolveSubstrateTuning`
 (`substrate/tuning.ts`) — the substrate's single config choke point — falls
 back per key to the `memory.v2` twin, which supplies the effective defaults
-and which the v2 injection engine also reads. `spread_k` / `spread_hops` /
-`ann_candidate_limit` are the substrate names for `memory.v2.k` /
-`memory.v2.hops` / `memory.v2.ann_candidate_limit`; every other key shares its
-name with its twin. v2 engine-only keys (activation weights, router, rerank)
-live only under `memory.v2.*`, and v3 lane tuning under `memory.v3.*`. The
-`memory.v2.enabled` flag gates only the v2 injection engine's turn-time
-selection; the substrate runs whenever `usesConceptPageMemory()` holds.
+and which the v2 injection engine also reads. v2 engine-only keys (activation
+weights, router, rerank) live only under `memory.v2.*`, and v3 lane tuning
+under `memory.v3.*`. The `memory.v2.enabled` flag gates only the v2 injection
+engine's turn-time selection; the substrate runs whenever
+`usesConceptPageMemory()` holds.
 
-Because one substrate weight pairs with its v2 twin, the dense/sparse
-sum-to-1 invariant is checked over the RESOLVED pair by the parent
-`MemoryConfigSchema.superRefine` (the mixed case), alongside the substrate and
-v2 schemas' own refinements (both-set and neither-set). Workspace migration 135
-copies explicitly-set NON-DEFAULT `memory.v2` substrate tunables into
-`memory.substrate`, skipping loader-seeded defaults so an assistant is not
-permanently pinned to today's values when substrate defaults are retuned.
+`src/plugins/defaults/memory/AGENTS.md` carries the details that matter when
+you touch this: the three substrate keys whose names differ from their v2 twin,
+the three disjoint places the dense/sparse sum-to-1 invariant is checked, and
+why workspace migration 135 copies only explicitly-set NON-DEFAULT `memory.v2`
+tunables into `memory.substrate`.

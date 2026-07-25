@@ -24,7 +24,7 @@
  *   `tool_choice` provider call whose synthetic tool's input schema is the
  *   caller's Zod schema. The returned tool input is Zod-validated and returned
  *   as `output`. Copies the proven pattern from `memory/v2/router.ts` and
- *   `memory/graph/extraction.ts`.
+ *   `memory/v1/graph/extraction.ts`.
  * - **Tool path** (`tools` provided, no `schema`): a real {@link AgentLoop} with
  *   a minimal task-scoped system prompt and a tool-executor restricted to the
  *   supplied registry tools. No conversation is bootstrapped — the loop runs
