@@ -1171,6 +1171,8 @@ export function maybeEnqueueGraphMaintenanceJobs(
   if (usesConceptPageMemory(config.memory)) {
     enqueueSubstrateMaintenanceJobs(config, nowMs);
   } else {
+    // V1 — delete with v1. Dropping only the banner-marked function body below
+    // would leave this call dangling: collapse the branch to the substrate arm.
     enqueueV1MaintenanceJobs(config, nowMs);
   }
 

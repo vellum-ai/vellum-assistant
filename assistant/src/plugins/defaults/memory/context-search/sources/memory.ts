@@ -26,7 +26,8 @@ export async function searchMemorySource(
 
   // Tier dispatch: under the concept-page substrate (v2/v3) recall reads
   // concept pages; on v1 it falls through to the legacy graph-node search
-  // below.
+  // below. V1 — delete with v1: everything after this early return is the v1
+  // arm, so the source collapses to the `usesConceptPageMemory` delegation.
   if (usesConceptPageMemory(context.config.memory)) {
     return searchMemoryV2Source(query, context, normalizedLimit);
   }

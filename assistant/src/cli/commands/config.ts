@@ -113,21 +113,31 @@ export function registerConfigCommand(program: Command): void {
           // Direct-replacement set semantics (preserves null, replaces objects).
           // See conversation-query-routes.ts:handleSetConfig for why this is a
           // separate route from config_patch.
-          const result = await cliIpcCall("config_set", {
-            body: { path: key, value: parsed },
-          });
+          const result = await cliIpcCall<{ ok: boolean; warning?: string }>(
+            "config_set",
+            { body: { path: key, value: parsed } },
+          );
           if (!result.ok) {
             exitFromIpcResult(result, cmd);
             return;
           }
           log.info(`Set ${key} = ${JSON.stringify(parsed)}`);
+          // A write the daemon accepted but that another namespace overrides
+          // is reported alongside the success, so a no-op set never reads as
+          // an effective one.
+          const warning = result.result?.warning;
+          if (warning) {
+            log.warn(`Warning: ${warning}`);
+          }
         },
       );
 
       subcommand(config, "get").action(
         async (key: string, _opts: unknown, cmd: Command) => {
           const raw = await fetchRawConfig(cmd);
-          if (!raw) return;
+          if (!raw) {
+            return;
+          }
           const value = getNestedValue(raw, key);
           if (value === undefined) {
             log.info(`(not set)`);
@@ -136,6 +146,17 @@ export function registerConfigCommand(program: Command): void {
               typeof value === "object"
                 ? JSON.stringify(value, null, 2)
                 : String(value),
+            );
+          }
+          // A `memory.v2` substrate tunable is not the effective value when
+          // its `memory.substrate` twin is set — print the key that wins so a
+          // read cannot confirm a value the runtime ignores.
+          const { findSubstrateShadowing } =
+            await import("../../config/substrate-twin-shadowing.js");
+          const shadowing = findSubstrateShadowing(raw, key);
+          if (shadowing) {
+            log.warn(
+              `Shadowed: ${shadowing.substratePath} = ${JSON.stringify(shadowing.substrateValue)} takes precedence and is the effective value.`,
             );
           }
         },
@@ -158,7 +179,9 @@ export function registerConfigCommand(program: Command): void {
       subcommand(config, "list").action(
         async (opts: { search?: string }, cmd: Command) => {
           const raw = await fetchRawConfig(cmd);
-          if (!raw) return;
+          if (!raw) {
+            return;
+          }
           if (Object.keys(raw).length === 0) {
             log.info("No configuration set");
             return;

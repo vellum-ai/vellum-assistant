@@ -216,6 +216,9 @@ export async function indexMessageNow(
     // tools, so extracting from its reflective musings would double-count
     // and analyzing its own output would loop indefinitely.
     if (conceptConfig == null) {
+      // V1 — delete with v1. Dropping only the banner-marked function body
+      // below would leave this call dangling: collapse the branch to the
+      // substrate arm.
       enqueueV1IndexTriggers(
         input.conversationId,
         isAutoAnalysisSource,
