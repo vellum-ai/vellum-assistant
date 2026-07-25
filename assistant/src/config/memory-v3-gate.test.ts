@@ -168,9 +168,9 @@ describe("tier predicate truth table", () => {
   });
 
   test("v2.enabled stays true on v3-live assistants; the engine predicate still reports inactive", () => {
-    // No migration writes memory.v2.enabled=false at v3 cutover, so a
-    // v3-live config typically still carries v2.enabled=true. A direct
-    // `memory.v2.enabled` read says "on"; the predicate must say "off".
+    // v2.enabled and v3.live may both be true; only the v3 injection engine
+    // is active then. A direct `memory.v2.enabled` read says "on"; the
+    // predicate must say "off".
     const config = makeConfig(undefined, true, true);
     expect(config.memory?.v2?.enabled).toBe(true);
     expect(isV2InjectionEngineActive(config)).toBe(false);
