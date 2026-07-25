@@ -103,13 +103,20 @@ consolidation files it. Gated on the `memory-concept-graph` feature flag +
 - **Retrospective** (`memory-retrospective-*.ts`): periodic per-conversation
   review pass that saves what wasn't captured in the moment (and, on v3-live
   assistants, authors procedural skills).
-- **Sweep** (`substrate/sweep-job.ts`, `memory.v2.sweep_enabled`, default
-  off): idle-debounced extraction of recent messages into the buffer.
+- **Sweep** (`substrate/sweep-job.ts`, `sweep_enabled` substrate tunable,
+  default off): idle-debounced extraction of recent messages into the buffer.
 
 ## Config namespaces
 
-Substrate tuning still lives under the historical `memory.v2.*` keys
-(consolidation intervals/limits, embedding + retrieval weights) and v3 lane
-tuning under `memory.v3.*`. The `memory.v2.enabled` flag gates only the v2
-injection engine's turn-time selection; the substrate runs whenever
-`usesConceptPageMemory()` holds.
+Substrate tuning resolves from `memory.substrate.*` with fallback to the
+historical `memory.v2.*` keys: every substrate tunable (consolidation
+intervals/limits, embedding + retrieval weights, BM25 parameters, sweep
+toggle) is optional under `memory.substrate`, and `resolveSubstrateTuning`
+(`substrate/tuning.ts`) — the substrate's single config choke point — falls
+back per key to the `memory.v2` twin, which supplies the effective defaults
+and which the v2 injection engine also reads. `spread_k` / `spread_hops`
+are the substrate names for `memory.v2.k` / `memory.v2.hops`. v2
+engine-only keys (activation weights, router, rerank) live only under
+`memory.v2.*`, and v3 lane tuning under `memory.v3.*`. The
+`memory.v2.enabled` flag gates only the v2 injection engine's turn-time
+selection; the substrate runs whenever `usesConceptPageMemory()` holds.

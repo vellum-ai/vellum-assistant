@@ -18,8 +18,8 @@
 //
 // Per-channel queries: `hybridQueryConceptPages` runs separate dense and
 // sparse queries (no Qdrant-side RRF). Callers do their own weighted-sum
-// fusion using `dense_weight` / `sparse_weight` from `config.memory.v2`,
-// which RRF fusion would discard.
+// fusion using the `dense_weight` / `sparse_weight` substrate tunables
+// (`resolveSubstrateTuning`), which RRF fusion would discard.
 
 import { existsSync } from "node:fs";
 import { mkdir, unlink, writeFile } from "node:fs/promises";

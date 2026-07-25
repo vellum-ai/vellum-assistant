@@ -39,6 +39,7 @@ import { hybridQueryConceptPages } from "../../substrate/qdrant.js";
 import { fuseHalf } from "../../substrate/sim.js";
 import { generateBm25QueryEmbedding } from "../../substrate/sparse-bm25.js";
 import { spreadActivation } from "../../substrate/spread.js";
+import { resolveSubstrateTuning } from "../../substrate/tuning.js";
 import type {
   RecallEvidence,
   RecallSearchContext,
@@ -48,8 +49,8 @@ import type {
 const log = getLogger("context-search-memory-v2-source");
 
 /**
- * Sentinel passed to Qdrant when `config.memory.v2.ann_candidate_limit` is
- * `null` (unlimited). Qdrant's query API requires an explicit numeric
+ * Sentinel passed to Qdrant when the `ann_candidate_limit` substrate tunable
+ * is `null` (unlimited). Qdrant's query API requires an explicit numeric
  * `limit`, so unlimited is represented as a number large enough that any
  * realistic concept-page collection is returned in full.
  *
@@ -176,9 +177,8 @@ async function activationEvidence(
   if (!denseVector || denseVector.length === 0) {return [];}
   const sparseVector = generateBm25QueryEmbedding(trimmedQuery);
 
-  const annLimit =
-    context.config.memory.v2.ann_candidate_limit ??
-    UNLIMITED_ANN_CANDIDATE_LIMIT;
+  const tuning = resolveSubstrateTuning(context.config.memory);
+  const annLimit = tuning.ann_candidate_limit ?? UNLIMITED_ANN_CANDIDATE_LIMIT;
   const hits = await hybridQueryConceptPages(
     denseVector,
     sparseVector,
@@ -186,8 +186,7 @@ async function activationEvidence(
   );
   if (hits.length === 0) {return [];}
 
-  const { dense_weight: denseWeight, sparse_weight: sparseWeight } =
-    context.config.memory.v2;
+  const { dense_weight: denseWeight, sparse_weight: sparseWeight } = tuning;
 
   // Mirror sim.ts: normalize body and summary sparse channels against their
   // own per-batch maxima, fuse each half via clamp01(dense·w_d + sparse·w_s),
@@ -229,12 +228,11 @@ async function activationEvidence(
   }
 
   const edgeIndex = await getEdgeIndex(context.workingDir);
-  const { k, hops } = context.config.memory.v2;
   const { final: finalActivation } = spreadActivation(
     ownActivation,
     edgeIndex,
-    k,
-    hops,
+    tuning.spread_k,
+    tuning.spread_hops,
   );
 
   const ranked = [...finalActivation.entries()]

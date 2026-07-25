@@ -35,6 +35,7 @@ import {
   renderPageContent,
 } from "../substrate/page-store.js";
 import { seedV2SkillEntries } from "../substrate/skill-store.js";
+import { resolveSubstrateTuning } from "../substrate/tuning.js";
 import {
   type ConceptFrequencyResponse,
   getConceptFrequencySummary,
@@ -133,7 +134,9 @@ async function handleValidate({
   MemoryV2ValidateParams.parse(body);
 
   const workspaceDir = getWorkspaceDir();
-  const maxPageChars = loadConfig().memory.v2.max_page_chars;
+  const maxPageChars = resolveSubstrateTuning(
+    loadConfig().memory,
+  ).max_page_chars;
 
   const slugs = await listPages(workspaceDir);
   const knownSlugs = new Set<string>();

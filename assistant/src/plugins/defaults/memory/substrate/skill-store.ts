@@ -47,6 +47,7 @@ import {
   generateBm25DocEmbedding,
   getConceptPageCorpusStats,
 } from "./sparse-bm25.js";
+import { resolveSubstrateTuning } from "./tuning.js";
 import type { SkillEntry } from "./types.js";
 
 const log = getLogger("memory-v2-skill-store");
@@ -259,11 +260,12 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
       // entirely. Fall back to the legacy TF encoder only during the cold-start
       // window before corpus stats finish building.
       const corpusStats = getConceptPageCorpusStats();
+      const { bm25_k1, bm25_b } = resolveSubstrateTuning(config.memory);
       encodeSparse = (input: string) =>
         corpusStats
           ? generateBm25DocEmbedding(input, corpusStats, {
-              k1: config.memory.v2.bm25_k1,
-              b: config.memory.v2.bm25_b,
+              k1: bm25_k1,
+              b: bm25_b,
             })
           : generateSparseEmbedding(input);
       try {

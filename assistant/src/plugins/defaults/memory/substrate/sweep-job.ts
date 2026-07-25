@@ -16,8 +16,8 @@
  * extraction-trigger path. Until then this handler is invoked only by
  * `memory_v2_sweep` rows enqueued explicitly (tests, future CLI).
  *
- * Skipped entirely when concept-page memory is not active, or when
- * `config.memory.v2.sweep_enabled` is false — keeps the sweep dormant in
+ * Skipped entirely when concept-page memory is not active, or when the
+ * `sweep_enabled` substrate tunable is false — keeps the sweep dormant in
  * v1-only workspaces and in concept-page workspaces that haven't opted in,
  * even if a stale row sits in the queue when the gate is off.
  */
@@ -55,6 +55,7 @@ import {
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
 import { renderSweepPrompt } from "./prompts/sweep.js";
+import { resolveSubstrateTuning } from "./tuning.js";
 
 const log = getLogger("memory-v2-sweep");
 
@@ -124,8 +125,8 @@ export async function memoryV2SweepJob(
     return 0;
   }
 
-  if (!config.memory.v2.sweep_enabled) {
-    log.debug("memory.v2.sweep_enabled is false; sweep skipped");
+  if (!resolveSubstrateTuning(config.memory).sweep_enabled) {
+    log.debug("the sweep_enabled substrate tunable is false; sweep skipped");
     return 0;
   }
 
