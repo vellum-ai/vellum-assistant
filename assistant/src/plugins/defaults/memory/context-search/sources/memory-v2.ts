@@ -29,7 +29,6 @@ import { extname, join } from "node:path";
 import { embedWithRetry } from "../../../../../persistence/embeddings/embed.js";
 import { getLogger } from "../../logging.js";
 import { isPathInsideRoot } from "../../path-containment.js";
-import { spreadActivation } from "../../v2/activation.js";
 import { getEdgeIndex } from "../../v3/substrate/edge-index.js";
 import {
   getConceptsDir,
@@ -39,6 +38,7 @@ import {
 import { hybridQueryConceptPages } from "../../v3/substrate/qdrant.js";
 import { fuseHalf } from "../../v3/substrate/sim.js";
 import { generateBm25QueryEmbedding } from "../../v3/substrate/sparse-bm25.js";
+import { spreadActivation } from "../../v3/substrate/spread.js";
 import type {
   RecallEvidence,
   RecallSearchContext,
