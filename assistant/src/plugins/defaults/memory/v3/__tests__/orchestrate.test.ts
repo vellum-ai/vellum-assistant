@@ -39,7 +39,7 @@ import type { V3GateConfig } from "../gate.js";
 import type { OrchestrateDeps } from "../orchestrate.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
-import type { PageIndexEntry } from "../substrate/page-index.js";
+import type { PageIndexEntry } from "../../substrate/page-index.js";
 import type { MemoryRoutingTurn, SectionIndex, Slug } from "../types.js";
 
 // ---------------------------------------------------------------------------

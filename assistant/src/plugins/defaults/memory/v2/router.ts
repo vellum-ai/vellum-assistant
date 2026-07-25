@@ -47,14 +47,14 @@ import {
   type ToolDefinition,
 } from "../llm-helpers.js";
 import { getLogger } from "../logging.js";
-import type { PageIndex } from "../v3/substrate/page-index.js";
+import type { PageIndex } from "../substrate/page-index.js";
 import {
   getPageIndex,
   partitionPageIndex,
   splitTier1,
   splitTier2,
-} from "../v3/substrate/page-index.js";
-import type { EverInjectedEntry } from "../v3/substrate/types.js";
+} from "../substrate/page-index.js";
+import type { EverInjectedEntry } from "../substrate/types.js";
 import { computeInjectionScores } from "./injection-events.js";
 import { resolveRouterPrompt } from "./prompts/router.js";
 

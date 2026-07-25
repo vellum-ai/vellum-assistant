@@ -23,12 +23,9 @@ import {
   renderCapabilityContent,
 } from "../v3/capabilities.js";
 import { buildEdgeGraph } from "../v3/edge.js";
-import {
-  getPageIndex,
-  type PageIndexEntry,
-} from "../v3/substrate/page-index.js";
-import { readPage, renderPageContent } from "../v3/substrate/page-store.js";
-import { isSkillSlug } from "../v3/substrate/skill-store.js";
+import { getPageIndex, type PageIndexEntry } from "../substrate/page-index.js";
+import { readPage, renderPageContent } from "../substrate/page-store.js";
+import { isSkillSlug } from "../substrate/skill-store.js";
 import type { Slug } from "../v3/types.js";
 import {
   buildPendingGraph,

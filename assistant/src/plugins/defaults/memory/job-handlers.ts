@@ -54,8 +54,8 @@ import {
   memoryV2ReembedJob,
 } from "./v2/backfill-jobs.js";
 import { maintainJob as memoryV3MaintainJob } from "./v3/maintain-job.js";
-import { memoryV2ConsolidateJob } from "./v3/substrate/consolidation-job.js";
-import { memoryV2SweepJob } from "./v3/substrate/sweep-job.js";
+import { memoryV2ConsolidateJob } from "./substrate/consolidation-job.js";
+import { memoryV2SweepJob } from "./substrate/sweep-job.js";
 
 const log = getLogger("memory-job-handlers");
 

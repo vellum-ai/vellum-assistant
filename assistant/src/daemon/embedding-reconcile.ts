@@ -40,7 +40,7 @@ import {
 import {
   ensureConceptPageCollection,
   recreateConceptPageCollection,
-} from "../plugins/defaults/memory/v3/substrate/qdrant.js";
+} from "../plugins/defaults/memory/substrate/qdrant.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("embedding-reconcile");
@@ -160,7 +160,7 @@ async function defaultRecreateCollectionsAtDim(
  * the same type. `memory_v2_reembed` can be enqueued from two startup sites that
  * both guard on this in-flight check: the credential-arrival reconcile retry
  * (reconcile-vs-reconcile), and the lifecycle reconcile-then-rebuild interleaving
- * where `maybeRebuildMemoryV2Concepts` also enqueues a reembed when it finds the
+ * where `maybeRebuildConceptCollection` also enqueues a reembed when it finds the
  * just-(re)created collection empty. The guard keeps the corpus re-embed to a
  * single round-trip across either path.
  */

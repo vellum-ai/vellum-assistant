@@ -30,8 +30,8 @@ import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import { enqueueEmbedConceptPageJob } from "../jobs/embed-concept-page.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
-import { getEdgeIndex } from "../v3/substrate/edge-index.js";
-import { listPages } from "../v3/substrate/page-store.js";
+import { getEdgeIndex } from "../substrate/edge-index.js";
+import { listPages } from "../substrate/page-store.js";
 import {
   computeOwnActivation,
   selectCandidates,

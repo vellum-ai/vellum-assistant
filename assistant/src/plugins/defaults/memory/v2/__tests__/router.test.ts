@@ -68,7 +68,7 @@ mock.module("../../../../../util/logger.js", () => ({
   getLogger: () => makeRecordingLogger(),
 }));
 
-mock.module("../../v3/substrate/skill-store.js", () => ({
+mock.module("../../substrate/skill-store.js", () => ({
   SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => skillState.entries,
 }));
@@ -119,8 +119,8 @@ mock.module("@vellumai/plugin-api", () => ({
 
 const { runRouter, applyHistoricalCharBudget } = await import("../router.js");
 const { getPageIndex, invalidatePageIndex } =
-  await import("../../v3/substrate/page-index.js");
-const { writePage } = await import("../../v3/substrate/page-store.js");
+  await import("../../substrate/page-index.js");
+const { writePage } = await import("../../substrate/page-store.js");
 
 // ---------------------------------------------------------------------------
 // Per-test workspace + reset hooks.

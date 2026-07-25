@@ -33,18 +33,12 @@ import { getWorkspaceDir } from "../paths.js";
 import {
   getCliCommandCapability,
   isCliCommandSlug,
-} from "../v3/substrate/cli-command-store.js";
-import { getEdgeIndex } from "../v3/substrate/edge-index.js";
-import { getPageIndex } from "../v3/substrate/page-index.js";
-import { readPage, renderPageContent } from "../v3/substrate/page-store.js";
-import {
-  getSkillCapability,
-  isSkillSlug,
-} from "../v3/substrate/skill-store.js";
-import type {
-  ActivationState,
-  EverInjectedEntry,
-} from "../v3/substrate/types.js";
+} from "../substrate/cli-command-store.js";
+import { getEdgeIndex } from "../substrate/edge-index.js";
+import { getPageIndex } from "../substrate/page-index.js";
+import { readPage, renderPageContent } from "../substrate/page-store.js";
+import { getSkillCapability, isSkillSlug } from "../substrate/skill-store.js";
+import type { ActivationState, EverInjectedEntry } from "../substrate/types.js";
 import {
   computeOwnActivation,
   selectCandidates,

@@ -29,16 +29,16 @@ import { extname, join } from "node:path";
 import { embedWithRetry } from "../../../../../persistence/embeddings/embed.js";
 import { getLogger } from "../../logging.js";
 import { isPathInsideRoot } from "../../path-containment.js";
-import { getEdgeIndex } from "../../v3/substrate/edge-index.js";
+import { getEdgeIndex } from "../../substrate/edge-index.js";
 import {
   getConceptsDir,
   readPage,
   slugFromConceptPath,
-} from "../../v3/substrate/page-store.js";
-import { hybridQueryConceptPages } from "../../v3/substrate/qdrant.js";
-import { fuseHalf } from "../../v3/substrate/sim.js";
-import { generateBm25QueryEmbedding } from "../../v3/substrate/sparse-bm25.js";
-import { spreadActivation } from "../../v3/substrate/spread.js";
+} from "../../substrate/page-store.js";
+import { hybridQueryConceptPages } from "../../substrate/qdrant.js";
+import { fuseHalf } from "../../substrate/sim.js";
+import { generateBm25QueryEmbedding } from "../../substrate/sparse-bm25.js";
+import { spreadActivation } from "../../substrate/spread.js";
 import type {
   RecallEvidence,
   RecallSearchContext,

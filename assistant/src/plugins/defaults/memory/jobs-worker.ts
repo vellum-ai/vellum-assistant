@@ -73,7 +73,7 @@ import {
   type ConsolidationFailureKind,
   countBufferLines,
   readConsolidationFailureState,
-} from "./v3/substrate/consolidation-job.js";
+} from "./substrate/consolidation-job.js";
 import { spawnMemoryWorkerProcess } from "./worker-control.js";
 
 const log = getLogger("memory-jobs-worker");
@@ -844,6 +844,7 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   consolidate: "graph_maintenance:consolidate:last_run",
   patternScan: "graph_maintenance:pattern_scan:last_run",
   narrative: "graph_maintenance:narrative:last_run",
+  // FROZEN: persisted checkpoint key — never rename the value.
   memoryV2Consolidate: "memory_v2_consolidate_last_run",
   memoryV3Maintain: "memory_v3_maintain_last_run",
   pkbFiling: "pkb_filing_last_run",

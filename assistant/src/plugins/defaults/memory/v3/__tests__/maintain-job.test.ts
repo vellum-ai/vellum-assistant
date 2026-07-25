@@ -17,7 +17,7 @@ import {
   type MaintainJobDeps,
 } from "../maintain-job.js";
 import { buildSectionIndex } from "../sections.js";
-import { skillSlugFor } from "../substrate/skill-store.js";
+import { skillSlugFor } from "../../substrate/skill-store.js";
 import type { Section, SectionIndex, Slug } from "../types.js";
 
 // The skill usage-prune stage reads `memory.maintenance.skillPruneDays`; default

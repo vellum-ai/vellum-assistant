@@ -38,15 +38,15 @@ import {
   getEdgeIndex,
   totalEdgeCount,
   validateEdgeTargets,
-} from "../v3/substrate/edge-index.js";
-import { getPageIndex } from "../v3/substrate/page-index.js";
+} from "../substrate/edge-index.js";
+import { getPageIndex } from "../substrate/page-index.js";
 import {
   getConceptsDir,
   listPages,
   readPage,
   renderPageContent,
-} from "../v3/substrate/page-store.js";
-import { seedV2SkillEntries } from "../v3/substrate/skill-store.js";
+} from "../substrate/page-store.js";
+import { seedV2SkillEntries } from "../substrate/skill-store.js";
 
 const log = getLogger("memory-v2-routes");
 

@@ -13,7 +13,7 @@ import {
 import {
   extractInjectedConceptSlugs,
   readInjectedBlock,
-} from "./v3/substrate/injected-block-slugs.js";
+} from "./substrate/injected-block-slugs.js";
 
 /** Inputs to {@link forkConversationMemory}. */
 export interface ForkConversationMemoryInput {

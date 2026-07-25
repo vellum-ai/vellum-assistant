@@ -66,8 +66,8 @@ import { ensureSectionCollection } from "./section-dense-store.js";
 import type { SectionNeedle } from "./section-needle.js";
 import { buildSectionNeedle } from "./section-needle.js";
 import { buildSectionIndex } from "./sections.js";
-import { getPageIndex, invalidatePageIndex } from "./substrate/page-index.js";
-import { readPage, renderPageContent } from "./substrate/page-store.js";
+import { getPageIndex, invalidatePageIndex } from "../substrate/page-index.js";
+import { readPage, renderPageContent } from "../substrate/page-store.js";
 import { resolveV3Tuning } from "./tuning-profile.js";
 import {
   type MemoryRoutingTurn,

@@ -38,11 +38,11 @@ import { resolveQdrantUrl } from "./embeddings.js";
 import { startMemoryJobsWorker } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
 import { getWorkspaceDir } from "./paths.js";
-import { sweepConceptPageFrontmatter } from "./v3/substrate/frontmatter-sweep.js";
+import { sweepConceptPageFrontmatter } from "./substrate/frontmatter-sweep.js";
 import {
-  maybeRebuildMemoryV2Concepts,
+  maybeRebuildConceptCollection,
   rebuildBm25CorpusStatsAndReseedSkills,
-} from "./v3/substrate/memory-v2-startup.js";
+} from "./substrate/boot-maintenance.js";
 
 const log = getLogger("memory-startup");
 
@@ -168,7 +168,7 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
     // batch; the call's own try/catch keeps any v2-side failure from
     // blocking the v1 PKB reconcile or BM25 build below.
     try {
-      await maybeRebuildMemoryV2Concepts(config);
+      await maybeRebuildConceptCollection(config);
     } catch (err) {
       log.warn(
         { err },

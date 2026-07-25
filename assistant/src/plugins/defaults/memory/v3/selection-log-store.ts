@@ -27,7 +27,7 @@ import { sectionByOrdinal } from "./orchestrate.js";
 import { renderV3SectionContent } from "./page-content.js";
 import { renderMemoryBlock } from "./render-injection.js";
 import { buildSectionIndex } from "./sections.js";
-import { readPage } from "./substrate/page-store.js";
+import { readPage } from "../substrate/page-store.js";
 import {
   type Section,
   SELECTION_SOURCES,

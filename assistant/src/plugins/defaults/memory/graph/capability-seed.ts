@@ -31,7 +31,7 @@ import {
 } from "../../../../skills/catalog-cache.js";
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
-import type { SkillCapabilityInput } from "../v3/substrate/skill-content.js";
+import type { SkillCapabilityInput } from "../substrate/skill-content.js";
 import { createNode } from "./store.js";
 import {
   CAPABILITY_CLI_SOURCE_PREFIX as CLI_SOURCE_PREFIX,

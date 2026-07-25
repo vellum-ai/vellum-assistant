@@ -68,7 +68,7 @@ import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
-import type { PageIndexEntry } from "../substrate/page-index.js";
+import type { PageIndexEntry } from "../../substrate/page-index.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
   type SectionIndex,

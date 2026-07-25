@@ -75,7 +75,7 @@ import {
 import {
   INJECTED_CONCEPT_HEADER_REGEX,
   readInjectedBlock,
-} from "./substrate/injected-block-slugs.js";
+} from "../substrate/injected-block-slugs.js";
 
 const log = getLogger("memory-v3-shadow");
 

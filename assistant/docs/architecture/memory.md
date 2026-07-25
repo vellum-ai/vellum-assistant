@@ -17,15 +17,15 @@ An assistant runs exactly one memory tier, derived by `memoryTier()` in
 New workspaces are switched to `v3` at creation (workspace migration 105).
 `v1` and the `v2` injection engine are in retirement; v3 is the target state.
 
-## The concept-page substrate (`v3/substrate/`)
+## The concept-page substrate (`substrate/`)
 
 The durable core shared by v2 and v3 is the **concept-page substrate**:
 markdown articles under `memory/concepts/` (plus the aggregate views
 `essentials.md`, `threads.md`, `recent.md` and the intake `buffer.md`), their
 cached page index, and the concept-page Qdrant collection with dense + BM25
 sparse vectors. It lives in
-`src/plugins/defaults/memory/v3/substrate/` because it is memory-v3's
-foundation — the v2 injection engine is just a second (transitional) consumer.
+`src/plugins/defaults/memory/substrate/`; it is memory-v3's foundation, and
+the v2 injection engine is a second (transitional) consumer.
 
 Substrate activation is a single predicate, `usesConceptPageMemory()` in
 `src/config/memory-v3-gate.ts`: memory on AND (`memory.v3.live` OR
@@ -50,7 +50,7 @@ graph LR
 - `handleRemember` (`graph/tool-handlers.ts`) appends timestamped bullets to
   `memory/buffer.md` + the daily archive whenever memory is enabled. Facts may
   carry `[[slug]]` page hints that consolidation reads first when filing.
-- **Consolidation** (`v3/substrate/consolidation-job.ts`) is a background
+- **Consolidation** (`substrate/consolidation-job.ts`) is a background
   agent conversation that files buffer entries into concept pages, rewrites
   the aggregate views, and trims the buffer. Scheduling
   (`maybeEnqueueGraphMaintenanceJobs` in `jobs-worker.ts`):
@@ -67,10 +67,10 @@ graph LR
 ### Read paths
 
 - **v3 (live)**: per-turn lane selection over concept pages — dense/sparse
-  retrieval (`v3/substrate/sim.ts` over the concept-page collection),
+  retrieval (`substrate/sim.ts` over the concept-page collection),
   learned edges, entity/hot/fresh/core sets — rendered as the `<memory>`
   card by `v3/injector.ts`. The static `<info>` block
-  (`v3/substrate/static-context.ts`: essentials/threads/recent/buffer) also
+  (`substrate/static-context.ts`: essentials/threads/recent/buffer) also
   injects whenever the substrate is active.
 - **v2 (transitional)**: activation/router engine in `v2/`
   (`activation.ts`, `router.ts`, `reranker.ts`, `injection.ts`) selects
@@ -82,7 +82,7 @@ graph LR
 
 ### Boot-time maintenance
 
-`v3/substrate/memory-v2-startup.ts`, invoked from the memory plugin's
+`substrate/boot-maintenance.ts`, invoked from the memory plugin's
 startup path: skill + CLI-command capability seeding into the concept-page
 collection, BM25 corpus-stats rebuild, and collection schema
 reconcile/reembed. All gated on `usesConceptPageMemory()`.
@@ -103,7 +103,7 @@ consolidation files it. Gated on the `memory-concept-graph` feature flag +
 - **Retrospective** (`memory-retrospective-*.ts`): periodic per-conversation
   review pass that saves what wasn't captured in the moment (and, on v3-live
   assistants, authors procedural skills).
-- **Sweep** (`v3/substrate/sweep-job.ts`, `memory.v2.sweep_enabled`, default
+- **Sweep** (`substrate/sweep-job.ts`, `memory.v2.sweep_enabled`, default
   off): idle-debounced extraction of recent messages into the buffer.
 
 ## Config namespaces

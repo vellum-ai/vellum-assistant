@@ -40,7 +40,7 @@ import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
-import type { PageIndexEntry } from "../substrate/page-index.js";
+import type { PageIndexEntry } from "../../substrate/page-index.js";
 import type { MemoryRoutingTurn, SectionIndex, Slug } from "../types.js";
 
 // ---------------------------------------------------------------------------
