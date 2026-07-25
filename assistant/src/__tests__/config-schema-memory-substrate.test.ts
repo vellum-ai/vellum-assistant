@@ -15,6 +15,9 @@
  *     through the memory slice schema and the full assistant schema.
  *   - The substrate hybrid-weight refinement fires only when BOTH weights are
  *     set and mis-summed.
+ *   - The parent memory schema validates the RESOLVED weight pair: a single
+ *     substrate weight is paired with its `memory.v2` twin (schema default
+ *     applied), and the effective sum must respect the sum-to-one invariant.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -74,8 +77,8 @@ describe("memory.substrate schema", () => {
   });
 
   test("hybrid-weight refinement fires only when both weights are set and mis-summed", () => {
-    // Only one weight set — no refinement, even though it can't sum to 1.0
-    // with an absent sibling (the resolver pairs it with the v2 twin).
+    // Only one weight set — no refinement at the substrate schema level; the
+    // parent memory schema validates the resolved pair against the v2 twin.
     expect(
       MemorySubstrateConfigSchema.safeParse({ dense_weight: 0.5 }).success,
     ).toBe(true);
@@ -104,6 +107,109 @@ describe("memory.substrate schema", () => {
         "memory.substrate hybrid weights",
       );
     }
+  });
+
+  describe("resolved hybrid-weight invariant (memory schema level)", () => {
+    // Parses `memory` through both entry points that must agree: the memory
+    // slice schema and the full assistant config schema.
+    const parseBothWays = (memory: unknown) => ({
+      slice: MemoryConfigSchema.safeParse(memory),
+      full: AssistantConfigSchema.safeParse({ memory }),
+    });
+
+    test("a lone substrate dense_weight that breaks the effective sum is rejected", () => {
+      // v2 sparse_weight defaults to 0.15 → effective sum 1.05.
+      const { slice, full } = parseBothWays({
+        substrate: { dense_weight: 0.9 },
+      });
+      for (const result of [slice, full]) {
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          const issue = result.error.issues.find((candidate) =>
+            candidate.message.includes(
+              "memory hybrid weights must sum to 1.0 after memory.substrate → memory.v2 fallback",
+            ),
+          );
+          expect(issue).toBeDefined();
+          expect(issue?.message).toContain("0.9000");
+          expect(issue?.message).toContain("0.1500");
+          expect(issue?.message).toContain("1.0500");
+          expect(issue?.path.slice(-2)).toEqual(["substrate", "dense_weight"]);
+        }
+      }
+    });
+
+    test("a lone substrate sparse_weight that breaks the effective sum is rejected", () => {
+      // v2 dense_weight defaults to 0.85 → effective sum 1.35.
+      const { slice, full } = parseBothWays({
+        substrate: { sparse_weight: 0.5 },
+      });
+      for (const result of [slice, full]) {
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          const issue = result.error.issues.find((candidate) =>
+            candidate.message.includes(
+              "memory hybrid weights must sum to 1.0 after memory.substrate → memory.v2 fallback",
+            ),
+          );
+          expect(issue).toBeDefined();
+          expect(issue?.path.slice(-2)).toEqual(["substrate", "sparse_weight"]);
+        }
+      }
+    });
+
+    test("a complete substrate pair summing to 1.0 is accepted", () => {
+      const { slice, full } = parseBothWays({
+        substrate: { dense_weight: 0.9, sparse_weight: 0.1 },
+      });
+      expect(slice.success).toBe(true);
+      expect(full.success).toBe(true);
+    });
+
+    test("a lone substrate weight matching the v2 default pair is accepted", () => {
+      // 0.85 pairs with the v2 sparse_weight default 0.15 → effective sum 1.0.
+      const { slice, full } = parseBothWays({
+        substrate: { dense_weight: 0.85 },
+      });
+      expect(slice.success).toBe(true);
+      expect(full.success).toBe(true);
+    });
+
+    test("a lone substrate weight pairing with an explicit v2 twin is accepted", () => {
+      const { slice, full } = parseBothWays({
+        v2: { dense_weight: 0.7, sparse_weight: 0.3 },
+        substrate: { sparse_weight: 0.3 },
+      });
+      expect(slice.success).toBe(true);
+      expect(full.success).toBe(true);
+    });
+
+    test("a mis-summed complete substrate pair only fires the substrate refinement", () => {
+      // Both substrate weights set → the parent check skips; only the
+      // substrate schema's own refinement reports, so the two never
+      // contradict each other.
+      const { slice, full } = parseBothWays({
+        substrate: { dense_weight: 0.7, sparse_weight: 0.7 },
+      });
+      for (const result of [slice, full]) {
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          const messages = result.error.issues.map((issue) => issue.message);
+          expect(
+            messages.some((message) =>
+              message.includes("memory.substrate hybrid weights"),
+            ),
+          ).toBe(true);
+          expect(
+            messages.some((message) =>
+              message.includes(
+                "memory hybrid weights must sum to 1.0 after memory.substrate → memory.v2 fallback",
+              ),
+            ),
+          ).toBe(false);
+        }
+      }
+    });
   });
 });
 
