@@ -3,8 +3,8 @@ import type { AssistantConfig } from "./schema.js";
 /**
  * Whether memory as a whole is on — the user-facing master switch. Memory is
  * on unless `memory.enabled` is explicitly set to `false`. Canonical home for
- * the check; `persistence/jobs-store.ts` carries a config-singleton twin of it
- * for its many call sites.
+ * the check; the config-singleton `isMemoryEnabled()` in
+ * `persistence/jobs-store.ts` delegates here.
  */
 export function isMemoryEnabled(config: AssistantConfig): boolean {
   return config.memory?.enabled !== false;

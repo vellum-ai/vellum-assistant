@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, lte, notInArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
+import { isMemoryEnabled as isMemoryEnabledForConfig } from "../config/memory-v3-gate.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { type DrizzleDb, getMemoryDb } from "./db-connection.js";
@@ -127,10 +128,11 @@ export const MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS = {
   remember: "remember",
 } as const;
 
-/** Returns `false` only when `config.memory.enabled` is explicitly `false`; defaults to `true` on missing config or load errors. */
+/** Config-singleton wrapper over the canonical gate predicate in
+ * `config/memory-v3-gate.ts`; defaults to `true` on config load errors. */
 export function isMemoryEnabled(): boolean {
   try {
-    return getConfig().memory?.enabled !== false;
+    return isMemoryEnabledForConfig(getConfig());
   } catch {
     return true;
   }
