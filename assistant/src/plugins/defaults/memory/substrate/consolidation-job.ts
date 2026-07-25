@@ -328,11 +328,10 @@ export async function memoryV2ConsolidateJob(
   _job: MemoryJob,
   config: AssistantConfig,
 ): Promise<ConsolidationOutcome> {
-  if (config.memory.enabled === false) {
-    log.debug("memory.enabled is false; consolidation skipped");
-    return { kind: "disabled" };
-  }
-
+  // One gate, not two: `usesConceptPageMemory` already returns false on an
+  // explicit `memory.enabled === false`, so the memory-off case lands here
+  // with the same `"disabled"` outcome a separate early return would have
+  // produced.
   if (!usesConceptPageMemory(config.memory)) {
     log.debug("concept-page memory is not active; consolidation skipped");
     return { kind: "disabled" };

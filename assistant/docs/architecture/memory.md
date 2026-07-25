@@ -116,10 +116,11 @@ substrate as a backend-agnostic node/edge graph for the web Memory tab:
 concept pages as nodes, authored links + learned co-selection associations as
 edges, and `memory/buffer.md` entries as `pending` nodes
 (`graph-topology/pending-buffer.ts`) so a just-saved fact appears before
-consolidation files it. Gated on `isMemoryGraphSupported()` — memory enabled
-and `memory.v3.live` — which is also the source of the cheap `graph_supported`
+consolidation files it. Gated on `isV3TierActive()` — memory enabled and
+`memory.v3.live` — which is also the source of the cheap `graph_supported`
 bit on `GET /v1/memory/stats`, so the advertised capability and the actual
-build can never drift. `GET /v1/memory-graph-node` serves node detail,
+build can never drift. The same predicate gates procedural-memory-as-skills,
+so both v3-tier features honor the Memory opt-out identically. `GET /v1/memory-graph-node` serves node detail,
 including `buffer:` ids for pending entries.
 
 ## Capture beyond `remember`

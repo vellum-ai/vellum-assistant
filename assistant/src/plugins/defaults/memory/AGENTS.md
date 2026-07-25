@@ -43,7 +43,7 @@ Everything else under the plugin root is **spine**:
 - The `memory-retrospective-*` family — tier-agnostic, gated on
   `memory.enabled` alone. The one exception is
   `memory-retrospective-skill-card.ts`, whose upstream enqueue only fires when
-  `isProcToSkillsActive()` holds (v3-live).
+  `isV3TierActive()` holds (memory on and v3 live).
 - The rest of the spine: `startup.ts`, `jobs-worker.ts`, `job-handlers.ts`,
   `job-handler-registration.ts`, `indexer.ts`, `injectors.ts`, `tools.ts`,
   `hooks/`, `src/` (HTTP routes), `context-search/`.
@@ -119,16 +119,15 @@ may read raw `memory.v2.*` / `memory.v3.*` tier keys** — those reads are a
 layering leak, and the boundary guard's `TIER_KEY_READ_ALLOWLIST` pins the
 frozen (path, namespace) exemptions.
 
-| Predicate                      | True when                                                           | Gates                                                                              |
-| ------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `isMemoryEnabled`              | `memory.enabled !== false` (master switch, defaults on)             | the whole memory system, the retrospective family, the jobs worker's memory drain  |
-| `isMemoryV1Active`             | memory on AND no concept-page consumer                              | everything under `v1/`, the v1 job handlers, the v1 maintenance/index triggers     |
-| `isV2InjectionEngineActive`    | memory on AND `memory.v2.enabled === true` AND v3 not live          | v2's turn-time selection — the ONLY correct "should v2 select this turn" check     |
-| `isMemoryV2ExplicitlyDisabled` | `memory.v2.enabled === false` (deliberately not the negation above) | `daemon/embedding-reconcile.ts`'s explicit-opt-out suppression                     |
-| `usesConceptPageMemory`        | memory on AND (`memory.v3.live` OR `memory.v2.enabled`)             | everything under `substrate/`, the graph tool handlers, the static `<info>` block  |
-| `isMemoryV3Live`               | `memory.v3.live === true`                                           | everything under `v3/`, and the v2 suppression at runtime assembly                 |
-| `isMemoryGraphSupported`       | memory on AND v3 live                                               | `GET /memory-graph` and the `graph_supported` bit on `GET /memory/stats`           |
-| `isProcToSkillsActive`         | v3 live                                                             | procedural-memory-as-skills (retrospective skill authoring + its permission grant) |
+| Predicate                      | True when                                                           | Gates                                                                             |
+| ------------------------------ | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `isMemoryEnabled`              | `memory.enabled !== false` (master switch, defaults on)             | the whole memory system, the retrospective family, the jobs worker's memory drain |
+| `isMemoryV1Active`             | memory on AND no concept-page consumer                              | everything under `v1/`, the v1 job handlers, the v1 maintenance/index triggers    |
+| `isV2InjectionEngineActive`    | memory on AND `memory.v2.enabled === true` AND v3 not live          | v2's turn-time selection — the ONLY correct "should v2 select this turn" check    |
+| `isMemoryV2ExplicitlyDisabled` | `memory.v2.enabled === false` (deliberately not the negation above) | `daemon/embedding-reconcile.ts`'s explicit-opt-out suppression                    |
+| `usesConceptPageMemory`        | memory on AND (`memory.v3.live` OR `memory.v2.enabled`)             | everything under `substrate/`, the graph tool handlers, the static `<info>` block |
+| `isMemoryV3Live`               | `memory.v3.live === true`                                           | everything under `v3/`, and the v2 suppression at runtime assembly                |
+| `isV3TierActive`               | memory on AND v3 live (the v3 TIER — `memoryTier() === "v3"`)       | `GET /memory-graph` + the `graph_supported` bit, AND procedural-memory-as-skills  |
 
 `memory.v2.enabled` defaults **true** and typically stays set on v3-live
 assistants, so a direct read of it misbehaves under v3. That is exactly why
@@ -507,7 +506,7 @@ not deleted**. Today the test-only hits are:
    **and** its call site), `injectors.ts` (the PKB injector pair). The same grep
    also returns `graph/conversation-graph-memory.ts` and
    `context-search/sources/memory.ts` — steps 4 and 5 above.
-7. Delete `V1_QDRANT_JOB_TYPES` and the `SweepPostponedUnderV2Error` postpone
+7. Delete `V1_QDRANT_JOB_TYPES` and the `SweepPostponedOffV1Error` postpone
    path in `jobs-worker.ts`, plus the v1 job handlers
    (`v1/job-handlers/{backfill,embedding,index-maintenance}.ts`) and their
    `job-handlers.ts` registrations. Move retired job types into

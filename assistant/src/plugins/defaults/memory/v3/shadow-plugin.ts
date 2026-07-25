@@ -32,6 +32,7 @@ import {
 } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
+import { isMemoryEnabled } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
 import {
   recordLatencySubSpan,
@@ -689,7 +690,7 @@ export async function observeTurn(
     }
 
     const cfg = getConfig();
-    if (cfg.memory.enabled === false) {
+    if (!isMemoryEnabled(cfg)) {
       return null;
     }
     // Lane init is module-memoized: the first turn after daemon start pays

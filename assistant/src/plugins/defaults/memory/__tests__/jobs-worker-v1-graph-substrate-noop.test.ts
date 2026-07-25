@@ -1,11 +1,16 @@
 /**
- * V1 graph lifecycle rows (`graph_bootstrap`, `graph_decay`,
- * `graph_consolidate`, `graph_pattern_scan`, `graph_narrative_refine`) must
- * complete as no-ops while concept-page memory is active: their handlers
- * mutate the legacy v1 graph — the bootstrap runs LLM extraction into it —
- * which only the v1 tier reads, so a stale or hand-enqueued row must not
- * consume LLM budget or write the dormant store. On a v1 config the same
+ * V1 graph rows (`graph_bootstrap`, `graph_decay`, `graph_consolidate`,
+ * `graph_pattern_scan`, `graph_narrative_refine`, `graph_extract`) must
+ * complete as no-ops whenever v1 is not the live memory tier: their handlers
+ * mutate the legacy v1 graph — the bootstrap and the extraction run LLM work
+ * into it — which only the v1 tier reads, so a stale or hand-enqueued row must
+ * not consume LLM budget or write the dormant store. On a v1 config the same
  * handlers run their real implementations.
+ *
+ * "Not the live tier" is one condition, `isMemoryV1Active`, and it covers TWO
+ * states: concept-page memory active, and memory switched off entirely. Both
+ * are asserted per handler here — the guard used to be spelled three different
+ * ways that agreed on the substrate case and disagreed on memory-off.
  *
  * `memory.enabled` and `memory.v2.enabled` both default true, so the real
  * loader reading this file's (empty) workspace config already yields the
@@ -39,6 +44,7 @@ let decayCalls = 0;
 let consolidateCalls = 0;
 let patternScanCalls = 0;
 let narrativeCalls = 0;
+let extractCalls = 0;
 
 mock.module("../v1/graph/bootstrap.js", () => ({
   bootstrapFromHistory: async () => {
@@ -100,6 +106,12 @@ mock.module("../v1/graph/narrative.js", () => ({
   runNarrativeRefinement: async () => {
     narrativeCalls += 1;
     return { nodesUpdated: 0, arcsIdentified: 0 };
+  },
+}));
+
+mock.module("../v1/graph/extraction-job.js", () => ({
+  graphExtractJob: async () => {
+    extractCalls += 1;
   },
 }));
 
@@ -173,6 +185,7 @@ function resetCallCounts(): void {
   consolidateCalls = 0;
   patternScanCalls = 0;
   narrativeCalls = 0;
+  extractCalls = 0;
 }
 
 function jobStatus(jobId: string): string | undefined {
@@ -302,6 +315,75 @@ describe("v1 graph jobs under concept-page memory", () => {
     await handlerFor("graph_decay")(fakeJob("graph_decay"), v1Config());
 
     expect(decayCalls).toBe(1);
+  });
+
+  // ── The unified guard: memory-off behaves exactly like the substrate ──
+
+  test("every v1 graph handler no-ops on a memory-disabled config", async () => {
+    const config = memoryDisabledConfig();
+
+    await handlerFor("graph_bootstrap")(fakeJob("graph_bootstrap"), config);
+    await handlerFor("graph_decay")(fakeJob("graph_decay"), config);
+    await handlerFor("graph_consolidate")(fakeJob("graph_consolidate"), config);
+    await handlerFor("graph_pattern_scan")(
+      fakeJob("graph_pattern_scan"),
+      config,
+    );
+    await handlerFor("graph_narrative_refine")(
+      fakeJob("graph_narrative_refine"),
+      config,
+    );
+    await handlerFor("graph_extract")(fakeJob("graph_extract"), config);
+
+    expect(bootstrapCalls).toBe(0);
+    expect(decayCalls).toBe(0);
+    expect(consolidateCalls).toBe(0);
+    expect(patternScanCalls).toBe(0);
+    expect(narrativeCalls).toBe(0);
+    expect(extractCalls).toBe(0);
+  });
+
+  test("the graph_extract handler no-ops off v1 and runs on v1", async () => {
+    // `graph_extract` re-inlined its own substrate check instead of sharing the
+    // lifecycle handlers' guard; it now answers to the same condition, so it
+    // must skip on BOTH off-v1 states and still run on v1.
+    await handlerFor("graph_extract")(fakeJob("graph_extract"), v3LiveConfig());
+    expect(extractCalls).toBe(0);
+
+    await handlerFor("graph_extract")(
+      fakeJob("graph_extract"),
+      memoryDisabledConfig(),
+    );
+    expect(extractCalls).toBe(0);
+
+    await handlerFor("graph_extract")(fakeJob("graph_extract"), v1Config());
+    expect(extractCalls).toBe(1);
+  });
+
+  test("memory-off leaves v1 Qdrant rows unclaimed, matching the dispatch guard", async () => {
+    // The dispatch-level half of the guard (`V1_QDRANT_JOB_TYPES` in
+    // `processJob`) reads the same predicate as the handlers, so a v1 embed row
+    // is dead work while memory is off. `runMemoryJobsOnce` never even claims
+    // it in that state — only the message-lexical types are claimable — so the
+    // row stays pending for a later return to v1 rather than being drained.
+    const jobId = enqueueMemoryJob("embed_segment", {});
+    setConfig("memory", {
+      enabled: false,
+      jobs: { slowLlmConcurrency: 8, fastConcurrency: 8 },
+    });
+    try {
+      await runMemoryJobsOnce();
+      expect(jobStatus(jobId)).toBe("pending");
+    } finally {
+      setConfig("memory", {
+        jobs: { slowLlmConcurrency: 8, fastConcurrency: 8 },
+      });
+    }
+
+    // Back on the substrate the same row IS claimed, and the dispatch guard
+    // completes it as a no-op (the v1 Qdrant client is not initialized).
+    await runMemoryJobsOnce();
+    expect(jobStatus(jobId)).toBe("completed");
   });
 
   test("the first v1 tick runs the entry reconcile once, checkpoints it, and later ticks skip it", () => {

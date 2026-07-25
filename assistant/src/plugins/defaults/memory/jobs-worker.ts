@@ -113,17 +113,18 @@ export const MIN_BUFFER_LINES_FOR_CONSOLIDATION = 10;
 
 /**
  * V1 job types that read or write the v1 Qdrant collection via
- * `getQdrantClient()`. While concept-page memory is active, the v1 client is
- * intentionally left uninitialized in `lifecycle.ts`, so these handlers would
+ * `getQdrantClient()`. While v1 is not the live tier, the v1 client is
+ * intentionally left uninitialized in `startup.ts`, so these handlers would
  * throw `BackendUnavailableError` and accumulate as a deferred backlog. Stale
  * rows from indexer.ts and other unguarded enqueue sites must short-circuit
- * here for the same reason `graph_extract` does below.
+ * here for the same reason the v1 graph handlers do (`isStaleV1GraphJob` in
+ * `job-handlers.ts`) — one shared condition, `isMemoryV1Active`.
  *
  * Completing these as a no-op in that state is safe: their live write paths
  * keep re-enqueuing them, so nothing is lost. The one-shot
  * `sweep_orphaned_graph_node_points` cleanup is deliberately NOT in this set —
  * it has no re-enqueue, so `processJob` holds it pending (see
- * {@link SweepPostponedUnderV2Error}) instead of losing it to a no-op
+ * {@link SweepPostponedOffV1Error}) instead of losing it to a no-op
  * completion.
  */
 const V1_QDRANT_JOB_TYPES = new Set<MemoryJobType>([
@@ -140,17 +141,16 @@ const V1_QDRANT_JOB_TYPES = new Set<MemoryJobType>([
 /**
  * The one-shot cacheless graph-node sweep (migration 341) can only run against
  * the v1 Qdrant collection. Thrown from {@link processJob} when the job is
- * claimed while concept-page memory is active, so {@link handleJobError}
- * reschedules it — keeping it pending with no attempt or deferral spent —
- * until v1 is active again, rather than completing it as a no-op and losing
- * the cleanup on a later rollback to v1.
+ * claimed while v1 is not the live tier, so {@link handleJobError} reschedules
+ * it — keeping it pending with no attempt or deferral spent — until v1 is
+ * active again, rather than completing it as a no-op and losing the cleanup on
+ * a later return to v1 (a rollback off the substrate, or Memory switched back
+ * on).
  */
-class SweepPostponedUnderV2Error extends Error {
+class SweepPostponedOffV1Error extends Error {
   constructor() {
-    super(
-      "Cacheless graph-node sweep postponed while concept-page memory is active",
-    );
-    this.name = "SweepPostponedUnderV2Error";
+    super("Cacheless graph-node sweep postponed while v1 is not the live tier");
+    this.name = "SweepPostponedOffV1Error";
   }
 }
 
@@ -159,7 +159,7 @@ class SweepPostponedUnderV2Error extends Error {
  * that re-checking the gate costs only a trivial claim a few times a day,
  * short enough that a rollback to v1 runs the cleanup within the same day.
  */
-const SWEEP_POSTPONE_UNDER_V2_MS = 6 * 60 * 60 * 1000;
+const SWEEP_POSTPONE_OFF_V1_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Job types whose handlers have been removed. Existing rows may still sit in
@@ -358,7 +358,7 @@ export async function runMemoryJobsOnce(
   // types — host-owned message-search indexing that shares this queue but is
   // not a memory feature. Every memory lane and every maintenance enqueue
   // stays idle in that state; only the lexical types are claimable.
-  const memoryEnabled = config.memory.enabled !== false;
+  const memoryEnabled = isMemoryEnabled(config);
   const enableScheduledCleanup =
     options.enableScheduledCleanup === true && memoryEnabled;
 
@@ -566,11 +566,11 @@ async function runLanePool(
 // ── Job error handling ─────────────────────────────────────────────
 
 function handleJobError(job: MemoryJob, err: unknown): void {
-  if (err instanceof SweepPostponedUnderV2Error) {
-    rescheduleMemoryJob(job.id, SWEEP_POSTPONE_UNDER_V2_MS);
+  if (err instanceof SweepPostponedOffV1Error) {
+    rescheduleMemoryJob(job.id, SWEEP_POSTPONE_OFF_V1_MS);
     log.debug(
       { jobId: job.id, type: job.type },
-      "Cacheless graph-node sweep held pending while memory v2 is enabled",
+      "Cacheless graph-node sweep held pending while v1 is not the live tier",
     );
     return;
   }
@@ -665,12 +665,18 @@ async function processJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
-  if (usesConceptPageMemory(config.memory)) {
+  // Dispatch-level half of the v1-staleness guard, on the same condition the
+  // handler-level half uses (`isStaleV1GraphJob` in `job-handlers.ts`): v1 work
+  // runs only while v1 is the live tier, which memory being off is not (see
+  // `isMemoryV1Active`). Memory-off jobs of these types are unclaimable
+  // upstream — `runMemoryJobsOnce` restricts the claim to the message-lexical
+  // types — so this arm is defense in depth for a hot config flip mid-batch.
+  if (!isMemoryV1Active(config)) {
     if (V1_QDRANT_JOB_TYPES.has(job.type)) {
       return;
     }
     if (job.type === "sweep_orphaned_graph_node_points") {
-      throw new SweepPostponedUnderV2Error();
+      throw new SweepPostponedOffV1Error();
     }
   }
   const handler = jobHandlers.get(job.type);
@@ -893,7 +899,7 @@ export function maybeEnqueueRetrospectiveSweepJob(
   config: AssistantConfig,
   nowMs = Date.now(),
 ): boolean {
-  if (config.memory.enabled === false) {
+  if (!isMemoryEnabled(config)) {
     return false;
   }
 

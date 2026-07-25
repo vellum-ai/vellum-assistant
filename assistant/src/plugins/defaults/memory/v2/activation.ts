@@ -13,9 +13,10 @@
 //               + c_assistant · α · r_norm(Assistant_t, n)   [n ∈ topK]
 //
 // The spread step that turns A_o into the final A(n, t+1) lives in the
-// substrate (`substrate/spread.ts` — `spreadActivation`, re-exported here
-// for the v2 engine's callers) because the `memory` recall source also
-// spreads activation under v3.
+// substrate (`substrate/spread.ts` — `spreadActivation`) because the `memory`
+// recall source also spreads activation under v3. Callers import it from there
+// directly; this module deliberately does not re-export it, so the symbol has
+// one import path.
 //
 // Candidate selection (§6) keeps the per-turn cost linear in the size of the
 // active set rather than the entire concept-page collection. The candidate
@@ -36,12 +37,6 @@ import { generateBm25QueryEmbedding } from "../substrate/sparse-bm25.js";
 import type { ActivationState, EverInjectedEntry } from "../substrate/types.js";
 import { clampUnitInterval } from "../validation.js";
 import { rerankCandidates } from "./reranker.js";
-
-// Spread lives in the substrate (shared with the recall source, which runs
-// under v3 too); re-exported here so the v2 engine's callers keep importing
-// the whole activation pipeline from one module. v2 → substrate is the
-// sanctioned import direction.
-export { spreadActivation } from "../substrate/spread.js";
 
 /**
  * Sentinel passed to Qdrant when `config.memory.v2.ann_candidate_limit` is

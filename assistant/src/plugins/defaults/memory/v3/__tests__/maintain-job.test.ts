@@ -36,6 +36,9 @@ const CONFIG = makeConfig();
 let memoryV3LiveSlot = false;
 mock.module("../../../../../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => memoryV3LiveSlot,
+  isV3TierActive: () => memoryV3LiveSlot,
+  isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
+    config?.memory?.enabled !== false,
   usesConceptPageMemory: (memory?: {
     enabled?: boolean;
     v2?: { enabled?: boolean };

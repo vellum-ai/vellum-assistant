@@ -20,6 +20,7 @@ import {
   setNestedValue,
 } from "../config/loader.js";
 import {
+  isMemoryEnabled,
   isMemoryV2ExplicitlyDisabled,
   isMemoryV3Live,
 } from "../config/memory-v3-gate.js";
@@ -229,7 +230,7 @@ export async function reconcileEmbeddingIdentity(
   // persist/recreate/enqueue. `memory.enabled` defaults to true; gate strictly
   // on the explicit `false`. This gate covers both the lifecycle startup call
   // and the credential-arrival retry call.
-  if (config.memory.enabled === false) {
+  if (!isMemoryEnabled(config)) {
     log.info("Memory disabled — skipping embedding-identity reconcile");
     return { action: "noop", dim: null };
   }

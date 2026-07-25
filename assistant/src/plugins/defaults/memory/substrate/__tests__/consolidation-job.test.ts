@@ -162,6 +162,8 @@ mock.module("../../../../../config/assistant-feature-flags.js", () => ({
 // `v3FlagOn` for the existing on/off tests).
 mock.module("../../../../../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => flagStates["memory-v3-live"] ?? v3FlagOn,
+  isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
+    config?.memory?.enabled !== false,
   usesConceptPageMemory: (memory?: {
     enabled?: boolean;
     v2?: { enabled?: boolean };

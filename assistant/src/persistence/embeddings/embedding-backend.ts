@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { getOllamaBaseUrlEnv } from "../../config/env.js";
 import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
+import { isMemoryEnabled } from "../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { PLATFORM_PROVIDER_META } from "../../providers/platform-proxy/constants.js";
 import { resolveManagedProxyContext } from "../../providers/platform-proxy/context.js";
@@ -507,7 +508,7 @@ export async function getMemoryBackendStatus(config: AssistantConfig): Promise<{
   model: string | null;
   reason: string | null;
 }> {
-  if (config.memory.enabled === false) {
+  if (!isMemoryEnabled(config)) {
     return {
       enabled: false,
       degraded: false,
