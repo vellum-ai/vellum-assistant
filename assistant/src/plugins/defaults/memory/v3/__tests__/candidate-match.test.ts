@@ -262,7 +262,9 @@ describe("nearestExistingSkills — default scorer retries transient failures", 
     let calls = 0;
     simBatchImpl = async (_text, slugs) => {
       calls++;
-      if (calls === 1) {throw transientError();}
+      if (calls === 1) {
+        throw transientError();
+      }
       // Second attempt succeeds: the skill's capability page scores high.
       return new Map(
         slugs

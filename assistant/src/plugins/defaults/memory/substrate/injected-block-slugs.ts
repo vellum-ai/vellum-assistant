@@ -44,7 +44,9 @@ export function extractInjectedConceptSlugs(block: string): string[] {
   const seen = new Set<string>();
   for (const match of block.matchAll(INJECTED_CONCEPT_HEADER_REGEX)) {
     const slug = match[1]!;
-    if (seen.has(slug)) {continue;}
+    if (seen.has(slug)) {
+      continue;
+    }
     seen.add(slug);
     slugs.push(slug);
   }
@@ -65,12 +67,16 @@ export function readInjectedBlock(
   metadata: string | null | undefined,
   key: string,
 ): string | null {
-  if (!metadata) {return null;}
+  if (!metadata) {
+    return null;
+  }
   try {
     const parsed: unknown = JSON.parse(metadata);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       const block = (parsed as Record<string, unknown>)[key];
-      if (typeof block === "string") {return block;}
+      if (typeof block === "string") {
+        return block;
+      }
     }
   } catch {
     // Malformed metadata — treat as no block.

@@ -60,8 +60,9 @@ function writeMemoryFile(name: string, body: string): void {
 
 function cleanupMemoryDir(): void {
   const memoryDir = join(TEST_DIR, "memory");
-  if (existsSync(memoryDir))
-    {rmSync(memoryDir, { recursive: true, force: true });}
+  if (existsSync(memoryDir)) {
+    rmSync(memoryDir, { recursive: true, force: true });
+  }
 }
 
 describe("readMemoryV2StaticContent", () => {
@@ -77,13 +78,17 @@ describe("readMemoryV2StaticContent", () => {
 
   test("returns null when config.memory.v2.enabled is off", () => {
     configMemoryV2Enabled = false;
-    for (const file of MEMORY_FILES) {writeMemoryFile(file, `Content ${file}`);}
+    for (const file of MEMORY_FILES) {
+      writeMemoryFile(file, `Content ${file}`);
+    }
     expect(readMemoryV2StaticContent()).toBeNull();
   });
 
   test("returns null when config.memory.enabled is off even with v2 on", () => {
     configMemoryEnabled = false;
-    for (const file of MEMORY_FILES) {writeMemoryFile(file, `Content ${file}`);}
+    for (const file of MEMORY_FILES) {
+      writeMemoryFile(file, `Content ${file}`);
+    }
     expect(readMemoryV2StaticContent()).toBeNull();
   });
 
@@ -120,7 +125,9 @@ describe("readMemoryV2StaticContent", () => {
   });
 
   test("excludeBuffer drops the Buffer section but keeps the other three", () => {
-    for (const file of MEMORY_FILES) {writeMemoryFile(file, `Content ${file}`);}
+    for (const file of MEMORY_FILES) {
+      writeMemoryFile(file, `Content ${file}`);
+    }
 
     const result = readMemoryV2StaticContent({ excludeBuffer: true });
     expect(result).not.toBeNull();
@@ -146,7 +153,9 @@ describe("readMemoryV2StaticContent", () => {
   });
 
   test("returns null when every file is empty", () => {
-    for (const file of MEMORY_FILES) {writeMemoryFile(file, "");}
+    for (const file of MEMORY_FILES) {
+      writeMemoryFile(file, "");
+    }
     expect(readMemoryV2StaticContent()).toBeNull();
   });
 

@@ -26,7 +26,9 @@ const log = getLogger("boot-maintenance");
  * `assistant/CLAUDE.md` daemon startup philosophy).
  */
 export function maybeSeedCapabilitySkills(config: AssistantConfig): void {
-  if (!usesConceptPageMemory(config.memory)) {return;}
+  if (!usesConceptPageMemory(config.memory)) {
+    return;
+  }
   void import("./skill-store.js")
     .then(({ seedV2SkillEntries }) => seedV2SkillEntries())
     .catch((err) => log.warn({ err }, "Failed to seed v2 skill entries"));
@@ -47,7 +49,9 @@ export function maybeSeedCapabilitySkills(config: AssistantConfig): void {
  * startup graph when the gate is off. Never awaits — startup must not block.
  */
 export function maybeSeedCliCommandCards(config: AssistantConfig): void {
-  if (!usesConceptPageMemory(config.memory)) {return;}
+  if (!usesConceptPageMemory(config.memory)) {
+    return;
+  }
   void import("./cli-command-store.js")
     .then(({ seedV2CliCommandEntries }) => seedV2CliCommandEntries())
     .catch((err) => log.warn({ err }, "Failed to seed v2 CLI-command entries"));
@@ -79,7 +83,9 @@ async function settledWithin(
   try {
     return await Promise.race([p.then(() => true), timedOut]);
   } finally {
-    if (timer) {clearTimeout(timer);}
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }
 
@@ -135,11 +141,15 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
   config: AssistantConfig,
   opts: { reseedTimeoutMs?: number } = {},
 ): Promise<void> {
-  if (!usesConceptPageMemory(config.memory)) {return;}
+  if (!usesConceptPageMemory(config.memory)) {
+    return;
+  }
 
   const { hasManagedProxyPrereqs } =
     await import("../../../../providers/platform-proxy/context.js");
-  if (!(await hasManagedProxyPrereqs())) {return;}
+  if (!(await hasManagedProxyPrereqs())) {
+    return;
+  }
 
   // The managed credential has just landed, so the embedding backend is now
   // reachable. Retry the embedding-identity reconcile to close the
@@ -210,7 +220,9 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
     await import("../../../../config/memory-v3-gate.js");
   const v3Live = isMemoryV3Live(config);
   const enqueueMaintain = async (): Promise<void> => {
-    if (!v3Live) {return;}
+    if (!v3Live) {
+      return;
+    }
     try {
       const { enqueueMemoryJob } =
         await import("../../../../persistence/jobs-store.js");
@@ -263,7 +275,9 @@ export async function maybeReseedCapabilitiesAfterManagedCredential(
 export async function rebuildBm25CorpusStatsAndReseedSkills(
   config: AssistantConfig,
 ): Promise<void> {
-  if (!usesConceptPageMemory(config.memory)) {return;}
+  if (!usesConceptPageMemory(config.memory)) {
+    return;
+  }
 
   try {
     const { rebuildConceptPageCorpusStats } = await import("./sparse-bm25.js");
@@ -329,7 +343,9 @@ export async function rebuildBm25CorpusStatsAndReseedSkills(
 export async function maybeRebuildConceptCollection(
   config: AssistantConfig,
 ): Promise<void> {
-  if (!usesConceptPageMemory(config.memory)) {return;}
+  if (!usesConceptPageMemory(config.memory)) {
+    return;
+  }
 
   try {
     const {

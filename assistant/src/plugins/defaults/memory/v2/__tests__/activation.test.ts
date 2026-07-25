@@ -124,11 +124,15 @@ mock.module("../reranker.js", () => ({
       candidates: [...candidates],
     });
     return queries.map(() => {
-      if (rerankState.scores === null) {return new Map();}
+      if (rerankState.scores === null) {
+        return new Map();
+      }
       const out = new Map<string, number>();
       for (const slug of candidates) {
         const v = rerankState.scores.get(slug);
-        if (v !== undefined) {out.set(slug, v);}
+        if (v !== undefined) {
+          out.set(slug, v);
+        }
       }
       return out;
     });

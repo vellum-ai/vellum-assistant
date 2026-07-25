@@ -247,7 +247,9 @@ export async function injectMemoryV2Block(
   // slugs drop out of consideration next turn.
   const nextStateMap: Record<string, number> = {};
   for (const [slug, value] of finalActivation) {
-    if (value > epsilon) {nextStateMap[slug] = value;}
+    if (value > epsilon) {
+      nextStateMap[slug] = value;
+    }
   }
 
   // Build the rich per-candidate telemetry rows up front (status assigned
@@ -500,7 +502,9 @@ async function finalizeInjection(args: {
     }
   }
 
-  if (caughtErr !== undefined && !args.bestEffort) {throw caughtErr;}
+  if (caughtErr !== undefined && !args.bestEffort) {
+    throw caughtErr;
+  }
   return { block, toInject: newlyInjected };
 }
 
@@ -667,7 +671,9 @@ async function injectViaRouter(args: {
   // `source: "carry_over"`. The `status` placeholder is overwritten by
   // `finalizeInjection`.
   const telemetrySlugs = new Set<string>(routerResult.selectedSlugs);
-  for (const entry of priorEverInjected) {telemetrySlugs.add(entry.slug);}
+  for (const entry of priorEverInjected) {
+    telemetrySlugs.add(entry.slug);
+  }
   const telemetryRows: MemoryV2ConceptRowRecord[] = [...telemetrySlugs].map(
     (slug) => ({
       slug,
@@ -840,9 +846,13 @@ async function renderInjectionBlock(
   const skillSlugs: string[] = [];
   const cliCommandSlugs: string[] = [];
   for (const slug of slugs) {
-    if (isSkillSlug(slug)) {skillSlugs.push(slug);}
-    else if (isCliCommandSlug(slug)) {cliCommandSlugs.push(slug);}
-    else {conceptSlugs.push(slug);}
+    if (isSkillSlug(slug)) {
+      skillSlugs.push(slug);
+    } else if (isCliCommandSlug(slug)) {
+      cliCommandSlugs.push(slug);
+    } else {
+      conceptSlugs.push(slug);
+    }
   }
 
   const settled = await Promise.allSettled(
@@ -880,14 +890,18 @@ async function renderInjectionBlock(
     // empty). Render the full page — frontmatter + body — so retrieval
     // still surfaces the same content the agent saw before this change.
     const content = renderPageContent(page).trim();
-    if (content.length === 0) {continue;}
+    if (content.length === 0) {
+      continue;
+    }
     sections.push(`# ${path}\n${content}`);
   }
 
   const skillLines: string[] = [];
   for (const slug of skillSlugs) {
     const entry = getSkillCapability(slug);
-    if (!entry) {continue;}
+    if (!entry) {
+      continue;
+    }
     skillLines.push(`- ${entry.content} → use skill_load to activate`);
   }
   if (skillLines.length > 0) {
@@ -897,7 +911,9 @@ async function renderInjectionBlock(
   const cliCommandLines: string[] = [];
   for (const slug of cliCommandSlugs) {
     const entry = getCliCommandCapability(slug);
-    if (!entry) {continue;}
+    if (!entry) {
+      continue;
+    }
     cliCommandLines.push(`- \`assistant ${entry.id}\`: ${entry.description}`);
   }
   if (cliCommandLines.length > 0) {

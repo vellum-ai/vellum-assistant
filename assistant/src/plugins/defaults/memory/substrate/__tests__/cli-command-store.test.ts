@@ -102,7 +102,9 @@ mock.module(
   "../../../../../persistence/embeddings/embedding-backend.js",
   () => ({
     embedWithBackend: async (_config: unknown, inputs: unknown[]) => {
-      if (state.embedThrows) {throw state.embedThrows;}
+      if (state.embedThrows) {
+        throw state.embedThrows;
+      }
       const vectors = state.embedReturn.length
         ? state.embedReturn
         : inputs.map(() => [0.1, 0.2, 0.3]);
@@ -127,7 +129,9 @@ mock.module("../page-index.js", () => ({
 
 mock.module("../qdrant.js", () => ({
   upsertConceptPageEmbedding: async (params: UpsertCall) => {
-    if (state.upsertThrows) {throw state.upsertThrows;}
+    if (state.upsertThrows) {
+      throw state.upsertThrows;
+    }
     state.callSequence.push("upsert");
     state.upsertCalls.push(params);
   },
@@ -144,7 +148,9 @@ mock.module("../qdrant.js", () => ({
     kind: string,
     allowedSuffixes: ReadonlySet<string>,
   ) => {
-    if (state.backfillThrows) {throw state.backfillThrows;}
+    if (state.backfillThrows) {
+      throw state.backfillThrows;
+    }
     state.callSequence.push("backfill");
     state.backfillCalls.push({ prefix, kind, allowedSuffixes });
     return 0;

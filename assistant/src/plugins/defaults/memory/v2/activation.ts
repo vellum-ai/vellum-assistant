@@ -110,7 +110,9 @@ export async function selectCandidates(
   if (priorState) {
     const epsilon = config.memory.v2.epsilon;
     for (const [slug, activation] of Object.entries(priorState.state)) {
-      if (activation > epsilon) {fromPrior.add(slug);}
+      if (activation > epsilon) {
+        fromPrior.add(slug);
+      }
     }
   }
 
@@ -146,7 +148,9 @@ export async function selectCandidates(
     const limit =
       config.memory.v2.ann_candidate_limit ?? UNLIMITED_ANN_CANDIDATE_LIMIT;
     const hits = await hybridQueryConceptPages(dense, sparse, limit);
-    for (const hit of hits) {fromAnn.add(hit.slug);}
+    for (const hit of hits) {
+      fromAnn.add(hit.slug);
+    }
   }
 
   const candidates = new Set<string>([...fromPrior, ...fromAnn]);
@@ -232,7 +236,9 @@ export async function computeOwnActivation(
 
   const activation = new Map<string, number>();
   const breakdown = new Map<string, OwnActivationBreakdown>();
-  if (candidates.size === 0) {return { activation, breakdown };}
+  if (candidates.size === 0) {
+    return { activation, breakdown };
+  }
 
   const { d, c_user, c_assistant, c_now } = config.memory.v2;
   const slugList = [...candidates];
@@ -347,12 +353,18 @@ function normalizeRerankScores(
   alpha: number,
 ): Map<string, number> {
   const out = new Map<string, number>();
-  if (rawScores.size === 0) {return out;}
+  if (rawScores.size === 0) {
+    return out;
+  }
   let maxScore = 0;
   for (const v of rawScores.values()) {
-    if (v > maxScore) {maxScore = v;}
+    if (v > maxScore) {
+      maxScore = v;
+    }
   }
-  if (maxScore === 0) {return out;}
+  if (maxScore === 0) {
+    return out;
+  }
   for (const [slug, raw] of rawScores) {
     out.set(slug, alpha * (raw / maxScore));
   }
@@ -402,7 +414,9 @@ export function selectInjections(
   }
 
   const ranked = [...A.entries()].sort(([slugA, valA], [slugB, valB]) => {
-    if (valB !== valA) {return valB - valA;} // higher activation first
+    if (valB !== valA) {
+      return valB - valA;
+    } // higher activation first
     return slugA < slugB ? -1 : slugA > slugB ? 1 : 0; // stable tie-break
   });
 

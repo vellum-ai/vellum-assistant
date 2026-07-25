@@ -64,7 +64,9 @@ export function readMemoryV2StaticContent(
       continue;
     }
     const content = readPromptFile(getWorkspacePromptPath(file));
-    if (!content) {continue;}
+    if (!content) {
+      continue;
+    }
     sections.push(`${heading}\n\n${content}`);
   }
   return sections.length > 0 ? sections.join("\n\n") : null;

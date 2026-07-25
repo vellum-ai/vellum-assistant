@@ -229,7 +229,9 @@ mock.module("../../substrate/page-store.js", () => ({
   ...realPageStoreModule,
   readPage: async (workspaceDir: string, slug: string) => {
     const err = pageStoreState.failingSlugs.get(slug);
-    if (err) {throw err;}
+    if (err) {
+      throw err;
+    }
     return realReadPage(workspaceDir, slug);
   },
 }));
@@ -269,7 +271,9 @@ mock.module("../router.js", () => ({
     // the closest equivalent under the new model.
     if (!result.sourceBySlug) {
       const map = new Map<string, string>();
-      for (const slug of result.selectedSlugs) {map.set(slug, "tier3:0");}
+      for (const slug of result.selectedSlugs) {
+        map.set(slug, "tier3:0");
+      }
       result.sourceBySlug = map;
     }
     return result;

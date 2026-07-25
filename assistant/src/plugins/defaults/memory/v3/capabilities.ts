@@ -127,6 +127,8 @@ export async function capabilityOrDiskBody(
   slug: Slug,
   readDiskBody: (slug: Slug) => Promise<string>,
 ): Promise<string> {
-  if (isCapabilitySlug(slug)) {return renderCapabilityBody(slug) ?? "";}
+  if (isCapabilitySlug(slug)) {
+    return renderCapabilityBody(slug) ?? "";
+  }
   return readDiskBody(slug);
 }

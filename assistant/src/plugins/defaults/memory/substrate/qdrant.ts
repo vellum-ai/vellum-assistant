@@ -135,13 +135,17 @@ export async function clearReembedSentinel(): Promise<void> {
   try {
     await unlink(reembedSentinelPath());
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {throw err;}
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw err;
+    }
   }
 }
 
 /** Lazily create a Qdrant REST client bound to the resolved URL. */
 function getClient(): QdrantRestClient {
-  if (_client) {return _client;}
+  if (_client) {
+    return _client;
+  }
   _client = new QdrantRestClient({
     url: resolveQdrantUrl(),
     checkCompatibility: false,
@@ -162,8 +166,12 @@ function getClient(): QdrantRestClient {
 export async function ensureConceptPageCollection(): Promise<{
   migrated: boolean;
 }> {
-  if (_collectionReady) {return { migrated: false };}
-  if (_collectionReadyPromise) {return _collectionReadyPromise;}
+  if (_collectionReady) {
+    return { migrated: false };
+  }
+  if (_collectionReadyPromise) {
+    return _collectionReadyPromise;
+  }
 
   _collectionReadyPromise = ensureConceptPageCollectionOnce().finally(() => {
     _collectionReadyPromise = null;
@@ -253,7 +261,9 @@ async function ensureConceptPageCollectionOnce(): Promise<{
     }
   } catch (err) {
     // Treat "not found"-shaped errors as "needs creation" and fall through.
-    if (!isCollectionMissing(err)) {throw err;}
+    if (!isCollectionMissing(err)) {
+      throw err;
+    }
   }
 
   log.info(
@@ -346,7 +356,9 @@ async function ensurePayloadIndexes(): Promise<void> {
       try {
         await client.createPayloadIndex(MEMORY_V2_COLLECTION, index);
       } catch (err) {
-        if (isPayloadIndexAlreadyExists(err)) {return;}
+        if (isPayloadIndexAlreadyExists(err)) {
+          return;
+        }
         throw err;
       }
     }),
@@ -378,7 +390,9 @@ async function reconcileSparseIndexOnDisk(
         }
       | undefined
   )?.sparse_vectors;
-  if (!sparseParams) {return;}
+  if (!sparseParams) {
+    return;
+  }
 
   // Only touch channels that exist in the collection and whose placement
   // drifts from the target — an update naming an absent sparse vector fails.
@@ -387,7 +401,9 @@ async function reconcileSparseIndexOnDisk(
       name in sparseParams &&
       (sparseParams[name]?.index?.on_disk ?? false) !== onDisk,
   );
-  if (drifted.length === 0) {return;}
+  if (drifted.length === 0) {
+    return;
+  }
 
   try {
     await getClient().updateCollection(MEMORY_V2_COLLECTION, {
@@ -446,10 +462,14 @@ function missingNamedVectors(
 
   const missing: string[] = [];
   for (const name of REQUIRED_DENSE_VECTORS) {
-    if (!denseNames.has(name)) {missing.push(name);}
+    if (!denseNames.has(name)) {
+      missing.push(name);
+    }
   }
   for (const name of REQUIRED_SPARSE_VECTORS) {
-    if (!sparseNames.has(name)) {missing.push(name);}
+    if (!sparseNames.has(name)) {
+      missing.push(name);
+    }
   }
   return missing;
 }
@@ -475,14 +495,18 @@ function wrongSizeNamedVectors(
   // Named-vectors map only — mirror the `!("size" in dense)` guard in
   // `missingNamedVectors`. A single unnamed vector exposes `size` at the top
   // level; its dimension is the collection's and is handled by the caller.
-  if (!dense || typeof dense !== "object" || "size" in dense) {return [];}
+  if (!dense || typeof dense !== "object" || "size" in dense) {
+    return [];
+  }
   const map = dense as Record<string, unknown>;
   const wrong: string[] = [];
   for (const name of REQUIRED_DENSE_VECTORS) {
     const entry = map[name];
     if (entry && typeof entry === "object" && "size" in entry) {
       const size = (entry as { size?: unknown }).size;
-      if (typeof size === "number" && size !== expectedSize) {wrong.push(name);}
+      if (typeof size === "number" && size !== expectedSize) {
+        wrong.push(name);
+      }
     }
   }
   return wrong;
@@ -530,7 +554,9 @@ export async function upsertConceptPageEmbedding(params: {
   }
 
   const payload: Record<string, unknown> = { slug, updated_at: updatedAt };
-  if (kind !== undefined) {payload.kind = kind;}
+  if (kind !== undefined) {
+    payload.kind = kind;
+  }
 
   const upsertOnce = () =>
     client.upsert(MEMORY_V2_COLLECTION, {
@@ -629,21 +655,30 @@ export async function pruneSlugsWithPrefixExcept(
           kind?: unknown;
         } | null;
         const slug = payload?.slug;
-        if (typeof slug !== "string") {continue;}
-        if (!slug.startsWith(prefix)) {continue;}
-        if (requiredKind !== undefined && payload?.kind !== requiredKind)
-          {continue;}
+        if (typeof slug !== "string") {
+          continue;
+        }
+        if (!slug.startsWith(prefix)) {
+          continue;
+        }
+        if (requiredKind !== undefined && payload?.kind !== requiredKind) {
+          continue;
+        }
         const suffix = slug.slice(prefix.length);
         if (!activeSet.has(suffix)) {
           stalePointIds.push(point.id);
         }
       }
       const next = result.next_page_offset;
-      if (next == null) {break;}
+      if (next == null) {
+        break;
+      }
       offset = typeof next === "string" ? next : (next as number);
     }
 
-    if (stalePointIds.length === 0) {return;}
+    if (stalePointIds.length === 0) {
+      return;
+    }
 
     await client.delete(MEMORY_V2_COLLECTION, {
       wait: true,
@@ -688,7 +723,9 @@ export async function backfillKindOnPointsWithPrefix(
   kind: string,
   allowedSuffixes: ReadonlySet<string>,
 ): Promise<number> {
-  if (allowedSuffixes.size === 0) {return 0;}
+  if (allowedSuffixes.size === 0) {
+    return 0;
+  }
   await ensureConceptPageCollection();
 
   const client = getClient();
@@ -708,18 +745,28 @@ export async function backfillKindOnPointsWithPrefix(
       });
       for (const point of result.points) {
         const slug = (point.payload as { slug?: unknown } | null)?.slug;
-        if (typeof slug !== "string") {continue;}
-        if (!slug.startsWith(prefix)) {continue;}
+        if (typeof slug !== "string") {
+          continue;
+        }
+        if (!slug.startsWith(prefix)) {
+          continue;
+        }
         const suffix = slug.slice(prefix.length);
-        if (!allowedSuffixes.has(suffix)) {continue;}
+        if (!allowedSuffixes.has(suffix)) {
+          continue;
+        }
         pointIds.push(point.id);
       }
       const next = result.next_page_offset;
-      if (next == null) {break;}
+      if (next == null) {
+        break;
+      }
       offset = typeof next === "string" ? next : (next as number);
     }
 
-    if (pointIds.length === 0) {return 0;}
+    if (pointIds.length === 0) {
+      return 0;
+    }
 
     await client.setPayload(MEMORY_V2_COLLECTION, {
       payload: { kind },
@@ -783,7 +830,9 @@ export async function recreateConceptPageCollection(): Promise<void> {
   try {
     await client.deleteCollection(MEMORY_V2_COLLECTION);
   } catch (err) {
-    if (!isCollectionMissing(err)) {throw err;}
+    if (!isCollectionMissing(err)) {
+      throw err;
+    }
   }
   _collectionReady = false;
   _collectionReadyPromise = null;
@@ -801,7 +850,9 @@ export async function conceptPageCollectionExists(): Promise<boolean> {
     const result = await client.collectionExists(MEMORY_V2_COLLECTION);
     return result.exists;
   } catch (err) {
-    if (isCollectionMissing(err)) {return false;}
+    if (isCollectionMissing(err)) {
+      return false;
+    }
     throw err;
   }
 }
@@ -818,7 +869,9 @@ export async function dropLegacySkillsCollection(): Promise<void> {
   try {
     const client = getClient();
     const exists = await client.collectionExists("memory_v2_skills");
-    if (!exists.exists) {return;}
+    if (!exists.exists) {
+      return;
+    }
     await client.deleteCollection("memory_v2_skills");
     log.info("Deleted legacy memory_v2_skills Qdrant collection");
   } catch (err) {
@@ -948,7 +1001,9 @@ export async function hybridQueryConceptPages(
   ): void => {
     for (const point of points ?? []) {
       const slug = (point.payload as { slug?: unknown } | null)?.slug;
-      if (typeof slug !== "string") {continue;}
+      if (typeof slug !== "string") {
+        continue;
+      }
       const existing = merged.get(slug) ?? { slug };
       set(existing, point.score ?? 0);
       merged.set(slug, existing);

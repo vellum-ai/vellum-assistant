@@ -93,10 +93,16 @@ export function effectiveWeights(
   let max = -Infinity;
   let count = 0;
   for (const h of hits) {
-    if (h.sparseScore === undefined) {continue;}
+    if (h.sparseScore === undefined) {
+      continue;
+    }
     const norm = h.sparseScore / maxSparse;
-    if (norm < min) {min = norm;}
-    if (norm > max) {max = norm;}
+    if (norm < min) {
+      min = norm;
+    }
+    if (norm > max) {
+      max = norm;
+    }
     count++;
   }
   // With < 2 sparse-bearing hits the spread is undefined — fall back to base
@@ -303,7 +309,9 @@ export function fuseHalf(
   denseWeight: number,
   sparseWeight: number,
 ): number | undefined {
-  if (denseScore === undefined && sparseScore === undefined) {return undefined;}
+  if (denseScore === undefined && sparseScore === undefined) {
+    return undefined;
+  }
   const dense = denseScore !== undefined ? Math.max(0, denseScore) : 0;
   const sparseNormalized =
     sparseScore !== undefined && maxSparse > 0 ? sparseScore / maxSparse : 0;

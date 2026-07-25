@@ -263,7 +263,9 @@ beforeEach(async () => {
     "buffer.md",
   ]) {
     const filePath = join(tmpWorkspace, "memory", filename);
-    if (existsSync(filePath)) {rmSync(filePath);}
+    if (existsSync(filePath)) {
+      rmSync(filePath);
+    }
   }
 
   migrationCalls.length = 0;

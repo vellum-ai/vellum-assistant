@@ -101,15 +101,21 @@ export async function rebuildConceptPageCorpusStats(
 
   for (const slug of slugs) {
     const body = await readPageBodyForStats(workspaceDir, slug);
-    if (body === null) {continue;}
+    if (body === null) {
+      continue;
+    }
     const tokens = tokenizeStemmed(body);
-    if (tokens.length === 0) {continue;}
+    if (tokens.length === 0) {
+      continue;
+    }
     totalTokens += tokens.length;
     docsCounted += 1;
     const seen = new Set<number>();
     for (const token of tokens) {
       const idx = tokenHash(token, SPARSE_VOCAB_SIZE);
-      if (seen.has(idx)) {continue;}
+      if (seen.has(idx)) {
+        continue;
+      }
       seen.add(idx);
       df.set(idx, (df.get(idx) ?? 0) + 1);
     }
@@ -145,7 +151,9 @@ async function readPageBodyForStats(
     const closing = raw.indexOf("\n---", 3);
     if (closing !== -1) {
       const after = raw.indexOf("\n", closing + 4);
-      if (after !== -1) {return raw.slice(after + 1);}
+      if (after !== -1) {
+        return raw.slice(after + 1);
+      }
     }
   }
   return raw;
@@ -196,11 +204,15 @@ export function generateBm25DocEmbedding(
 
   for (const [idx, freq] of tf) {
     const idf = computeIdf(stats, idx);
-    if (idf === 0) {continue;} // Skip tokens that contribute nothing to scores.
+    if (idf === 0) {
+      continue;
+    } // Skip tokens that contribute nothing to scores.
     const saturated =
       (freq * (params.k1 + 1)) / (freq + params.k1 * lengthFactor);
     const weight = idf * saturated;
-    if (weight === 0) {continue;}
+    if (weight === 0) {
+      continue;
+    }
     indices.push(idx);
     values.push(weight);
   }
@@ -228,7 +240,9 @@ export function generateBm25QueryEmbedding(text: string): SparseEmbedding {
   const values: number[] = [];
   for (const token of tokens) {
     const idx = tokenHash(token, SPARSE_VOCAB_SIZE);
-    if (seen.has(idx)) {continue;}
+    if (seen.has(idx)) {
+      continue;
+    }
     seen.add(idx);
     indices.push(idx);
     values.push(1);
