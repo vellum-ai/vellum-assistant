@@ -1,4 +1,10 @@
-import { describe, test, expect } from "bun:test";
+import { beforeEach, describe, test, expect } from "bun:test";
+
+import {
+  clearCheckoutIntent,
+  readCheckoutIntent,
+  saveCheckoutIntent,
+} from "@/lib/billing/checkout-intent";
 
 import {
   resolveNavigation,
@@ -759,6 +765,13 @@ describe("resolveNavigation", () => {
   // post-auth
   // -----------------------------------------------------------------------
   describe("post-auth", () => {
+    beforeEach(() => {
+      sessionStorage.clear();
+      // Reset the module-level in-memory mirror so a stash set by one case
+      // can't leak into the next through the sessionStorage fallback.
+      clearCheckoutIntent();
+    });
+
     const postAuth = (authIntent: "login" | "signup", returnTo: string | null, fallback = "/assistant") =>
       resolveNavigation(base, { kind: "post-auth", authIntent, returnTo, fallback });
 
@@ -767,6 +780,39 @@ describe("resolveNavigation", () => {
         action: "redirect",
         to: "/assistant/onboarding/privacy",
       });
+      // A non-checkout signup stashes no checkout intent.
+      expect(readCheckoutIntent()).toBeNull();
+    });
+
+    test("signup via the checkout deep link still routes through consent but stashes the package", () => {
+      expect(
+        postAuth("signup", "/assistant/checkout?package=super"),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
+      });
+      expect(readCheckoutIntent()).toMatchObject({
+        kind: "package",
+        packageKey: "super",
+      });
+    });
+
+    test("signup via checkout without a package stashes nothing", () => {
+      expect(postAuth("signup", "/assistant/checkout")).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
+      });
+      expect(readCheckoutIntent()).toBeNull();
+    });
+
+    test("login via the checkout deep link returns there directly and stashes nothing", () => {
+      expect(
+        postAuth("login", "/assistant/checkout?package=super"),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/checkout?package=super",
+      });
+      expect(readCheckoutIntent()).toBeNull();
     });
 
     test("signup goes to privacy without returnTo", () => {
@@ -815,6 +861,24 @@ describe("resolveNavigation", () => {
         action: "redirect",
         to: "/assistant",
       });
+    });
+
+    test("a non-checkout signup clears a stale stash from an abandoned attempt", () => {
+      saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
+      expect(postAuth("signup", "/some-return")).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
+      });
+      expect(readCheckoutIntent()).toBeNull();
+    });
+
+    test("a non-checkout login clears a stale stash from an abandoned attempt", () => {
+      saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
+      expect(postAuth("login", "/assistant/home")).toEqual({
+        action: "redirect",
+        to: "/assistant/home",
+      });
+      expect(readCheckoutIntent()).toBeNull();
     });
   });
 

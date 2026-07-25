@@ -1,5 +1,6 @@
 import type { PlatformSessionStatus } from "@/stores/session-status";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
+import { resolveSignupCheckoutDestination } from "@/lib/billing/post-auth-checkout";
 import { routes } from "@/utils/routes";
 
 // ---------------------------------------------------------------------------
@@ -435,14 +436,20 @@ function resolvePostAuth(
   returnTo: string | null,
   fallback: string,
 ): NavigationDecision {
-  if (authIntent === "signup") {
-    const destination = sanitizeReturnTo(returnTo, fallback);
-    if (isImportFunnelDestination(destination)) {
-      return { action: "redirect", to: destination };
-    }
-    return { action: "redirect", to: routes.onboarding.privacy };
+  const destination = sanitizeReturnTo(returnTo, fallback);
+  // The shared resolver stashes a pricing-CTA checkout package across signup,
+  // discards a stale stash for any non-checkout auth, and picks the
+  // destination (privacy for signup, the sanitized `returnTo` for login).
+  const { destination: resolved } = resolveSignupCheckoutDestination({
+    intent: authIntent,
+    returnTo: destination,
+  });
+  // The import funnel replaces onboarding: a signup that started on /import
+  // lands back there instead of the consent screen.
+  if (authIntent === "signup" && isImportFunnelDestination(destination)) {
+    return { action: "redirect", to: destination };
   }
-  return { action: "redirect", to: sanitizeReturnTo(returnTo, fallback) };
+  return { action: "redirect", to: resolved };
 }
 
 // ---------------------------------------------------------------------------
