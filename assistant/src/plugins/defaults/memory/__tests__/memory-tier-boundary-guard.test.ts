@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { Glob } from "bun";
+import ts from "typescript";
 
 /**
  * Guard tests for the memory plugin's tier boundaries. See
@@ -35,13 +36,17 @@ import { Glob } from "bun";
  * only and `v3/` for `memory.v3` only, matching the documented boundary that
  * an engine reads its own tuning namespace and no other.
  *
- * Detection strips comments and string/template literals first (so job names
- * like "memory.v2.sweep" and schema error strings do not false-positive),
- * then matches three read forms: dot chains (`config.memory?.v3?.live`),
- * computed literal access (`config.memory["v3"]`), and destructuring off a
- * `memory` object (`const { v2 } = config.memory`, `const { memory: { v3 } }
- * = config`). Bare `"v2"` / `"v3"` string literals survive stripping so
- * computed access stays visible; every other literal is blanked.
+ * Detection parses each production file into a TypeScript AST
+ * (`ts.createSourceFile`, no type-checker) and walks it for reads off a
+ * `memory` object: property access including optional chaining
+ * (`config.memory?.v3.live`), element access with a string literal
+ * (`config.memory["v3"]`), and destructuring in any position — variable
+ * declarations (`const { v2 } = config.memory ?? {}`), assignments
+ * (`({ v3 } = config.memory)`), function and catch parameters, and nested
+ * patterns (`const { memory: { v3 } } = config`). The parser classifies
+ * comments and string, template, and regex literals for us, so job names
+ * like "memory.v2.sweep" and doc comments never false-positive and no
+ * literal can desync the scan.
  *
  * Both allowlists carry a reverse "stale exemption" test — per (path, keys)
  * pair for tier keys — so an entry whose multi-tier import or tier-key read
@@ -243,181 +248,233 @@ function spineTierUsage(imports: TierImport[]): Map<string, Set<Tier>> {
   return usage;
 }
 
+/** An object destructuring pattern, in binding or assignment-target form. */
+type ObjectPattern = ts.ObjectBindingPattern | ts.ObjectLiteralExpression;
+
+/** One property destructured by an {@link ObjectPattern}. */
+interface PatternEntry {
+  /** Property read off the source object; `undefined` when computed. */
+  readonly key: string | undefined;
+  /** Sub-pattern this property destructures into, if it has one. */
+  readonly nested: ObjectPattern | undefined;
+}
+
+/** Parses one file; `.tsx` parses as TSX, everything else as TS. */
+function parseSourceFile(fileName: string, sourceText: string): ts.SourceFile {
+  return ts.createSourceFile(
+    fileName,
+    sourceText,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+}
+
+/** Expression with parentheses, `!`, and type assertions peeled off. */
+function unwrapExpression(node: ts.Expression): ts.Expression {
+  let current = node;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isNonNullExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isTypeAssertionExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+/** Text of a string-ish literal, or `undefined` for anything computed. */
+function literalText(node: ts.Node | undefined): string | undefined {
+  return node !== undefined && ts.isStringLiteralLike(node)
+    ? node.text
+    : undefined;
+}
+
+/** Static name of a property or binding name, or `undefined` if computed. */
+function staticNameText(
+  name: ts.PropertyName | ts.BindingName | undefined,
+): string | undefined {
+  if (name === undefined) {
+    return undefined;
+  }
+  if (
+    ts.isIdentifier(name) ||
+    ts.isStringLiteral(name) ||
+    ts.isNumericLiteral(name)
+  ) {
+    return name.text;
+  }
+  return undefined;
+}
+
 /**
- * Source with comments and string/template literals blanked out, so tier-key
- * matching only sees executable property chains. Bare `"v2"` / `"v3"`
- * literals survive verbatim — they are the key half of computed access
- * (`config.memory["v3"]`) — while every other literal, including compound
- * names like "memory.v2.sweep", is dropped. Line structure is preserved.
- * Template interpolations (`${...}`) are kept — they are code — via a mode
- * stack that tracks nested templates and interpolation braces. Regex
- * literals are not lexed; single/double-quoted string skipping stops at
- * end-of-line so a quote inside a regex desyncs at most one line.
+ * Whether an expression resolves to a `memory` object: a bare `memory`
+ * identifier, any `.memory` / `["memory"]` access, or either arm of a
+ * `??`/`||` fallback or a conditional (`config.memory ?? {}`).
  */
-function stripCommentsAndStrings(source: string): string {
-  let out = "";
-  let i = 0;
-  const n = source.length;
-  // Interpolation brace depths for enclosing template literals, innermost
-  // last; empty means top-level code.
-  const templateDepths: number[] = [];
-  let braceDepth = 0;
+function resolvesToMemory(node: ts.Expression): boolean {
+  const expr = unwrapExpression(node);
+  if (ts.isIdentifier(expr)) {
+    return expr.text === "memory";
+  }
+  if (ts.isPropertyAccessExpression(expr)) {
+    return expr.name.text === "memory";
+  }
+  if (ts.isElementAccessExpression(expr)) {
+    return literalText(expr.argumentExpression) === "memory";
+  }
+  if (
+    ts.isBinaryExpression(expr) &&
+    (expr.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+      expr.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+  ) {
+    return resolvesToMemory(expr.left) || resolvesToMemory(expr.right);
+  }
+  if (ts.isConditionalExpression(expr)) {
+    return resolvesToMemory(expr.whenTrue) || resolvesToMemory(expr.whenFalse);
+  }
+  return false;
+}
 
-  const keepNewlinesOf = (text: string): void => {
-    out += text.replace(/[^\n]/g, "");
-  };
+/** Assignment-pattern target with its parentheses and `= default` removed. */
+function unwrapAssignmentTarget(node: ts.Expression): ts.Expression {
+  const expr = unwrapExpression(node);
+  if (
+    ts.isBinaryExpression(expr) &&
+    expr.operatorToken.kind === ts.SyntaxKind.EqualsToken
+  ) {
+    return unwrapAssignmentTarget(expr.left);
+  }
+  return expr;
+}
 
-  // Scans template-literal content from `start` (just past the opening
-  // backtick, or past an interpolation's closing brace), appending newlines.
-  // Stops after the closing backtick, or pushes interpolation state and
-  // stops after a `${`. Returns the index to resume lexing at.
-  const scanTemplateContent = (start: number): number => {
-    let j = start;
-    while (j < n) {
-      if (source[j] === "\\") {
-        j += 2;
+/** Properties a pattern destructures, in either binding or assignment form. */
+function patternEntries(pattern: ObjectPattern): PatternEntry[] {
+  const entries: PatternEntry[] = [];
+  if (ts.isObjectBindingPattern(pattern)) {
+    for (const element of pattern.elements) {
+      if (element.dotDotDotToken !== undefined) {
+        // A rest element carries no single key.
         continue;
       }
-      if (source[j] === "`") {
-        return j + 1;
-      }
-      if (source[j] === "$" && source[j + 1] === "{") {
-        templateDepths.push(braceDepth);
-        braceDepth = 0;
-        return j + 2;
-      }
-      if (source[j] === "\n") {
-        out += "\n";
-      }
-      j++;
+      entries.push({
+        key: staticNameText(element.propertyName ?? element.name),
+        nested: ts.isObjectBindingPattern(element.name)
+          ? element.name
+          : undefined,
+      });
     }
-    return j;
+    return entries;
+  }
+  for (const property of pattern.properties) {
+    if (ts.isShorthandPropertyAssignment(property)) {
+      entries.push({ key: property.name.text, nested: undefined });
+      continue;
+    }
+    if (!ts.isPropertyAssignment(property)) {
+      // Spreads and methods carry no single key.
+      continue;
+    }
+    const target = unwrapAssignmentTarget(property.initializer);
+    entries.push({
+      key: staticNameText(property.name),
+      nested: ts.isObjectLiteralExpression(target) ? target : undefined,
+    });
+  }
+  return entries;
+}
+
+/** Adds every tier key bound directly by `pattern`. */
+function addTopLevelTierKeys(pattern: ObjectPattern, keys: Set<TierKey>): void {
+  for (const entry of patternEntries(pattern)) {
+    if (entry.key === "v2" || entry.key === "v3") {
+      keys.add(entry.key);
+    }
+  }
+}
+
+/**
+ * Adds tier keys taken through a nested `memory:` sub-pattern at any depth,
+ * as in `const { memory: { v3 } } = config`.
+ */
+function addNestedMemoryPatternKeys(
+  pattern: ObjectPattern,
+  keys: Set<TierKey>,
+): void {
+  for (const entry of patternEntries(pattern)) {
+    if (entry.nested === undefined) {
+      continue;
+    }
+    if (entry.key === "memory") {
+      addTopLevelTierKeys(entry.nested, keys);
+    }
+    addNestedMemoryPatternKeys(entry.nested, keys);
+  }
+}
+
+/**
+ * Tier namespaces a source file reads off a `memory` object, found by walking
+ * its TypeScript AST: property access (`config.memory?.v3.live`), element
+ * access with a string literal (`config.memory["v3"]`), and destructuring in
+ * every position — declarations, assignments, parameters, and nested
+ * patterns. Comments and string, template, and regex literals are classified
+ * by the parser, so no literal reads as code or desyncs the walk. Dynamic
+ * computed keys (`memory[key]`) stay out of reach without a type-checker.
+ */
+function tierKeysRead(sourceText: string, fileName: string): Set<TierKey> {
+  const keys = new Set<TierKey>();
+
+  const readPattern = (
+    pattern: ObjectPattern,
+    source: ts.Expression | undefined,
+  ): void => {
+    if (source !== undefined && resolvesToMemory(source)) {
+      addTopLevelTierKeys(pattern, keys);
+    }
+    addNestedMemoryPatternKeys(pattern, keys);
   };
 
-  while (i < n) {
-    const c = source[i]!;
-    const next = source[i + 1];
-    if (c === "/" && next === "/") {
-      const end = source.indexOf("\n", i);
-      i = end === -1 ? n : end;
-      continue;
-    }
-    if (c === "/" && next === "*") {
-      const end = source.indexOf("*/", i + 2);
-      const stop = end === -1 ? n : end + 2;
-      keepNewlinesOf(source.slice(i, stop));
-      i = stop;
-      continue;
-    }
-    if (c === '"' || c === "'") {
-      const start = ++i;
-      while (i < n && source[i] !== c && source[i] !== "\n") {
-        i += source[i] === "\\" ? 2 : 1;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      resolvesToMemory(node.expression)
+    ) {
+      const key = node.name.text;
+      if (key === "v2" || key === "v3") {
+        keys.add(key);
       }
-      const content = source.slice(start, i);
-      if (source[i] === c) {
-        i++;
+    } else if (
+      ts.isElementAccessExpression(node) &&
+      resolvesToMemory(node.expression)
+    ) {
+      const key = literalText(node.argumentExpression);
+      if (key === "v2" || key === "v3") {
+        keys.add(key);
       }
-      // Tier-key literals stay so computed access survives stripping.
-      if (content === "v2" || content === "v3") {
-        out += `${c}${content}${c}`;
-      }
-      continue;
-    }
-    if (c === "`") {
-      i = scanTemplateContent(i + 1);
-      continue;
-    }
-    if (templateDepths.length > 0) {
-      if (c === "{") {
-        braceDepth++;
-      } else if (c === "}") {
-        if (braceDepth === 0) {
-          // Interpolation closed — resume the enclosing template literal.
-          braceDepth = templateDepths.pop()!;
-          i = scanTemplateContent(i + 1);
-          continue;
-        }
-        braceDepth--;
+    } else if (
+      (ts.isVariableDeclaration(node) ||
+        ts.isParameter(node) ||
+        ts.isBindingElement(node)) &&
+      ts.isObjectBindingPattern(node.name)
+    ) {
+      // A binding element's initializer is its default value — reading a
+      // tier key from it is still a raw read.
+      readPattern(node.name, node.initializer);
+    } else if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    ) {
+      const target = unwrapExpression(node.left);
+      if (ts.isObjectLiteralExpression(target)) {
+        readPattern(target, node.right);
       }
     }
-    out += c;
-    i++;
-  }
-  return out;
-}
+    ts.forEachChild(node, visit);
+  };
 
-/** `memory.v2` / `memory.v3` property chain, incl. `config.memory?.v3?.live`. */
-const TIER_KEY_DOT_READ = /\bmemory\s*\??\.\s*(v[23])\b/g;
-
-/** Computed literal access — `config.memory["v3"]`, `memory?.['v2']`. */
-const TIER_KEY_COMPUTED_READ =
-  /\bmemory\s*(?:\?\.)?\s*\[\s*(['"])(v[23])\1\s*\]/g;
-
-/** A `const`/`let`/`var` destructuring declaration: pattern and its source. */
-const DESTRUCTURING_DECLARATION =
-  /\b(?:const|let|var)\s+(\{[\s\S]*?\})\s*=\s*([^;\n]+)/g;
-
-/** A right-hand side that is (a chain ending in) a `memory` object. */
-const DESTRUCTURED_FROM_MEMORY = /(?:^|\.)\s*memory\s*$/;
-
-/** A `memory: { ... }` sub-pattern inside a destructuring pattern. */
-const NESTED_MEMORY_PATTERN = /\bmemory\s*:\s*(\{[^{}]*\})/g;
-
-/** A tier key bound at the top level of an object pattern: `{ v2, v3: t }`. */
-const PATTERN_TIER_KEY = /[{,]\s*(v[23])\s*(?=[,:}=])/g;
-
-/**
- * Pattern text at the outermost brace depth, with nested groups blanked, so
- * only the keys destructured directly off the object are read.
- */
-function topLevelPatternContent(pattern: string): string {
-  let depth = 0;
-  let out = "";
-  for (const char of pattern) {
-    if (char === "{" || char === "[") {
-      depth++;
-      out += depth === 1 ? char : " ";
-      continue;
-    }
-    if (char === "}" || char === "]") {
-      out += depth === 1 ? char : " ";
-      depth--;
-      continue;
-    }
-    out += depth === 1 ? char : " ";
-  }
-  return out;
-}
-
-/**
- * Tier namespaces the stripped source reads: dot chains, computed literal
- * access, and destructuring off a `memory` object. Dynamic computed keys
- * (`memory[key]`) are out of reach of a lexer this size.
- */
-function tierKeysRead(stripped: string): Set<TierKey> {
-  const keys = new Set<TierKey>();
-  for (const match of stripped.matchAll(TIER_KEY_DOT_READ)) {
-    keys.add(match[1] as TierKey);
-  }
-  for (const match of stripped.matchAll(TIER_KEY_COMPUTED_READ)) {
-    keys.add(match[2] as TierKey);
-  }
-  for (const declaration of stripped.matchAll(DESTRUCTURING_DECLARATION)) {
-    const pattern = declaration[1]!;
-    const patterns: string[] = [];
-    if (DESTRUCTURED_FROM_MEMORY.test(declaration[2]!.trim())) {
-      patterns.push(topLevelPatternContent(pattern));
-    }
-    for (const nested of pattern.matchAll(NESTED_MEMORY_PATTERN)) {
-      patterns.push(nested[1]!);
-    }
-    for (const candidate of patterns) {
-      for (const key of candidate.matchAll(PATTERN_TIER_KEY)) {
-        keys.add(key[1] as TierKey);
-      }
-    }
-  }
+  ts.forEachChild(parseSourceFile(fileName, sourceText), visit);
   return keys;
 }
 
@@ -435,10 +492,8 @@ function collectTierKeyReaders(): Map<string, Set<TierKey>> {
   const readers = new Map<string, Set<TierKey>>();
   for (const file of productionFiles(join(process.cwd(), "src"))) {
     const posix = `src/${file}`;
-    const stripped = stripCommentsAndStrings(
-      readFileSync(join(process.cwd(), posix), "utf-8"),
-    );
-    const keys = tierKeysRead(stripped);
+    const absolute = join(process.cwd(), posix);
+    const keys = tierKeysRead(readFileSync(absolute, "utf-8"), absolute);
     if (keys.size > 0) {
       readers.set(posix, keys);
     }
@@ -448,6 +503,9 @@ function collectTierKeyReaders(): Map<string, Set<TierKey>> {
 
 describe("memory tier boundary guard", () => {
   const tierImports = collectTierImports();
+  // Scanned once and shared: the forward and reverse tier-key tests read the
+  // same snapshot of the tree.
+  const tierKeyReaders = collectTierKeyReaders();
 
   test("tier directories only import their allowed tiers", () => {
     const violations: string[] = [];
@@ -512,7 +570,7 @@ describe("memory tier boundary guard", () => {
 
   test("tier-key config reads are frozen to the gate module and exemptions", () => {
     const violations: string[] = [];
-    for (const [file, keys] of collectTierKeyReaders()) {
+    for (const [file, keys] of tierKeyReaders) {
       for (const key of [...keys].sort()) {
         if (!isTierKeyExempt(file, key)) {
           violations.push(`  - ${file} reads memory.${key}.*`);
@@ -534,7 +592,7 @@ describe("memory tier boundary guard", () => {
   });
 
   test("every tier-key exemption still has a matching tier-key read", () => {
-    const readers = collectTierKeyReaders();
+    const readers = tierKeyReaders;
     const stale: string[] = [];
     for (const entry of TIER_KEY_READ_ALLOWLIST) {
       for (const key of entry.keys) {
@@ -561,7 +619,7 @@ describe("memory tier boundary guard", () => {
 
 describe("tier-key read detection", () => {
   const keysOf = (source: string): TierKey[] =>
-    [...tierKeysRead(stripCommentsAndStrings(source))].sort();
+    [...tierKeysRead(source, "guard-fixture.ts")].sort();
 
   test("property chains are detected, with and without optional chaining", () => {
     expect(keysOf(`const on = config.memory.v2.enabled;`)).toEqual(["v2"]);
@@ -590,17 +648,41 @@ describe("tier-key read detection", () => {
     expect(keysOf(`const { memory: { v3 } } = config;`)).toEqual(["v3"]);
   });
 
+  test("destructuring is detected through wrappers and in every position", () => {
+    expect(keysOf(`const { v2 } = config.memory ?? {};`)).toEqual(["v2"]);
+    expect(keysOf(`const { v3 } = (config.memory as MemoryConfig)!;`)).toEqual([
+      "v3",
+    ]);
+    expect(keysOf(`({ v3 } = config.memory);`)).toEqual(["v3"]);
+    expect(keysOf(`({ memory: { v3 } } = config);`)).toEqual(["v3"]);
+    expect(keysOf(`function read({ v2 } = config.memory) {}`)).toEqual(["v2"]);
+    expect(keysOf(`try { run(); } catch ({ memory: { v3 } }) {}`)).toEqual([
+      "v3",
+    ]);
+  });
+
   test("string literals and comments are ignored", () => {
     expect(keysOf(`enqueue("memory.v2.sweep");`)).toEqual([]);
     expect(keysOf(`const job = { name: "memory.v2.sweep" };`)).toEqual([]);
+    expect(keysOf(`"memory.v2.sweep";`)).toEqual([]);
     expect(keysOf(`// falls back to memory.v2.k\nconst k = 1;`)).toEqual([]);
+    expect(keysOf(`// memory.v3.live gates injection\nconst x = 1;`)).toEqual(
+      [],
+    );
     expect(
       keysOf(`/** memory.v3.live gates injection */\nconst x = 1;`),
     ).toEqual([]);
     expect(keysOf("const label = `memory.v3.edge tuning`;")).toEqual([]);
   });
 
-  test("bare tier-key literals survive stripping without matching alone", () => {
+  test("a regex literal containing a quote cannot hide a read", () => {
+    expect(
+      keysOf(`const on = /"/.test(v) && config.memory.v2.enabled;`),
+    ).toEqual(["v2"]);
+    expect(keysOf(`const q = /"/.test(v);`)).toEqual([]);
+  });
+
+  test("bare tier-key literals do not match on their own", () => {
     expect(keysOf(`const tier = "v3";`)).toEqual([]);
     expect(keysOf(`log("v2", "memory.v2.sweep");`)).toEqual([]);
     expect(keysOf(`const t = pages["v2"];`)).toEqual([]);
@@ -621,5 +703,8 @@ describe("tier-key read detection", () => {
     expect(keysOf(`const x = inMemory.v2Cache;`)).toEqual([]);
     expect(keysOf(`const { v2 } = engines;`)).toEqual([]);
     expect(keysOf(`const { lanes: { v3 } } = registry;`)).toEqual([]);
+    expect(keysOf(`const seed = { memory: { v3: { live: true } } };`)).toEqual(
+      [],
+    );
   });
 });
