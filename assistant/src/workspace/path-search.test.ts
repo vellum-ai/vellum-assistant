@@ -354,32 +354,38 @@ describe("WorkspacePathCatalog caching and cancellation", () => {
     writeFileSync(join(root, "existing.txt"), "");
 
     let firstBuild = true;
-    let markFirstScanComplete: (() => void) | undefined;
-    const firstScanComplete = new Promise<void>((resolve) => {
-      markFirstScanComplete = resolve;
-    });
-    let releaseFirstBuild: (() => void) | undefined;
-    const firstBuildGate = new Promise<void>((resolve) => {
-      releaseFirstBuild = resolve;
+    let staleBuildAborted = false;
+    let markBuildStarted: (() => void) | undefined;
+    const buildStarted = new Promise<void>((resolve) => {
+      markBuildStarted = resolve;
     });
     const catalog = createCatalog(root, {
       openDirectory: async function* (path, signal) {
-        yield* readDirectory(path, signal);
         if (firstBuild) {
           firstBuild = false;
-          markFirstScanComplete?.();
-          await firstBuildGate;
+          markBuildStarted?.();
+          await new Promise<void>((_, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => {
+                staleBuildAborted = true;
+                reject(signal.reason);
+              },
+              { once: true },
+            );
+          });
         }
+        yield* readDirectory(path, signal);
       },
     });
 
     const staleSearch = catalog.search({ query: "added", limit: 20 });
-    await firstScanComplete;
+    await buildStarted;
     writeFileSync(join(root, "added.txt"), "");
     catalog.invalidate();
     const freshSearch = catalog.search({ query: "added", limit: 20 });
-    releaseFirstBuild?.();
 
+    expect(staleBuildAborted).toBe(true);
     expect((await staleSearch).results.map((entry) => entry.path)).toEqual([
       "added.txt",
     ]);

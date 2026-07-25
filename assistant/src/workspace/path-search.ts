@@ -396,6 +396,9 @@ export class WorkspacePathCatalog {
   invalidate(): void {
     this.generation += 1;
     this.cache.clear();
+    for (const build of this.inFlight.values()) {
+      build.controller.abort();
+    }
     this.inFlight.clear();
   }
 
@@ -422,19 +425,24 @@ export class WorkspacePathCatalog {
     }
 
     build.waiters += 1;
-    let snapshot: CatalogSnapshot;
+    let outcome: { snapshot: CatalogSnapshot } | { retry: true };
     try {
-      snapshot = await awaitWithAbort(build.promise, signal);
+      outcome = { snapshot: await awaitWithAbort(build.promise, signal) };
+    } catch (error) {
+      if (build.generation === this.generation || signal?.aborted) {
+        throw error;
+      }
+      outcome = { retry: true };
     } finally {
       build.waiters -= 1;
       if (!build.settled && build.waiters === 0) {
         build.controller.abort();
       }
     }
-    if (build.generation !== this.generation) {
+    if ("retry" in outcome || build.generation !== this.generation) {
       return this.getSnapshot(showHidden, signal);
     }
-    return snapshot;
+    return outcome.snapshot;
   }
 
   private startBuild(
