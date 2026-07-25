@@ -29,7 +29,9 @@ mock.module("../rerank-local.js", () => ({
         queries: [...queries],
         passages: [...passages],
       });
-      if (backendState.shouldThrow) {throw new Error("backend down");}
+      if (backendState.shouldThrow) {
+        throw new Error("backend down");
+      }
       return backendState.scores.slice(0, passages.length);
     },
   }),

@@ -168,13 +168,17 @@ async function activationEvidence(
   limit: number,
 ): Promise<RecallEvidence[]> {
   const trimmedQuery = query.trim();
-  if (trimmedQuery.length === 0) {return [];}
+  if (trimmedQuery.length === 0) {
+    return [];
+  }
 
   const denseResult = await embedWithRetry(context.config, [trimmedQuery], {
     signal: context.signal,
   });
   const denseVector = denseResult.vectors[0];
-  if (!denseVector || denseVector.length === 0) {return [];}
+  if (!denseVector || denseVector.length === 0) {
+    return [];
+  }
   const sparseVector = generateBm25QueryEmbedding(trimmedQuery);
 
   const tuning = resolveSubstrateTuning(context.config.memory);
@@ -184,7 +188,9 @@ async function activationEvidence(
     sparseVector,
     annLimit,
   );
-  if (hits.length === 0) {return [];}
+  if (hits.length === 0) {
+    return [];
+  }
 
   const { dense_weight: denseWeight, sparse_weight: sparseWeight } = tuning;
 
@@ -237,7 +243,9 @@ async function activationEvidence(
 
   const ranked = [...finalActivation.entries()]
     .sort(([slugA, valA], [slugB, valB]) => {
-      if (valB !== valA) {return valB - valA;}
+      if (valB !== valA) {
+        return valB - valA;
+      }
       return slugA < slugB ? -1 : slugA > slugB ? 1 : 0;
     })
     .slice(0, limit);
@@ -246,7 +254,9 @@ async function activationEvidence(
     ranked.map(async ([slug, score]) => {
       try {
         const page = await readPage(context.workingDir, slug);
-        if (!page) {return null;}
+        if (!page) {
+          return null;
+        }
         return { slug, score, body: page.body.trim() };
       } catch (err) {
         log.warn({ err, slug }, "Failed to read concept page during recall");
@@ -257,7 +267,9 @@ async function activationEvidence(
 
   const evidence: RecallEvidence[] = [];
   for (const entry of pages) {
-    if (!entry || entry.body.length === 0) {continue;}
+    if (!entry || entry.body.length === 0) {
+      continue;
+    }
     const locator = `memory/concepts/${entry.slug}.md`;
     evidence.push({
       id: `memory:v2:${entry.slug}`,
@@ -307,10 +319,14 @@ async function lexicalEvidence(
   limit: number,
 ): Promise<RecallEvidence[]> {
   const queryTerms = tokenizeSalientRecallTerms(query);
-  if (queryTerms.size === 0 || limit <= 0) {return [];}
+  if (queryTerms.size === 0 || limit <= 0) {
+    return [];
+  }
 
   const conceptsRoot = await resolveContainedConceptsRoot(context.workingDir);
-  if (!conceptsRoot) {return [];}
+  if (!conceptsRoot) {
+    return [];
+  }
 
   const matches: MemoryV2LexicalMatch[] = [];
   const visitedDirectories = new Set<string>([conceptsRoot]);
@@ -375,7 +391,9 @@ async function walkConceptsDirectory(
       continue;
     }
 
-    if (!isPathInsideRoot(entryRealPath, conceptsRoot)) {continue;}
+    if (!isPathInsideRoot(entryRealPath, conceptsRoot)) {
+      continue;
+    }
 
     let entryStats;
     try {
@@ -385,7 +403,9 @@ async function walkConceptsDirectory(
     }
 
     if (entryStats.isDirectory()) {
-      if (visitedDirectories.has(entryRealPath)) {continue;}
+      if (visitedDirectories.has(entryRealPath)) {
+        continue;
+      }
       visitedDirectories.add(entryRealPath);
       await walkConceptsDirectory(
         entryRealPath,
@@ -411,7 +431,9 @@ async function walkConceptsDirectory(
       conceptsRoot,
       queryTerms,
     );
-    if (match) {matches.push(match);}
+    if (match) {
+      matches.push(match);
+    }
   }
 }
 
@@ -429,7 +451,9 @@ async function searchConceptFile(
 
   const lines = contents.split(/\r?\n/);
   const bestLine = findBestLine(lines, queryTerms);
-  if (!bestLine) {return null;}
+  if (!bestLine) {
+    return null;
+  }
 
   const slug = slugFromConceptPath(conceptsRoot, filePath);
   const slugTerms = termOverlap(tokenizeSalientRecallTerms(slug), queryTerms);
@@ -458,7 +482,9 @@ function findBestLine(
   lines.forEach((line, lineIndex) => {
     const lineTerms = tokenizeSalientRecallTerms(line);
     const matchedTerms = termOverlap(lineTerms, queryTerms);
-    if (matchedTerms.size === 0) {return;}
+    if (matchedTerms.size === 0) {
+      return;
+    }
 
     const score = matchedTerms.size * 10 + Math.min(lineTerms.size, 12) / 100;
     if (!best || score > best.score) {
@@ -484,7 +510,9 @@ function buildLexicalExcerpt(
     .join("\n")
     .trim();
 
-  if (excerpt.length <= MEMORY_V2_LEXICAL_EXCERPT_MAX_CHARS) {return excerpt;}
+  if (excerpt.length <= MEMORY_V2_LEXICAL_EXCERPT_MAX_CHARS) {
+    return excerpt;
+  }
 
   const focusedLine = `${lineIndex + 1}: ${lines[lineIndex]?.trimEnd() ?? ""}`;
   if (focusedLine.length <= MEMORY_V2_LEXICAL_EXCERPT_MAX_CHARS) {
@@ -518,9 +546,13 @@ function compareLexicalMatches(
   a: MemoryV2LexicalMatch,
   b: MemoryV2LexicalMatch,
 ): number {
-  if (b.score !== a.score) {return b.score - a.score;}
+  if (b.score !== a.score) {
+    return b.score - a.score;
+  }
   const slugCompare = a.slug.localeCompare(b.slug);
-  if (slugCompare !== 0) {return slugCompare;}
+  if (slugCompare !== 0) {
+    return slugCompare;
+  }
   return a.lineNumber - b.lineNumber;
 }
 
@@ -546,7 +578,9 @@ function mergeMemoryV2Evidence(
     ),
   ]) {
     const key = `${item.locator}\0${normalizeExcerpt(item.excerpt)}`;
-    if (seen.has(key)) {continue;}
+    if (seen.has(key)) {
+      continue;
+    }
     seen.add(key);
     merged.push(item);
   }
@@ -570,7 +604,9 @@ function termOverlap(
 ): Set<string> {
   const matchedTerms = new Set<string>();
   for (const term of queryTerms) {
-    if (haystackTerms.has(term)) {matchedTerms.add(term);}
+    if (haystackTerms.has(term)) {
+      matchedTerms.add(term);
+    }
   }
   return matchedTerms;
 }
@@ -580,7 +616,9 @@ function normalizeExcerpt(excerpt: string): string {
 }
 
 function truncateExcerpt(text: string, maxChars: number): string {
-  if (text.length <= maxChars) {return text;}
+  if (text.length <= maxChars) {
+    return text;
+  }
   return `${text.slice(0, maxChars - 3).trimEnd()}...`;
 }
 

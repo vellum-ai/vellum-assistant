@@ -122,13 +122,17 @@ class MockQdrantClient {
   }
   async getCollection(_name: string) {
     state.getCollectionCalls++;
-    if (state.getCollectionThrows) {throw state.getCollectionThrows;}
+    if (state.getCollectionThrows) {
+      throw state.getCollectionThrows;
+    }
     return state.getCollectionInfo;
   }
   async createCollection(_name: string, params: unknown) {
     state.createCollectionCalls++;
     state.createCollectionParams = params;
-    if (state.createCollectionThrows) {throw state.createCollectionThrows;}
+    if (state.createCollectionThrows) {
+      throw state.createCollectionThrows;
+    }
     state.collectionExistsBeforeCreate = true;
     state.getCollectionInfo = FULL_SCHEMA_INFO;
     return {};
@@ -140,12 +144,16 @@ class MockQdrantClient {
   }
   async updateCollection(name: string, params: unknown) {
     state.updateCollectionCalls.push({ name, params });
-    if (state.updateCollectionThrows) {throw state.updateCollectionThrows;}
+    if (state.updateCollectionThrows) {
+      throw state.updateCollectionThrows;
+    }
     return {};
   }
   async count(_name: string, _opts: { exact: boolean }) {
     state.countCalls++;
-    if (state.countThrows) {throw state.countThrows;}
+    if (state.countThrows) {
+      throw state.countThrows;
+    }
     return { count: state.countResult };
   }
   async createPayloadIndex(
@@ -155,14 +163,18 @@ class MockQdrantClient {
     state.createIndexCalls.push(params);
     if (state.createIndexThrowQueue.length > 0) {
       const next = state.createIndexThrowQueue.shift();
-      if (next) {throw next;}
+      if (next) {
+        throw next;
+      }
     }
     return {};
   }
   async upsert(_name: string, params: { wait: boolean; points: MockPoint[] }) {
     if (state.upsertThrowQueue.length > 0) {
       const next = state.upsertThrowQueue.shift();
-      if (next) {throw next;}
+      if (next) {
+        throw next;
+      }
     }
     state.upsertCalls.push(params);
     return {};

@@ -962,7 +962,9 @@ export function resolveConsolidationPrompt(
     log,
     label: "consolidation prompt",
   });
-  if (override === null) {return renderConsolidationPrompt(cutoff, options);}
+  if (override === null) {
+    return renderConsolidationPrompt(cutoff, options);
+  }
 
   const substituted = substitutePlaceholders(override, cutoff, options);
   if (override.includes(PARSE_FAILURES_PLACEHOLDER)) {

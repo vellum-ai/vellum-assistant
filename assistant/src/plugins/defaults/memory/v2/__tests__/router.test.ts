@@ -53,7 +53,9 @@ const warnLogs: Array<{ args: unknown[] }> = [];
 function makeRecordingLogger(): unknown {
   return new Proxy({} as Record<string, unknown>, {
     get: (_target, prop) => {
-      if (prop === "child") {return makeRecordingLogger;}
+      if (prop === "child") {
+        return makeRecordingLogger;
+      }
       if (prop === "warn") {
         return (...args: unknown[]) => {
           warnLogs.push({ args });
@@ -86,7 +88,9 @@ mock.module("../injection-events.js", () => ({
     const out = new Map<string, number>();
     for (const slug of slugs) {
       const score = scoresStub.get(slug);
-      if (score !== undefined && score > 0) {out.set(slug, score);}
+      if (score !== undefined && score > 0) {
+        out.set(slug, score);
+      }
     }
     return out;
   },
@@ -767,7 +771,9 @@ describe("runRouter — batched (batch_size set)", () => {
           systemPrompt: options?.systemPrompt,
           options,
         });
-        if (callCount === 1) {throw new Error("batch 1 boom");}
+        if (callCount === 1) {
+          throw new Error("batch 1 boom");
+        }
         return toolUseResponse([1]);
       },
     };

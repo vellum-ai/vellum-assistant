@@ -189,7 +189,9 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       continue;
     }
     const { page, mtimeMs } = result.value;
-    if (!page) {continue;}
+    if (!page) {
+      continue;
+    }
     if (page.parseWarning !== undefined) {
       parseFailures.push({ slug, error: page.parseWarning, dropped: false });
     }
@@ -263,7 +265,9 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     const resolved: number[] = [];
     for (const targetSlug of draft.outgoingSlugs) {
       const target = bySlug.get(targetSlug);
-      if (target) {resolved.push(target.id);}
+      if (target) {
+        resolved.push(target.id);
+      }
     }
     resolved.sort((a, b) => a - b);
     entries[i].edges = resolved;
@@ -293,7 +297,9 @@ function firstErrorLine(reason: unknown): string {
  * specific cache entry; omit it to clear unconditionally.
  */
 export function invalidatePageIndex(workspaceDir?: string): void {
-  if (!cache) {return;}
+  if (!cache) {
+    return;
+  }
   if (workspaceDir === undefined || cache.workspaceDir === workspaceDir) {
     cache = null;
   }
@@ -308,7 +314,9 @@ export function invalidatePageIndex(workspaceDir?: string): void {
 function renderIndex(entries: readonly PageIndexEntry[]): string {
   const lines = entries.map((entry) => {
     const head = `[${entry.id}] ${entry.slug} — ${entry.summary}`;
-    if (entry.edges.length === 0) {return head;}
+    if (entry.edges.length === 0) {
+      return head;
+    }
     return `${head} (edges: ${entry.edges.join(", ")})`;
   });
   return lines.length > 0 ? `${lines.join("\n")}\n` : "";
@@ -392,9 +400,13 @@ function buildLocalPageIndex(
     const localEdges: number[] = [];
     for (const globalEdgeId of entries[i].edges) {
       const target = source.byId.get(globalEdgeId);
-      if (!target) {continue;}
+      if (!target) {
+        continue;
+      }
       const localTarget = localBySlug.get(target.slug);
-      if (localTarget) {localEdges.push(localTarget.id);}
+      if (localTarget) {
+        localEdges.push(localTarget.id);
+      }
     }
     localEdges.sort((a, b) => a - b);
     localEntries[i].edges = localEdges;
@@ -434,7 +446,9 @@ export function splitTier1(
     return { tier1: null, rest: pageIndex };
   }
   const sortedByRecency = [...pageIndex.entries].sort((a, b) => {
-    if (a.modifiedAt !== b.modifiedAt) {return b.modifiedAt - a.modifiedAt;}
+    if (a.modifiedAt !== b.modifiedAt) {
+      return b.modifiedAt - a.modifiedAt;
+    }
     return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
   });
   const tier1Entries = sortedByRecency.slice(0, tier1Size);
@@ -474,7 +488,9 @@ export function splitTier2(
     .map((entry) => ({ entry, score: scores.get(entry.slug) ?? 0 }))
     .filter((x) => x.score > 0)
     .sort((a, b) => {
-      if (a.score !== b.score) {return b.score - a.score;}
+      if (a.score !== b.score) {
+        return b.score - a.score;
+      }
       return a.entry.slug < b.entry.slug
         ? -1
         : a.entry.slug > b.entry.slug
