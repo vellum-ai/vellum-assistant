@@ -991,6 +991,24 @@ export async function retrieveForTurn(
     topCandidates: [],
   };
 
+  // Concept-page memory owns the read path when active, so the v1 per-turn
+  // retriever contributes nothing under the substrate: a v2/v3 assistant never
+  // pays for the per-turn embedding round-trip, the Qdrant search, or trigger
+  // evaluation, and no v1 graph node is ever injected. The same guard fronts
+  // `loadContextMemory`, so the invariant holds for every caller of either
+  // entry point rather than depending on an upstream gate.
+  if (usesConceptPageMemory(opts.config.memory)) {
+    return {
+      nodes: [],
+      serendipityNodes: [],
+      triggeredNodes: [],
+      latencyMs: 0,
+      metrics: ZERO_METRICS,
+      queryVector: undefined,
+      sparseVector: undefined,
+    };
+  }
+
   // 1. Build query from last exchange
   const queryText = [opts.assistantLastMessage, opts.userLastMessage]
     .filter((m) => m.length > 0)

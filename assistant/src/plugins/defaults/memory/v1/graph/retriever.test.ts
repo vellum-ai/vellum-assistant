@@ -96,6 +96,16 @@ const TEST_CONFIG: AssistantConfig = {
   },
 };
 
+// Concept-page substrate active through the v3 arm: memory on, the v2
+// injection engine off, memory-v3 live.
+const V3_LIVE_CONFIG: AssistantConfig = {
+  ...TEST_CONFIG,
+  memory: {
+    ...TEST_CONFIG.memory,
+    v3: { ...TEST_CONFIG.memory.v3, live: true },
+  },
+};
+
 function makeCapabilityNode(content: string, capId: string): NewNode {
   const now = Date.now();
   return {
@@ -119,6 +129,36 @@ function makeCapabilityNode(content: string, capId: string): NewNode {
     reinforcementCount: 0,
     lastReinforced: now,
     sourceConversations: [`capability:skill:${capId}`],
+    sourceType: "direct",
+    narrativeRole: null,
+    partOfStory: null,
+    imageRefs: null,
+  };
+}
+
+function makeEpisodicNode(content: string): NewNode {
+  const now = Date.now();
+  return {
+    content,
+    type: "episodic",
+    created: now,
+    lastAccessed: now,
+    lastConsolidated: now,
+    eventDate: null,
+    emotionalCharge: {
+      valence: 0,
+      intensity: 0,
+      decayCurve: "linear",
+      decayRate: 0,
+      originalIntensity: 0,
+    },
+    fidelity: "vivid",
+    confidence: 1,
+    significance: 0.5,
+    stability: 14,
+    reinforcementCount: 0,
+    lastReinforced: now,
+    sourceConversations: [],
     sourceType: "direct",
     narrativeRole: null,
     partOfStory: null,
@@ -248,6 +288,86 @@ describe("retrieveForTurn — query/sparse vector surfacing", () => {
   });
 });
 
+describe("retrieveForTurn — concept-page substrate short-circuit", () => {
+  let seededNodeId = "";
+
+  beforeAll(async () => {
+    await initializeDb();
+  }, 30_000);
+
+  beforeEach(async () => {
+    embedShouldThrow = false;
+    embedVector = [0.5, 0.5, 0.5];
+    embedCallCount = 0;
+    embedRouter = null;
+    // Any embedded query resolves to the seeded node, so a retrieval that
+    // actually runs is unmistakable in the result.
+    searchRouter = () => [{ nodeId: seededNodeId, score: 0.95 }];
+    resetDbForTesting();
+    await initializeDb();
+    seededNodeId = createNode(
+      makeEpisodicNode("Notes on the quarterly planning meeting."),
+    ).id;
+  }, 30_000);
+
+  test("returns the empty result and never embeds under memory-v3", async () => {
+    const tracker = new InContextTracker();
+    const result = await retrieveForTurn({
+      assistantLastMessage: "What did we decide yesterday?",
+      userLastMessage: "We decided to ship on Friday.",
+      config: V3_LIVE_CONFIG,
+      tracker,
+    });
+
+    // No embedding round-trip, so no per-turn spend on a v3 assistant.
+    expect(embedCallCount).toBe(0);
+    expect(result.nodes).toEqual([]);
+    expect(result.serendipityNodes).toEqual([]);
+    expect(result.triggeredNodes).toEqual([]);
+    expect(result.queryVector).toBeUndefined();
+    expect(result.sparseVector).toBeUndefined();
+    expect(result.metrics.semanticHits).toBe(0);
+    expect(result.metrics.selectedCount).toBe(0);
+    expect(result.metrics.topCandidates).toEqual([]);
+    expect(result.metrics.embeddingProvider).toBeNull();
+  });
+
+  test("returns the empty result and never embeds when the v2 engine is enabled", async () => {
+    const tracker = new InContextTracker();
+    const result = await retrieveForTurn({
+      assistantLastMessage: "What did we decide yesterday?",
+      userLastMessage: "We decided to ship on Friday.",
+      // Stock config: `memory.v2.enabled` defaults true, which is the other
+      // arm of the concept-page substrate.
+      config: DEFAULT_CONFIG,
+      tracker,
+    });
+
+    expect(embedCallCount).toBe(0);
+    expect(result.nodes).toEqual([]);
+    expect(result.metrics.topCandidates).toEqual([]);
+  });
+
+  test("still retrieves on a v1 config (memory on, v2 disabled, v3 not live)", async () => {
+    const tracker = new InContextTracker();
+    const result = await retrieveForTurn({
+      assistantLastMessage: "What did we decide yesterday?",
+      userLastMessage: "We decided to ship on Friday.",
+      config: TEST_CONFIG,
+      tracker,
+    });
+
+    // The guard is a substrate gate, not a kill switch: v1 assistants still
+    // embed the last exchange and score the candidates it surfaces.
+    expect(embedCallCount).toBe(1);
+    expect(result.queryVector).toEqual([0.5, 0.5, 0.5]);
+    const candidateIds = new Set(
+      result.metrics.topCandidates.map((c) => c.nodeId),
+    );
+    expect(candidateIds.has(seededNodeId)).toBe(true);
+  });
+});
+
 describe("retrieveForTurn — topic-pivot recovery", () => {
   // Build a one-hot keyword router so the combined assistant+user query and
   // the user-only query produce distinct vectors that can be routed to
@@ -281,36 +401,6 @@ describe("retrieveForTurn — topic-pivot recovery", () => {
       return [{ nodeId: cakeNodeId, score: 0.9 }];
     }
     return [];
-  }
-
-  function makeEpisodicNode(content: string): NewNode {
-    const now = Date.now();
-    return {
-      content,
-      type: "episodic",
-      created: now,
-      lastAccessed: now,
-      lastConsolidated: now,
-      eventDate: null,
-      emotionalCharge: {
-        valence: 0,
-        intensity: 0,
-        decayCurve: "linear",
-        decayRate: 0,
-        originalIntensity: 0,
-      },
-      fidelity: "vivid",
-      confidence: 1,
-      significance: 0.5,
-      stability: 14,
-      reinforcementCount: 0,
-      lastReinforced: now,
-      sourceConversations: [],
-      sourceType: "direct",
-      narrativeRole: null,
-      partOfStory: null,
-      imageRefs: null,
-    };
   }
 
   beforeAll(async () => {
