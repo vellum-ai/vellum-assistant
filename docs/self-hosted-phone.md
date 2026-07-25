@@ -133,8 +133,8 @@ something else.
 Your devices need an HTTPS URL that reaches the nginx edge. **Tailscale is
 the recommended front**: the assistant stays private to your own devices and
 the address is permanent, so each device pairs once and stays connected. The
-public alternatives below are instant but temporary and internet-exposed —
-fine for trying the flow, not for living with it.
+public alternatives below are instant but internet-exposed — and a Cloudflare
+quick tunnel's URL is temporary on top (details in its section below).
 
 ```bash
 vellum tunnel --provider tailscale
@@ -192,10 +192,12 @@ address (ngrok prints a similar per-tunnel URL). Either one is the public
 address of **your** machine — use it wherever this guide asks for your HTTPS
 URL.
 
-**Temporary by design:** a quick-tunnel URL changes every time the tunnel
-restarts, and paired devices point at the old address — you re-pair each
-device after every restart. Good for trying the flow; switch to Tailscale for
-a permanent setup.
+**Cloudflare quick tunnels are temporary by design:** the
+`trycloudflare.com` URL changes every time the tunnel restarts, and paired
+devices point at the old address — you re-pair each device after every
+restart. Good for trying the flow; switch to Tailscale for a permanent
+setup. ngrok URLs follow your ngrok account instead: with a static ngrok
+domain the address survives restarts, so paired devices keep working.
 
 **Privacy trade-off:** these publish a public-internet URL, so anyone who
 learns the URL can reach your assistant's sign-in and pairing page (pairing
