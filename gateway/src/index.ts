@@ -161,6 +161,8 @@ import {
 } from "./slack/socket-mode.js";
 import { downloadSlackFile } from "./slack/download.js";
 import { slackBotContactNote } from "./slack/actor.js";
+import { DiscordGatewayClient } from "./discord/gateway-socket.js";
+import { parseAllowedChannelIds } from "./discord/admit.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
@@ -243,6 +245,7 @@ const SERVICE_DISPLAY_NAMES: Record<string, string> = {
   twilio: "Twilio",
   whatsapp: "WhatsApp",
   slack_channel: "Slack channel",
+  discord_channel: "Discord channel",
 };
 
 function detectCredentialChanges(
@@ -2418,6 +2421,69 @@ async function main() {
     log.info("Slack Socket Mode client started");
   }
 
+  // ── Discord Gateway lifecycle ──
+  // Credential-gated and UI-invisible: the client exists only while a
+  // `discord_channel:bot_token` credential does. There is no feature flag —
+  // `discord` stays out of BASE_AVAILABLE_CHANNELS, and removing the
+  // credential tears the connection down on the next watcher tick.
+  let discordGatewayClient: DiscordGatewayClient | null = null;
+
+  async function startDiscordGateway(): Promise<void> {
+    if (discordGatewayClient) {
+      discordGatewayClient.stop();
+      discordGatewayClient = null;
+    }
+
+    const botToken = await credentialCache.get(
+      credentialKey("discord_channel", "bot_token"),
+    );
+    if (!botToken) {
+      return;
+    }
+
+    discordGatewayClient = new DiscordGatewayClient(
+      {
+        botToken,
+        // Read live (the config cache is TTL'd) so an allow-list edit applies
+        // without a client restart, which would spend an IDENTIFY.
+        readAllowedChannelIds: () =>
+          parseAllowedChannelIds(
+            configFileCache.getString("discord", "allowedChannelIds"),
+          ),
+      },
+      (event) => {
+        // Reset the platform idle-sleep timer — inbound Discord activity
+        // keeps the assistant awake like any other channel's.
+        notifyRecordActivity();
+
+        // Seed a contact channel for the actor (dual-write, fire-and-forget)
+        // so later verification flows have a record to upgrade.
+        void upsertContactChannel({
+          sourceChannel: "discord",
+          externalUserId: event.actor.actorExternalId,
+          displayName: event.actor.displayName,
+          username: event.actor.username,
+        }).catch(() => {});
+
+        // Read-only slice: no replyCallbackUrl until the send path exists.
+        handleInbound(config, event).catch((err) => {
+          log.error(
+            {
+              err,
+              conversationExternalId: event.message.conversationExternalId,
+            },
+            "Failed to forward Discord event to runtime",
+          );
+        });
+      },
+    );
+
+    discordGatewayClient.start().catch((err) => {
+      log.error({ err }, "Failed to start Discord Gateway client");
+    });
+    log.info("Discord Gateway client started");
+  }
+
   // Lazily bound below, once `remoteFeatureFlagSync` is constructed, so the
   // credential-change callback can trigger an immediate per-assistant flag
   // re-sync. On a warm-pool claim the `vellum` credentials change to the
@@ -2466,6 +2532,15 @@ async function main() {
         );
       });
     }
+    if (changed.has("discord_channel")) {
+      startDiscordGateway().catch((err) => {
+        log.error(
+          { err },
+          "Failed to restart Discord Gateway after credential change",
+        );
+      });
+    }
+
     if (changed.has("slack_channel")) {
       startSlackSocket().catch((err) => {
         log.error(
@@ -2724,6 +2799,10 @@ async function main() {
     if (slackSocketClient) {
       slackSocketClient.stop();
       slackSocketClient = null;
+    }
+    if (discordGatewayClient) {
+      discordGatewayClient.stop();
+      discordGatewayClient = null;
     }
     setTimeout(() => {
       log.info("Drain window elapsed, stopping server");
