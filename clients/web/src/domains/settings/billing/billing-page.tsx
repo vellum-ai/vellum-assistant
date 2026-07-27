@@ -207,6 +207,16 @@ function BillingTab() {
     }
 
     const showPlanManagement = isPlatformHosted;
+    // The pro onboarding wizard is organization-scoped — `useProProvisioning`
+    // targets the subscription's `primary_assistant_id` and falls back to the
+    // active assistant only when the payload names none — so it is gated on the
+    // organization rather than on the active assistant's hosting. An
+    // organization holding both hosting types would otherwise drop a completed
+    // checkout's `session_id` whenever a self-hosted assistant is selected.
+    // Every other surface below reads the active assistant and stays gated on
+    // `showPlanManagement`.
+    const showProOnboarding =
+        showPlanManagement || hasSessionId || proOnboardingOpen;
 
     if (!isPlatformHosted && platformGate !== "gated") {
         return (
@@ -240,7 +250,7 @@ function BillingTab() {
             <Suspense fallback={null}>
                 <InvoicesTable />
             </Suspense>
-            {showPlanManagement && (
+            {showProOnboarding && (
                 <BillingOnboardingModal
                     open={hasSessionId || proOnboardingOpen}
                     onClose={closeOnboarding}

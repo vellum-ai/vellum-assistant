@@ -258,10 +258,13 @@ function waitForSession(state: NavigationState): NavigationDecision | null {
  * only entries are local, Docker, or another organization's needs the same
  * provisioning funnel. Hatching is additive — the lockfile keeps every
  * existing entry and they stay reachable from the assistant switcher — so a
- * self-hosted user who buys managed hosting gains a managed assistant rather
- * than losing the one they had. Landing them on billing instead drops the
- * purchase silently: `BillingTab` gates the whole Pro onboarding wizard on the
- * active assistant being platform-hosted, so `session_id` is ignored.
+ * self-hosted user who buys managed hosting ends up holding both.
+ *
+ * The predicate is org membership rather than the active assistant because the
+ * purchase applies to the org: `BillingTab` opens the org-scoped pro onboarding
+ * wizard on `session_id` whichever assistant is selected, and hatching a second
+ * managed assistant for an org that already has one provisions a machine nobody
+ * bought.
  *
  * `session_id` is deliberately dropped: the hatch reads the purchased ceiling
  * from the subscription server-side (`awaitPurchasedProvisioning`), so nothing
@@ -283,8 +286,9 @@ function requirePostCheckoutProvisioning(
   path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
-  // An org that already has a platform-hosted assistant lands on billing as
-  // before, where `session_id` opens the Pro onboarding wizard.
+  // An org with a platform-hosted assistant has a target for the purchase, so
+  // the return stays on billing and the pro onboarding wizard consumes
+  // `session_id` there.
   if (state.hasPlatformHostedAssistant) return null;
   if (!isPostCheckoutReturn(path, pathnameWithSearch)) return null;
   // Not signed in yet: fall through so `requireAuth` sends the user to login
