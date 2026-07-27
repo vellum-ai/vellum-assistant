@@ -4,3 +4,6 @@
 #include "Extension-Base.xcconfig"
 
 PRODUCT_BUNDLE_IDENTIFIER = ai.vocify-inc.vellum-assistant-ios.VoiceActivity
+
+// Exact portal profile name; must equal release-ios.yaml's `ext_profile_name`.
+PROVISIONING_PROFILE_SPECIFIER_Manual = Vellum Assistant iOS VoiceActivity Distribution

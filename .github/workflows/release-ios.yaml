@@ -45,6 +45,12 @@ jobs:
           fi
           echo "Building iOS $ENVIRONMENT release, version $VERSION"
 
+      # Every environment resolves two bundle IDs and two provisioning
+      # profiles: the app's, and the VoiceActivity extension embedded inside
+      # it. The profile names must match character for character both the
+      # Apple Developer portal and the `PROVISIONING_PROFILE_SPECIFIER_Manual`
+      # values in `clients/ios/App/App/Config/*.xcconfig`. See "Signing: two
+      # profiles per environment" in `clients/ios/README.md`.
       - name: Resolve environment config
         id: config
         env:
@@ -56,6 +62,9 @@ jobs:
               echo "bundle_id=ai.vocify-inc.vellum-assistant-ios" >> "$GITHUB_OUTPUT"
               echo "profile_key=IOS_PROVISIONING_PROFILE" >> "$GITHUB_OUTPUT"
               echo "profile_name=Vellum Assistant iOS Distribution" >> "$GITHUB_OUTPUT"
+              echo "ext_bundle_id=ai.vocify-inc.vellum-assistant-ios.VoiceActivity" >> "$GITHUB_OUTPUT"
+              echo "ext_profile_key=IOS_PROVISIONING_PROFILE_EXT" >> "$GITHUB_OUTPUT"
+              echo "ext_profile_name=Vellum Assistant iOS VoiceActivity Distribution" >> "$GITHUB_OUTPUT"
               echo "apple_app_id_key=APPLE_APP_ID_PROD" >> "$GITHUB_OUTPUT"
               echo "vellum_env=production" >> "$GITHUB_OUTPUT"
               echo "testflight_internal=false" >> "$GITHUB_OUTPUT"
@@ -65,6 +74,9 @@ jobs:
               echo "bundle_id=ai.vocify-inc.vellum-assistant-ios.staging" >> "$GITHUB_OUTPUT"
               echo "profile_key=IOS_PROVISIONING_PROFILE_STAGING" >> "$GITHUB_OUTPUT"
               echo "profile_name=Vellum Assistant iOS Staging Distribution" >> "$GITHUB_OUTPUT"
+              echo "ext_bundle_id=ai.vocify-inc.vellum-assistant-ios.staging.VoiceActivity" >> "$GITHUB_OUTPUT"
+              echo "ext_profile_key=IOS_PROVISIONING_PROFILE_EXT_STAGING" >> "$GITHUB_OUTPUT"
+              echo "ext_profile_name=Vellum Assistant iOS Staging VoiceActivity Distribution" >> "$GITHUB_OUTPUT"
               echo "apple_app_id_key=APPLE_APP_ID_STAGING" >> "$GITHUB_OUTPUT"
               echo "vellum_env=staging" >> "$GITHUB_OUTPUT"
               echo "testflight_internal=true" >> "$GITHUB_OUTPUT"
@@ -74,6 +86,9 @@ jobs:
               echo "bundle_id=ai.vocify-inc.vellum-assistant-ios.dev" >> "$GITHUB_OUTPUT"
               echo "profile_key=IOS_PROVISIONING_PROFILE_DEV" >> "$GITHUB_OUTPUT"
               echo "profile_name=Vellum Assistant iOS Dev Distribution" >> "$GITHUB_OUTPUT"
+              echo "ext_bundle_id=ai.vocify-inc.vellum-assistant-ios.dev.VoiceActivity" >> "$GITHUB_OUTPUT"
+              echo "ext_profile_key=IOS_PROVISIONING_PROFILE_EXT_DEV" >> "$GITHUB_OUTPUT"
+              echo "ext_profile_name=Vellum Assistant iOS Dev VoiceActivity Distribution" >> "$GITHUB_OUTPUT"
               echo "apple_app_id_key=APPLE_APP_ID_DEV" >> "$GITHUB_OUTPUT"
               echo "vellum_env=dev" >> "$GITHUB_OUTPUT"
               echo "testflight_internal=true" >> "$GITHUB_OUTPUT"
@@ -148,22 +163,36 @@ jobs:
           security find-identity -v -p codesigning | grep -q "Apple Distribution" \
             || { echo "::error::Apple Distribution identity not found in keychain."; exit 1; }
 
-      - name: Install provisioning profile
+      - name: Install provisioning profiles
         env:
           IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
           IOS_PROVISIONING_PROFILE_STAGING: ${{ secrets.IOS_PROVISIONING_PROFILE_STAGING }}
           IOS_PROVISIONING_PROFILE_DEV: ${{ secrets.IOS_PROVISIONING_PROFILE_DEV }}
+          IOS_PROVISIONING_PROFILE_EXT: ${{ secrets.IOS_PROVISIONING_PROFILE_EXT }}
+          IOS_PROVISIONING_PROFILE_EXT_STAGING: ${{ secrets.IOS_PROVISIONING_PROFILE_EXT_STAGING }}
+          IOS_PROVISIONING_PROFILE_EXT_DEV: ${{ secrets.IOS_PROVISIONING_PROFILE_EXT_DEV }}
         run: |
-          PROFILE_KEY="${{ steps.config.outputs.profile_key }}"
-          PROFILE_B64="${!PROFILE_KEY}"
-          if [ -z "$PROFILE_B64" ]; then
-            echo "::error::Provisioning profile secret $PROFILE_KEY is empty"
-            exit 1
-          fi
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILE_DIR"
-          echo "$PROFILE_B64" | base64 -D > "$PROFILE_DIR/ios_distribution.mobileprovision"
-          echo "Provisioning profile installed from $PROFILE_KEY"
+
+          # Both profiles are required. The archive embeds the VoiceActivity
+          # appex, and neither `xcodebuild archive` nor `-exportArchive` can
+          # sign a bundle whose profile is absent. The filenames must differ:
+          # a second write to the same name silently clobbers the first, and
+          # the failure surfaces much later as an opaque export error.
+          install_profile() {
+            local key="$1" filename="$2"
+            local b64="${!key}"
+            if [ -z "$b64" ]; then
+              echo "::error::Provisioning profile secret $key is empty"
+              exit 1
+            fi
+            echo "$b64" | base64 -D > "$PROFILE_DIR/$filename"
+            echo "Provisioning profile installed from $key"
+          }
+
+          install_profile "${{ steps.config.outputs.profile_key }}" ios_distribution.mobileprovision
+          install_profile "${{ steps.config.outputs.ext_profile_key }}" ios_distribution_ext.mobileprovision
 
       - name: Set version
         id: version
@@ -180,11 +209,16 @@ jobs:
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
           echo "Display version: $DISPLAY_VERSION (from $VERSION) / Build version: $BUILD_VERSION"
 
+      # `provisioningProfiles` needs one entry per signed bundle, not just the
+      # app: `-exportArchive` fails when an embedded extension has no entry,
+      # and its error does not name the offending extension.
       - name: Generate ExportOptions.plist
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           BUNDLE_ID: ${{ steps.config.outputs.bundle_id }}
           PROFILE_NAME: ${{ steps.config.outputs.profile_name }}
+          EXT_BUNDLE_ID: ${{ steps.config.outputs.ext_bundle_id }}
+          EXT_PROFILE_NAME: ${{ steps.config.outputs.ext_profile_name }}
           TESTFLIGHT_INTERNAL: ${{ steps.config.outputs.testflight_internal }}
         run: |
           INTERNAL_ENTRY=""
@@ -207,12 +241,23 @@ jobs:
               <dict>
                   <key>$BUNDLE_ID</key>
                   <string>$PROFILE_NAME</string>
+                  <key>$EXT_BUNDLE_ID</key>
+                  <string>$EXT_PROFILE_NAME</string>
               </dict>
               $INTERNAL_ENTRY
           </dict>
           </plist>
           EOF
 
+      # PROVISIONING_PROFILE_SPECIFIER is deliberately NOT passed here. An
+      # xcodebuild CLI override applies to every target in the archive, so a
+      # single specifier would push the app profile onto the embedded
+      # VoiceActivity appex, which it does not cover. The per-target mapping
+      # lives in `clients/ios/App/App/Config/*.xcconfig` instead, next to the
+      # per-target bundle IDs it has to agree with. Those xcconfigs key the
+      # specifier off CODE_SIGN_STYLE, so the `CODE_SIGN_STYLE=Manual`
+      # override below is what activates it — local Xcode builds stay on
+      # automatic signing and pick up no specifier at all.
       - name: Archive
         working-directory: clients/ios/App
         run: |
@@ -223,7 +268,6 @@ jobs:
             -destination 'generic/platform=iOS' \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="${{ steps.config.outputs.profile_name }}" \
             DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
             MARKETING_VERSION="${{ steps.version.outputs.display_version }}" \
             CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build_version }}"

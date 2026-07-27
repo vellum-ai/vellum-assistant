@@ -16,5 +16,24 @@ INFOPLIST_FILE = App/Info.plist
 IPHONEOS_DEPLOYMENT_TARGET = 17.0
 LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks
 PRODUCT_NAME = $(TARGET_NAME)
+
+// Manual-signing provisioning profile, resolved per target.
+//
+// Release builds sign manually (the workflow passes CODE_SIGN_STYLE=Manual
+// on the xcodebuild command line) and need a profile name per target: the
+// app targets and the VoiceActivity extension targets have different bundle
+// IDs and therefore different profiles. An xcodebuild CLI override cannot
+// express that — it applies to every target in the archive — so the mapping
+// lives in the per-target xcconfigs alongside the PRODUCT_BUNDLE_IDENTIFIER
+// it has to agree with. Each of them sets
+// PROVISIONING_PROFILE_SPECIFIER_Manual.
+//
+// The indirection through CODE_SIGN_STYLE keeps local development working:
+// under the Automatic default above, PROVISIONING_PROFILE_SPECIFIER_Automatic
+// is undefined, so the specifier resolves to empty and Xcode manages signing
+// itself. Setting the specifier unconditionally would break every local
+// build, because the distribution profiles are not on developer machines.
+PROVISIONING_PROFILE_SPECIFIER = $(PROVISIONING_PROFILE_SPECIFIER_$(CODE_SIGN_STYLE))
+
 SWIFT_VERSION = 5.0
 TARGETED_DEVICE_FAMILY = 1,2

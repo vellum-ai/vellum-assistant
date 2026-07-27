@@ -512,6 +512,103 @@ workflow called from the release pipelines — it intentionally has no
 extracted into their own reusable workflow because it's the only iOS
 workflow.
 
+### Signing: two profiles per environment
+
+Each app target embeds a `VoiceActivity` widget extension whose bundle ID
+is prefixed by its host app's (`<app bundle id>.VoiceActivity`). Apple
+treats that appex as its own App ID with its own provisioning profile, so
+**every environment signs with two profiles, not one**: the app's and the
+extension's.
+
+That has three consequences in the pipeline:
+
+- The **install step** writes both profiles into
+  `~/Library/MobileDevice/Provisioning Profiles/` under distinct
+  filenames (`ios_distribution.mobileprovision` and
+  `ios_distribution_ext.mobileprovision`). Writing both to one name
+  silently clobbers the first.
+- **`ExportOptions.plist`** carries a `provisioningProfiles` entry for
+  each bundle ID. `xcodebuild -exportArchive` fails when an embedded
+  extension has no entry, and the error does not name the extension.
+- **`PROVISIONING_PROFILE_SPECIFIER` is not an `xcodebuild` CLI
+  override.** A CLI override applies to every target in the archive,
+  which would push the app profile onto the appex it does not cover.
+  Instead each target's specifier lives in its own xcconfig
+  (`App/App/Config/App*.xcconfig` and `Extension*.xcconfig`), next to the
+  `PRODUCT_BUNDLE_IDENTIFIER` it has to agree with. Those files set
+  `PROVISIONING_PROFILE_SPECIFIER_Manual` and resolve
+  `PROVISIONING_PROFILE_SPECIFIER =
+  $(PROVISIONING_PROFILE_SPECIFIER_$(CODE_SIGN_STYLE))`, so the specifier
+  applies only under the workflow's `CODE_SIGN_STYLE=Manual` override —
+  local Xcode builds stay on automatic signing and see no specifier,
+  which matters because the distribution profiles are not on developer
+  machines.
+
+Profile names are therefore written down in three places that must agree
+character for character: the Apple Developer portal, the xcconfig, and
+the `profile_name` / `ext_profile_name` outputs of the `config` step in
+`release-ios.yaml`. A mismatch fails the build with an unhelpful message.
+
+### Manual Apple Developer portal setup
+
+The extension App IDs and profiles are **not** created by any script —
+an Apple Developer team admin (Vocify, Inc., team `7FZDXZR8P5`) has to
+register them by hand. Until all three environments are done, a release
+build of the affected environment fails while signing or exporting.
+
+| Environment | Extension bundle ID | Profile name (exact) | GitHub secret |
+|-------------|---------------------|----------------------|---------------|
+| production | `ai.vocify-inc.vellum-assistant-ios.VoiceActivity` | `Vellum Assistant iOS VoiceActivity Distribution` | `IOS_PROVISIONING_PROFILE_EXT` |
+| staging | `ai.vocify-inc.vellum-assistant-ios.staging.VoiceActivity` | `Vellum Assistant iOS Staging VoiceActivity Distribution` | `IOS_PROVISIONING_PROFILE_EXT_STAGING` |
+| dev | `ai.vocify-inc.vellum-assistant-ios.dev.VoiceActivity` | `Vellum Assistant iOS Dev VoiceActivity Distribution` | `IOS_PROVISIONING_PROFILE_EXT_DEV` |
+
+Repeat these steps once per row (start with **dev** — it is the only
+track that releases hourly, so it is the fastest way to prove the setup):
+
+1. **Register the App ID.** [Certificates, Identifiers &
+   Profiles](https://developer.apple.com/account/resources/identifiers/list)
+   → **Identifiers** → **+** → **App IDs** → **App**. Set
+   **Bundle ID** to **Explicit** and paste the exact string from the
+   table. Description can be anything descriptive
+   (e.g. "Vellum Assistant iOS Dev VoiceActivity"). **Enable no
+   capabilities** — the extension deliberately ships no entitlements
+   file (no App Group, no push; see the comment at the top of
+   `App/App/Config/Extension-Base.xcconfig`), and a capability enabled
+   here produces a profile the build cannot satisfy. **Register**.
+2. **Create the distribution profile.** **Profiles** → **+** →
+   **Distribution → App Store Connect** → pick the App ID from step 1 →
+   pick the Apple Distribution certificate that matches the
+   `DIST_CERTIFICATE_P12` secret → **Provisioning Profile Name**: type
+   the profile name from the table exactly, including capitalisation and
+   spacing → **Generate** → **Download**.
+3. **Base64-encode it**, matching how the existing profile secrets are
+   stored (the workflow pipes the secret through `base64 -D`):
+
+   ```bash
+   base64 -i ~/Downloads/<downloaded>.mobileprovision | pbcopy
+   ```
+
+4. **Add the GitHub secret.** Repo **Settings → Secrets and variables →
+   Actions → New repository secret**. Name it exactly as in the table,
+   paste the clipboard contents. Use the same scope as the existing
+   `IOS_PROVISIONING_PROFILE*` secrets.
+5. **Nothing to do in App Store Connect.** The extension ships inside
+   its host app's record — it gets no app record and no
+   `APPLE_APP_ID_*` of its own.
+
+Once all three rows are done, verify end to end by dispatching
+`dev-release.yaml`, downloading the `ios-ipa-dev` artifact, and checking
+that the appex is signed with the *extension* profile:
+
+```bash
+unzip -q ios-ipa-dev.zip && unzip -q *.ipa
+codesign -dvvv "Payload/App Dev.app/PlugIns/VoiceActivity Dev.appex" 2>&1 | grep -i profile
+```
+
+> **Profiles expire after one year.** Renewal is the same loop:
+> regenerate in the portal under the identical name, re-encode, update
+> the secret. Nothing in the repo changes.
+
 ### Secrets (GitHub Actions)
 
 All iOS signing secrets are stored as GitHub Actions secrets:
@@ -521,6 +618,7 @@ All iOS signing secrets are stored as GitHub Actions secrets:
 - `ASC_KEY_P8` (base64-encoded) / `ASC_KEY_ID` / `ASC_ISSUER_ID` — App Store Connect API key for [`xcrun altool`](https://keith.github.io/xcode-man-pages/altool.1.html) uploads. The workflow `base64 -D` decodes `ASC_KEY_P8` before writing the `.p8` file.
 - `IOS_PROVISIONING_PROFILE` — Production provisioning profile (App Store Distribution)
 - `IOS_PROVISIONING_PROFILE_STAGING` / `_DEV` — Per-environment profiles
+- `IOS_PROVISIONING_PROFILE_EXT` / `_EXT_STAGING` / `_EXT_DEV` — Per-environment profiles for the embedded `VoiceActivity` widget extension. See [Manual Apple Developer portal setup](#manual-apple-developer-portal-setup).
 - `APPLE_APP_ID_PROD` / `_STAGING` / `_DEV` — Numeric App Store Connect app IDs (e.g. `123456789`), passed as `--apple-id` to [`xcrun altool --upload-package`](https://keith.github.io/xcode-man-pages/altool.7.html). Each environment has its own ASC app record with its own ID.
 - `SLACK_WEBHOOK_URL` — Slack incoming webhook for `#build-alerts` notifications
 
