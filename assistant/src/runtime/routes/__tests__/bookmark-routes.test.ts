@@ -22,7 +22,9 @@ mock.module("../../assistant-event-hub.js", () => ({
     },
     subscribe: () => () => {},
   },
-  broadcastMessage: async () => {},
+  broadcastMessage: (message: unknown, conversationId?: string) => {
+    publishCalls.push({ message, conversationId });
+  },
 }));
 
 import { getDb } from "../../../persistence/db-connection.js";
@@ -47,7 +49,9 @@ await initializeDb();
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = BOOKMARK_ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
