@@ -66,18 +66,26 @@ export function ReviewTermsScreen() {
     !privacyStaleAtMount &&
     !analyticsStaleAtMount &&
     !diagnosticsStaleAtMount;
-  const showTos = tosStaleAtMount || nothingStaleAtMount;
-  const showPrivacy = privacyStaleAtMount || nothingStaleAtMount;
-  const showAnalytics = analyticsStaleAtMount || nothingStaleAtMount;
-  const showDiagnostics = diagnosticsStaleAtMount || nothingStaleAtMount;
-  const onlyTogglesStaleAtMount =
-    !nothingStaleAtMount && !tosStaleAtMount && !privacyStaleAtMount;
   // Both legal docs unaccepted at mount means this user never consented at
   // all (e.g. arrived with an assistant via the bring-your-agent import,
   // which replaces onboarding). Present first-time consent framing, not the
   // "we've updated our terms" re-review framing — there is no baseline to
   // diff against.
   const firstConsentAtMount = tosStaleAtMount && privacyStaleAtMount;
+  const showTos = tosStaleAtMount || nothingStaleAtMount;
+  const showPrivacy = privacyStaleAtMount || nothingStaleAtMount;
+  const showAnalytics = analyticsStaleAtMount || nothingStaleAtMount;
+  // A first-consent user (bring-your-agent) skips the onboarding privacy
+  // screen entirely, so review-terms is where they first choose diagnostics
+  // sharing. Their *Current flags read never-asked as "nothing to re-review"
+  // (true), so diagnosticsStaleAtMount is false — surface the toggle anyway to
+  // match the onboarding privacy screen (diagnostics-only; analytics stays
+  // null until an explicit opt-in, so showAnalytics is deliberately not forced
+  // here).
+  const showDiagnostics =
+    diagnosticsStaleAtMount || nothingStaleAtMount || firstConsentAtMount;
+  const onlyTogglesStaleAtMount =
+    !nothingStaleAtMount && !tosStaleAtMount && !privacyStaleAtMount;
 
   const heading = nothingStaleAtMount
     ? "Terms & privacy"
