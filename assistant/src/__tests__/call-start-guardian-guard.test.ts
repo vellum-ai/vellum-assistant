@@ -111,3 +111,30 @@ describe("call_start guardian verification guard", () => {
     expect(startCallInputs.length).toBe(1);
   });
 });
+
+describe("call tools — model-input schema validation (LUM-2856)", () => {
+  test("call_start rejects a non-string phone_number before reaching startCall", async () => {
+    const before = startCallInputs.length;
+    const result = await executeCallStart(
+      { phone_number: 4155550100, task: "call someone" },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "call_start"');
+    expect(result.content).toContain("phone_number");
+    expect(startCallInputs.length).toBe(before);
+  });
+
+  test("call_start rejects an unknown caller_identity_mode", async () => {
+    const result = await executeCallStart(
+      {
+        phone_number: "+14155550100",
+        task: "call someone",
+        caller_identity_mode: "spoofed",
+      },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("caller_identity_mode");
+  });
+});

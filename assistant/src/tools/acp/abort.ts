@@ -1,11 +1,31 @@
+import { z } from "zod";
+
 import { getAcpSessionManager } from "../../acp/index.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+/**
+ * Model-input schema, `safeParse`d at the top of {@link executeAcpAbort}.
+ * Same in-tool pattern and TOOLS.json drift guard as the other bundled-skill
+ * tools. The bespoke required check keeps its message for the
+ * missing/null/empty cases.
+ */
+export const acpAbortInputSchema = z.looseObject({
+  acp_session_id: nullAsOmitted(z.string()),
+});
 
 export async function executeAcpAbort(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const acpSessionId = input.acp_session_id as string;
+  const parsedInput = acpAbortInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("acp_abort", parsedInput.error);
+  }
+  const acpSessionId = parsedInput.data.acp_session_id;
   if (!acpSessionId) {
     return { content: '"acp_session_id" is required.', isError: true };
   }
