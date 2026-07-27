@@ -236,17 +236,28 @@ export const askQuestionTool = {
       };
     }
 
-    // The active channel can't render the interactive question card (e.g.
-    // Telegram, SMS). A broadcast question_request would reach app clients but
-    // never the channel the turn came from, so the user would see nothing.
-    // Degrade to text: hand the model the formatted question(s) and options to
-    // present in its reply — which IS what gets delivered to the channel — and
-    // wait for a free-text answer. Mirrors the isInteractive guard above:
-    // return immediately instead of parking on a prompt the surface can't
-    // answer. (UI surface tools like ui_show are instead dropped from the wire
-    // for these channels; ask_question stays available because a question with
-    // options reads cleanly as text.)
-    if (context.supportsDynamicUi === false) {
+    // Channel turns (no dynamic UI) park only when the question can reach the
+    // user as a guardian-request card with tappable options: a single-question
+    // batch, asked by the guardian, on a channel whose notification adapter
+    // renders card actions. The prompter's promotion then delivers the card
+    // through the guardian-request pipeline, and a tap / request-code reply /
+    // bare-text answer resolves the parked prompt.
+    //
+    // Every other channel turn degrades to text: hand the model the formatted
+    // question(s) and options to present in its reply — which IS what gets
+    // delivered to the channel — and wait for a free-text answer. Mirrors the
+    // isInteractive guard above: return immediately instead of parking on a
+    // prompt the surface can't answer. (UI surface tools like ui_show are
+    // instead dropped from the wire for these channels; ask_question stays
+    // available because a question with options reads cleanly as text.)
+    const canDeliverGuardianQuestionCard =
+      questions.length === 1 &&
+      context.trustClass === "guardian" &&
+      context.supportsGuardianQuestionCards === true;
+    if (
+      context.supportsDynamicUi === false &&
+      !canDeliverGuardianQuestionCard
+    ) {
       return {
         content: formatQuestionsAsTextFallback(questions),
         isError: false,
