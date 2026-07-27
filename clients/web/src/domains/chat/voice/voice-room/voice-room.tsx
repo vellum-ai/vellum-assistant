@@ -178,7 +178,7 @@ function VoiceRoomOverlay() {
     useAssistantAvatar(assistantId);
   const look = resolveVoiceRoomLook(components, traits, customImageUrl);
   const tone = look ? toneForBg(look.bgHex) : null;
-  const accentHex = resolveWaveAccentHex(components, traits);
+  const accentHex = resolveWaveAccentHex(components, traits, customImageUrl);
 
   // Control-chrome colors for the active look, consumed by the shared control
   // classes. The fallbacks are the void look's white-on-dark values.

@@ -146,9 +146,16 @@ export function VoiceSessionPillHost({
   // Wave accent for the pill's listening waves — the same avatar-matched tint
   // the room resolves (see wave-accent.ts). Fetch-gated to a visible pill;
   // the query is shared with every other avatar consumer.
-  const { components: avatarComponents, traits: avatarTraits } =
-    useAssistantAvatar(visible ? sessionAssistantId : null);
-  const waveAccentHex = resolveWaveAccentHex(avatarComponents, avatarTraits);
+  const {
+    components: avatarComponents,
+    traits: avatarTraits,
+    customImageUrl: avatarCustomImageUrl,
+  } = useAssistantAvatar(visible ? sessionAssistantId : null);
+  const waveAccentHex = resolveWaveAccentHex(
+    avatarComponents,
+    avatarTraits,
+    avatarCustomImageUrl,
+  );
 
   const handleNavigate = useCallback(() => {
     if (sessionConversationId) {

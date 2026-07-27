@@ -308,11 +308,15 @@ export function ChatComposer({
   // tint the room resolves (see wave-accent.ts), so the minimized session
   // keeps the room's color language. Fetch-gated to live sessions; the query
   // is shared with every other avatar consumer.
-  const { components: avatarComponents, traits: avatarTraits } =
-    useAssistantAvatar(isLiveVoiceActive ? assistantId : null);
+  const {
+    components: avatarComponents,
+    traits: avatarTraits,
+    customImageUrl: avatarCustomImageUrl,
+  } = useAssistantAvatar(isLiveVoiceActive ? assistantId : null);
   const voiceWaveAccentHex = resolveWaveAccentHex(
     avatarComponents,
     avatarTraits,
+    avatarCustomImageUrl,
   );
   // Mic mute state (controller-published) for the voice bar's toggle.
   const liveVoiceMuted = useLiveVoiceStore.use.muted();
