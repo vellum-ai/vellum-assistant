@@ -309,7 +309,35 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
     expect(res.headers.get("Location")).toBe(routes.onboarding.hatching);
   });
 
-  test("admits the return once an assistant exists", async () => {
+  // A local assistant satisfies `hasAssistants`, so the gateway-auth bypass
+  // would admit the return — but `BillingTab` gates the Pro onboarding wizard
+  // on a platform-hosted assistant, so the purchase would apply to nothing.
+  // Provision the managed assistant instead; the lockfile entry is untouched.
+  test("funnels a local-mode return whose only assistant is self-hosted", async () => {
+    makePaidPlatformReturn();
+    isLocalModeMock.mockImplementation(() => true);
+    mockGatewayAuthMode = true;
+    mockSelectedAssistant = localAssistant;
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: localAssistant.assistantId,
+          isLocal: true,
+          isPlatformHosted: false,
+        },
+      ],
+      assistantsHydrated: true,
+    });
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "active", isLocal: true },
+    });
+
+    const res = await runMiddleware(postCheckoutBilling);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(routes.onboarding.hatching);
+  });
+
+  test("admits the return once a platform-hosted assistant exists", async () => {
     makePaidPlatformReturn();
     useResolvedAssistantsStore.setState({
       assistants: [{ id: "a-1", isLocal: false, isPlatformHosted: true }],

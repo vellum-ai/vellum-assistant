@@ -14,6 +14,16 @@ export interface NavigationState {
   remoteGatewayPublicPathPrefix: string;
   isGatewayAuth: boolean;
   hasAssistants: boolean;
+  /**
+   * Whether the active organization has a **platform-hosted** assistant — the
+   * only kind a managed plan can apply to.
+   *
+   * Strictly narrower than `hasAssistants`, which counts every resolved entry
+   * regardless of hosting or owning org: a local, Docker, or
+   * other-organization assistant satisfies `hasAssistants` while leaving this
+   * org with nothing the purchased plan can be applied to.
+   */
+  hasPlatformHostedAssistant: boolean;
   sessionSettled: boolean;
   isAuthenticated: boolean;
   platformSession: PlatformSessionStatus;
@@ -232,7 +242,8 @@ function waitForSession(state: NavigationState): NavigationDecision | null {
 }
 
 /**
- * A finished Stripe Checkout returning to an org that has no assistant yet.
+ * A finished Stripe Checkout returning to an org with nothing the purchased
+ * plan can apply to.
  *
  * The marketing pricing funnel has a brand-new user pay BEFORE anything is
  * provisioned, and the platform hardcodes the non-native `success_url` to the
@@ -242,13 +253,27 @@ function waitForSession(state: NavigationState): NavigationDecision | null {
  * into the hatching funnel instead, which provisions the assistant and applies
  * the purchased specs.
  *
+ * The decision is `hasPlatformHostedAssistant`, not `hasAssistants`: a managed
+ * plan is only expressible on a platform-hosted assistant, so an org whose
+ * only entries are local, Docker, or another organization's needs the same
+ * provisioning funnel. Hatching is additive — the lockfile keeps every
+ * existing entry and they stay reachable from the assistant switcher — so a
+ * self-hosted user who buys managed hosting gains a managed assistant rather
+ * than losing the one they had. Landing them on billing instead drops the
+ * purchase silently: `BillingTab` gates the whole Pro onboarding wizard on the
+ * active assistant being platform-hosted, so `session_id` is ignored.
+ *
  * `session_id` is deliberately dropped: the hatch reads the purchased ceiling
  * from the subscription server-side (`awaitPurchasedProvisioning`), so nothing
- * downstream of this redirect consumes the Stripe session.
+ * downstream of this redirect consumes the Stripe session. Credit top-ups
+ * return with `billing_status`, never `session_id`, so they never reach here.
  *
  * Runs before `allowGatewayAuth` because that step short-circuits the whole
  * pipeline to "allow" for a gateway session — which is how the dead-end is
  * reached in Electron / local-mode web, where `requireAssistant` never runs.
+ * Electron takes the `"native"` checkout return, but its deep-link handler
+ * lands on the same in-app billing path carrying `session_id`, so it resolves
+ * through this pipeline too.
  * Consent is still enforced: the destination is an onboarding path, and
  * `onboardingCompletedMiddleware` re-runs this pipeline there, where
  * `allowSetupRoutes` bounces an unconsented user to the privacy screen.
@@ -258,9 +283,9 @@ function requirePostCheckoutProvisioning(
   path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
-  // An org that already has an assistant lands on billing as before, where
-  // `session_id` opens the Pro onboarding wizard.
-  if (state.hasAssistants) return null;
+  // An org that already has a platform-hosted assistant lands on billing as
+  // before, where `session_id` opens the Pro onboarding wizard.
+  if (state.hasPlatformHostedAssistant) return null;
   if (!isPostCheckoutReturn(path, pathnameWithSearch)) return null;
   // Not signed in yet: fall through so `requireAuth` sends the user to login
   // with a `returnTo` that still carries `session_id`, and this step decides

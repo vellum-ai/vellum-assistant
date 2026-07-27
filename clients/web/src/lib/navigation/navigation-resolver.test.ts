@@ -20,6 +20,7 @@ const base: NavigationState = {
   remoteGatewayPublicPathPrefix: "",
   isGatewayAuth: false,
   hasAssistants: true,
+  hasPlatformHostedAssistant: true,
   sessionSettled: true,
   isAuthenticated: true,
   platformSession: "present",
@@ -565,7 +566,7 @@ describe("resolveNavigation", () => {
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
     });
 
-    // -- post-checkout return with nothing provisioned yet -----------------
+    // -- post-checkout return with nothing the plan can apply to -----------
     //
     // The marketing pricing funnel has a brand-new user pay BEFORE an
     // assistant exists, and the platform hardcodes the non-native Stripe
@@ -577,20 +578,50 @@ describe("resolveNavigation", () => {
     const POST_CHECKOUT_BILLING =
       "/assistant/settings/billing?session_id=cs_test_123";
 
+    // A brand-new org: nothing resolved at all.
+    const EMPTY_ORG = {
+      hasAssistants: false,
+      hasPlatformHostedAssistant: false,
+    } as const;
+
+    // An org whose resolved entries are all local / Docker / another
+    // organization's. `hasAssistants` is satisfied; a managed plan still has
+    // no target.
+    const NO_MANAGED_ASSISTANT = {
+      hasAssistants: true,
+      hasPlatformHostedAssistant: false,
+    } as const;
+
     test("funnels a no-assistant post-checkout return into hatching", () => {
-      expect(guard(s({ hasAssistants: false }), POST_CHECKOUT_BILLING)).toEqual({
+      expect(guard(s(EMPTY_ORG), POST_CHECKOUT_BILLING)).toEqual({
         action: "redirect",
         to: "/assistant/onboarding/hatching",
       });
     });
 
-    test("leaves an existing-assistant post-checkout return on billing", () => {
-      expect(guard(s({ hasAssistants: true }), POST_CHECKOUT_BILLING)).toEqual(
-        ALLOW,
-      );
+    // The decision is "does a managed plan have a target", not "is the list
+    // empty": a self-hosted-only org lands on billing with the Pro onboarding
+    // wizard gated off, so the purchase would apply to nothing.
+    test("funnels a return whose only assistants are self-hosted", () => {
+      expect(guard(s(NO_MANAGED_ASSISTANT), POST_CHECKOUT_BILLING)).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/hatching",
+      });
       expect(
         guard(
-          s({ hasAssistants: true }),
+          s(NO_MANAGED_ASSISTANT),
+          "/assistant/settings/usage?tab=billing&session_id=cs_test_123",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+    });
+
+    test("leaves an existing-assistant post-checkout return on billing", () => {
+      expect(
+        guard(s({ hasPlatformHostedAssistant: true }), POST_CHECKOUT_BILLING),
+      ).toEqual(ALLOW);
+      expect(
+        guard(
+          s({ hasPlatformHostedAssistant: true }),
           "/assistant/settings/usage?tab=billing&session_id=cs_test_123",
         ),
       ).toEqual(ALLOW);
@@ -602,7 +633,18 @@ describe("resolveNavigation", () => {
     test("funnels a no-assistant post-checkout return even under gateway auth", () => {
       expect(
         guard(
-          s({ isGatewayAuth: true, isLocalMode: true, hasAssistants: false }),
+          s({ isGatewayAuth: true, isLocalMode: true, ...EMPTY_ORG }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+    });
+
+    // The Electron desktop case: gateway auth against a local assistant, so
+    // `hasAssistants` is true and `requireAssistant` never runs.
+    test("funnels a self-hosted-only return under gateway auth", () => {
+      expect(
+        guard(
+          s({ isGatewayAuth: true, isLocalMode: true, ...NO_MANAGED_ASSISTANT }),
           POST_CHECKOUT_BILLING,
         ),
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
@@ -611,13 +653,23 @@ describe("resolveNavigation", () => {
     test("keeps the gateway-auth bypass for every other case", () => {
       expect(
         guard(
-          s({ isGatewayAuth: true, isLocalMode: true, hasAssistants: true }),
+          s({
+            isGatewayAuth: true,
+            isLocalMode: true,
+            hasPlatformHostedAssistant: true,
+          }),
           POST_CHECKOUT_BILLING,
         ),
       ).toEqual(ALLOW);
       expect(
         guard(
-          s({ isGatewayAuth: true, isLocalMode: true, hasAssistants: false }),
+          s({ isGatewayAuth: true, isLocalMode: true, ...EMPTY_ORG }),
+          "/assistant/settings/billing",
+        ),
+      ).toEqual(ALLOW);
+      expect(
+        guard(
+          s({ isGatewayAuth: true, isLocalMode: true, ...NO_MANAGED_ASSISTANT }),
           "/assistant/settings/billing",
         ),
       ).toEqual(ALLOW);
@@ -627,22 +679,33 @@ describe("resolveNavigation", () => {
     // whatever `requireAssistant` already decided for it.
     test("leaves a billing URL without session_id on its existing path", () => {
       expect(
-        guard(s({ hasAssistants: false }), "/assistant/settings/billing"),
+        guard(s(EMPTY_ORG), "/assistant/settings/billing"),
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
       expect(
         guard(
-          s({ hasAssistants: false, tosAccepted: false, privacyConsent: false }),
+          s({ ...EMPTY_ORG, tosAccepted: false, privacyConsent: false }),
           "/assistant/settings/billing",
         ),
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+      // `requireAssistant` reads `hasAssistants`, which the narrower
+      // post-checkout predicate must not disturb.
+      expect(
+        guard(s(NO_MANAGED_ASSISTANT), "/assistant/settings/billing"),
+      ).toEqual(ALLOW);
     });
 
     // Signed out, the return must still reach login with `session_id` intact,
     // so the decision is retaken once the session lands.
     test("sends a signed-out post-checkout return to login with session_id preserved", () => {
       expect(
+        guard(s({ ...EMPTY_ORG, isAuthenticated: false }), POST_CHECKOUT_BILLING),
+      ).toEqual({
+        action: "redirect",
+        to: "/account/login?returnTo=%2Fassistant%2Fsettings%2Fbilling%3Fsession_id%3Dcs_test_123",
+      });
+      expect(
         guard(
-          s({ hasAssistants: false, isAuthenticated: false }),
+          s({ ...NO_MANAGED_ASSISTANT, isAuthenticated: false }),
           POST_CHECKOUT_BILLING,
         ),
       ).toEqual({
@@ -655,8 +718,11 @@ describe("resolveNavigation", () => {
     // would funnel an established user out of their own billing page.
     test("waits for the platform assistants list before funneling", () => {
       expect(
+        guard(s({ ...EMPTY_ORG, assistantsHydrated: false }), POST_CHECKOUT_BILLING),
+      ).toEqual(WAIT);
+      expect(
         guard(
-          s({ hasAssistants: false, assistantsHydrated: false }),
+          s({ ...NO_MANAGED_ASSISTANT, assistantsHydrated: false }),
           POST_CHECKOUT_BILLING,
         ),
       ).toEqual(WAIT);
@@ -667,7 +733,7 @@ describe("resolveNavigation", () => {
         guard(
           s({
             isLocalMode: true,
-            hasAssistants: false,
+            ...EMPTY_ORG,
             assistantsHydrated: false,
           }),
           POST_CHECKOUT_BILLING,
@@ -680,13 +746,13 @@ describe("resolveNavigation", () => {
     test("consent is still enforced once the funnel destination is resolved", () => {
       expect(
         guard(
-          s({ hasAssistants: false, tosAccepted: false, privacyConsent: false }),
+          s({ ...EMPTY_ORG, tosAccepted: false, privacyConsent: false }),
           POST_CHECKOUT_BILLING,
         ),
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
       expect(
         guard(
-          s({ hasAssistants: false, tosAccepted: false, privacyConsent: false }),
+          s({ ...EMPTY_ORG, tosAccepted: false, privacyConsent: false }),
           "/assistant/onboarding/hatching",
         ),
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
@@ -697,7 +763,7 @@ describe("resolveNavigation", () => {
     test("the funnel destination is not treated as a post-checkout return", () => {
       expect(
         guard(
-          s({ hasAssistants: false }),
+          s(EMPTY_ORG),
           "/assistant/onboarding/hatching?session_id=cs_test_123",
         ),
       ).toEqual(ALLOW);
