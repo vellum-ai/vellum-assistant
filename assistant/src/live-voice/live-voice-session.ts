@@ -7,7 +7,7 @@ import {
 } from "../calls/media-turn-detector.js";
 import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
 import {
-  couldBeControlMarker,
+  isIncompleteControlMarkerTail,
   MINIMIZE_ROOM_MARKER,
   stripInternalSpeechMarkers,
 } from "../calls/voice-control-protocol.js";
@@ -524,13 +524,17 @@ interface ActiveAssistantTurn {
  * Control-marker hygiene for one model leg's delta stream, shared by the
  * front-door answer stage and the default/escalated leg. The returned flush
  * forwards the stripped (stripInternalSpeechMarkers) prefix of `raw` that has
- * not been emitted yet and can no longer become a control marker: a trailing
- * "[…"-tail that could still complete one (couldBeControlMarker) is held back
- * until a later delta disproves it, and `force` (leg completion) emits the
- * held tail so real text that merely resembles a marker prefix is not
- * dropped. As a side effect the flush latches the turn's `minimizeRequested`
- * once the raw stream contains MINIMIZE_ROOM_MARKER — the marker itself is
- * stripped, so the latch is the only observable.
+ * not been emitted yet and cannot contain a still-streaming control marker:
+ * the flush stops at the first "[" whose tail is an incomplete marker
+ * (isIncompleteControlMarkerTail) and holds from there until a later delta
+ * completes or disproves it; `force` (leg completion) emits the held tail so
+ * real text that merely resembles a marker prefix is not dropped. The scan
+ * runs forward from the emitted boundary — not from the last "[" — so
+ * brackets INSIDE a streaming marker body (a JSON array or "]"-bearing string
+ * in ASK_GUARDIAN_APPROVAL) can neither mask the marker's start nor pass as
+ * its terminator. As a side effect the flush latches the turn's
+ * `minimizeRequested` once the raw stream contains MINIMIZE_ROOM_MARKER —
+ * the marker itself is stripped, so the latch is the only observable.
  */
 function createControlMarkerHoldback(
   turn: ActiveAssistantTurn,
@@ -543,11 +547,14 @@ function createControlMarkerHoldback(
     }
     let safeEnd = raw.length;
     if (opts?.force !== true) {
-      const lastOpen = raw.lastIndexOf("[");
-      if (lastOpen >= emitted) {
-        const tail = raw.slice(lastOpen);
-        if (!tail.includes("]") && couldBeControlMarker(tail)) {
-          safeEnd = lastOpen;
+      for (
+        let i = raw.indexOf("[", emitted);
+        i !== -1;
+        i = raw.indexOf("[", i + 1)
+      ) {
+        if (isIncompleteControlMarkerTail(raw.slice(i))) {
+          safeEnd = i;
+          break;
         }
       }
     }

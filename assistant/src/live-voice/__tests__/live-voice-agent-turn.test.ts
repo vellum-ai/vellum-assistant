@@ -706,4 +706,27 @@ describe("LiveVoiceSession minimize-room marker", () => {
     expect(assistantDeltaTexts(frames).join("")).toBe("Score was [-");
     expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
   });
+
+  test("holds a guardian-approval marker whose JSON body contains brackets, then strips it whole", async () => {
+    const { frames, session, getCallbacks, ttsTexts } = createMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    // The JSON body carries both a "]" inside a string value and a nested
+    // array — neither may terminate the hold or mask the marker's start.
+    emitTextDelta(
+      getCallbacks,
+      'Hold on. [ASK_GUARDIAN_APPROVAL: {"question": "ok]?", "options": ["a", "b"',
+    );
+    await flushAsyncCallbacks();
+    expect(assistantDeltaTexts(frames).join("")).toBe("Hold on. ");
+
+    emitTextDelta(getCallbacks, "]}] Anything else?");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    const joined = assistantDeltaTexts(frames).join("");
+    expect(joined).not.toContain("ASK_GUARDIAN_APPROVAL");
+    expect(joined).toContain("Anything else?");
+    expect(ttsTexts.join(" ")).not.toContain("ASK_GUARDIAN_APPROVAL");
+  });
 });
