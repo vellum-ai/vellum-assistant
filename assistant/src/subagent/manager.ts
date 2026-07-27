@@ -989,6 +989,18 @@ export class SubagentManager {
   }
 
   /**
+   * Abort and fully dispose every subagent across all parents, deleting their
+   * durable records. For clear-all: every conversation's data is going away,
+   * including retained children of parents that are no longer in the in-memory
+   * conversation store.
+   */
+  disposeAllForAllParents(): void {
+    for (const parentId of [...this.parentToChildren.keys()]) {
+      this.disposeAllForParent(parentId);
+    }
+  }
+
+  /**
    * Abort and fully dispose all subagents belonging to a parent conversation,
    * deleting their durable records. Only for parents whose conversation data is
    * going away (deletion, clear-all) — nobody will call subagent_read.

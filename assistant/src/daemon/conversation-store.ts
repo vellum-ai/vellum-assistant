@@ -250,12 +250,15 @@ export async function getOrCreateConversation(
  * deleted conversation and trip FK constraints.
  */
 export function destroyActiveConversation(conversationId: string): void {
+  // Subagent teardown is keyed by parent id, not the live instance — an
+  // evicted parent still retains its terminal children, and deleting the
+  // conversation must take their records with it.
+  getSubagentManager().disposeAllForParent(conversationId);
   const conversation = findConversation(conversationId);
   if (!conversation) {
     return;
   }
   removeFromEvictor(conversationId);
-  getSubagentManager().disposeAllForParent(conversationId);
   conversation.dispose();
   deleteConversation(conversationId);
   deleteConversationOptions(conversationId);
@@ -280,10 +283,12 @@ export function stopConversations(): void {
  */
 export function clearAllActiveConversations(): number {
   const count = conversationCount();
-  const subagentManager = getSubagentManager();
+  // Dispose subagents across ALL parents, not just the in-memory ones — an
+  // evicted parent still retains its terminal children, and clear-all must
+  // take their records with it.
+  getSubagentManager().disposeAllForAllParents();
   for (const id of conversationIds()) {
     removeFromEvictor(id);
-    subagentManager.disposeAllForParent(id);
   }
   for (const conversation of allConversations()) {
     conversation.dispose();

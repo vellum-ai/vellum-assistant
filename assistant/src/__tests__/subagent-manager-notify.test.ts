@@ -444,6 +444,37 @@ describe("SubagentManager disposeAllForParent", () => {
   });
 });
 
+describe("SubagentManager disposeAllForAllParents", () => {
+  test("removes retained children across every parent — clear-all semantics", () => {
+    clearCaptured();
+    const manager = new SubagentManager();
+    // Two parents; only one would appear in the in-memory conversation store
+    // during a clear-all — the other models an evicted parent whose terminal
+    // children are still retained.
+    injectFakeSubagent(manager, "sub-a", makeState("sub-a"));
+    injectFakeSubagent(
+      manager,
+      "sub-b",
+      makeState("sub-b", {
+        config: {
+          id: "sub-b",
+          parentConversationId: "parent-evicted",
+          label: "Evicted parent child",
+          objective: "Do something",
+        },
+        status: "completed",
+      }),
+    );
+
+    manager.disposeAllForAllParents();
+
+    expect(manager.getState("sub-a")).toBeUndefined();
+    expect(manager.getState("sub-b")).toBeUndefined();
+    expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(0);
+    expect(manager.getChildrenOf("parent-evicted")).toHaveLength(0);
+  });
+});
+
 describe("SubagentManager sharedRequestTimestamps", () => {
   test("defaults to an empty array", () => {
     const manager = new SubagentManager();
