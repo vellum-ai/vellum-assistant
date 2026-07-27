@@ -94,7 +94,7 @@ export function PackageSwitchConfirmModal({
         </Modal.Header>
         {details ? (
           <Modal.Body className="flex flex-col gap-4 p-0">
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-0.5">
               <Typography
                 as="p"
                 variant="title-large"
@@ -102,10 +102,11 @@ export function PackageSwitchConfirmModal({
               >
                 {details.price}
               </Typography>
+              {/* Explicit leading: this caption wraps on a neutral switch, and the variant's line-height of 1 collides the lines. */}
               <Typography
                 as="p"
                 variant="label-medium-default"
-                className="text-[var(--content-tertiary)]"
+                className="leading-[15px] text-[var(--content-tertiary)]"
               >
                 {copy.priceCaption}
               </Typography>
