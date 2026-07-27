@@ -290,12 +290,56 @@ describe("CheckoutPage", () => {
 
   test("a gated session skips the upgrade and falls back to plans", async () => {
     gateValue = "gated";
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
     const { getByTestId } = renderCheckout("/assistant/checkout?package=super");
 
     await waitFor(() =>
       expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
     );
     expect(upgradeCalls.length).toBe(0);
+    expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+  });
+
+  test("a session without a platform login drops the stash on the way out", async () => {
+    gateValue = "disabled";
+    // The signup carry's marked stash is still in place: the hand-off, which
+    // rewrites it without the marker, never ran. Nothing was bought, so the
+    // stash must not outlive the attempt.
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+    const { getByTestId } = renderCheckout(ONBOARDING_ENTRY);
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe(ONBOARDING_NEXT),
+    );
+    expect(upgradeCalls.length).toBe(0);
+    expect(openedUrl).toBeNull();
+    expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+  });
+
+  test("the hand-off rewrites a marked stash without the marker", async () => {
+    // The invariant the provisioning takeover reads the marker against: the
+    // hand-off replaces the record wholesale, so a stash that reaches the
+    // post-checkout return is always unmarked, and one that still carries the
+    // marker is proof no checkout ever handed off.
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+    renderCheckout(ONBOARDING_ENTRY);
+
+    await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
+    const stashed = JSON.parse(sessionStorage.getItem(INTENT_KEY)!);
+    expect(stashed).toMatchObject({ kind: "package", packageKey: "super" });
+    expect(stashed.resumeAfterOnboarding).toBeUndefined();
   });
 
   test("the pricing funnel switched off redirects to plans without charging", async () => {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   clearCheckoutIntent,
   readCheckoutIntent,
+  readPurchasedCheckoutIntent,
   saveCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 
@@ -116,6 +117,47 @@ describe("saveCheckoutIntent / readCheckoutIntent", () => {
 
     expect(readCheckoutIntent()).toBeNull();
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("readPurchasedCheckoutIntent", () => {
+  test("suppresses a signup-marked package — no hand-off ever ran", () => {
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+
+    expect(readPurchasedCheckoutIntent()).toBeNull();
+    // The stash itself is untouched: the privacy screen still resumes from it.
+    expect(readCheckoutIntent()).toMatchObject({
+      kind: "package",
+      resumeAfterOnboarding: true,
+    });
+  });
+
+  test("passes through an unmarked package — what the hand-off writes", () => {
+    saveCheckoutIntent({ kind: "package", packageKey: "mighty" });
+
+    expect(readPurchasedCheckoutIntent()).toMatchObject({
+      kind: "package",
+      packageKey: "mighty",
+    });
+  });
+
+  test("passes through a custom intent", () => {
+    saveCheckoutIntent({
+      kind: "custom",
+      machineTier: "medium",
+      storageTier: null,
+      creditTier: null,
+    });
+
+    expect(readPurchasedCheckoutIntent()).toMatchObject({ kind: "custom" });
+  });
+
+  test("returns null when nothing is stashed", () => {
+    expect(readPurchasedCheckoutIntent()).toBeNull();
   });
 });
 

@@ -156,14 +156,12 @@ export function CheckoutPage() {
         return;
       }
       // The attempt is over. Settling it makes an in-flight upgrade's result a
-      // no-op, so a response landing after this can't open Stripe.
+      // no-op, so a response landing after this can't open Stripe. The stash
+      // goes with it whatever ended the attempt: nothing was bought, and a
+      // package left readable for its TTL is one a later provisioning surface
+      // can name as purchased.
       phaseRef.current = "settled";
-      if (takeover === "disabled") {
-        // The kill switch is decisive: the carried package is dead. Drop the
-        // stash so it can't resurface on a later provisioning surface within
-        // its TTL.
-        clearCheckoutIntent();
-      }
+      clearCheckoutIntent();
       navigate(bailTarget, { replace: true });
       return;
     }
