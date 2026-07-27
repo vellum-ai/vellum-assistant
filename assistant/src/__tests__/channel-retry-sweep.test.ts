@@ -191,6 +191,8 @@ function seedFailedSlackEvent(opts: {
   requesterIdentifier?: string;
   /** Stands in for the `slackInbound` the live path captures onto the payload. */
   slackInbound?: Record<string, unknown>;
+  /** Extra `sourceMetadata` fields, as the gateway forwards them. */
+  sourceMetadata?: Record<string, unknown>;
 }): string {
   const inbound = deliveryCrud.recordInbound(
     "slack",
@@ -205,7 +207,10 @@ function seedFailedSlackEvent(opts: {
     externalMessageId: opts.channelTs,
     // `sourceMetadata.messageId` is the Slack `ts`; the live path derives the
     // idempotency key's `channelTs` from it (falling back to externalMessageId).
-    sourceMetadata: { messageId: opts.channelTs },
+    sourceMetadata: {
+      messageId: opts.channelTs,
+      ...(opts.sourceMetadata ?? {}),
+    },
     ...(opts.slackInbound ? { slackInbound: opts.slackInbound } : {}),
     trustCtx: {
       trustClass: opts.trustClass,
@@ -476,6 +481,44 @@ describe("channel-retry-sweep", () => {
     expect(capturedContent).toContain("channel: C0123ABC");
     expect(capturedContent).toContain("summarize this");
     expect(capturedOptions?.displayContent).toBe("summarize this");
+  });
+
+  test("recovers app context from sourceMetadata when the capture never ran", async () => {
+    // `storePayload` runs at the top of the handler; `storeInboundSlackMetadata`
+    // runs on dispatch, after the awaited Slack backfills. A crash in between
+    // leaves an orphan with full sourceMetadata and no slackInbound, which
+    // recovery promotes onto the sweep — the fallback has to rebuild the
+    // turn-shaping fields or the replayed turn is impoverished.
+    seedFailedSlackEvent({
+      trustClass: "guardian",
+      content: "summarize this",
+      externalChatId: "D7654322",
+      channelTs: "1700000000.000400",
+      sourceMetadata: {
+        appContext: {
+          entities: [{ type: "slack#/types/channel_id", value: "C0456DEF" }],
+        },
+      },
+    });
+
+    let capturedContent: string | undefined;
+    await sweepFailedEvents(async (conversationId, content) => {
+      capturedContent = content;
+      const messageId = "message-app-context-recovered";
+      getDb()
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: content }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    expect(capturedContent).toContain("channel: C0456DEF");
   });
 
   test("skips retry delivery when a dedup replay's sibling event already owns delivery", async () => {

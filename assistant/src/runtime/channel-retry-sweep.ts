@@ -156,12 +156,22 @@ function parseStoredSlackInbound(
 }
 
 /**
- * Fallback for payloads stored before {@link parseStoredSlackInbound}'s capture
- * existed: reconstruct the minimal `{ channelId, channelTs }` from fields the
- * payload has always carried, so those in-flight events still dedup on replay.
- * `channelTs` mirrors the live `sourceMessageId ?? externalMessageId` derivation.
- * slackMeta is partial here (only the key-bearing fields), which is acceptable
- * for the short drain window of pre-upgrade retries.
+ * Fallback when the payload carries no captured `slackInbound`: reconstruct
+ * what we can from the fields the payload has always carried, so the event
+ * still dedups on replay. `channelTs` mirrors the live
+ * `sourceMessageId ?? externalMessageId` derivation.
+ *
+ * Two kinds of event land here, not just one. Payloads stored before the
+ * capture existed are the obvious case and drain quickly. The durable case is
+ * a crash between `storePayload` (which runs at the top of the handler) and
+ * `storeInboundSlackMetadata` (which runs on dispatch, after the awaited Slack
+ * backfills) — `recoverOrphanedChannelEvents` promotes that orphan onto the
+ * sweep and it arrives here with a full `sourceMetadata` but no `slackInbound`.
+ *
+ * So anything the live path reads off `sourceMetadata` and renders into the
+ * turn has to be recovered here too, or crash recovery replays an impoverished
+ * turn. slackMeta is still partial (the rest is presentation, reconstructible
+ * from the row), but the turn-shaping fields are not optional.
  */
 function buildReplaySlackInbound(params: {
   sourceChannel: ChannelId;
@@ -179,7 +189,14 @@ function buildReplaySlackInbound(params: {
   if (!channelTs) {
     return undefined;
   }
-  return { channelId: params.externalChatId, channelTs };
+  const appContext = params.sourceMetadata?.appContext;
+  return {
+    channelId: params.externalChatId,
+    channelTs,
+    ...(Array.isArray(appContext?.entities) && appContext.entities.length > 0
+      ? { appContext }
+      : {}),
+  };
 }
 
 /**

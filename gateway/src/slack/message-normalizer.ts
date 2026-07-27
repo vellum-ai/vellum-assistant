@@ -68,29 +68,30 @@ function buildNormalizedSlackMessage(
     event.thread_ts ?? (shape.fallbackThreadToTs ? event.ts : undefined);
 
   // Ids are carried as-is — resolving them to names is the daemon's job, where
-  // the channel cache lives, not a hot ingress path. An empty context (Slack
-  // sends `{}` rather than omitting the field) collapses to undefined.
-  const appContext = event.app_context?.entities?.length
-    ? {
-        entities: event.app_context.entities.map((entity) => ({
-          type: entity.type,
-          value:
-            typeof entity.value === "string"
-              ? entity.value
-              : {
-                  ...(entity.value.message_ts
-                    ? { messageTs: entity.value.message_ts }
-                    : {}),
-                  ...(entity.value.channel_id
-                    ? { channelId: entity.value.channel_id }
-                    : {}),
-                },
-          ...(entity.team_id ? { teamId: entity.team_id } : {}),
-          ...(entity.enterprise_id
-            ? { enterpriseId: entity.enterprise_id }
-            : {}),
-        })),
-      }
+  // the channel cache lives, not a hot ingress path. The schema collapses a
+  // malformed entity to `undefined` in place, so drop the holes and keep its
+  // valid siblings. An empty context (Slack sends `{}` rather than omitting the
+  // field) collapses to undefined.
+  const appContextEntities = (event.app_context?.entities ?? [])
+    .filter((entity) => entity !== undefined)
+    .map((entity) => ({
+      type: entity.type,
+      value:
+        typeof entity.value === "string"
+          ? entity.value
+          : {
+              ...(entity.value.message_ts
+                ? { messageTs: entity.value.message_ts }
+                : {}),
+              ...(entity.value.channel_id
+                ? { channelId: entity.value.channel_id }
+                : {}),
+            },
+      ...(entity.team_id ? { teamId: entity.team_id } : {}),
+      ...(entity.enterprise_id ? { enterpriseId: entity.enterprise_id } : {}),
+    }));
+  const appContext = appContextEntities.length
+    ? { entities: appContextEntities }
     : undefined;
 
   return {

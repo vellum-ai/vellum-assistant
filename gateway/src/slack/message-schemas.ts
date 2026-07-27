@@ -197,9 +197,18 @@ const slackAppContextEntitySchema = z.object({
  * What the sender had open when they messaged the app, ordered by relevance.
  * Slack attaches it to `message.im` once the app subscribes to
  * `app_context_changed`, which requires `agent_view`.
+ *
+ * Tolerance is per-entity, not per-array: a single malformed entity collapses
+ * to `undefined` in place rather than rejecting its siblings. Catching only at
+ * the array level would let one bad entry discard a usable context entirely —
+ * the message would still deliver, but "summarize this" would go unresolved
+ * with the answer sitting right there in the payload. Consumers drop the holes.
  */
 const slackAppContextSchema = z.object({
-  entities: z.array(slackAppContextEntitySchema).optional().catch(undefined),
+  entities: z
+    .array(slackAppContextEntitySchema.optional().catch(undefined))
+    .optional()
+    .catch(undefined),
 });
 
 /**

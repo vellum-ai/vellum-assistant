@@ -2296,6 +2296,42 @@ describe("DM app_context", () => {
     expect(result!.event.source.appContext).toBeUndefined();
   });
 
+  it("drops only the malformed entity, keeping its valid siblings", () => {
+    const config = makeConfig();
+    // One bad entity must not take the usable ones with it: the message would
+    // still deliver, but "summarize this" would go unresolved with the answer
+    // sitting right there in the payload.
+    const event = makeDmEvent({
+      app_context: {
+        entities: [
+          { type: "slack#/types/channel_id" },
+          CHANNEL_ENTITY,
+          { type: "slack#/types/canvas_id", value: 42 },
+        ],
+      },
+    } as unknown as Partial<SlackDirectMessageEvent>);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-9", config);
+
+    expect(result!.event.source.appContext?.entities).toEqual([
+      {
+        type: CHANNEL_ENTITY.type,
+        value: CHANNEL_ENTITY.value,
+        teamId: CHANNEL_ENTITY.team_id,
+      },
+    ]);
+  });
+
+  it("omits the context when every entity is malformed", () => {
+    const config = makeConfig();
+    const event = makeDmEvent({
+      app_context: { entities: [{ type: "slack#/types/channel_id" }] },
+    } as unknown as Partial<SlackDirectMessageEvent>);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-10", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.source.appContext).toBeUndefined();
+  });
+
   it("carries a message_context entity, whose value is an object not an id", () => {
     const config = makeConfig();
     // The thread/message case — the one that resolves "summarise this". Its
