@@ -7,29 +7,19 @@
  *
  * No source-module imports
  * ------------------------
- * This file has ZERO imports from `src/`. It accesses the feature flag
+ * This file has ZERO runtime imports from `src/`. It accesses the feature flag
  * cache's state via the shared `globalThis.vellumAssistant.featureFlagCache`
- * slot that `src/config/feature-flag-cache.ts` also reads/writes. The slot
- * shape is duplicated here on purpose: keeping this file off the
- * production import graph is what protects the test preload from a
- * broken `node_modules` symlink (DB ghost #3). The two declarations MUST
- * stay in sync — if you change one, change the other.
+ * slot that `src/config/feature-flag-cache.ts` also reads/writes, typed by the
+ * shared ambient `VellumFeatureFlagCache` (declared in
+ * `src/vellum-assistant-namespace.d.ts`). That ambient type is pure
+ * compile-time information — referencing it adds nothing to this file's runtime
+ * import graph — so keeping the helper off the production import graph (what
+ * protects the test preload from a broken `node_modules` symlink, DB ghost #3)
+ * still holds.
  */
 
-// Mirrors `src/config/feature-flag-cache.ts`. Duplicated by design — see
-// the "No source-module imports" section above.
-type FlagSlot = {
-  overrides: Record<string, boolean | string> | null;
-  fromGateway: boolean;
-};
-
-type VellumAssistantNamespace = {
-  featureFlagCache?: FlagSlot;
-};
-
-function flagSlot(): FlagSlot {
-  const g = globalThis as { vellumAssistant?: VellumAssistantNamespace };
-  const ns = (g.vellumAssistant ??= {});
+function flagSlot(): VellumFeatureFlagCache {
+  const ns = (globalThis.vellumAssistant ??= {});
   return (ns.featureFlagCache ??= { overrides: null, fromGateway: false });
 }
 
