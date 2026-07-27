@@ -185,7 +185,7 @@ describe("publishCapacitorDeepLinksSource", () => {
 
       urlOpenHandler!({ url: "vellum-assistant://voice?mode=resume" });
 
-      expect(starts).toEqual([{ mode: "resume" }]);
+      expect(starts).toEqual([{ mode: "resume", prompt: null }]);
       expect(unknowns).toEqual([]);
     } finally {
       unsubStart();
