@@ -19,6 +19,21 @@ import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
 /**
+ * How far a checkout attempt has got.
+ *
+ * - `idle` — mounted, nothing fired.
+ * - `running` — the upgrade POST is in flight.
+ * - `handed_off` — the package intent is stashed and Stripe is open.
+ * - `settled` — terminal: an already-Pro `no_op`, a failed upgrade, or a bail.
+ *
+ * `handed_off` is the line that matters. Before it, this route owns the stash
+ * and a bail clears it; after it, the stash belongs to the post-checkout return
+ * trip and nothing here may touch it. Electron and native Capacitor open Stripe
+ * without unloading the page, so the route is still mounted to enforce that.
+ */
+type CheckoutPhase = "idle" | "running" | "handed_off" | "settled";
+
+/**
  * Deep-link checkout entrypoint (`/assistant/checkout?package=<slug>`). The
  * marketing pricing CTAs route a chosen Pro package here — reachable by a
  * brand-new user with no assistant yet, so the route sits outside
@@ -32,7 +47,9 @@ import { Button } from "@vellumai/design-library/components/button";
  *     messaging).
  *   - `marketing-pricing-takeover` off → back to plans. The flag is the kill
  *     switch over the whole pricing funnel; a marketing link cached from while
- *     it was on still lands somewhere useful.
+ *     it was on still lands somewhere useful. Off landing mid-flight settles the
+ *     attempt so the response can't open Stripe behind the switch; off landing
+ *     after the hand-off leaves the checkout, and its stash, alone.
  *   - Gate `"full"` → fire the upgrade once and either redirect to Stripe
  *     (`redirect`), fall back to plans (`no_op`, already Pro), or surface a
  *     retryable error. It never dead-ends.
@@ -66,10 +83,14 @@ export function CheckoutPage() {
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
   const [failed, setFailed] = useState(false);
-  // StrictMode double-invokes mount effects; the ref fires the upgrade once.
-  const startedRef = useRef(false);
+  // StrictMode double-invokes mount effects; the phase gates the upgrade to one
+  // fire. It is also how a bail and an in-flight upgrade agree on who won: the
+  // bail settles the attempt, and the continuation below drops a result that
+  // arrives after that.
+  const phaseRef = useRef<CheckoutPhase>("idle");
 
   const runCheckout = useCallback(async () => {
+    phaseRef.current = "running";
     setFailed(false);
     try {
       const result = await mutateAsync({
@@ -80,7 +101,18 @@ export function CheckoutPage() {
           return_target: checkoutReturnTarget(),
         },
       });
+      if (phaseRef.current !== "running") {
+        // A bail settled the attempt while the upgrade was in flight. Drop the
+        // result: opening Stripe would defeat the kill switch, and stashing the
+        // package would resurrect what the bail cleared. The server may already
+        // have minted a Checkout Session — an unvisited one bills nothing and
+        // Stripe expires it on its own.
+        return;
+      }
       if (result.status === "redirect" && result.checkout_url) {
+        // Past this point the stash belongs to the return trip, not to this
+        // route — see `CheckoutPhase`.
+        phaseRef.current = "handed_off";
         // Stash the selection so the post-checkout provisioning screen can show
         // the purchased package before the subscribe webhook lands.
         saveCheckoutIntent({ kind: "package", packageKey });
@@ -90,9 +122,14 @@ export function CheckoutPage() {
       // `no_op` — already Pro, nothing to provision. Clear the marked stash so
       // an already-Pro bounce doesn't leave it lingering for its TTL, then hand
       // off rather than stranding the user on a blank splash.
+      phaseRef.current = "settled";
       clearCheckoutIntent();
       navigate(bailTarget, { replace: true });
     } catch {
+      if (phaseRef.current !== "running") {
+        return;
+      }
+      phaseRef.current = "settled";
       setFailed(true);
     }
   }, [bailTarget, mutateAsync, navigate, packageKey]);
@@ -107,6 +144,15 @@ export function CheckoutPage() {
       gate === "gated" ||
       takeover === "disabled"
     ) {
+      if (phaseRef.current === "handed_off") {
+        // Checkout is already at Stripe and this route can't unwind it. The
+        // stash is what the post-checkout return reads, so leave it — and the
+        // route the hand-off left behind — alone.
+        return;
+      }
+      // The attempt is over. Settling it makes an in-flight upgrade's result a
+      // no-op, so a response landing after this can't open Stripe.
+      phaseRef.current = "settled";
       if (takeover === "disabled") {
         // The kill switch is decisive: the carried package is dead. Drop the
         // stash so it can't resurface on a later provisioning surface within
@@ -123,11 +169,10 @@ export function CheckoutPage() {
       takeover !== "enabled" ||
       gate !== "full" ||
       !isOrgReady ||
-      startedRef.current
+      phaseRef.current !== "idle"
     ) {
       return;
     }
-    startedRef.current = true;
     void runCheckout();
   }, [bailTarget, gate, isOrgReady, navigate, packageKey, runCheckout, takeover]);
 

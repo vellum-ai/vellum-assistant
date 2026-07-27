@@ -40,6 +40,11 @@ let takeoverValue: MarketingPricingTakeoverState = "enabled";
 // When true the upgrade rejects — drives the error path. Otherwise it resolves
 // with `upgradeData`.
 let upgradeRejects = false;
+// When true the upgrade hangs until `releaseUpgrade()` — the mid-flight window
+// where a flag flip and the response race.
+let holdUpgrade = false;
+let releaseUpgrade: (() => void) | null = null;
+let heldUpgrade: Promise<unknown> | null = null;
 let upgradeData: { status: string; checkout_url: string | null; message: string } = {
   status: "redirect",
   checkout_url: CHECKOUT_URL,
@@ -52,6 +57,13 @@ mock.module("@/generated/api/sdk.gen", () => ({
     upgradeCalls.push(opts);
     if (upgradeRejects) {
       return Promise.reject(new Error("checkout failed"));
+    }
+    if (holdUpgrade) {
+      heldUpgrade = new Promise((resolve) => {
+        releaseUpgrade = () =>
+          resolve({ data: upgradeData, response: { ok: true } });
+      });
+      return heldUpgrade;
     }
     return Promise.resolve({ data: upgradeData, response: { ok: true } });
   },
@@ -116,6 +128,17 @@ function renderCheckout(entry: string) {
   return render(checkoutTree(entry, freshQueryClient()));
 }
 
+/**
+ * Run every pending microtask, so a released upgrade's continuation has fully
+ * settled before a test asserts that it did nothing. A `setTimeout` macrotask
+ * is scheduled behind the whole microtask queue the promise chain runs on.
+ */
+function flushPending(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
 beforeEach(() => {
   upgradeCalls.length = 0;
   openedUrl = null;
@@ -123,6 +146,9 @@ beforeEach(() => {
   orgReadyValue = true;
   takeoverValue = "enabled";
   upgradeRejects = false;
+  holdUpgrade = false;
+  releaseUpgrade = null;
+  heldUpgrade = null;
   upgradeData = { status: "redirect", checkout_url: CHECKOUT_URL, message: "" };
   sessionStorage.removeItem(INTENT_KEY);
 });
@@ -239,6 +265,56 @@ describe("CheckoutPage", () => {
     expect(upgradeCalls.length).toBe(0);
     expect(openedUrl).toBeNull();
     expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+  });
+
+  test("the funnel switched off mid-flight drops the late redirect", async () => {
+    holdUpgrade = true;
+    const client = freshQueryClient();
+    const makeTree = () =>
+      checkoutTree("/assistant/checkout?package=super", client);
+    const { getByTestId, rerender } = render(makeTree());
+
+    await waitFor(() => expect(upgradeCalls.length).toBe(1));
+
+    // The kill switch lands while the upgrade is still in flight.
+    takeoverValue = "disabled";
+    rerender(makeTree());
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
+    );
+
+    // The response arrives after the bail: it must neither open Stripe nor
+    // re-stash the package the bail just dropped.
+    releaseUpgrade!();
+    await heldUpgrade;
+    await flushPending();
+    expect(openedUrl).toBeNull();
+    expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+  });
+
+  test("the funnel switched off after the hand-off keeps the stash", async () => {
+    const client = freshQueryClient();
+    const makeTree = () =>
+      checkoutTree("/assistant/checkout?package=super", client);
+    const { getByTestId, rerender } = render(makeTree());
+
+    await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
+
+    // Electron and native Capacitor open Stripe without unloading the page, so
+    // the flag flip reaches a route that is still mounted. The intent belongs
+    // to the return trip by now — the kill switch must not delete it, and must
+    // not navigate out from under the checkout in progress.
+    takeoverValue = "disabled";
+    rerender(makeTree());
+    await flushPending();
+
+    expect(JSON.parse(sessionStorage.getItem(INTENT_KEY)!)).toMatchObject({
+      kind: "package",
+      packageKey: "super",
+    });
+    expect(getByTestId("loc").textContent).toBe(
+      "/assistant/checkout?package=super",
+    );
   });
 
   test("a pending→disabled transition resumes the carried onboarding step", async () => {
