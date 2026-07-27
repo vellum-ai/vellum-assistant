@@ -17,8 +17,7 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { AssistantEventEnvelope } from "../api/index.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
 import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";

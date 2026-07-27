@@ -19,8 +19,8 @@ mock.module("../helpers.js", () => ({
   addPlaygroundMessage: async () => ({ id: "msg-test" }),
 }));
 
+import type { AssistantEvent } from "../../../../api/index.js";
 import type { Conversation } from "../../../../daemon/conversation.js";
-import type { AssistantEvent } from "../../../../daemon/message-protocol.js";
 import { RouteError } from "../../errors.js";
 import { ROUTES } from "../index.js";
 

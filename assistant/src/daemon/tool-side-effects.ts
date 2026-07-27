@@ -9,6 +9,7 @@
 
 import { isAbsolute, resolve, sep } from "node:path";
 
+import type { AssistantEvent } from "../api/index.js";
 import { addAppConversationId, getApp } from "../apps/app-store.js";
 import { findActiveSession } from "../channels/gateway-verification-sessions.js";
 import { getConfig } from "../config/loader.js";
@@ -26,7 +27,6 @@ import { getWorkspaceDir } from "../util/platform.js";
 import { ensureAppSourceWatcher } from "./app-source-watcher.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
-import type { AssistantEvent } from "./message-protocol.js";
 import type { ToolSetupContext } from "./tool-setup-types.js";
 
 const log = getLogger("tool-side-effects");

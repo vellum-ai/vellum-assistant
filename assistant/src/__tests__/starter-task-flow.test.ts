@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import type {
-  AssistantEvent,
   SurfaceType,
 } from "../daemon/message-protocol.js";
 

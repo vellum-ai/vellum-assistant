@@ -1,8 +1,8 @@
+import type { AssistantEvent } from "../../api/index.js";
 import { validateInferenceProfileKey } from "../../config/inference-profile-validation.js";
 import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
 import {
   getConversationOverrideProfile,
   getMessages,

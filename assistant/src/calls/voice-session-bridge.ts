@@ -9,6 +9,7 @@
 import { v7 as uuidv7 } from "uuid";
 
 import type {
+  AssistantEvent,
   AssistantTextDeltaEvent,
   GenerationCancelledEvent,
   MessageCompleteEvent,
@@ -25,7 +26,6 @@ import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   deleteMessageById,

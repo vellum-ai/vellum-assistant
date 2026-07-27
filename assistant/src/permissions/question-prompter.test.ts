@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "../__tests__/helpers/set-config.js";
 import type { QuestionRequestEvent } from "../api/events/question-request.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   QuestionBatchSubmission,
   QuestionPromptResult,

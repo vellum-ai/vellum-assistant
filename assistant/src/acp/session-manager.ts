@@ -9,8 +9,8 @@ import { basename } from "node:path";
 import { eq, inArray } from "drizzle-orm";
 
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
+import type { AssistantEvent } from "../api/index.js";
 import { findConversation } from "../daemon/conversation-registry.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
