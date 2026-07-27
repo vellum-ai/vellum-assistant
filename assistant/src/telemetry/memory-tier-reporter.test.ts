@@ -30,7 +30,9 @@ let corpusError: Error | null = null;
 
 mock.module("./memory-corpus-size.js", () => ({
   measureMemoryCorpusSize: () => {
-    if (corpusError) throw corpusError;
+    if (corpusError) {
+      throw corpusError;
+    }
     return corpus;
   },
 }));

@@ -70,7 +70,9 @@ function measureMarkdownTree(dir: string): TreeSize {
 
   while (pending.length > 0) {
     const current = pending.pop();
-    if (current === undefined) break;
+    if (current === undefined) {
+      break;
+    }
 
     let entries;
     try {
