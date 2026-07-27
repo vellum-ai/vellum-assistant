@@ -58,8 +58,8 @@ const log = getLogger("shell-tool");
 /**
  * Model-input schema, the single source for both runtime validation (via
  * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below. Optional
- * fields catch to `undefined` so a malformed value degrades exactly as the
- * tool always degraded: `timeout_seconds` falls back to the configured
+ * fields catch to `undefined` so a malformed value degrades to its
+ * default: `timeout_seconds` falls back to the configured
  * default (it is also read defensively pre-execution by
  * `computePerToolTimeoutMs`), `network_mode` falls back to "off" (the
  * `=== "proxied"` coercion), `background` to foreground (the `=== true`

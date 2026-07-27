@@ -404,6 +404,20 @@ describe("host_bash — environment setup", () => {
     expect(result.content.trim()).toBe(realpathSync(homedir()));
   });
 
+  test("treats an explicit null working_dir as omitted (runs from home)", async () => {
+    const { homedir } = await import("node:os");
+    const result = await hostShellTool.execute(
+      {
+        command: "pwd",
+        working_dir: null,
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content.trim()).toBe(realpathSync(homedir()));
+  });
+
   test("PATH includes ~/.local/bin and ~/.bun/bin", async () => {
     const { homedir } = await import("node:os");
     const home = homedir();

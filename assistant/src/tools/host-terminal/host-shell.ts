@@ -40,6 +40,7 @@ import {
 } from "../shared/shell-output.js";
 import {
   invalidToolInputResult,
+  nullAsOmitted,
   toToolInputSchema,
 } from "../shared/zod-tool-schema.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
@@ -100,11 +101,12 @@ function buildHostBashProxyEnv(conversationId: string): Record<string, string> {
  * Model-input schema, the single source for both runtime validation (via
  * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below.
  * `timeout_seconds` / `background` / `target_client_id` / `activity` catch
- * to `undefined` because the tool has always degraded a malformed value to
- * its default (configured timeout, foreground, untargeted, status-only);
- * `working_dir` does NOT catch — the tool has always rejected a malformed
- * working directory rather than silently running in the wrong place, and its
- * null-byte / absolute-path checks stay bespoke below.
+ * to `undefined` so a malformed value degrades to its default (configured
+ * timeout, foreground, untargeted, status-only). `working_dir` treats an
+ * explicit null as omitted (the run defaults to the user home) but does NOT
+ * catch — a malformed working directory fails the parse rather than
+ * silently running in the wrong place, and the null-byte / absolute-path
+ * checks stay bespoke below.
  */
 export const hostShellInputSchema = z.looseObject({
   command: z.string().min(1).describe("The host shell command to execute."),
@@ -115,12 +117,13 @@ export const hostShellInputSchema = z.looseObject({
     )
     .optional()
     .catch(undefined),
-  working_dir: z
-    .string()
-    .describe(
-      "Optional absolute host working directory (defaults to user home)",
-    )
-    .optional(),
+  working_dir: nullAsOmitted(
+    z
+      .string()
+      .describe(
+        "Optional absolute host working directory (defaults to user home)",
+      ),
+  ),
   timeout_seconds: z
     .number()
     .describe(

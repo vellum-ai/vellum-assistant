@@ -20,10 +20,9 @@ import type {
 /**
  * Model-input schema, the single source for both runtime validation (via
  * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below — mirrors
- * `filesystem/edit.ts`. `replace_all` catches to `undefined` because the
- * tool has always treated anything but a literal `true` as "single match";
- * `target_client_id` catches because a non-string (or empty) value has
- * always meant "untargeted".
+ * `filesystem/edit.ts`. `replace_all` catches to `undefined` — anything
+ * but a literal `true` means "single match"; `target_client_id` catches so
+ * a non-string (or empty) value means "untargeted".
  */
 export const hostFileEditInputSchema = z.looseObject({
   path: z.string().min(1).describe("Absolute host path to the file to edit"),

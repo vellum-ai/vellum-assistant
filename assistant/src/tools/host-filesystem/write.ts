@@ -20,8 +20,8 @@ import type {
 /**
  * Model-input schema, the single source for both runtime validation (via
  * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below — mirrors
- * `filesystem/write.ts`. `target_client_id` catches to `undefined` because
- * the tool has always treated a non-string (or empty) value as "untargeted".
+ * `filesystem/write.ts`. `target_client_id` catches to `undefined` so a
+ * non-string (or empty) value means "untargeted".
  */
 export const hostFileWriteInputSchema = z.looseObject({
   path: z.string().min(1).describe("Absolute host path to the file to write"),
