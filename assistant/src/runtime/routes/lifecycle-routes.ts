@@ -12,7 +12,8 @@
 
 import { z } from "zod";
 
-import { readActiveConversations } from "../../monitoring/active-conversations.js";
+import { listRunningHeartbeatRuns } from "../../heartbeat/heartbeat-run-store.js";
+import { listProcessingConversations } from "../../persistence/conversation-crud.js";
 import { listRunningMemoryJobs } from "../../persistence/jobs-store.js";
 import {
   clearLifecycleQuiesce,
@@ -61,18 +62,33 @@ const runningWorkflowRunSchema = z.object({
   startedAt: z.number().nullable(),
 });
 
+const runningHeartbeatRunSchema = z.object({
+  runId: z.string(),
+  startedAt: z.number(),
+});
+
 const drainStatusResponseSchema = z.object({
   quiescedUntil: z.number().nullable(),
   idle: z
     .boolean()
     .describe(
-      "True when no conversation turn, memory job, schedule run, or workflow run is in flight.",
+      "True when no conversation turn, memory job, schedule run, workflow run, or heartbeat run is in flight.",
     ),
   activeConversations: z.array(activeConversationSchema),
   memoryJobs: z.array(runningMemoryJobSchema),
   scheduleRuns: z.array(runningScheduleRunSchema),
   workflowRuns: z.array(runningWorkflowRunSchema),
+  heartbeatRuns: z.array(runningHeartbeatRunSchema),
 });
+
+/**
+ * Age cap for `running` heartbeat rows in the drain snapshot. A beat orphaned
+ * by a crash keeps its `running` status until a later boot's stale sweep, so
+ * an unbounded read would let a phantom row hold the drain open indefinitely.
+ * Real beats finish well inside this bound (the runner enforces its own
+ * timeout).
+ */
+const HEARTBEAT_RUN_MAX_AGE_MS = 15 * 60_000;
 
 export const ROUTES: RouteDefinition[] = [
   {
@@ -137,56 +153,46 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "In-flight background work",
     description:
-      "Reports conversation turns, memory jobs, and schedule runs currently in flight, plus the active quiesce lease. `idle: true` means it is safe to stop the assistant without interrupting work.",
+      "Reports conversation turns, memory jobs, schedule runs, workflow runs, and heartbeat runs currently in flight, plus the active quiesce lease. `idle: true` means it is safe to stop the assistant without interrupting work.",
     tags: ["system"],
     responseBody: drainStatusResponseSchema,
     handler: () => {
-      const activeConversations = readActiveConversations() ?? [];
-      // Best-effort per source: a store that cannot be read reports empty
-      // rather than failing the whole snapshot — the caller's wait then
-      // converges on what is observable.
-      let memoryJobs: ReturnType<typeof listRunningMemoryJobs> = [];
-      try {
-        memoryJobs = listRunningMemoryJobs();
-      } catch (err) {
-        log.warn({ err }, "Drain status: memory jobs unavailable");
-      }
-      let scheduleRuns: ReturnType<typeof listRunningScheduleRuns> = [];
-      try {
-        scheduleRuns = listRunningScheduleRuns();
-      } catch (err) {
-        log.warn({ err }, "Drain status: schedule runs unavailable");
-      }
+      // Every read THROWS on failure (surfacing as a 5xx the client retries):
+      // for a drain decision, a failed read must not pass for proof of
+      // absence, or the client stops the assistant over unobservable
+      // in-flight work. Only the quiesce GATES are fail-open — this snapshot
+      // fails closed.
+      const activeConversations = listProcessingConversations();
+      const memoryJobs = listRunningMemoryJobs();
+      const scheduleRuns = listRunningScheduleRuns();
       // Workflows launched by a schedule outlive their schedule run — the
       // scheduler fires them and completes its own run row immediately — so
       // a running workflow must hold the drain open in its own right.
-      let workflowRuns: Array<{
-        runId: string;
-        name: string | null;
-        startedAt: number | null;
-      }> = [];
-      try {
-        workflowRuns = listWorkflowRuns({ limit: 20, status: "running" }).map(
-          (run) => ({
-            runId: run.id,
-            name: run.name,
-            startedAt: run.createdAt,
-          }),
-        );
-      } catch (err) {
-        log.warn({ err }, "Drain status: workflow runs unavailable");
-      }
+      const workflowRuns = listWorkflowRuns({
+        limit: 20,
+        status: "running",
+      }).map((run) => ({
+        runId: run.id,
+        name: run.name,
+        startedAt: run.createdAt,
+      }));
+      // A beat between startHeartbeatRun() and its background conversation
+      // existing (e.g. mid credential-health check) has a running row but no
+      // processing conversation yet.
+      const heartbeatRuns = listRunningHeartbeatRuns(HEARTBEAT_RUN_MAX_AGE_MS);
       return {
         quiescedUntil: getLifecycleQuiesceUntil(),
         idle:
           activeConversations.length === 0 &&
           memoryJobs.length === 0 &&
           scheduleRuns.length === 0 &&
-          workflowRuns.length === 0,
+          workflowRuns.length === 0 &&
+          heartbeatRuns.length === 0,
         activeConversations,
         memoryJobs,
         scheduleRuns,
         workflowRuns,
+        heartbeatRuns,
       };
     },
   },

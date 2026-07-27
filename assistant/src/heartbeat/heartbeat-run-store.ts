@@ -1,4 +1,4 @@
-import { desc, eq, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, lt, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
@@ -289,6 +289,32 @@ export function listHeartbeatRuns(
     .limit(limit)
     .all();
   return rows.map(parseRow);
+}
+
+/**
+ * Heartbeat runs currently `running`, capped to those started within
+ * `maxAgeMs`. The age bound matters: a run orphaned by a crash keeps its
+ * `running` status until a later boot's stale sweep relabels it, and an
+ * unbounded read would let that phantom row hold a drain open indefinitely.
+ */
+export function listRunningHeartbeatRuns(
+  maxAgeMs: number,
+): Array<{ runId: string; startedAt: number }> {
+  const db = getDb();
+  const cutoff = Date.now() - maxAgeMs;
+  return db
+    .select({ runId: heartbeatRuns.id, startedAt: heartbeatRuns.startedAt })
+    .from(heartbeatRuns)
+    .where(
+      and(
+        eq(heartbeatRuns.status, "running"),
+        isNotNull(heartbeatRuns.startedAt),
+        gt(heartbeatRuns.startedAt, cutoff),
+      ),
+    )
+    .orderBy(desc(heartbeatRuns.startedAt))
+    .limit(20)
+    .all() as Array<{ runId: string; startedAt: number }>;
 }
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ import { and, asc, desc, eq, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
+import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { rawChanges } from "../persistence/raw-query.js";
 import { scheduleJobs, scheduleRuns } from "../persistence/schema/index.js";
 import { publishSchedulesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -465,6 +466,15 @@ export async function deleteSchedule(id: string): Promise<boolean> {
  * next_run_at <= now and enabled = true and cron_expression IS NULL.
  */
 export async function claimDueSchedules(now: number): Promise<ScheduleJob[]> {
+  // Drain gate: while a quiesce lease is active, claim nothing so in-flight
+  // runs can drain before a stop. The check lives here — immediately before
+  // the claim writes — rather than at the tick boundary, to shrink the window
+  // in which a lease armed mid-tick could miss a claim that already passed an
+  // earlier check. Fail-open via the lease read.
+  if (isLifecycleQuiesced()) {
+    return [];
+  }
+
   const db = getDb();
   const claimed: ScheduleJob[] = [];
 

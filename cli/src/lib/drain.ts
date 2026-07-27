@@ -54,6 +54,10 @@ interface DrainStatusResponse {
     name: string | null;
     startedAt: number | null;
   }>;
+  heartbeatRuns?: Array<{
+    runId: string;
+    startedAt: number;
+  }>;
 }
 
 export interface DrainOptions {
@@ -116,6 +120,9 @@ function describeBusyWork(status: DrainStatusResponse, now: number): string[] {
     const label = run.name ?? run.runId.slice(0, 8);
     items.push(`workflow "${label}" (${formatElapsed(run.startedAt, now)})`);
   }
+  for (const run of status.heartbeatRuns ?? []) {
+    items.push(`heartbeat (${formatElapsed(run.startedAt, now)})`);
+  }
   return items;
 }
 
@@ -125,6 +132,7 @@ function busySignature(status: DrainStatusResponse): string {
     ...status.memoryJobs.map((j) => j.id),
     ...status.scheduleRuns.map((r) => r.runId),
     ...(status.workflowRuns ?? []).map((r) => r.runId),
+    ...(status.heartbeatRuns ?? []).map((r) => r.runId),
   ].join("|");
 }
 
@@ -221,6 +229,7 @@ export async function drainAssistant(
   let consecutiveFailures = 0;
   let lastSignature: string | null = null;
   let lastNarratedAt = 0;
+  let idleStreak = 0;
 
   for (;;) {
     if (opts.signal?.aborted) {
@@ -242,8 +251,17 @@ export async function drainAssistant(
       consecutiveFailures = 0;
 
       if (status.idle) {
-        return "drained";
+        // Require two consecutive idle snapshots: work that raced past a
+        // pre-lease gate check lands its run row within a tick, so a second
+        // read one poll later rules out a stop landing on that window.
+        idleStreak += 1;
+        if (idleStreak >= 2) {
+          return "drained";
+        }
+        await sleepMs(pollIntervalMs, opts.signal);
+        continue;
       }
+      idleStreak = 0;
 
       const now = Date.now();
       const signature = busySignature(status);

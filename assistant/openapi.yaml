@@ -16362,8 +16362,9 @@ paths:
       operationId: lifecycle_drainstatus_get
       summary: In-flight background work
       description:
-        "Reports conversation turns, memory jobs, and schedule runs currently in flight, plus the active quiesce
-        lease. `idle: true` means it is safe to stop the assistant without interrupting work."
+        "Reports conversation turns, memory jobs, schedule runs, workflow runs, and heartbeat runs currently in
+        flight, plus the active quiesce lease. `idle: true` means it is safe to stop the assistant without interrupting
+        work."
       tags:
         - system
       responses:
@@ -16380,7 +16381,7 @@ paths:
                       - type: "null"
                   idle:
                     type: boolean
-                    description: True when no conversation turn, memory job, schedule run, or workflow run is in flight.
+                    description: True when no conversation turn, memory job, schedule run, workflow run, or heartbeat run is in flight.
                   activeConversations:
                     type: array
                     items:
@@ -16465,6 +16466,19 @@ paths:
                         - name
                         - startedAt
                       additionalProperties: false
+                  heartbeatRuns:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        runId:
+                          type: string
+                        startedAt:
+                          type: number
+                      required:
+                        - runId
+                        - startedAt
+                      additionalProperties: false
                 required:
                   - quiescedUntil
                   - idle
@@ -16472,6 +16486,7 @@ paths:
                   - memoryJobs
                   - scheduleRuns
                   - workflowRuns
+                  - heartbeatRuns
                 additionalProperties: false
   /v1/lifecycle/quiesce:
     delete:

@@ -45,6 +45,7 @@ function busyStatus(): unknown {
     ],
     scheduleRuns: [],
     workflowRuns: [],
+    heartbeatRuns: [],
   };
 }
 
@@ -58,6 +59,7 @@ function workflowBusyStatus(): unknown {
     workflowRuns: [
       { runId: "wf-1", name: "nightly-report", startedAt: Date.now() },
     ],
+    heartbeatRuns: [],
   };
 }
 
@@ -69,6 +71,7 @@ function idleStatus(): unknown {
     memoryJobs: [],
     scheduleRuns: [],
     workflowRuns: [],
+    heartbeatRuns: [],
   };
 }
 
@@ -142,6 +145,32 @@ describe("drainAssistant", () => {
 
     expect(outcome).toBe("drained");
     expect(lines.join("\n")).toContain('workflow "nightly-report"');
+  });
+
+  test("a single idle snapshot is not enough — drained needs two in a row", async () => {
+    let statusCalls = 0;
+    const sequence = [idleStatus(), busyStatus(), idleStatus(), idleStatus()];
+    const { impl } = fetchStub((_url, method) => {
+      if (method === "POST") {
+        return jsonResponse({ quiescedUntil: Date.now() + 60_000 });
+      }
+      const status = sequence[Math.min(statusCalls, sequence.length - 1)];
+      statusCalls += 1;
+      return jsonResponse(status);
+    });
+
+    const outcome = await drainAssistant({
+      baseUrl: BASE,
+      token: "tok",
+      deadlineAt: null,
+      pollIntervalMs: 1,
+      fetchImpl: impl,
+      log: () => {},
+    });
+
+    expect(outcome).toBe("drained");
+    // idle, busy (streak reset), idle, idle — four reads, not one.
+    expect(statusCalls).toBe(4);
   });
 
   test("returns unsupported when the assistant lacks the quiesce route", async () => {

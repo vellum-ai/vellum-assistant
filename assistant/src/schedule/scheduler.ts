@@ -498,13 +498,8 @@ export async function runDueSchedulesOnce(
     return result;
   }
 
-  // Drain guard: while a quiesce lease is active, claim no due schedules so
-  // in-flight runs can drain before a stop. Claims resume when it expires.
-  if (isLifecycleQuiesced()) {
-    log.debug("Due-schedule run skipped — quiesce lease active");
-    return result;
-  }
-
+  // The drain quiesce gate lives inside claimDueSchedules, immediately
+  // before the claim writes.
   const jobs = await claimDueSchedules(now);
   result.claimed = jobs.length;
   for (const job of jobs) {
