@@ -401,12 +401,6 @@ export async function sweepFailedEvents(
     // `slackInbound` when present (identical idempotency key + full slackMeta),
     // else the reconstructed fallback — so a replay of an already-persisted turn
     // dedups instead of running a second agent loop.
-    const prepared = prepareChannelInboundContent({
-      trimmedContent: content,
-      trustClass: trustContext.trustClass,
-      sourceChannel,
-      requesterIdentifier: trustContext.requesterIdentifier,
-    });
     const replaySlackInbound =
       parseStoredSlackInbound(payload.slackInbound) ??
       buildReplaySlackInbound({
@@ -415,6 +409,18 @@ export async function sweepFailedEvents(
         sourceMetadata,
         externalMessageId,
       });
+    // The captured `slackInbound` carries the sender's Slack `app_context`, so
+    // the replayed turn is prepared with the same context block the live turn
+    // rendered. Payloads predating the capture simply have none.
+    const prepared = prepareChannelInboundContent({
+      trimmedContent: content,
+      trustClass: trustContext.trustClass,
+      sourceChannel,
+      requesterIdentifier: trustContext.requesterIdentifier,
+      ...(replaySlackInbound?.appContext
+        ? { slackAppContext: replaySlackInbound.appContext }
+        : {}),
+    });
 
     // Shared replay options. The idempotency-bearing `slackInbound` is added
     // only on the first attempt; the incomplete-turn re-run below omits it so it

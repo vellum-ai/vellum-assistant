@@ -189,6 +189,8 @@ function seedFailedSlackEvent(opts: {
   externalChatId: string;
   channelTs: string;
   requesterIdentifier?: string;
+  /** Stands in for the `slackInbound` the live path captures onto the payload. */
+  slackInbound?: Record<string, unknown>;
 }): string {
   const inbound = deliveryCrud.recordInbound(
     "slack",
@@ -204,6 +206,7 @@ function seedFailedSlackEvent(opts: {
     // `sourceMetadata.messageId` is the Slack `ts`; the live path derives the
     // idempotency key's `channelTs` from it (falling back to externalMessageId).
     sourceMetadata: { messageId: opts.channelTs },
+    ...(opts.slackInbound ? { slackInbound: opts.slackInbound } : {}),
     trustCtx: {
       trustClass: opts.trustClass,
       sourceChannel: "slack",
@@ -432,6 +435,47 @@ describe("channel-retry-sweep", () => {
     expect(capturedOptions?.displayContent).toBeUndefined();
     // The idempotency key is still reconstructed so guardian replays dedup too.
     expect(capturedOptions?.slackInbound?.channelTs).toBe("1700000000.000200");
+  });
+
+  test("replays the sender's Slack app context from the captured slackInbound", async () => {
+    seedFailedSlackEvent({
+      trustClass: "guardian",
+      content: "summarize this",
+      externalChatId: "D7654321",
+      channelTs: "1700000000.000300",
+      slackInbound: {
+        channelId: "D7654321",
+        channelTs: "1700000000.000300",
+        appContext: {
+          entities: [{ type: "slack#/types/channel_id", value: "C0123ABC" }],
+        },
+      },
+    });
+
+    let capturedContent: string | undefined;
+    let capturedOptions: { displayContent?: string } | undefined;
+    await sweepFailedEvents(async (conversationId, content, options) => {
+      capturedContent = content;
+      capturedOptions = options as { displayContent?: string };
+      const messageId = "message-app-context-slack";
+      getDb()
+        .insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: content }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    // Without this the replayed turn loses the context that made "summarize
+    // this" resolvable — the model would see a bare deictic reference.
+    expect(capturedContent).toContain("channel: C0123ABC");
+    expect(capturedContent).toContain("summarize this");
+    expect(capturedOptions?.displayContent).toBe("summarize this");
   });
 
   test("skips retry delivery when a dedup replay's sibling event already owns delivery", async () => {
