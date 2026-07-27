@@ -8,6 +8,7 @@ import { organizationsBillingSubscriptionUpgradeCreateMutation } from "@/generat
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { checkoutContinuation } from "@/lib/billing/checkout-continuation";
 import {
   clearCheckoutIntent,
   saveCheckoutIntent,
@@ -35,6 +36,10 @@ import { Button } from "@vellumai/design-library/components/button";
  *   - Gate `"full"` → fire the upgrade once and either redirect to Stripe
  *     (`redirect`), fall back to plans (`no_op`, already Pro), or surface a
  *     retryable error. It never dead-ends.
+ *
+ * Every "no purchase happens here" exit honors the `continue` param when one is
+ * present (see `checkout-continuation`), so a caller mid-flow — onboarding —
+ * gets back to its own next step instead of the plans takeover.
  */
 export function CheckoutPage() {
   const navigate = useNavigate();
@@ -51,6 +56,11 @@ export function CheckoutPage() {
   // lands — the flag defaults off, so redirecting on the cold-load default
   // would bounce every legitimate deep link.
   const takeover = useMarketingPricingTakeover();
+  // Where to go when no purchase happens here. Onboarding hands off before the
+  // funnel flag has necessarily resolved and passes its own next step, so a
+  // pending→disabled transition resumes onboarding instead of stranding a new
+  // user on plans, outside the funnel and short of an assistant.
+  const bailTarget = checkoutContinuation(searchParams, routes.plans);
 
   const { mutateAsync } = useMutation(
     organizationsBillingSubscriptionUpgradeCreateMutation(),
@@ -79,25 +89,31 @@ export function CheckoutPage() {
       }
       // `no_op` — already Pro, nothing to provision. Clear the marked stash so
       // an already-Pro bounce doesn't leave it lingering for its TTL, then hand
-      // off to the plans takeover rather than stranding the user on a blank splash.
+      // off rather than stranding the user on a blank splash.
       clearCheckoutIntent();
-      navigate(routes.plans, { replace: true });
+      navigate(bailTarget, { replace: true });
     } catch {
       setFailed(true);
     }
-  }, [mutateAsync, navigate, packageKey]);
+  }, [bailTarget, mutateAsync, navigate, packageKey]);
 
   useEffect(() => {
     // No package to check out, a session that can't reach checkout, or the
-    // pricing funnel switched off: fall back to the plans takeover, which owns
-    // its own gating and messaging.
+    // pricing funnel switched off: fall back to the continuation, or to the
+    // plans takeover, which owns its own gating and messaging.
     if (
       !packageKey ||
       gate === "disabled" ||
       gate === "gated" ||
       takeover === "disabled"
     ) {
-      navigate(routes.plans, { replace: true });
+      if (takeover === "disabled") {
+        // The kill switch is decisive: the carried package is dead. Drop the
+        // stash so it can't resurface on a later provisioning surface within
+        // its TTL.
+        clearCheckoutIntent();
+      }
+      navigate(bailTarget, { replace: true });
       return;
     }
     // Hold until the funnel flag resolves, the platform gate is full, AND the
@@ -113,7 +129,7 @@ export function CheckoutPage() {
     }
     startedRef.current = true;
     void runCheckout();
-  }, [gate, isOrgReady, navigate, packageKey, runCheckout, takeover]);
+  }, [bailTarget, gate, isOrgReady, navigate, packageKey, runCheckout, takeover]);
 
   if (failed) {
     return (

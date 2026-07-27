@@ -112,6 +112,12 @@ function clickStart(): void {
   fireEvent.click(screen.getByText("Start"));
 }
 
+/** The query of the single URL `navigate()` was called with. */
+function navigatedQuery(): URLSearchParams {
+  const target = navigateMock.mock.calls[0]?.[0] as string;
+  return new URLSearchParams(target.slice(target.indexOf("?")));
+}
+
 describe("PrivacyScreen — Start navigation", () => {
   beforeEach(() => {
     navigateMock.mockClear();
@@ -212,9 +218,9 @@ describe("PrivacyScreen — Start navigation", () => {
     // Consent is still recorded before checkout resumes — payment after consent.
     expect(saveConsentMock).toHaveBeenCalledTimes(1);
     expect(navigateMock).toHaveBeenCalledTimes(1);
-    expect(navigateMock).toHaveBeenCalledWith(
-      `${routes.checkout}?package=super`,
-    );
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(`${routes.checkout}?`)).toBe(true);
+    expect(navigatedQuery().get("package")).toBe("super");
   });
 
   test("drops the carried package and proceeds when the pricing funnel is off", () => {
@@ -240,10 +246,13 @@ describe("PrivacyScreen — Start navigation", () => {
     expect(target).not.toContain(routes.checkout);
   });
 
-  test("still resumes while the funnel flag is unresolved", () => {
+  test("still resumes while the funnel flag is unresolved, carrying the onboarding step", () => {
     // The flag defaults off; dropping the package before its real value lands
-    // would strand every legitimate pricing signup. The checkout route's own
-    // gate catches a genuinely-off funnel.
+    // would strand every legitimate pricing signup, and blocking Start until it
+    // resolves would put a network round-trip in front of the most important
+    // click in onboarding. So hand off — but carry the step this click would
+    // otherwise have taken, so a pending→disabled transition lands back in the
+    // funnel rather than on the plans takeover.
     takeoverValue = "pending";
     checkoutIntentValue = {
       kind: "package",
@@ -251,14 +260,44 @@ describe("PrivacyScreen — Start navigation", () => {
       savedAt: Date.now(),
       resumeAfterOnboarding: true,
     };
-    searchParamsValue = new URLSearchParams("hosting=managed");
+    searchParamsValue = new URLSearchParams(
+      "hosting=managed&plugin=coffee-aficionado",
+    );
     render(<PrivacyScreen />);
 
     clickStart();
 
     expect(clearCheckoutIntentMock).not.toHaveBeenCalled();
-    expect(navigateMock).toHaveBeenCalledWith(
-      `${routes.checkout}?package=super`,
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(`${routes.checkout}?`)).toBe(true);
+    const query = navigatedQuery();
+    expect(query.get("package")).toBe("super");
+    // The continuation is the exact URL the non-checkout branch would have
+    // navigated to, attribution and hosting included.
+    expect(query.get("continue")).toBe(
+      `${routes.onboarding.research}?hosting=managed&plugin=coffee-aficionado`,
+    );
+  });
+
+  test("the carried continuation follows the local-hatch destination", () => {
+    // Local hosting must run the foreground hatch first, so the continuation is
+    // `hatching`, not `research` — the checkout bail has to resume the same step
+    // the standard branch would have.
+    takeoverValue = "pending";
+    localMode = true;
+    checkoutIntentValue = {
+      kind: "package",
+      packageKey: "super",
+      savedAt: Date.now(),
+      resumeAfterOnboarding: true,
+    };
+    searchParamsValue = new URLSearchParams("hosting=local");
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(navigatedQuery().get("continue")).toBe(
+      `${routes.onboarding.hatching}?hosting=local`,
     );
   });
 
@@ -299,9 +338,9 @@ describe("PrivacyScreen — Start navigation", () => {
 
     clickStart();
 
-    expect(navigateMock).toHaveBeenCalledWith(
-      `${routes.checkout}?package=super`,
-    );
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(`${routes.checkout}?`)).toBe(true);
+    expect(navigatedQuery().get("package")).toBe("super");
   });
 });
 
