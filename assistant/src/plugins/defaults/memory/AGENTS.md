@@ -6,6 +6,30 @@ write and read paths fit together — read `assistant/docs/architecture/memory.m
 first. This file is the layering contract: where code goes, which names can
 never be renamed, and how to retire a tier.
 
+## Tier movement is one-way
+
+**v1 and v2 are legacy. Assistants move v1 → v2 → v3 and never back.** There is
+no supported path from v3 to an earlier tier, so "what happens when an assistant
+returns to v1 (or v2)" is not a scenario this code serves.
+
+That rules out a whole class of plausible-sounding work: reconciling state that
+a lower tier would need, keeping a lower tier's derived data warm while a higher
+tier is live, or postponing a lower tier's jobs so they survive a downgrade.
+Review feedback will periodically ask for exactly that — the reasoning looks
+sound in isolation, because the state genuinely is missing. Decline it and point
+here. The correct fix for a lower tier's stale derived data is to delete the
+lower tier (see the runbooks below), not to maintain it.
+
+Two consequences worth stating plainly:
+
+- Anything in the tree today whose only purpose is a return-to-v1 path
+  (the `v1_entry_reconcile_done` checkpoint and its re-arm in `jobs-worker.ts`,
+  the boot claim in `startup.ts`, `reconcileCapabilityEmbeddings` in
+  `graph/capability-seed.ts`) is vestigial. It is cheap and harmless, and it is
+  deleted wholesale with v1 — the v1 runbook lists the sites. Do not extend it.
+- Gaps that only manifest after a downgrade are **not bugs**. Record them here
+  if they are non-obvious; do not build machinery to close them.
+
 ## Directory / tier map
 
 The plugin is layered into **tier directories** plus a **spine** that composes
@@ -397,7 +421,11 @@ on v1-era machinery.
    sites carry it and all go in the same change: the reconcile itself,
    `rearmV1EntryReconcile` (clears the marker on every tick that is off v1), and
    the boot-time claim in `startup.ts` that keeps the daemon's own seeding pass
-   from racing the worker's.
+   from racing the worker's. Delete `reconcileCapabilityEmbeddings` in
+   `graph/capability-seed.ts` with them — entering v1 is the only path that
+   reaches it. This is a prerequisite only in the bookkeeping sense: tier
+   movement is one-way (see the top of this file), so none of it serves a
+   supported scenario and it is a straight delete, not a port.
 
 ### External consumers to repoint or retire
 
