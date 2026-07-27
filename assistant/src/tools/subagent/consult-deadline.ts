@@ -29,8 +29,12 @@ export function createConsultDeadline(opts: {
 
   const recordProgress = (): void => {
     // Once aborted, don't re-arm — the consult is already being torn down.
-    if (controller.signal.aborted) return;
-    if (idleTimer) clearTimeout(idleTimer);
+    if (controller.signal.aborted) {
+      return;
+    }
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+    }
     idleTimer = setTimeout(() => controller.abort(), opts.idleMs);
   };
 
@@ -41,7 +45,9 @@ export function createConsultDeadline(opts: {
   recordProgress();
 
   const dispose = (): void => {
-    if (idleTimer) clearTimeout(idleTimer);
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+    }
     clearTimeout(maxTimer);
   };
 
