@@ -56,7 +56,13 @@ export function RecentRunsCard({
             const conversationId = getOpenableScheduleRunConversationId(run);
             const hasOutput = hasRunText(run.output);
             const hasError = hasRunText(run.error);
-            const hasLocalDetails = !conversationId && (hasOutput || hasError);
+            // Runs that never executed (skipped by a guard, missed while the
+            // daemon was down) have no duration or cost; their detail line is
+            // the reason text instead, so no expandable details either.
+            const isUnexecuted =
+              run.status === "skipped" || run.status === "missed";
+            const hasLocalDetails =
+              !conversationId && !isUnexecuted && (hasOutput || hasError);
             const isExpanded = expandedRunId === run.id;
             const detailsId = `schedule-run-details-${index}`;
             return (
@@ -78,8 +84,20 @@ export function RecentRunsCard({
                           {hasRunText(run.title)
                             ? `${formatTimestamp(run.startedAt)} · `
                             : ""}
-                          {formatDuration(run.durationMs)} ·{" "}
-                          {formatScheduleCost(run.estimatedCostUsd)}
+                          {isUnexecuted ? (
+                            <>
+                              {hasOutput
+                                ? run.output
+                                : run.status === "missed"
+                                  ? "Missed"
+                                  : "Skipped"}
+                            </>
+                          ) : (
+                            <>
+                              {formatDuration(run.durationMs)} ·{" "}
+                              {formatScheduleCost(run.estimatedCostUsd)}
+                            </>
+                          )}
                           {run.status === "error" && run.error && (
                             <span className="ml-2 text-[var(--system-negative-strong)]">
                               {run.error.slice(0, 80)}

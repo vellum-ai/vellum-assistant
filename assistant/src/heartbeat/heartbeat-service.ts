@@ -30,6 +30,7 @@ import {
   countCompletedHeartbeatRuns,
   countCompletedRunsToday,
   countRecentConsecutiveRuns,
+  getLastHeartbeatRunAt,
   insertPendingHeartbeatRun,
   markStaleRunningAsError,
   markStaleRunsAsMissed,
@@ -169,8 +170,23 @@ export class HeartbeatService {
     HeartbeatService.instance = this;
   }
 
-  /** Epoch-ms timestamp of the last completed heartbeat run. */
+  /**
+   * Epoch-ms timestamp of the last completed heartbeat run. The in-memory
+   * field only covers runs completed in this process's lifetime, so when it
+   * is unset the value is rehydrated from run history — a daemon restart
+   * must not blank "last run" while completed runs exist in the database.
+   */
   get lastRunAt(): number | null {
+    if (this._lastRunAt == null) {
+      try {
+        this._lastRunAt = getLastHeartbeatRunAt();
+      } catch (err) {
+        // DB unavailable (e.g. migrations still settling) — report unknown
+        // and retry on the next read.
+        log.debug({ err }, "Failed to read last heartbeat run from history");
+        return null;
+      }
+    }
     return this._lastRunAt;
   }
 
