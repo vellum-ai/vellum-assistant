@@ -78,10 +78,10 @@ interface ClientFeatureFlagMeta {
    */
   hydrated: boolean;
   /**
-   * The identity the current server values were evaluated against — the same
-   * `requestScopeKey` the request-scoped query cache is keyed by — or `null`
-   * before any scope has been claimed. Flags are evaluated per (user, org),
-   * so a value is only an answer for the scope it was fetched in.
+   * The identity the current server values were evaluated against — the
+   * `requestScopeKey` of the session and organization the request carried — or
+   * `null` before any scope has been claimed. Flags are evaluated per (user,
+   * org), so a value is only an answer for the scope it was fetched in.
    */
   scopeKey: string | null;
 }

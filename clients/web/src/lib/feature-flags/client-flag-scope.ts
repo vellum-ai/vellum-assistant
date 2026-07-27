@@ -19,27 +19,44 @@
  */
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { useOrganizationStore } from "@/stores/organization-store";
+import {
+  getActiveOrganizationIdForRequests,
+  useOrganizationStore,
+} from "@/stores/organization-store";
 import { isAuthenticated } from "@/stores/session-status";
 import { requestScopeKey } from "@/utils/request-scope-key";
 
 /**
- * The identity client flags currently evaluate against. Built from the same
- * inputs as the request-scoped query cache's key, so a move rotates the cache
- * and the claimed scope together. Agreement is enforced rather than assumed:
- * values carry the scope they were produced under, and the store drops any the
- * scope in hand no longer answers.
+ * The identity client flags currently evaluate against.
+ *
+ * The organization comes from `getActiveOrganizationIdForRequests()` — the
+ * same derivation that builds `Vellum-Organization-Id` and that
+ * `useOrgHeaderReadiness()` releases the fetch on — so the scope names whoever
+ * the server actually evaluated for. The store's id slice alone would not: it
+ * is null while the sessionStorage fallback is carrying requests, which stamps
+ * an organization's evaluation as belonging to no organization at all.
+ *
+ * Agreement is enforced rather than assumed: values carry the scope they were
+ * produced under, and the store drops any the scope in hand no longer answers.
  */
 export function currentClientFlagScopeKey(): string {
   const { sessionStatus, user } = useAuthStore.getState();
   return requestScopeKey({
     isAuthenticated: isAuthenticated(sessionStatus),
     userId: user?.id,
-    organizationId: useOrganizationStore.getState().currentOrganizationId,
+    organizationId: getActiveOrganizationIdForRequests(),
   });
 }
 
-/** Call once at startup. Returns an unsubscribe for tests. */
+/**
+ * Call once at startup. Returns an unsubscribe for tests.
+ *
+ * Subscribing without a selector is what lets the scope follow a non-reactive
+ * source: every write to the sessionStorage fallback is immediately followed by
+ * an organization-store `set()`, and a selectorless subscriber runs on all of
+ * them — including the ones that leave every slice untouched, like
+ * `clearOrganization()` revoking a fallback the id slice never held.
+ */
 export function setupClientFlagScopeSync(): () => void {
   const claimCurrentScope = () => {
     useClientFeatureFlagStore

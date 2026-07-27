@@ -14,6 +14,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 
+const ORGANIZATION_STORAGE_KEY = "vellum_active_organization_id";
+
 const initialAuthState = useAuthStore.getState();
 const initialOrganizationState = useOrganizationStore.getState();
 const initialFlagState = useClientFeatureFlagStore.getState();
@@ -37,6 +39,7 @@ function signIn(userId: string) {
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   useAuthStore.setState(initialAuthState, true);
   useOrganizationStore.setState(initialOrganizationState, true);
   useClientFeatureFlagStore.setState(initialFlagState, true);
@@ -56,6 +59,16 @@ describe("currentClientFlagScopeKey", () => {
   test("reports the user and org once both resolve", () => {
     signIn("user-123");
     useOrganizationStore.setState({ currentOrganizationId: "org-abc" });
+    expect(currentClientFlagScopeKey()).toBe("user:user-123:org:org-abc");
+  });
+
+  test("names the org the request header carries, not the store slice", () => {
+    // Before the org list lands the store's id slice is null while the
+    // sessionStorage fallback still answers, and that fallback is what
+    // `Vellum-Organization-Id` is built from — so the evaluation the server
+    // returns is org-abc's.
+    signIn("user-123");
+    sessionStorage.setItem(ORGANIZATION_STORAGE_KEY, "org-abc");
     expect(currentClientFlagScopeKey()).toBe("user:user-123:org:org-abc");
   });
 });
@@ -153,6 +166,47 @@ describe("setupClientFlagScopeSync", () => {
     const state = useClientFeatureFlagStore.getState();
     expect(state.hydrated).toBe(true);
     expect(state.marketingPricingTakeover).toBe(true);
+  });
+
+  test("drops fallback-scoped values when clearOrganization revokes the fallback", () => {
+    // The store's id slice is null throughout: readiness, the request header,
+    // and therefore the evaluation all come from the sessionStorage fallback.
+    // Dropping it is a real identity change even though no slice moves.
+    signIn("user-123");
+    sessionStorage.setItem(ORGANIZATION_STORAGE_KEY, "org-abc");
+    teardown = setupClientFlagScopeSync();
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags({ marketingPricingTakeover: true }, currentClientFlagScopeKey());
+    expect(useClientFeatureFlagStore.getState().hydrated).toBe(true);
+
+    useOrganizationStore.getState().clearOrganization();
+
+    const state = useClientFeatureFlagStore.getState();
+    expect(state.marketingPricingTakeover).toBe(false);
+    expect(state.hydrated).toBe(false);
+  });
+
+  test("refuses to re-apply the revoked org's cached response", () => {
+    // The request-scoped query cache is keyed on the store's id slice, which
+    // never moved, so the flag query still holds org-abc's response. Its scope
+    // stamp is what keeps it from hydrating the scope that replaced it.
+    signIn("user-123");
+    sessionStorage.setItem(ORGANIZATION_STORAGE_KEY, "org-abc");
+    teardown = setupClientFlagScopeSync();
+    const cachedScopeKey = currentClientFlagScopeKey();
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags({ marketingPricingTakeover: true }, cachedScopeKey);
+
+    useOrganizationStore.getState().clearOrganization();
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags({ marketingPricingTakeover: true }, cachedScopeKey);
+
+    const state = useClientFeatureFlagStore.getState();
+    expect(state.marketingPricingTakeover).toBe(false);
+    expect(state.hydrated).toBe(false);
   });
 
   test("stops watching once torn down", () => {
