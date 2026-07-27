@@ -910,8 +910,10 @@ describe("PlanCard recommended upgrade — change-package", () => {
     // The banner CTA opens a confirm dialog (no immediate mutation). A clean pin
     // keeps the directional upgrade copy.
     fireEvent.click(await findByTestId("recommended-upgrade-button"));
-    await findByText("Upgrade to Super?");
-    await findByText("You'll be charged the prorated difference now.");
+    // Assert on copy unique to the dialog — the promo card behind it already
+    // renders the "Upgrade to Super" heading, so the title alone matches twice.
+    await findByText("Billed monthly · prorated difference charged today");
+    await findByText(PLAN_TIER_COPY.super.tagline);
     expect(changePackageBody).toBeNull();
 
     // Confirming posts the recommended package key to change-package.
@@ -1178,7 +1180,9 @@ describe("PlanCard recommended upgrade — change-package", () => {
       expect(onManage).toHaveBeenCalledTimes(1);
     });
     // No configurator opened, no navigation.
-    expect(document.querySelector("[data-testid='confirm-package-switch-button']")).toBeNull();
+    expect(
+      document.querySelector("[data-testid='confirm-package-switch-button']"),
+    ).toBeNull();
     expect(navigateArgs).toEqual([]);
   });
 
