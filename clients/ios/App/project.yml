@@ -131,19 +131,26 @@ targetTemplates:
       - path: VoiceActivity
         excludes:
           - "Info.plist"
-      # `VoiceSessionAttributes` is the ActivityKit wire model. The app
-      # targets already sweep it up via `AppEnvironment`'s `App` source
-      # path; pointing at the same directory here compiles it into the
-      # extension from that one copy on disk, rather than duplicating a
-      # file whose two halves would drift into a decode mismatch.
+      # `App/Shared` holds everything both sides need, from one copy on
+      # disk rather than duplicated files whose halves drift apart: the
+      # ActivityKit wire model, the URL-scheme and color helpers, and —
+      # because a Control Center control is code in the appex — the deep
+      # link plus the App Intent that control invokes. The app targets
+      # already sweep the same directory up via `AppEnvironment`'s `App`
+      # source path.
       - path: App/Shared
     settings:
       configs:
         Debug:
           OTHER_SWIFT_FLAGS: '$(inherited) "-DDEBUG"'
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+          # VOICE_ACTIVITY_EXTENSION marks "this is the appex" for the
+          # `App/Shared` sources compiled into both sides.
+          # `VoiceModeDeepLink.route()` uses it to compile its
+          # `UIApplication`/`AppDelegate` body — extension-unsafe API the
+          # appex never reaches — out of the extension binary.
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG VOICE_ACTIVITY_EXTENSION
         Release:
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: ""
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: VOICE_ACTIVITY_EXTENSION
     # No `scheme:` — extensions build as embedded dependencies of the app
     # targets, so the three app schemes are the only ones worth having.
     preBuildScripts: *projectSpecFreshnessGuard
