@@ -17,7 +17,6 @@ import {
 } from "@/hooks/use-proactive-tips-flag";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
 import { isElectron } from "@/runtime/is-electron";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   useBannerVisibilityStore,
   useBannerVisible,
@@ -45,7 +44,6 @@ interface TipGateContext {
   electron: boolean;
   pluginsSurface: boolean;
   clientFlags: Record<string, boolean>;
-  assistantFlags: Record<string, boolean>;
 }
 
 function tipPassesGates(tip: Tip, ctx: TipGateContext): boolean {
@@ -59,12 +57,6 @@ function tipPassesGates(tip: Tip, ctx: TipGateContext): boolean {
   if (
     gates.requiresClientFlag &&
     ctx.clientFlags[gates.requiresClientFlag] !== true
-  ) {
-    return false;
-  }
-  if (
-    gates.requiresAssistantFlag &&
-    ctx.assistantFlags[gates.requiresAssistantFlag] !== true
   ) {
     return false;
   }
@@ -92,7 +84,6 @@ export function useTipCard(): UseTipCardResult {
   // Whole-store subscriptions: tip gates reference flags by dynamic key, so
   // per-key selectors can't be used (same pattern as the feature-flags panel).
   const clientFlagState = useClientFeatureFlagStore();
-  const assistantFlagState = useAssistantFeatureFlagStore();
   const bannerVisible = useBannerVisible();
   const supportsPluginsSurface = useSupportsPluginsSurface();
   const tipsEnabled = tipsEnabledStorage.useValue();
@@ -172,7 +163,6 @@ export function useTipCard(): UseTipCardResult {
       electron: isElectron(),
       pluginsSurface: supportsPluginsSurface,
       clientFlags: clientFlagState,
-      assistantFlags: assistantFlagState,
     }),
   );
 

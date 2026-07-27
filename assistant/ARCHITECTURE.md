@@ -752,7 +752,7 @@ Conversation starters follow the same pattern via `GET /v1/conversation-starters
 
 The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is the canonical module for determining whether an assistant feature flag is enabled. It loads default values from the unified registry at `meta/feature-flags/feature-flag-registry.json` (bundled copy at `src/config/feature-flag-registry.json`) and resolves the effective state for each declared assistant-scope flag. Assistant feature flags are declaration-driven assistant-scoped booleans that can gate any assistant behavior; skill availability is one consumer.
 
-**Canonical key format:** Simple kebab-case (e.g., `contacts`, `voice-mode`).
+**Canonical key format:** Simple kebab-case (e.g., `contacts`, `browser`).
 
 **Resolution priority** (highest wins):
 
@@ -780,7 +780,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 
 All six enforcement points derive the flag key via `skillFlagKey(skill)` — which returns `undefined` for ungated skills, short-circuiting the check — and then call `isAssistantFeatureFlagEnabled(flagKey, config)` for consistency.
 
-**Migration path:** The legacy `skills.<id>.enabled` and `feature_flags.<id>.enabled` key formats are no longer supported. All code must use simple kebab-case keys (e.g., `contacts`, `voice-mode`). Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
+**Migration path:** The legacy `skills.<id>.enabled` and `feature_flags.<id>.enabled` key formats are no longer supported. All code must use simple kebab-case keys (e.g., `contacts`, `browser`). Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
 
 **Key source files:**
 

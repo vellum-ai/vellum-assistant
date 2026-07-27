@@ -1,12 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
-import { clearFeatureFlagOverridesCache } from "../../config/assistant-feature-flags.js";
 import type {
   LiveVoiceFrontModelConfig,
   LiveVoiceProgressConfig,
@@ -15,11 +13,6 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import {
-  pickAckPhrase,
-  pickProgressPhrase,
-  PROGRESS_FALLBACK_PHRASES,
-} from "../ack-phrases.js";
 import type {
   VoiceFrontDecider,
   VoiceProgressTextInput,
@@ -31,6 +24,10 @@ import {
 } from "../live-voice-session.js";
 import type { LiveVoiceSessionFactoryContext } from "../live-voice-session-manager.js";
 import type { LiveVoiceTtsOptions } from "../live-voice-tts.js";
+import {
+  pickProgressPhrase,
+  PROGRESS_FALLBACK_PHRASES,
+} from "../progress-phrases.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientStartFrame,
@@ -52,9 +49,11 @@ const START_FRAME = {
 const GENEROUS_ACK_TIMEOUT_MS = 60_000;
 
 const GENERATED_NARRATION = "Progress text.";
-// Acks and narrations pass through the same TTS sanitizer; each fresh
-// session's phrase counters start at 0.
-const EXPECTED_TOOL_ACK = sanitizeForTts(pickAckPhrase("tool_use", 0)).trim();
+// Acks are front-model-phrased; narrations fall back to a static phrase.
+// Both pass through the same TTS sanitizer, and each fresh session's
+// narration phrase counter starts at 0.
+const GENERATED_TOOL_ACK = "Let me look that up.";
+const EXPECTED_TOOL_ACK = sanitizeForTts(GENERATED_TOOL_ACK).trim();
 const EXPECTED_PROGRESS_FALLBACK = sanitizeForTts(pickProgressPhrase(0)).trim();
 
 class MockStreamingTranscriber implements StreamingTranscriber {
@@ -134,8 +133,7 @@ function makeProgressDecider(
   generateProgressText: VoiceFrontDecider["generateProgressText"],
 ): VoiceFrontDecider {
   return {
-    decideEndpoint: async () => ({ action: "release" }),
-    generateAckText: async () => null,
+    generateAckText: async () => GENERATED_TOOL_ACK,
     generateProgressText,
   };
 }
@@ -254,34 +252,27 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 
 describe("LiveVoiceSession progress narration", () => {
   test("the escalated leg re-arms idle narration into post-bridge dead air", async () => {
-    setOverridesForTesting({
-      "voice-mode": true,
+    const generateProgressText = mock(
+      async () => "Still working through your calendar.",
+    );
+    const { session, getCallbacks, ttsTexts } = createProgressHarness({
+      frontModelConfig: progressConfig({ idleIntervalMs: 40 }),
+      frontDecider: makeProgressDecider(generateProgressText),
     });
-    try {
-      const generateProgressText = mock(
-        async () => "Still working through your calendar.",
-      );
-      const { session, getCallbacks, ttsTexts } = createProgressHarness({
-        frontModelConfig: progressConfig({ idleIntervalMs: 40 }),
-        frontDecider: makeProgressDecider(generateProgressText),
-      });
-      await startReleasedTurn(session, getCallbacks);
+    await startReleasedTurn(session, getCallbacks);
 
-      // Bare escalate verdict: the canned bridge speaks and the escalated
-      // leg takes over. Its strong-model thinking + tool loops are the
-      // longest dead air in the system — narration must cover it once the
-      // bridge audio has drained, where it used to be suppressed for the
-      // rest of the turn.
-      emitTextDelta(getCallbacks, "[1]");
-      emitMessageComplete(getCallbacks);
-      await waitFor(() => ttsTexts.length === 1);
+    // Bare escalate verdict: the canned bridge speaks and the escalated
+    // leg takes over. Its strong-model thinking + tool loops are the
+    // longest dead air in the system — narration must cover it once the
+    // bridge audio has drained, where it used to be suppressed for the
+    // rest of the turn.
+    emitTextDelta(getCallbacks, "[1]");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => ttsTexts.length === 1);
 
-      await waitFor(() => generateProgressText.mock.calls.length >= 1);
-      await waitFor(() => ttsTexts.length >= 2);
-      expect(ttsTexts[1]).toContain("Still working");
-    } finally {
-      clearFeatureFlagOverridesCache();
-    }
+    await waitFor(() => generateProgressText.mock.calls.length >= 1);
+    await waitFor(() => ttsTexts.length >= 2);
+    expect(ttsTexts[1]).toContain("Still working");
   });
 
   test("ops threshold: three tool ops speak exactly one narration with the accumulated activity", async () => {
@@ -535,20 +526,16 @@ describe("LiveVoiceSession progress narration", () => {
     emitMessageComplete(getCallbacks);
   });
 
-  test("llmAckText: no narration generation launches while an ack generation is pending", async () => {
+  test("no narration generation launches while an ack generation is pending", async () => {
     const ackGeneration = deferred<string | null>();
     const generateAckText = mock(() => ackGeneration.promise);
     const generateProgressText = mock(async () => GENERATED_NARRATION);
     const frontDecider: VoiceFrontDecider = {
-      decideEndpoint: async () => ({ action: "release" }),
       generateAckText,
       generateProgressText,
     };
     const { session, getCallbacks, ttsTexts } = createProgressHarness({
-      frontModelConfig: {
-        llmAckText: true,
-        ...progressConfig({ opsThreshold: 1, minGapMs: 150 }),
-      },
+      frontModelConfig: progressConfig({ opsThreshold: 1, minGapMs: 150 }),
       frontDecider,
     });
 

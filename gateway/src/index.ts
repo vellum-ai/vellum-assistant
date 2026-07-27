@@ -20,8 +20,6 @@ import { loopbackFallbackCountTracker } from "./http/middleware/auth.js";
 import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { FeatureFlagWatcher } from "./feature-flag-watcher.js";
-import { readPersistedFeatureFlags } from "./feature-flag-store.js";
-import { readRemoteFeatureFlags } from "./feature-flag-remote-store.js";
 import { RemoteFeatureFlagSync } from "./remote-feature-flag-sync.js";
 import { loadConfig } from "./config.js";
 import { CredentialCache } from "./credential-cache.js";
@@ -393,40 +391,24 @@ async function main() {
   }
 
   /**
-   * Whether web live voice is enabled for this assistant. The browser only
-   * opens the live-voice channel when the `voice-mode` assistant flag is on, so
-   * we mirror that signal here (persisted local override OR platform-synced
-   * remote value). Used to bring up the Velay tunnel, which is the browser's
-   * ingress for live voice.
-   */
-  function isLiveVoiceEnabled(): boolean {
-    return (
-      readPersistedFeatureFlags()["voice-mode"] === true ||
-      readRemoteFeatureFlags()["voice-mode"] === true
-    );
-  }
-
-  /**
-   * Start the Velay tunnel when web live voice is enabled.
+   * Start the Velay tunnel for web live voice.
    *
    * Velay is the browser's ingress for the live-voice WebSocket, but the tunnel
    * was historically only started for Twilio (see
-   * {@link maybeStartVelayTunnelForTwilio}). Without this, a `voice-mode`
-   * assistant with no Twilio setup never registers a Velay tunnel, so the
-   * browser's `/v1/live-voice` upgrade fails with "assistant tunnel is not
-   * connected". Shares the `velayStartRequested` latch with the Twilio path —
-   * one tunnel serves both — and `velayTunnelClient.start()` is idempotent.
+   * {@link maybeStartVelayTunnelForTwilio}). Without this, an assistant with no
+   * Twilio setup never registers a Velay tunnel, so the browser's
+   * `/v1/live-voice` upgrade fails with "assistant tunnel is not connected".
+   * Live voice is available to every assistant, so this runs unconditionally at
+   * startup. Shares the `velayStartRequested` latch with the Twilio path — one
+   * tunnel serves both — and `velayTunnelClient.start()` is idempotent.
    */
-  function maybeStartVelayTunnelForLiveVoice(reason: string): boolean {
+  function startVelayTunnelForLiveVoice(reason: string): boolean {
     if (velayStartRequested || !velayTunnelClient) {
       return velayStartRequested;
     }
-    if (!isLiveVoiceEnabled()) {
-      return false;
-    }
 
     velayStartRequested = true;
-    log.info({ reason }, "Starting Velay tunnel after live voice enabled");
+    log.info({ reason }, "Starting Velay tunnel for live voice");
     velayTunnelClient.start();
     return true;
   }
@@ -2553,8 +2535,8 @@ async function main() {
   }
   maybeStartVelayTunnelForTwilio("startup", twilioStartupCredentials);
   // Velay is also the browser's ingress for web live voice, so bring the tunnel
-  // up at startup when `voice-mode` is already enabled (not just for Twilio).
-  maybeStartVelayTunnelForLiveVoice("startup");
+  // up at startup for every assistant (not just for Twilio).
+  startVelayTunnelForLiveVoice("startup");
 
   // The credential watcher callback handles credential-backed startup side
   // effects during the initial poll. Stale Velay-owned ingress is already
@@ -2663,10 +2645,6 @@ async function main() {
 
   emitFlagChanged = () => {
     ipcServer.emit("feature_flags_changed");
-    // A `voice-mode` flip (e.g. after a warm-pool claim syncs the assistant's
-    // flags) should bring up the Velay tunnel so web live voice can connect
-    // without a gateway restart.
-    maybeStartVelayTunnelForLiveVoice("voice-mode flag changed");
   };
 
   const featureFlagWatcher = new FeatureFlagWatcher({

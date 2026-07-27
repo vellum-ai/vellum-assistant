@@ -26,10 +26,6 @@
  * `!isPopout`. The pill keeps its own popout-free complement
  * ({@link useOwningComposerSurfaceVisible}), so in a pop-out it still hides
  * while the composer's voice bar owns the session (no double control).
- *
- * Deliberately does NOT re-check the `voice-mode` flag: entry already gated the
- * session, and a live session keeps its UI even if the flag later flips (the
- * mid-session-eligibility-drop invariant).
  */
 
 import { useState } from "react";

@@ -172,12 +172,6 @@ export const LiveVoiceFrontModelConfigSchema = z
       )
       .default(600)
       .describe("Budget (ms) for LLM-generated ack text"),
-    llmAckText: z
-      .boolean({ error: "liveVoice.frontModel.llmAckText must be a boolean" })
-      .default(false)
-      .describe(
-        "Use the front model to phrase spoken acks; static phrases otherwise",
-      ),
     progress: LiveVoiceProgressConfigSchema.default(
       LiveVoiceProgressConfigSchema.parse({}),
     ),

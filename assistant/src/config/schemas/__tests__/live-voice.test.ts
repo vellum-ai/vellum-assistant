@@ -21,7 +21,6 @@ const FRONT_MODEL_DEFAULTS = {
   endpointMaxExtensions: 2,
   ackFirstDeltaTimeoutMs: 2500,
   ackGenerationTimeoutMs: 600,
-  llmAckText: false,
   progress: PROGRESS_DEFAULTS,
 };
 
@@ -86,11 +85,9 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
     const parsed = LiveVoiceFrontModelConfigSchema.parse({
       endpointDecisionTimeoutMs: 400,
       endpointMaxExtensions: 0,
-      llmAckText: true,
     });
     expect(parsed.endpointDecisionTimeoutMs).toBe(400);
     expect(parsed.endpointMaxExtensions).toBe(0);
-    expect(parsed.llmAckText).toBe(true);
     // Unspecified fields still get defaults
     expect(parsed.endpointExtensionMs).toBe(1500);
     expect(parsed.ackFirstDeltaTimeoutMs).toBe(2500);
@@ -109,19 +106,6 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
       endpointMaxExtensions: -1,
     });
     expect(result.success).toBe(false);
-  });
-
-  test("rejects a non-boolean llmAckText", () => {
-    const result = LiveVoiceFrontModelConfigSchema.safeParse({
-      llmAckText: "yes",
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map((i) => i.message);
-      expect(
-        msgs.some((m) => m.includes("liveVoice.frontModel.llmAckText")),
-      ).toBe(true);
-    }
   });
 
   test("absent progress namespace parses to full progress defaults", () => {

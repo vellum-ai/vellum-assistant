@@ -939,7 +939,6 @@ describe("AssistantConfigSchema", () => {
         endpointMaxExtensions: 2,
         ackFirstDeltaTimeoutMs: 2500,
         ackGenerationTimeoutMs: 600,
-        llmAckText: false,
         progress: {
           enabled: true,
           opsThreshold: 3,
