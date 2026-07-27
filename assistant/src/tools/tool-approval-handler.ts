@@ -17,13 +17,12 @@ import {
   isToolOwnerSkillBundled,
 } from "../permissions/checker.js";
 import {
+  channelNoCellDefault,
   resolveChannelPermissionCell,
-  resolveContactRoomDefaultThreshold,
 } from "../permissions/gateway-threshold-reader.js";
 import {
-  isExecutableWorkspaceWrite,
+  isControlPlaneWorkspaceWrite,
   isOutOfWorkspaceFileInvocation,
-  isPromptSurfaceWrite,
   isWorkspaceWriteTool,
 } from "../permissions/workspace-policy.js";
 import {
@@ -258,28 +257,18 @@ async function stampFollowupState(
 const UI_SURFACE_TOOLS = new Set(["ui_show", "ui_update", "ui_dismiss"]);
 
 /**
- * Tool-sensitivity predicate: does invoking this tool require an approval
- * decision at all? This is about the tool, where it executes, and — for
- * `skill_load` — whether the invocation will execute embedded shell at load
- * time (inline command expansions run outside the tool pipeline, so they must
- * be gated like other code execution). Actor identity never feeds in here; it
- * enters the decision only through the `CapabilitySet` floor, see
- * {@link resolveSensitiveToolDecision}.
+ * How far a sensitive invocation reaches — the axis that decides whether a
+ * channel's approval cell may lift its floor. See {@link sensitiveToolReach}.
  */
-export function isSensitiveTool(
-  toolName: string,
-  executionTarget: ExecutionTarget,
-  input?: Record<string, unknown>,
-  workingDir?: string,
-): boolean {
-  return (
-    sensitiveToolReach(toolName, executionTarget, input, workingDir) !== "none"
-  );
-}
+export type SensitiveToolReach = "none" | "sandbox" | "host";
 
 /**
- * How far a sensitive invocation reaches — the axis that decides whether a
- * channel's approval cell may lift its floor.
+ * Classify how far a sensitive invocation reaches. This is about the tool,
+ * where it executes, and — for `skill_load` — whether the invocation will
+ * execute embedded shell at load time (inline command expansions run outside
+ * the tool pipeline, so they must be gated like other code execution). Actor
+ * identity never feeds in here; it enters the decision only through the
+ * `CapabilitySet` floor, see {@link resolveSensitiveToolDecision}.
  *
  * - `"none"`: not sensitive.
  * - `"sandbox"`: side effects confined to the assistant's own workspace. An
@@ -295,7 +284,7 @@ export function sensitiveToolReach(
   executionTarget: ExecutionTarget,
   input?: Record<string, unknown>,
   workingDir?: string,
-): "none" | "sandbox" | "host" {
+): SensitiveToolReach {
   // UI surface tools are passive, user-visible operations (cards, forms,
   // tables). User input is voluntary and user-controlled — they are not
   // sensitive, so they work during fresh onboarding before trust is
@@ -411,7 +400,7 @@ export type SensitiveToolDecision = "proceed" | "escalate-and-wait" | "deny";
  */
 export function resolveSensitiveToolDecision(input: {
   /** How far the invocation reaches; see {@link sensitiveToolReach}. */
-  reach: "none" | "sandbox" | "host";
+  reach: SensitiveToolReach;
   /**
    * Threshold of the approval-matrix cell governing this invocation.
    * `undefined` when no cell covers it — including when the cell could not be
@@ -435,7 +424,7 @@ export function resolveSensitiveToolDecision(input: {
 /**
  * Sandbox tools that execute code. Running code in the workspace is how you
  * write everything else in it — including the directories
- * {@link isExecutableWorkspaceWrite} covers — so a cell that lifted one of
+ * {@link isControlPlaneWorkspaceWrite} covers — so a cell that lifted one of
  * these would lift those by the back door.
  *
  * `skill_execute` is deliberately absent rather than overlooked: it is
@@ -469,9 +458,10 @@ function reachesPrivateNetwork(
  * - `bash` runs code. A room that can run code in the workspace can write
  *   anything into it, including the executable directories below, so lifting
  *   bash would lift those by the back door.
- * - Writes into the workspace directories the daemon imports and executes are
- *   code, not data ({@link isExecutableWorkspaceWrite}). Approving the write
- *   approves the later execution.
+ * - Control-plane workspace writes ({@link isControlPlaneWorkspaceWrite}) —
+ *   the directories the daemon imports and executes, and the prompt surfaces
+ *   it reads as its own instructions. Approving the write approves the later
+ *   execution.
  * - Unvetted extension-owned tools ({@link isUnvettedExtensionTool}). Nothing
  *   reviewed them, so the risk their own manifest claims must not be what
  *   decides whether a room may run them unattended.
@@ -485,7 +475,7 @@ function reachesPrivateNetwork(
  * lane — it decides what a *cell* may delegate, not how risk is classified.
  */
 function isChannelLiftable(
-  reach: "none" | "sandbox" | "host",
+  reach: SensitiveToolReach,
   toolName: string,
   input: Record<string, unknown>,
   workingDir: string | undefined,
@@ -497,15 +487,12 @@ function isChannelLiftable(
     return false;
   }
   // A write is liftable only when its target can be resolved and resolves
-  // outside the executable sinks and the prompt surfaces — code the daemon
-  // executes and instructions it obeys are the same delegation, one layer
-  // apart. With no workingDir there is no way to see where the write lands,
-  // so both checks fail closed rather than being skipped.
+  // outside the control plane. With no workingDir there is no way to see
+  // where the write lands, so the check fails closed rather than being
+  // skipped.
   if (
     isWorkspaceWriteTool(toolName) &&
-    (!workingDir ||
-      isExecutableWorkspaceWrite(toolName, input, workingDir) ||
-      isPromptSurfaceWrite(toolName, input, workingDir))
+    (!workingDir || isControlPlaneWorkspaceWrite(toolName, input, workingDir))
   ) {
     return false;
   }
@@ -538,7 +525,7 @@ function isChannelLiftable(
  * ({@link effectiveChannelCellThreshold}).
  */
 async function resolveApprovalCellThreshold(
-  reach: "none" | "sandbox" | "host",
+  reach: SensitiveToolReach,
   toolName: string,
   input: Record<string, unknown>,
   sensitiveToolApproval: SensitiveToolApproval,
@@ -557,13 +544,11 @@ async function resolveApprovalCellThreshold(
     return undefined;
   }
   const cell = await resolveChannelPermissionCell(query);
-  // Only a successful no-cell walk pays the global read: the room default is
-  // the collapsed global, and an unreadable global lifts nothing.
-  const noCellDefault =
-    cell.ok && !cell.resolved
-      ? await resolveContactRoomDefaultThreshold()
-      : undefined;
-  return effectiveChannelCellThreshold(cell, query.contactType, noCellDefault);
+  return effectiveChannelCellThreshold(
+    cell,
+    query.contactType,
+    await channelNoCellDefault(cell, query.contactType),
+  );
 }
 
 /**

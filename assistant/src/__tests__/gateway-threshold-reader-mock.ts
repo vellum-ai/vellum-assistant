@@ -27,7 +27,7 @@ export interface ThresholdReaderMockState {
   refreshed: string | null;
   /** Resolved by `resolveChannelPermissionCell`. */
   cell: MockCellResult;
-  /** Resolved by `resolveContactRoomDefaultThreshold` (collapsed global). */
+  /** The collapsed-global room default `channelNoCellDefault` derives. */
   roomDefault: string | undefined;
   /** Every `getAutoApproveThreshold` call, in order. */
   thresholdReads: Array<{
@@ -85,8 +85,15 @@ export function installThresholdReaderMock(): void {
       thresholdReaderMock.cellLookups += 1;
       return thresholdReaderMock.cell;
     },
-    resolveContactRoomDefaultThreshold: async () =>
-      thresholdReaderMock.roomDefault,
+    // Mirrors the production guard: only a successful no-cell walk for a
+    // non-guardian derives the default. Reimplemented here (three lines)
+    // because this file must hold no production imports.
+    channelNoCellDefault: async (cell: MockCellResult, contactType: string) => {
+      if (!cell.ok || cell.resolved || contactType === "guardian") {
+        return undefined;
+      }
+      return thresholdReaderMock.roomDefault;
+    },
     _clearGlobalCacheForTesting: () => {},
   }));
 }

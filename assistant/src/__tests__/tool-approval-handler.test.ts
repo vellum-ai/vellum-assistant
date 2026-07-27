@@ -123,8 +123,8 @@ import { scopedApprovalGrants } from "../persistence/schema/index.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import {
   type ApprovalCellThreshold,
-  isSensitiveTool,
   resolveSensitiveToolDecision,
+  sensitiveToolReach,
   ToolApprovalHandler,
 } from "../tools/tool-approval-handler.js";
 import type { ToolContext } from "../tools/types.js";
@@ -580,90 +580,90 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
   });
 });
 
-describe("isSensitiveTool", () => {
-  test("sensitivity is a property of the tool and execution target", () => {
-    // Side-effect tools are sensitive wherever they run.
-    expect(isSensitiveTool("bash", "sandbox")).toBe(true);
-    expect(isSensitiveTool("file_write", "sandbox")).toBe(true);
-    // Read-only tools are sensitive only when they execute on the host.
-    expect(isSensitiveTool("web_search", "host")).toBe(true);
-    expect(isSensitiveTool("web_search", "sandbox")).toBe(false);
-    // UI surface tools are exempt even on the host target.
-    expect(isSensitiveTool("ui_show", "host")).toBe(false);
-    expect(isSensitiveTool("ui_update", "host")).toBe(false);
-    expect(isSensitiveTool("ui_dismiss", "host")).toBe(false);
+describe("sensitiveToolReach", () => {
+  test("reach is a property of the tool and execution target", () => {
+    // Side-effect tools reach the sandbox wherever they run…
+    expect(sensitiveToolReach("bash", "sandbox")).toBe("sandbox");
+    expect(sensitiveToolReach("file_write", "sandbox")).toBe("sandbox");
+    // …read-only tools reach only when they execute on the host…
+    expect(sensitiveToolReach("web_search", "host")).toBe("host");
+    expect(sensitiveToolReach("web_search", "sandbox")).toBe("none");
+    // …and UI surface tools are exempt even on the host target.
+    expect(sensitiveToolReach("ui_show", "host")).toBe("none");
+    expect(sensitiveToolReach("ui_update", "host")).toBe("none");
+    expect(sensitiveToolReach("ui_dismiss", "host")).toBe("none");
   });
 
-  test("an inline-command (dynamic) skill_load is sensitive; a plain one is not", () => {
+  test("an inline-command (dynamic) skill_load reaches the host; a plain one is not sensitive", () => {
     // skill_load is not a side-effect tool, but a load that executes embedded
     // shell at load time must pass through the capability floor — so a
     // non-guardian's dynamic load escalates to the guardian, Full-access-proof.
     expect(
-      isSensitiveTool("skill_load", "sandbox", { skill: "dynamic-skill" }),
-    ).toBe(true);
+      sensitiveToolReach("skill_load", "sandbox", { skill: "dynamic-skill" }),
+    ).toBe("host");
     expect(
-      isSensitiveTool("skill_load", "sandbox", { skill: "plain-skill" }),
-    ).toBe(false);
+      sensitiveToolReach("skill_load", "sandbox", { skill: "plain-skill" }),
+    ).toBe("none");
     // Without input, skill_load falls back to the name/target rule.
-    expect(isSensitiveTool("skill_load", "sandbox")).toBe(false);
+    expect(sensitiveToolReach("skill_load", "sandbox")).toBe("none");
   });
 
-  test("an out-of-workspace file_read is sensitive; an in-workspace one is not", () => {
+  test("an out-of-workspace file_read reaches the host; an in-workspace one is not sensitive", () => {
     const workingDir = mkdtempSync(join(tmpdir(), "sensitive-tool-test-"));
     try {
       // Out-of-workspace file access is host-equivalent: the host-fallback
       // path policy executes the escape, so it carries the host capability
       // floor even for the read-only sandbox tool.
       expect(
-        isSensitiveTool(
+        sensitiveToolReach(
           "file_read",
           "sandbox",
           { path: "/etc/hosts" },
           workingDir,
         ),
-      ).toBe(true);
+      ).toBe("host");
       expect(
-        isSensitiveTool(
+        sensitiveToolReach(
           "file_read",
           "sandbox",
           { path: "notes.txt" },
           workingDir,
         ),
-      ).toBe(false);
+      ).toBe("none");
       // `path` is the executed field — a benign `file_path` must not mask it.
       expect(
-        isSensitiveTool(
+        sensitiveToolReach(
           "file_read",
           "sandbox",
           { path: "/etc/hosts", file_path: "notes.txt" },
           workingDir,
         ),
-      ).toBe(true);
+      ).toBe("host");
       // Container-style /workspace paths remap to the workspace.
       expect(
-        isSensitiveTool(
+        sensitiveToolReach(
           "file_read",
           "sandbox",
           { path: "/workspace/notes.txt" },
           workingDir,
         ),
-      ).toBe(false);
+      ).toBe("none");
       // Without a workingDir the boundary is unknown — name/target rule only.
       expect(
-        isSensitiveTool("file_read", "sandbox", { path: "/etc/hosts" }),
-      ).toBe(false);
+        sensitiveToolReach("file_read", "sandbox", { path: "/etc/hosts" }),
+      ).toBe("none");
       // Containerized installs keep the hard execution boundary, so the
       // escape never executes and does not need the floor.
       process.env.IS_CONTAINERIZED = "true";
       try {
         expect(
-          isSensitiveTool(
+          sensitiveToolReach(
             "file_read",
             "sandbox",
             { path: "/etc/hosts" },
             workingDir,
           ),
-        ).toBe(false);
+        ).toBe("none");
       } finally {
         delete process.env.IS_CONTAINERIZED;
       }

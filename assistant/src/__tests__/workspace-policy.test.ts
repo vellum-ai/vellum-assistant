@@ -5,10 +5,9 @@ import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 
 import * as envRegistry from "../config/env-registry.js";
 import {
-  isExecutableWorkspaceWrite,
+  isControlPlaneWorkspaceWrite,
   isOutOfWorkspaceFileInvocation,
   isPathWithinWorkspaceRoot,
-  isPromptSurfaceWrite,
   isWorkspaceScopedInvocation,
 } from "../permissions/workspace-policy.js";
 import { BUNDLED_SYSTEM_SECTIONS } from "../prompts/templates/system-sections.js";
@@ -431,7 +430,7 @@ describe("isOutOfWorkspaceFileInvocation", () => {
 // against the per-process workspace override, not this file's scaffold root.
 // Using the scaffold would let the probe root and the getters diverge, and the
 // tests would pass without exercising the real comparison.
-describe("isExecutableWorkspaceWrite", () => {
+describe("isControlPlaneWorkspaceWrite / executable sinks", () => {
   const wsRoot = process.env.VELLUM_WORKSPACE_DIR!;
 
   beforeAll(() => {
@@ -453,7 +452,7 @@ describe("isExecutableWorkspaceWrite", () => {
   ])("blocks a write into hooks/ via %s path", (_label, path) => {
     const resolved = typeof path === "function" ? path() : path;
     expect(
-      isExecutableWorkspaceWrite("file_write", { path: resolved }, wsRoot),
+      isControlPlaneWorkspaceWrite("file_write", { path: resolved }, wsRoot),
     ).toBe(true);
   });
 
@@ -461,7 +460,7 @@ describe("isExecutableWorkspaceWrite", () => {
   // The sibling predicates above canonicalize for exactly this reason.
   test("blocks a write through a symlink into hooks/", () => {
     expect(
-      isExecutableWorkspaceWrite(
+      isControlPlaneWorkspaceWrite(
         "file_write",
         { path: "notes-link/evil.ts" },
         wsRoot,
@@ -475,7 +474,7 @@ describe("isExecutableWorkspaceWrite", () => {
     symlinkSync(join(wsRoot, "hooks", "not-yet.ts"), dangling);
     try {
       expect(
-        isExecutableWorkspaceWrite("file_write", { path: dangling }, wsRoot),
+        isControlPlaneWorkspaceWrite("file_write", { path: dangling }, wsRoot),
       ).toBe(true);
     } finally {
       rmSync(dangling, { force: true });
@@ -487,7 +486,7 @@ describe("isExecutableWorkspaceWrite", () => {
   // channel floor must too.
   test("blocks a write into the monitoring data directory", () => {
     expect(
-      isExecutableWorkspaceWrite(
+      isControlPlaneWorkspaceWrite(
         "file_write",
         { path: "data/monitoring/source-versions.json" },
         wsRoot,
@@ -497,7 +496,7 @@ describe("isExecutableWorkspaceWrite", () => {
 
   test("ordinary workspace writes and reads stay clear", () => {
     expect(
-      isExecutableWorkspaceWrite(
+      isControlPlaneWorkspaceWrite(
         "file_write",
         { path: "notes-real/todo.md" },
         wsRoot,
@@ -505,7 +504,7 @@ describe("isExecutableWorkspaceWrite", () => {
     ).toBe(false);
     // Reads never plant code, even into a sink dir.
     expect(
-      isExecutableWorkspaceWrite(
+      isControlPlaneWorkspaceWrite(
         "file_read",
         { path: "hooks/on-message.ts" },
         wsRoot,
@@ -518,7 +517,7 @@ describe("isExecutableWorkspaceWrite", () => {
 // isPromptSurfaceWrite
 // ---------------------------------------------------------------------------
 
-describe("isPromptSurfaceWrite", () => {
+describe("isControlPlaneWorkspaceWrite / prompt surfaces", () => {
   const wsRoot = process.env.VELLUM_WORKSPACE_DIR!;
 
   test.each([
@@ -531,7 +530,9 @@ describe("isPromptSurfaceWrite", () => {
     "channels/general.md",
     "HEARTBEAT.md",
   ])("blocks a write to %s", (path) => {
-    expect(isPromptSurfaceWrite("file_write", { path }, wsRoot)).toBe(true);
+    expect(isControlPlaneWorkspaceWrite("file_write", { path }, wsRoot)).toBe(
+      true,
+    );
   });
 
   // The path is lexically ordinary; only canonicalization sees where it
@@ -540,7 +541,7 @@ describe("isPromptSurfaceWrite", () => {
     symlinkSync(join(wsRoot, "SOUL.md"), join(wsRoot, "innocent-notes.md"));
     try {
       expect(
-        isPromptSurfaceWrite(
+        isControlPlaneWorkspaceWrite(
           "file_write",
           { path: "innocent-notes.md" },
           wsRoot,
@@ -553,14 +554,14 @@ describe("isPromptSurfaceWrite", () => {
 
   test("blocks the container /workspace form and dot-dot traversal", () => {
     expect(
-      isPromptSurfaceWrite(
+      isControlPlaneWorkspaceWrite(
         "file_write",
         { path: "/workspace/SOUL.md" },
         wsRoot,
       ),
     ).toBe(true);
     expect(
-      isPromptSurfaceWrite(
+      isControlPlaneWorkspaceWrite(
         "file_write",
         { path: "notes-real/../SOUL.md" },
         wsRoot,
@@ -570,7 +571,7 @@ describe("isPromptSurfaceWrite", () => {
 
   test("ordinary writes and reads stay clear", () => {
     expect(
-      isPromptSurfaceWrite(
+      isControlPlaneWorkspaceWrite(
         "file_write",
         { path: "notes-real/todo.md" },
         wsRoot,
@@ -578,15 +579,15 @@ describe("isPromptSurfaceWrite", () => {
     ).toBe(false);
     // A file merely named like a surface, in a subdirectory, is not one.
     expect(
-      isPromptSurfaceWrite(
+      isControlPlaneWorkspaceWrite(
         "file_write",
         { path: "notes-real/SOUL.md" },
         wsRoot,
       ),
     ).toBe(false);
-    expect(isPromptSurfaceWrite("file_read", { path: "SOUL.md" }, wsRoot)).toBe(
-      false,
-    );
+    expect(
+      isControlPlaneWorkspaceWrite("file_read", { path: "SOUL.md" }, wsRoot),
+    ).toBe(false);
   });
 
   // Drift guard: every workspace path the prompt renderer reads must be
@@ -608,7 +609,9 @@ describe("isPromptSurfaceWrite", () => {
 
     expect(paths.length).toBeGreaterThan(0);
     for (const path of paths) {
-      expect(isPromptSurfaceWrite("file_write", { path }, wsRoot)).toBe(true);
+      expect(isControlPlaneWorkspaceWrite("file_write", { path }, wsRoot)).toBe(
+        true,
+      );
     }
   });
 });

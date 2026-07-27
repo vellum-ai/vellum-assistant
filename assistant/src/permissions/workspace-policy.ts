@@ -43,6 +43,20 @@ function canonicalizeExisting(abs: string): string {
 }
 
 /**
+ * Whether a canonical path is a canonical directory or falls under it. The
+ * trailing separator keeps `/workspace-extra` from matching `/workspace`.
+ * Both arguments must already be canonicalized — comparing a canonical path
+ * against a lexical directory would re-open the symlink dodge.
+ */
+function isAtOrUnderCanonicalDir(
+  canonicalPath: string,
+  canonicalDir: string,
+): boolean {
+  const prefix = canonicalDir.endsWith("/") ? canonicalDir : `${canonicalDir}/`;
+  return canonicalPath === canonicalDir || canonicalPath.startsWith(prefix);
+}
+
+/**
  * Resolve a file path to its canonical form (resolving symlinks and
  * normalizing segments like `.` and `..`), then check whether it falls
  * within the given workspace root.
@@ -54,18 +68,9 @@ export function isPathWithinWorkspaceRoot(
   if (!filePath || !workspaceRoot) {
     return false;
   }
-
-  const canonicalPath = canonicalize(filePath);
-  const canonicalRoot = canonicalize(workspaceRoot);
-
-  // Ensure the root ends with a separator so `/workspace-extra` doesn't
-  // match `/workspace`.
-  const rootPrefix = canonicalRoot.endsWith("/")
-    ? canonicalRoot
-    : `${canonicalRoot}/`;
-
-  return (
-    canonicalPath === canonicalRoot || canonicalPath.startsWith(rootPrefix)
+  return isAtOrUnderCanonicalDir(
+    canonicalize(filePath),
+    canonicalize(workspaceRoot),
   );
 }
 
@@ -177,36 +182,14 @@ export function isOutOfWorkspaceFileInvocation(
 }
 
 /**
- * Whether a sandbox file-tool invocation writes into one of the workspace
- * directories the daemon imports and executes — hooks, plugins, skills,
- * tools, routes, workflows — or the monitoring data directory, whose
- * source-versions sentinel steers which plugin code the daemon imports. A
- * write to any of them is not data, it is code that runs later with the
- * daemon's own reach, so approving the write approves the execution. The
- * list mirrors the file risk classifier's code-injection sinks.
- *
- * Unlike {@link isOutOfWorkspaceFileInvocation} this holds in containerized
- * mode too: the workspace boundary is what contains an escaping *path*, and
- * these paths do not escape — the daemon executes them from inside.
- *
- * Both sides are canonicalized before comparing, for the same reason
- * {@link isPathWithinWorkspaceRoot} canonicalizes: a symlink inside the
- * workspace pointing at one of these directories is a write into it, and a
- * lexical prefix check does not see that.
+ * The workspace directories the daemon imports and executes — hooks,
+ * plugins, skills, tools, routes, workflows — plus the monitoring data
+ * directory, whose source-versions sentinel steers which plugin code the
+ * daemon imports. A write to any of them is code that runs later with the
+ * daemon's own reach. The list mirrors the file risk classifier's
+ * code-injection sinks.
  */
-export function isExecutableWorkspaceWrite(
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  workspaceRoot: string,
-): boolean {
-  if (!isWorkspaceWriteTool(toolName)) {
-    return false;
-  }
-  const filePath = resolvePathScopedTarget(toolInput, workspaceRoot);
-  if (filePath === "") {
-    return false;
-  }
-  const target = canonicalize(filePath);
+function executableSinkDirs(): string[] {
   return [
     getWorkspaceHooksDir(),
     getWorkspacePluginsDir(),
@@ -215,13 +198,7 @@ export function isExecutableWorkspaceWrite(
     getWorkspaceRoutesDir(),
     getWorkspaceWorkflowsDir(),
     getMonitoringDataDir(),
-  ].some((dir) => {
-    const canonicalDir = canonicalize(dir);
-    const withSep = canonicalDir.endsWith("/")
-      ? canonicalDir
-      : `${canonicalDir}/`;
-    return target === canonicalDir || target.startsWith(withSep);
-  });
+  ];
 }
 
 /**
@@ -231,7 +208,7 @@ export function isExecutableWorkspaceWrite(
  * against this predicate). A write to any of them rewrites the assistant's
  * standing instructions, per-user context, or per-channel context.
  */
-const PROMPT_SURFACE_FILES = new Set([
+const PROMPT_SURFACE_FILES = [
   "IDENTITY.md",
   "SOUL.md",
   "VOICE.md",
@@ -239,17 +216,26 @@ const PROMPT_SURFACE_FILES = new Set([
   // Read by the heartbeat service as its checklist — instructions executed
   // unattended (`runtime/routes/heartbeat-routes.ts`).
   "HEARTBEAT.md",
-]);
+];
 const PROMPT_SURFACE_DIRS = ["users", "channels"];
 
 /**
- * Whether a sandbox file-tool invocation writes a workspace prompt surface.
- * These files are instructions the daemon obeys, the same way the
- * {@link isExecutableWorkspaceWrite} directories are code it executes —
- * approving the write approves everything the rewritten instructions cause
- * later. Canonicalized on both sides for the same symlink reason.
+ * Whether a sandbox file-tool invocation writes a workspace control-plane
+ * target: an executable sink directory (code the daemon executes) or a
+ * prompt surface (instructions it obeys). The two categories are one
+ * delegation a layer apart — approving the write approves everything the
+ * planted code or rewritten instructions cause later.
+ *
+ * Unlike {@link isOutOfWorkspaceFileInvocation} this holds in containerized
+ * mode too: the workspace boundary is what contains an escaping *path*, and
+ * these paths do not escape — the daemon acts on them from inside.
+ *
+ * Both sides are canonicalized before comparing, for the same reason
+ * {@link isPathWithinWorkspaceRoot} canonicalizes: a symlink whose name
+ * looks benign but whose target is a control-plane path is a write to that
+ * path, and a lexical prefix check does not see it.
  */
-export function isPromptSurfaceWrite(
+export function isControlPlaneWorkspaceWrite(
   toolName: string,
   toolInput: Record<string, unknown>,
   workspaceRoot: string,
@@ -263,15 +249,15 @@ export function isPromptSurfaceWrite(
   }
   const target = canonicalize(filePath);
   const root = canonicalize(workspaceRoot);
-  for (const file of PROMPT_SURFACE_FILES) {
-    if (target === `${root}/${file}`) {
-      return true;
-    }
-  }
-  return PROMPT_SURFACE_DIRS.some((dir) => {
-    const prefix = `${root}/${dir}/`;
-    return target === `${root}/${dir}` || target.startsWith(prefix);
-  });
+  return (
+    executableSinkDirs().some((dir) =>
+      isAtOrUnderCanonicalDir(target, canonicalize(dir)),
+    ) ||
+    PROMPT_SURFACE_FILES.some((file) => target === `${root}/${file}`) ||
+    PROMPT_SURFACE_DIRS.some((dir) =>
+      isAtOrUnderCanonicalDir(target, `${root}/${dir}`),
+    )
+  );
 }
 
 /**

@@ -285,7 +285,7 @@ export async function resolveChannelPermissionCell(
  * when the global thresholds cannot be read — callers fail safe, and the
  * shared fetch's own failure accounting covers the logging.
  */
-export async function resolveContactRoomDefaultThreshold(options?: {
+async function resolveContactRoomDefaultThreshold(options?: {
   bypassCache?: boolean;
 }): Promise<AutoApproveThreshold | undefined> {
   try {
@@ -297,6 +297,24 @@ export async function resolveContactRoomDefaultThreshold(options?: {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The `noCellDefault` argument for {@link effectiveChannelCellThreshold}:
+ * derived only when it can matter — a successful walk that found no cell,
+ * for a non-guardian contact type. One guard for every cell consumer, so
+ * none of them can apply the room default to a guardian query or pay the
+ * global read on a path where the rule would discard it.
+ */
+export async function channelNoCellDefault(
+  cell: ChannelPermissionCellResult,
+  contactType: ResolveChannelPermissionRequest["contactType"],
+  options?: { bypassCache?: boolean },
+): Promise<AutoApproveThreshold | undefined> {
+  if (!cell.ok || cell.resolved || contactType === "guardian") {
+    return undefined;
+  }
+  return resolveContactRoomDefaultThreshold(options);
 }
 
 // ── Main export ──────────────────────────────────────────────────────────────
@@ -380,14 +398,10 @@ export async function getAutoApproveThreshold(
     if (!cell.ok && cellQuery.contactType !== "guardian") {
       return "none";
     }
-    const noCellDefault =
-      cell.ok && !cell.resolved && cellQuery.contactType !== "guardian"
-        ? await resolveContactRoomDefaultThreshold()
-        : undefined;
     const effective = effectiveChannelCellThreshold(
       cell,
       cellQuery.contactType,
-      noCellDefault,
+      await channelNoCellDefault(cell, cellQuery.contactType),
     );
     if (effective !== undefined) {
       return effective;
@@ -528,16 +542,14 @@ export async function refreshAutoApproveThreshold(
       return null;
     }
     // The refresh exists to see writes the caches hide, so the derived
-    // default must read the globals fresh (and prime the cache) exactly
-    // like the cell read above bypasses the cell cache.
-    const noCellDefault =
-      !cell.resolved && cellQuery.contactType !== "guardian"
-        ? await resolveContactRoomDefaultThreshold({ bypassCache: true })
-        : undefined;
+    // default reads the globals fresh (and primes the cache) exactly like
+    // the cell read above bypasses the cell cache.
     const effective = effectiveChannelCellThreshold(
       cell,
       cellQuery.contactType,
-      noCellDefault,
+      await channelNoCellDefault(cell, cellQuery.contactType, {
+        bypassCache: true,
+      }),
     );
     if (effective !== undefined) {
       return effective;
