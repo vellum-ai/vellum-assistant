@@ -17,7 +17,9 @@ describe("ReconnectBackoff", () => {
 
   test("caps resumes at 30s and identifies at 10 minutes", () => {
     const backoff = new ReconnectBackoff(maxJitter);
-    for (let i = 0; i < 40; i++) backoff.nextDelayMs("resume");
+    for (let i = 0; i < 40; i++) {
+      backoff.nextDelayMs("resume");
+    }
     expect(backoff.nextDelayMs("resume")).toBe(30_000);
     expect(backoff.nextDelayMs("identify")).toBe(600_000);
   });
@@ -28,7 +30,9 @@ describe("ReconnectBackoff", () => {
     // recovery feel — and a ceiling that looks conservative can still fail it
     // (a 120s cap yields ~1440/day).
     const backoff = new ReconnectBackoff(maxJitter);
-    for (let i = 0; i < 40; i++) backoff.nextDelayMs("identify");
+    for (let i = 0; i < 40; i++) {
+      backoff.nextDelayMs("identify");
+    }
 
     // Full jitter draws uniformly over [0, cap), so the mean delay is cap/2.
     const capMs = backoff.nextDelayMs("identify");

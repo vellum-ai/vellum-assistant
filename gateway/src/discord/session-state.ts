@@ -131,7 +131,9 @@ export class DiscordSessionState {
 
   /** The op 6 payload, or undefined when there is no session to resume. */
   resumePayload(): ResumePayload | undefined {
-    if (!this.canResume) return undefined;
+    if (!this.canResume) {
+      return undefined;
+    }
     return {
       session_id: this.sessionId as string,
       seq: this.lastSequence as number,
