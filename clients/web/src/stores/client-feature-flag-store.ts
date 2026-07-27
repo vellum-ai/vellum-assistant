@@ -49,7 +49,8 @@ const envOverrides = getEnvFlagOverridesForScope("client");
 /**
  * The values to hold when no server response stands behind them: registry
  * defaults, with local and env overrides layered back on top. Overrides are
- * the developer's answer for every identity, so they survive a scope change.
+ * the developer's answer for every identity and every fetch outcome, so they
+ * survive both a scope change and a settle.
  */
 function flagsWithoutServerValues(): Record<string, boolean> {
   return { ...CLIENT_FLAG_DEFAULTS, ...readOverrides(), ...envOverrides.bool };
@@ -86,6 +87,7 @@ interface ClientFeatureFlagMeta {
 interface ClientFeatureFlagActions {
   setFlags: (flags: Record<string, boolean>) => void;
   beginScope: (scopeKey: string) => void;
+  settleWithoutServerValues: () => void;
   setFlag: (key: string, value: boolean) => void;
   clearOverride: (key: string) => void;
   setStringFlags: (flags: Record<string, string>) => void;
@@ -160,6 +162,27 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
             hydrated: false,
             scopeKey,
           };
+        }),
+
+      /**
+       * Settle hydration when no server values are coming. Two situations
+       * reach here and they want different answers:
+       *
+       * - Nothing has landed for this scope — the fetch is off for this mode,
+       *   or the first attempt failed. Registry defaults are the honest answer,
+       *   and settling stops surfaces that wait on `hydrated` from hanging.
+       * - A refresh failed after an earlier success in the same scope. The last
+       *   values the server gave for this identity remain the best answer;
+       *   falling back to defaults would switch a legitimately-enabled feature
+       *   off mid-session over one failed request. Hydration is already
+       *   settled, so nothing needs to change.
+       */
+      settleWithoutServerValues: () =>
+        set((prev) => {
+          if (prev.hydrated) {
+            return prev;
+          }
+          return { ...flagsWithoutServerValues(), hydrated: true };
         }),
 
       setFlag: (key: string, value: boolean) => {

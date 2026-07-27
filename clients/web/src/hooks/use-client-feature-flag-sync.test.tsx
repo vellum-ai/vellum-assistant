@@ -17,6 +17,12 @@ const { useClientFeatureFlagSync } = await import(
 const { useClientFeatureFlagStore } = await import(
   "@/stores/client-feature-flag-store"
 );
+const { featureFlagsClientFlagValuesRetrieveQueryKey } = await import(
+  "@/generated/api/@tanstack/react-query.gen"
+);
+
+const FLAG_QUERY_KEY = featureFlagsClientFlagValuesRetrieveQueryKey();
+const initialFlagState = useClientFeatureFlagStore.getState();
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -36,7 +42,7 @@ beforeEach(() => {
   window.__VELLUM_CONFIG__ = undefined;
   fetchMock.mockClear();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
-  useClientFeatureFlagStore.setState({ hydrated: false });
+  useClientFeatureFlagStore.setState(initialFlagState, true);
 });
 
 afterEach(() => {
@@ -99,6 +105,33 @@ describe("useClientFeatureFlagSync", () => {
       },
       { timeout: 5000 },
     );
+  });
+
+  test("keeps the values it already has when a refresh fails", async () => {
+    // A failed background refresh is not evidence the feature turned off.
+    // Falling back to registry defaults would switch a legitimately-enabled
+    // funnel off mid-session, possibly with the user already in checkout.
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags({ marketingPricingTakeover: true });
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response("boom", { status: 500 }),
+      )) as unknown as typeof fetch;
+    const queryClient = freshQueryClient();
+    renderHook(() => useClientFeatureFlagSync(true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(
+      () => {
+        expect(queryClient.getQueryState(FLAG_QUERY_KEY)?.status).toBe("error");
+      },
+      { timeout: 5000 },
+    );
+    const state = useClientFeatureFlagStore.getState();
+    expect(state.hydrated).toBe(true);
+    expect(state.marketingPricingTakeover).toBe(true);
   });
 
   test("stays unsettled until the session is ready", async () => {

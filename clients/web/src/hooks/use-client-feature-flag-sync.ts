@@ -66,11 +66,12 @@ export function useClientFeatureFlagSync(enabled: boolean) {
       return;
     }
     // No server values are coming: the fetch is off for this mode, or it
-    // failed. Settle the store on the registry defaults so surfaces that wait
-    // for `hydrated` before acting on a default-off flag stop waiting instead
-    // of hanging. Passing no values leaves every flag where it is.
+    // failed. Settle the store so surfaces that wait for `hydrated` before
+    // acting on a default-off flag stop waiting instead of hanging. The store
+    // decides what to settle on — registry defaults when this scope never got
+    // a response, its last values when a refresh failed after one.
     if (enabled && (!shouldFetch || isError)) {
-      useClientFeatureFlagStore.getState().setFlags({});
+      useClientFeatureFlagStore.getState().settleWithoutServerValues();
     }
   }, [data, enabled, isError, shouldFetch]);
 }

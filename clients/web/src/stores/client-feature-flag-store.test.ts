@@ -1,5 +1,7 @@
 /**
- * Tests for how the client flag store handles a change of evaluation scope.
+ * Tests for the two ways the client flag store leaves the pre-hydration
+ * window: claiming a new evaluation scope, and settling when no server values
+ * are coming.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
@@ -15,6 +17,49 @@ const initialState = useClientFeatureFlagStore.getState();
 beforeEach(() => {
   localStorage.clear();
   useClientFeatureFlagStore.setState(initialState, true);
+});
+
+describe("settleWithoutServerValues", () => {
+  test("settles an unhydrated scope on the registry defaults", () => {
+    // A value left over from somewhere other than this scope's own response.
+    useClientFeatureFlagStore.setState({
+      marketingPricingTakeover: true,
+      hydrated: false,
+    });
+
+    useClientFeatureFlagStore.getState().settleWithoutServerValues();
+
+    const state = useClientFeatureFlagStore.getState();
+    expect(state.hydrated).toBe(true);
+    expect(state.marketingPricingTakeover).toBe(
+      CLIENT_FLAG_DEFAULTS.marketingPricingTakeover,
+    );
+  });
+
+  test("keeps the last server values when a refresh fails after a success", () => {
+    // A failed background refresh must not switch a legitimately-enabled
+    // feature off mid-session — potentially while the user is in checkout.
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags({ marketingPricingTakeover: true });
+    expect(useClientFeatureFlagStore.getState().hydrated).toBe(true);
+
+    useClientFeatureFlagStore.getState().settleWithoutServerValues();
+
+    const state = useClientFeatureFlagStore.getState();
+    expect(state.hydrated).toBe(true);
+    expect(state.marketingPricingTakeover).toBe(true);
+  });
+
+  test("keeps a local override rather than the registry default", () => {
+    localStorage.setItem("vellum:ff:marketingPricingTakeover", "true");
+
+    useClientFeatureFlagStore.getState().settleWithoutServerValues();
+
+    expect(
+      useClientFeatureFlagStore.getState().marketingPricingTakeover,
+    ).toBe(true);
+  });
 });
 
 describe("beginScope", () => {
