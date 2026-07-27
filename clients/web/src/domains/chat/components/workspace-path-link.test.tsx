@@ -13,8 +13,15 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
+// Toggled per-test rather than re-mocked: `mock.module` is process-global, so
+// a second registration would leak into the rest of the file.
+let orgReady = true;
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => orgReady,
+}));
+
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { workspaceTreeGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { workspaceTreeQueryOptions } from "@/lib/workspace-tree-query";
 
 const ASSISTANT_ID = "assistant-1";
 
@@ -44,10 +51,8 @@ function clientWithListing(dir: string, entries: TreeEntry[]): QueryClient {
     defaultOptions: { queries: { retry: false } },
   });
   queryClient.setQueryData(
-    workspaceTreeGetQueryKey({
-      path: { assistant_id: ASSISTANT_ID },
-      query: { path: dir },
-    }),
+    workspaceTreeQueryOptions({ assistantId: ASSISTANT_ID, path: dir })
+      .queryKey,
     { path: dir, entries },
   );
   return queryClient;
@@ -80,6 +85,7 @@ function renderMessage(
 
 afterEach(() => {
   cleanup();
+  orgReady = true;
 });
 
 describe("workspace path spans", () => {
@@ -175,10 +181,8 @@ describe("workspace path spans", () => {
     expect(screen.queryByRole("button")).toBeNull();
 
     queryClient.setQueryData(
-      workspaceTreeGetQueryKey({
-        path: { assistant_id: ASSISTANT_ID },
-        query: { path: "drafts" },
-      }),
+      workspaceTreeQueryOptions({ assistantId: ASSISTANT_ID, path: "drafts" })
+        .queryKey,
       { path: "drafts", entries: [entry("drafts/notes.md")] },
     );
 
@@ -187,6 +191,27 @@ describe("workspace path spans", () => {
         screen.getByRole("button", { name: "/workspace/drafts/notes.md" }),
       ).toBeTruthy();
     });
+  });
+
+  test("no listing is requested before the organization store is ready", () => {
+    // Platform-hosted requests carry an org header the store supplies after
+    // auth; firing first is rejected, and `retry: false` would strand the
+    // span. Cached data still renders — the gate withholds the request, not
+    // the result.
+    orgReady = false;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    renderMessage("See `/workspace/drafts/notes.md`.", queryClient);
+
+    const { queryKey } = workspaceTreeQueryOptions({
+      assistantId: ASSISTANT_ID,
+      path: "drafts",
+    });
+    expect(queryClient.getQueryState(queryKey)?.fetchStatus ?? "idle").toBe(
+      "idle",
+    );
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   test("paths inside fenced code blocks are left alone", () => {

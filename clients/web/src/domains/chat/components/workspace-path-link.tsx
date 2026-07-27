@@ -30,7 +30,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import { MARKDOWN_INLINE_CODE_CLASS } from "@vellumai/design-library";
-import { workspaceTreeGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { workspaceTreeQueryOptions } from "@/lib/workspace-tree-query";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
   toVellumWorkspaceHref,
   workspaceBasenameOf,
@@ -77,13 +78,18 @@ export function WorkspacePathLink({
   onOpen,
 }: WorkspacePathLinkProps) {
   const label = raw ?? path ?? "";
-  const enabled = Boolean(path && assistantId && onOpen);
+  // Platform-hosted requests carry a `Vellum-Organization-Id` header sourced
+  // from the org store, which hydrates after auth. Firing before then is
+  // rejected, and `retry: false` would leave the path plain until something
+  // unrelated refetched it.
+  const isOrgReady = useIsOrgReady();
+  const enabled = Boolean(path && assistantId && onOpen && isOrgReady);
   const [pollDeadline] = useState(() => Date.now() + RESOLVE_POLL_WINDOW_MS);
 
   const { data } = useQuery({
-    ...workspaceTreeGetOptions({
-      path: { assistant_id: assistantId ?? "" },
-      query: { path: path ? workspaceDirOf(path) : "" },
+    ...workspaceTreeQueryOptions({
+      assistantId: assistantId ?? "",
+      path: path ? workspaceDirOf(path) : "",
     }),
     enabled,
     staleTime: LISTING_STALE_MS,

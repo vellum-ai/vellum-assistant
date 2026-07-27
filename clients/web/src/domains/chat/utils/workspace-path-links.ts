@@ -1,19 +1,10 @@
 /**
- * Recognize workspace file paths written as bare inline code in chat.
+ * Recognize workspace file paths written as bare inline code in chat — "the
+ * draft is at `/workspace/drafts/notes.md`" — and normalize them to the
+ * workspace-relative form the daemon's workspace routes speak.
  *
- * The assistant is told to link workspace files with the `vellum://` scheme
- * (system prompt section `04-attachment`), but in practice it frequently
- * narrates a path it just read or wrote — "the draft is at
- * `/workspace/drafts/notes.md`" — as an ordinary code span. Nothing in the
- * markdown pipeline linkifies bare paths (remark-gfm only autolinks
- * scheme-bearing URLs), so those references render inert and the user has to
- * go find the file by hand.
- *
- * This module holds the pure half of the fix: deciding whether a code span is
- * a workspace path at all, and normalizing it to the workspace-relative form
- * the daemon's workspace routes speak. Recognition is deliberately
- * conservative — it only proposes a *candidate*. Whether the file actually
- * exists is settled by a directory listing at render time
+ * Recognition is conservative and produces only a *candidate*. Whether the
+ * file exists is settled by a directory listing at render time
  * (`WorkspacePathLink`), so a wrong guess here costs one cache-shared request
  * and renders as plain code, never as a dead link.
  */
