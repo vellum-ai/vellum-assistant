@@ -88,7 +88,10 @@ export function useLongPressSheet({
     }
   }, []);
 
-  const close = useCallback(() => setOpen(false), []);
+  // Routed through `onOpenChange` rather than `setOpen`: closing by running an
+  // action has to clear the guard too, otherwise it stays armed and eats the
+  // next genuine tap on the surface.
+  const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 
   const onClickCapture = useCallback((event: ReactMouseEvent) => {
     if (firedRef.current) {

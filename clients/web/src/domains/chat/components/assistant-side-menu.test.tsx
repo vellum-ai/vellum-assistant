@@ -572,9 +572,8 @@ describe("AssistantSideMenu · section header menus", () => {
     return match;
   }
 
-  // Pinned and Chats previously rendered without `groupMenu`, so their
-  // headers had no ContextMenu at all — right-click did nothing while the
-  // channel sections offered the bulk actions.
+  // Every section header carries the same bulk actions, Pinned and Chats
+  // included — not just the channel sections.
   test.each(["Pinned", "Chats", "Slack"])(
     "%s exposes the same bulk actions on right-click",
     async (label) => {
@@ -630,10 +629,8 @@ describe("AssistantSideMenu · section header menus", () => {
 });
 
 describe("AssistantSideMenu · section spacing", () => {
-  // Pinned/Chats and the channel sections used to live in two sibling
-  // accordion roots, so the Chats↔Slack boundary picked up the Body's
-  // `gap-4` (16px) while every other boundary got the root's own gap. One
-  // root means one gap for every boundary.
+  // One accordion root holds every section, so its gap is the only thing
+  // separating them — no boundary can pick up the Body's larger gap instead.
   test("Pinned, Chats and channel sections share a single accordion root", () => {
     const html = renderMenu({
       conversations: [

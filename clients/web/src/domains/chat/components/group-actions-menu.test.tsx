@@ -64,9 +64,8 @@ describe("GroupActionsMenu", () => {
     render(createElement(GroupActionsMenu, { label: "Work", ...allActions }));
     try {
       await openMenu("Work actions");
-      // The regression this locks in: the "…" menu used to hand-roll only
-      // Rename/Delete while the header's right-click menu offered the bulk
-      // actions, so the two surfaces disagreed on the same group.
+      // The "…" menu and the header's right-click menu render from the same
+      // item set, so both carry the bulk actions, not just Rename/Delete.
       expect(document.body.textContent).toContain("Mark All as Read");
       expect(document.body.textContent).toContain("Archive All");
       expect(document.body.textContent).toContain("Rename");
@@ -153,9 +152,8 @@ describe("renderGroupMenuItemsAsPanelItems", () => {
       );
       expect(row).not.toBeNull();
       expect(row?.textContent).toContain("Mark All as Read");
-      // PanelItem has no `disabled` prop, so "disabled" is expressed by
-      // dropping onSelect plus a pointer-events guard — clicking must be a
-      // no-op rather than throwing.
+      // PanelItem's own `disabled` blocks activation while keeping the row's
+      // button semantics, so clicking is a no-op rather than throwing.
       act(() => {
         row?.click();
       });
