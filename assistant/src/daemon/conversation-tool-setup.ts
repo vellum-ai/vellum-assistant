@@ -13,6 +13,7 @@ import {
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
+import { isMemoryEnabled } from "../config/memory-v3-gate.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
@@ -63,7 +64,10 @@ import {
   type UsageAttributionSnapshot,
 } from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
-import { conversationSupportsDynamicUi } from "./channel-ui-capability.js";
+import {
+  conversationSupportsDynamicUi,
+  conversationSupportsGuardianQuestionCards,
+} from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
 import { projectSkillTools } from "./conversation-skill-tools.js";
 import {
@@ -423,6 +427,8 @@ export function createToolExecutor(
       // channels that can't render dynamic surfaces (Telegram, SMS) instead of
       // emitting one the channel silently drops.
       supportsDynamicUi: conversationSupportsDynamicUi(ctx),
+      supportsGuardianQuestionCards:
+        conversationSupportsGuardianQuestionCards(ctx),
       proxyToolResolver: (
         toolName: string,
         proxyInput: Record<string, unknown>,
@@ -717,7 +723,7 @@ export function isToolActiveForContext(
   }
   if (name === "remember") {
     try {
-      return getConfig().memory?.enabled !== false;
+      return isMemoryEnabled(getConfig());
     } catch {
       return true;
     }

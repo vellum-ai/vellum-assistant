@@ -24,7 +24,7 @@
  *   `tool_choice` provider call whose synthetic tool's input schema is the
  *   caller's Zod schema. The returned tool input is Zod-validated and returned
  *   as `output`. Copies the proven pattern from `memory/v2/router.ts` and
- *   `memory/graph/extraction.ts`.
+ *   `memory/v1/graph/extraction.ts`.
  * - **Tool path** (`tools` provided, no `schema`): a real {@link AgentLoop} with
  *   a minimal task-scoped system prompt and a tool-executor restricted to the
  *   supplied registry tools. No conversation is bootstrapped — the loop runs
@@ -45,6 +45,7 @@ import { type AgentEvent, AgentLoop } from "../agent/loop.js";
 import type { AssistantEvent } from "../api/index.js";
 import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
+import { isMemoryEnabled } from "../config/memory-v3-gate.js";
 import { isPersonalMemoryAllowed } from "../daemon/trust-context.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { isOutOfWorkspaceFileInvocation } from "../permissions/workspace-policy.js";
@@ -129,6 +130,12 @@ async function resolveLeafContext(
  * persona leaf still gets the assistant's identity system prompt but NO personal
  * memory. Without this, a workflow launched by an untrusted actor whose manifest
  * grants `persona` could exfiltrate private memory in its output.
+ *
+ * On a v3-live assistant a persona leaf receives no injected memory at all:
+ * `prepareMemory`'s v2 route is gated on `isV2InjectionEngineActive` (v3 live
+ * suppresses it), the v1 retriever short-circuits to empty under the
+ * concept-page substrate, and v3 orchestration is conversation-turn-scoped so
+ * it does not run for workflow leaves.
  */
 async function injectPersonaMemory(
   opts: RunLeafOptions,
@@ -139,7 +146,7 @@ async function injectPersonaMemory(
   }
 
   const config = getConfig();
-  if (config.memory?.enabled === false) {
+  if (!isMemoryEnabled(config)) {
     return messages;
   }
 

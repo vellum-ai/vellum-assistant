@@ -8,8 +8,12 @@
 export interface DynamicUiCapabilityView {
   readonly currentTurnChannelCapabilities?: {
     readonly supportsDynamicUi: boolean;
+    readonly channel?: string;
   };
-  readonly channelCapabilities?: { readonly supportsDynamicUi: boolean };
+  readonly channelCapabilities?: {
+    readonly supportsDynamicUi: boolean;
+    readonly channel?: string;
+  };
 }
 
 /**
@@ -52,4 +56,46 @@ const INLINE_OPTIONS_CHANNELS: ReadonlySet<string> = new Set([
  */
 export function channelSupportsInlineOptions(channel: string): boolean {
   return INLINE_OPTIONS_CHANNELS.has(channel);
+}
+
+/**
+ * Channels where a parked `ask_question` can be delivered as a guardian-request
+ * card with tappable answer options — i.e. channels with a notification
+ * adapter that renders card actions (`notifications/adapters/`). A strict
+ * subset of {@link INLINE_OPTIONS_CHANNELS}: WhatsApp renders approval buttons
+ * on direct sends but has no notification adapter yet, so parking a question
+ * for it would hang the turn with no card ever delivered.
+ *
+ * Gates BOTH the `ask_question` park decision (tool context) and the
+ * guardian-request promotion, so the two can never disagree. Onboarding a
+ * channel = add its notification adapter, then add it here.
+ */
+const GUARDIAN_QUESTION_CARD_CHANNELS: ReadonlySet<string> = new Set([
+  "telegram",
+  "slack",
+]);
+
+/**
+ * Whether a parked question can be delivered to this channel as a
+ * guardian-request card. Pure set-membership on the canonical channel id.
+ */
+export function channelSupportsGuardianQuestionCards(channel: string): boolean {
+  return GUARDIAN_QUESTION_CARD_CHANNELS.has(channel);
+}
+
+/**
+ * Whether the conversation's current-turn channel can receive a parked
+ * question as a guardian-request card. Opt-in per channel: defaults to
+ * `false` when the channel is unknown. Prefers the per-turn capabilities,
+ * falling back to the structural channel capabilities.
+ */
+export function conversationSupportsGuardianQuestionCards(
+  conversation: DynamicUiCapabilityView,
+): boolean {
+  const caps =
+    conversation.currentTurnChannelCapabilities ??
+    conversation.channelCapabilities;
+  return caps?.channel
+    ? channelSupportsGuardianQuestionCards(caps.channel)
+    : false;
 }

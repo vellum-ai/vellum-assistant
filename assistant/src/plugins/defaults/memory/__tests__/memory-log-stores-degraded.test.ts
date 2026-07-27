@@ -24,8 +24,8 @@ import {
   backfillMemoryV2ActivationMessageId,
   getMemoryV2ActivationLogByMessageIds,
   recordMemoryV2ActivationLog,
-} from "../memory-v2-activation-log-store.js";
-import { getConceptFrequencySummary } from "../memory-v2-concept-frequency.js";
+} from "../v2/activation-log-store.js";
+import { getConceptFrequencySummary } from "../v2/concept-frequency.js";
 import { extractOracleTurns } from "../v2/harness/oracle.js";
 import { recordInjected } from "../v3/ever-injected-store.js";
 import { planPrune } from "../v3/prune.js";

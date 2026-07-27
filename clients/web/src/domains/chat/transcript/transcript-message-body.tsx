@@ -544,6 +544,7 @@ export function TranscriptMessageBody({
                   assistantId={assistantId}
                   streamWordFade={streamWordFade}
                   redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
+                  workspacePathLinks={!isUser}
                 />
               </div>
             );
@@ -561,6 +562,7 @@ export function TranscriptMessageBody({
           assistantId={assistantId}
           streamWordFade={streamWordFade}
           redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
+          workspacePathLinks={!isUser}
         />
       </div>
     );

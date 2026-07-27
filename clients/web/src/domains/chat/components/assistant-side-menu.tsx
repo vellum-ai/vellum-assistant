@@ -25,7 +25,7 @@ import {
 } from "@/domains/chat/components/conversation-list-context";
 import { ConversationNavSection } from "@/domains/chat/components/conversation-nav-section";
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
-import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
+import { GroupActionsMenu, type GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
@@ -36,7 +36,6 @@ import type { Conversation } from "@/types/conversation-types";
 import { getChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
 import {
     Button,
-    ContextMenu,
     SideMenu,
 } from "@vellumai/design-library";
 
@@ -233,35 +232,28 @@ export function AssistantSideMenu({
     onReorder: (_section, ordered) => onReorderConversations?.(ordered),
   });
 
-  // Context menu content for a section header (channel section / custom
-  // group). Returns undefined when no group-level action is available.
-  const buildGroupContextMenu = (
+  // Header actions for a sidebar section. Every section gets the same shape —
+  // Pinned, Chats, each channel section, and each custom group — so the bulk
+  // actions are identical everywhere and the only per-section difference is
+  // the rename/delete pair that custom groups additionally own.
+  const buildGroupMenu = (
     groupName: string,
     conversations: Conversation[],
     options?: { onRename?: () => void; onDelete?: () => void },
-  ) => {
-    const hasAnyAction =
-      onMarkAllReadInGroup || onArchiveAllInGroup || options?.onRename || options?.onDelete;
-    if (!hasAnyAction) {
-      return undefined;
-    }
-
-    return renderGroupMenuItems({
-      Primitive: ContextMenu,
-      onMarkAllRead: onMarkAllReadInGroup
-        ? () => onMarkAllReadInGroup(conversations)
-        : undefined,
-      hasUnreadConversations: conversations.some(
-        (c) => c.hasUnseenLatestAssistantMessage,
-      ),
-      onArchiveAll: onArchiveAllInGroup
-        ? () => onArchiveAllInGroup(groupName, conversations)
-        : undefined,
-      hasConversations: conversations.length > 0,
-      onRename: options?.onRename,
-      onDelete: options?.onDelete,
-    });
-  };
+  ): GroupMenuItemsProps => ({
+    onMarkAllRead: onMarkAllReadInGroup
+      ? () => onMarkAllReadInGroup(conversations)
+      : undefined,
+    hasUnreadConversations: onMarkAllReadInGroup
+      ? conversations.some((c) => c.hasUnseenLatestAssistantMessage)
+      : false,
+    onArchiveAll: onArchiveAllInGroup
+      ? () => onArchiveAllInGroup(groupName, conversations)
+      : undefined,
+    hasConversations: conversations.length > 0,
+    onRename: options?.onRename,
+    onDelete: options?.onDelete,
+  });
 
   const selectAndClose = useCallback(
     (key: string) => { onSelectConversation(key); onClose?.(); },
@@ -468,21 +460,24 @@ export function AssistantSideMenu({
             </div>
           ) : (
             <>
-              {/* Pinned + Chats are collapsible like the channel/group
-                  sections below, but default open (see `openPrimary` in
-                  use-sidebar-state). New Chat lives in the assistant cluster
-                  above, not as a section-header action. */}
+              {/* Pinned, Chats, and the channel sections share one accordion
+                  root, so its gap governs every section boundary uniformly.
+                  Their open state lives in two storage buckets (Pinned/Chats
+                  default open); `use-sidebar-state` merges and re-splits it.
+                  New Chat lives in the assistant cluster above, not as a
+                  section-header action. */}
               <CollapsibleNavSection.Root
                 type="multiple"
                 className="gap-3"
-                value={sidebar.effectiveOpenPrimary}
-                onValueChange={sidebar.onOpenPrimaryChange}
+                value={sidebar.effectiveOpenSections}
+                onValueChange={sidebar.onOpenSectionsChange}
               >
                 {sidebar.pinned.length > 0 ? (
                   <ConversationNavSection
                     value="pinned"
                     icon={Pin}
                     label="Pinned"
+                    groupMenu={buildGroupMenu("Pinned", sidebar.pinned)}
                     items={sidebar.pinned}
                     dragSection="pinned"
                     collapsedIndicator={collapsedActivityDot(sidebar.pinned)}
@@ -493,18 +488,12 @@ export function AssistantSideMenu({
                   value="recents"
                   icon={MessageSquare}
                   label="Chats"
+                  groupMenu={buildGroupMenu("Chats", sidebar.recents.all)}
                   items={sidebar.recents.items}
                   pagination={sidebar.recents}
                   collapsedIndicator={collapsedActivityDot(sidebar.recents.all)}
                 />
-              </CollapsibleNavSection.Root>
 
-              <CollapsibleNavSection.Root
-                type="multiple"
-                className="gap-3"
-                value={sidebar.effectiveOpenCategories}
-                onValueChange={sidebar.onOpenCategoriesChange}
-              >
                 {sidebar.channelSections.map((section) => {
                   const label = getChannelLabel(section.channelId);
                   return (
@@ -513,7 +502,7 @@ export function AssistantSideMenu({
                       value={channelSectionKey(section.channelId)}
                       icon={getChannelIcon(section.channelId)}
                       label={label}
-                      contextMenuContent={buildGroupContextMenu(label, section.all)}
+                      groupMenu={buildGroupMenu(label, section.all)}
                       items={section.items}
                       pagination={section}
                       collapsedIndicator={collapsedActivityDot(section.all)}
@@ -532,37 +521,39 @@ export function AssistantSideMenu({
                       value={sidebar.effectiveOpenCustomGroups}
                       onValueChange={sidebar.onOpenCustomGroupsChange}
                     >
-                      {sidebar.customGroups.map((group) => (
-                        <ConversationNavSection
-                          key={group.id}
-                          value={group.id}
-                          label={group.name}
-                          trailing={
-                            onRenameGroup || onDeleteGroup ? (
+                      {sidebar.customGroups.map((group) => {
+                        const groupMenu = buildGroupMenu(
+                          group.name,
+                          group.conversations,
+                          {
+                            onRename: onRenameGroup
+                              ? () => onRenameGroup(group.id)
+                              : undefined,
+                            onDelete: onDeleteGroup
+                              ? () => onDeleteGroup(group.id)
+                              : undefined,
+                          },
+                        );
+                        return (
+                          <ConversationNavSection
+                            key={group.id}
+                            value={group.id}
+                            label={group.name}
+                            /* The "…" button and the header's right-click menu
+                               both render from `groupMenu`. */
+                            trailing={
                               <GroupActionsMenu
-                                groupId={group.id}
-                                onRename={onRenameGroup}
-                                onDelete={onDeleteGroup}
+                                label={group.name}
+                                {...groupMenu}
                               />
-                            ) : null
-                          }
-                          contextMenuContent={buildGroupContextMenu(
-                            group.name,
-                            group.conversations,
-                            {
-                              onRename: onRenameGroup
-                                ? () => onRenameGroup(group.id)
-                                : undefined,
-                              onDelete: onDeleteGroup
-                                ? () => onDeleteGroup(group.id)
-                                : undefined,
-                            },
-                          )}
-                          items={group.conversations}
-                          dragSection={`group:${group.id}`}
-                          collapsedIndicator={collapsedActivityDot(group.conversations)}
-                        />
-                      ))}
+                            }
+                            groupMenu={groupMenu}
+                            items={group.conversations}
+                            dragSection={`group:${group.id}`}
+                            collapsedIndicator={collapsedActivityDot(group.conversations)}
+                          />
+                        );
+                      })}
                     </CollapsibleNavSection.Root>
                   </SideMenu.Section>
                 </>

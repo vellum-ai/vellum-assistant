@@ -19,10 +19,7 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import type {
-  VoiceEndpointDecisionInput,
-  VoiceFrontDecider,
-} from "../front-decision.js";
+import type { VoiceFrontDecider } from "../front-decision.js";
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
   createLiveVoiceSession,
@@ -2691,395 +2688,7 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
   });
 });
 
-// Stub semantic-endpointing decider: scripted hold/release decisions consumed
-// in order, with every consulted input captured. Falls back to "release" once
-// the script is exhausted, mirroring the real decider's fail-open bias.
-function makeFrontDecider(decisions: Array<"hold" | "release">): {
-  decider: VoiceFrontDecider;
-  calls: VoiceEndpointDecisionInput[];
-} {
-  const calls: VoiceEndpointDecisionInput[] = [];
-  return {
-    calls,
-    decider: {
-      decideEndpoint: async (input) => {
-        calls.push(input);
-        return { action: decisions[calls.length - 1] ?? "release" };
-      },
-      generateAckText: async () => null,
-      generateProgressText: async () => null,
-    },
-  };
-}
-
-describe("LiveVoiceSession semantic endpointing", () => {
-  // Arms the harness session, waits for its transcriber, and seeds a partial
-  // so the silence boundary has transcript text for the decider to judge.
-  async function startWithPartial(
-    session: LiveVoiceSession,
-    transcribers: MockStreamingTranscriber[],
-    partialText = "hello wor",
-  ): Promise<void> {
-    await session.start();
-    await waitFor(() => transcribers.length === 1);
-    // Let the transcriber's start() wiring settle before emitting events.
-    await flushAsyncCallbacks();
-    transcribers[0]?.emit({ type: "partial", text: partialText });
-  }
-
-  test("a held silence boundary sends no utterance_end and replays after the extension", async () => {
-    const { decider, calls } = makeFrontDecider(["hold", "release"]);
-    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
-    const { frames, session, transcribers } = createHarness({
-      finals: ["hello world"],
-      startVoiceTurn: turnStarter.startVoiceTurn,
-      frontDecider: decider,
-      frontModelConfig: { endpointExtensionMs: 30 },
-    });
-
-    await startWithPartial(session, transcribers);
-    await session.handleBinaryAudio(LOUD_CHUNK);
-
-    // First silence boundary: the decider holds — no utterance_end, no turn.
-    await waitFor(() => calls.length === 1);
-    expect(calls[0]).toEqual({
-      transcriptSoFar: "",
-      latestPartial: "hello wor",
-      silenceThresholdMs: 40,
-      extensionCount: 0,
-    });
-    expect(countType(frames, "utterance_end")).toBe(0);
-    expect(countType(frames, "thinking")).toBe(0);
-
-    // The extension elapses in continued silence: the boundary replays, the
-    // decider releases, and the turn launches normally.
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-    expect(calls).toHaveLength(2);
-    expect(calls[1]).toMatchObject({ extensionCount: 1 });
-    expect(frameTypes(frames)).toEqual([
-      "ready",
-      "stt_partial",
-      "speech_started",
-      "utterance_end",
-      "stt_final",
-      "thinking",
-      "assistant_text_delta",
-      "tts_done",
-    ]);
-    expect(
-      frames.find((frame) => frame.type === "utterance_end"),
-    ).toMatchObject({ reason: "silence" });
-    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
-  });
-
-  test("ptt_release during a held pause still emits utterance_end", async () => {
-    const { decider, calls } = makeFrontDecider(["hold"]);
-    const turnStarter = makeAutoCompletingTurnStarter(["Hi."]);
-    const { frames, session, transcribers } = createHarness({
-      finals: ["hello world"],
-      startVoiceTurn: turnStarter.startVoiceTurn,
-      frontDecider: decider,
-      // Long extension so the pending replay cannot race the manual release.
-      frontModelConfig: { endpointExtensionMs: 5_000 },
-    });
-
-    await startWithPartial(session, transcribers);
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() => calls.length === 1);
-    expect(countType(frames, "utterance_end")).toBe(0);
-
-    // The detector's turn already ended (the hold suppressed its boundary),
-    // so this release takes the no-active-detector path — the client must
-    // still receive the utterance_end frame it uses to leave `listening`.
-    await session.handleClientFrame({ type: "ptt_release" });
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-    expect(countType(frames, "utterance_end")).toBe(1);
-    // Manual release never re-consults the decider.
-    expect(calls).toHaveLength(1);
-    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
-  });
-
-  test("speech resuming during a hold cancels the replay and the utterance keeps accumulating", async () => {
-    const { decider, calls } = makeFrontDecider(["hold", "release"]);
-    const turnStarter = makeAutoCompletingTurnStarter(["Okay."]);
-    const { frames, session, transcribers } = createHarness({
-      finals: ["hello there world"],
-      startVoiceTurn: turnStarter.startVoiceTurn,
-      frontDecider: decider,
-      // Comfortably longer than the resumed speech's own silence boundary,
-      // so a leaked (uncancelled) replay would surface as a third decider
-      // consult / second utterance_end below.
-      frontModelConfig: { endpointExtensionMs: 200 },
-    });
-
-    await startWithPartial(session, transcribers, "hello");
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() => calls.length === 1);
-    expect(countType(frames, "utterance_end")).toBe(0);
-
-    // Speech resumes during the hold; the fresh silence boundary after it —
-    // not the cancelled replay timer — drives the next decision.
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() => calls.length === 2);
-    expect(calls[1]).toMatchObject({ extensionCount: 1 });
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-
-    // Wait out the original extension window: the cancelled replay never
-    // re-fires the boundary.
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    expect(calls).toHaveLength(2);
-    expect(countType(frames, "utterance_end")).toBe(1);
-    // Both speech bursts fed the same utterance's transcriber (the second
-    // resolves only when the completed turn re-arms), producing one released
-    // turn end-to-end.
-    expect(transcribers[0]?.received.length).toBeGreaterThanOrEqual(2);
-    expect(turnStarter.calls).toHaveLength(1);
-    expect(turnStarter.calls[0]).toMatchObject({
-      content: "hello there world",
-    });
-  });
-
-  test("a release decision produces the same frame sequence as the flag-off path", async () => {
-    const { decider, calls } = makeFrontDecider(["release"]);
-    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
-    const { frames, session, transcribers } = createHarness({
-      finals: ["hello world"],
-      startVoiceTurn: turnStarter.startVoiceTurn,
-      frontDecider: decider,
-    });
-
-    await startWithPartial(session, transcribers);
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-
-    expect(calls).toHaveLength(1);
-    expect(frameTypes(frames)).toEqual([
-      "ready",
-      "stt_partial",
-      "speech_started",
-      "utterance_end",
-      "stt_final",
-      "thinking",
-      "assistant_text_delta",
-      "tts_done",
-    ]);
-    expect(
-      frames.find((frame) => frame.type === "utterance_end"),
-    ).toMatchObject({ reason: "silence" });
-  });
-
-  test("a rejecting decider still releases the boundary with the normal frame sequence", async () => {
-    // The decider contract never rejects, but a buggy injected stub (or a
-    // future regression) must not silently drop the silence boundary: the
-    // session's belt catches the rejection and releases.
-    const calls: VoiceEndpointDecisionInput[] = [];
-    const decider: VoiceFrontDecider = {
-      decideEndpoint: async (input) => {
-        calls.push(input);
-        throw new Error("stub decider boom");
-      },
-      generateAckText: async () => null,
-      generateProgressText: async () => null,
-    };
-    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
-    const { frames, session, transcribers } = createHarness({
-      finals: ["hello world"],
-      startVoiceTurn: turnStarter.startVoiceTurn,
-      frontDecider: decider,
-    });
-
-    await startWithPartial(session, transcribers);
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-
-    expect(calls).toHaveLength(1);
-    expect(frameTypes(frames)).toEqual([
-      "ready",
-      "stt_partial",
-      "speech_started",
-      "utterance_end",
-      "stt_final",
-      "thinking",
-      "assistant_text_delta",
-      "tts_done",
-    ]);
-    expect(
-      frames.find((frame) => frame.type === "utterance_end"),
-    ).toMatchObject({ reason: "silence" });
-    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
-  });
-
-  test("a slow decider adds only its own bounded delay and then releases normally", async () => {
-    // Resolves "release" only after a delay comfortably longer than every
-    // other timer in the flow — the boundary must wait it out and then run
-    // the unchanged release sequence.
-    const calls: VoiceEndpointDecisionInput[] = [];
-    const decider: VoiceFrontDecider = {
-      decideEndpoint: async (input) => {
-        calls.push(input);
-        await new Promise((resolve) => setTimeout(resolve, 150));
-        return { action: "release" };
-      },
-      generateAckText: async () => null,
-      generateProgressText: async () => null,
-    };
-    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
-    const { frames, session, transcribers } = createHarness({
-      finals: ["hello world"],
-      startVoiceTurn: turnStarter.startVoiceTurn,
-      frontDecider: decider,
-    });
-
-    await startWithPartial(session, transcribers);
-    await session.handleBinaryAudio(LOUD_CHUNK);
-
-    // While the decision is pending, the boundary stays unreleased.
-    await waitFor(() => calls.length === 1);
-    expect(countType(frames, "utterance_end")).toBe(0);
-    expect(countType(frames, "thinking")).toBe(0);
-
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-    expect(calls).toHaveLength(1);
-    expect(frameTypes(frames)).toEqual([
-      "ready",
-      "stt_partial",
-      "speech_started",
-      "utterance_end",
-      "stt_final",
-      "thinking",
-      "assistant_text_delta",
-      "tts_done",
-    ]);
-    expect(
-      frames.find((frame) => frame.type === "utterance_end"),
-    ).toMatchObject({ reason: "silence" });
-    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
-  });
-
-  test("endpointMaxExtensions caps consecutive holds and forces the release", async () => {
-    const { decider, calls } = makeFrontDecider(["hold", "hold", "hold"]);
-    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
-    const { frames, session, transcribers } = createHarness({
-      finals: ["hello world"],
-      startVoiceTurn: turnStarter.startVoiceTurn,
-      frontDecider: decider,
-      frontModelConfig: { endpointExtensionMs: 20, endpointMaxExtensions: 1 },
-    });
-
-    await startWithPartial(session, transcribers);
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-
-    // The single allowed hold consumed the decider's one consult; the replay
-    // hit the cap and released without asking again.
-    expect(calls).toHaveLength(1);
-    expect(countType(frames, "utterance_end")).toBe(1);
-    expect(turnStarter.calls).toHaveLength(1);
-    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
-  });
-
-  test("a max-duration boundary bypasses the decider entirely", async () => {
-    const { decider, calls } = makeFrontDecider(["hold"]);
-    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
-    const { frames, session, transcribers } = createHarness({
-      finals: ["hello world"],
-      startVoiceTurn: turnStarter.startVoiceTurn,
-      frontDecider: decider,
-      // Silence can never fire; the max-duration cap ends the turn instead.
-      turnDetectorConfig: { silenceThresholdMs: 10_000, maxTurnDurationMs: 40 },
-    });
-
-    await startWithPartial(session, transcribers);
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-
-    expect(calls).toHaveLength(0);
-    expect(
-      frames.find((frame) => frame.type === "utterance_end"),
-    ).toMatchObject({ reason: "max-duration" });
-    expect(turnStarter.calls).toHaveLength(1);
-  });
-
-  test("a ptt_release forced boundary bypasses the decider and releases immediately", async () => {
-    // A hold-happy decider: if the manual release were routed through it,
-    // the boundary would be deferred and the frame sequence below would gain
-    // an extension delay (or stall entirely).
-    const { decider, calls } = makeFrontDecider(["hold", "hold"]);
-    const turnStarter = makeAutoCompletingTurnStarter(["Hi there."]);
-    const { frames, session, transcribers } = createHarness({
-      finals: ["hello world"],
-      startVoiceTurn: turnStarter.startVoiceTurn,
-      frontDecider: decider,
-      // A genuine silence boundary can never fire during the test; only the
-      // client's explicit release ends the turn.
-      turnDetectorConfig: { silenceThresholdMs: 10_000 },
-    });
-
-    await startWithPartial(session, transcribers);
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() =>
-      frames.some((frame) => frame.type === "speech_started"),
-    );
-
-    await session.handleClientFrame({ type: "ptt_release" });
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-
-    // The explicit release was never second-guessed: no decider consult, and
-    // the boundary produced the normal utterance_end → turn-launch sequence.
-    expect(calls).toHaveLength(0);
-    expect(frameTypes(frames)).toEqual([
-      "ready",
-      "stt_partial",
-      "speech_started",
-      "utterance_end",
-      "stt_final",
-      "thinking",
-      "assistant_text_delta",
-      "tts_done",
-    ]);
-    expect(
-      frames.find((frame) => frame.type === "utterance_end"),
-    ).toMatchObject({ reason: "silence" });
-    expect(turnStarter.calls).toHaveLength(1);
-    expect(turnStarter.calls[0]).toMatchObject({ content: "hello world" });
-  });
-
-  test("session close during a hold clears the extension timer", async () => {
-    const { decider, calls } = makeFrontDecider(["hold", "hold"]);
-    const { frames, session, transcribers } = createHarness({
-      finals: ["hello world"],
-      frontDecider: decider,
-      frontModelConfig: { endpointExtensionMs: 30 },
-    });
-
-    await startWithPartial(session, transcribers);
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() => calls.length === 1);
-    expect(countType(frames, "utterance_end")).toBe(0);
-
-    await session.close("client_end");
-    const framesAtClose = frames.length;
-
-    // Well past the extension window: the cleared timer never replays the
-    // boundary — no utterance_end, no second decider consult, no new frames.
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(calls).toHaveLength(1);
-    expect(countType(frames, "utterance_end")).toBe(0);
-    expect(frames.length).toBe(framesAtClose);
-  });
-});
-
 describe("LiveVoiceSession unified front-door endpointing", () => {
-  const enableUnifiedFlags = () =>
-    setCachedOverrides(
-      {
-        "voice-mode": true,
-      },
-      { fromGateway: true },
-    );
-
-  afterEach(() => clearCachedOverrides());
-
   function spokenDeltaText(frames: LiveVoiceServerFrame[]): string {
     return frames
       .filter((frame) => frame.type === "assistant_text_delta")
@@ -3114,23 +2723,12 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
     return { startVoiceTurn, calls, discard };
   }
 
-  // A decider that must never be consulted once the unified flag owns
-  // endpointing.
-  function makeUntouchableDecider(): {
-    decider: VoiceFrontDecider;
-    endpointCalls: () => number;
-  } {
-    let count = 0;
+  // A decider that phrases nothing: the front-door leg IS the endpoint
+  // decision, so these tests only need the decider seam to exist.
+  function makeSilentDecider(): VoiceFrontDecider {
     return {
-      decider: {
-        decideEndpoint: async () => {
-          count += 1;
-          return { action: "release" as const };
-        },
-        generateAckText: async () => null,
-        generateProgressText: async () => null,
-      },
-      endpointCalls: () => count,
+      generateAckText: async () => null,
+      generateProgressText: async () => null,
     };
   }
 
@@ -3146,8 +2744,7 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
   }
 
   test("a chatty answer commits: verdict leg replaces the decider, frames follow commit order", async () => {
-    enableUnifiedFlags();
-    const { decider, endpointCalls } = makeUntouchableDecider();
+    const decider = makeSilentDecider();
     const starter = makeVerdictTurnStarter([["Hey! Not much."]]);
     const { frames, session, transcribers } = createHarness({
       finals: ["hello world"],
@@ -3159,8 +2756,7 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
 
-    // The leg IS the endpoint decision: the decider was never consulted.
-    expect(endpointCalls()).toBe(0);
+    // The leg IS the endpoint decision.
     expect(starter.calls).toHaveLength(1);
     // Dispatched speculatively on the pre-finalize transcript, as the
     // front-door leg with the verdict rule requested.
@@ -3182,7 +2778,6 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
   });
 
   test("a hold verdict discards the leg silently and the extension replays the boundary", async () => {
-    enableUnifiedFlags();
     const starter = makeVerdictTurnStarter([["[0]"], ["Sure thing."]]);
     const { frames, session, transcribers } = createHarness({
       finals: ["hello world"],
@@ -3215,7 +2810,6 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
   });
 
   test("a verdict that misses the deadline commits the turn (fail-open)", async () => {
-    enableUnifiedFlags();
     // The leg never produces a verdict — a provider TTFT tail. The deadline
     // must commit the turn so the caller gets the thinking frame (and the
     // ack timer arms) instead of unbounded structural silence.
@@ -3240,7 +2834,6 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
   });
 
   test("a final that extends the held transcript replays the boundary immediately", async () => {
-    enableUnifiedFlags();
     const starter = makeVerdictTurnStarter([["[0]"], ["Got it."]]);
     const { frames, session, transcribers } = createHarness({
       finals: ["hello world how are you"],
@@ -3265,7 +2858,6 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
   });
 
   test("speech resuming mid-verdict discards the leg and the utterance keeps accumulating", async () => {
-    enableUnifiedFlags();
     // First leg never produces a verdict (in flight); second answers.
     const starter = makeVerdictTurnStarter([[], ["Got it all."]]);
     const { frames, session, transcribers } = createHarness({
@@ -3294,7 +2886,6 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
   });
 
   test("a discard that beats the bridge handle still rolls back the user row", async () => {
-    enableUnifiedFlags();
     const discard = mock(async () => {});
     const abort = mock();
     let resolveHandle: (() => void) | null = null;
@@ -3336,7 +2927,6 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
   });
 
   test("a manual release during the verdict window commits the leg instead of discarding it", async () => {
-    enableUnifiedFlags();
     const discard = mock(async () => {});
     let callbacks: VoiceTurnCallbacks | undefined;
     const calls: VoiceTurnOptions[] = [];
@@ -3376,7 +2966,6 @@ describe("LiveVoiceSession unified front-door endpointing", () => {
   });
 
   test("a hold verdict after a manual release relaunches a fresh leg on the released utterance", async () => {
-    enableUnifiedFlags();
     const discard = mock(async () => {});
     let firstCallbacks: VoiceTurnCallbacks | undefined;
     const calls: VoiceTurnOptions[] = [];

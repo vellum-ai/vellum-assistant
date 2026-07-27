@@ -35,7 +35,7 @@ import { type TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../../../runtime/capabilities.js";
 import { getLogger } from "./logging.js";
 import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./v3/substrate/constants.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./substrate/constants.js";
 
 const log = getLogger("memory-retrospective-enqueue");
 
@@ -107,7 +107,9 @@ export function isMemoryRetrospectiveConversation(
  */
 function isLowYieldRetrospectiveSource(conversationId: string): boolean {
   const conversation = getConversation(conversationId);
-  if (!conversation) return false;
+  if (!conversation) {
+    return false;
+  }
   return (
     conversation.conversationType === "scheduled" ||
     conversation.source === MEMORY_V2_CONSOLIDATION_SOURCE

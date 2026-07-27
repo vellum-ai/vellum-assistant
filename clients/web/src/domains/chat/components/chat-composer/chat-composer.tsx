@@ -1,27 +1,27 @@
 import { ArrowUp, Square } from "lucide-react";
 import {
-    type FormEvent,
-    type ReactNode,
-    type RefObject,
-    useCallback,
-    useEffect,
-    useLayoutEffect,
-    useMemo,
-    useRef,
-    useState,
+  type FormEvent,
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
 } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
 
 import {
-    AttachFileButton,
-    ChatAttachmentsStrip,
+  AttachFileButton,
+  ChatAttachmentsStrip,
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
 import {
-    selectPathReferencePaths,
-    selectUploadedIds,
-    selectUploadingCount,
-    useComposerStore,
+  selectPathReferencePaths,
+  selectUploadedIds,
+  selectUploadingCount,
+  useComposerStore,
 } from "@/domains/chat/composer-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
@@ -29,23 +29,23 @@ import { StreamingWaveform } from "@/domains/chat/components/chat-composer/strea
 import { VoiceComposerBar } from "@/domains/chat/components/chat-composer/voice-composer-bar";
 import { VoiceLiveTranscript } from "@/domains/chat/components/chat-composer/voice-live-transcript";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useSupportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
 import {
-    VoiceInputButton,
-    type VoiceInputButtonHandle,
+  VoiceInputButton,
+  type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import {
-    dismissLiveVoiceFailure,
-    endLiveVoiceSession,
-    getLiveVoiceInputAmplitude,
-    isLiveVoiceSessionActive,
-    releaseLiveVoiceTurn,
-    setLiveVoiceEntryOrigin,
-    setLiveVoiceMuted,
-    stopLiveVoiceResponse,
-    useIsLiveVoiceSessionOwnedBy,
-    useLiveVoiceStore,
+  dismissLiveVoiceFailure,
+  endLiveVoiceSession,
+  getLiveVoiceInputAmplitude,
+  isLiveVoiceSessionActive,
+  releaseLiveVoiceTurn,
+  setLiveVoiceEntryOrigin,
+  setLiveVoiceMuted,
+  stopLiveVoiceResponse,
+  useIsLiveVoiceSessionOwnedBy,
+  useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
@@ -61,20 +61,25 @@ import { routes } from "@/utils/routes";
 import { Button, Notice, Popover } from "@vellumai/design-library";
 
 import {
-    computeGhostSuffix,
-    shouldSubmitOnEnter,
+  computeGhostSuffix,
+  shouldSubmitOnEnter,
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
-import { EMOJI_MIN_FILTER_LENGTH, EMOJI_TRIGGER_RE, type EmojiEntry, useEmojiSearch } from "@/domains/chat/components/chat-composer/emoji-catalog";
+import {
+  EMOJI_MIN_FILTER_LENGTH,
+  EMOJI_TRIGGER_RE,
+  type EmojiEntry,
+  useEmojiSearch,
+} from "@/domains/chat/components/chat-composer/emoji-catalog";
 import { EmojiPickerPopup } from "@/domains/chat/components/chat-composer/emoji-picker-popup";
 import {
-    applyMarkdownFormatting,
-    matchFormattingShortcut,
+  applyMarkdownFormatting,
+  matchFormattingShortcut,
 } from "@/domains/chat/components/chat-composer/markdown-formatting";
 import {
-    SLASH_PREFIX_RE,
-    type SlashCommand,
-    filteredCommands,
-    selectedInputText,
+  SLASH_PREFIX_RE,
+  type SlashCommand,
+  filteredCommands,
+  selectedInputText,
 } from "@/domains/chat/components/chat-composer/slash-command-catalog";
 import { SlashCommandPopup } from "@/domains/chat/components/chat-composer/slash-command-popup";
 import { useTextPopup } from "@/domains/chat/components/chat-composer/use-text-popup";
@@ -237,7 +242,8 @@ export function ChatComposer({
       selectPathReferencePaths(attachments).length > 0);
 
   const voicePhase = useVoiceRecordingStore.use.phase();
-  const isVoiceActive = voicePhase === "recording" || voicePhase === "processing";
+  const isVoiceActive =
+    voicePhase === "recording" || voicePhase === "processing";
   // Holds the MediaStream opened by VoiceInputButton so we can reuse it for
   // amplitude analysis rather than opening a second getUserMedia request.
   const voiceStreamRef = useRef<MediaStream | null>(null);
@@ -256,10 +262,9 @@ export function ChatComposer({
 
   // ---- Live voice (full-duplex conversation) ----------------------------
   // Coexists with dictation: entry is gated on eligibility — `LiveVoiceButton`
-  // self-gates on the `voice-mode` flag and only renders alongside the
-  // dictation button (`showVoiceInput` + a non-null assistant id) — so with
-  // the flag off no session can ever start and the session state below stays
-  // `idle`, keeping the composer byte-identical for users without the flag.
+  // only renders alongside the dictation button (`showVoiceInput` + a non-null
+  // assistant id new enough to serve live voice) — so where there is no entry
+  // point no session can ever start and the session state below stays `idle`.
   //
   // The session controller (`useLiveVoice`) is NOT owned here: it lives in
   // the persistent `useLiveVoiceSessionController` mount in `ChatLayout`, so
@@ -267,6 +272,11 @@ export function ChatComposer({
   // fullscreen app viewer — the navigations that unmount this composer. The
   // composer only observes the session through narrow store selectors and
   // drives it through the store-registered `starter`/`controls` seams.
+  // Version gate for the entry point (NOT for an already-live session — see
+  // the ownership note below). Replaces the retired `voice-mode` flag, whose
+  // fail-closed default kept the button hidden on assistants too old to
+  // declare it.
+  const supportsLiveVoice = useSupportsLiveVoice(assistantId);
   const liveVoiceState = useLiveVoiceStore.use.state();
   const liveVoiceError = useLiveVoiceStore.use.error();
   // Whether any session is live anywhere (this thread or another). `failed`
@@ -281,13 +291,13 @@ export function ChatComposer({
   // renders at any time; see `isLiveVoiceSessionOwnedBy`).
   //
   // Deliberately based on session state + ownership alone — NOT on the
-  // entry-point eligibility (the `voice-mode` flag / a non-null
-  // `assistantId`) — so a mid-session eligibility drop (flag flip,
-  // `assistantId` transiently cleared) can't unmount the voice bar while the
-  // session keeps the mic/socket live: the bar's ✕ stays available until
-  // teardown completes. `showVoiceInput` (static per variant) scopes the
-  // swap to the voice-enabled composer — the app-editing variant shares the
-  // global live-voice store but must never swap its row.
+  // entry-point eligibility (the version gate / a non-null `assistantId`) —
+  // so a mid-session eligibility drop (version re-fetch, `assistantId`
+  // transiently cleared) can't unmount the
+  // voice bar while the session keeps the mic/socket live: the bar's ✕ stays
+  // available until teardown completes. `showVoiceInput` (static per variant)
+  // scopes the swap to the voice-enabled composer — the app-editing variant
+  // shares the global live-voice store but must never swap its row.
   const ownsLiveVoiceSession = useIsLiveVoiceSessionOwnedBy(conversationId);
   const isLiveVoiceActive = showVoiceInput && ownsLiveVoiceSession;
   // Mic mute state (controller-published) for the voice bar's toggle.
@@ -303,8 +313,8 @@ export function ChatComposer({
   // by `VoiceLiveTranscript`, which subscribes to the store on its own,
   // keeping the composer's deliberate opt-out of high-frequency live-voice
   // updates (amplitude ticks, transcript deltas) intact.
-  const hasLiveVoiceTranscript = useLiveVoiceStore(
-    (s) => Boolean(s.partialTranscript || s.finalTranscript),
+  const hasLiveVoiceTranscript = useLiveVoiceStore((s) =>
+    Boolean(s.partialTranscript || s.finalTranscript),
   );
   // The in-composer transcript shows the *user's* own speech, so it must
   // honor the "Show the words you say" voice preference (default OFF). When
@@ -329,9 +339,8 @@ export function ChatComposer({
   // preferences card (see `VoiceFirstRunCard`) instead of starting the
   // session, so the user chooses their transcript prefs before listening
   // begins. Every subsequent entry (`firstRunSeen === true`) starts directly
-  // — the card and the engine stay decoupled. Purely additive: with the
-  // `voice-mode` flag off this path is unreachable and the app-editing variant
-  // (no voice entry point) never renders the card.
+  // — the card and the engine stay decoupled. The app-editing variant (no
+  // voice entry point) never renders the card.
   const [firstRunCardOpen, setFirstRunCardOpen] = useState(false);
   // Where the user tapped to start — captured at click so the room's entrance
   // grows from the on-screen control, not screen-center. Stashed here because
@@ -516,20 +525,22 @@ export function ChatComposer({
     phase === "queued" || phase === "thinking" || phase === "streaming";
   const showInlineVoicePreview =
     isVoiceActive && !isLocallyGenerating && !isElectronHost;
-  const hideTextareaForVoice =
-    isNative && showInlineVoicePreview;
-  const hasStagedQuotes =
-    useQuoteReplyStore.use.stagedQuotes().length > 0;
+  const hideTextareaForVoice = isNative && showInlineVoicePreview;
+  const hasStagedQuotes = useQuoteReplyStore.use.stagedQuotes().length > 0;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedQuotes;
   // Voice mode occupies the send slot while there is nothing to send: the
   // send arrow only earns that spot once the message has content. Eligibility
-  // mirrors `LiveVoiceButton`'s own gate (voice-enabled composer + a bound
-  // assistant + the `voice-mode` flag) so the slot falls back to the disabled
-  // send arrow — byte-identical to before — whenever voice mode is unavailable.
-  const voiceMode = useAssistantFeatureFlagStore.use.voiceMode();
+  // is a voice-enabled composer + a bound assistant new enough to serve live
+  // voice, so the slot falls back to the disabled send arrow whenever voice
+  // mode is unavailable. The version gate replaces the retired `voice-mode`
+  // flag, which used to hide the entry point on older assistants by failing
+  // closed — see `use-supports-live-voice.ts`.
   const showVoiceModeInSendSlot =
-    showVoiceInput && Boolean(assistantId) && voiceMode && !canSendMessageContent;
+    showVoiceInput &&
+    Boolean(assistantId) &&
+    supportsLiveVoice &&
+    !canSendMessageContent;
 
   const ghostSuffix = useMemo(
     () =>
@@ -661,7 +672,10 @@ export function ChatComposer({
                   // restored draft — retire the "draft restored" marker (and its
                   // notice). Keeps `restoredDraftConversationId` an accurate
                   // signal for "unedited restored draft" (see use-deep-link-consumer).
-                  if (useComposerStore.getState().restoredDraftConversationId !== null) {
+                  if (
+                    useComposerStore.getState().restoredDraftConversationId !==
+                    null
+                  ) {
                     useComposerStore.getState().clearRestoredDraftNotice();
                   }
                 }}
@@ -840,7 +854,9 @@ export function ChatComposer({
               // overlay bridge no-ops there.
               <div
                 className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
-                aria-label={voicePhase === "processing" ? "Transcribing" : "Recording"}
+                aria-label={
+                  voicePhase === "processing" ? "Transcribing" : "Recording"
+                }
                 aria-live="polite"
               >
                 <StreamingWaveform
@@ -907,7 +923,9 @@ export function ChatComposer({
                             <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
                           }
                           type="submit"
-                          disabled={sendDisabled || attachmentsUploadingCount > 0}
+                          disabled={
+                            sendDisabled || attachmentsUploadingCount > 0
+                          }
                           title={
                             sendDisabled
                               ? "Type a message to send"

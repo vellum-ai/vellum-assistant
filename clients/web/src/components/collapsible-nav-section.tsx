@@ -1,7 +1,7 @@
 import { ChevronRight, type LucideIcon } from "lucide-react";
 import { type ReactNode, type Ref } from "react";
 
-import { ContextMenu } from "@vellumai/design-library";
+import { BottomSheet, ContextMenu } from "@vellumai/design-library";
 import {
     Collapsible,
     type CollapsibleItemProps,
@@ -14,6 +14,8 @@ import {
     SIDEBAR_CHIP_SIZE,
     SIDEBAR_ROW_PADDING_X,
 } from "@/components/sidebar-nav-geometry";
+import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
+import { isPointerCoarse } from "@/utils/pointer";
 
 /**
  * Navigation-specific collapsible section — composes the design library
@@ -25,6 +27,12 @@ import {
  *   - Optional `trailing` slot for an ellipsis menu or other per-row
  *     affordance. Pointer events are isolated so clicking trailing
  *     content doesn't toggle the section.
+ *   - Optional header menu, in two surfaces: `contextMenuContent`
+ *     (desktop right-click) and `touchMenuContent` (touch long-press →
+ *     bottom sheet). Supply both so the actions are reachable on every
+ *     pointer type — Radix `ContextMenu` alone renders a pointer-positioned
+ *     popover on touch, which is the wrong surface on mobile. Mirrors the
+ *     conversation-row long-press pattern.
  *   - No hover background — the chevron swap is the affordance.
  *
  * Usage:
@@ -60,6 +68,50 @@ function CollapsibleNavSectionRoot({
 }
 
 // ---------------------------------------------------------------------------
+// Touch header menu
+// ---------------------------------------------------------------------------
+
+/** The trailing "…" control owns its own taps, so it never arms the gesture. */
+const skipTrailingControl = (target: Element | null) =>
+  Boolean(target?.closest('[data-slot="collapsible-nav-section-trailing"]'));
+
+/**
+ * Wraps a section header so a long-press opens its actions in a bottom sheet.
+ * The sheet is a sibling of the gesture wrapper, not a child — see
+ * {@link useLongPressSheet}.
+ */
+function LongPressHeaderMenu({
+  title,
+  content,
+  children,
+}: {
+  title: string;
+  content: (close: () => void) => ReactNode;
+  children: ReactNode;
+}) {
+  const longPress = useLongPressSheet({ shouldSkip: skipTrailingControl });
+
+  return (
+    <>
+      <div {...longPress.wrapperProps}>{children}</div>
+      <BottomSheet.Root
+        open={longPress.open}
+        onOpenChange={longPress.onOpenChange}
+      >
+        <BottomSheet.Content aria-describedby={undefined}>
+          <BottomSheet.Header className="sr-only">
+            <BottomSheet.Title>{title} actions</BottomSheet.Title>
+          </BottomSheet.Header>
+          <BottomSheet.Body className="pt-0">
+            {content(longPress.close)}
+          </BottomSheet.Body>
+        </BottomSheet.Content>
+      </BottomSheet.Root>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Section
 // ---------------------------------------------------------------------------
 
@@ -70,6 +122,12 @@ export interface CollapsibleNavSectionSectionProps
   label: string;
   trailing?: ReactNode;
   contextMenuContent?: ReactNode;
+  /**
+   * Touch equivalent of `contextMenuContent` — rendered as the body of a
+   * long-press bottom sheet. Receives a `close` callback so rows can dismiss
+   * the sheet after running their action.
+   */
+  touchMenuContent?: (close: () => void) => ReactNode;
   /**
    * Activity indicator rendered inline in the header, but only while the
    * section is collapsed — when open, the child rows show their own
@@ -87,6 +145,7 @@ function CollapsibleNavSectionSection({
   label,
   trailing,
   contextMenuContent,
+  touchMenuContent,
   collapsedIndicator,
   children,
   className,
@@ -151,7 +210,10 @@ function CollapsibleNavSectionSection({
       </Collapsible.Trigger>
       {trailing ? (
         <span
-          className="flex items-center shrink-0 pr-[6px] max-md:pr-2"
+          data-slot="collapsible-nav-section-trailing"
+          /* `empty:hidden` so a trailing component that renders nothing (a
+             menu with no wired actions) doesn't leave a padded box behind. */
+          className="flex items-center shrink-0 pr-[6px] max-md:pr-2 empty:hidden"
           onClick={(event) => event.stopPropagation()}
         >
           {trailing}
@@ -159,6 +221,25 @@ function CollapsibleNavSectionSection({
       ) : null}
     </div>
   );
+
+  // Touch devices replace the right-click ContextMenu with a long-press sheet.
+  // The gesture state lives in a child component so its hooks mount only on
+  // the surfaces that use them.
+  const header =
+    isPointerCoarse() && touchMenuContent ? (
+      <LongPressHeaderMenu title={label} content={touchMenuContent}>
+        {headerEl}
+      </LongPressHeaderMenu>
+    ) : contextMenuContent ? (
+      <ContextMenu.Root>
+        <ContextMenu.Trigger>{headerEl}</ContextMenu.Trigger>
+        <ContextMenu.Content onClick={(event) => event.stopPropagation()}>
+          {contextMenuContent}
+        </ContextMenu.Content>
+      </ContextMenu.Root>
+    ) : (
+      headerEl
+    );
 
   return (
     <Collapsible.Item
@@ -168,14 +249,7 @@ function CollapsibleNavSectionSection({
       className={className}
       {...itemProps}
     >
-      {contextMenuContent ? (
-        <ContextMenu.Root>
-          <ContextMenu.Trigger>{headerEl}</ContextMenu.Trigger>
-          <ContextMenu.Content onClick={(event) => event.stopPropagation()}>
-            {contextMenuContent}
-          </ContextMenu.Content>
-        </ContextMenu.Root>
-      ) : headerEl}
+      {header}
       <Collapsible.Content className={contentClassName}>
         {children}
       </Collapsible.Content>

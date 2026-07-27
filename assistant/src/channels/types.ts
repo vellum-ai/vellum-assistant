@@ -150,6 +150,7 @@ export const INTERFACE_IDS = [
   "email",
   "chrome-extension",
   "a2a",
+  "discord",
   // Turns injected by workspace custom routes (webhook receivers, cron jobs,
   // device/service callbacks). Non-interactive — permission prompts route
   // through the guardian system, not an interactive client — and non-host-proxy.

@@ -457,11 +457,26 @@ async function collectGuardianRequestHintIds(
 async function expireOrphanedGuardianRequests(
   conversationId: string,
 ): Promise<void> {
-  const sourceScoped = await listGuardianRequestsOrEmpty({
-    sourceConversationId: conversationId,
-    status: "pending",
-    kind: "tool_approval",
-  });
+  const [toolApprovals, pendingQuestions] = await Promise.all([
+    listGuardianRequestsOrEmpty({
+      sourceConversationId: conversationId,
+      status: "pending",
+      kind: "tool_approval",
+    }),
+    listGuardianRequestsOrEmpty({
+      sourceConversationId: conversationId,
+      status: "pending",
+      kind: "pending_question",
+    }),
+  ]);
+
+  // Voice-call questions (callSessionId present) track their lifecycle in the
+  // calls domain, not `pendingInteractions` — never treat them as orphaned
+  // here. Only ask_question rows are interaction-bound.
+  const sourceScoped = [
+    ...toolApprovals,
+    ...pendingQuestions.filter((req) => !req.callSessionId),
+  ];
 
   for (const req of sourceScoped) {
     // Skip requests that still have a live in-memory pending interaction —

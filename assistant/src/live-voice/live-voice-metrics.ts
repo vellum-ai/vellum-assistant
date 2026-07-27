@@ -1,5 +1,4 @@
 import { getLogger } from "../util/logger.js";
-import type { VoiceEndpointAction } from "./front-decision.js";
 
 const log = getLogger("live-voice-metrics");
 
@@ -25,6 +24,10 @@ export type LiveVoiceMetricsEvent =
   | "turn_completed"
   | "turn_cancelled"
   | "session_ended";
+
+// The endpoint outcome recorded for a silence boundary: the speculative
+// front-door leg either holds the utterance open or releases it to the turn.
+export type VoiceEndpointAction = "release" | "hold";
 
 // Semantic-endpointing decision on a silence boundary.
 interface LiveVoiceEndpointDecisionMark {

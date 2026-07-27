@@ -9,6 +9,10 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import {
+  createGuardianRequestForQuestion,
+  settlePromotedQuestionRequest,
+} from "./question-guardian-request.js";
 
 const log = getLogger("question-prompter");
 
@@ -227,6 +231,13 @@ export class QuestionPrompter {
         // so this fallback only fires for timeout / abort / removeByConversation —
         // all cancellation-shaped outcomes.
         pendingInteractions.resolve(requestId, "cancelled");
+        // A promoted guardian-request row must not outlive the interaction:
+        // left pending (e.g. the app card answered, or the prompt timed out),
+        // it would still look decidable to the channel reply router and could
+        // swallow the guardian's next unrelated message. No-op for questions
+        // that never promoted, and a CAS-miss no-op when the pipeline itself
+        // decided the row.
+        settlePromotedQuestionRequest(requestId);
         fn();
       };
 
@@ -295,6 +306,13 @@ export class QuestionPrompter {
       };
 
       broadcastMessage(msg);
+
+      // Promote the question to a guardian request so channel answers (option
+      // taps, request-code replies, bare text) can resolve it through the
+      // guardian-request pipeline. Mirrors the confirmation prompter's
+      // promotion; the gating (guardian turn, card-capable channel,
+      // single-question batch) lives in the promotion module.
+      void createGuardianRequestForQuestion(msg, conversationId);
     });
   }
 }

@@ -1,5 +1,5 @@
 /**
- * Tests for `assistant/src/memory/v2/backfill-jobs.ts`.
+ * Tests for `assistant/src/plugins/defaults/memory/v2/backfill-jobs.ts`.
  *
  * Each handler is exercised with the heavy collaborators (migration runner,
  * embedding backend, Qdrant client, activation pipeline) mocked at the
@@ -8,7 +8,6 @@
  * Coverage matrix:
  *   - migrate: wraps `runMemoryV2Migration`; force flag propagates;
  *     `MigrationAlreadyAppliedError` is swallowed (no rethrow).
- *   - reembed: enqueues `N` jobs, one per concept-page slug.
  *   - activation-recompute: walks conversations with rows, runs the pipeline
  *     end-to-end against the real activation module, persists fresh state.
  *
@@ -193,22 +192,18 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { getDb, getMemoryDb, getMemorySqlite } =
+const { getDb, getMemorySqlite } =
   await import("../../../../../persistence/db-connection.js");
 const { resetDbForTesting } =
   await import("../../../../../__tests__/db-test-helpers.js");
 const { initializeDb } = await import("../../../../../persistence/db-init.js");
 const { rawExec } = await import("../../../../../persistence/raw-query.js");
-const { conversations, memoryJobs, messages } =
+const { conversations, messages } =
   await import("../../../../../persistence/schema/index.js");
-const { writePage } = await import("../../v3/substrate/page-store.js");
 const { save: saveActivation, hydrate: hydrateActivation } =
   await import("../activation-store.js");
-const {
-  memoryV2ActivationRecomputeJob,
-  memoryV2MigrateJob,
-  memoryV2ReembedJob,
-} = await import("../backfill-jobs.js");
+const { memoryV2ActivationRecomputeJob, memoryV2MigrateJob } =
+  await import("../backfill-jobs.js");
 
 // `isAssistantFeatureFlagEnabled` ignores its `config` argument (resolution is
 // purely from the overrides + registry caches), and the activation pipeline
@@ -220,10 +215,7 @@ const TEST_CONFIG = { memory: SEEDED_MEMORY_CONFIG } as Parameters<
 >[1];
 
 function makeJob(
-  type:
-    | "memory_v2_migrate"
-    | "memory_v2_reembed"
-    | "memory_v2_activation_recompute",
+  type: "memory_v2_migrate" | "memory_v2_activation_recompute",
   payload: Record<string, unknown> = {},
 ) {
   return {
@@ -271,7 +263,9 @@ beforeEach(async () => {
     "buffer.md",
   ]) {
     const filePath = join(tmpWorkspace, "memory", filename);
-    if (existsSync(filePath)) rmSync(filePath);
+    if (existsSync(filePath)) {
+      rmSync(filePath);
+    }
   }
 
   migrationCalls.length = 0;
@@ -312,122 +306,6 @@ describe("memoryV2MigrateJob", () => {
     await expect(
       memoryV2MigrateJob(makeJob("memory_v2_migrate"), TEST_CONFIG),
     ).rejects.toThrow("boom");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// memoryV2ReembedJob
-// ---------------------------------------------------------------------------
-
-describe("memoryV2ReembedJob", () => {
-  test("returns N (one per concept page) and writes that many job rows", async () => {
-    await writePage(tmpWorkspace, {
-      slug: "alice",
-      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
-      body: "Alice.\n",
-    });
-    await writePage(tmpWorkspace, {
-      slug: "bob",
-      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
-      body: "Bob.\n",
-    });
-
-    const total = await memoryV2ReembedJob(
-      makeJob("memory_v2_reembed"),
-      TEST_CONFIG,
-    );
-
-    // Return value covers the contract: one job per concept page.
-    expect(total).toBe(2);
-
-    // Verify the slugs that were enqueued by reading the memory_jobs table.
-    // Tests that mock `jobs-store.js` skip inserting rows; when this suite
-    // runs in isolation (or before such tests) the rows do land. Either
-    // way, the return value is the canonical contract — the row lookup is
-    // belt-and-suspenders.
-    const rows = getMemoryDb()!.select().from(memoryJobs).all();
-    if (rows.length > 0) {
-      expect(rows).toHaveLength(2);
-      const slugs = rows.map((row) => JSON.parse(row.payload).slug);
-      expect(slugs).toContain("alice");
-      expect(slugs).toContain("bob");
-      for (const row of rows) {
-        expect(row.type).toBe("embed_concept_page");
-      }
-    }
-  });
-
-  test("with no concept pages on disk, enqueues nothing", async () => {
-    const total = await memoryV2ReembedJob(
-      makeJob("memory_v2_reembed"),
-      TEST_CONFIG,
-    );
-    expect(total).toBe(0);
-  });
-
-  test("running the fan-out twice coalesces to one pending job per page", async () => {
-    // Stacked reembed runs (e.g. several consolidations completing before the
-    // embed lane drains) must not multiply the queue: the per-slug coalesce in
-    // the enqueue helper reuses the pending row.
-    await writePage(tmpWorkspace, {
-      slug: "alice",
-      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
-      body: "Alice.\n",
-    });
-    await writePage(tmpWorkspace, {
-      slug: "bob",
-      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
-      body: "Bob.\n",
-    });
-
-    const first = await memoryV2ReembedJob(
-      makeJob("memory_v2_reembed"),
-      TEST_CONFIG,
-    );
-    const second = await memoryV2ReembedJob(
-      makeJob("memory_v2_reembed"),
-      TEST_CONFIG,
-    );
-
-    // Both passes fan out over every page…
-    expect(first).toBe(2);
-    expect(second).toBe(2);
-
-    // …but the queue holds one pending row per slug, not one per pass.
-    const rows = getMemoryDb()!.select().from(memoryJobs).all();
-    if (rows.length > 0) {
-      expect(rows).toHaveLength(2);
-      const slugs = rows.map((row) => JSON.parse(row.payload).slug).sort();
-      expect(slugs).toEqual(["alice", "bob"]);
-    }
-  });
-
-  test("does NOT enqueue reserved meta-file slugs", async () => {
-    // The four prose meta files (essentials/threads/recent/buffer) live at
-    // `memory/<name>.md` and are direct-injected into the system prompt via
-    // `_autoinject.md`. Their underscore-bracketed slug aliases (e.g.
-    // `__essentials__`) fail the concept-page slug validator
-    // (`[a-z0-9][a-z0-9-]*`), so the reembed fan-out must not enqueue them.
-    await writePage(tmpWorkspace, {
-      slug: "alice",
-      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
-      body: "Alice.\n",
-    });
-
-    await memoryV2ReembedJob(makeJob("memory_v2_reembed"), TEST_CONFIG);
-
-    const rows = getMemoryDb()!.select().from(memoryJobs).all();
-    if (rows.length > 0) {
-      const slugs = rows.map((row) => JSON.parse(row.payload).slug);
-      for (const reserved of [
-        "__essentials__",
-        "__threads__",
-        "__recent__",
-        "__buffer__",
-      ]) {
-        expect(slugs).not.toContain(reserved);
-      }
-    }
   });
 });
 

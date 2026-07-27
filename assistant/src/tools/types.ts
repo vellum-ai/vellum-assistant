@@ -199,6 +199,14 @@ export interface ToolContext {
    */
   supportsDynamicUi?: boolean;
   /**
+   * Whether a parked `ask_question` on this turn's channel can be delivered as
+   * a guardian-request card with tappable answer options (via the notification
+   * pipeline's channel adapters). `ask_question` parks when this is true even
+   * without dynamic UI; otherwise channel turns degrade to the plain-text
+   * fallback. `undefined`/`false` means no card delivery is possible.
+   */
+  supportsGuardianQuestionCards?: boolean;
+  /**
    * When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules.
    * @legacy
    */

@@ -10,7 +10,7 @@
  *   3. `false`                                    (for undeclared keys)
  *
  * Key format:
- *   Canonical:  simple kebab-case string (e.g., "browser", "voice-mode")
+ *   Canonical:  simple kebab-case string (e.g., "browser", "contacts")
  */
 
 import { existsSync, readFileSync } from "node:fs";

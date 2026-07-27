@@ -791,7 +791,8 @@ export async function classifyRisk(
 // prompt. The grant resolves these tools to ALLOW non-interactively, and ONLY
 // when all of these hold:
 //   - procedural-memory-as-skills is active (`policyContext.procToSkillsActive`,
-//     precomputed by buildPolicyContext: memory-v3 is live),
+//     precomputed by buildPolicyContext: the v3 tier is active — memory is on
+//     and memory-v3 is live),
 //   - the turn is the retrospective background source — guardian trust, `vellum`
 //     source channel, `memory_retrospective` origin (set in
 //     memory-retrospective-job.ts).

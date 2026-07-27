@@ -1,10 +1,11 @@
 /**
- * Tests for the VoiceFrontDecider endpoint-decision service.
+ * Tests for the VoiceFrontDecider spoken-text service.
  *
  * The provider is injected via the `getProvider` seam (live-voice DI
- * convention), so no module mocking is needed. The tests pin the fail-open
+ * convention), so no module mocking is needed. The tests pin the fail-soft
  * contract: every failure mode (null provider, timeout, thrown error, caller
- * abort) resolves to "release" within the configured budget.
+ * abort) resolves to `null` within the configured budget, and the caller
+ * speaks nothing.
  *
  * generateAckText and generateProgressText share one implementation
  * (`generateBoundedSpokenText`), so their common failure modes are pinned in
@@ -19,19 +20,11 @@ import type { Provider, ProviderResponse } from "../../providers/types.js";
 import {
   createVoiceFrontDecider,
   type VoiceAckTextInput,
-  type VoiceEndpointDecisionInput,
   type VoiceFrontDecider,
   type VoiceProgressTextInput,
 } from "../front-decision.js";
 
 const config = LiveVoiceFrontModelConfigSchema.parse({});
-
-const input: VoiceEndpointDecisionInput = {
-  transcriptSoFar: "so what I was thinking is",
-  latestPartial: null,
-  silenceThresholdMs: 1200,
-  extensionCount: 0,
-};
 
 const ackInput: VoiceAckTextInput = {
   transcriptSoFar: "can you check my calendar for tomorrow",
@@ -70,171 +63,6 @@ function toolResponse(
     stopReason: "tool_use",
   };
 }
-
-function textResponse(text: string): ProviderResponse {
-  return {
-    content: [{ type: "text", text }],
-    model: "stub-model",
-    usage: { inputTokens: 1, outputTokens: 1 },
-    stopReason: "end_turn",
-  };
-}
-
-describe("createVoiceFrontDecider — decideEndpoint", () => {
-  test('answer "0" → hold', async () => {
-    const decider = createVoiceFrontDecider({
-      config,
-      getProvider: async () => stubProvider(async () => textResponse("0")),
-    });
-    expect(await decider.decideEndpoint(input)).toEqual({ action: "hold" });
-  });
-
-  test('answer "1" → release', async () => {
-    const decider = createVoiceFrontDecider({
-      config,
-      getProvider: async () => stubProvider(async () => textResponse("1")),
-    });
-    expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
-  });
-
-  test('answer "0" with trailing delimiter → hold', async () => {
-    const decider = createVoiceFrontDecider({
-      config,
-      getProvider: async () => stubProvider(async () => textResponse(" 0\n")),
-    });
-    expect(await decider.decideEndpoint(input)).toEqual({ action: "hold" });
-  });
-
-  test("sends transcript, tight token budget, no tools, and call-site config", async () => {
-    let captured: Parameters<Provider["sendMessage"]> | undefined;
-    const decider = createVoiceFrontDecider({
-      config,
-      getProvider: async () =>
-        stubProvider(async (...args) => {
-          captured = args;
-          return textResponse("1");
-        }),
-    });
-    await decider.decideEndpoint({ ...input, latestPartial: "and then" });
-
-    const [messages, options] = captured!;
-    expect(messages).toHaveLength(1);
-    const text = (messages[0].content[0] as { text: string }).text;
-    expect(text).toContain("so what I was thinking is");
-    expect(text).toContain("and then");
-    expect(options?.config).toMatchObject({
-      max_tokens: 4,
-      callSite: "voiceFrontDecision",
-      disableCache: true,
-    });
-    // Single-token text protocol: no tool schema in the prompt, no forced
-    // tool call in the output — the latency-critical path stays minimal.
-    expect(options?.tools).toBeUndefined();
-    expect(options?.config?.tool_choice).toBeUndefined();
-    expect(options?.systemPrompt).toContain("finished");
-  });
-
-  test("null provider → release (fail-open)", async () => {
-    const decider = createVoiceFrontDecider({
-      config,
-      getProvider: async () => null,
-    });
-    expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
-  });
-
-  test("provider resolution throws → release", async () => {
-    const decider = createVoiceFrontDecider({
-      config,
-      getProvider: async () => {
-        throw new Error("resolution boom");
-      },
-    });
-    expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
-  });
-
-  test("getProvider that never resolves → release after endpointDecisionTimeoutMs", async () => {
-    const decider = createVoiceFrontDecider({
-      config: LiveVoiceFrontModelConfigSchema.parse({
-        endpointDecisionTimeoutMs: 20,
-      }),
-      // Stalled lazy provider initialization — the timeout must bound the
-      // whole call including resolution, not just sendMessage.
-      getProvider: () => new Promise<Provider | null>(() => {}),
-    });
-    const start = Date.now();
-    expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
-    expect(Date.now() - start).toBeLessThan(1000);
-  });
-
-  test("sendMessage that never resolves → release after endpointDecisionTimeoutMs", async () => {
-    const decider = createVoiceFrontDecider({
-      config: LiveVoiceFrontModelConfigSchema.parse({
-        endpointDecisionTimeoutMs: 20,
-      }),
-      // Never settles and ignores the abort signal entirely — the decider's
-      // own timeout race must still bound the call.
-      getProvider: async () =>
-        stubProvider(() => new Promise<ProviderResponse>(() => {})),
-    });
-    const start = Date.now();
-    expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
-    expect(Date.now() - start).toBeLessThan(1000);
-  });
-
-  test("sendMessage throws → release", async () => {
-    const decider = createVoiceFrontDecider({
-      config,
-      getProvider: async () =>
-        stubProvider(async () => {
-          throw new Error("provider boom");
-        }),
-    });
-    expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
-  });
-
-  test("caller-signal abort → release promptly", async () => {
-    const decider = createVoiceFrontDecider({
-      // Long timeout so only the caller's abort can end the call early.
-      config: LiveVoiceFrontModelConfigSchema.parse({
-        endpointDecisionTimeoutMs: 60_000,
-      }),
-      getProvider: async () =>
-        stubProvider(() => new Promise<ProviderResponse>(() => {})),
-    });
-    const controller = new AbortController();
-    const pending = decider.decideEndpoint(input, controller.signal);
-    controller.abort();
-    const start = Date.now();
-    expect(await pending).toEqual({ action: "release" });
-    expect(Date.now() - start).toBeLessThan(1000);
-  });
-
-  test("response without a text block → release", async () => {
-    const decider = createVoiceFrontDecider({
-      config,
-      getProvider: async () =>
-        stubProvider(async () => toolResponse({ complete: false })),
-    });
-    expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
-  });
-
-  test("empty text answer → release", async () => {
-    const decider = createVoiceFrontDecider({
-      config,
-      getProvider: async () => stubProvider(async () => textResponse("   ")),
-    });
-    expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
-  });
-
-  test("non-protocol prose answer → release (fail-open)", async () => {
-    const decider = createVoiceFrontDecider({
-      config,
-      getProvider: async () =>
-        stubProvider(async () => textResponse("The speaker seems unsure")),
-    });
-    expect(await decider.decideEndpoint(input)).toEqual({ action: "release" });
-  });
-});
 
 /**
  * One case per spoken-text method, carrying the values that differ between

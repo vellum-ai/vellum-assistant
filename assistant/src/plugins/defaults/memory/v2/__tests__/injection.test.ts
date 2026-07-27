@@ -131,7 +131,7 @@ const skillState = {
   entries: new Map<string, SkillEntry>(),
 };
 
-mock.module("../../v3/substrate/skill-store.js", () => ({
+mock.module("../../substrate/skill-store.js", () => ({
   getSkillCapability: (idOrSlug: string) => {
     const id = idOrSlug.startsWith("skills/")
       ? idOrSlug.slice("skills/".length)
@@ -167,7 +167,7 @@ const cliCommandState = {
   entries: new Map<string, CliCommandEntryStub>(),
 };
 
-mock.module("../../v3/substrate/cli-command-store.js", () => ({
+mock.module("../../substrate/cli-command-store.js", () => ({
   getCliCommandCapability: (idOrSlug: string) => {
     const id = idOrSlug.startsWith("cli-commands/")
       ? idOrSlug.slice("cli-commands/".length)
@@ -195,7 +195,7 @@ const telemetryState = {
   recordShouldThrow: false,
 };
 
-mock.module("../../memory-v2-activation-log-store.js", () => ({
+mock.module("../activation-log-store.js", () => ({
   recordMemoryV2ActivationLog: (params: Record<string, unknown>) => {
     if (telemetryState.recordShouldThrow) {
       throw new Error("simulated telemetry write failure");
@@ -220,16 +220,18 @@ mock.module("../../memory-v2-activation-log-store.js", () => ({
 // (not a property lookup) before installing the mock so the pass-through
 // path has a real reference to the underlying implementation.
 
-const realPageStoreModule = await import("../../v3/substrate/page-store.js");
+const realPageStoreModule = await import("../../substrate/page-store.js");
 const realReadPage = realPageStoreModule.readPage;
 const pageStoreState = {
   failingSlugs: new Map<string, Error>(),
 };
-mock.module("../../v3/substrate/page-store.js", () => ({
+mock.module("../../substrate/page-store.js", () => ({
   ...realPageStoreModule,
   readPage: async (workspaceDir: string, slug: string) => {
     const err = pageStoreState.failingSlugs.get(slug);
-    if (err) throw err;
+    if (err) {
+      throw err;
+    }
     return realReadPage(workspaceDir, slug);
   },
 }));
@@ -269,7 +271,9 @@ mock.module("../router.js", () => ({
     // the closest equivalent under the new model.
     if (!result.sourceBySlug) {
       const map = new Map<string, string>();
-      for (const slug of result.selectedSlugs) map.set(slug, "tier3:0");
+      for (const slug of result.selectedSlugs) {
+        map.set(slug, "tier3:0");
+      }
       result.sourceBySlug = map;
     }
     return result;
@@ -383,7 +387,7 @@ afterAll(() => {
 // Static `import type` is fine — types erase, so they don't run module-init
 // code that would race the mocks above.
 import type { DrizzleDb } from "../../../../../persistence/db-connection.js";
-import type { SkillEntry } from "../../v3/substrate/types.js";
+import type { SkillEntry } from "../../substrate/types.js";
 
 const { getSqliteFrom } =
   await import("../../../../../persistence/db-connection.js");
@@ -398,7 +402,7 @@ const { clearEverInjected, hydrate, save } =
   await import("../activation-store.js");
 const { injectMemoryV2Block } = await import("../injection.js");
 const { _resetMemoryV2QdrantForTests } =
-  await import("../../v3/substrate/qdrant.js");
+  await import("../../substrate/qdrant.js");
 
 function createTestDb(): DrizzleDb {
   const sqlite = new Database(":memory:");
@@ -1850,7 +1854,7 @@ describe("injectMemoryV2Block", () => {
 
       // Mark every page in the index as already injected — the state a
       // small workspace reaches a few turns into any conversation.
-      const { getPageIndex } = await import("../../v3/substrate/page-index.js");
+      const { getPageIndex } = await import("../../substrate/page-index.js");
       const index = await getPageIndex(tmpWorkspace);
       const seeded = await hydrate("conv-router-saturated");
       await save("conv-router-saturated", {

@@ -118,14 +118,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "voice-mode",
-      "scope": "assistant",
-      "key": "voice-mode",
-      "label": "Voice Mode",
-      "description": "Show the live voice conversation button in the composer",
-      "defaultEnabled": false
-    },
-    {
       "id": "voice-duplex-handoff",
       "scope": "assistant",
       "key": "voice-duplex-handoff",

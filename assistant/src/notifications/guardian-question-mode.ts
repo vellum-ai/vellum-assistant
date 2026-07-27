@@ -75,9 +75,19 @@ const GuardianQuestionPayloadBaseSchema = z.object({
 export const PendingQuestionPayloadSchema =
   GuardianQuestionPayloadBaseSchema.extend({
     requestKind: z.literal("pending_question"),
-    callSessionId: z.string().min(1),
-    activeGuardianRequestCount: z.number(),
+    /** Present only for voice-call questions; absent for ask_question prompts. */
+    callSessionId: z.string().min(1).optional(),
+    activeGuardianRequestCount: z.number().optional(),
     toolName: z.string().optional(),
+    /**
+     * Structured answer options for an ask_question prompt (2–4 entries).
+     * When present, the broadcaster renders them as tappable option actions
+     * (see {@link buildQuestionOptionActionId}); absent payloads render as
+     * plain text with request-code reply instructions.
+     */
+    options: z
+      .array(z.object({ id: z.string().min(1), label: z.string().min(1) }))
+      .optional(),
   });
 
 /**
@@ -219,6 +229,51 @@ export function buildToolApprovalSourceView(
       channel === "slack" && chatId != null && isSlackDmConversation(chatId),
     permalink,
   };
+}
+
+// ── Answer-option action tokens ─────────────────────────────────────────
+
+/**
+ * Action-id scheme for answer-mode option buttons on a `pending_question`
+ * card. The broadcaster builds card actions with these ids (so every channel
+ * adapter renders them without knowing they're question options), the reply
+ * router recognizes a tapped id as an answer selection rather than an
+ * approval action, and the question resolver maps the index back to the
+ * pending interaction's option. Index-based (not the raw option id) so the
+ * channel callback stays small and the LLM-supplied option id never rides
+ * the wire.
+ */
+export const QUESTION_SKIP_ACTION_ID = "answer_skip";
+
+/** Action id for the option at `index` on a question card. */
+export function buildQuestionOptionActionId(index: number): string {
+  return `answer_${index}`;
+}
+
+export type QuestionAnswerSelection =
+  | { kind: "option"; index: number }
+  | { kind: "skip" };
+
+/**
+ * Parse an action token from a question card. Returns `null` for anything
+ * that is not an answer-option token (including ordinary approval actions),
+ * so callers can fall through to approval handling.
+ */
+export function parseQuestionAnswerActionId(
+  token: string,
+): QuestionAnswerSelection | null {
+  if (token === QUESTION_SKIP_ACTION_ID) {
+    return { kind: "skip" };
+  }
+  const match = /^answer_(\d+)$/.exec(token);
+  if (!match) {
+    return null;
+  }
+  const index = Number(match[1]);
+  if (!Number.isInteger(index) || index < 0) {
+    return null;
+  }
+  return { kind: "option", index };
 }
 
 interface GuardianRequestModeInput {
