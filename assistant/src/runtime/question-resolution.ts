@@ -6,15 +6,16 @@
  *
  *  - `POST /v1/question-response` — an app/web client submits the user's
  *    batched selection (see `routes/question-routes.ts`).
- *  - the channel-native question wizard — a Telegram tap or free-text reply
- *    accumulates answers and submits the completed batch (see
- *    `channel-questions.ts`).
+ *  - the guardian-request pipeline — a channel option tap, request-code reply,
+ *    or bare-text answer routes through the guardian reply router to the
+ *    `pending_question` resolver, which builds the submission (see
+ *    `approvals/guardian-request-resolvers.ts`).
  *
  * Both funnel through {@link resolvePendingQuestion} so the validate → consume
  * → `rpcResolve` sequence has a single implementation. The helper is
  * transport-agnostic: it returns a discriminated outcome rather than throwing
  * route errors, so each caller maps the outcome to its own surface (HTTP status
- * codes for the route; silent state cleanup for a stale channel tap).
+ * codes for the route; a resolver failure reason for the pipeline).
  */
 
 import {
