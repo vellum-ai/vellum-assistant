@@ -70,6 +70,31 @@ describe("capacitorFlavor.init", () => {
     consent = false; // user opts out after the client was initialized
     expect(beforeSend?.(anEvent(), {})).toBeNull();
   });
+
+  test("composes the caller's beforeSend instead of replacing it", () => {
+    // The caller's hook carries diagnostic enrichment that every surface
+    // should get; overwriting it here silently exempted iOS.
+    consent = true;
+    const enriched = { event_id: "enriched" } as ErrorEvent;
+    capacitorFlavor.init({ ...OPTIONS, beforeSend: () => enriched });
+
+    expect(lastInitOptions?.beforeSend?.(anEvent(), {})).toBe(enriched);
+  });
+
+  test("consent is checked before the caller's beforeSend runs", () => {
+    consent = false;
+    let callerRan = false;
+    capacitorFlavor.init({
+      ...OPTIONS,
+      beforeSend: (event) => {
+        callerRan = true;
+        return event;
+      },
+    });
+
+    expect(lastInitOptions?.beforeSend?.(anEvent(), {})).toBeNull();
+    expect(callerRan).toBe(false);
+  });
 });
 
 describe("capacitorFlavor.close", () => {

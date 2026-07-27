@@ -12,8 +12,8 @@
  * Client-oriented queries (list, find-by-capability) are methods on the hub.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 
 // ---------------------------------------------------------------------------
 // Message type → capability inference
@@ -41,10 +41,13 @@ export function capabilityForMessageType(
   return HOST_PREFIX_TO_CAPABILITY[stem];
 }
 import type { AssistantEventEnvelope } from "../api/index.js";
+import { forwardEventPublishToDaemon } from "../ipc/events-publish-client.js";
 import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
 import { buildAssistantEvent } from "./assistant-event.js";
+import type { AssistantEventPublishOptions } from "./assistant-event-publish-options.js";
 import { stampAndBuffer } from "./assistant-stream-state.js";
+import { isMainDaemonProcess } from "./process-role.js";
 
 const log = getLogger("assistant-event-hub");
 
@@ -302,20 +305,16 @@ export class AssistantEventHub {
    */
   async publish(
     event: AssistantEventEnvelope,
-    options?: {
-      targetCapability?: HostProxyCapability;
-      targetClientId?: string;
-      targetInterfaceId?: InterfaceId;
-      /**
-       * Skip the subscriber with this `clientId`. Used for self-echo
-       * suppression on `sync_changed`: the route handler echoes the
-       * originating tab's `X-Vellum-Client-Id` back on the event, and the
-       * hub uses it here to avoid re-delivering the invalidation to the
-       * tab that already mutated its own optimistic state.
-       */
-      excludeClientId?: string;
-    },
+    options?: AssistantEventPublishOptions,
   ): Promise<void> {
+    // Only the main daemon owns the subscribers real clients connect to. In any
+    // other process (a sidecar worker, the route host) this hub has no SSE
+    // subscriber, so hand the event to the daemon — it republishes on the hub
+    // clients actually observe. Best-effort: a transport failure is logged, not
+    // thrown, and never blocks the caller.
+    if (!isMainDaemonProcess()) {
+      return forwardEventPublishToDaemon(event, options);
+    }
     if (event.conversationId) {
       try {
         appendEventToStream(event.conversationId, event);

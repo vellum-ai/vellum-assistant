@@ -5,7 +5,8 @@ import {
 
 import {
   CAPABILITY_TIER_META,
-  CAPABILITY_TIER_VALUES,
+  CHANNEL_TIER_VALUES,
+  channelTierBehavesAs,
 } from "@/domains/channels/slack-channel-overrides";
 import type { RiskThreshold } from "@/utils/threshold-presets";
 
@@ -39,13 +40,16 @@ export interface TierPickerProps {
 
 /**
  * The compact Assistant Access picker shared by the per-channel rows and the
- * channel-type default rows. Lists the four levels only — no separate "Default"
- * option: the level equal to the resolved default carries a muted "default"
- * marker, selecting it clears this scope's cell (follow the default), and
- * selecting any other level pins an override. This keeps "follow the default"
- * and "pick the level it resolves to" the same choice, and is safe because
- * resolution is most-specific-wins and value-only (see `slack-channel-overrides`
- * and the gateway's `ChannelPermissionStore.resolve`).
+ * channel-type default rows. Lists {@link CHANNEL_TIER_VALUES} only — no
+ * separate "Default" option: the level equal to the resolved default carries a
+ * muted "default" marker, selecting it clears this scope's cell (follow the
+ * default), and selecting any other level pins an override. This keeps "follow
+ * the default" and "pick the level it resolves to" the same choice, and is safe
+ * because resolution is most-specific-wins and value-only (see
+ * `slack-channel-overrides` and the gateway's `ChannelPermissionStore.resolve`).
+ *
+ * A stored `medium`/`high` cell is shown as the level it behaves as, so the
+ * picker never displays a level it cannot offer.
  */
 export function TierPicker({
   tier,
@@ -55,14 +59,15 @@ export function TierPicker({
   onReset,
   "aria-label": ariaLabel,
 }: TierPickerProps) {
-  const effectiveTier = tier ?? defaultTier;
-  const options: DropdownOption<RiskThreshold>[] = CAPABILITY_TIER_VALUES.map(
+  const effectiveTier = channelTierBehavesAs(tier ?? defaultTier ?? undefined);
+  const shownDefault = channelTierBehavesAs(defaultTier ?? undefined) ?? null;
+  const options: DropdownOption<RiskThreshold>[] = CHANNEL_TIER_VALUES.map(
     (value) => ({
       value,
       label: CAPABILITY_TIER_META[value].label,
       icon: <TierDot color={CAPABILITY_TIER_META[value].dotColor} />,
       suffix:
-        value === defaultTier ? (
+        value === shownDefault ? (
           <span className="text-[color:var(--content-tertiary)]">default</span>
         ) : undefined,
       tooltip: CAPABILITY_TIER_META[value].sublabel,
@@ -72,7 +77,7 @@ export function TierPicker({
   const handleChange = (next: RiskThreshold) => {
     // Picking the level the default resolves to means "follow the default",
     // which is the absence of a cell — clear it rather than pinning an equal one.
-    if (next === defaultTier) {
+    if (next === shownDefault) {
       onReset();
     } else {
       onTierChange(next);

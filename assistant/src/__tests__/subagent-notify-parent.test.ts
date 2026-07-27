@@ -349,3 +349,26 @@ describe("notifyParentFromChild", () => {
     expect(capturedParentIds).not.toContain("victim-conversation");
   });
 });
+
+describe("notify_parent — model-input schema validation (LUM-2857)", () => {
+  test("rejects a non-string message", async () => {
+    const result = await executeSubagentNotifyParent(
+      { message: 42 },
+      makeContext("conv-notify-schema-1"),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "notify_parent"');
+  });
+
+  test("degrades a malformed urgency to info instead of forwarding it", async () => {
+    const conversationId = "conv-notify-schema-2";
+    seedSubagent(conversationId);
+    const result = await executeSubagentNotifyParent(
+      { message: "found something", urgency: 42 },
+      makeContext(conversationId),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content) as { urgency: string };
+    expect(parsed.urgency).toBe("info");
+  });
+});

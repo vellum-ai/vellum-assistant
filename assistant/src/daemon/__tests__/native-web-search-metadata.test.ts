@@ -29,6 +29,7 @@ mock.module("../../persistence/llm-request-log-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
+import type { AssistantEvent } from "../../api/index.js";
 import { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } from "../../tools/network/web-search-error.js";
 import type {
   EventHandlerDeps,
@@ -38,7 +39,6 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
 } from "../conversation-agent-loop-handlers.js";
-import type { AssistantEvent } from "../message-protocol.js";
 
 type ToolResultEvent = Extract<AssistantEvent, { type: "tool_result" }>;
 

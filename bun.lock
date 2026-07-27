@@ -19,7 +19,7 @@
         "@modelcontextprotocol/sdk": "1.27.1",
         "@qdrant/js-client-rest": "1.17.0",
         "@resvg/resvg-js": "2.6.2",
-        "@slack/types": "2.21.1",
+        "@slack/types": "2.22.0",
         "@vellumai/ces-client": "workspace:*",
         "@vellumai/credential-storage": "workspace:*",
         "@vellumai/egress-proxy": "workspace:*",
@@ -294,7 +294,7 @@
       },
       "devDependencies": {
         "@grammyjs/types": "4.0.0",
-        "@slack/types": "2.21.1",
+        "@slack/types": "2.22.0",
         "@types/bun": "1.3.9",
         "eslint": "10.0.0",
         "fast-check": "4.7.0",
@@ -432,7 +432,7 @@
       "name": "@vellumai/gateway-client",
       "version": "0.0.1",
       "dependencies": {
-        "@slack/types": "2.21.1",
+        "@slack/types": "2.22.0",
         "@vellumai/service-contracts": "workspace:*",
         "zod": "4.3.6",
       },
@@ -1247,7 +1247,7 @@
 
     "@sindresorhus/is": ["@sindresorhus/is@4.6.0", "", {}, "sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw=="],
 
-    "@slack/types": ["@slack/types@2.21.1", "", {}, "sha512-I8vmSjNYWsaxuWPx6dz4yeh0h7vRBWbgAMK14LEmblbZ404BtrPbXs6jDPx4cYgGf8msDGF4A9opLZBu21FViQ=="],
+    "@slack/types": ["@slack/types@2.22.0", "", {}, "sha512-sZ9lIgJhPX2qft/tKWiklFlc0o1FWeI7QtciZJfW1+ErH1eGGHvOZ8e73sleTCFEFJp1q/R0WeS8Oa7AsiDprg=="],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 

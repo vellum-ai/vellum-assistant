@@ -8,6 +8,7 @@
  * barge-in, state machine, guardian verification).
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
 import {
   expireGuardianRequest,
@@ -16,7 +17,6 @@ import {
   getRequestByPendingQuestionOrNull,
   listGuardianRequestDeliveriesOrEmpty,
 } from "../channels/gateway-guardian-requests.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";

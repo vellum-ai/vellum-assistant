@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   createEventHandlerState,
   type EventHandlerDeps,
   handleMaxTokensReached,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 
 describe("max tokens reached handler", () => {
   test("emits and stores an inline continuation card", () => {

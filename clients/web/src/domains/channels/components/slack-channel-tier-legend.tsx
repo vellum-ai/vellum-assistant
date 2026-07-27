@@ -4,77 +4,59 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
   CAPABILITY_TIER_META,
-  CAPABILITY_TIER_VALUES,
+  CHANNEL_TIER_VALUES,
+  channelTierBehavesAs,
 } from "@/domains/channels/slack-channel-overrides";
 import { TierDot } from "@/domains/channels/components/tier-picker";
 import type { RiskThreshold } from "@/utils/threshold-presets";
 import { routes } from "@/utils/routes";
 
 /**
- * Full per-tier help copy, framed around behavior toward the people in the
- * channel: what the assistant does on its own when responding, and what waits
- * for the owner. Rendered inline under each tier name in the key, so the
- * meaning is on screen without hovering — plain text (not JSX) because it
- * interpolates the assistant name. The terse `CAPABILITY_TIER_META.sublabel`
- * is the picker's short form ({@link TierPicker}), not used here.
+ * Full per-level help copy, framed around what the assistant does on its own
+ * when answering other people in the channel. Rendered inline under each name
+ * in the key, so the meaning is on screen without hovering — plain text (not
+ * JSX) because it interpolates the assistant name. The terse
+ * `CAPABILITY_TIER_META.sublabel` is the picker's short form, not used here.
  *
- * Grounded in the live approval pipeline
- * (`assistant/src/permissions/checker.ts` → `approval-policy.ts`): each call's
- * risk is classified first — with the user's Trust Rules applied as per-action
- * risk re-classifications (low/medium/high) — and then compared against this
- * channel's tier. At `none` nothing is within threshold, so every action
- * prompts; Trust Rules move an action between levels (changing when it asks)
- * but cannot bypass Strict or hard-block at Full access, which is why the
- * description frames them as tuning, not overriding.
- *
- * Channel actors are non-guardians, so the sensitive-tool floor applies on top
- * of the tier: every side-effect tool (file writes, bash, web fetches —
- * `assistant/src/tools/side-effects.ts`) plus all host execution — the MCP and
- * bundled-skill tools, which is where sends and spends live (messaging, phone
- * calls) — escalates to the owner without a scoped grant, at every tier
- * (`assistant/src/tools/tool-approval-handler.ts`). So the tier only moves the
- * line for the read/lookup tools the assistant runs on its own; every action
- * keeps coming to the owner. This copy is therefore intentionally narrower than
- * the global preset descriptions in `threshold-presets.ts`, which describe the
- * guardian's own conversations where the floor self-approves.
+ * Grounded in what a channel cell can actually delegate
+ * (`assistant/src/tools/tool-approval-handler.ts` → `isChannelLiftable`): only
+ * non-executing side effects in the assistant's own workspace — reads, public
+ * `web_fetch`, and ordinary in-workspace file writes. "Take notes" describes
+ * those writes without implying documents: the document tools run on the host
+ * and stay on the capability floor. Everything the footer names is floored at
+ * every level, so the two levels differ only in whether that narrow set runs
+ * on its own or asks first.
  */
 function tierDescription(tier: RiskThreshold, assistantName: string): string {
-  switch (tier) {
-    case "none":
-      return `${assistantName} replies, but asks you before looking anything up — even a web search.`;
-    case "low":
-      return `Low-risk lookups run on their own: web searches, reading files in ${assistantName}'s own workspace.`;
-    case "medium":
-      return `Also allows medium-risk lookups to run on their own.`;
-    case "high":
-      return `Any lookup runs on its own, including reads of sensitive local files.`;
-  }
+  return tier === "none"
+    ? `${assistantName} replies, but asks you before doing anything else, even a web search.`
+    : `${assistantName} can look things up and take notes on its own: web searches, public web pages, and reading and writing files in its own workspace.`;
 }
 
 export interface SlackChannelTierLegendProps {
   /** Trimmed assistant name with a "your assistant" fallback, for copy. */
   assistantName: string;
   /**
-   * The tier the owner's global setting resolves to, marked "· default" in the
-   * key so it lines up with the rows (which name the same tier). `null` while
-   * unknown — no tier is marked.
+   * The level the owner's global setting resolves to, marked "· default" in
+   * the key so it lines up with the rows (which name the same level). `null`
+   * while unknown — no level is marked.
    */
   defaultTier: RiskThreshold | null;
 }
 
 /**
  * Always-visible Assistant Access key in the default-access card footer: a
- * heading, a one-line description of what the levels do (and what always
- * escalates), then every tier in a two-column grid as its name over the full
- * {@link tierDescription} sentence. Everything renders on screen — no hover
- * tooltip — so the meaning is reachable on touch. The tier the global default
- * resolves to is marked "· default", matching the per-row picker so the two
- * read together.
+ * heading, who the levels apply to, every level as its name over the full
+ * {@link tierDescription} sentence, then the boundary that holds at every
+ * level. Everything renders on screen — no hover tooltip — so the meaning is
+ * reachable on touch. The level the global default resolves to is marked
+ * "· default", matching the per-row picker so the two read together.
  */
 export function SlackChannelTierLegend({
   assistantName,
   defaultTier,
 }: SlackChannelTierLegendProps) {
+  const shownDefault = channelTierBehavesAs(defaultTier ?? undefined) ?? null;
   return (
     <div className="flex flex-col gap-2 px-4 py-3">
       <Typography as="span" variant="body-small-emphasised">
@@ -86,19 +68,10 @@ export function SlackChannelTierLegend({
         className="text-[color:var(--content-tertiary)]"
       >
         Applies to other people in the channel — your own requests use your
-        global Assistant Access. The levels only cover how much {assistantName}{" "}
-        looks up on its own before answering; writing, sending, and spending
-        always come to you first, at every level. Your{" "}
-        <Link
-          to={routes.settings.privacy}
-          className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
-        >
-          Trust Rules
-        </Link>{" "}
-        fine-tune when it asks.
+        global Assistant Access.
       </Typography>
       <ul className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-        {CAPABILITY_TIER_VALUES.map((tier) => {
+        {CHANNEL_TIER_VALUES.map((tier) => {
           const meta = CAPABILITY_TIER_META[tier];
           return (
             <li key={tier} className="flex flex-col gap-0.5">
@@ -107,7 +80,7 @@ export function SlackChannelTierLegend({
                 <Typography as="span" variant="body-small-emphasised">
                   {meta.label}
                 </Typography>
-                {tier === defaultTier ? (
+                {tier === shownDefault ? (
                   <Typography
                     as="span"
                     variant="body-small-default"
@@ -128,6 +101,23 @@ export function SlackChannelTierLegend({
           );
         })}
       </ul>
+      <Typography
+        as="p"
+        variant="body-small-default"
+        className="text-[color:var(--content-tertiary)]"
+      >
+        Whatever the level, nothing in this room lets {assistantName} run code,
+        change how it works, reach your computer or your connected accounts, or
+        use skills you haven&rsquo;t vetted. Those always come to you first.
+        Your{" "}
+        <Link
+          to={routes.settings.privacy}
+          className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
+        >
+          Trust Rules
+        </Link>{" "}
+        fine-tune when it asks.
+      </Typography>
     </div>
   );
 }

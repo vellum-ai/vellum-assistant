@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "@vellumai/design-library/tokens.css";
-@source "../src/**/*.tsx";
-@source "../node_modules/@vellumai/design-library/src/**/*.tsx";
+@source "../src/**/*.{ts,tsx}";
 
 body {
   background: var(--surface-base);

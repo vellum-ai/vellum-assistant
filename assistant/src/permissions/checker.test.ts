@@ -15,12 +15,14 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 }));
 
 // `buildPolicyContext` (used by the integration tests below) precomputes the
-// proc-to-skills gate via `isProcToSkillsActive`. Drive it through this slot so
-// a test can put the production threading path in the active / inactive state.
-let mockProcToSkillsActive = true;
+// proc-to-skills gate via `isV3TierActive`. Drive it through this slot so a
+// test can put the production threading path in the active / inactive state.
+let mockV3TierActive = true;
 mock.module("../config/memory-v3-gate.js", () => ({
-  isProcToSkillsActive: () => mockProcToSkillsActive,
-  isMemoryV3Live: () => mockProcToSkillsActive,
+  isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
+    config?.memory?.enabled !== false,
+  isV3TierActive: () => mockV3TierActive,
+  isMemoryV3Live: () => mockV3TierActive,
   usesConceptPageMemory: (memory?: {
     enabled?: boolean;
     v2?: { enabled?: boolean };
@@ -192,7 +194,7 @@ describe("Permission Checker (gateway IPC)", () => {
     lastClassifyRiskParams = undefined;
     mockCachedThreshold = "low";
     mockRefreshedThreshold = null;
-    mockProcToSkillsActive = true;
+    mockV3TierActive = true;
     thresholdCallLog.length = 0;
   });
 
@@ -1159,7 +1161,7 @@ describe("Permission Checker (gateway IPC)", () => {
       // Same retrospective ToolContext, but the feature is inactive (flag off
       // or v3 not live). buildPolicyContext stamps `procToSkillsActive: false`,
       // so the grant is dead and the high-risk scaffold prompts.
-      mockProcToSkillsActive = false;
+      mockV3TierActive = false;
       mockIpcClassifyRiskResult = {
         risk: "high",
         reason: "Skill scaffold",

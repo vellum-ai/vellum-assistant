@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   buildCompletionSummary,
   createSurfaceMutex,
@@ -7,7 +8,6 @@ import {
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
 import type {
-  AssistantEvent,
   ChoiceSurfaceData,
   CopyBlockSurfaceData,
   OAuthConnectSurfaceData,

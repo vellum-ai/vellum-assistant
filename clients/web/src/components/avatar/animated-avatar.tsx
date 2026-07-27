@@ -171,9 +171,8 @@ export function AnimatedAvatar({
 
   const [isBlinking, setIsBlinking] = useState(false);
   const [twitchAngle, setTwitchAngle] = useState(0);
-  const [morphIndex, setMorphIndex] = useState(0);
 
-  const morphTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bodyPathRef = useRef<SVGPathElement | null>(null);
 
   useEffect(() => {
     // Force eyes open whenever blinking is disabled (reduced-motion or
@@ -258,24 +257,40 @@ export function AnimatedAvatar({
     };
   }, [reduce, isAssistantBusy]);
 
-  // Morph path cycling (only during streaming)
+  // Morph path cycling (only during streaming).
+  //
+  // Written straight to the DOM rather than held in React state. The morph is
+  // decoration — a 6.7Hz wobble on a body outline — but as state it put a
+  // React update on the queue every 150ms, per visible busy avatar, for the
+  // whole length of every streaming turn. React counts commits that finish
+  // with an update already pending and throws `Maximum update depth exceeded`
+  // once fifty-one land back to back, so purely visual work has no business in
+  // the commit stream at all; this was the most frequently blamed frame in
+  // that error family (LUM-2859). `d` stays out of the rendered props below,
+  // so an unrelated re-render never clobbers the imperative value.
   useEffect(() => {
-    if (!isAssistantBusy || reduce) {
-      setMorphIndex(0);
+    const el = bodyPathRef.current;
+    if (!el) return;
+    const basePath = morphPaths[0] ?? bodyShape.svgPath;
+    if (!isAssistantBusy || reduce || morphPaths.length <= 1) {
+      el.setAttribute("d", basePath);
       return;
     }
 
     let idx = 0;
-    morphTimerRef.current = setInterval(() => {
+    const timer = setInterval(() => {
       idx = (idx + 1) % morphPaths.length;
-      setMorphIndex(idx);
+      const next = morphPaths[idx];
+      if (next) el.setAttribute("d", next);
     }, 150);
 
     return () => {
-      if (morphTimerRef.current) clearInterval(morphTimerRef.current);
-      morphTimerRef.current = null;
+      clearInterval(timer);
+      // A turn that ends mid-cycle would otherwise leave the body frozen on a
+      // wobbled variant instead of settling back to its resting shape.
+      el.setAttribute("d", basePath);
     };
-  }, [isAssistantBusy, reduce, morphPaths.length]);
+  }, [isAssistantBusy, reduce, morphPaths, bodyShape.svgPath]);
 
   const bodyCenterX = size / 2;
   const bodyCenterY = size / 2;
@@ -292,7 +307,10 @@ export function AnimatedAvatar({
   // Never squish the eyes while streaming — guards the one frame between
   // `isAssistantBusy` flipping true and the blink effect resetting `isBlinking`.
   const effectiveBlinking = isBlinking && !isAssistantBusy;
-  const currentBodyPath = morphPaths[morphIndex] ?? bodyShape.svgPath;
+  // Resting shape. The morph effect above drives `d` from here on, so this
+  // value must stay stable across re-renders — React only patches attributes
+  // whose props changed, which is what keeps the imperative writes intact.
+  const baseBodyPath = morphPaths[0] ?? bodyShape.svgPath;
 
   return (
     <svg
@@ -316,7 +334,8 @@ export function AnimatedAvatar({
         }}
       >
         <path
-          d={currentBodyPath}
+          ref={bodyPathRef}
+          d={baseBodyPath}
           fill={color.hex}
           transform={bodyTransform}
           style={{

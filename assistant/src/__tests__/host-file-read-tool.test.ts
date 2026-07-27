@@ -118,13 +118,13 @@ describe("host_file_read tool", () => {
   test("rejects missing path parameter", async () => {
     const result = await hostFileReadTool.execute({}, makeContext());
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("path is required");
+    expect(result.content).toContain('Invalid input for tool "host_file_read"');
   });
 
   test("rejects non-string path", async () => {
     const result = await hostFileReadTool.execute({ path: 42 }, makeContext());
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("path is required and must be a string");
+    expect(result.content).toContain('Invalid input for tool "host_file_read"');
   });
 
   test("reads entire file when no offset or limit specified", async () => {

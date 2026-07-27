@@ -1,5 +1,7 @@
 import { extname } from "node:path";
 
+import { z } from "zod";
+
 import { RiskLevel } from "../../permissions/types.js";
 import {
   AUDIO_EXTENSIONS,
@@ -11,11 +13,47 @@ import {
   readImageFile,
 } from "../shared/filesystem/image-read.js";
 import { sandboxPolicyWithHostFallback } from "../shared/filesystem/path-policy.js";
+import {
+  invalidToolInputResult,
+  toToolInputSchema,
+} from "../shared/zod-tool-schema.js";
 import type {
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
+
+/**
+ * Model-input schema, the single source for both runtime validation (via
+ * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below. `offset` and
+ * `limit` catch to `undefined` because the tool has always ignored non-numeric
+ * values rather than failing the read.
+ */
+export const fileReadInputSchema = z.looseObject({
+  path: z
+    .string()
+    .min(1)
+    .describe(
+      "The path to the file to read (absolute or relative to working directory)",
+    ),
+  offset: z
+    .number()
+    .describe("Line number to start reading from (1-indexed)")
+    .optional()
+    .catch(undefined),
+  limit: z
+    .number()
+    .describe("Maximum number of lines to read")
+    .optional()
+    .catch(undefined),
+  activity: z
+    .string()
+    .describe(
+      "Brief non-technical explanation of what you are doing and why, shown as a status update.",
+    )
+    .optional()
+    .catch(undefined),
+});
 
 export const fileReadTool = {
   name: "file_read",
@@ -25,42 +63,19 @@ export const fileReadTool = {
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
 
-  input_schema: {
-    type: "object",
-    properties: {
-      path: {
-        type: "string",
-        description:
-          "The path to the file to read (absolute or relative to working directory)",
-      },
-      offset: {
-        type: "number",
-        description: "Line number to start reading from (1-indexed)",
-      },
-      limit: {
-        type: "number",
-        description: "Maximum number of lines to read",
-      },
-      activity: {
-        type: "string",
-        description:
-          "Brief non-technical explanation of what you are doing and why, shown as a status update.",
-      },
-    },
-    required: ["path", "activity"],
-  },
+  input_schema: toToolInputSchema(fileReadInputSchema, {
+    advertiseRequired: ["activity"],
+  }),
 
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const rawPath = input.path as string;
-    if (!rawPath || typeof rawPath !== "string") {
-      return {
-        content: "Error: path is required and must be a string",
-        isError: true,
-      };
+    const parsed = fileReadInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("file_read", parsed.error);
     }
+    const { path: rawPath, offset, limit } = parsed.data;
 
     // For image files, delegate to the shared image reader.
     const ext = extname(rawPath).toLowerCase();
@@ -97,11 +112,7 @@ export const fileReadTool = {
       sandboxPolicyWithHostFallback(path, context.workingDir, opts),
     );
 
-    const result = ops.readFileSafe({
-      path: rawPath,
-      offset: typeof input.offset === "number" ? input.offset : undefined,
-      limit: typeof input.limit === "number" ? input.limit : undefined,
-    });
+    const result = ops.readFileSafe({ path: rawPath, offset, limit });
 
     if (!result.ok) {
       const { error } = result;

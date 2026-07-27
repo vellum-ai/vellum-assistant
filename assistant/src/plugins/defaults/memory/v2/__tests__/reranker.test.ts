@@ -22,14 +22,16 @@ const backendState = {
   shouldThrow: false,
   calls: [] as Array<{ queries: string[]; passages: string[] }>,
 };
-mock.module("../../rerank-local.js", () => ({
+mock.module("../rerank-local.js", () => ({
   getOrCreateRerankBackend: (_model: string, _dtype: string) => ({
     score: async (queries: string[], passages: string[]): Promise<number[]> => {
       backendState.calls.push({
         queries: [...queries],
         passages: [...passages],
       });
-      if (backendState.shouldThrow) throw new Error("backend down");
+      if (backendState.shouldThrow) {
+        throw new Error("backend down");
+      }
       return backendState.scores.slice(0, passages.length);
     },
   }),
@@ -42,8 +44,8 @@ const pageState = {
 // Partial mock — Bun's `mock.module` is process-wide, so we re-export every
 // real symbol and override only `readPage`. Without this, sibling test files
 // that import `listPages` etc. would crash with "Export not found".
-const realPageStore = await import("../../v3/substrate/page-store.js");
-mock.module("../../v3/substrate/page-store.js", () => ({
+const realPageStore = await import("../../substrate/page-store.js");
+mock.module("../../substrate/page-store.js", () => ({
   ...realPageStore,
   readPage: async (_dir: string, slug: string) => {
     if (pageState.failingSlugs.has(slug)) {
@@ -294,7 +296,7 @@ describe("rerankCandidates", () => {
     const dtypes: string[] = [];
 
     // Re-mock the factory just for this test to capture the dtype arg.
-    mock.module("../../rerank-local.js", () => ({
+    mock.module("../rerank-local.js", () => ({
       getOrCreateRerankBackend: (_model: string, dtype: string) => {
         dtypes.push(dtype);
         return {

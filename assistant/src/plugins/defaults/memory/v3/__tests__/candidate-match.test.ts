@@ -44,8 +44,8 @@ let simBatchImpl: (
   text: string,
   slugs: readonly string[],
 ) => Promise<Map<string, number>> = async () => new Map();
-const realSim = await import("../substrate/sim.js");
-mock.module("../substrate/sim.js", () => ({
+const realSim = await import("../../substrate/sim.js");
+mock.module("../../substrate/sim.js", () => ({
   ...realSim,
   simBatch: (text: string, slugs: readonly string[]) =>
     simBatchImpl(text, slugs),
@@ -262,7 +262,9 @@ describe("nearestExistingSkills — default scorer retries transient failures", 
     let calls = 0;
     simBatchImpl = async (_text, slugs) => {
       calls++;
-      if (calls === 1) throw transientError();
+      if (calls === 1) {
+        throw transientError();
+      }
       // Second attempt succeeds: the skill's capability page scores high.
       return new Map(
         slugs

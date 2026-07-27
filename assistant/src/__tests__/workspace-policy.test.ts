@@ -5,10 +5,12 @@ import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 
 import * as envRegistry from "../config/env-registry.js";
 import {
+  isControlPlaneWorkspaceWrite,
   isOutOfWorkspaceFileInvocation,
   isPathWithinWorkspaceRoot,
   isWorkspaceScopedInvocation,
 } from "../permissions/workspace-policy.js";
+import { BUNDLED_SYSTEM_SECTIONS } from "../prompts/templates/system-sections.js";
 
 // ---------------------------------------------------------------------------
 // Temp directory scaffold for symlink / path-containment tests
@@ -415,6 +417,267 @@ describe("isOutOfWorkspaceFileInvocation", () => {
       ).toBe(false);
     } finally {
       spy.mockRestore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isExecutableWorkspaceWrite
+// ---------------------------------------------------------------------------
+
+// The sink directories come from the workspace getters (getWorkspaceHooksDir
+// et al.), which resolve against the configured workspace — so these tests run
+// against the per-process workspace override, not this file's scaffold root.
+// Using the scaffold would let the probe root and the getters diverge, and the
+// tests would pass without exercising the real comparison.
+describe("isControlPlaneWorkspaceWrite / executable sinks", () => {
+  const wsRoot = process.env.VELLUM_WORKSPACE_DIR!;
+
+  beforeAll(() => {
+    mkdirSync(join(wsRoot, "hooks"), { recursive: true });
+    mkdirSync(join(wsRoot, "notes-real"), { recursive: true });
+    // A benign-looking symlink inside the workspace pointing at hooks/.
+    symlinkSync(join(wsRoot, "hooks"), join(wsRoot, "notes-link"));
+  });
+
+  afterAll(() => {
+    rmSync(join(wsRoot, "notes-link"), { force: true });
+  });
+
+  test.each([
+    ["relative", "hooks/evil.ts"],
+    ["absolute", () => join(wsRoot, "hooks", "evil.ts")],
+    ["container /workspace form", "/workspace/hooks/evil.ts"],
+    ["dot-dot traversal", "notes-real/../hooks/evil.ts"],
+  ])("blocks a write into hooks/ via %s path", (_label, path) => {
+    const resolved = typeof path === "function" ? path() : path;
+    expect(
+      isControlPlaneWorkspaceWrite("file_write", { path: resolved }, wsRoot),
+    ).toBe(true);
+  });
+
+  // The path is lexically ordinary; only canonicalization sees where it lands.
+  // The sibling predicates above canonicalize for exactly this reason.
+  test("blocks a write through a symlink into hooks/", () => {
+    expect(
+      isControlPlaneWorkspaceWrite(
+        "file_write",
+        { path: "notes-link/evil.ts" },
+        wsRoot,
+      ),
+    ).toBe(true);
+  });
+
+  // A write through a link that will land inside a sink dir once created.
+  test("blocks a write through a DANGLING symlink into hooks/", () => {
+    const dangling = join(wsRoot, "dangling-into-hooks");
+    symlinkSync(join(wsRoot, "hooks", "not-yet.ts"), dangling);
+    try {
+      expect(
+        isControlPlaneWorkspaceWrite("file_write", { path: dangling }, wsRoot),
+      ).toBe(true);
+    } finally {
+      rmSync(dangling, { force: true });
+    }
+  });
+
+  // The sentinel under data/monitoring steers which plugin code the daemon
+  // imports — the classifier gates it as a code-injection sink, so the
+  // channel floor must too.
+  test("blocks a write into the monitoring data directory", () => {
+    expect(
+      isControlPlaneWorkspaceWrite(
+        "file_write",
+        { path: "data/monitoring/source-versions.json" },
+        wsRoot,
+      ),
+    ).toBe(true);
+  });
+
+  test("ordinary workspace writes and reads stay clear", () => {
+    expect(
+      isControlPlaneWorkspaceWrite(
+        "file_write",
+        { path: "notes-real/todo.md" },
+        wsRoot,
+      ),
+    ).toBe(false);
+    // Reads never plant code, even into a sink dir.
+    expect(
+      isControlPlaneWorkspaceWrite(
+        "file_read",
+        { path: "hooks/on-message.ts" },
+        wsRoot,
+      ),
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isPromptSurfaceWrite
+// ---------------------------------------------------------------------------
+
+describe("isControlPlaneWorkspaceWrite / prompt surfaces", () => {
+  const wsRoot = process.env.VELLUM_WORKSPACE_DIR!;
+
+  test.each([
+    "IDENTITY.md",
+    "SOUL.md",
+    "VOICE.md",
+    "BOOTSTRAP.md",
+    "users/alice.md",
+    "users/default.md",
+    "channels/general.md",
+    "HEARTBEAT.md",
+    "NOW.md",
+  ])("blocks a write to %s", (path) => {
+    expect(isControlPlaneWorkspaceWrite("file_write", { path }, wsRoot)).toBe(
+      true,
+    );
+  });
+
+  // A surface that is itself a symlink is read through the link by the
+  // renderer, so a write to either name rewrites the prompt — the baselines
+  // canonicalize like the targets do.
+  test("blocks both names when the surface itself is a symlink", () => {
+    mkdirSync(join(wsRoot, "personas"), { recursive: true });
+    symlinkSync(
+      join(wsRoot, "personas", "current.md"),
+      join(wsRoot, "SOUL.md"),
+    );
+    try {
+      // Addressed through the link: the target canonicalizes past it.
+      expect(
+        isControlPlaneWorkspaceWrite("file_write", { path: "SOUL.md" }, wsRoot),
+      ).toBe(true);
+      // Addressed at the link's destination directly.
+      expect(
+        isControlPlaneWorkspaceWrite(
+          "file_write",
+          { path: "personas/current.md" },
+          wsRoot,
+        ),
+      ).toBe(true);
+      // A sibling in the same directory is still an ordinary write.
+      expect(
+        isControlPlaneWorkspaceWrite(
+          "file_write",
+          { path: "personas/other.md" },
+          wsRoot,
+        ),
+      ).toBe(false);
+    } finally {
+      rmSync(join(wsRoot, "SOUL.md"), { force: true });
+      rmSync(join(wsRoot, "personas"), { recursive: true, force: true });
+    }
+  });
+
+  // Same shape for a surface directory: users/ itself is a symlink to
+  // another in-workspace directory, and the renderer reads through it — so a
+  // write under either name rewrites per-user context.
+  test("blocks both names when a surface directory is a symlink", () => {
+    mkdirSync(join(wsRoot, "people-real"), { recursive: true });
+    symlinkSync(join(wsRoot, "people-real"), join(wsRoot, "users"));
+    try {
+      // Addressed through the linked surface name.
+      expect(
+        isControlPlaneWorkspaceWrite(
+          "file_write",
+          { path: "users/someone.md" },
+          wsRoot,
+        ),
+      ).toBe(true);
+      // Addressed at the link's destination directly.
+      expect(
+        isControlPlaneWorkspaceWrite(
+          "file_write",
+          { path: "people-real/someone.md" },
+          wsRoot,
+        ),
+      ).toBe(true);
+    } finally {
+      rmSync(join(wsRoot, "users"), { force: true });
+      rmSync(join(wsRoot, "people-real"), { recursive: true, force: true });
+    }
+  });
+
+  // The path is lexically ordinary; only canonicalization sees where it
+  // lands — same symlink dodge as the executable sinks.
+  test("blocks a write through a symlink onto a prompt surface", () => {
+    symlinkSync(join(wsRoot, "SOUL.md"), join(wsRoot, "innocent-notes.md"));
+    try {
+      expect(
+        isControlPlaneWorkspaceWrite(
+          "file_write",
+          { path: "innocent-notes.md" },
+          wsRoot,
+        ),
+      ).toBe(true);
+    } finally {
+      rmSync(join(wsRoot, "innocent-notes.md"), { force: true });
+    }
+  });
+
+  test("blocks the container /workspace form and dot-dot traversal", () => {
+    expect(
+      isControlPlaneWorkspaceWrite(
+        "file_write",
+        { path: "/workspace/SOUL.md" },
+        wsRoot,
+      ),
+    ).toBe(true);
+    expect(
+      isControlPlaneWorkspaceWrite(
+        "file_write",
+        { path: "notes-real/../SOUL.md" },
+        wsRoot,
+      ),
+    ).toBe(true);
+  });
+
+  test("ordinary writes and reads stay clear", () => {
+    expect(
+      isControlPlaneWorkspaceWrite(
+        "file_write",
+        { path: "notes-real/todo.md" },
+        wsRoot,
+      ),
+    ).toBe(false);
+    // A file merely named like a surface, in a subdirectory, is not one.
+    expect(
+      isControlPlaneWorkspaceWrite(
+        "file_write",
+        { path: "notes-real/SOUL.md" },
+        wsRoot,
+      ),
+    ).toBe(false);
+    expect(
+      isControlPlaneWorkspaceWrite("file_read", { path: "SOUL.md" }, wsRoot),
+    ).toBe(false);
+  });
+
+  // Drift guard: every workspace path the prompt renderer reads must be
+  // covered by the predicate, so adding a section cannot silently open a
+  // writable prompt surface.
+  test("covers every workspacePath the system sections declare", () => {
+    const paths = BUNDLED_SYSTEM_SECTIONS.flatMap((section) => {
+      const wp = (section as { workspacePath?: string | string[] })
+        .workspacePath;
+      if (!wp) {
+        return [];
+      }
+      return Array.isArray(wp) ? wp : [wp];
+    }).map((path) =>
+      path
+        .replace("{{userSlug}}", "someone")
+        .replace("{{channelSlug}}", "general"),
+    );
+
+    expect(paths.length).toBeGreaterThan(0);
+    for (const path of paths) {
+      expect(isControlPlaneWorkspaceWrite("file_write", { path }, wsRoot)).toBe(
+        true,
+      );
     }
   });
 });

@@ -425,6 +425,12 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       let privacy = resolved.privacy;
       let analyticsCurrent = resolved.analyticsCurrent;
       let diagnosticsCurrent = resolved.diagnosticsCurrent;
+      // "Has this user ever consented", independent of version currency —
+      // consent surfaces need it to tell a never-consented user from one whose
+      // acceptances merely went stale (both legal flags read false in EITHER
+      // case once both required versions are bumped). Device acks below can
+      // upgrade it, mirroring how they upgrade `tos`/`privacy`.
+      let hasConsentRecord = resolved.hasServerRecord;
       // Genuine "confirmed under the current version" attestation, distinct
       // from the `*Current` flags, which also read never-asked (a null server
       // value) as "nothing to re-review". Only a genuine ack may be
@@ -448,6 +454,9 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         if (deviceConsent.tos && deviceConsent.privacy) {
           tos = true;
           privacy = true;
+          // Device acks are consent evidence: this user consented before, so
+          // they are not a first-consent user even with an empty server row.
+          hasConsentRecord = true;
           // Backfill the server from the device evidence: stamp the
           // diagnostics version when its device ack is current, and send any
           // explicit device share choice so the next fetch can't overwrite a
@@ -505,6 +514,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       store.setPrivacyConsent(privacy);
       store.setAnalyticsConsentCurrent(analyticsCurrent);
       store.setDiagnosticsConsentCurrent(diagnosticsCurrent);
+      store.setHasConsentRecord(hasConsentRecord);
       persistConsentForUser(nextUserId, tos, privacy);
       // A false toggle ack is never written: absent ≡ false for every
       // reader, and writing false would erase a genuine device attestation
@@ -542,6 +552,11 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   // re-bounces on the next successful sync.
   store.setAnalyticsConsentCurrent(true);
   store.setDiagnosticsConsentCurrent(true);
+  // Device acks are the only evidence available here. Both present means this
+  // user consented before, so consent surfaces must not use first-time
+  // framing; absent evidence is indistinguishable from never-consented, and
+  // the next successful sync corrects it either way.
+  store.setHasConsentRecord(consent.tos && consent.privacy);
   syncOrganizationState(nextUserId);
   store.setConsentHydrated(true);
 }

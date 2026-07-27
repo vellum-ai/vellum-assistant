@@ -22,7 +22,12 @@ import { useNavigate } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
 import { routes } from "@/utils/routes";
 import { conversationsByIdSlashPost } from "@/generated/daemon/sdk.gen";
-import { isLocalMetaCommand } from "@/domains/chat/components/chat-composer/slash-command-catalog";
+import {
+  isLocalMetaCommand,
+  parseDoctorCommand,
+} from "@/domains/chat/components/chat-composer/slash-command-catalog";
+import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { saveContextWindowUsage } from "@/domains/chat/utils/context-window-storage";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
@@ -172,6 +177,10 @@ export function useSendMessage({
 }: UseSendMessageParams) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  // The Doctor is platform-hosted only; when the active assistant is
+  // self-hosted the Doctor tab doesn't exist, so `/doctor` must fall through
+  // to a normal send rather than navigating to a doomed, empty tab.
+  const doctorGate = usePlatformGate({ platformHostedOnly: true });
   const addOptimisticSend = useChatSessionStore.use.addOptimisticSend();
   const setOptimisticSends = useChatSessionStore.use.setOptimisticSends();
   const setError = useChatSessionStore.use.setError();
@@ -577,6 +586,27 @@ export function useSendMessage({
       // always a fresh first message (conversation idle), so they never take the
       // queue path below.
       const isHidden = opts.hidden === true;
+      // `/doctor <message>` navigates to the Doctor panel rather than starting
+      // an assistant turn, parking the first message in a hand-off store so the
+      // panel can auto-start a session and send it. Handled before the
+      // conversation/disk-pressure guards below since it needs neither.
+      const doctorPrompt = parseDoctorCommand(content);
+      if (doctorPrompt !== null) {
+        // The Doctor is platform-hosted only. On a self-hosted assistant its
+        // tab doesn't exist, so the command is disabled: clear the input and
+        // surface a notice rather than sending "/doctor …" as a normal turn.
+        if (doctorGate === "gated") {
+          useComposerStore.getState().setInput("");
+          toast.info("The Doctor isn't available on this assistant.");
+          return;
+        }
+        if (doctorPrompt) {
+          useDoctorHandoffStore.getState().setPendingPrompt(doctorPrompt);
+        }
+        useComposerStore.getState().setInput("");
+        navigate(`${routes.settings.debug}?tab=doctor`);
+        return;
+      }
       // Explicit user override from the composer secret guard's "Send
       // anyway" confirmation — forwarded on this send's POST only.
       const bypassSecretCheck = opts.bypassSecretCheck === true;
@@ -871,6 +901,8 @@ export function useSendMessage({
     [
       activeConversationId,
       assistantId,
+      doctorGate,
+      navigate,
       diskPressureChatBlockReason,
       uiContextRef,
       runLocalMetaCommand,

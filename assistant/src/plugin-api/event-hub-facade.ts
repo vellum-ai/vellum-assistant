@@ -166,6 +166,9 @@ export const pluginAssistantEventHub: PluginEventHub = Object.freeze({
         `Plugins may not publish daemon-to-client host-proxy control events (type "${blockedType}").`,
       );
     }
+    // `assistantEventHub.publish` forwards to the daemon when this is not the
+    // main process, so the guarded snapshot reaches real subscribers whether
+    // published here or from a sidecar worker.
     return assistantEventHub.publish(snapshot, snapshotOptions);
   },
 

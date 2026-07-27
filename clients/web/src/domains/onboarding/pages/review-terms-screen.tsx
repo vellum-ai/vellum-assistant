@@ -14,6 +14,7 @@ import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-lay
 import {
     useAnalyticsConsentCurrent,
     useDiagnosticsConsentCurrent,
+    useHasConsentRecord,
     usePrivacyConsent,
     useShareAnalytics,
     useShareDiagnostics,
@@ -45,6 +46,7 @@ export function ReviewTermsScreen() {
   const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
   const [analyticsConsentCurrent] = useAnalyticsConsentCurrent();
   const [diagnosticsConsentCurrent] = useDiagnosticsConsentCurrent();
+  const hasConsentRecord = useHasConsentRecord();
   // Never-asked (null) displays as on: both toggles are opt-out, so an
   // unchosen toggle is effectively enabled.
   const shareAnalyticsChecked = shareAnalytics ?? true;
@@ -66,18 +68,35 @@ export function ReviewTermsScreen() {
     !privacyStaleAtMount &&
     !analyticsStaleAtMount &&
     !diagnosticsStaleAtMount;
+  // No consent record at all means this user never consented (e.g. arrived
+  // with an assistant via the bring-your-agent import, which replaces
+  // onboarding). Present first-time consent framing, not the "we've updated
+  // our terms" re-review framing — there is no baseline to diff against.
+  //
+  // Keyed off the explicit record signal, NOT off the two staleness flags:
+  // those carry version currency, so an established user whose acceptances
+  // predate BOTH current required versions has both stale and would otherwise
+  // be misread as never-consented — losing the "what's changed" notes that are
+  // the whole point of their re-review.
+  //
+  // Snapshotted at mount for the same reason as the staleness flags above: a
+  // sync landing mid-visit must not re-frame the page or unmount the
+  // diagnostics toggle while the user is using it.
+  const [firstConsentAtMount] = useState(() => !hasConsentRecord);
   const showTos = tosStaleAtMount || nothingStaleAtMount;
   const showPrivacy = privacyStaleAtMount || nothingStaleAtMount;
   const showAnalytics = analyticsStaleAtMount || nothingStaleAtMount;
-  const showDiagnostics = diagnosticsStaleAtMount || nothingStaleAtMount;
+  // A first-consent user (bring-your-agent) skips the onboarding privacy
+  // screen entirely, so review-terms is where they first choose diagnostics
+  // sharing. Their *Current flags read never-asked as "nothing to re-review"
+  // (true), so diagnosticsStaleAtMount is false — surface the toggle anyway to
+  // match the onboarding privacy screen (diagnostics-only; analytics stays
+  // null until an explicit opt-in, so showAnalytics is deliberately not forced
+  // here).
+  const showDiagnostics =
+    diagnosticsStaleAtMount || nothingStaleAtMount || firstConsentAtMount;
   const onlyTogglesStaleAtMount =
     !nothingStaleAtMount && !tosStaleAtMount && !privacyStaleAtMount;
-  // Both legal docs unaccepted at mount means this user never consented at
-  // all (e.g. arrived with an assistant via the bring-your-agent import,
-  // which replaces onboarding). Present first-time consent framing, not the
-  // "we've updated our terms" re-review framing — there is no baseline to
-  // diff against.
-  const firstConsentAtMount = tosStaleAtMount && privacyStaleAtMount;
 
   const heading = nothingStaleAtMount
     ? "Terms & privacy"

@@ -305,13 +305,16 @@ mock.module("../../../../persistence/jobs-store.js", () => ({
   },
 }));
 
-// proc-to-skills gate. Drives both `buildForkInstruction`'s skill-authoring
-// section and the wake's origin pin behavior. Default inactive (remember-only),
-// matching a stock install; tests flip it on to assert the authoring section.
-let mockProcToSkillsActive = false;
+// The v3-tier gate. Drives both `buildForkInstruction`'s skill-authoring
+// section (proc-to-skills) and the wake's origin pin behavior. Default inactive
+// (remember-only), matching a stock install; tests flip it on to assert the
+// authoring section.
+let mockV3TierActive = false;
 mock.module("../../../../config/memory-v3-gate.js", () => ({
-  isProcToSkillsActive: () => mockProcToSkillsActive,
-  isMemoryV3Live: () => mockProcToSkillsActive,
+  isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
+    config?.memory?.enabled !== false,
+  isV3TierActive: () => mockV3TierActive,
+  isMemoryV3Live: () => mockV3TierActive,
   usesConceptPageMemory: (memory?: {
     enabled?: boolean;
     v2?: { enabled?: boolean };
@@ -429,7 +432,7 @@ describe("memoryRetrospectiveJob", () => {
     loadedConversations = {};
     mockResolvedUserSlug = "alice";
     resolveUserSlugCalls = [];
-    mockProcToSkillsActive = false;
+    mockV3TierActive = false;
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -667,7 +670,7 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("wake allows memory saves + skill authoring and suppresses the internal wake surface", async () => {
-    mockProcToSkillsActive = true;
+    mockV3TierActive = true;
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(forkCalls).toHaveLength(1);
@@ -691,7 +694,7 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("wake is remember-only when proc-to-skills is inactive", async () => {
-    mockProcToSkillsActive = false;
+    mockV3TierActive = false;
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(wakeCalls).toHaveLength(1);
@@ -1837,7 +1840,7 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("proc-to-skills active: instruction carries the pre-check + dedup + companion-file directives", async () => {
-    mockProcToSkillsActive = true;
+    mockV3TierActive = true;
 
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 

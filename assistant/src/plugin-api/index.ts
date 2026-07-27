@@ -154,7 +154,7 @@ export { getModelProfiles } from "./model-profiles.js";
 // hub without holding the general hub handle. Route/hook authors surfacing a UI
 // invalidation (e.g. `sync_changed`) import this. Delegates to the same
 // capability-restricted facade, so host-proxy control events stay rejected.
-export type { PublishEventOptions } from "./publish-event.js";
+export type { AssistantEventPublishOptions } from "../runtime/assistant-event-publish-options.js";
 export { publishEvent } from "./publish-event.js";
 // Check whether a model or profile can process image input. Accepts a concrete
 // model id, a profile key, or a `ModelProfileInfo`; a bare string is resolved

@@ -23,9 +23,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@vellumai/design-library";
 import { Toaster } from "@vellumai/design-library/components/toast";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
+import { installQueryPressureProbe } from "@/lib/commit-pressure";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { queryRetryDelay, shouldRetryQuery } from "@/utils/query-retry";
@@ -63,6 +64,12 @@ function RequestScopedQueryClientProvider({
   children: ReactNode;
 }) {
   const [queryClient] = useState(() => createQueryClient());
+  // Query notifications re-render through `useSyncExternalStore`, so they are
+  // part of the same commit traffic as the chat route's timer-driven updates.
+  // Only this client is probed: it is the one the conversation route's queries
+  // live under, and the auth-scoped client above serves a handful of
+  // low-frequency reads.
+  useEffect(() => installQueryPressureProbe(queryClient), [queryClient]);
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );

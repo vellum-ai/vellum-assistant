@@ -38,7 +38,7 @@ import {
   runRetrospectiveSweep,
   SWEEP_MAX_ENQUEUES_PER_PASS,
 } from "../memory-retrospective-sweep.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../v3/substrate/constants.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../substrate/constants.js";
 
 await initializeDb();
 

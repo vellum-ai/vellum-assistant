@@ -19,6 +19,7 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test";
 
 import * as realPlatform from "../util/platform.js";
+import { installThresholdReaderMock } from "./gateway-threshold-reader-mock.js";
 
 // Local registry for ToolExecutor tests — the mock delegates to this map
 // so that registerTool/getTool/getAllTools work for our benchmark tools.
@@ -54,10 +55,9 @@ mock.module("../util/platform.js", () => ({
   getDeprecatedDir: () => "/tmp/deprecated",
 }));
 
-mock.module("../permissions/gateway-threshold-reader.js", () => ({
-  getAutoApproveThreshold: async () => undefined,
-  refreshAutoApproveThreshold: async () => null,
-}));
+// Mock defaults: no threshold, and no cell at any cascade level — the
+// benchmark measures the pipeline, not the channel matrix.
+installThresholdReaderMock();
 
 const realWorkspacePolicy = await import("../permissions/workspace-policy.js");
 mock.module("../permissions/workspace-policy.js", () => ({

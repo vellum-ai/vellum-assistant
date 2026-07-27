@@ -2,6 +2,7 @@ import { v4 as uuid, v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
 import { SurfaceActionSchema } from "../api/events/ui-surface-show.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   CardSurfaceDataSchema,
   ChoiceSurfaceDataSchema,
@@ -70,7 +71,6 @@ import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   AnySurfaceData,
-  AssistantEvent,
   CardSurfaceData,
   ChoiceSurfaceData,
   ConfirmationSurfaceData,

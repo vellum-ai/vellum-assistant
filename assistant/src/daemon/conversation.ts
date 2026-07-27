@@ -19,6 +19,7 @@ import type { AgentLoopConfig } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
+import type { AssistantEvent } from "../api/index.js";
 import { decideGuardianRequest } from "../channels/gateway-guardian-requests.js";
 import type {
   ChannelId,
@@ -125,6 +126,7 @@ import { registerConversationNotifiers } from "./conversation-notifiers.js";
 import type { ProcessMessageOptions } from "./conversation-process.js";
 import {
   drainQueue as drainQueueImpl,
+  kickQueueDrain as kickQueueDrainImpl,
   processMessage as processMessageImpl,
 } from "./conversation-process.js";
 import type {
@@ -163,11 +165,7 @@ import { canonicalizeTimeZone } from "./date-context.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { shouldAttachHostProxyForCapability } from "./host-proxy-preactivation.js";
-import type {
-  AssistantEvent,
-  SurfaceType,
-  UsageStats,
-} from "./message-protocol.js";
+import type { SurfaceType, UsageStats } from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
@@ -2491,6 +2489,18 @@ export class Conversation {
 
   drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
     return drainQueueImpl(this, reason);
+  }
+
+  /**
+   * Never-rejecting drain trigger for fire-and-forget call sites. See
+   * `kickQueueDrain` in conversation-process.ts for the retry/notify
+   * semantics.
+   */
+  kickDrainQueue(
+    reason: QueueDrainReason = "loop_complete",
+    origin?: string,
+  ): Promise<void> {
+    return kickQueueDrainImpl(this, reason, origin);
   }
 
   async processMessage(options: ProcessMessageOptions): Promise<string> {

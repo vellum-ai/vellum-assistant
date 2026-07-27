@@ -11,6 +11,7 @@ import {
 import { dirname, join } from "node:path";
 import * as readline from "node:readline";
 
+import type { AssistantEvent } from "./api/index.js";
 import {
   type MainScreenLayout,
   renderMainScreen,
@@ -18,7 +19,6 @@ import {
   updateStatusText,
 } from "./cli/main-screen.jsx";
 import { renderHistoryContent } from "./daemon/handlers/shared.js";
-import type { AssistantEvent } from "./daemon/message-protocol.js";
 import {
   getConversation,
   getMessages,

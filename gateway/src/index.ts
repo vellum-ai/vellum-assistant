@@ -20,8 +20,6 @@ import { loopbackFallbackCountTracker } from "./http/middleware/auth.js";
 import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { FeatureFlagWatcher } from "./feature-flag-watcher.js";
-import { readPersistedFeatureFlags } from "./feature-flag-store.js";
-import { readRemoteFeatureFlags } from "./feature-flag-remote-store.js";
 import { RemoteFeatureFlagSync } from "./remote-feature-flag-sync.js";
 import { loadConfig } from "./config.js";
 import { CredentialCache } from "./credential-cache.js";
@@ -163,6 +161,8 @@ import {
 } from "./slack/socket-mode.js";
 import { downloadSlackFile } from "./slack/download.js";
 import { slackBotContactNote } from "./slack/actor.js";
+import { DiscordGatewayClient } from "./discord/gateway-socket.js";
+import { parseAllowedChannelIds } from "./discord/admit.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
@@ -245,6 +245,7 @@ const SERVICE_DISPLAY_NAMES: Record<string, string> = {
   twilio: "Twilio",
   whatsapp: "WhatsApp",
   slack_channel: "Slack channel",
+  discord_channel: "Discord channel",
 };
 
 function detectCredentialChanges(
@@ -393,40 +394,24 @@ async function main() {
   }
 
   /**
-   * Whether web live voice is enabled for this assistant. The browser only
-   * opens the live-voice channel when the `voice-mode` assistant flag is on, so
-   * we mirror that signal here (persisted local override OR platform-synced
-   * remote value). Used to bring up the Velay tunnel, which is the browser's
-   * ingress for live voice.
-   */
-  function isLiveVoiceEnabled(): boolean {
-    return (
-      readPersistedFeatureFlags()["voice-mode"] === true ||
-      readRemoteFeatureFlags()["voice-mode"] === true
-    );
-  }
-
-  /**
-   * Start the Velay tunnel when web live voice is enabled.
+   * Start the Velay tunnel for web live voice.
    *
    * Velay is the browser's ingress for the live-voice WebSocket, but the tunnel
    * was historically only started for Twilio (see
-   * {@link maybeStartVelayTunnelForTwilio}). Without this, a `voice-mode`
-   * assistant with no Twilio setup never registers a Velay tunnel, so the
-   * browser's `/v1/live-voice` upgrade fails with "assistant tunnel is not
-   * connected". Shares the `velayStartRequested` latch with the Twilio path —
-   * one tunnel serves both — and `velayTunnelClient.start()` is idempotent.
+   * {@link maybeStartVelayTunnelForTwilio}). Without this, an assistant with no
+   * Twilio setup never registers a Velay tunnel, so the browser's
+   * `/v1/live-voice` upgrade fails with "assistant tunnel is not connected".
+   * Live voice is available to every assistant, so this runs unconditionally at
+   * startup. Shares the `velayStartRequested` latch with the Twilio path — one
+   * tunnel serves both — and `velayTunnelClient.start()` is idempotent.
    */
-  function maybeStartVelayTunnelForLiveVoice(reason: string): boolean {
+  function startVelayTunnelForLiveVoice(reason: string): boolean {
     if (velayStartRequested || !velayTunnelClient) {
       return velayStartRequested;
     }
-    if (!isLiveVoiceEnabled()) {
-      return false;
-    }
 
     velayStartRequested = true;
-    log.info({ reason }, "Starting Velay tunnel after live voice enabled");
+    log.info({ reason }, "Starting Velay tunnel for live voice");
     velayTunnelClient.start();
     return true;
   }
@@ -2436,6 +2421,77 @@ async function main() {
     log.info("Slack Socket Mode client started");
   }
 
+  // ── Discord Gateway lifecycle ──
+  // Credential-gated and UI-invisible: the client exists only while a
+  // `discord_channel:bot_token` credential does. There is no feature flag —
+  // `discord` stays out of BASE_AVAILABLE_CHANNELS, and removing the
+  // credential tears the connection down on the next watcher tick.
+  //
+  // Startup is the credential watcher's initial poll: it diffs against an
+  // empty baseline, so a token already stored at boot surfaces as
+  // `changed.has("discord_channel")` and starts the client — the same path
+  // the Slack socket boots through. This requires `discord_channel` to be
+  // registered in ALL_CREDENTIAL_SPECS (credential-reader.ts); the watcher
+  // only reads services listed there, and the registration is pinned by
+  // credential-reader.test.ts.
+  let discordGatewayClient: DiscordGatewayClient | null = null;
+
+  async function startDiscordGateway(): Promise<void> {
+    if (discordGatewayClient) {
+      discordGatewayClient.stop();
+      discordGatewayClient = null;
+    }
+
+    const botToken = await credentialCache.get(
+      credentialKey("discord_channel", "bot_token"),
+    );
+    if (!botToken) {
+      return;
+    }
+
+    discordGatewayClient = new DiscordGatewayClient(
+      {
+        botToken,
+        // Read live (the config cache is TTL'd) so an allow-list edit applies
+        // without a client restart, which would spend an IDENTIFY.
+        readAllowedChannelIds: () =>
+          parseAllowedChannelIds(
+            configFileCache.getString("discord", "allowedChannelIds"),
+          ),
+      },
+      (event) => {
+        // Reset the platform idle-sleep timer — inbound Discord activity
+        // keeps the assistant awake like any other channel's.
+        notifyRecordActivity();
+
+        // Seed a contact channel for the actor (dual-write, fire-and-forget)
+        // so later verification flows have a record to upgrade.
+        void upsertContactChannel({
+          sourceChannel: "discord",
+          externalUserId: event.actor.actorExternalId,
+          displayName: event.actor.displayName,
+          username: event.actor.username,
+        }).catch(() => {});
+
+        // Read-only slice: no replyCallbackUrl until the send path exists.
+        handleInbound(config, event).catch((err) => {
+          log.error(
+            {
+              err,
+              conversationExternalId: event.message.conversationExternalId,
+            },
+            "Failed to forward Discord event to runtime",
+          );
+        });
+      },
+    );
+
+    discordGatewayClient.start().catch((err) => {
+      log.error({ err }, "Failed to start Discord Gateway client");
+    });
+    log.info("Discord Gateway client started");
+  }
+
   // Lazily bound below, once `remoteFeatureFlagSync` is constructed, so the
   // credential-change callback can trigger an immediate per-assistant flag
   // re-sync. On a warm-pool claim the `vellum` credentials change to the
@@ -2484,6 +2540,15 @@ async function main() {
         );
       });
     }
+    if (changed.has("discord_channel")) {
+      startDiscordGateway().catch((err) => {
+        log.error(
+          { err },
+          "Failed to restart Discord Gateway after credential change",
+        );
+      });
+    }
+
     if (changed.has("slack_channel")) {
       startSlackSocket().catch((err) => {
         log.error(
@@ -2553,8 +2618,8 @@ async function main() {
   }
   maybeStartVelayTunnelForTwilio("startup", twilioStartupCredentials);
   // Velay is also the browser's ingress for web live voice, so bring the tunnel
-  // up at startup when `voice-mode` is already enabled (not just for Twilio).
-  maybeStartVelayTunnelForLiveVoice("startup");
+  // up at startup for every assistant (not just for Twilio).
+  startVelayTunnelForLiveVoice("startup");
 
   // The credential watcher callback handles credential-backed startup side
   // effects during the initial poll. Stale Velay-owned ingress is already
@@ -2663,10 +2728,6 @@ async function main() {
 
   emitFlagChanged = () => {
     ipcServer.emit("feature_flags_changed");
-    // A `voice-mode` flip (e.g. after a warm-pool claim syncs the assistant's
-    // flags) should bring up the Velay tunnel so web live voice can connect
-    // without a gateway restart.
-    maybeStartVelayTunnelForLiveVoice("voice-mode flag changed");
   };
 
   const featureFlagWatcher = new FeatureFlagWatcher({
@@ -2746,6 +2807,10 @@ async function main() {
     if (slackSocketClient) {
       slackSocketClient.stop();
       slackSocketClient = null;
+    }
+    if (discordGatewayClient) {
+      discordGatewayClient.stop();
+      discordGatewayClient = null;
     }
     setTimeout(() => {
       log.info("Drain window elapsed, stopping server");

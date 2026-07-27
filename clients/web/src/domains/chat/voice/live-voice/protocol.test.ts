@@ -27,6 +27,7 @@ describe("parseServerFrame", () => {
     { type: "utterance_end", seq: 13, reason: "silence" },
     { type: "utterance_discarded", seq: 18 },
     { type: "turn_cancelled", seq: 14, turnId: "t2" },
+    { type: "minimize_room", seq: 20, turnId: "t3" },
     { type: "stt_partial", seq: 3, text: "hel" },
     { type: "stt_final", seq: 4, text: "hello" },
     { type: "thinking", seq: 5, turnId: "t1" },
@@ -118,6 +119,16 @@ describe("parseServerFrame", () => {
       code: "invalid_json",
       message: expect.any(String),
     });
+  });
+
+  test("passes through a known-type frame missing a field (only the type discriminator is validated)", () => {
+    // Deliberately not a well-formed LiveVoiceMinimizeRoomServerFrame (no
+    // turnId) — the parser validates only the type discriminator, so the raw
+    // object passes through unchanged. The cast reflects that documented gap.
+    const raw = { type: "minimize_room", seq: 21 };
+    expect(parseServerFrame(JSON.stringify(raw))).toEqual(
+      raw as unknown as LiveVoiceServerFrame,
+    );
   });
 
   test("round-trips utterance_end with a max-duration reason", () => {

@@ -74,7 +74,7 @@ mock.module("../plugins/defaults/memory/memory-recall-log-store.js", () => ({
 }));
 
 mock.module(
-  "../plugins/defaults/memory/memory-v2-activation-log-store.js",
+  "../plugins/defaults/memory/v2/activation-log-store.js",
   () => ({
     backfillMemoryV2ActivationMessageId: () => {},
   }),
@@ -82,7 +82,7 @@ mock.module(
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 import type { AgentEvent } from "../agent/loop.js";
-import type { AssistantEventEnvelope } from "../api/index.js";
+import type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -96,7 +96,6 @@ import {
   handleToolUse,
   handleToolUsePreviewStart,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getConversationPersistedSeq } from "../persistence/conversation-crud.js";
 import {
   _resetStreamStateForTesting,

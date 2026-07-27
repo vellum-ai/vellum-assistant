@@ -9,7 +9,7 @@ import type {
   CheckpointInfo,
   ExitReason,
 } from "../agent/loop.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { stampAndBuffer } from "../runtime/assistant-stream-state.js";
 import { setConfig } from "./helpers/set-config.js";

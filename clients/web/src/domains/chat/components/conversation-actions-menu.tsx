@@ -14,10 +14,13 @@ import {
   Pin,
   PinOff,
   RefreshCw,
-  type LucideIcon,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import {
+    buildPanelMenuItem,
+    PanelMenuDivider,
+} from "@/domains/chat/components/panel-menu-item";
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { openExternalUrl } from "@/runtime/browser";
@@ -26,7 +29,6 @@ import {
   BottomSheet,
   ContextMenu,
   Menu,
-  PanelItem,
 } from "@vellumai/design-library";
 
 /**
@@ -376,65 +378,6 @@ export function renderConversationMenuItems({
 }
 
 /**
- * 1px divider for the mobile bottom-sheet menu. Mirrors the in-popover
- * separator style used elsewhere in the app.
- */
-function MobileMenuDivider() {
-  return (
-    <div aria-hidden="true" className="my-1 h-px bg-[var(--border-overlay)]" />
-  );
-}
-
-/**
- * Build a single menu row for the mobile bottom sheet. Renders a
- * `PanelItem` so the row matches the design system spec. The `onSelect`
- * handler runs first, then the sheet dismisses via `onClose` so the
- * action's UI feedback (modals, toasts, navigation) doesn't fire under
- * a still-open sheet.
- */
-function buildPanelItem({
-  key,
-  icon,
-  label,
-  disabled,
-  className,
-  run,
-  onClose,
-}: {
-  key: string;
-  icon?: LucideIcon;
-  label: string;
-  disabled?: boolean;
-  className?: string;
-  run: () => void;
-  onClose: () => void;
-}): ReactNode {
-  const composedClassName = [
-    disabled ? "pointer-events-none opacity-50" : null,
-    className,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  return (
-    <PanelItem
-      key={key}
-      icon={icon}
-      label={label}
-      onSelect={
-        disabled
-          ? undefined
-          : () => {
-              run();
-              onClose();
-            }
-      }
-      aria-disabled={disabled || undefined}
-      className={composedClassName || undefined}
-    />
-  );
-}
-
-/**
  * Mobile-only renderer for the bottom-sheet surface. Returns the same
  * conceptual item set as `renderConversationMenuItems` but flattened into
  * `PanelItem` rows.
@@ -472,7 +415,7 @@ export function renderConversationMenuItemsAsPanelItems({
   // flattened into an inline labeled block (mirrors the desktop submenu).
   const showMoveToGroup = Boolean(onMoveToGroup && onCreateGroupInto);
   const pinItem = onPinToggle
-    ? buildPanelItem({
+    ? buildPanelMenuItem({
         key: "pin",
         icon: isPinned ? PinOff : Pin,
         label: isPinned ? "Unpin" : "Pin",
@@ -482,7 +425,7 @@ export function renderConversationMenuItemsAsPanelItems({
     : null;
 
   const renameItem = onRename
-    ? buildPanelItem({
+    ? buildPanelMenuItem({
         key: "rename",
         icon: Pencil,
         label: "Rename",
@@ -493,7 +436,7 @@ export function renderConversationMenuItemsAsPanelItems({
 
   const archiveItem =
     isArchived && onUnarchive
-      ? buildPanelItem({
+      ? buildPanelMenuItem({
           key: "unarchive",
           icon: ArchiveRestore,
           label: "Unarchive",
@@ -501,7 +444,7 @@ export function renderConversationMenuItemsAsPanelItems({
           onClose,
         })
       : onArchive
-        ? buildPanelItem({
+        ? buildPanelMenuItem({
             key: "archive",
             icon: Archive,
             label: "Archive",
@@ -512,7 +455,7 @@ export function renderConversationMenuItemsAsPanelItems({
 
   const markReadUnreadItem =
     !isReadonly && onMarkRead
-      ? buildPanelItem({
+      ? buildPanelMenuItem({
           key: "mark-read",
           icon: CircleCheck,
           label: "Mark as read",
@@ -520,7 +463,7 @@ export function renderConversationMenuItemsAsPanelItems({
           onClose,
         })
       : !isReadonly && onMarkUnread
-        ? buildPanelItem({
+        ? buildPanelMenuItem({
             key: "mark-unread",
             icon: Circle,
             label: "Mark as unread",
@@ -532,13 +475,13 @@ export function renderConversationMenuItemsAsPanelItems({
 
   const moveToGroupBlock = showMoveToGroup ? (
     <>
-      <MobileMenuDivider />
+      <PanelMenuDivider />
       <div className="flex items-center gap-2 px-2 pt-1 pb-1 text-body-small-default uppercase tracking-wide text-[var(--content-tertiary)]">
         <FolderInput size={14} aria-hidden />
         Move to group
       </div>
       {(moveToGroups ?? []).map((group) =>
-        buildPanelItem({
+        buildPanelMenuItem({
           key: `move-to-${group.id}`,
           label: group.name,
           className: "pl-7",
@@ -546,7 +489,7 @@ export function renderConversationMenuItemsAsPanelItems({
           onClose,
         }),
       )}
-      {buildPanelItem({
+      {buildPanelMenuItem({
         key: "move-to-new-group",
         label: "New group…",
         className: "pl-7",
@@ -554,7 +497,7 @@ export function renderConversationMenuItemsAsPanelItems({
         onClose,
       })}
       {onRemoveFromGroup
-        ? buildPanelItem({
+        ? buildPanelMenuItem({
             key: "remove-from-group",
             label: "Remove from group",
             className: "pl-7",
@@ -567,7 +510,7 @@ export function renderConversationMenuItemsAsPanelItems({
 
   const openInNewWindowItem =
     onOpenInNewWindow && !isNativePlatform
-      ? buildPanelItem({
+      ? buildPanelMenuItem({
           key: "open-in-new-window",
           icon: ExternalLink,
           label:
@@ -578,7 +521,7 @@ export function renderConversationMenuItemsAsPanelItems({
       : null;
 
   const channelSourceLinkItem = channelSourceLink
-    ? buildPanelItem({
+    ? buildPanelMenuItem({
         key: "channel-source-link",
         icon: ExternalLink,
         label: channelSourceLink.label,
@@ -588,7 +531,7 @@ export function renderConversationMenuItemsAsPanelItems({
     : null;
 
   const inspectItem = onInspect
-    ? buildPanelItem({
+    ? buildPanelMenuItem({
         key: "inspect",
         icon: Microscope,
         label: "Inspect",
@@ -601,7 +544,7 @@ export function renderConversationMenuItemsAsPanelItems({
     return (
       <>
         {onCopyConversation
-          ? buildPanelItem({
+          ? buildPanelMenuItem({
               key: "copy",
               icon: Copy,
               label: "Copy full conversation",
@@ -611,7 +554,7 @@ export function renderConversationMenuItemsAsPanelItems({
           : null}
 
         {onForkConversation
-          ? buildPanelItem({
+          ? buildPanelMenuItem({
               key: "fork",
               icon: GitBranch,
               label: "Fork conversation",
@@ -624,7 +567,7 @@ export function renderConversationMenuItemsAsPanelItems({
         {openInNewWindowItem}
 
         {onRefresh
-          ? buildPanelItem({
+          ? buildPanelMenuItem({
               key: "refresh",
               icon: RefreshCw,
               label: "Refresh",
@@ -654,8 +597,8 @@ export function renderConversationMenuItemsAsPanelItems({
 
       {onShareFeedback ? (
         <>
-          <MobileMenuDivider />
-          {buildPanelItem({
+          <PanelMenuDivider />
+          {buildPanelMenuItem({
             key: "share-feedback",
             icon: MessageCircle,
             label: "Share Feedback",
@@ -667,7 +610,7 @@ export function renderConversationMenuItemsAsPanelItems({
 
       {inspectItem ? (
         <>
-          <MobileMenuDivider />
+          <PanelMenuDivider />
           {inspectItem}
         </>
       ) : null}

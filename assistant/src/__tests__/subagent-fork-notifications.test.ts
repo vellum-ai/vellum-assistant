@@ -29,7 +29,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 

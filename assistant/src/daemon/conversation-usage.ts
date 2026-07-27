@@ -1,3 +1,4 @@
+import type { AssistantEvent } from "../api/index.js";
 import { getConfig } from "../config/loader.js";
 import { updateConversationUsage } from "../persistence/conversation-crud.js";
 import { recordUsageEvent } from "../persistence/llm-usage-store.js";
@@ -16,7 +17,7 @@ import {
   resolvePricingForUsageWithOverrides,
   usesAnthropicPricingRules,
 } from "../util/pricing.js";
-import type { AssistantEvent, UsageStats } from "./message-protocol.js";
+import type { UsageStats } from "./message-protocol.js";
 
 const log = getLogger("conversation-usage");
 

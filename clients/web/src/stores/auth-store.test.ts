@@ -239,6 +239,7 @@ const setTosAcceptedMock = mock((_value: boolean) => {});
 const setPrivacyConsentMock = mock((_value: boolean) => {});
 const setAnalyticsConsentCurrentMock = mock((_value: boolean) => {});
 const setDiagnosticsConsentCurrentMock = mock((_value: boolean) => {});
+const setHasConsentRecordMock = mock((_value: boolean) => {});
 const setShareAnalyticsMock = mock((_value: boolean | null) => {});
 const setShareDiagnosticsMock = mock((_value: boolean | null) => {});
 const setServerAnalyticsEffectiveMock = mock((_value: boolean | null) => {});
@@ -264,6 +265,7 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
       setServerDiagnosticsEffective: setServerDiagnosticsEffectiveMock,
       setAnalyticsConsentCurrent: setAnalyticsConsentCurrentMock,
       setDiagnosticsConsentCurrent: setDiagnosticsConsentCurrentMock,
+      setHasConsentRecord: setHasConsentRecordMock,
       setConsentHydrated: setConsentHydratedMock,
       shareAnalytics: mockStoreShareAnalytics,
       pendingAnalyticsOptIn: mockStorePendingAnalyticsOptIn,
@@ -390,6 +392,7 @@ beforeEach(() => {
   setPrivacyConsentMock.mockClear();
   setAnalyticsConsentCurrentMock.mockClear();
   setDiagnosticsConsentCurrentMock.mockClear();
+  setHasConsentRecordMock.mockClear();
   setShareAnalyticsMock.mockClear();
   setShareDiagnosticsMock.mockClear();
   setServerAnalyticsEffectiveMock.mockClear();

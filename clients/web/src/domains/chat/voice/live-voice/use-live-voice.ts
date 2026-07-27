@@ -95,6 +95,7 @@ import {
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import {
   isLiveVoiceSessionActive,
+  minimizeVoiceRoom,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -559,6 +560,11 @@ export function useLiveVoice(
       // composer just before start) also lives in the session state the reset
       // below clears — carry it across so the room's entrance grows from it.
       const entryOrigin = store.entryOrigin;
+      // A minimized room must stay minimized across a transient reconnect —
+      // the same logical session is continuing, and remounting the full-screen
+      // room would cover whatever the user minimized it to look at. A fresh
+      // start (attempt 0) always reopens in the room.
+      const wasRoomMinimized = store.roomMinimized;
       store.reset();
       store.setState("connecting");
       // A retry re-enters here via the backoff timer with `reconnectAttemptRef`
@@ -570,6 +576,7 @@ export function useLiveVoice(
       store.setSessionContext(assistantId, conversationId ?? null);
       store.setEntryOrigin(entryOrigin);
       if (isReconnect && wasMuted) store.setMuted(true);
+      if (isReconnect && wasRoomMinimized) store.setRoomMinimized(true);
       store.setHandsFree(startOptions.handsFree === true);
       // Registered here (not on `ready`) so a globally mounted surface can
       // drive the session from the moment it exists; cleared by the store
@@ -824,6 +831,23 @@ export function useLiveVoice(
         client.on("ttsDone", () => {
           if (!live()) return;
           void finishResponseAfterPlayback(session, teardown);
+        }),
+        client.on("minimizeRoom", () => {
+          if (!live()) return;
+          // Assistant asked to reveal the screen behind the room — but only
+          // once the user has actually HEARD the reply: the daemon sends this
+          // right after tts_done (synthesis delivered), while local playback
+          // usually lags real time, so an immediate minimize would drop the
+          // room mid-sentence. Defer behind the same local drain the
+          // response-finish path waits on; `live()` re-checks after the wait
+          // so a torn-down or reconnected session never minimizes late.
+          void session.player.waitUntilDrained().then(() => {
+            if (!live()) return;
+            // Advisory: if the room isn't up (already minimized, pop-out,
+            // other route) this is a no-op — minimizeVoiceRoom() is an
+            // idempotent store write.
+            minimizeVoiceRoom();
+          });
         }),
         client.on("turnCancelled", () => {
           if (!live() || !session.handsFree) return;

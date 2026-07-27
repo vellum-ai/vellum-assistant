@@ -1,12 +1,53 @@
+import { z } from "zod";
+
 import { RiskLevel } from "../../permissions/types.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatEditDiff } from "../shared/filesystem/format-diff.js";
 import { sandboxPolicyWithHostFallback } from "../shared/filesystem/path-policy.js";
+import {
+  invalidToolInputResult,
+  toToolInputSchema,
+} from "../shared/zod-tool-schema.js";
 import type {
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
+
+/**
+ * Model-input schema, the single source for both runtime validation (via
+ * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below. `replace_all`
+ * catches to `undefined` because the tool has always treated anything but a
+ * literal `true` as "single match" — a malformed value degrades the same way
+ * instead of failing the call.
+ */
+export const fileEditInputSchema = z.looseObject({
+  path: z
+    .string()
+    .min(1)
+    .describe(
+      "The path to the file to edit (absolute or relative to working directory)",
+    ),
+  old_string: z
+    .string()
+    .min(1, { message: "old_string must not be empty" })
+    .describe("The exact text to find in the file"),
+  new_string: z.string().describe("The replacement text"),
+  replace_all: z
+    .boolean()
+    .describe(
+      "Replace all occurrences of old_string instead of requiring a unique match (default: false)",
+    )
+    .optional()
+    .catch(undefined),
+  activity: z
+    .string()
+    .describe(
+      "Brief non-technical explanation of what you are doing and why, shown as a status update.",
+    )
+    .optional()
+    .catch(undefined),
+});
 
 export const fileEditTool = {
   name: "file_edit",
@@ -16,67 +57,23 @@ export const fileEditTool = {
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
 
-  input_schema: {
-    type: "object",
-    properties: {
-      path: {
-        type: "string",
-        description:
-          "The path to the file to edit (absolute or relative to working directory)",
-      },
-      old_string: {
-        type: "string",
-        description: "The exact text to find in the file",
-      },
-      new_string: {
-        type: "string",
-        description: "The replacement text",
-      },
-      replace_all: {
-        type: "boolean",
-        description:
-          "Replace all occurrences of old_string instead of requiring a unique match (default: false)",
-      },
-      activity: {
-        type: "string",
-        description:
-          "Brief non-technical explanation of what you are doing and why, shown as a status update.",
-      },
-    },
-    required: ["path", "old_string", "new_string", "activity"],
-  },
+  input_schema: toToolInputSchema(fileEditInputSchema, {
+    advertiseRequired: ["activity"],
+  }),
 
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const rawPath = input.path as string;
-    if (!rawPath || typeof rawPath !== "string") {
-      return {
-        content: "Error: path is required and must be a string",
-        isError: true,
-      };
+    const parsed = fileEditInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("file_edit", parsed.error);
     }
-
-    const oldString = input.old_string;
-    if (typeof oldString !== "string") {
-      return {
-        content: "Error: old_string is required and must be a string",
-        isError: true,
-      };
-    }
-
-    const newString = input.new_string;
-    if (typeof newString !== "string") {
-      return {
-        content: "Error: new_string is required and must be a string",
-        isError: true,
-      };
-    }
-
-    if (oldString.length === 0) {
-      return { content: "Error: old_string must not be empty", isError: true };
-    }
+    const {
+      path: rawPath,
+      old_string: oldString,
+      new_string: newString,
+    } = parsed.data;
 
     if (oldString === newString) {
       return {
@@ -85,7 +82,7 @@ export const fileEditTool = {
       };
     }
 
-    const replaceAll = input.replace_all === true;
+    const replaceAll = parsed.data.replace_all === true;
 
     const ops = new FileSystemOps((path, opts) =>
       sandboxPolicyWithHostFallback(path, context.workingDir, opts),

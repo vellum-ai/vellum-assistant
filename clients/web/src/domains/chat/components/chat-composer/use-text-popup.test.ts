@@ -58,9 +58,9 @@ function derivePopupState<T>(
 // ---------------------------------------------------------------------------
 
 describe("filteredCommands", () => {
-  test("empty filter returns all 6 commands", () => {
+  test("empty filter returns all commands", () => {
     const result = filteredCommands("");
-    expect(result).toHaveLength(6);
+    expect(result).toHaveLength(SLASH_COMMANDS.length);
     expect(result).toBe(SLASH_COMMANDS);
   });
 
@@ -112,7 +112,7 @@ describe("derivePopupState — slash commands", () => {
     const { show, filter, items } = deriveSlash("/");
     expect(show).toBe(true);
     expect(filter).toBe("");
-    expect(items).toHaveLength(6);
+    expect(items).toHaveLength(SLASH_COMMANDS.length);
   });
 
   test('typing "/mo" filters to models', () => {
@@ -165,7 +165,7 @@ describe("derivePopupState — suppress", () => {
     const { show, filter, items } = deriveSlash("/", true);
     expect(show).toBe(false);
     expect(filter).toBe("");
-    expect(items).toHaveLength(6);
+    expect(items).toHaveLength(SLASH_COMMANDS.length);
   });
 
   test("when suppressed with filter, preserves filter and items", () => {

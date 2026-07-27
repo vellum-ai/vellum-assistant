@@ -19,6 +19,10 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { RiskLevel } from "../permissions/types.js";
 import type { ToolExecutionResult } from "../tools/types.js";
+import {
+  installThresholdReaderMock,
+  thresholdReaderMock,
+} from "./gateway-threshold-reader-mock.js";
 
 // ---------------------------------------------------------------------------
 // Mock setup — mirrors require-fresh-approval.test.ts patterns
@@ -37,8 +41,20 @@ let dynamicSkillLoad = false;
  */
 let checkDecision = "prompt";
 
+// The real builder returns undefined for these contexts (guardian turns with
+// no channel coordinates), which is what this suite wants. It is registered
+// rather than hard-coded because `mock.module` is process-global: a stub that
+// always returned undefined would also be the builder other test files see,
+// silently stripping the channel coordinates their contexts supply. Captured
+// by value first — `mock.module` swaps the module's exports in place, so
+// reading it through the namespace inside the factory would recurse.
+const realCellQueryModule =
+  await import("../permissions/channel-permission-query.js");
 mock.module("../permissions/channel-permission-query.js", () => ({
-  buildChannelPermissionCellQuery: () => undefined,
+  buildChannelPermissionCellQuery:
+    realCellQueryModule.buildChannelPermissionCellQuery,
+  effectiveChannelCellThreshold:
+    realCellQueryModule.effectiveChannelCellThreshold,
 }));
 
 // The scenario under test is "no trust rule covers this load" (a covering rule
@@ -74,11 +90,8 @@ mock.module("../tools/registry.js", () => ({
 
 // Background threshold "medium" covers the medium-risk load — the guard,
 // not the threshold, must be what blocks the dynamic case.
-mock.module("../permissions/gateway-threshold-reader.js", () => ({
-  getAutoApproveThreshold: async () => "medium",
-  refreshAutoApproveThreshold: async () => null,
-  _clearGlobalCacheForTesting: () => {},
-}));
+installThresholdReaderMock();
+thresholdReaderMock.threshold = "medium";
 
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   sandboxPolicy: () => ({ ok: false }),

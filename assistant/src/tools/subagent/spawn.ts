@@ -1,8 +1,10 @@
+import { z } from "zod";
+
+import type { AssistantEvent } from "../../api/index.js";
 import { validateInferenceProfileKey } from "../../config/inference-profile-validation.js";
 import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
 import {
   getConversationOverrideProfile,
   getMessages,
@@ -19,6 +21,10 @@ import {
 } from "../../subagent/index.js";
 import type { SubagentRole } from "../../subagent/types.js";
 import { getLogger } from "../../util/logger.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { createConsultDeadline } from "./consult-deadline.js";
 
@@ -42,16 +48,40 @@ const ADVISOR_IDLE_TIMEOUT_MS = 60_000;
  */
 const ADVISOR_MAX_TIMEOUT_MS = 300_000;
 
+/**
+ * Model-input schema, `safeParse`d at the top of {@link executeSubagentSpawn}.
+ * Same in-tool pattern and TOOLS.json drift guard as the other bundled-skill
+ * tools — see the schema block in `tools/document/document-tool.ts` for the
+ * framework.
+ *
+ * `fork` / `send_result_to_user` (deliberate `=== true` / `!== false`
+ * coercions) and `role` (SubagentManager.spawn's "Invalid subagent role"
+ * error, asserted by tests, owns non-enum values) are deliberately
+ * UNDECLARED — loose passthrough.
+ */
+export const subagentSpawnInputSchema = z.looseObject({
+  label: nullAsOmitted(z.string()),
+  objective: nullAsOmitted(z.string()),
+  context: nullAsOmitted(z.string()),
+  inference_profile: z.string().optional(),
+});
+
 export async function executeSubagentSpawn(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const label = input.label as string;
-  const objective = input.objective as string;
-  const extraContext = input.context as string | undefined;
+  const parsedInput = subagentSpawnInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("subagent_spawn", parsedInput.error);
+  }
+  const parsed = parsedInput.data;
+
+  const label = parsed.label;
+  const objective = parsed.objective;
+  const extraContext = parsed.context;
   const fork = input.fork === true;
   const role = (input.role as string | undefined) ?? undefined;
-  const inferenceProfile = input.inference_profile;
+  const inferenceProfile = parsed.inference_profile;
 
   // For fork mode, sendResultToUser defaults to false unless explicitly set to true.
   // For regular mode, sendResultToUser defaults to true (existing behavior).
@@ -69,12 +99,6 @@ export async function executeSubagentSpawn(
   let requestedOverrideProfile: string | undefined;
   let forceOverrideProfile = false;
   if (inferenceProfile !== undefined) {
-    if (typeof inferenceProfile !== "string") {
-      return {
-        content: "Error: inference_profile must be a string",
-        isError: true,
-      };
-    }
     const profileError = validateInferenceProfileKey(inferenceProfile);
     if (profileError) {
       return {
