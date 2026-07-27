@@ -8,7 +8,10 @@ import {
 import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import { getConversation } from "../persistence/conversation-crud.js";
+import {
+  getConversation,
+  isConversationProcessing,
+} from "../persistence/conversation-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
@@ -16,6 +19,7 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   type AssistantSandwich,
   seedAssistantSandwich,
+  unseedAssistantSandwich,
 } from "../runtime/assistant-sandwich.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
@@ -72,8 +76,15 @@ async function dispatchScheduleMessage(
   conversationId: string,
   message: string,
   options?: ScheduleMessageOptions,
+  /**
+   * Upper bound on how long to await the turn. The scheduler tick awaits this
+   * call, so an unbounded wedged turn would stall every other due schedule.
+   * Mirrors the bound `runBackgroundJob` applies on the fresh path: it caps
+   * how long the scheduler waits, not the turn itself, which keeps running.
+   */
+  timeoutMs?: number,
 ): Promise<{ turnFailure?: TurnFailure }> {
-  const { turnFailure } = await processMessage(
+  const work = processMessage(
     conversationId,
     message,
     options
@@ -94,7 +105,31 @@ async function dispatchScheduleMessage(
         }
       : undefined,
   );
-  return { ...(turnFailure ? { turnFailure } : {}) };
+
+  if (timeoutMs == null) {
+    const { turnFailure } = await work;
+    return { ...(turnFailure ? { turnFailure } : {}) };
+  }
+
+  // Absorb late settlement: if the timeout wins, `work` keeps running and may
+  // reject later — swallow so it never surfaces as an unhandled rejection.
+  work.catch(() => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Scheduled turn timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  try {
+    const { turnFailure } = await Promise.race([work, timeout]);
+    return { ...(turnFailure ? { turnFailure } : {}) };
+  } finally {
+    // Symmetric with the `work.catch` above: once `work` has won, the orphan
+    // timeout can still reject and must not go unhandled.
+    timeout.catch(() => {});
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /**
@@ -950,7 +985,20 @@ async function runScheduleAgentTurn(args: {
   if (job.reuseConversation && !isOneShot) {
     const lastId = getLastScheduleConversationId(job.id);
     if (lastId && getConversation(lastId)) {
-      reusedConversationId = lastId;
+      // A handoff must write its payload into the conversation before the turn
+      // starts, so reusing one that is mid-turn risks leaving that payload and
+      // its action prompt behind when the dispatch is refused. Bootstrap a
+      // fresh conversation instead: the output still gets its turn, and
+      // nothing is stranded in a conversation someone else is using. (The
+      // narrow check-then-dispatch race is covered by the rollback below.)
+      if (sandwich && isConversationProcessing(lastId)) {
+        log.info(
+          { jobId: job.id, name: job.name, conversationId: lastId },
+          "Reusable conversation is mid-turn; running the handoff in a fresh one",
+        );
+      } else {
+        reusedConversationId = lastId;
+      }
     }
   }
 
@@ -990,11 +1038,17 @@ async function runScheduleAgentTurn(args: {
       scheduleJobId: job.id,
       title: job.name,
     });
+    // Seeded sandwich messages, retained so a dispatch that never starts can
+    // be rolled back rather than leaving its payload in the conversation.
+    let seededMessageIds: string[] = [];
     try {
       // `runBackgroundJob` seeds the sandwich on the fresh path; on the reuse
       // path it never runs, so seed the existing conversation here.
       if (sandwich) {
-        await seedAssistantSandwich(conversationId, sandwich);
+        seededMessageIds = await seedAssistantSandwich(
+          conversationId,
+          sandwich,
+        );
       }
       const { turnFailure } = await dispatchScheduleMessage(
         conversationId,
@@ -1006,6 +1060,11 @@ async function runScheduleAgentTurn(args: {
             ? { overrideProfile: job.inferenceProfile }
             : {}),
         },
+        // Bound the turn the same way the fresh path does. Without this a
+        // wedged provider call would keep `runDueSchedulesOnce` awaiting
+        // forever, so the worker's tick never completes and every other due
+        // schedule stops firing.
+        getConfig().timeouts.scheduleTurnTimeoutSec * 1000,
       );
       // A failed LLM call (e.g. an invalid provider) ends the turn without
       // throwing, so treat a reported turn failure as a run error rather
@@ -1019,6 +1078,11 @@ async function runScheduleAgentTurn(args: {
     } catch (err) {
       ok = false;
       errorMsg = err instanceof Error ? err.message : String(err);
+      // The turn never started (the conversation was claimed between the
+      // busy check and dispatch, or bootstrap threw), so the seed has nothing
+      // to consume it. Take it back out rather than leave untrusted content
+      // and a dangling instruction for the next turn in this conversation.
+      unseedAssistantSandwich(seededMessageIds);
     }
   } else {
     // Fresh-bootstrap path: route through the shared runner so failures

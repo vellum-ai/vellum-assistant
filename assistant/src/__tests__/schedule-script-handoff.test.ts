@@ -54,7 +54,11 @@ mock.module("../runtime/background-job-runner.js", () => ({
 
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { createSchedule } from "../schedule/schedule-store.js";
+import {
+  completeScheduleRun,
+  createSchedule,
+  createScheduleRun,
+} from "../schedule/schedule-store.js";
 import { runDueSchedulesOnce } from "../schedule/scheduler.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 
@@ -341,6 +345,84 @@ describe("conversation reuse across quiet firings", () => {
     // Reuse dispatches into the existing conversation rather than routing
     // through runBackgroundJob's fresh bootstrap.
     expect(capturedJobs).toHaveLength(0);
+  });
+});
+
+describe("busy reused conversation", () => {
+  /** Rows currently in the reusable conversation, oldest first. */
+  function messagesIn(conversationId: string): Array<{ content: string }> {
+    return rawDb()
+      .query(
+        "SELECT content FROM messages WHERE conversation_id = ? ORDER BY created_at",
+      )
+      .all(conversationId) as Array<{ content: string }>;
+  }
+
+  test("runs the handoff in a fresh conversation instead of seeding a busy one", async () => {
+    const job = await createSchedule({
+      name: "Busy reuse",
+      cronExpression: "* * * * *",
+      message: "Post a summary to #ops.",
+      mode: "script",
+      script: "echo widget shortage",
+      thenExecute: true,
+      reuseConversation: true,
+    });
+
+    // A prior firing left a reusable conversation behind, and it is mid-turn.
+    rawDb().run(
+      "INSERT INTO conversations (id, created_at, updated_at, processing_started_at) VALUES (?, ?, ?, ?)",
+      ["conv-busy", Date.now(), Date.now(), Date.now()],
+    );
+    const runId = await createScheduleRun(job.id, "conv-busy");
+    await completeScheduleRun(runId, { status: "ok" });
+    makeDue();
+
+    await runDueSchedulesOnce();
+
+    // Seeding the busy conversation would strand the untrusted stdout and the
+    // action prompt there for whatever turn runs next. Instead the handoff
+    // bootstraps its own conversation, so the output still gets acted on.
+    expect(capturedJobs).toHaveLength(1);
+    expect(capturedJobs[0].assistantSandwich?.content).toContain(
+      "widget shortage",
+    );
+    expect(messagesIn("conv-busy")).toHaveLength(0);
+  });
+
+  test("rolls the seed back when dispatch into a reused conversation fails", async () => {
+    const job = await createSchedule({
+      name: "Racing reuse",
+      cronExpression: "* * * * *",
+      message: "Post a summary to #ops.",
+      mode: "script",
+      script: "echo widget shortage",
+      thenExecute: true,
+      reuseConversation: true,
+      quiet: true,
+    });
+
+    // Idle at the reuse check, so the reuse path is taken and the sandwich is
+    // seeded — then `processMessage` refuses, standing in for the conversation
+    // being claimed in between.
+    rawDb().run(
+      "INSERT INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)",
+      ["conv-race", Date.now(), Date.now()],
+    );
+    const runId = await createScheduleRun(job.id, "conv-race");
+    await completeScheduleRun(runId, { status: "ok" });
+    makeDue();
+
+    await runDueSchedulesOnce();
+
+    // Whatever happened, nothing of the handoff may be left behind in a
+    // conversation that never ran it.
+    const leftovers = messagesIn("conv-race").filter(
+      (m) =>
+        m.content.includes("widget shortage") ||
+        m.content.includes("Post a summary to #ops."),
+    );
+    expect(leftovers).toHaveLength(0);
   });
 });
 
