@@ -111,7 +111,7 @@ describe("LLMSchema", () => {
           nonInteractiveLatestTurnCompression: "truncate",
         },
       },
-      openrouter: { only: [] },
+      openrouter: { only: [], order: [] },
     });
   });
 
@@ -214,6 +214,38 @@ describe("LLMSchema", () => {
   test("openrouter.only rejects empty string entries", () => {
     const result = LLMSchema.safeParse({
       profiles: { pinned: { openrouter: { only: [""] } } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("openrouter.order and allowFallbacks parse in profile/callSite", () => {
+    const parsed = LLMSchema.parse({
+      profiles: {
+        pinned: {
+          openrouter: {
+            order: ["deepseek", "fireworks"],
+            allowFallbacks: false,
+          },
+        },
+      },
+      callSites: {
+        mainAgent: { openrouter: { order: ["together"] } },
+      },
+    });
+    expect(parsed.profiles["pinned"]?.openrouter?.order).toEqual([
+      "deepseek",
+      "fireworks",
+    ]);
+    expect(parsed.profiles["pinned"]?.openrouter?.allowFallbacks).toBe(false);
+    expect(parsed.callSites.mainAgent?.openrouter?.order).toEqual(["together"]);
+    expect(
+      parsed.callSites.mainAgent?.openrouter?.allowFallbacks,
+    ).toBeUndefined();
+  });
+
+  test("openrouter.order rejects empty string entries", () => {
+    const result = LLMSchema.safeParse({
+      profiles: { pinned: { openrouter: { order: [""] } } },
     });
     expect(result.success).toBe(false);
   });

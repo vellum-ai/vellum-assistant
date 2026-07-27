@@ -4882,6 +4882,13 @@ paths:
                       items:
                         type: string
                         minLength: 1
+                    order:
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+                    allowFallbacks:
+                      type: boolean
                 logitBias:
                   type: string
                   enum:
@@ -32563,6 +32570,13 @@ components:
                               items:
                                 type: string
                                 minLength: 1
+                            order:
+                              type: array
+                              items:
+                                type: string
+                                minLength: 1
+                            allowFallbacks:
+                              type: boolean
                         - type: "null"
                     logitBias:
                       anyOf:
@@ -32812,6 +32826,13 @@ components:
                   items:
                     type: string
                     minLength: 1
+                order:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                allowFallbacks:
+                  type: boolean
             - type: "null"
         logitBias:
           anyOf:
@@ -33008,6 +33029,13 @@ components:
                   items:
                     type: string
                     minLength: 1
+                order:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                allowFallbacks:
+                  type: boolean
             - type: "null"
         logitBias:
           anyOf:
@@ -33254,6 +33282,13 @@ components:
                       items:
                         type: string
                         minLength: 1
+                    order:
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+                    allowFallbacks:
+                      type: boolean
                   additionalProperties: false
                 logitBias:
                   type: string
@@ -33416,6 +33451,13 @@ components:
                             items:
                               type: string
                               minLength: 1
+                          order:
+                            type: array
+                            items:
+                              type: string
+                              minLength: 1
+                          allowFallbacks:
+                            type: boolean
                         additionalProperties: false
                       logitBias:
                         type: string
@@ -33587,6 +33629,13 @@ components:
               items:
                 type: string
                 minLength: 1
+            order:
+              type: array
+              items:
+                type: string
+                minLength: 1
+            allowFallbacks:
+              type: boolean
           additionalProperties: false
         logitBias:
           type: string

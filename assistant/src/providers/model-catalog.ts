@@ -76,6 +76,16 @@ export interface CatalogModel {
    * Not projected into the client catalog (see scripts/sync-llm-catalog.ts).
    */
   supportsPromptCacheBreakpoints?: boolean;
+  /**
+   * Daemon-only: preferred OpenRouter upstream provider slugs for this model,
+   * emitted as `provider: { order: [...] }` so OpenRouter tries them first
+   * before its default load balancing. Restores prefix-cache affinity for
+   * models (e.g. DeepSeek) whose upstream deployments each keep an independent
+   * prefix cache, so cross-request cache hits require sticking to one upstream.
+   * Fallbacks stay enabled, so availability is unchanged. Config-specified
+   * `openrouter.order` overrides this. Not projected into the client catalog.
+   */
+  openrouterPreferredUpstreams?: string[];
   /** When set, this model is only visible when the named feature flag is enabled. */
   featureFlag?: string;
 }
@@ -1419,6 +1429,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
+        openrouterPreferredUpstreams: ["deepseek"],
         pricing: { inputPer1mTokens: 0.55, outputPer1mTokens: 2.19 },
       },
       {
@@ -1430,6 +1441,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
+        openrouterPreferredUpstreams: ["deepseek"],
         pricing: { inputPer1mTokens: 0.27, outputPer1mTokens: 1.1 },
       },
       {
@@ -1441,6 +1453,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
+        openrouterPreferredUpstreams: ["deepseek"],
         pricing: { inputPer1mTokens: 0.435, outputPer1mTokens: 0.87 },
       },
       {
@@ -1452,6 +1465,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
+        openrouterPreferredUpstreams: ["deepseek"],
         pricing: { inputPer1mTokens: 0.14, outputPer1mTokens: 0.28 },
       },
       {
@@ -1463,6 +1477,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: false,
+        openrouterPreferredUpstreams: ["deepseek"],
         pricing: { inputPer1mTokens: 0.287, outputPer1mTokens: 0.431 },
       },
       // Qwen
@@ -2153,6 +2168,25 @@ export function modelEffortCeilings(
   return new Map(
     PROVIDER_CATALOG.find((p) => p.id === providerId)?.models.flatMap((m) =>
       m.maxEffort ? ([[m.id, m.maxEffort]] as const) : [],
+    ) ?? [],
+  );
+}
+
+/**
+ * Per-model preferred OpenRouter upstream provider slugs for a provider, keyed
+ * by model ID and derived from each model's `openrouterPreferredUpstreams`. The
+ * OpenRouter client consults this to default `provider: { order: [...] }` when a
+ * per-call config sets no explicit order. Models without the hint are absent.
+ */
+export function modelOpenrouterPreferredUpstreams(
+  providerId: string,
+): ReadonlyMap<string, readonly string[]> {
+  return new Map(
+    PROVIDER_CATALOG.find((p) => p.id === providerId)?.models.flatMap((m) =>
+      m.openrouterPreferredUpstreams &&
+      m.openrouterPreferredUpstreams.length > 0
+        ? ([[m.id, m.openrouterPreferredUpstreams]] as const)
+        : [],
     ) ?? [],
   );
 }

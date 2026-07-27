@@ -1,8 +1,9 @@
 /**
- * Verifies that `RetryProvider.normalizeSendMessageOptions` plumbs
- * `openrouter.only` only to the `openrouter` provider and strips it for every
- * other provider — so strict-schema clients (Anthropic, OpenAI, …) never see
- * the unknown field on the wire.
+ * Verifies that `RetryProvider.normalizeSendMessageOptions` plumbs the
+ * `openrouter` routing knobs (`only`, `order`, `allowFallbacks`) only to the
+ * `openrouter` provider and strips them for every other provider — so
+ * strict-schema clients (Anthropic, OpenAI, …) never see the unknown field on
+ * the wire.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
@@ -102,6 +103,45 @@ describe("retry normalization for openrouter.only", () => {
     const { provider, lastConfig } = makePipeline("openai");
     await provider.sendMessage([userMessage], {
       config: { openrouter: { only: ["Anthropic"] } },
+    });
+    expect(lastConfig()?.openrouter).toBe(undefined);
+  });
+
+  test("forwards openrouter.order and allowFallbacks for openrouter", async () => {
+    setLlmConfig({
+      callSites: {
+        mainAgent: {
+          provider: "openrouter",
+          model: "deepseek/deepseek-v4-flash",
+          openrouter: { order: ["fireworks"], allowFallbacks: false },
+        },
+      },
+    });
+    const { provider, lastConfig } = makePipeline("openrouter");
+    await provider.sendMessage([userMessage], {
+      config: { callSite: "mainAgent" },
+    });
+    expect(lastConfig()?.openrouter).toEqual({
+      order: ["fireworks"],
+      allowFallbacks: false,
+    });
+  });
+
+  test("omits openrouter when the config sets no explicit routing knobs", async () => {
+    // The client applies the per-model catalog default order; retry only
+    // forwards config-set knobs, so an unconfigured deepseek call carries no
+    // openrouter field out of normalization.
+    setLlmConfig({
+      callSites: {
+        mainAgent: {
+          provider: "openrouter",
+          model: "deepseek/deepseek-v4-flash",
+        },
+      },
+    });
+    const { provider, lastConfig } = makePipeline("openrouter");
+    await provider.sendMessage([userMessage], {
+      config: { callSite: "mainAgent" },
     });
     expect(lastConfig()?.openrouter).toBe(undefined);
   });

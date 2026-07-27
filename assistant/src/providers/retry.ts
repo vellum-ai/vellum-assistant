@@ -449,16 +449,31 @@ function normalizeSendMessageOptions(
     ) {
       nextConfig.disableCache = resolved.disableCache;
     }
-    // Forward OpenRouter-only routing preferences so `OpenRouterProvider` can
-    // translate `openrouter.only` into the wire-format `provider: { only: [...] }`
-    // body field on both the OpenAI-compat and Anthropic-compat endpoints.
-    if (
-      providerName === "openrouter" &&
-      nextConfig.openrouter === undefined &&
-      Array.isArray(resolved.openrouter?.only) &&
-      resolved.openrouter.only.length > 0
-    ) {
-      nextConfig.openrouter = { only: resolved.openrouter.only };
+    // Forward OpenRouter routing preferences so `OpenRouterProvider` can
+    // translate `openrouter.{only,order,allowFallbacks}` into the wire-format
+    // `provider` body field on both the OpenAI-compat and Anthropic-compat
+    // endpoints. Only carry keys the config actually set; the client applies a
+    // per-model default `order` from the catalog when none is forwarded here.
+    if (providerName === "openrouter" && nextConfig.openrouter === undefined) {
+      const openrouter: Record<string, unknown> = {};
+      if (
+        Array.isArray(resolved.openrouter?.only) &&
+        resolved.openrouter.only.length > 0
+      ) {
+        openrouter.only = resolved.openrouter.only;
+      }
+      if (
+        Array.isArray(resolved.openrouter?.order) &&
+        resolved.openrouter.order.length > 0
+      ) {
+        openrouter.order = resolved.openrouter.order;
+      }
+      if (typeof resolved.openrouter?.allowFallbacks === "boolean") {
+        openrouter.allowFallbacks = resolved.openrouter.allowFallbacks;
+      }
+      if (Object.keys(openrouter).length > 0) {
+        nextConfig.openrouter = openrouter;
+      }
     }
     // Forward a profile's opted-in `logit_bias` preset only on the Fireworks
     // (OpenAI-compatible) path. `resolved.logitBias` is set by the resolver from
