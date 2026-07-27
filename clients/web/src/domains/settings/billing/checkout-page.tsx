@@ -78,6 +78,11 @@ export function CheckoutPage() {
   // pending→disabled transition resumes onboarding instead of stranding a new
   // user on plans, outside the funnel and short of an assistant.
   const bailTarget = checkoutContinuation(searchParams, routes.plans);
+  // The escape offered on a failed attempt goes there too, and says so: a
+  // carried onboarding continuation is not the plans takeover, and a label
+  // naming one destination while taking another is worse than either wording.
+  const bailLabel =
+    bailTarget === routes.plans ? "View plans" : "Continue setup";
 
   const { mutateAsync } = useMutation(
     organizationsBillingSubscriptionUpgradeCreateMutation(),
@@ -174,7 +179,15 @@ export function CheckoutPage() {
       return;
     }
     void runCheckout();
-  }, [bailTarget, gate, isOrgReady, navigate, packageKey, runCheckout, takeover]);
+  }, [
+    bailTarget,
+    gate,
+    isOrgReady,
+    navigate,
+    packageKey,
+    runCheckout,
+    takeover,
+  ]);
 
   if (failed) {
     return (
@@ -184,11 +197,18 @@ export function CheckoutPage() {
         </p>
         <div className="flex items-center gap-4">
           <Button onClick={() => void runCheckout()}>Try again</Button>
+          {/*
+           * Taking the escape ends the attempt, so the stash goes with it. A
+           * marked signup intent left behind stays readable for its TTL by the
+           * provisioning takeover, which ignores the marker — it would render
+           * the package as purchased when nothing was bought.
+           */}
           <Link
-            to={routes.plans}
+            to={bailTarget}
+            onClick={clearCheckoutIntent}
             className="text-sm text-[var(--content-tertiary)] underline"
           >
-            View plans
+            {bailLabel}
           </Link>
         </div>
       </div>

@@ -235,6 +235,50 @@ describe("CheckoutPage", () => {
     await waitFor(() => expect(upgradeCalls.length).toBe(2));
   });
 
+  test("the error escape falls back to plans and drops the stash", async () => {
+    upgradeRejects = true;
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+    const { findByRole, getByTestId } = renderCheckout(
+      "/assistant/checkout?package=super",
+    );
+
+    // No continuation carried, so the escape is literally the plans takeover.
+    fireEvent.click(await findByRole("link", { name: "View plans" }));
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
+    );
+    expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+  });
+
+  test("the error escape resumes the carried onboarding step", async () => {
+    upgradeRejects = true;
+    // The signup carry's marked stash survives into the failure. Walking away
+    // must not leave it readable by a later provisioning takeover.
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+    const { findByRole, getByTestId, queryByRole } =
+      renderCheckout(ONBOARDING_ENTRY);
+
+    // Mid-onboarding the escape goes back to onboarding, and says so.
+    const escape = await findByRole("link", { name: "Continue setup" });
+    expect(queryByRole("link", { name: "View plans" })).toBeNull();
+
+    fireEvent.click(escape);
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe(ONBOARDING_NEXT),
+    );
+    expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+  });
+
   test("missing package navigates to plans without firing the upgrade", async () => {
     const { getByTestId } = renderCheckout("/assistant/checkout");
 
