@@ -95,6 +95,15 @@ describe("sandboxPolicy", () => {
     }
   });
 
+  test("resolveRealPath follows a trailing dangling symlink to its destination", () => {
+    const dir = makeTempDir();
+    const outside = makeTempDir();
+    const destination = join(outside, "not-yet.txt");
+    symlinkSync(destination, join(dir, "dangle"));
+
+    expect(resolveRealPath(join(dir, "dangle"))).toBe(destination);
+  });
+
   test("rejects a dangling symlink whose destination escapes the boundary", () => {
     const boundary = makeTempDir();
     const outside = makeTempDir();

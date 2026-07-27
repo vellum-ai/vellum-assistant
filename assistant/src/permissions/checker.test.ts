@@ -281,6 +281,32 @@ describe("Permission Checker (gateway IPC)", () => {
       }
     });
 
+    test("classifies a dangling symlink by its destination", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "File write outside the workspace",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const workingDir = realpathSync(
+        mkdtempSync(join(tmpdir(), "checker-dangling-")),
+      );
+      const outside = realpathSync(
+        mkdtempSync(join(tmpdir(), "checker-dangling-out-")),
+      );
+      try {
+        const destination = join(outside, "not-yet.txt");
+        symlinkSync(destination, join(workingDir, "dangle"));
+        await classifyRisk("file_write", { path: "dangle" }, workingDir);
+        // The destination does not exist, but a write through the link
+        // creates it — classification must see the destination.
+        expect(lastClassifyRiskParams?.resolvedPath).toBe(destination);
+      } finally {
+        rmSync(workingDir, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
     test("omits the canonicalized boundary for host file tools", async () => {
       mockIpcClassifyRiskResult = {
         risk: "medium",

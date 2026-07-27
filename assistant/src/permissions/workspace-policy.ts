@@ -2,15 +2,23 @@ import { realpathSync } from "node:fs";
 import { basename, dirname, normalize, resolve } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
+import { resolveTrailingLinkTarget } from "../util/fs-symlinks.js";
 
 /**
- * Resolve a path to its canonical form. When the target itself doesn't
- * exist (e.g. a new file being written), walk up to the nearest existing
- * ancestor and append the remaining segments so that symlinks in parent
- * directories (like macOS `/var` -> `/private/var`) are still resolved.
+ * Resolve a path to its canonical form. A trailing (possibly dangling)
+ * symlink chain is followed first so a link whose destination does not
+ * exist yet still canonicalizes to that destination — a write through the
+ * link creates it. When the target itself doesn't exist (e.g. a new file
+ * being written), walk up to the nearest existing ancestor and append the
+ * remaining segments so that symlinks in parent directories (like macOS
+ * `/var` -> `/private/var`) are still resolved.
  */
 function canonicalize(p: string): string {
-  const abs = resolve(p);
+  const abs = resolveTrailingLinkTarget(resolve(p));
+  return canonicalizeExisting(abs);
+}
+
+function canonicalizeExisting(abs: string): string {
   try {
     return realpathSync(abs);
   } catch {
@@ -21,7 +29,7 @@ function canonicalize(p: string): string {
       // Reached filesystem root — nothing left to resolve.
       return normalize(abs);
     }
-    return `${canonicalize(parent)}/${name}`;
+    return `${canonicalizeExisting(parent)}/${name}`;
   }
 }
 

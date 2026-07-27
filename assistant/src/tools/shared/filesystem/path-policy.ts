@@ -1,4 +1,4 @@
-import { lstatSync, readlinkSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import {
   basename,
@@ -10,6 +10,7 @@ import {
 } from "node:path";
 
 import { getIsContainerized } from "../../../config/env-registry.js";
+import { resolveTrailingLinkTarget } from "../../../util/fs-symlinks.js";
 
 /**
  * Result type shared by both sandbox and host path policies.
@@ -51,12 +52,15 @@ const CONTAINER_WORKSPACE_EXACT = "/workspace";
 /**
  * Resolve symlinks in an absolute path.
  *
- * For an existing path, returns its `realpathSync`. For a path that does not
- * exist yet (e.g. a `file_write` target), walks up to the nearest existing
- * ancestor, resolves that ancestor via `realpathSync`, then re-appends the
- * trailing (non-existent) components — so a symlink anywhere in the existing
- * prefix is still followed. Falls back to the lexical input when nothing on
- * the path resolves (e.g. the path lives on a filesystem this process cannot
+ * A trailing (possibly dangling) symlink chain is followed first — see
+ * {@link resolveTrailingLinkTarget} — so a link whose destination does not
+ * exist yet still reports that destination. For an existing path, returns
+ * its `realpathSync`. For a path that does not exist yet (e.g. a
+ * `file_write` target), walks up to the nearest existing ancestor, resolves
+ * that ancestor via `realpathSync`, then re-appends the trailing
+ * (non-existent) components — so a symlink anywhere in the existing prefix
+ * is still followed. Falls back to the lexical input when nothing on the
+ * path resolves (e.g. the path lives on a filesystem this process cannot
  * see, as with host_file paths proxied to a remote client).
  *
  * Used both for sandbox-boundary enforcement and to canonicalize paths before
@@ -64,7 +68,7 @@ const CONTAINER_WORKSPACE_EXACT = "/workspace";
  * file operation.
  */
 export function resolveRealPath(absolutePath: string): string {
-  let current = absolutePath;
+  let current = resolveTrailingLinkTarget(absolutePath);
   const trailing: string[] = [];
   while (current !== dirname(current)) {
     try {
@@ -89,34 +93,6 @@ interface SandboxTarget {
   realResolved: string;
   /** Symlink-canonicalized boundary directory. */
   realBoundary: string;
-}
-
-/**
- * Follow a trailing symlink chain manually so a DANGLING link reports its
- * destination. `realpathSync` throws on a link whose destination does not
- * exist, which makes canonicalization fall back to the benign link path —
- * but a write through the link creates the destination, so containment
- * checks must see it. The bound sits above every supported platform's own
- * traversal limit (Linux follows at most 40 links per resolution, macOS
- * 32), so any chain this loop cannot exhaust is one the filesystem itself
- * refuses to follow (ELOOP) — the eventual operation fails rather than
- * writing through an unchecked destination.
- */
-function resolveTrailingLinkTarget(path: string): string {
-  let current = path;
-  for (let depth = 0; depth < 64; depth++) {
-    let linkTarget: string;
-    try {
-      if (!lstatSync(current).isSymbolicLink()) {
-        return current;
-      }
-      linkTarget = readlinkSync(current);
-    } catch {
-      return current;
-    }
-    current = resolve(dirname(current), linkTarget);
-  }
-  return current;
 }
 
 /**

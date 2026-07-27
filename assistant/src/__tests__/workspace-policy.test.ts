@@ -329,6 +329,25 @@ describe("isOutOfWorkspaceFileInvocation", () => {
     ).toBe(true);
   });
 
+  test("returns true for an in-workspace DANGLING symlink whose destination is outside", () => {
+    // The destination does not exist — a write through the link creates it
+    // outside the workspace, so containment must see the destination.
+    const dangling = join(workspaceRoot, "dangling-out");
+    symlinkSync(join(outsideDir, "not-yet.txt"), dangling);
+    try {
+      expect(
+        isOutOfWorkspaceFileInvocation(
+          "file_write",
+          { path: dangling },
+          workspaceRoot,
+        ),
+      ).toBe(true);
+      expect(isPathWithinWorkspaceRoot(dangling, workspaceRoot)).toBe(false);
+    } finally {
+      rmSync(dangling, { force: true });
+    }
+  });
+
   test("returns false for an in-workspace relative path", () => {
     expect(
       isOutOfWorkspaceFileInvocation(
