@@ -330,9 +330,31 @@ export function sensitiveToolReach(
     return "host";
   }
 
+  // Extension-owned code that is not first-party bundled is unvetted: its
+  // manifest declares its own risk, and nothing reviewed it. It is sensitive
+  // whatever it is named — a novel name is in no side-effect list, so without
+  // this it would not be gated at all, and the risk its own manifest claims
+  // would be the only thing standing between it and an auto-approval.
+  if (isUnvettedExtensionTool(toolName)) {
+    return "sandbox";
+  }
+
   // Side-effect tools are sensitive, and what is left here acts only on the
   // assistant's own workspace.
   return isSideEffectTool(toolName) ? "sandbox" : "none";
+}
+
+/**
+ * Whether a tool comes from an extension that is not first-party bundled —
+ * a third-party or workspace skill, or any plugin. Bundled skills ship
+ * in-repo and are reviewed; nothing else is.
+ */
+function isUnvettedExtensionTool(toolName: string): boolean {
+  const kind = getToolOwner(toolName)?.kind;
+  if (kind !== "skill" && kind !== "plugin") {
+    return false;
+  }
+  return !isToolOwnerSkillBundled(getTool(toolName));
 }
 
 /**
@@ -414,9 +436,13 @@ export function resolveSensitiveToolDecision(input: {
  * - Writes into the workspace directories the daemon imports and executes are
  *   code, not data ({@link isExecutableWorkspaceWrite}). Approving the write
  *   approves the later execution.
- * - Extension-owned tools that are not first-party bundled are third-party
- *   code. `skill-script-runner` forces them to sandbox execution, which is the
- *   only reason they look liftable; their manifests are not vetted.
+ * - Unvetted extension-owned tools ({@link isUnvettedExtensionTool}). Nothing
+ *   reviewed them, so the risk their own manifest claims must not be what
+ *   decides whether a room may run them unattended.
+ * - `web_fetch` with `allow_private_network`. The private network is the
+ *   guardian's own machine — the daemon's HTTP surface, the gateway, whatever
+ *   else is listening on it. Fetching a public URL is delegable; reaching
+ *   localhost is the machine floor by another door.
  *
  * Each stays on the capability floor, so a channel actor escalates to the
  * guardian for them at every level. None of this touches the guardian's own
@@ -426,7 +452,6 @@ function isChannelLiftable(
   reach: "none" | "sandbox" | "host",
   toolName: string,
   input: Record<string, unknown>,
-  tool: Tool | undefined,
   workingDir: string | undefined,
 ): boolean {
   if (reach !== "sandbox") {
@@ -438,11 +463,10 @@ function isChannelLiftable(
   if (workingDir && isExecutableWorkspaceWrite(toolName, input, workingDir)) {
     return false;
   }
-  const ownerKind = getToolOwner(toolName)?.kind;
-  if (
-    (ownerKind === "skill" || ownerKind === "plugin") &&
-    !isToolOwnerSkillBundled(tool)
-  ) {
+  if (isUnvettedExtensionTool(toolName)) {
+    return false;
+  }
+  if (toolName === "web_fetch" && input.allow_private_network === true) {
     return false;
   }
   return true;
@@ -468,13 +492,12 @@ async function resolveApprovalCellThreshold(
   reach: "none" | "sandbox" | "host",
   toolName: string,
   input: Record<string, unknown>,
-  tool: Tool | undefined,
   sensitiveToolApproval: SensitiveToolApproval,
   context: ToolContext,
 ): Promise<ApprovalCellThreshold | undefined> {
   if (
     sensitiveToolApproval !== "escalate-and-wait" ||
-    !isChannelLiftable(reach, toolName, input, tool, context.workingDir)
+    !isChannelLiftable(reach, toolName, input, context.workingDir)
   ) {
     return undefined;
   }
@@ -675,7 +698,6 @@ export class ToolApprovalHandler {
         reach,
         name,
         input,
-        tool,
         sensitiveToolApproval,
         context,
       ),

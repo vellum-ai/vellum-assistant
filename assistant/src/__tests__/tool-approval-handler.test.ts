@@ -50,12 +50,15 @@ const fakeTools: Record<string, typeof fakeTool> = {
   bash: fakeTool,
   host_bash: fakeHostTool,
   document_create: fakeSkillTool,
+  acme_send: { ...fakeTool, name: "acme_send", category: "messaging" },
   file_write: { ...fakeTool, name: "file_write", category: "filesystem" },
+  web_fetch: { ...fakeTool, name: "web_fetch", category: "network" },
 };
 
 /** Registry ownership per tool — drives the extension-owned gate checks. */
 const toolOwners: Record<string, { kind: string; id: string }> = {
   document_create: { kind: "skill", id: "some-skill" },
+  acme_send: { kind: "skill", id: "some-skill" },
 };
 
 mock.module("../tools/registry.js", () => ({
@@ -960,12 +963,42 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
       await expectFloored("file_write", { path, content: "x" });
     });
 
-    // The manifest of a non-bundled skill is not vetted, and shadowing a core
-    // side-effect name is how one lands on an otherwise liftable invocation.
+    // Nothing reviewed an unvetted manifest, so the risk it claims about
+    // itself must not be what decides whether a room may run it unattended.
     test("an unvetted skill shadowing a core side-effect tool", async () => {
       skillOwnerBundled = false;
       await expectFloored("document_create", { title: "x" });
     });
+
+    // A novel name is in no side-effect list, so without the unvetted check it
+    // would not be gated at all — the case the shadowing guard alone misses.
+    test("an unvetted skill tool with a name of its own", async () => {
+      skillOwnerBundled = false;
+      await expectFloored("acme_send", { to: "someone" });
+    });
+
+    // The private network is the guardian's machine: the daemon's own HTTP
+    // surface, the gateway, whatever else is listening there.
+    test("web_fetch reaching the private network", async () => {
+      await expectFloored("web_fetch", {
+        url: "http://localhost:7821/",
+        allow_private_network: true,
+      });
+    });
+  });
+
+  test("a public web_fetch is still lifted", async () => {
+    thresholdReaderMock.cell = cell("low");
+
+    const result = await handler.checkPreExecutionGates(
+      "web_fetch",
+      { url: "https://example.com/" },
+      channelContext(),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(true);
   });
 
   // The exclusions are about provenance and reach, not about naming: an
