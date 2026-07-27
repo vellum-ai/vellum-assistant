@@ -3999,6 +3999,7 @@ paths:
                             - email
                             - platform
                             - a2a
+                            - discord
                         label:
                           type: string
                         subtitle:
@@ -4282,6 +4283,7 @@ paths:
                             - email
                             - platform
                             - a2a
+                            - discord
                         ready:
                           type: boolean
                         setupStatus:
@@ -4371,6 +4373,7 @@ paths:
                     - email
                     - platform
                     - a2a
+                    - discord
                 includeRemote:
                   description: Include remote checks (default true)
                   type: boolean
@@ -4400,6 +4403,7 @@ paths:
                             - email
                             - platform
                             - a2a
+                            - discord
                         ready:
                           type: boolean
                         setupStatus:
@@ -21368,6 +21372,7 @@ paths:
                     - email
                     - platform
                     - a2a
+                    - discord
                     - scheduler
                     - watcher
                 sourceContextId:
