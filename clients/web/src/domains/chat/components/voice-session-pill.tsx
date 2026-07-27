@@ -4,9 +4,9 @@
  *
  * Layout, left → right: two-line context label (primary action text over the
  * owning thread's name), optional circular stop control (only when the host
- * provides `onStop` and the assistant is `speaking`), mic glyph + compact
- * timeline waveform, red ✕ (end session), green ↑ (manual turn release —
- * enabled only while `listening`).
+ * provides `onStop` and the assistant is `speaking`), mic glyph + the voice
+ * room's listening waves in a compact strip, red ✕ (end session), green ↑
+ * (manual turn release — enabled only while `listening`).
  *
  * The pill lives inside `ChatLayoutHeader`, which doubles as the Electron
  * macOS title bar (`-webkit-app-region: drag`). The root opts the whole
@@ -18,6 +18,8 @@
  * 44px min-height with 32px controls, so the pill must never stretch it.
  */
 
+import type { CSSProperties } from "react";
+
 import { ArrowUp, Mic, MicOff, Square, TriangleAlert, X } from "lucide-react";
 
 import { Button, Tag, Typography, cn } from "@vellumai/design-library";
@@ -26,7 +28,13 @@ import {
   isLiveVoiceMicLive,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { VoiceTimelineWaveform } from "@/domains/chat/voice/voice-timeline-waveform";
+import { VoiceListeningWaves } from "@/domains/chat/voice/voice-room/voice-listening-waves";
+import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+
+// While the mic is not live (muted, assistant speaking) the waves read a
+// steady zero and settle into their quiet drift — the room's own resting
+// listening band — instead of freezing.
+const SILENT_AMPLITUDE = () => 0;
 
 export interface VoiceSessionPillProps {
   /**
@@ -57,6 +65,12 @@ export interface VoiceSessionPillProps {
   onSend: () => void;
   /** Invoked when the label area is clicked (navigate to the owning thread). */
   onNavigate?: () => void;
+  /**
+   * Accent hex matching the avatar the voice room renders (see
+   * `resolveWaveAccentHex`), so the pill's waves keep the room's tint.
+   * Null/omitted falls back to the app-wide accent, then aurora.
+   */
+  waveAccentHex?: string | null;
 }
 
 export function VoiceSessionPill({
@@ -70,6 +84,7 @@ export function VoiceSessionPill({
   onEnd,
   onSend,
   onNavigate,
+  waveAccentHex,
 }: VoiceSessionPillProps) {
   const labelContent = (
     <>
@@ -147,12 +162,25 @@ export function VoiceSessionPill({
             muted ? "[--vbtn-fg:var(--system-negative-strong)]" : undefined
           }
         />
-        <VoiceTimelineWaveform
-          compact
-          active={isLiveVoiceMicLive(state) && !muted}
-          getAmplitude={getAmplitude}
-          className="w-24"
-        />
+        {/* The room's listening-wave band in a compact strip: needs a
+            positioned box to fill (the component is absolutely positioned)
+            and overflow-hidden so the drifting layers clip to it. */}
+        <div
+          className="relative h-4 w-24 overflow-hidden"
+          style={
+            waveAccentHex
+              ? ({ [AVATAR_ACCENT_CSS_VAR]: waveAccentHex } as CSSProperties)
+              : undefined
+          }
+        >
+          <VoiceListeningWaves
+            getAmplitude={
+              isLiveVoiceMicLive(state) && !muted ? getAmplitude : SILENT_AMPLITUDE
+            }
+            palette="accent"
+            placement="inline"
+          />
+        </div>
       </div>
       <Button
         variant="danger"

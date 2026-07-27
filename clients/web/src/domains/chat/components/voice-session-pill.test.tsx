@@ -2,10 +2,8 @@
  * Tests for `VoiceSessionPill`.
  *
  * The pill is purely presentational, so tests drive it directly through
- * props. The embedded `VoiceTimelineWaveform` renders a real canvas —
- * happy-dom's `getContext("2d")` returns `null`, which that component treats
- * as "don't start the draw loop", so no canvas harness is needed here (its
- * own test file covers the drawing behavior).
+ * props. The embedded `VoiceListeningWaves` is SVG + a rAF loop writing a
+ * CSS var — inert under happy-dom, so no harness is needed here.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -120,7 +118,7 @@ describe("VoiceSessionPill — mute toggle", () => {
     expect(onToggleMute).toHaveBeenCalledTimes(1);
   });
 
-  test("muted: offers unmute and freezes the waveform", () => {
+  test("muted: offers unmute and reflects the pressed state", () => {
     const { onToggleMute } = renderPill({ muted: true });
     const toggle = screen.getByRole("button", { name: "Unmute microphone" });
     expect(toggle.getAttribute("aria-pressed")).toBe("true");

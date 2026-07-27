@@ -85,6 +85,8 @@ import {
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useOwningComposerSurfaceVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
+import { resolveWaveAccentHex } from "@/domains/chat/voice/voice-room/wave-accent";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 
 export interface VoiceSessionPillHostProps {
   /**
@@ -141,6 +143,13 @@ export function VoiceSessionPillHost({
     visible && sessionConversationId !== null,
   );
 
+  // Wave accent for the pill's listening waves — the same avatar-matched tint
+  // the room resolves (see wave-accent.ts). Fetch-gated to a visible pill;
+  // the query is shared with every other avatar consumer.
+  const { components: avatarComponents, traits: avatarTraits } =
+    useAssistantAvatar(visible ? sessionAssistantId : null);
+  const waveAccentHex = resolveWaveAccentHex(avatarComponents, avatarTraits);
+
   const handleNavigate = useCallback(() => {
     if (sessionConversationId) {
       navigateToConversation(navigate, sessionConversationId);
@@ -167,6 +176,7 @@ export function VoiceSessionPillHost({
         onEnd={endLiveVoiceSession}
         onSend={releaseLiveVoiceTurn}
         onNavigate={sessionConversationId ? handleNavigate : undefined}
+        waveAccentHex={waveAccentHex}
       />
     );
   }

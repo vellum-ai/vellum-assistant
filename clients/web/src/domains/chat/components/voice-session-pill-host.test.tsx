@@ -5,16 +5,16 @@
  * presentational `VoiceSessionPill`, so tests drive those stores directly and
  * mock only the modules with heavy dependency graphs: router hooks (mutable
  * pathname + navigate spy), `useActiveConversation` (TanStack Query), the
- * viewer store (generated SDK imports), the `useIsMobile` media-query hook,
- * and the imperative `navigateToConversation` util (haptics/sounds).
+ * avatar hook feeding the wave accent (React Query), the viewer store
+ * (generated SDK imports), the `useIsMobile` media-query hook, and the
+ * imperative `navigateToConversation` util (haptics/sounds).
  *
  * Visibility is asserted as the exact complement of the composer's voice bar
  * (`isLiveVoiceSessionOwnedBy`): for any active session exactly one of
  * {composer bar, title-bar pill} renders.
  *
- * The embedded `VoiceTimelineWaveform` renders a real canvas — happy-dom's
- * `getContext("2d")` returns `null`, which that component treats as "don't
- * start the draw loop", so no canvas harness is needed.
+ * The embedded `VoiceListeningWaves` is SVG + a rAF loop writing a CSS var —
+ * inert under happy-dom, so no harness is needed.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -79,6 +79,18 @@ const navigateToConversationSpy = mock(
 );
 mock.module("@/utils/conversation-navigation", () => ({
   navigateToConversation: navigateToConversationSpy,
+}));
+
+// Avatar data feeding the pill's wave accent. Mocked so the host renders
+// without a QueryClientProvider (the real hook is React Query).
+mock.module("@/hooks/use-assistant-avatar", () => ({
+  useAssistantAvatar: () => ({
+    components: null,
+    traits: null,
+    customImageUrl: null,
+    isLoading: false,
+    invalidate: () => {},
+  }),
 }));
 
 // Imported after the mocks so the host picks up the mocked modules.
