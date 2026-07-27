@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import { QuestionPrompter } from "../../permissions/question-prompter.js";
 import { RiskLevel } from "../../permissions/types.js";
+import {
+  invalidToolInputResult,
+  toToolInputSchema,
+} from "../shared/zod-tool-schema.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -9,15 +13,21 @@ import type {
 } from "../types.js";
 
 // ── Input schema ────────────────────────────────────────────────────
-// Runtime validation lives in Zod; the wire-level definition surfaced
-// to the LLM is the hand-written JSON Schema in `input_schema` below.
-// (The codebase does not currently use zod-to-json-schema for tool defs,
-// so the two are kept in sync manually.)
+// One Zod source for both runtime validation (via `TOOL_INPUT_SCHEMAS`)
+// and the LLM-facing `input_schema` (derived with `toToolInputSchema`).
 
 const OptionSchema = z.object({
-  id: z.string().min(1),
-  label: z.string().min(1),
-  description: z.string().optional(),
+  id: z
+    .string()
+    .min(1)
+    .describe(
+      "Stable identifier for this option (returned verbatim in the response).",
+    ),
+  label: z.string().min(1).describe("Short human-readable label."),
+  description: z
+    .string()
+    .describe("Optional one-line context shown beneath the label.")
+    .optional(),
 });
 
 // One question in a (possibly single-element) batch. Intentionally has no
@@ -26,13 +36,27 @@ const OptionSchema = z.object({
 // smaller and removes a validation surface (no duplicate-id check, no
 // length cap on ids).
 const SingleQuestionSchema = z.object({
-  question: z.string().min(1),
-  description: z.string().optional(),
+  question: z.string().min(1).describe("The clarifying question to display."),
+  description: z
+    .string()
+    .describe("Optional one-line context shown beneath the question.")
+    .optional(),
   // 2–4 LLM-supplied options. The client renders a fixed 5th "Type
   // something else" slot for free-text, so the model must keep the
   // structured set to 4 or fewer.
-  options: z.array(OptionSchema).min(2).max(4),
-  freeTextPlaceholder: z.string().optional(),
+  options: z
+    .array(OptionSchema)
+    .min(2)
+    .max(4)
+    .describe(
+      "2–4 structured options. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
+    ),
+  freeTextPlaceholder: z
+    .string()
+    .describe(
+      "Optional placeholder text shown inside the free-text fallback input.",
+    )
+    .optional(),
 });
 
 // Cap at 5 questions per batch. Past that it starts to feel like a form,
@@ -41,18 +65,22 @@ const SingleQuestionSchema = z.object({
 const MAX_QUESTIONS_PER_BATCH = 5;
 
 // Callers pass a (possibly single-element) batch of questions. `execute()`
-// forwards them straight to the prompter.
-const InputSchema = z.object({
+// forwards them straight to the prompter. Loose so injected fields (e.g.
+// `activity`) never fail validation.
+export const askQuestionInputSchema = z.looseObject({
   questions: z
     .array(SingleQuestionSchema)
     .min(1)
     .max(MAX_QUESTIONS_PER_BATCH, {
       message: `At most ${MAX_QUESTIONS_PER_BATCH} questions per batch; split into multiple turns if you need more.`,
-    }),
+    })
+    .describe(
+      `1–${MAX_QUESTIONS_PER_BATCH} clarifying questions to ask in a single turn. Use a batch when several independent ambiguities block progress; ask one at a time when they're sequentially dependent. Past ${MAX_QUESTIONS_PER_BATCH} questions you should be implementing, not asking.`,
+    ),
 });
 
 export type SingleQuestion = z.infer<typeof SingleQuestionSchema>;
-export type AskQuestionInput = z.infer<typeof InputSchema>;
+export type AskQuestionInput = z.infer<typeof askQuestionInputSchema>;
 
 // ── Tool description ────────────────────────────────────────────────
 
@@ -91,27 +119,6 @@ const DESCRIPTION = [
   "short human-readable `label`. Optional `description` adds one line of",
   "context shown beneath the label.",
 ].join("\n");
-
-// Option-schema fragment for the items in `questions[].options`.
-const OPTION_ITEMS_SCHEMA = {
-  type: "object",
-  properties: {
-    id: {
-      type: "string",
-      description:
-        "Stable identifier for this option (returned verbatim in the response).",
-    },
-    label: {
-      type: "string",
-      description: "Short human-readable label.",
-    },
-    description: {
-      type: "string",
-      description: "Optional one-line context shown beneath the label.",
-    },
-  },
-  required: ["id", "label"],
-} as const;
 
 // ── Text fallback for channels without dynamic UI ───────────────────
 
@@ -168,57 +175,15 @@ export const askQuestionTool = {
   category: "interaction",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
-  input_schema: {
-    type: "object",
-    properties: {
-      questions: {
-        type: "array",
-        minItems: 1,
-        maxItems: MAX_QUESTIONS_PER_BATCH,
-        description: `1–${MAX_QUESTIONS_PER_BATCH} clarifying questions to ask in a single turn. Use a batch when several independent ambiguities block progress; ask one at a time when they're sequentially dependent. Past ${MAX_QUESTIONS_PER_BATCH} questions you should be implementing, not asking.`,
-        items: {
-          type: "object",
-          properties: {
-            question: {
-              type: "string",
-              description: "The clarifying question to display.",
-            },
-            description: {
-              type: "string",
-              description:
-                "Optional one-line context shown beneath the question.",
-            },
-            options: {
-              type: "array",
-              minItems: 2,
-              maxItems: 4,
-              description:
-                "2–4 structured options. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
-              items: OPTION_ITEMS_SCHEMA,
-            },
-            freeTextPlaceholder: {
-              type: "string",
-              description:
-                "Optional placeholder text shown inside the free-text fallback input.",
-            },
-          },
-          required: ["question", "options"],
-        },
-      },
-    },
-    required: ["questions"],
-  },
+  input_schema: toToolInputSchema(askQuestionInputSchema),
 
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const parsed = InputSchema.safeParse(input);
+    const parsed = askQuestionInputSchema.safeParse(input);
     if (!parsed.success) {
-      return {
-        content: `Invalid input: ${parsed.error.message}`,
-        isError: true,
-      };
+      return invalidToolInputResult("ask_question", parsed.error);
     }
 
     const questions: SingleQuestion[] = parsed.data.questions;

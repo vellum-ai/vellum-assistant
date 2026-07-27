@@ -1,5 +1,7 @@
 import { join, resolve, sep } from "node:path";
 
+import { z } from "zod";
+
 import { getAppsDir } from "../../apps/app-store.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { enqueuePkbIndexJob } from "../../plugins/defaults/memory/v1/jobs/embed-pkb-file.js";
@@ -8,6 +10,10 @@ import { getWorkspaceDir } from "../../util/platform.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatWriteSummary } from "../shared/filesystem/format-diff.js";
 import { sandboxPolicyWithHostFallback } from "../shared/filesystem/path-policy.js";
+import {
+  invalidToolInputResult,
+  toToolInputSchema,
+} from "../shared/zod-tool-schema.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -56,6 +62,29 @@ function isInsidePkbRoot(absPath: string, pkbRoot: string): boolean {
   return normalized.startsWith(rootWithSep);
 }
 
+/**
+ * Model-input schema, the single source for both runtime validation (via
+ * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below. Loose so
+ * injected fields (e.g. `activity`, which the model must send but the tool
+ * never reads) pass through untouched.
+ */
+export const fileWriteInputSchema = z.looseObject({
+  path: z
+    .string()
+    .min(1)
+    .describe(
+      "The path to the file to write (absolute or relative to working directory)",
+    ),
+  content: z.string().describe("The content to write to the file"),
+  activity: z
+    .string()
+    .describe(
+      "Brief non-technical explanation of what you are doing and why, shown as a status update.",
+    )
+    .optional()
+    .catch(undefined),
+});
+
 export const fileWriteTool = {
   name: "file_write",
   description:
@@ -64,46 +93,19 @@ export const fileWriteTool = {
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
 
-  input_schema: {
-    type: "object",
-    properties: {
-      path: {
-        type: "string",
-        description:
-          "The path to the file to write (absolute or relative to working directory)",
-      },
-      content: {
-        type: "string",
-        description: "The content to write to the file",
-      },
-      activity: {
-        type: "string",
-        description:
-          "Brief non-technical explanation of what you are doing and why, shown as a status update.",
-      },
-    },
-    required: ["path", "content", "activity"],
-  },
+  input_schema: toToolInputSchema(fileWriteInputSchema, {
+    advertiseRequired: ["activity"],
+  }),
 
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const rawPath = input.path as string;
-    if (!rawPath || typeof rawPath !== "string") {
-      return {
-        content: "Error: path is required and must be a string",
-        isError: true,
-      };
+    const parsed = fileWriteInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("file_write", parsed.error);
     }
-
-    const fileContent = input.content;
-    if (typeof fileContent !== "string") {
-      return {
-        content: "Error: content is required and must be a string",
-        isError: true,
-      };
-    }
+    const { path: rawPath, content: fileContent } = parsed.data;
 
     // Redirect self-contained interactive HTML artifacts to app-builder.
     // Exempt writes that land inside the apps directory (app-builder's own

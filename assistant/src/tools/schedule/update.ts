@@ -17,6 +17,7 @@ import {
   getSchedule,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
+import { resolveScheduleBindingUpdate } from "../../schedule/skill-binding.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
@@ -81,6 +82,38 @@ export async function executeScheduleUpdate(
   if (input.message !== undefined) updates.message = input.message;
   if (input.script !== undefined) updates.script = input.script;
   if (input.enabled !== undefined) updates.enabled = input.enabled;
+
+  // Validate the handoff whenever the toggle or the action prompt moves.
+  // `message` matters because it becomes the handoff's trusted postamble:
+  // clearing it on an existing `then_execute` schedule would leave the turn
+  // with untrusted stdout and no instruction after it.
+  if (
+    input.then_execute !== undefined ||
+    input.skill_id !== undefined ||
+    input.message !== undefined
+  ) {
+    const existing = getSchedule(jobId);
+    if (!existing) {
+      return { content: `Error: Schedule not found: ${jobId}`, isError: true };
+    }
+
+    const binding = resolveScheduleBindingUpdate({
+      existing,
+      ...(input.then_execute !== undefined
+        ? { thenExecute: input.then_execute === true }
+        : {}),
+      ...(input.skill_id !== undefined
+        ? {
+            skillId: typeof input.skill_id === "string" ? input.skill_id : null,
+          }
+        : {}),
+      ...(typeof input.message === "string" ? { message: input.message } : {}),
+    });
+    if (!binding.ok) {
+      return { content: `Error: ${binding.error}`, isError: true };
+    }
+    Object.assign(updates, binding.updates);
+  }
 
   // Mode validation and pass-through
   if (input.mode !== undefined) {
@@ -260,6 +293,9 @@ export async function executeScheduleUpdate(
         timezone?: string | null;
         message?: string;
         script?: string | null;
+        thenExecute?: boolean;
+        skillId?: string | null;
+        skillVersionHash?: string | null;
         enabled?: boolean;
         syntax?: ScheduleSyntax;
         expression?: string;

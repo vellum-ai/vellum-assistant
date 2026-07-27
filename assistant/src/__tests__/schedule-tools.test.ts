@@ -1881,3 +1881,145 @@ describe("schedule_delete tool", () => {
     expect(result.content).toContain("Schedule not found");
   });
 });
+
+// ── script-mode handoff + skill binding ─────────────────────────────
+
+describe("script handoff validation", () => {
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+  });
+
+  async function createHandoffSchedule() {
+    const result = await executeScheduleCreate(
+      {
+        name: "Handoff job",
+        expression: "0 9 * * *",
+        mode: "script",
+        script: "echo hi",
+        message: "Summarize the output.",
+        then_execute: true,
+      },
+      ctx,
+    );
+    expect(result.isError).toBeFalsy();
+    return (
+      getRawDb().query("SELECT id FROM cron_jobs LIMIT 1").get() as {
+        id: string;
+      }
+    ).id;
+  }
+
+  test("rejects then_execute without a message to act on", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "No prompt",
+        expression: "0 9 * * *",
+        mode: "script",
+        script: "echo hi",
+        then_execute: true,
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("message is required when then_execute");
+  });
+
+  test("rejects binding to a skill that is not installed", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Bad binding",
+        expression: "0 9 * * *",
+        mode: "script",
+        script: "echo hi",
+        message: "Summarize.",
+        skill_id: "not-installed",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("not installed");
+  });
+
+  test("rejects clearing the message on an existing handoff schedule", async () => {
+    const jobId = await createHandoffSchedule();
+
+    // The message is the handoff's trusted action prompt. Emptying it would
+    // leave the turn holding untrusted stdout with no instruction after it.
+    const result = await executeScheduleUpdate(
+      { job_id: jobId, message: "   " },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("message is required when then_execute");
+  });
+
+  test("editing the message does not re-pin the bound skill", async () => {
+    const jobId = await createHandoffSchedule();
+    getRawDb().run(
+      "UPDATE cron_jobs SET skill_id = ?, skill_version_hash = ? WHERE id = ?",
+      ["inventory", "v1:stale", jobId],
+    );
+
+    const result = await executeScheduleUpdate(
+      { job_id: jobId, message: "New prompt." },
+      ctx,
+    );
+
+    expect(result.isError).toBeFalsy();
+    // Re-pinning here would silently approve skill content the guardian never
+    // reviewed; only an explicit skill_id may do that.
+    const row = getRawDb()
+      .query("SELECT skill_version_hash FROM cron_jobs WHERE id = ?")
+      .get(jobId) as { skill_version_hash: string };
+    expect(row.skill_version_hash).toBe("v1:stale");
+  });
+
+  test("turning off the handoff does not re-pin the bound skill", async () => {
+    const jobId = await createHandoffSchedule();
+    getRawDb().run(
+      "UPDATE cron_jobs SET skill_id = ?, skill_version_hash = ? WHERE id = ?",
+      ["inventory", "v1:stale", jobId],
+    );
+
+    const result = await executeScheduleUpdate(
+      { job_id: jobId, then_execute: false },
+      ctx,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const row = getRawDb()
+      .query(
+        "SELECT skill_version_hash, then_execute FROM cron_jobs WHERE id = ?",
+      )
+      .get(jobId) as { skill_version_hash: string; then_execute: number };
+    expect(row.skill_version_hash).toBe("v1:stale");
+    expect(row.then_execute).toBe(0);
+  });
+
+  test("passing an empty skill_id unbinds the schedule", async () => {
+    const jobId = await createHandoffSchedule();
+    getRawDb().run(
+      "UPDATE cron_jobs SET skill_id = ?, skill_version_hash = ? WHERE id = ?",
+      ["inventory", "v1:stale", jobId],
+    );
+
+    const result = await executeScheduleUpdate(
+      { job_id: jobId, skill_id: "" },
+      ctx,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const row = getRawDb()
+      .query("SELECT skill_id, skill_version_hash FROM cron_jobs WHERE id = ?")
+      .get(jobId) as {
+      skill_id: string | null;
+      skill_version_hash: string | null;
+    };
+    expect(row.skill_id).toBeNull();
+    expect(row.skill_version_hash).toBeNull();
+  });
+});

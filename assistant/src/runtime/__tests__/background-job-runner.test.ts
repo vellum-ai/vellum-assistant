@@ -41,6 +41,11 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     return { id: `msg-${addMessageCalls.length}` };
   },
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  // Imported by `runtime/assistant-sandwich.ts`, which the runner pulls in to
+  // seed the anti-injection sandwich. Unused on this path (only a caller
+  // seeding into a pre-existing conversation rolls the seed back), but the
+  // module graph still needs the export to resolve.
+  deleteMessageById: mock(() => ({})),
 }));
 
 let processMessageImpl: (

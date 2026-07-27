@@ -1,4 +1,14 @@
-import { and, desc, eq, gt, isNotNull, lt, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  lt,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
@@ -272,7 +282,19 @@ export function countRecentConsecutiveRuns(maxToCheck: number): number {
 }
 
 /**
- * List heartbeat runs ordered by `scheduledFor` descending.
+ * Statuses excluded from run history: scheduler bookkeeping rows, not runs.
+ * `pending` is the not-yet-fired next scheduled run (surfaced separately as
+ * "next run"), and `superseded` rows are pending rows replaced by a timer
+ * reset — a guardian message resets the heartbeat timer, so an active chat
+ * day leaves dozens of them behind without a single heartbeat firing.
+ */
+const BOOKKEEPING_STATUSES: HeartbeatRunStatus[] = ["pending", "superseded"];
+
+/**
+ * List heartbeat run history ordered by `scheduledFor` descending.
+ * Bookkeeping rows ({@link BOOKKEEPING_STATUSES}) are excluded — every
+ * returned row is a run that executed, was skipped by a guard (with its
+ * `skipReason`), or was missed while the daemon was down.
  * When `before` is set, only runs with `scheduledFor` strictly older than it
  * are returned (cursor for paginating into history).
  */
@@ -281,14 +303,42 @@ export function listHeartbeatRuns(
   before?: number,
 ): HeartbeatRunRecord[] {
   const db = getDb();
+  const historyOnly = notInArray(heartbeatRuns.status, BOOKKEEPING_STATUSES);
   const rows = db
     .select()
     .from(heartbeatRuns)
-    .where(before != null ? lt(heartbeatRuns.scheduledFor, before) : undefined)
+    .where(
+      before != null
+        ? and(lt(heartbeatRuns.scheduledFor, before), historyOnly)
+        : historyOnly,
+    )
     .orderBy(desc(heartbeatRuns.scheduledFor))
     .limit(limit)
     .all();
   return rows.map(parseRow);
+}
+
+/** Terminal statuses of runs that actually executed. */
+const EXECUTED_STATUSES: HeartbeatRunStatus[] = ["ok", "error", "timeout"];
+
+/**
+ * Epoch-ms timestamp of the most recent heartbeat run that actually executed
+ * (reached `ok`, `error`, or `timeout`), or null when none exists. Uses
+ * `finishedAt`, falling back to `startedAt` for rows finalized by a crash
+ * sweep without one.
+ */
+export function getLastHeartbeatRunAt(): number | null {
+  const db = getDb();
+  const row = db
+    .select({
+      lastRunAt: sql<
+        number | null
+      >`max(coalesce(${heartbeatRuns.finishedAt}, ${heartbeatRuns.startedAt}))`,
+    })
+    .from(heartbeatRuns)
+    .where(inArray(heartbeatRuns.status, EXECUTED_STATUSES))
+    .get();
+  return row?.lastRunAt ?? null;
 }
 
 /**

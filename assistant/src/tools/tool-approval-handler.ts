@@ -42,6 +42,7 @@ import { resolveExecutionTarget } from "./execution-target.js";
 import { channelCoordinatesFromToolContext } from "./policy-context.js";
 import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
+import { parseToolInput } from "./tool-input-schemas.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
 import { suggestToolName } from "./tool-name-aliases.js";
 import { recordToolCompletion } from "./tool-profiler.js";
@@ -576,7 +577,18 @@ function sensitiveToolDeniedMessage(
 }
 
 export type PreExecutionGateResult =
-  | { allowed: true; tool: Tool; grantConsumed?: boolean }
+  | {
+      allowed: true;
+      tool: Tool;
+      grantConsumed?: boolean;
+      /**
+       * Input parsed against the tool's registered schema in
+       * `TOOL_INPUT_SCHEMAS` (with `.catch()` recoveries applied). Set only
+       * for built-in tools with a registered schema; the executor substitutes
+       * it for the raw input so validation and execution see the same value.
+       */
+      parsedInput?: Record<string, unknown>;
+    }
   | { allowed: false; result: ToolExecutionResult };
 
 /** Configuration for the inline grant wait behavior. */
@@ -851,10 +863,36 @@ export class ToolApprovalHandler {
       }
     }
 
-    // All policy gates passed. Now consume the scoped grant if one is
-    // required. Deferring consumption to this point ensures a downstream
-    // rejection (allowedToolNames, task-run preflight, registry lookup)
-    // does not waste the one-time-use grant.
+    // All deterministic policy gates passed. Parse model-generated input for
+    // built-in tools with a registered schema BEFORE the grant consumption
+    // and guardian escalation below: a malformed invocation can never
+    // execute, so failing it here means it cannot burn a one-time grant or
+    // interrupt the guardian with an approval card (and up to a 60s inline
+    // wait) for a call validation would reject anyway. Extension-owned and
+    // workspace-override tools own their input contracts and are skipped.
+    let parsedInput: Record<string, unknown> | undefined;
+    if (getToolOwner(name)?.kind === "default") {
+      const parsed = parseToolInput(name, input);
+      if (!parsed.ok) {
+        this.auditGateError(
+          context,
+          name,
+          input,
+          riskLevel,
+          startTime,
+          parsed.message,
+        );
+        return {
+          allowed: false,
+          result: { content: parsed.message, isError: true },
+        };
+      }
+      parsedInput = parsed.data;
+    }
+
+    // Now consume the scoped grant if one is required. Deferring consumption
+    // to this point ensures a prior gate rejection (allowedToolNames, input
+    // validation, registry lookup) does not waste the one-time-use grant.
     //
     // Retry polling is scoped to the voice channel where a race condition
     // exists between fire-and-forget turn execution and LLM fallback grant
@@ -879,7 +917,7 @@ export class ToolApprovalHandler {
           "Scoped grant consumed - allowing untrusted actor tool invocation",
         );
 
-        return { allowed: true, tool, grantConsumed: true };
+        return { allowed: true, tool, grantConsumed: true, parsedInput };
       }
 
       // Treat abort as a cancellation - not a grant denial. This matches
@@ -973,7 +1011,7 @@ export class ToolApprovalHandler {
               },
               "Inline grant wait succeeded - allowing trusted contact tool invocation",
             );
-            return { allowed: true, tool, grantConsumed: true };
+            return { allowed: true, tool, grantConsumed: true, parsedInput };
           }
 
           if (waitResult.outcome === "aborted") {
@@ -1060,6 +1098,6 @@ export class ToolApprovalHandler {
       return { allowed: false, result: { content: reason, isError: true } };
     }
 
-    return { allowed: true, tool };
+    return { allowed: true, tool, parsedInput };
   }
 }

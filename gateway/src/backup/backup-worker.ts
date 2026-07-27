@@ -30,7 +30,10 @@ import { getGatewaySecurityDir } from "../paths.js";
 import { ensureBackupKey } from "./backup-key.js";
 import type { SnapshotEntry } from "./list-snapshots.js";
 import { pruneLocalSnapshots, writeLocalSnapshot } from "./local-writer.js";
-import type { BackupDestination, OffsiteWriteResult } from "./offsite-writer.js";
+import type {
+  BackupDestination,
+  OffsiteWriteResult,
+} from "./offsite-writer.js";
 import {
   pruneOffsiteSnapshotsInAll,
   writeOffsiteSnapshotToAll,
@@ -89,8 +92,7 @@ function readBackupConfig(): BackupConfig {
   const enabled = backup.enabled === true;
   const intervalHours =
     typeof backup.intervalHours === "number" ? backup.intervalHours : 6;
-  const retention =
-    typeof backup.retention === "number" ? backup.retention : 3;
+  const retention = typeof backup.retention === "number" ? backup.retention : 3;
 
   const offsiteRaw = (backup.offsite ?? {}) as Record<string, unknown>;
   const offsiteEnabled = offsiteRaw.enabled !== false;
@@ -99,7 +101,9 @@ function readBackupConfig(): BackupConfig {
     destinations = offsiteRaw.destinations
       .filter(
         (d): d is { path: string; encrypt?: boolean } =>
-          d && typeof d === "object" && typeof (d as Record<string, unknown>).path === "string",
+          d &&
+          typeof d === "object" &&
+          typeof (d as Record<string, unknown>).path === "string",
       )
       .map((d) => ({
         path: d.path,
@@ -158,6 +162,11 @@ export interface BackupRunResult {
 interface BackupDeps {
   /** Base URL of the assistant daemon (e.g. http://localhost:7821). */
   assistantRuntimeBaseUrl: string;
+  /**
+   * Deadline covering the export request and its body transfer. Defaults to
+   * `EXPORT_TIMEOUT_MS`; tests shorten it to exercise a stalled transfer.
+   */
+  exportTimeoutMs?: number;
 }
 
 /**
@@ -186,14 +195,35 @@ async function performBackup(
     ? await ensureBackupKey(getBackupKeyPath())
     : null;
 
-  // Call the daemon's export endpoint to get a plaintext vbundle
+  // Call the daemon's export endpoint to get a plaintext vbundle.
+  //
+  // Two separate deadlines have to be right here.
+  //
+  // `timeout: false` disables the runtime's own 300-second default. The daemon
+  // builds the whole archive before it can write a single response header, and
+  // on a large workspace that build runs for many minutes — so the default
+  // fires before any header arrives and the export fails with `TimeoutError`.
+  // Supplying `signal` is not enough: the runtime's default is not extended by
+  // a caller's abort signal, so without this the 60-minute budget below is
+  // silently capped at five.
+  //
+  // The abort deadline then has to cover the body, not just the handshake:
+  // `fetch` resolves as soon as the response headers land, and the bundle
+  // streams in afterwards. Clearing the timer on that resolution would leave
+  // the download undeadlined, so a body stalling mid-transfer would hang
+  // `performBackup` forever — and with it the `snapshotInProgress` mutex,
+  // which only releases in this function's caller.
   const serviceToken = mintServiceToken();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), EXPORT_TIMEOUT_MS);
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    deps.exportTimeoutMs ?? EXPORT_TIMEOUT_MS,
+  );
 
-  let response: Response;
+  // Stream the response body to a temp file
+  const tempPath = join(tmpdir(), `vellum-backup-${randomUUID()}.vbundle`);
   try {
-    response = await fetchImpl(
+    const response = await fetchImpl(
       `${deps.assistantRuntimeBaseUrl}/v1/migrations/export`,
       {
         method: "POST",
@@ -203,22 +233,17 @@ async function performBackup(
         },
         body: JSON.stringify({ description: "Gateway backup worker" }),
         signal: controller.signal,
+        timeout: false,
       },
     );
-  } finally {
-    clearTimeout(timeoutId);
-  }
 
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(
-      `Daemon export failed (${response.status}): ${body.slice(0, 500)}`,
-    );
-  }
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(
+        `Daemon export failed (${response.status}): ${body.slice(0, 500)}`,
+      );
+    }
 
-  // Stream the response body to a temp file
-  const tempPath = join(tmpdir(), `vellum-backup-${randomUUID()}.vbundle`);
-  try {
     const readableBody = response.body;
     if (!readableBody) {
       throw new Error("Daemon export returned an empty response body");
@@ -227,7 +252,14 @@ async function performBackup(
     const writeStream = createWriteStream(tempPath);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun's ReadableStream type doesn't match Node's web ReadableStream
     const nodeReadable = Readable.fromWeb(readableBody as any);
-    await pipeline(nodeReadable, writeStream);
+    // Aborting the controller tears the body stream down; passing the signal
+    // to the pipeline makes that abort reject here rather than leaving the
+    // write half waiting on a source that will never produce another chunk.
+    await pipeline(nodeReadable, writeStream, { signal: controller.signal });
+
+    // The transfer is done — everything past this point is local work under
+    // its own failure handling, so the export deadline has served its purpose.
+    clearTimeout(timeoutId);
 
     // Write the plaintext archive to the local backup directory
     const localResult = await writeLocalSnapshot(tempPath, localDir, now);
@@ -269,6 +301,10 @@ async function performBackup(
       // best-effort
     }
     throw err;
+  } finally {
+    // No-op once the transfer cleared it; the safety net for every path that
+    // leaves before that point.
+    clearTimeout(timeoutId);
   }
 }
 
