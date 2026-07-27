@@ -17,9 +17,13 @@ const expireGuardianRequestMock = mock((_id: string) => Promise.resolve());
 const bridgeMock = mock((_params: Record<string, unknown>) =>
   Promise.resolve({ bridged: true as const, signalId: "req-1" }),
 );
+const withdrawCardsMock = mock((_params: Record<string, unknown>) =>
+  Promise.resolve(),
+);
 
 let trustContext: Record<string, unknown> | undefined;
 let pendingInteraction: { kind: string } | undefined;
+let rowAfterExpire: Record<string, unknown> | null = null;
 
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (_id: string) =>
@@ -29,6 +33,11 @@ mock.module("../channels/gateway-guardian-requests.js", () => ({
   createGuardianRequest: (params: Record<string, unknown>) =>
     createGuardianRequestMock(params),
   expireGuardianRequest: (id: string) => expireGuardianRequestMock(id),
+  getGuardianRequestOrNull: (_id: string) => Promise.resolve(rowAfterExpire),
+}));
+mock.module("../approvals/guardian-card-withdrawal.js", () => ({
+  withdrawGuardianRequestCards: (params: Record<string, unknown>) =>
+    withdrawCardsMock(params),
 }));
 mock.module("../runtime/question-request-guardian-bridge.js", () => ({
   bridgeQuestionRequestToGuardian: (params: Record<string, unknown>) =>
@@ -38,8 +47,11 @@ mock.module("../runtime/pending-interactions.js", () => ({
   get: (_id: string) => pendingInteraction,
 }));
 
-const { createGuardianRequestForQuestion } =
+const { createGuardianRequestForQuestion, settlePromotedQuestionRequest } =
   await import("./question-guardian-request.js");
+
+/** Let the settle helper's fire-and-forget chain drain. */
+const flush = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 const entry = {
   id: "q1",
@@ -82,8 +94,10 @@ beforeEach(() => {
   createGuardianRequestMock.mockClear();
   expireGuardianRequestMock.mockClear();
   bridgeMock.mockClear();
+  withdrawCardsMock.mockClear();
   trustContext = guardianTrustContext();
   pendingInteraction = { kind: "question" };
+  rowAfterExpire = null;
 });
 
 describe("createGuardianRequestForQuestion gating", () => {
@@ -154,5 +168,55 @@ describe("createGuardianRequestForQuestion gating", () => {
     await expect(
       createGuardianRequestForQuestion(makeEvent(), "conv-1"),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("settlePromotedQuestionRequest", () => {
+  test("expires the promoted row and withdraws its cards once", async () => {
+    await createGuardianRequestForQuestion(makeEvent(), "conv-1");
+    rowAfterExpire = {
+      id: "req-1",
+      kind: "pending_question",
+      status: "expired",
+    };
+
+    settlePromotedQuestionRequest("req-1");
+    await flush();
+
+    expect(expireGuardianRequestMock).toHaveBeenCalledTimes(1);
+    expect(expireGuardianRequestMock.mock.calls[0]?.[0]).toBe("req-1");
+    expect(withdrawCardsMock).toHaveBeenCalledTimes(1);
+    expect(withdrawCardsMock.mock.calls[0]?.[0]).toMatchObject({
+      status: "expired",
+    });
+
+    // The promotion is consumed: a second settle is a no-op.
+    settlePromotedQuestionRequest("req-1");
+    await flush();
+    expect(expireGuardianRequestMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("skips withdrawal when the row was already decided by the pipeline", async () => {
+    await createGuardianRequestForQuestion(makeEvent(), "conv-1");
+    // The expire CAS missed — the row reads its decided status, meaning the
+    // decision primitive already withdrew the cards.
+    rowAfterExpire = {
+      id: "req-1",
+      kind: "pending_question",
+      status: "approved",
+    };
+
+    settlePromotedQuestionRequest("req-1");
+    await flush();
+
+    expect(expireGuardianRequestMock).toHaveBeenCalledTimes(1);
+    expect(withdrawCardsMock).not.toHaveBeenCalled();
+  });
+
+  test("is a no-op for requests that never promoted", async () => {
+    settlePromotedQuestionRequest("req-never-promoted");
+    await flush();
+    expect(expireGuardianRequestMock).not.toHaveBeenCalled();
+    expect(withdrawCardsMock).not.toHaveBeenCalled();
   });
 });

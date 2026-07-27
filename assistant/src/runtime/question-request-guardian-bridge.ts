@@ -117,9 +117,13 @@ export async function bridgeQuestionRequestToGuardian(
       requiresAction: true,
       urgency: "high",
       isAsyncBackground: false,
-      // The guardian is mid-conversation on the source channel; the card
-      // lands in that same chat.
-      visibleInSourceNow: true,
+      // MUST be false: visibleInSourceNow is a hard suppression pre-gate in
+      // emitNotificationSignal (source-active check) — it means "the user can
+      // already see this content in the source surface, skip notifying". A
+      // parked ask_question renders NOTHING in the source chat by itself; this
+      // card IS the prompt, so suppressing it would leave the turn hanging
+      // until the prompt timeout.
+      visibleInSourceNow: false,
     },
     contextPayload: {
       requestKind: "pending_question",

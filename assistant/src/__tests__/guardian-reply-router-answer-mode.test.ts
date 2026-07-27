@@ -14,9 +14,10 @@
  *    not-consumed (existing behavior).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { GuardianRequestWire } from "../channels/gateway-guardian-requests.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 // Capture decisions instead of running the real primitive (CAS + resolvers).
 const applyGuardianDecisionMock = mock(
@@ -91,9 +92,21 @@ function makeContext(overrides: Record<string, unknown> = {}) {
       channel: "telegram",
       guardianPrincipalId: "prin-guardian",
     },
-    conversationId: "conv-guardian",
+    // Matches the fixture request's sourceConversationId: the guardian answers
+    // in the chat the question was asked in.
+    conversationId: "conv-1",
     ...overrides,
   };
+}
+
+/** Register the parked interaction backing an ask_question request row. */
+function registerLiveQuestion(requestId: string): void {
+  pendingInteractions.register(requestId, {
+    conversationId: "conv-1",
+    kind: "question",
+    rpcResolve: () => {},
+    metadata: { orderedIds: ["q1"], optionsById: { q1: ["apple", "banana"] } },
+  });
 }
 
 beforeEach(() => {
@@ -103,12 +116,18 @@ beforeEach(() => {
   );
   requestsById = new Map();
   pendingList = [];
+  pendingInteractions.clear();
+});
+
+afterEach(() => {
+  pendingInteractions.clear();
 });
 
 describe("answer-option callback taps", () => {
   test("applies an option token on an answer-mode request as userText", async () => {
     const request = makeRequest();
     requestsById.set(request.id, request);
+    registerLiveQuestion(request.id);
 
     const result = await routeGuardianReply(
       makeContext({ callbackData: "apr:req-q1:answer_1" }),
@@ -127,6 +146,7 @@ describe("answer-option callback taps", () => {
   test("applies the skip token as a reject decision carrying the token", async () => {
     const request = makeRequest();
     requestsById.set(request.id, request);
+    registerLiveQuestion(request.id);
 
     await routeGuardianReply(
       makeContext({ callbackData: "apr:req-q1:answer_skip" }),
@@ -154,11 +174,27 @@ describe("answer-option callback taps", () => {
     expect(result.consumed).toBe(false);
     expect(applyGuardianDecisionMock).not.toHaveBeenCalled();
   });
+
+  test("a tap on a stale card (interaction gone) is not applied", async () => {
+    // Answered on another surface or timed out: the row may briefly outlive
+    // the interaction. The tap must fall through to stale handling, never
+    // commit a decision that can no longer resolve anything.
+    const request = makeRequest();
+    requestsById.set(request.id, request);
+
+    const result = await routeGuardianReply(
+      makeContext({ callbackData: "apr:req-q1:answer_1" }),
+    );
+
+    expect(result.consumed).toBe(false);
+    expect(applyGuardianDecisionMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("bare-text answers to a sole pending question", () => {
   test("treats an unprefixed reply as the answer and consumes it", async () => {
     pendingList = [makeRequest()];
+    registerLiveQuestion("req-q1");
 
     const result = await routeGuardianReply(
       makeContext({ messageText: "3pm works" }),
@@ -177,6 +213,7 @@ describe("bare-text answers to a sole pending question", () => {
 
   test('a decision-looking word ("no") is the ANSWER, not a rejection', async () => {
     pendingList = [makeRequest()];
+    registerLiveQuestion("req-q1");
 
     await routeGuardianReply(makeContext({ messageText: "no" }));
 
@@ -194,6 +231,50 @@ describe("bare-text answers to a sole pending question", () => {
 
     const result = await routeGuardianReply(
       makeContext({ messageText: "3pm works" }),
+    );
+
+    expect(result.consumed).toBe(false);
+    expect(applyGuardianDecisionMock).not.toHaveBeenCalled();
+  });
+
+  test("prose in a DIFFERENT chat never answers a question pending elsewhere", async () => {
+    // Under the identity-fallback scope a guardian's pending requests are
+    // visible cross-chat; an unprefixed reply must only count as the answer
+    // in the conversation the question was asked in. Codes and taps stay
+    // cross-chat.
+    pendingList = [makeRequest()];
+    registerLiveQuestion("req-q1");
+
+    const result = await routeGuardianReply(
+      makeContext({
+        messageText: "3pm works",
+        conversationId: "conv-other-chat",
+      }),
+    );
+
+    expect(result.consumed).toBe(false);
+    expect(applyGuardianDecisionMock).not.toHaveBeenCalled();
+  });
+
+  test("prose is not swallowed when the interaction is gone (stale row)", async () => {
+    // App-card answer or timeout can leave the row briefly pending with no
+    // interaction behind it. The reply must flow to a normal agent turn, not
+    // into a decision that then fails to resolve anything.
+    pendingList = [makeRequest()];
+
+    const result = await routeGuardianReply(
+      makeContext({ messageText: "unrelated new request" }),
+    );
+
+    expect(result.consumed).toBe(false);
+    expect(applyGuardianDecisionMock).not.toHaveBeenCalled();
+  });
+
+  test("a voice question (callSessionId) keeps its existing code/NL paths", async () => {
+    pendingList = [makeRequest({ id: "req-v1", callSessionId: "call-1" })];
+
+    const result = await routeGuardianReply(
+      makeContext({ messageText: "3pm works", conversationId: "conv-1" }),
     );
 
     expect(result.consumed).toBe(false);

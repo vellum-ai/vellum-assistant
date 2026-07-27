@@ -33,6 +33,53 @@ import { getLogger } from "../util/logger.js";
 const log = getLogger("question-guardian-request");
 
 /**
+ * requestIds this process promoted to a guardian request. Lets the prompt's
+ * settle path expire the row without a gateway round-trip for the (common)
+ * app-only questions that never promoted; a daemon restart loses the set, and
+ * boot's interaction-bound expiry covers those rows instead.
+ */
+const promotedQuestionRequestIds = new Set<string>();
+
+/**
+ * Expire the promoted guardian-request row for a settled question prompt and
+ * withdraw its delivered cards. Called from the prompter's settle funnel for
+ * EVERY outcome (answered on any surface, timed out, aborted, superseded), so
+ * a row can never outlive its interaction and get matched against a later,
+ * unrelated channel message — and so an app-side answer visibly deactivates
+ * the channel card rather than leaving live buttons.
+ *
+ * When the pipeline itself resolved the question the row is already decided:
+ * the expire's status CAS misses and the post-expire status check skips
+ * withdrawal (the decision primitive already withdrew on decide). Failures are
+ * logged and swallowed; the periodic orphan sweep and boot expiry remain the
+ * backstops.
+ */
+export function settlePromotedQuestionRequest(requestId: string): void {
+  if (!promotedQuestionRequestIds.delete(requestId)) {
+    return;
+  }
+  void (async () => {
+    const { expireGuardianRequest, getGuardianRequestOrNull } =
+      await import("../channels/gateway-guardian-requests.js");
+    await expireGuardianRequest(requestId);
+    // Withdraw cards only when the expire actually transitioned the row —
+    // gated on a fresh read since the expire CAS reports no outcome.
+    const row = await getGuardianRequestOrNull(requestId);
+    if (row?.status !== "expired") {
+      return;
+    }
+    const { withdrawGuardianRequestCards } =
+      await import("../approvals/guardian-card-withdrawal.js");
+    await withdrawGuardianRequestCards({ request: row, status: "expired" });
+  })().catch((err) => {
+    log.debug(
+      { err, requestId },
+      "Failed to expire promoted question request on settle; sweep will catch it",
+    );
+  });
+}
+
+/**
  * Create a `pending_question` guardian request + notification for a parked
  * `ask_question` prompt, when the turn qualifies (see module doc). Safe to
  * call fire-and-forget; failures are logged, never thrown — the prompt still
@@ -99,6 +146,8 @@ export async function createGuardianRequestForQuestion(
         Date.now() + getConfig().timeouts.questionResponseTimeoutSec * 1000,
     });
 
+    promotedQuestionRequestIds.add(guardianRequest.id);
+
     // The prompt is answerable via the app card before this fire-and-forget
     // create lands; if it already resolved, expire the fresh row instead of
     // stranding a decidable request for a settled prompt.
@@ -106,6 +155,7 @@ export async function createGuardianRequestForQuestion(
       await import("../runtime/pending-interactions.js");
     const pending = getPendingInteraction(msg.requestId);
     if (!pending || pending.kind !== "question") {
+      promotedQuestionRequestIds.delete(guardianRequest.id);
       await expireGuardianRequest(guardianRequest.id);
       log.info(
         { conversationId, requestId: msg.requestId },
