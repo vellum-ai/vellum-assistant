@@ -89,11 +89,14 @@ describe("admitDiscordMessage", () => {
     expect(verdict).toEqual({ admitted: false, reason: "bot_not_mentioned" });
   });
 
-  test("does not treat @everyone as a mention of the bot", () => {
+  test("does not admit an @everyone announcement", () => {
     // The highest-cost false admit: every announcement in an allow-listed
-    // channel would reach the assistant.
+    // channel would reach the assistant. Discord omits `@everyone` / `@here`
+    // and role pings from the mentions array — it reports them on separate
+    // fields — so an announcement arrives shaped exactly like this, with the
+    // bot absent from `mentionedUserIds`, and the mention check drops it.
     const verdict = admitDiscordMessage(
-      candidate({ mentionedUserIds: [], mentionsEveryone: true }),
+      candidate({ mentionedUserIds: [] }),
       policy,
     );
     expect(verdict).toEqual({ admitted: false, reason: "bot_not_mentioned" });

@@ -13,6 +13,7 @@ describe("DISCORD_INTENTS", () => {
     // these are pinned against the published values rather than recomputed.
     expect(DISCORD_INTENTS.GUILDS).toBe(1);
     expect(DISCORD_INTENTS.GUILD_MEMBERS).toBe(2);
+    expect(DISCORD_INTENTS.GUILD_PRESENCES).toBe(256);
     expect(DISCORD_INTENTS.GUILD_MESSAGES).toBe(512);
     expect(DISCORD_INTENTS.DIRECT_MESSAGES).toBe(4096);
     expect(DISCORD_INTENTS.MESSAGE_CONTENT).toBe(32768);
@@ -20,6 +21,18 @@ describe("DISCORD_INTENTS", () => {
 });
 
 describe("DISCORD_GATEWAY_INTENTS", () => {
+  test("PRIVILEGED_DISCORD_INTENTS lists every intent Discord gates", () => {
+    // The guard below is only as good as this list. Discord gates three:
+    // omitting one leaves a privileged intent the invariant cannot see, which
+    // is a safeguard that reports success while covering two thirds of the
+    // surface.
+    expect([...PRIVILEGED_DISCORD_INTENTS].sort((a, b) => a - b)).toEqual([
+      DISCORD_INTENTS.GUILD_MEMBERS,
+      DISCORD_INTENTS.GUILD_PRESENCES,
+      DISCORD_INTENTS.MESSAGE_CONTENT,
+    ]);
+  });
+
   test("requests no privileged intent", () => {
     // The load-bearing assertion. Mention-gating puts every message this
     // client acts on inside Discord's content exemption, so the privileged

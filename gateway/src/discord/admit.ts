@@ -39,10 +39,14 @@ export interface AdmissionCandidate {
   authorId: string;
   /** Whether the author is itself a bot or webhook. */
   authorIsBot?: boolean;
-  /** Snowflakes of users directly mentioned in the message. */
+  /**
+   * Snowflakes of users directly mentioned in the message.
+   *
+   * Discord omits `@everyone` / `@here` and role pings from this array — they
+   * are reported on separate fields — so a message that addresses the room
+   * never looks like a message that addresses the bot.
+   */
   mentionedUserIds?: readonly string[];
-  /** Whether the message carried `@everyone` / `@here`. */
-  mentionsEveryone?: boolean;
 }
 
 export type AdmissionDropReason =
@@ -82,15 +86,21 @@ export function admitDiscordMessage(
 ): AdmissionVerdict {
   // The bot's own messages come back over the same socket. Processing them is
   // how a reply loop starts.
-  if (candidate.authorId === policy.botUserId) return drop("self_authored");
+  if (candidate.authorId === policy.botUserId) {
+    return drop("self_authored");
+  }
 
   // Other bots and webhooks are dropped outright. Two assistants in one
   // channel that each answer the other is the same loop with more steps.
-  if (candidate.authorIsBot) return drop("bot_authored");
+  if (candidate.authorIsBot) {
+    return drop("bot_authored");
+  }
 
   // Admission is expressed as a list of guild channels, so a DM matches no
   // entry on it. Admitting DMs is a separate policy decision, not a gap here.
-  if (!candidate.guildId) return drop("not_a_guild_message");
+  if (!candidate.guildId) {
+    return drop("not_a_guild_message");
+  }
 
   // An unset allow-list admits nothing. The operator opting the bot into a
   // guild is not the same as opting it into every channel in that guild, and
@@ -107,10 +117,9 @@ export function admitDiscordMessage(
     return drop("channel_not_allowed");
   }
 
-  // `@everyone` and `@here` are not mentions of this bot. Discord keeps them
-  // out of the mentions array and reports them on a separate flag precisely
-  // because they address the room, not a user — honouring them would opt the
-  // assistant into every announcement in an allow-listed channel.
+  // Requiring the bot's own id here is what keeps announcements out: Discord
+  // omits `@everyone` / `@here` and role pings from the mentions array, so
+  // they cannot satisfy this check.
   if (!candidate.mentionedUserIds?.includes(policy.botUserId)) {
     return drop("bot_not_mentioned");
   }
@@ -124,7 +133,9 @@ export function admitDiscordMessage(
  * setting yields an empty set, which admits nothing.
  */
 export function parseAllowedChannelIds(raw: string | undefined): Set<string> {
-  if (!raw) return new Set();
+  if (!raw) {
+    return new Set();
+  }
   return new Set(
     raw
       .split(",")

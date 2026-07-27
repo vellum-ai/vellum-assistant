@@ -14,6 +14,8 @@ export const DISCORD_INTENTS = {
   GUILDS: 1 << 0,
   /** PRIVILEGED. `GUILD_MEMBER_*` events. */
   GUILD_MEMBERS: 1 << 1,
+  /** PRIVILEGED. Presence and status updates. */
+  GUILD_PRESENCES: 1 << 8,
   /** `MESSAGE_CREATE` / `MESSAGE_UPDATE` / `MESSAGE_DELETE` in guild channels. */
   GUILD_MESSAGES: 1 << 9,
   /** The same message events, in DM channels. */
@@ -21,8 +23,6 @@ export const DISCORD_INTENTS = {
   /** PRIVILEGED. Populates `content` / `embeds` / `attachments` / `components`. */
   MESSAGE_CONTENT: 1 << 15,
 } as const;
-
-export type DiscordIntentName = keyof typeof DISCORD_INTENTS;
 
 /**
  * Intents this client identifies with.
@@ -55,5 +55,6 @@ export const DISCORD_GATEWAY_INTENTS =
 /** Intents Discord gates behind a portal toggle and, past a size threshold, approval. */
 export const PRIVILEGED_DISCORD_INTENTS = [
   DISCORD_INTENTS.GUILD_MEMBERS,
+  DISCORD_INTENTS.GUILD_PRESENCES,
   DISCORD_INTENTS.MESSAGE_CONTENT,
 ] as const;
