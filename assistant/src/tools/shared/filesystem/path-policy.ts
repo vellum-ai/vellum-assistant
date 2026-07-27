@@ -11,6 +11,7 @@ import {
 
 import { getIsContainerized } from "../../../config/env-registry.js";
 import { resolveTrailingLinkTarget } from "../../../util/fs-symlinks.js";
+import { getDotEnvPath } from "../../../util/platform.js";
 
 /**
  * Result type shared by both sandbox and host path policies.
@@ -196,26 +197,30 @@ function safeUserInfoHomedir(): string {
   }
 }
 
-/**
- * Security directories owned by other services: gateway trust material and
- * token signing keys (GATEWAY_SECURITY_DIR) and CES credential keys
- * (CREDENTIAL_SECURITY_DIR — `keys.enc`, `store.key`). The daemon must
- * never read from or write to them — that data flows through the gateway
- * and CES APIs (root AGENTS.md). The env-based resolution mirrors the
- * owning services' own resolution, since the cross-package import boundary
- * bars importing it; the shared bare-metal default `<home>/.vellum/protected`
- * is always denied. A relative override resolves against the owning
- * service's cwd, which this process cannot know — the daemon-cwd-resolved
- * form is denied as a best effort alongside the always-denied default.
- */
 const SECURITY_DIR_ENV_VARS = [
   "GATEWAY_SECURITY_DIR",
   "CREDENTIAL_SECURITY_DIR",
 ] as const;
 
-function getServiceSecurityDirs(): string[] {
-  const dirs = new Set<string>();
-  dirs.add(
+/**
+ * Secret-bearing paths the file tools must never touch, in any policy:
+ *
+ * - Gateway trust material and token signing keys (GATEWAY_SECURITY_DIR)
+ *   and CES credential keys (CREDENTIAL_SECURITY_DIR — `keys.enc`,
+ *   `store.key`). The daemon must never read from or write to them — that
+ *   data flows through the gateway and CES APIs (root AGENTS.md). The
+ *   env-based resolution mirrors the owning services', since the
+ *   cross-package import boundary bars importing it; the shared bare-metal
+ *   default `<home>/.vellum/protected` is always denied. Only absolute
+ *   overrides join the set — a relative override is unmirrorable and
+ *   disables the host fallback outright (see
+ *   {@link securityDirConfigMirrorable}).
+ * - The daemon dotenv (`<vellumRoot>/.env`), which carries provider
+ *   secrets.
+ */
+function getProtectedServicePaths(): string[] {
+  const paths = new Set<string>();
+  paths.add(
     join(
       process.env.HOME || safeUserInfoHomedir() || homedir(),
       ".vellum",
@@ -225,10 +230,11 @@ function getServiceSecurityDirs(): string[] {
   for (const name of SECURITY_DIR_ENV_VARS) {
     const override = process.env[name]?.trim();
     if (override && isAbsolute(override)) {
-      dirs.add(resolve(override));
+      paths.add(resolve(override));
     }
   }
-  return [...dirs];
+  paths.add(getDotEnvPath());
+  return [...paths];
 }
 
 /**
@@ -249,17 +255,18 @@ function isWithinDir(path: string, dir: string): boolean {
 }
 
 /**
- * Deny a target that lands in a service-owned security directory. Both the
+ * Deny a target that lands in (or on) a protected service path. Both the
  * lexical and symlink-resolved target are checked against both the lexical
- * and symlink-resolved directory, so neither a symlinked target nor a
+ * and symlink-resolved protected path, so neither a symlinked target nor a
  * symlinked directory prefix can mask the hit.
  */
 function securityDirDenial(target: SandboxTarget): PathResult | null {
-  for (const securityDir of getServiceSecurityDirs()) {
-    const realSecurityDir = resolveRealPath(securityDir);
+  for (const protectedPath of getProtectedServicePaths()) {
+    const realProtectedPath = resolveRealPath(protectedPath);
     const hit = [target.resolved, target.realResolved].some(
       (path) =>
-        isWithinDir(path, securityDir) || isWithinDir(path, realSecurityDir),
+        isWithinDir(path, protectedPath) ||
+        isWithinDir(path, realProtectedPath),
     );
     if (hit) {
       return {

@@ -16,6 +16,7 @@ import {
   sandboxPolicy,
   sandboxPolicyWithHostFallback,
 } from "../tools/shared/filesystem/path-policy.js";
+import { getDotEnvPath } from "../util/platform.js";
 
 // ── Mock setup for skill path classifier ────────────────────────────────────
 // The classifier imports getWorkspaceSkillsDir and getBundledSkillsDir, which
@@ -323,6 +324,18 @@ describe("sandboxPolicyWithHostFallback", () => {
       if (!result.ok) {
         expect(result.reason).toBe("denied");
       }
+    }
+  });
+
+  test("denies the daemon dotenv", () => {
+    const boundary = makeTempDir();
+
+    const result = sandboxPolicyWithHostFallback(getDotEnvPath(), boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
     }
   });
 
