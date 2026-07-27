@@ -474,7 +474,7 @@ export function AssistantSideMenu({
                   above, not as a section-header action. */}
               <CollapsibleNavSection.Root
                 type="multiple"
-                className="gap-1"
+                className="gap-3"
                 value={sidebar.effectiveOpenPrimary}
                 onValueChange={sidebar.onOpenPrimaryChange}
               >
@@ -501,7 +501,7 @@ export function AssistantSideMenu({
 
               <CollapsibleNavSection.Root
                 type="multiple"
-                className="gap-1"
+                className="gap-3"
                 value={sidebar.effectiveOpenCategories}
                 onValueChange={sidebar.onOpenCategoriesChange}
               >
@@ -528,7 +528,7 @@ export function AssistantSideMenu({
                   <SideMenu.Section title="Your Groups">
                     <CollapsibleNavSection.Root
                       type="multiple"
-                      className="gap-1"
+                      className="gap-3"
                       value={sidebar.effectiveOpenCustomGroups}
                       onValueChange={sidebar.onOpenCustomGroupsChange}
                     >

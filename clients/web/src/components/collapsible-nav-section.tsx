@@ -92,13 +92,17 @@ function CollapsibleNavSectionSection({
     <div data-slot="collapsible-nav-section-header" className="flex items-center justify-between">
       <Collapsible.Trigger
         className={cn(
-          "group h-[30px] max-md:h-auto gap-[4px] max-md:gap-[8px]",
+          "group h-[30px] max-md:h-auto gap-[6px] max-md:gap-[8px]",
           "rounded-[6px] p-[6px] max-md:px-2 max-md:py-3",
           "text-left text-body-medium-default max-md:text-body-large-default",
           "text-[var(--content-tertiary)]",
         )}
       >
-        <span className="relative inline-flex size-[14px] shrink-0 items-center justify-center">
+        {/* 20px slot + 6px gap — the assistant cluster's leading-chip
+            geometry (`CHIP_SIZE` in assistant-nav-item), so section icons
+            and labels sit on the same axes as the New Chat plus and the
+            assistant eyes. */}
+        <span className="relative inline-flex h-[14px] w-[20px] shrink-0 items-center justify-center">
           {Icon ? (
             <Icon
               size={14}
