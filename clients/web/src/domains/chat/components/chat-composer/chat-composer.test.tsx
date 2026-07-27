@@ -172,6 +172,18 @@ mock.module("@/lib/backwards-compat/use-supports-live-voice", () => ({
   useSupportsLiveVoice: () => mockSupportsLiveVoice,
 }));
 
+// Avatar data feeding the voice bar's wave accent. Mocked so the composer
+// renders without a QueryClientProvider (the real hook is React Query).
+mock.module("@/hooks/use-assistant-avatar", () => ({
+  useAssistantAvatar: () => ({
+    components: null,
+    traits: null,
+    customImageUrl: null,
+    isLoading: false,
+    invalidate: () => {},
+  }),
+}));
+
 // `useNavigate` — the composer deep-links to voice settings from the
 // "configure voice" prompt. Mock the whole module (the composer's only
 // react-router import is `useNavigate`) so the not-tree-mounted composer can

@@ -51,8 +51,10 @@ import {
 import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { VoiceFirstRunCard } from "@/domains/chat/voice/voice-room/voice-first-run-card";
+import { resolveWaveAccentHex } from "@/domains/chat/voice/voice-room/wave-accent";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
@@ -302,6 +304,16 @@ export function ChatComposer({
   // shares the global live-voice store but must never swap its row.
   const ownsLiveVoiceSession = useIsLiveVoiceSessionOwnedBy(conversationId);
   const isLiveVoiceActive = showVoiceInput && ownsLiveVoiceSession;
+  // Wave accent for the voice bar's listening waves — the same avatar-matched
+  // tint the room resolves (see wave-accent.ts), so the minimized session
+  // keeps the room's color language. Fetch-gated to live sessions; the query
+  // is shared with every other avatar consumer.
+  const { components: avatarComponents, traits: avatarTraits } =
+    useAssistantAvatar(isLiveVoiceActive ? assistantId : null);
+  const voiceWaveAccentHex = resolveWaveAccentHex(
+    avatarComponents,
+    avatarTraits,
+  );
   // Mic mute state (controller-published) for the voice bar's toggle.
   const liveVoiceMuted = useLiveVoiceStore.use.muted();
   // Hands-free sessions get the turn-scoped ■ stop; a manual (version-skew
@@ -905,6 +917,7 @@ export function ChatComposer({
                 // windows, where the room never renders (the standalone pill
                 // is their only session surface).
                 onExpand={isPopout ? undefined : restoreVoiceRoom}
+                waveAccentHex={voiceWaveAccentHex}
               />
             ) : (
               <div className="flex items-center justify-between gap-1 px-2 pb-2">
