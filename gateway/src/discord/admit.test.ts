@@ -107,6 +107,53 @@ describe("admitDiscordMessage", () => {
     expect(verdict).toEqual({ admitted: false, reason: "bot_not_mentioned" });
   });
 
+  test("admits a thread whose parent channel is allow-listed", () => {
+    // Discord keys thread messages on the thread's own id, so an allow-list of
+    // channels matches none of them. Without parent resolution the assistant
+    // goes silent the moment a conversation moves into a thread — a denial
+    // nobody would see, because the symptom is nothing happening.
+    const verdict = admitDiscordMessage(
+      candidate({
+        channelId: "800000000000000099",
+        parentChannelId: ALLOWED_CHANNEL,
+      }),
+      policy,
+    );
+    expect(verdict).toEqual({ admitted: true });
+  });
+
+  test("drops a thread whose parent is not allow-listed", () => {
+    const verdict = admitDiscordMessage(
+      candidate({
+        channelId: "800000000000000099",
+        parentChannelId: OTHER_CHANNEL,
+      }),
+      policy,
+    );
+    expect(verdict).toEqual({ admitted: false, reason: "channel_not_allowed" });
+  });
+
+  test("admits a thread listed directly by its own id", () => {
+    const verdict = admitDiscordMessage(
+      candidate({ channelId: ALLOWED_CHANNEL, parentChannelId: OTHER_CHANNEL }),
+      policy,
+    );
+    expect(verdict).toEqual({ admitted: true });
+  });
+
+  test("a thread still has to clear every other check", () => {
+    // Parent inheritance widens which rooms count, not which messages do.
+    const verdict = admitDiscordMessage(
+      candidate({
+        channelId: "800000000000000099",
+        parentChannelId: ALLOWED_CHANNEL,
+        mentionedUserIds: [],
+      }),
+      policy,
+    );
+    expect(verdict).toEqual({ admitted: false, reason: "bot_not_mentioned" });
+  });
+
   test("an empty allow-list admits nothing", () => {
     // Fail-closed: being invited to a guild is not consent to every channel
     // in it, so an unconfigured list must not read as "all channels".

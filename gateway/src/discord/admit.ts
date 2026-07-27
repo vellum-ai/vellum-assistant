@@ -17,8 +17,22 @@
 
 /** The fields of a Discord message this gate reads. */
 export interface AdmissionCandidate {
-  /** Snowflake of the channel the message was posted in. */
+  /**
+   * Snowflake of the channel the message was posted in. For a message in a
+   * thread this is the *thread's* id, not the channel the thread hangs off.
+   */
   channelId: string;
+  /**
+   * Snowflake of the parent channel when {@link channelId} is a thread.
+   *
+   * Discord delivers thread messages as ordinary `MESSAGE_CREATE` events keyed
+   * on the thread, and the bot is auto-subscribed to every visible active
+   * thread without joining. An allow-list of channels would therefore deny all
+   * thread traffic, which is the same as the assistant going silent the moment
+   * a conversation moves into a thread. Resolving parentage is the caller's
+   * job — it holds the channel cache — and this gate accepts the result.
+   */
+  parentChannelId?: string;
   /** Snowflake of the guild, absent for DMs. */
   guildId?: string;
   /** Snowflake of the message author. */
@@ -81,7 +95,15 @@ export function admitDiscordMessage(
   // An unset allow-list admits nothing. The operator opting the bot into a
   // guild is not the same as opting it into every channel in that guild, and
   // the failure that matters is the one where an empty list means "all".
-  if (!policy.allowedChannelIds.has(candidate.channelId)) {
+  //
+  // A thread inherits its parent's listing: listing a channel opts in the
+  // conversations that branch off it, which is where a thread comes from. A
+  // thread id may also be listed directly, and matches on the first check.
+  const channelAllowed =
+    policy.allowedChannelIds.has(candidate.channelId) ||
+    (candidate.parentChannelId !== undefined &&
+      policy.allowedChannelIds.has(candidate.parentChannelId));
+  if (!channelAllowed) {
     return drop("channel_not_allowed");
   }
 
