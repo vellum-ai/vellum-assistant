@@ -126,6 +126,11 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     description:
       "OAuth credential health issue detected (expired, revoked, missing scopes)",
   },
+  {
+    id: "telegram.webhook_health_alert",
+    description:
+      "Telegram webhook is not delivering (unregistered, or failing per getWebhookInfo)",
+  },
 ] as const;
 
 export type NotificationSourceEventName =
