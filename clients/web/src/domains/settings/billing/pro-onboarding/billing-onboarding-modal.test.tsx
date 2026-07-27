@@ -224,6 +224,10 @@ let domainsCalls = 0;
 let domainsFails = false;
 /** When set, domains responses hold until this promise resolves. */
 let domainsHold: Promise<void> | null = null;
+/** When set, the active-assistant lookup rejects (an org with no fleet). */
+let activeAssistantFails = false;
+/** Counts domain-attach submissions so tests can assert none is ever made. */
+let domainCreateCalls = 0;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -241,8 +245,12 @@ mock.module("@/generated/api/sdk.gen", () => ({
       ? onboardingHold.then(() => result)
       : Promise.resolve(result);
   },
-  assistantsActiveRetrieve: () =>
-    Promise.resolve({ data: assistantResponse, response: { ok: true } }),
+  assistantsActiveRetrieve: () => {
+    if (activeAssistantFails) {
+      return Promise.reject(new Error("404 Not Found"));
+    }
+    return Promise.resolve({ data: assistantResponse, response: { ok: true } });
+  },
   assistantsRetrieve: () =>
     Promise.resolve({ data: assistantResponse, response: { ok: true } }),
   assistantsOperationalStatusDetailRead: () =>
@@ -267,8 +275,10 @@ mock.module("@/generated/api/sdk.gen", () => ({
       ? domainsHold.then(() => result)
       : Promise.resolve(result);
   },
-  organizationsBillingSubscriptionOnboardingDomainCreate: () =>
-    Promise.resolve({ data: { status: "ok" }, response: { ok: true } }),
+  organizationsBillingSubscriptionOnboardingDomainCreate: () => {
+    domainCreateCalls += 1;
+    return Promise.resolve({ data: { status: "ok" }, response: { ok: true } });
+  },
 }));
 
 const { BillingOnboardingModal } = await import("./billing-onboarding-modal");
@@ -336,6 +346,8 @@ beforeEach(() => {
   domainsCalls = 0;
   domainsFails = false;
   domainsHold = null;
+  activeAssistantFails = false;
+  domainCreateCalls = 0;
   dateNowOffsetMs = 0;
   toastInfoCalls.length = 0;
   sessionStorage.clear();
@@ -434,6 +446,34 @@ describe("BillingOnboardingModal", () => {
     // Checkout mode never fires the modal-level domains query.
     expect(domainsCalls).toBe(0);
   });
+
+  test(
+    "no assistant to attach a domain to skips straight to complete",
+    async () => {
+      saveCheckoutIntent({ kind: "package", packageKey: "super" });
+      subscriptionPlanId = "pro";
+      // An org whose fleet holds nothing the caller can attach a domain to: the
+      // onboarding payload names no primary assistant and there is no active one
+      // either. The platform answers the reconcile `not_applicable` — there is
+      // nothing to provision — and the domain POST would 409, so the step must
+      // never be offered.
+      onboardingResponse = makeOnboarding({ primary_assistant_id: null });
+      activeAssistantFails = true;
+      ensureResponse = makeEnsureResponse("not_applicable");
+      const { getByText, queryByText } = renderModal();
+
+      await waitFor(
+        () => expect(getByText("Your plan is ready")).toBeTruthy(),
+        { timeout: 5000 },
+      );
+      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      expect(queryByText("Assistant Email")).toBeNull();
+      expect(domainCreateCalls).toBe(0);
+    },
+    20_000,
+  );
 
   test("the complete step exposes a close button that dismisses", async () => {
     subscriptionPlanId = "pro";
@@ -1049,6 +1089,30 @@ describe("BillingOnboardingModal — resize mode", () => {
     // The fee-less gate keeps the modal-level domains query fully off.
     expect(domainsCalls).toBe(0);
   });
+
+  test(
+    "no primary assistant skips the domain step even when an active one exists",
+    async () => {
+      subscriptionPlanId = "pro";
+      // The payload names no primary assistant, but the active one resolves — a
+      // self-hosted or teammate-owned assistant. The domain POST re-resolves the
+      // primary server-side and ignores any client-held id, so routing on the
+      // resolved `assistantId` would still walk into the 409.
+      onboardingResponse = makeOnboarding({ primary_assistant_id: null });
+      assistantResponse = makeAssistant("large", 50);
+      ensureResponse = makeEnsureResponse("already_done");
+      const { getByText, queryByText } = renderModal({ mode: "resize" });
+
+      await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+        timeout: 5000,
+      });
+      expect(queryByText("Assistant Email")).toBeNull();
+      // With no domain step to offer, the modal-level domains query stays off.
+      expect(domainsCalls).toBe(0);
+      expect(domainCreateCalls).toBe(0);
+    },
+    20_000,
+  );
 
   test("a failing domains endpoint still advances to the domain step", async () => {
     subscriptionPlanId = "pro";

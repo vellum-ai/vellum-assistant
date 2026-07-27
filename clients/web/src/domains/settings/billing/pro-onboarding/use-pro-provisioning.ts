@@ -92,12 +92,17 @@ export interface ProProvisioningResult {
    * operational-status polls.
    */
   assistantId: string | null;
-  /** `domain_setup_available` from the onboarding state, once loaded. */
-  domainSetupAvailable: boolean | undefined;
+  /**
+   * Whether the wizard may offer the domain/email step: the org holds the
+   * managed-email entitlement AND the onboarding payload names an assistant to
+   * attach the domain to. Both halves ride the same payload, so this is
+   * `undefined` until it loads.
+   */
+  domainStepAvailable: boolean | undefined;
   /**
    * The post-confirm onboarding fetch has settled — neither the cold load nor
    * the refetch from the on-open invalidation is in flight, so
-   * `domainSetupAvailable` is safe to route on.
+   * `domainStepAvailable` is safe to route on.
    */
   onboardingSettled: boolean;
   /** The CONFIRMING-phase subscription fetch failed. */
@@ -418,7 +423,7 @@ export function useProProvisioning({
 
   // The post-confirm onboarding fetch has settled: fresh for this open, and
   // neither the cold load nor the on-open-invalidation refetch is in flight.
-  // Routing consumes this ("is domain_setup_available safe to route on yet?"),
+  // Routing consumes this ("is `domainStepAvailable` safe to route on yet?"),
   // so it must not settle on a stale pre-checkout payload.
   const onboardingSettled =
     onboardingFresh &&
@@ -476,6 +481,16 @@ export function useProProvisioning({
       storageGib: onboarding.selected_storage_gib ?? null,
     };
   }, [onboarding]);
+
+  // The managed-email entitlement alone doesn't make the domain step offerable:
+  // the domain POST re-resolves the caller's primary assistant server-side and
+  // rejects with 409 when there is none, so the payload must also name one. The
+  // active-assistant fallback that resolves `assistantId` is deliberately not
+  // consulted here — the server ignores any client-supplied id for that write.
+  const domainStepAvailable = onboarding
+    ? onboarding.domain_setup_available &&
+      onboarding.primary_assistant_id != null
+    : undefined;
 
   const assistant = assistantQuery.data;
   const actuals = useMemo<ProvisioningDimensions | null>(() => {
@@ -572,7 +587,7 @@ export function useProProvisioning({
     targets,
     actualsSnapshot,
     assistantId,
-    domainSetupAvailable: onboarding?.domain_setup_available,
+    domainStepAvailable,
     onboardingSettled,
     confirmError: !proConfirmed && subscriptionQuery.isError,
     // The onboarding endpoint is platform-side (not the restarting assistant
