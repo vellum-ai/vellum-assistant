@@ -16,23 +16,19 @@
  * This is a multi-tier composition point, so the body carries `// ---- ... ----`
  * section labels naming which tier owns each group of steps. The v1 labels also
  * carry the `delete with v1` banner the deletion runbook greps for (see
- * `../AGENTS.md`), so none of the four v1 blocks here can be missed at deletion
- * time. The labels do not form a single contiguous run per tier: the v1 Qdrant
- * collection ensure has to precede the shared embedding-identity reconcile, and
- * the v1 graph bootstrap belongs to the post-worker seeding tail. Steps only
- * move when the move is provably unobservable.
+ * `../AGENTS.md`), so none of the three v1 blocks here can be missed at
+ * deletion time. The labels do not form a single contiguous run per tier: the
+ * v1 Qdrant collection ensure has to precede the shared embedding-identity
+ * reconcile, and the v1 graph bootstrap belongs to the post-worker seeding
+ * tail. Steps only move when the move is provably unobservable.
  */
 
 import { join } from "node:path";
 
-import {
-  isMemoryV1Active,
-  usesConceptPageMemory,
-} from "../../../config/memory-v3-gate.js";
+import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/schema.js";
 import { reconcileEmbeddingIdentity } from "../../../daemon/embedding-reconcile.js";
 import { refreshSkillCapabilityMemories } from "../../../daemon/skill-memory-refresh.js";
-import { setMemoryCheckpoint } from "../../../persistence/checkpoints.js";
 import { selectEmbeddingBackend } from "../../../persistence/embeddings/embedding-backend.js";
 import {
   initMessagesLexicalIndex,
@@ -48,10 +44,7 @@ import {
   isMemoryEnabled,
 } from "../../../persistence/jobs-store.js";
 import { resolveQdrantUrl } from "./embeddings.js";
-import {
-  GRAPH_MAINTENANCE_CHECKPOINTS,
-  startMemoryJobsWorker,
-} from "./jobs-worker.js";
+import { startMemoryJobsWorker } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
 import { getWorkspaceDir } from "./paths.js";
 // ---- substrate (v2+v3) ---- the only tier-owned static import group here;
@@ -244,28 +237,6 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
         { err },
         "Concept page frontmatter sweep threw — continuing startup",
       );
-    }
-  }
-
-  // ---- v1 (legacy engine) — delete with v1 ----
-  // Claim the one-shot v1-entry reconcile for this boot. The seeding and
-  // bootstrap steps below are exactly what the worker's `maybeRunV1EntryReconcile`
-  // runs, and they run here on every boot, so the worker only owes v1 the HOT
-  // config transition. Writing the marker synchronously BEFORE the worker is
-  // spawned is what makes that ordering total: the worker process does not
-  // exist yet, so its first tick reads a marker that is already present and
-  // skips, and the two processes never upsert the same `memory_graph_nodes`
-  // rows concurrently. A crash between this write and the steps below re-runs
-  // both on the next boot. Best-effort — a checkpoint failure must not block
-  // the worker start.
-  if (isMemoryV1Active(config)) {
-    try {
-      setMemoryCheckpoint(
-        GRAPH_MAINTENANCE_CHECKPOINTS.v1EntryReconcile,
-        String(Date.now()),
-      );
-    } catch (err) {
-      log.warn({ err }, "Claiming the v1-entry reconcile checkpoint failed");
     }
   }
 
