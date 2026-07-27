@@ -89,6 +89,12 @@ Two conventions keep that grep honest, and both are load-bearing:
 `indexer.ts`, `injectors.ts`, and `context-search/sources/memory.ts` follow the
 same convention even where the file touches a single tier.
 
+**`injectors.ts` is the plugin's single injector entry point.** Its exported
+`memoryInjectors` is the complete set `defaultMemoryPlugin` contributes —
+including the v3 pair defined in `v3/injector.ts` — so `plugins/defaults/index.ts`
+imports the array and nothing else. A new tier injector is added to that array,
+never registered from the host.
+
 Both rules are enforced by `__tests__/memory-tier-boundary-guard.test.ts`, which
 also carries a reverse stale-exemption test: an allowlist entry whose multi-tier
 import disappears fails loudly instead of lingering. Related guards:
@@ -174,11 +180,20 @@ disjoint cases: the substrate schema's own refinement (both set), the v2
 schema's (neither set), and the parent `MemoryConfigSchema.superRefine` (the
 mixed case, over the RESOLVED pair). Keep all three when touching the weights.
 
-Because `memory.substrate` wins, a `config set` on a shadowed `memory.v2` twin
-persists but changes nothing. `config/substrate-twin-shadowing.ts` pairs the two
-namespaces so that no-op is visible: the `config_set` route returns a `warning`
-naming the winning key, and `assistant config get` prints a `Shadowed:` line
-with the value actually in effect.
+Twelve of the fifteen twins reach the runtime through `resolveSubstrateTuning`
+and nothing else, so once the `memory.substrate` key exists a `config set` on
+the `memory.v2` twin persists but changes nothing. The other three — `k`,
+`hops`, `ann_candidate_limit` — are read a **second** time by the live v2
+injection engine straight off `config.memory.v2` (`v2/injection.ts`,
+`v2/activation.ts`, `v2/backfill-jobs.ts`), so a write there retunes v2
+injection while substrate recall stays on the substrate twin: the two
+namespaces hold two effective values at once.
+
+`config/substrate-twin-shadowing.ts` pairs the namespaces and carries the
+`alsoReadByV2Engine` flag that separates the two classes, so neither case reads
+as the other: the `config_set` route returns a `warning` (a no-op notice for a
+substrate-only twin, a divergence notice for an engine-read one) and
+`assistant config get` prints the matching `Shadowed:` / `Split:` line.
 
 Workspace migration 135 copies explicitly-set NON-DEFAULT `memory.v2` substrate
 tunables into `memory.substrate`. It skips loader-seeded defaults — including

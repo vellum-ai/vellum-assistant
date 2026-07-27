@@ -7,7 +7,10 @@ import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
 
 import { getConfig } from "../../../config/loader.js";
-import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
+import {
+  isMemoryV1Active,
+  usesConceptPageMemory,
+} from "../../../config/memory-v3-gate.js";
 import type { MemoryConfig } from "../../../config/types.js";
 import {
   getMemoryCheckpoint,
@@ -209,22 +212,31 @@ export async function indexMessageNow(
         ? triggerConfig
         : null;
 
-    // Per-tier trigger dispatch: the v1 extraction/summarization triggers
-    // run only when no concept-page consumer is active; the substrate sweep
-    // trigger runs otherwise. `isAutoAnalysisSource` is the recursion guard
-    // threaded into both arms: the analysis agent writes memory directly via
-    // tools, so extracting from its reflective musings would double-count
-    // and analyzing its own output would loop indefinitely.
+    // Per-tier trigger dispatch, three-way. Memory off enqueues nothing: no
+    // tier is live, and the pending counts the v1 arm would accumulate
+    // meanwhile fire an immediate batch on a later switch back to v1. The v1
+    // extraction/summarization triggers run when the legacy graph engine is
+    // the live tier, and the substrate sweep trigger runs under a concept-page
+    // consumer. `isAutoAnalysisSource` is the recursion guard threaded into
+    // both live arms: the analysis agent writes memory directly via tools, so
+    // extracting from its reflective musings would double-count and analyzing
+    // its own output would loop indefinitely.
     if (conceptConfig == null) {
-      // V1 — delete with v1. Dropping only the banner-marked function body
-      // below would leave this call dangling: collapse the branch to the
-      // substrate arm.
-      enqueueV1IndexTriggers(
-        input.conversationId,
-        isAutoAnalysisSource,
-        batchSize,
-        idleTimeoutMs,
-      );
+      // A null `conceptConfig` covers two states — v1 live and memory off — so
+      // the v1 arm asks the named predicate rather than assuming v1. A failed
+      // config load leaves `triggerConfig` null and fails open to v1: a
+      // transient read error must not silently drop indexing.
+      if (triggerConfig == null || isMemoryV1Active(triggerConfig)) {
+        // V1 — delete with v1. Dropping only the banner-marked function body
+        // below would leave this call dangling: collapse the branch to the
+        // substrate arm.
+        enqueueV1IndexTriggers(
+          input.conversationId,
+          isAutoAnalysisSource,
+          batchSize,
+          idleTimeoutMs,
+        );
+      }
     } else {
       enqueueSubstrateIndexTriggers(
         input.conversationId,
@@ -309,10 +321,10 @@ export async function indexMessageNow(
 
 /**
  * V1 extraction/summarization triggers; run only when the legacy graph engine
- * is the live tier (no concept-page consumer active — under the substrate the
- * v1 graph and `memorySummaries` would be stale data nobody consumes, and
- * pending-count tracking is suppressed too so a later switch back to v1 does
- * not fire an immediate batch from counts accumulated in the meantime).
+ * is the live tier (`isMemoryV1Active` — under the substrate, and with memory
+ * off, the v1 graph and `memorySummaries` would be stale data nobody consumes,
+ * and pending-count tracking is suppressed too so a later switch back to v1
+ * does not fire an immediate batch from counts accumulated in the meantime).
  *
  * Tracks the per-conversation pending-message count to debounce the
  * `graph_extract` batch job, and debounces the conversation-summary build

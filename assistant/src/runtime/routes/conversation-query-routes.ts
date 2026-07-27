@@ -1601,10 +1601,11 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
   }
 
   await commitConfigWrite(raw, "set");
-  // A `memory.v2` substrate tunable whose `memory.substrate` twin is set
-  // persists but changes nothing — the substrate namespace wins in
-  // `resolveSubstrateTuning`. Report that alongside the success so the caller
-  // can tell the operator, rather than letting the write read as effective.
+  // A `memory.v2` substrate tunable whose `memory.substrate` twin is set does
+  // not mean what an unpaired write means: the substrate namespace wins in
+  // `resolveSubstrateTuning`, and for the three twins the v2 injection engine
+  // reads directly the two namespaces diverge instead. Report which case this
+  // is alongside the success so the caller can tell the operator.
   const shadowing = findSubstrateShadowing(raw, path);
   if (shadowing) {
     const warning = describeShadowedConfigSet(shadowing, path);

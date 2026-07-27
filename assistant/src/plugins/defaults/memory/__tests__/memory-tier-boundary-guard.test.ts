@@ -153,7 +153,6 @@ const HOST_TIER_IMPORT_ALLOWLIST: readonly HostTierImportExemption[] = [
   { path: "src/daemon/tool-side-effects.ts", tiers: ["substrate"] },
   { path: "src/daemon/trust-context.ts", tiers: ["substrate"] },
   { path: "src/persistence/steps.ts", tiers: ["v1"] },
-  { path: "src/plugins/defaults/index.ts", tiers: ["v3"] },
   { path: "src/runtime/routes/consolidation-routes.ts", tiers: ["substrate"] },
   {
     path: "src/runtime/routes/conversation-query-routes.ts",
