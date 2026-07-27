@@ -28,7 +28,7 @@ mock.module("./gateway-client.js", () => ({
   },
 }));
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js";
 import {
   createSlackReplySession,

@@ -11,6 +11,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../agent/message-types.js";
+import type { AssistantEvent } from "../api/index.js";
 import { listPendingRequestsByScopeOrEmpty } from "../channels/gateway-guardian-requests.js";
 import {
   parseChannelId,
@@ -57,7 +58,6 @@ import {
 import { getModelInfo } from "./handlers/config-model.js";
 import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type {
-  AssistantEvent,
   UserMessageAttachment,
 } from "./message-protocol.js";
 import { buildTransportHints } from "./transport-hints.js";

@@ -12,11 +12,11 @@ import {
 } from "bun:test";
 
 import type { LoopToolExecutor } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   queueConversationNotice,
   resetConversationNoticesForTests,
 } from "../daemon/conversation-notices.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getConversationDirName } from "../persistence/conversation-directories.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";

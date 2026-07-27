@@ -6,13 +6,17 @@
 // retrieval mode based on conversation state.
 // ---------------------------------------------------------------------------
 
-import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
+import type {
+  AssistantEvent,
+  ContentBlock,
+  ImageContent,
+  Message,
+} from "@vellumai/plugin-api";
 import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { estimateTextTokens } from "../../../../context/token-estimator.js";
-import type { AssistantEvent } from "../../../../daemon/message-protocol.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
 import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";

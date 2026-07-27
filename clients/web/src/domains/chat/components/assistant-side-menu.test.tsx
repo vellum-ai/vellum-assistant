@@ -668,6 +668,6 @@ describe("AssistantSideMenu · section spacing", () => {
     // All three are siblings — one shared parent, so one shared gap.
     const parents = new Set(sections.map((s) => s.parentElement));
     expect(parents.size).toBe(1);
-    expect([...parents][0]?.className).toContain("gap-2");
+    expect([...parents][0]?.className).toContain("gap-3");
   });
 });

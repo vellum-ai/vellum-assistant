@@ -1,5 +1,6 @@
 import type { SlackStreamTask } from "@vellumai/gateway-client";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   extractThreadTsFromCallbackUrl,
   isSlackDeliveryCallbackUrl,
@@ -9,7 +10,6 @@ import {
   incompleteVellumLinkSuffixLength,
   stripVellumLinks,
 } from "../daemon/assistant-attachments.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js";
 import { renderSlackBlocks } from "../messaging/providers/slack/render.js";
 import { getLogger } from "../util/logger.js";

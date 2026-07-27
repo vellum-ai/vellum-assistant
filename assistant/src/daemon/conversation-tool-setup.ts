@@ -6,6 +6,7 @@
  * keeping the constructor body focused on wiring.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   type HostProxyCapability,
   supportsHostProxy,
@@ -73,7 +74,6 @@ import {
   isDoordashCommand,
   markDoordashStepInProgress,
 } from "./doordash-steps.js";
-import type { AssistantEvent } from "./message-protocol.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 

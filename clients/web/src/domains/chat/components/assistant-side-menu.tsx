@@ -461,13 +461,14 @@ export function AssistantSideMenu({
           ) : (
             <>
               {/* Pinned, Chats, and the channel sections share one accordion
-                  root, so `CollapsibleNavSection.Root`'s gap governs every
-                  section boundary uniformly. Their open state lives in two
-                  storage buckets (Pinned/Chats default open); `use-sidebar-state`
-                  merges and re-splits it. New Chat lives in the assistant
-                  cluster above, not as a section-header action. */}
+                  root, so its gap governs every section boundary uniformly.
+                  Their open state lives in two storage buckets (Pinned/Chats
+                  default open); `use-sidebar-state` merges and re-splits it.
+                  New Chat lives in the assistant cluster above, not as a
+                  section-header action. */}
               <CollapsibleNavSection.Root
                 type="multiple"
+                className="gap-3"
                 value={sidebar.effectiveOpenSections}
                 onValueChange={sidebar.onOpenSectionsChange}
               >
@@ -516,7 +517,8 @@ export function AssistantSideMenu({
                   <SideMenu.Section title="Your Groups">
                     <CollapsibleNavSection.Root
                       type="multiple"
-                            value={sidebar.effectiveOpenCustomGroups}
+                      className="gap-3"
+                      value={sidebar.effectiveOpenCustomGroups}
                       onValueChange={sidebar.onOpenCustomGroupsChange}
                     >
                       {sidebar.customGroups.map((group) => {

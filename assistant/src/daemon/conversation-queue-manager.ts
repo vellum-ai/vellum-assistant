@@ -5,6 +5,7 @@
  * agent loop is in flight.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -12,7 +13,6 @@ import type {
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
 import type {
-  AssistantEvent,
   UserMessageAttachment,
 } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";

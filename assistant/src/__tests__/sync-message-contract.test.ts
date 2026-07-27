@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
-  type AssistantEvent,
   buildSyncChangedMessage,
   conversationMessagesSyncTag,
   SYNC_TAGS,

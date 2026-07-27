@@ -12,6 +12,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../agent/message-types.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   type ChannelId,
   type InterfaceId,
@@ -69,7 +70,6 @@ import {
   preactivateHostProxySkills,
   shouldAttachHostProxyForCapability,
 } from "./host-proxy-preactivation.js";
-import type { AssistantEvent } from "./message-protocol.js";
 import type { SubagentToolGateMode } from "./tool-setup-types.js";
 
 const log = getLogger("process-message");

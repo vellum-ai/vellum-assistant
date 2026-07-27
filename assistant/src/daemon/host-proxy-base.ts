@@ -15,6 +15,7 @@
  */
 import { v4 as uuid } from "uuid";
 
+import type { AssistantEvent } from "../api/index.js";
 import type { HostProxyCapability } from "../channels/types.js";
 import {
   assistantEventHub,
@@ -24,7 +25,6 @@ import type { PendingInteraction } from "../runtime/pending-interactions.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import type { AssistantEvent } from "./message-protocol.js";
 
 const log = getLogger("host-proxy-base");
 

@@ -8,9 +8,8 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import type { AssistantEventEnvelope } from "../api/index.js";
+import type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
 // ── Imports (after mocks) ────────────────────────────────────────────────────
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 
