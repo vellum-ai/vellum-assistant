@@ -1,0 +1,6 @@
+// Extension-Staging.xcconfig — staging VoiceActivity extension overrides.
+// The bundle ID must stay prefixed by App-Staging.xcconfig's.
+
+#include "Extension-Base.xcconfig"
+
+PRODUCT_BUNDLE_IDENTIFIER = ai.vocify-inc.vellum-assistant-ios.staging.VoiceActivity

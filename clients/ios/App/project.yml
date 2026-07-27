@@ -94,7 +94,9 @@ targetTemplates:
     # by `xcodegen generate`.
     scheme:
       configVariants: []
-    preBuildScripts:
+    # Anchored so `ExtensionEnvironment` can alias the identical guard
+    # instead of carrying a second copy that could drift.
+    preBuildScripts: &projectSpecFreshnessGuard
       # Fails the Xcode build with a clear, actionable error if the
       # generated project is older than the source-of-truth spec
       # (`clients/ios/App/project.yml`). This catches the case where a
@@ -118,6 +120,34 @@ targetTemplates:
             exit 1
           fi
 
+  # WidgetKit extension hosting the live-voice Live Activity. One per
+  # environment, so each app embeds an extension whose bundle ID is
+  # prefixed by its own — iOS requires that, and it is why there are
+  # three of these rather than one shared appex.
+  ExtensionEnvironment:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: VoiceActivity
+        excludes:
+          - "Info.plist"
+      # `VoiceSessionAttributes` is the ActivityKit wire model. The app
+      # targets already sweep it up via `AppEnvironment`'s `App` source
+      # path; pointing at the same directory here compiles it into the
+      # extension from that one copy on disk, rather than duplicating a
+      # file whose two halves would drift into a decode mismatch.
+      - path: App/Shared
+    settings:
+      configs:
+        Debug:
+          OTHER_SWIFT_FLAGS: '$(inherited) "-DDEBUG"'
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+        Release:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: ""
+    # No `scheme:` — extensions build as embedded dependencies of the app
+    # targets, so the three app schemes are the only ones worth having.
+    preBuildScripts: *projectSpecFreshnessGuard
+
 targets:
   App:
     templates: [AppEnvironment]
@@ -126,6 +156,9 @@ targets:
     configFiles:
       Debug: App/Config/App.xcconfig
       Release: App/Config/App.xcconfig
+    dependencies:
+      - target: VoiceActivity
+        embed: true
 
   "App Staging":
     templates: [AppEnvironment]
@@ -134,6 +167,9 @@ targets:
     configFiles:
       Debug: App/Config/App-Staging.xcconfig
       Release: App/Config/App-Staging.xcconfig
+    dependencies:
+      - target: "VoiceActivity Staging"
+        embed: true
 
   "App Dev":
     templates: [AppEnvironment]
@@ -142,3 +178,24 @@ targets:
     configFiles:
       Debug: App/Config/App-Dev.xcconfig
       Release: App/Config/App-Dev.xcconfig
+    dependencies:
+      - target: "VoiceActivity Dev"
+        embed: true
+
+  VoiceActivity:
+    templates: [ExtensionEnvironment]
+    configFiles:
+      Debug: App/Config/Extension.xcconfig
+      Release: App/Config/Extension.xcconfig
+
+  "VoiceActivity Staging":
+    templates: [ExtensionEnvironment]
+    configFiles:
+      Debug: App/Config/Extension-Staging.xcconfig
+      Release: App/Config/Extension-Staging.xcconfig
+
+  "VoiceActivity Dev":
+    templates: [ExtensionEnvironment]
+    configFiles:
+      Debug: App/Config/Extension-Dev.xcconfig
+      Release: App/Config/Extension-Dev.xcconfig
