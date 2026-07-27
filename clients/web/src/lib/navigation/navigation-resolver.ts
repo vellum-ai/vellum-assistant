@@ -97,6 +97,31 @@ function onboardingEntrypoint(isLocalMode: boolean): string {
   return isLocalMode ? routes.welcome : routes.onboarding.privacy;
 }
 
+/**
+ * The two paths a finished Stripe Checkout can land on: the legacy
+ * `/assistant/settings/billing` (hardcoded as the platform's non-native
+ * `success_url`, and forwarded by `BillingRedirectPage`) and the Billing tab's
+ * real home, which the native deep-link return and `usageBillingCheckout()`
+ * build directly.
+ */
+const POST_CHECKOUT_LANDING_PATHS: Set<string> = new Set([
+  `${routes.settings.root}/billing`,
+  routes.settings.usage,
+]);
+
+/** Whether `pathnameWithSearch` is a billing landing carrying Stripe's `session_id`. */
+function isPostCheckoutReturn(
+  path: string,
+  pathnameWithSearch: string,
+): boolean {
+  if (!POST_CHECKOUT_LANDING_PATHS.has(path)) return false;
+  const qIdx = pathnameWithSearch.indexOf("?");
+  if (qIdx < 0) return false;
+  return new URLSearchParams(pathnameWithSearch.slice(qIdx + 1)).has(
+    "session_id",
+  );
+}
+
 function extractPathname(destination: string): string {
   if (
     destination.startsWith("http://") ||
@@ -162,12 +187,13 @@ export function resolveNavigation(
 //
 // Conceptual layers:
 //   1. Readiness          — is the session ready?
-//   2. Bypass             — gateway auth skips everything
-//   3. Identity           — is the user authenticated?
-//   4. Mode boundary      — is this path valid for the user's mode?
-//   5. Setup exemptions   — onboarding/consent paths are always reachable
-//   6. Assistant required  — user needs at least one assistant
-//   7. Consent required   — platform users must accept TOS
+//   2. Paid return        — a checkout return with nothing provisioned yet
+//   3. Bypass             — gateway auth skips everything
+//   4. Identity           — is the user authenticated?
+//   5. Mode boundary      — is this path valid for the user's mode?
+//   6. Setup exemptions   — onboarding/consent paths are always reachable
+//   7. Assistant required  — user needs at least one assistant
+//   8. Consent required   — platform users must accept TOS
 
 type RouteGuardStep = (
   state: NavigationState,
@@ -177,6 +203,7 @@ type RouteGuardStep = (
 
 const ROUTE_GUARD_PIPELINE: RouteGuardStep[] = [
   waitForSession,
+  requirePostCheckoutProvisioning,
   allowGatewayAuth,
   requireRemoteGatewayPairing,
   requireAuth,
@@ -202,6 +229,51 @@ function resolveRouteGuard(
 
 function waitForSession(state: NavigationState): NavigationDecision | null {
   return state.sessionSettled ? null : { action: "wait" };
+}
+
+/**
+ * A finished Stripe Checkout returning to an org that has no assistant yet.
+ *
+ * The marketing pricing funnel has a brand-new user pay BEFORE anything is
+ * provisioned, and the platform hardcodes the non-native `success_url` to the
+ * billing landing. Every billing surface mounts under `ActiveAssistantGate`,
+ * which renders a "Connecting to your assistant…" placeholder for as long as
+ * no assistant resolves — so the paid return dead-ends on a spinner. Send it
+ * into the hatching funnel instead, which provisions the assistant and applies
+ * the purchased specs.
+ *
+ * `session_id` is deliberately dropped: the hatch reads the purchased ceiling
+ * from the subscription server-side (`awaitPurchasedProvisioning`), so nothing
+ * downstream of this redirect consumes the Stripe session.
+ *
+ * Runs before `allowGatewayAuth` because that step short-circuits the whole
+ * pipeline to "allow" for a gateway session — which is how the dead-end is
+ * reached in Electron / local-mode web, where `requireAssistant` never runs.
+ * Consent is still enforced: the destination is an onboarding path, and
+ * `onboardingCompletedMiddleware` re-runs this pipeline there, where
+ * `allowSetupRoutes` bounces an unconsented user to the privacy screen.
+ */
+function requirePostCheckoutProvisioning(
+  state: NavigationState,
+  path: string,
+  pathnameWithSearch: string,
+): NavigationDecision | null {
+  // An org that already has an assistant lands on billing as before, where
+  // `session_id` opens the Pro onboarding wizard.
+  if (state.hasAssistants) return null;
+  if (!isPostCheckoutReturn(path, pathnameWithSearch)) return null;
+  // Not signed in yet: fall through so `requireAuth` sends the user to login
+  // with a `returnTo` that still carries `session_id`, and this step decides
+  // again on the way back.
+  if (!state.isAuthenticated) return null;
+  // The platform assistants list boots empty and loads asynchronously, so
+  // deciding on that default would funnel an established user out of their own
+  // billing page. Local mode is excluded for the same reason as in
+  // `requireAssistant` — its list is lockfile-driven.
+  if (!state.isLocalMode && !state.assistantsHydrated) {
+    return { action: "wait" };
+  }
+  return { action: "redirect", to: routes.onboarding.hatching };
 }
 
 function allowGatewayAuth(state: NavigationState): NavigationDecision | null {

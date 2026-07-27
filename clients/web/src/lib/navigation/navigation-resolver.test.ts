@@ -565,6 +565,144 @@ describe("resolveNavigation", () => {
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
     });
 
+    // -- post-checkout return with nothing provisioned yet -----------------
+    //
+    // The marketing pricing funnel has a brand-new user pay BEFORE an
+    // assistant exists, and the platform hardcodes the non-native Stripe
+    // `success_url` to `/assistant/settings/billing?session_id=…`. Every
+    // billing surface mounts under `ActiveAssistantGate`, which spins on
+    // "Connecting to your assistant…" forever for a no-assistant org — so the
+    // paid return must be funneled into provisioning first.
+
+    const POST_CHECKOUT_BILLING =
+      "/assistant/settings/billing?session_id=cs_test_123";
+
+    test("funnels a no-assistant post-checkout return into hatching", () => {
+      expect(guard(s({ hasAssistants: false }), POST_CHECKOUT_BILLING)).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/hatching",
+      });
+    });
+
+    test("leaves an existing-assistant post-checkout return on billing", () => {
+      expect(guard(s({ hasAssistants: true }), POST_CHECKOUT_BILLING)).toEqual(
+        ALLOW,
+      );
+      expect(
+        guard(
+          s({ hasAssistants: true }),
+          "/assistant/settings/usage?tab=billing&session_id=cs_test_123",
+        ),
+      ).toEqual(ALLOW);
+    });
+
+    // A gateway session normally short-circuits the whole pipeline to "allow",
+    // which is exactly how the dead-end is reached in Electron / local-mode
+    // web. The paid return is the one path that must still be funneled.
+    test("funnels a no-assistant post-checkout return even under gateway auth", () => {
+      expect(
+        guard(
+          s({ isGatewayAuth: true, isLocalMode: true, hasAssistants: false }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+    });
+
+    test("keeps the gateway-auth bypass for every other case", () => {
+      expect(
+        guard(
+          s({ isGatewayAuth: true, isLocalMode: true, hasAssistants: true }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual(ALLOW);
+      expect(
+        guard(
+          s({ isGatewayAuth: true, isLocalMode: true, hasAssistants: false }),
+          "/assistant/settings/billing",
+        ),
+      ).toEqual(ALLOW);
+    });
+
+    // A billing URL without `session_id` is not a checkout return, so it keeps
+    // whatever `requireAssistant` already decided for it.
+    test("leaves a billing URL without session_id on its existing path", () => {
+      expect(
+        guard(s({ hasAssistants: false }), "/assistant/settings/billing"),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+      expect(
+        guard(
+          s({ hasAssistants: false, tosAccepted: false, privacyConsent: false }),
+          "/assistant/settings/billing",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+    });
+
+    // Signed out, the return must still reach login with `session_id` intact,
+    // so the decision is retaken once the session lands.
+    test("sends a signed-out post-checkout return to login with session_id preserved", () => {
+      expect(
+        guard(
+          s({ hasAssistants: false, isAuthenticated: false }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: "/account/login?returnTo=%2Fassistant%2Fsettings%2Fbilling%3Fsession_id%3Dcs_test_123",
+      });
+    });
+
+    // The platform assistants list boots empty, so deciding before it hydrates
+    // would funnel an established user out of their own billing page.
+    test("waits for the platform assistants list before funneling", () => {
+      expect(
+        guard(
+          s({ hasAssistants: false, assistantsHydrated: false }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual(WAIT);
+    });
+
+    test("does not wait on hydration in local mode (lockfile-driven list)", () => {
+      expect(
+        guard(
+          s({
+            isLocalMode: true,
+            hasAssistants: false,
+            assistantsHydrated: false,
+          }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+    });
+
+    // Consent is enforced at the destination, not skipped: the funnel entry is
+    // an onboarding path, and re-resolving it bounces an unconsented user on.
+    test("consent is still enforced once the funnel destination is resolved", () => {
+      expect(
+        guard(
+          s({ hasAssistants: false, tosAccepted: false, privacyConsent: false }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+      expect(
+        guard(
+          s({ hasAssistants: false, tosAccepted: false, privacyConsent: false }),
+          "/assistant/onboarding/hatching",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+    });
+
+    // The funnel destination must not itself read as a checkout return, or the
+    // redirect would loop.
+    test("the funnel destination is not treated as a post-checkout return", () => {
+      expect(
+        guard(
+          s({ hasAssistants: false }),
+          "/assistant/onboarding/hatching?session_id=cs_test_123",
+        ),
+      ).toEqual(ALLOW);
+    });
+
     test("redirects brand-new platform user with no assistant to privacy, unaffected by stale-toggle gate", () => {
       expect(
         guard(

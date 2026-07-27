@@ -27,11 +27,12 @@ mock.module("@/lib/local-mode", () => ({
 
 // Drive the non-reactive gateway token off a flag.
 let mockGatewayTokenPresent = false;
+let mockGatewayAuthMode = false;
 const gatewaySessionActual = await import("@/lib/auth/gateway-session");
 mock.module("@/lib/auth/gateway-session", () => ({
   ...gatewaySessionActual,
   getGatewayToken: () => (mockGatewayTokenPresent ? "gw-token" : null),
-  isGatewayAuthMode: () => false,
+  isGatewayAuthMode: () => mockGatewayAuthMode,
 }));
 
 // Consent prefs are read by buildNavigationState; pin them current so the
@@ -133,6 +134,7 @@ beforeEach(() => {
   hasAssistantsMock.mockImplementation(() => false);
   mockSelectedAssistant = undefined;
   mockGatewayTokenPresent = false;
+  mockGatewayAuthMode = false;
   useAuthStore.setState(initialAuthState, true);
   useResolvedAssistantsStore.setState({ assistants: [], activeAssistantId: null });
   useAssistantLifecycleStore.setState({ assistantState: { kind: "error", message: "no assistant" } });
@@ -265,6 +267,59 @@ describe("authMiddleware — app-access admit gate", () => {
         `${routes.account.login}?returnTo=${encodeURIComponent("/assistant/home")}`,
       );
     }
+  });
+});
+
+describe("authMiddleware — post-checkout return with nothing provisioned", () => {
+  // The platform hardcodes the non-native Stripe `success_url` to this path,
+  // and the pricing funnel has a brand-new user pay before an assistant
+  // exists. Billing lives under `ActiveAssistantGate`, so admitting the return
+  // strands the (paying) user on "Connecting to your assistant…" forever.
+  const postCheckoutBilling = `${routes.settings.root}/billing?session_id=cs_test_123`;
+
+  function makePaidPlatformReturn(): void {
+    isLocalModeMock.mockImplementation(() => false);
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: fakeUser,
+      platformSession: "present",
+    });
+    useOnboardingStore.setState({ consentHydrated: true });
+    useResolvedAssistantsStore.setState({
+      assistants: [],
+      assistantsHydrated: true,
+    });
+  }
+
+  test("funnels the paid return into hatching", async () => {
+    makePaidPlatformReturn();
+
+    const res = await runMiddleware(postCheckoutBilling);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(routes.onboarding.hatching);
+  });
+
+  test("funnels it under a gateway session too, which otherwise bypasses the pipeline", async () => {
+    makePaidPlatformReturn();
+    isLocalModeMock.mockImplementation(() => true);
+    mockGatewayAuthMode = true;
+
+    const res = await runMiddleware(postCheckoutBilling);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(routes.onboarding.hatching);
+  });
+
+  test("admits the return once an assistant exists", async () => {
+    makePaidPlatformReturn();
+    useResolvedAssistantsStore.setState({
+      assistants: [{ id: "a-1", isLocal: false, isPlatformHosted: true }],
+    });
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "active", isLocal: false },
+    });
+
+    const outcome = await runMiddlewareOutcome(postCheckoutBilling);
+    expect(outcome.admitted).toBe(true);
   });
 });
 
