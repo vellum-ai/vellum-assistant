@@ -38,6 +38,15 @@ function s(overrides: Partial<NavigationState>): NavigationState {
   return { ...base, ...overrides };
 }
 
+/** The path a redirect decision targets, ignoring its query. */
+function redirectPath(decision: NavigationDecision): string | null {
+  if (decision.action !== "redirect") {
+    return null;
+  }
+  const qIdx = decision.to.indexOf("?");
+  return qIdx < 0 ? decision.to : decision.to.slice(0, qIdx);
+}
+
 const ALLOW: NavigationDecision = { action: "allow" };
 const WAIT: NavigationDecision = { action: "wait" };
 // The auth middleware awaits the probe only for a wait that names it, so the
@@ -790,21 +799,55 @@ describe("resolveNavigation", () => {
       ).toEqual(MANAGED_FUNNEL);
     });
 
+    const UNCONSENTED = { tosAccepted: false, privacyConsent: false } as const;
+    const MANAGED_FUNNEL_URL =
+      "/assistant/onboarding/hatching?hosting=vellum-cloud&post_checkout=1";
+
     // Consent is enforced at the destination, not skipped: the funnel entry is
     // an onboarding path, and re-resolving it bounces an unconsented user on.
     test("consent is still enforced once the funnel destination is resolved", () => {
       expect(
-        guard(
-          s({ ...EMPTY_ORG, tosAccepted: false, privacyConsent: false }),
-          POST_CHECKOUT_BILLING,
-        ),
+        guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), POST_CHECKOUT_BILLING),
       ).toEqual(MANAGED_FUNNEL);
       expect(
-        guard(
-          s({ ...EMPTY_ORG, tosAccepted: false, privacyConsent: false }),
-          "/assistant/onboarding/hatching?hosting=vellum-cloud&post_checkout=1",
-        ),
-      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+        redirectPath(guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), MANAGED_FUNNEL_URL)),
+      ).toBe("/assistant/onboarding/privacy");
+    });
+
+    // The bounce carries the funnel URL as `returnTo` — the same contract
+    // review-terms uses — so the privacy screen resumes it on Start. Dropping
+    // it loses the paid-return marker, and the paying user finishes the hatch
+    // at the baseline plan.
+    test("carries the paid funnel destination through the consent bounce", () => {
+      expect(
+        guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), MANAGED_FUNNEL_URL),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(MANAGED_FUNNEL_URL)}`,
+      });
+    });
+
+    // Only a paid return carries anything: every other hatching bounce is the
+    // bare entrypoint it has always been.
+    test("an unpaid hatching bounce keeps the bare entrypoint", () => {
+      for (const url of [
+        "/assistant/onboarding/hatching",
+        "/assistant/onboarding/hatching?hosting=vellum-cloud",
+        "/assistant/onboarding/hatching?post_checkout=0",
+      ]) {
+        expect(guard(s(UNCONSENTED), url)).toEqual({
+          action: "redirect",
+          to: "/assistant/onboarding/privacy",
+        });
+      }
+    });
+
+    // Local mode's onboarding entrypoint is `welcome`, which reads no
+    // `returnTo`, so its bounce stays bare.
+    test("a local-mode hatching bounce keeps the bare welcome entrypoint", () => {
+      expect(
+        guard(s({ isLocalMode: true, ...UNCONSENTED }), MANAGED_FUNNEL_URL),
+      ).toEqual({ action: "redirect", to: "/assistant/welcome" });
     });
 
     // The funnel destination must not itself read as a checkout return, or the

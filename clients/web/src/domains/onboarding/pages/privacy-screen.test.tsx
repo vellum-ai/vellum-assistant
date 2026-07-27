@@ -38,6 +38,10 @@ const clearCheckoutIntentMock = mock(() => {});
 mock.module("@/lib/billing/checkout-intent", () => ({
   readCheckoutIntent: () => checkoutIntentValue,
   clearCheckoutIntent: clearCheckoutIntentMock,
+  // The screen reads the paid-hatch carry off `navigation-resolver`, which
+  // pulls in the post-auth checkout carry. Omitting this export fails the
+  // module link, so the mock has to cover the whole surface the graph needs.
+  saveCheckoutIntent: mock((_intent: unknown) => {}),
 }));
 
 // `marketing-pricing-takeover` state — the pricing funnel kill switch.
@@ -320,6 +324,60 @@ describe("PrivacyScreen — Start navigation", () => {
     const target = navigateMock.mock.calls[0]?.[0] as string;
     expect(target.startsWith(routes.onboarding.research)).toBe(true);
     expect(target).not.toContain(routes.checkout);
+  });
+
+  // -- paid post-checkout return bounced here for consent -------------------
+  //
+  // A checkout return with nothing provisioned is funneled to the hatching
+  // screen; an unconsented user is bounced here, and the funnel URL rides
+  // along as `returnTo`. Start has to resume it — the standard onboarding step
+  // carries neither the managed-hatch nor the paid-return marker, so the
+  // paying user would finish the hatch at the baseline plan.
+  const PAID_HATCH = `${routes.onboarding.hatching}?hosting=vellum-cloud&post_checkout=1`;
+
+  test("resumes the paid hatch carried through the consent bounce", () => {
+    searchParamsValue = new URLSearchParams({ returnTo: PAID_HATCH });
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    // Consent is recorded first — the resume never skips it.
+    expect(saveConsentMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith(PAID_HATCH);
+  });
+
+  test("the paid hatch wins over a pending signup-marked package intent", () => {
+    // Money has already changed hands, so resuming checkout again is the worse
+    // failure of the two.
+    checkoutIntentValue = {
+      kind: "package",
+      packageKey: "super",
+      savedAt: Date.now(),
+      resumeAfterOnboarding: true,
+    };
+    searchParamsValue = new URLSearchParams({ returnTo: PAID_HATCH });
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(navigateMock).toHaveBeenCalledWith(PAID_HATCH);
+  });
+
+  test("ignores a returnTo that is not a paid hatch", () => {
+    // Resuming an arbitrary same-origin path would let a crafted link skip the
+    // rest of the funnel, so only the paid hatch URL is honored.
+    searchParamsValue = new URLSearchParams({
+      hosting: "managed",
+      returnTo: routes.settings.usage,
+    });
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(routes.onboarding.research)).toBe(true);
+    expect(target).toContain("hosting=managed");
   });
 
   test("resume fires only on the Start click, not on render (no loop)", () => {

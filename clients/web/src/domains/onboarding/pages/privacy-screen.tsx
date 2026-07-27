@@ -21,6 +21,7 @@ import {
     readCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 import { isLocalMode } from "@/lib/local-mode";
+import { postCheckoutHatchReturnTo } from "@/lib/navigation/navigation-resolver";
 import {
     usePrivacyConsent,
     useShareDiagnostics,
@@ -77,6 +78,21 @@ export function PrivacyScreen() {
       emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
         userId,
       });
+    }
+
+    // A completed checkout with nothing provisioned is funneled to the hatching
+    // screen; an unconsented user is bounced here, and the funnel URL rides
+    // along as `returnTo`. With consent now recorded, resume it rather than the
+    // standard onboarding step: that step carries neither the managed-hatch nor
+    // the paid-return marker, so the purchased machine and storage would never
+    // be waited for. Money has already changed hands, which is why this outranks
+    // the pending-package resume below.
+    const paidHatchReturnTo = postCheckoutHatchReturnTo(
+      searchParams.get("returnTo"),
+    );
+    if (paidHatchReturnTo) {
+      void navigate(paidHatchReturnTo);
+      return;
     }
 
     const hostingParam = searchParams.get("hosting");

@@ -171,6 +171,34 @@ export const POST_CHECKOUT_HATCH_PARAM = "post_checkout";
  */
 const MANAGED_PROVISIONING_DESTINATION = `${routes.onboarding.hatching}?hosting=vellum-cloud&${POST_CHECKOUT_HATCH_PARAM}=1`;
 
+/**
+ * `value` when it names a paid managed hatch, else `null`.
+ *
+ * Narrower than {@link sanitizeReturnTo}'s open-redirect check: the onboarding
+ * privacy screen navigates here in place of the standard onboarding step once
+ * consent is recorded, so admitting any same-origin path would let a crafted
+ * link skip the rest of the funnel. Only the hatching route carrying
+ * {@link POST_CHECKOUT_HATCH_PARAM} qualifies, which only
+ * {@link MANAGED_PROVISIONING_DESTINATION} produces.
+ */
+export function postCheckoutHatchReturnTo(
+  value: string | null | undefined,
+): string | null {
+  const destination = sanitizeReturnTo(value, "");
+  if (!destination.startsWith("/")) {
+    return null;
+  }
+  const qIdx = destination.indexOf("?");
+  if (qIdx < 0 || destination.slice(0, qIdx) !== routes.onboarding.hatching) {
+    return null;
+  }
+  const params = new URLSearchParams(destination.slice(qIdx + 1));
+  if (params.get(POST_CHECKOUT_HATCH_PARAM) !== "1") {
+    return null;
+  }
+  return destination;
+}
+
 function extractPathname(destination: string): string {
   if (
     destination.startsWith("http://") ||
@@ -446,15 +474,46 @@ function enforceModeBoundary(
   return null;
 }
 
+/**
+ * Where an unconsented user who reached the hatching screen is sent.
+ *
+ * A paid return carries its hatching URL as `returnTo`, the same contract
+ * `review-terms` uses, and the privacy screen resumes it on Start. Without the
+ * carry the funnel's markers are lost on the bounce and the paying user
+ * finishes the hatch at the baseline plan. Every other hatching bounce — and
+ * local mode, whose entrypoint is `welcome` and reads no `returnTo` — gets the
+ * bare entrypoint.
+ */
+function consentBounceDestination(
+  state: NavigationState,
+  pathnameWithSearch: string,
+): string {
+  const entrypoint = onboardingEntrypoint(state.isLocalMode);
+  if (entrypoint !== routes.onboarding.privacy) {
+    return entrypoint;
+  }
+  const paidReturn = postCheckoutHatchReturnTo(pathnameWithSearch);
+  if (!paidReturn) {
+    return entrypoint;
+  }
+  return `${entrypoint}?returnTo=${encodeURIComponent(paidReturn)}`;
+}
+
 function allowSetupRoutes(
   state: NavigationState,
   path: string,
+  pathnameWithSearch: string,
 ): NavigationDecision | null {
-  if (path === routes.reviewTerms) return { action: "allow" };
+  if (path === routes.reviewTerms) {
+    return { action: "allow" };
+  }
 
   if (isOnboardingPath(path)) {
     if (path === routes.onboarding.hatching && !hasCompletedOnboarding(state)) {
-      return { action: "redirect", to: onboardingEntrypoint(state.isLocalMode) };
+      return {
+        action: "redirect",
+        to: consentBounceDestination(state, pathnameWithSearch),
+      };
     }
     return { action: "allow" };
   }
