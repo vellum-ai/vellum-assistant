@@ -21,6 +21,10 @@ const NARRATE_HEARTBEAT_MS = 15_000;
  * failures (a brief daemon event-loop stall) recover; a wall of failures
  * means the assistant cannot report status and waiting is pointless. */
 const MAX_CONSECUTIVE_FAILURES = 10;
+/** Consecutive failed lease arms/refreshes before giving up. Without a live
+ * lease the claim gates are open and an idle snapshot proves nothing, so an
+ * unmaintainable lease makes the drain unsound. */
+const MAX_LEASE_FAILURES = 3;
 
 export type DrainOutcome =
   | "drained"
@@ -227,6 +231,7 @@ export async function drainAssistant(
 
   let lastLeaseAt = Date.now();
   let consecutiveFailures = 0;
+  let leaseFailureStreak = 0;
   let lastSignature: string | null = null;
   let lastNarratedAt = 0;
   let idleStreak = 0;
@@ -251,6 +256,34 @@ export async function drainAssistant(
       consecutiveFailures = 0;
 
       if (status.idle) {
+        // Idle only counts under a LIVE lease: with the lease expired the
+        // claim gates are open again, so new work invisible to this snapshot
+        // could be starting. Re-arm and retry rather than trusting the read.
+        const leaseActive =
+          status.quiescedUntil != null && status.quiescedUntil > Date.now();
+        if (!leaseActive) {
+          idleStreak = 0;
+          try {
+            const rearm = await armLease();
+            if (rearm.ok) {
+              lastLeaseAt = Date.now();
+              leaseFailureStreak = 0;
+            } else {
+              leaseFailureStreak += 1;
+            }
+          } catch {
+            if (opts.signal?.aborted) {
+              await releaseLease();
+              return "cancelled";
+            }
+            leaseFailureStreak += 1;
+          }
+          if (leaseFailureStreak >= MAX_LEASE_FAILURES) {
+            return "unreachable";
+          }
+          await sleepMs(pollIntervalMs, opts.signal);
+          continue;
+        }
         // Require two consecutive idle snapshots: work that raced past a
         // pre-lease gate check lands its run row within a tick, so a second
         // read one poll later rules out a stop landing on that window.
@@ -296,9 +329,15 @@ export async function drainAssistant(
         const refresh = await armLease();
         if (refresh.ok) {
           lastLeaseAt = Date.now();
+          leaseFailureStreak = 0;
+        } else {
+          leaseFailureStreak += 1;
         }
       } catch {
-        // Counted against the next status poll if the daemon is truly gone.
+        leaseFailureStreak += 1;
+      }
+      if (leaseFailureStreak >= MAX_LEASE_FAILURES) {
+        return "unreachable";
       }
     }
 

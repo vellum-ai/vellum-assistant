@@ -75,6 +75,10 @@ function idleStatus(): unknown {
   };
 }
 
+function idleExpiredLeaseStatus(): unknown {
+  return { ...(idleStatus() as Record<string, unknown>), quiescedUntil: null };
+}
+
 describe("parseWaitDuration", () => {
   test("parses bare seconds, seconds, and minutes", () => {
     expect(parseWaitDuration("90")).toBe(90_000);
@@ -171,6 +175,63 @@ describe("drainAssistant", () => {
     expect(outcome).toBe("drained");
     // idle, busy (streak reset), idle, idle — four reads, not one.
     expect(statusCalls).toBe(4);
+  });
+
+  test("idle without a live lease re-arms instead of counting toward drained", async () => {
+    let statusCalls = 0;
+    let armCalls = 0;
+    const { impl } = fetchStub((_url, method) => {
+      if (method === "POST") {
+        armCalls += 1;
+        return jsonResponse({ quiescedUntil: Date.now() + 60_000 });
+      }
+      statusCalls += 1;
+      // The lease has lapsed on the first idle read; once re-armed, the
+      // subsequent idle reads carry a live lease.
+      return jsonResponse(
+        statusCalls === 1 ? idleExpiredLeaseStatus() : idleStatus(),
+      );
+    });
+
+    const outcome = await drainAssistant({
+      baseUrl: BASE,
+      token: "tok",
+      deadlineAt: null,
+      pollIntervalMs: 1,
+      fetchImpl: impl,
+      log: () => {},
+    });
+
+    expect(outcome).toBe("drained");
+    // Initial arm + the re-arm triggered by the lapsed lease.
+    expect(armCalls).toBeGreaterThanOrEqual(2);
+    // The expired-lease idle read did not count: two live-lease reads follow.
+    expect(statusCalls).toBeGreaterThanOrEqual(3);
+  });
+
+  test("an unmaintainable lease fails the drain instead of trusting idle", async () => {
+    let armCalls = 0;
+    const { impl } = fetchStub((_url, method) => {
+      if (method === "POST") {
+        armCalls += 1;
+        if (armCalls === 1) {
+          return jsonResponse({ quiescedUntil: Date.now() + 60_000 });
+        }
+        return jsonResponse({ error: "boom" }, 500);
+      }
+      return jsonResponse(idleExpiredLeaseStatus());
+    });
+
+    const outcome = await drainAssistant({
+      baseUrl: BASE,
+      token: "tok",
+      deadlineAt: null,
+      pollIntervalMs: 1,
+      fetchImpl: impl,
+      log: () => {},
+    });
+
+    expect(outcome).toBe("unreachable");
   });
 
   test("returns unsupported when the assistant lacks the quiesce route", async () => {

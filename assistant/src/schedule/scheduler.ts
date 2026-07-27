@@ -34,6 +34,7 @@ import {
   completeOneShot,
   completeScheduleRun,
   createScheduleRun,
+  deferClaimedSchedule,
   failOneShotPermanently,
   getLastScheduleConversationId,
   resetRetryCount,
@@ -503,13 +504,12 @@ export async function runDueSchedulesOnce(
   result.claimed = jobs.length;
   for (const job of jobs) {
     // Lease re-check per claimed job: a lease armed between the batch claim
-    // and this job's start returns the job to the queue untouched (nextRunAt
-    // pulled to the deferral time; a one-shot's `firing` reverts to `active`)
-    // instead of starting work the drain snapshot cannot see — notify mode
-    // especially, which emits before any run row exists.
+    // and this job's start returns the job to the queue untouched instead of
+    // starting work the drain snapshot cannot see — notify mode especially,
+    // which emits before any run row exists.
     if (isLifecycleQuiesced()) {
       try {
-        await scheduleRetry(job.id, Date.now() + QUIESCE_DEFER_MS);
+        await deferClaimedSchedule(job.id, Date.now() + QUIESCE_DEFER_MS);
       } catch (err) {
         log.warn(
           { err, jobId: job.id },

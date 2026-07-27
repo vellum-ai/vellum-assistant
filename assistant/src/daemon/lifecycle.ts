@@ -243,6 +243,12 @@ export async function runDaemon(): Promise<void> {
   try {
     const { migrationsOk } = await initializeDb();
     dbReady = true;
+    // A quiesce lease can survive a stop that happened mid-drain; clear it so
+    // a fresh boot never starts with background work paused. Placed
+    // synchronously after DB init — before any await yields to the
+    // already-listening HTTP server — so it cannot delete a lease a client
+    // arms against THIS boot.
+    clearLifecycleQuiesce();
     // Floor the stream seq counter above every persisted conversation
     // anchor before turns can stamp events. Anchors are getCurrentSeq()
     // snapshots already served to clients, and a crashed process can have
@@ -655,10 +661,6 @@ export async function runDaemon(): Promise<void> {
 
   registerWatcherProviders();
   registerMessagingProviders();
-
-  // A quiesce lease can survive a stop that happened mid-drain; clear it so
-  // a fresh boot never starts with background work paused.
-  clearLifecycleQuiesce();
 
   try {
     await recoverStaleSchedules();

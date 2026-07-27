@@ -1114,6 +1114,45 @@ export function describeCronExpression(expr: string | null): string {
 }
 
 /**
+ * Return a claimed-but-not-started schedule to the queue (drain deferral).
+ *
+ * Restores everything the claim mutated before any execution began:
+ * `nextRunAt` is pulled to `nextRetryAt`, a one-shot's `firing` reverts to
+ * `active`, and `enabled` is restored — a bounded recurring schedule's final
+ * occurrence is claimed by exhausting the job (`enabled = false`,
+ * `nextRunAt = 0`), so without the restore that deferred final occurrence
+ * would never fire.
+ */
+export async function deferClaimedSchedule(
+  id: string,
+  nextRetryAt: number,
+): Promise<void> {
+  const db = getDb();
+  const now = Date.now();
+  await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({ nextRunAt: nextRetryAt, enabled: true, updatedAt: now })
+        .where(eq(scheduleJobs.id, id))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "deferClaimedSchedule.requeue", context: { scheduleId: id } },
+  );
+  await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({ status: "active", updatedAt: now })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "deferClaimedSchedule.status", context: { scheduleId: id } },
+  );
+  notifySchedulesChanged();
+}
+
+/**
  * Set the next retry time for a schedule and revert one-shot status from
  * "firing" to "active" so the scheduler will claim it again when nextRetryAt
  * arrives. No-op for recurring schedules (they stay in their current status).
