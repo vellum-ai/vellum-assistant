@@ -10,6 +10,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import type { AssistantEvent } from "../api/index.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { Conversation } from "../daemon/conversation.js";
@@ -18,7 +19,6 @@ import {
   removeSubagentConversation,
   setSubagentConversation,
 } from "../daemon/conversation-registry.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import {
   deleteSubagentRecord,

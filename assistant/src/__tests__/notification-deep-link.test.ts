@@ -98,7 +98,7 @@ mock.module("../notifications/conversation-pairing.js", () => ({
   },
 }));
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { VellumAdapter } from "../notifications/adapters/macos.js";
 import { NotificationBroadcaster } from "../notifications/broadcaster.js";
 import type { NotificationSignal } from "../notifications/signal.js";

@@ -11,7 +11,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AcpSessionUpdateEvent } from "../../api/events/acp-session-update.js";
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../api/index.js";
 import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import { VellumAcpClientHandler } from "../client-handler.js";

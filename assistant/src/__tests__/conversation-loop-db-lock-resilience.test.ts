@@ -78,6 +78,7 @@ mock.module(
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -86,7 +87,6 @@ import {
   createEventHandlerState,
   handleMessageComplete,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getConversationPersistedSeq } from "../persistence/conversation-crud.js";
 
 const CONVERSATION_ID = "test-session-id";

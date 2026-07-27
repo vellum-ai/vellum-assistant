@@ -14,12 +14,12 @@
  * load time (config loader, conversation-crud, llm-request-log-store), because
  * Bun's `mock.module()` is scoped to the file that registers it.
  */
+import type { AssistantEvent } from "../../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
 } from "../../daemon/conversation-agent-loop-handlers.js";
 import { dispatchAgentEvent } from "../../daemon/conversation-agent-loop-handlers.js";
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
 
 /** A `tool_result` `AssistantEvent` emitted by the handler. */
 export type ToolResultEvent = Extract<AssistantEvent, { type: "tool_result" }>;

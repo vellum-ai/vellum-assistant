@@ -2,6 +2,7 @@
  * Periodic retry sweep for failed channel inbound events.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   type ChannelId,
   isChannelId,
@@ -12,7 +13,6 @@ import { isConversationBusyError } from "../daemon/conversation-messaging.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { updateDeliveredSegmentCount } from "../persistence/delivery-channels.js";
 import {

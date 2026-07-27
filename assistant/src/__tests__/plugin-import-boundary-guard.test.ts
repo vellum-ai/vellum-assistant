@@ -115,7 +115,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../daemon/conversation-registry.js",
     "../../../../daemon/conversation-runtime-assembly.js",
     "../../../../daemon/embedding-reconcile.js",
-    "../../../../daemon/message-protocol.js",
     "../../../../daemon/trust-context.js",
     "../../../../daemon/turn-latency-sub-spans.js",
     "../../../../notifications/emit-signal.js",

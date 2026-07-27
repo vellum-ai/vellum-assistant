@@ -42,10 +42,10 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { type AgentEvent, AgentLoop } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryEnabled } from "../config/memory-v3-gate.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { isPersonalMemoryAllowed } from "../daemon/trust-context.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { isOutOfWorkspaceFileInvocation } from "../permissions/workspace-policy.js";

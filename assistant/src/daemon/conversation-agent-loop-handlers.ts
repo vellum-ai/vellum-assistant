@@ -11,6 +11,7 @@ import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -130,7 +131,6 @@ import {
   type InflightContentWriter,
 } from "./inflight-message-content.js";
 import type {
-  AssistantEvent,
   CardSurfaceData,
   SurfaceAction,
   UiSurfaceShow,
