@@ -38,6 +38,7 @@ import type {
 } from "@/generated/api/types.gen";
 import * as runtimeBrowser from "@/runtime/browser";
 import * as toastModule from "@vellumai/design-library/components/toast";
+import { UPGRADE_CAPTION } from "@/domains/settings/billing/plans/package-switch-copy";
 import { PLAN_TIER_COPY } from "@/domains/settings/billing/plans/plans-copy";
 import { routes } from "@/utils/routes";
 
@@ -912,7 +913,7 @@ describe("PlanCard recommended upgrade — change-package", () => {
     fireEvent.click(await findByTestId("recommended-upgrade-button"));
     // Assert on copy unique to the dialog — the promo card behind it already
     // renders the "Upgrade to Super" heading, so the title alone matches twice.
-    await findByText("Billed monthly · prorated difference charged today");
+    await findByText(UPGRADE_CAPTION);
     await findByText(PLAN_TIER_COPY.super.tagline);
     expect(changePackageBody).toBeNull();
 

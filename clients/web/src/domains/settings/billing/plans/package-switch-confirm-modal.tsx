@@ -42,9 +42,7 @@ export interface PackageSwitchConfirmModalProps {
  * warning glyph, loss-framed checklist copy, neutral spec markers, the danger
  * confirm and its safeguard note; an upgrade and a direction-neutral switch get
  * the assistant avatar and a lighter primary confirm. Layout-only for the
- * mutation — the parent owns `change-package` — but it does read the assistant
- * avatar through `AssistantAvatarTile`, so both call sites get the header glyph
- * without duplicating that wiring.
+ * mutation — the parent owns `change-package`.
  */
 export function PackageSwitchConfirmModal({
   open,
@@ -61,10 +59,10 @@ export function PackageSwitchConfirmModal({
     packageName,
     targetPackage?.key ?? null,
   );
-  // The catalog is server-driven and can ship a package this bundle has no tier
-  // copy for, so fall back to the package's own blurb — without it the
-  // description element disappears while Radix still points
-  // `aria-describedby` at its id.
+  // A downgrade withholds the tagline outright, and the server-driven catalog
+  // can ship a package this bundle has no tier copy for; either way the
+  // package's own factual blurb takes over — without it the description element
+  // disappears while Radix still points `aria-describedby` at its id.
   const description = copy.subtitle || targetPackage?.description || "";
   // Everything below the header describes one concrete package, so it all
   // resolves — or doesn't — together.

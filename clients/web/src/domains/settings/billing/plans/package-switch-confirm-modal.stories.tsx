@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
-import type { ProPackage } from "@/domains/settings/billing/package-types";
+import { makeProPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -22,30 +22,7 @@ for (const supportsManifest of [false, true]) {
   );
 }
 
-/** The Mighty catalog shape; override fields for another tier. */
-function proPackage(overrides: Partial<ProPackage> = {}): ProPackage {
-  return {
-    key: "mighty",
-    name: "Mighty",
-    description: "Small machine, 15 GB of storage, and $25 in monthly credits.",
-    version: 1,
-    machine_tier: null,
-    storage_tier: "s",
-    credit_tier: "credits_25",
-    machine_size: null,
-    storage_gib: 15,
-    credits_usd: 25,
-    include_platform_fee: true,
-    base_price_cents: 2000,
-    machine_price_cents: 0,
-    storage_price_cents: 500,
-    credit_price_cents: 2500,
-    total_price_cents: 5000,
-    ...overrides,
-  };
-}
-
-const SUPER_PACKAGE = proPackage({
+const SUPER_PACKAGE = makeProPackage({
   key: "super",
   name: "Super",
   description: "Medium machine, 30 GB of storage, and $45 in monthly credits.",
@@ -98,7 +75,7 @@ export const Upgrade: Story = {
   args: {
     relation: "upgrade",
     packageName: "Mighty",
-    targetPackage: proPackage(),
+    targetPackage: makeProPackage(),
   },
 };
 
@@ -110,7 +87,7 @@ export const Downgrade: Story = {
   args: {
     relation: "downgrade",
     packageName: "Mighty",
-    targetPackage: proPackage(),
+    targetPackage: makeProPackage(),
   },
 };
 
@@ -158,7 +135,7 @@ export const LongPackageName: Story = {
   args: {
     relation: "upgrade",
     packageName: "Ultra Enterprise Performance",
-    targetPackage: proPackage({
+    targetPackage: makeProPackage({
       key: "ultra-enterprise",
       name: "Ultra Enterprise Performance",
       description:

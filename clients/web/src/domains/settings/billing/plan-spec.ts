@@ -8,7 +8,7 @@ import type { ProPackage } from "@/domains/settings/billing/package-types";
 import {
   creditRowLabel,
   storageRowLabel,
-} from "@/domains/settings/billing/plan-row-labels";
+} from "@/domains/settings/components/tier-pricing";
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import { SIZE_DESCRIPTION, SIZE_LABEL } from "@/lib/billing/machine-sizes";
 
@@ -33,11 +33,6 @@ export function machineLabel(pkg: ProPackage | null): string {
   }
   const size = pkg.machine_size as MachineSizeEnum;
   return SIZE_LABEL[size] ?? pkg.machine_size;
-}
-
-/** A package with no `machine_size` runs on the shared small baseline. */
-function resolvedMachineSize(pkg: ProPackage | null): MachineSizeEnum {
-  return (pkg?.machine_size as MachineSizeEnum | null) ?? "small";
 }
 
 /**
@@ -66,9 +61,11 @@ export function packageHighlights(
 ): string[] {
   const credits = pkg?.credits_usd ?? FREE_CREDITS_USD;
   const storage = pkg?.storage_gib ?? FREE_STORAGE_GIB;
-  // `machine_size` is a loose string, so an unrecognized size has no preset —
-  // drop the detail rather than render "(undefined)", as `machineLabel` does.
-  const resources = SIZE_DESCRIPTION[resolvedMachineSize(pkg)];
+  // A package with no `machine_size` runs on the shared small baseline. Beyond
+  // that `machine_size` is a loose string, so an unrecognized size has no preset
+  // — drop the detail rather than render "(undefined)", as `machineLabel` does.
+  const size = (pkg?.machine_size as MachineSizeEnum | null) ?? "small";
+  const resources = SIZE_DESCRIPTION[size];
   return [
     `${machineLabel(pkg)} machine${resources ? ` (${resources})` : ""}`,
     storageRowLabel(storage),

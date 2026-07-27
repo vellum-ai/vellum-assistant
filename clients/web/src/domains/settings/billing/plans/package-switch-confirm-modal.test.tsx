@@ -12,7 +12,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import type { ComponentProps } from "react";
 
-import type { ProPackage } from "@/generated/api/types.gen";
+import {
+  DOWNGRADE_CAPTION,
+  DOWNGRADE_NOTE,
+  SWITCH_CAPTION,
+  UPGRADE_CAPTION,
+} from "@/domains/settings/billing/plans/package-switch-copy";
+import { PLAN_TIER_COPY } from "@/domains/settings/billing/plans/plans-copy";
+import { makeProPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 mock.module("@/hooks/use-assistant-avatar", () => ({
@@ -28,36 +35,8 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
 const { PackageSwitchConfirmModal } =
   await import("./package-switch-confirm-modal");
 
-const UPGRADE_CAPTION = "Billed monthly · prorated difference charged today";
-const SWITCH_CAPTION =
-  "Billed monthly · prorated difference charged today or credited next invoice";
-const DOWNGRADE_CAPTION =
-  "Billed monthly · prorated credit on your next invoice";
-const DOWNGRADE_NOTE =
-  "Your machine downsizes now and your storage stays. No refund.";
-
-/** The Mighty catalog shape; override fields for another tier. */
-function proPackage(overrides: Partial<ProPackage> = {}): ProPackage {
-  return {
-    key: "mighty",
-    name: "Mighty",
-    description: "Small machine, 15 GB of storage, and $25 in monthly credits.",
-    version: 1,
-    machine_tier: null,
-    storage_tier: "s",
-    credit_tier: "credits_25",
-    machine_size: null,
-    storage_gib: 15,
-    credits_usd: 25,
-    include_platform_fee: true,
-    base_price_cents: 2000,
-    machine_price_cents: 0,
-    storage_price_cents: 500,
-    credit_price_cents: 2500,
-    total_price_cents: 5000,
-    ...overrides,
-  };
-}
+const MIGHTY_DESCRIPTION =
+  "Small machine, 15 GB of storage, and $25 in monthly credits.";
 
 let onCancel = mock(() => {});
 let onConfirm = mock(() => {});
@@ -71,7 +50,7 @@ function renderModal(
         open
         relation="upgrade"
         packageName="Mighty"
-        targetPackage={proPackage()}
+        targetPackage={makeProPackage()}
         pending={false}
         onCancel={onCancel}
         onConfirm={onConfirm}
@@ -98,11 +77,11 @@ describe("PackageSwitchConfirmModal", () => {
     const { getByText, getByRole, getByTestId } = renderModal();
 
     getByRole("heading", { name: "Upgrade to Mighty" });
-    // The tagline renders as the dialog's description, so it is what
+    // Moving up, the tagline renders as the dialog's description, so it is what
     // `aria-describedby` points at.
     const describedBy = getByRole("dialog").getAttribute("aria-describedby");
     expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
-      "More capacity for consistent use.",
+      PLAN_TIER_COPY.mighty.tagline,
     );
     getByText("$50/mo");
     getByText(UPGRADE_CAPTION);
@@ -168,14 +147,30 @@ describe("PackageSwitchConfirmModal", () => {
   test("a package with no tier copy describes itself from the catalog", () => {
     const { getByRole, getByText } = renderModal({
       packageName: "Mega",
-      targetPackage: proPackage({ key: "mega", name: "Mega" }),
+      targetPackage: makeProPackage({ key: "mega", name: "Mega" }),
     });
 
     const describedBy = getByRole("dialog").getAttribute("aria-describedby");
     expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
-      "Small machine, 15 GB of storage, and $25 in monthly credits.",
+      MIGHTY_DESCRIPTION,
     );
-    getByText("Small machine, 15 GB of storage, and $25 in monthly credits.");
+    getByText(MIGHTY_DESCRIPTION);
+  });
+
+  test("a downgrade describes the target factually, never with its sales tagline", () => {
+    const { getByRole, getByText, queryByText } = renderModal({
+      relation: "downgrade",
+    });
+
+    // "Downgrade to Mighty" over "More capacity for consistent use." pitches the
+    // tier the user is leaving. The catalog blurb states what they land on, and
+    // still anchors `aria-describedby`.
+    expect(queryByText(PLAN_TIER_COPY.mighty.tagline)).toBeNull();
+    getByText(MIGHTY_DESCRIPTION);
+    const describedBy = getByRole("dialog").getAttribute("aria-describedby");
+    expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
+      MIGHTY_DESCRIPTION,
+    );
   });
 
   test("with nothing to describe the dialog carries no aria-describedby", () => {
@@ -214,7 +209,7 @@ describe("PackageSwitchConfirmModal", () => {
   test("tier copy with extra features appends them after the derived rows", () => {
     const { getByText, getAllByRole } = renderModal({
       packageName: "Super",
-      targetPackage: proPackage({
+      targetPackage: makeProPackage({
         key: "super",
         name: "Super",
         machine_size: "medium",

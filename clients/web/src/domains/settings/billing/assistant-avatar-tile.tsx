@@ -9,11 +9,11 @@ export interface AssistantAvatarTileProps {
 }
 
 /**
- * The assistant's avatar on a rounded neutral tile — the header glyph for
- * billing dialogs. The tile holds its square while the avatar query settles so
- * the header does not reflow when the creature appears; `ChatAvatar`
- * synthesizes fallback traits, so drawing early would flash the bundled green
- * and then jump to the real color.
+ * The assistant's avatar on a rounded neutral tile — the header glyph of the
+ * package-switch confirm dialog. The tile holds its square while the avatar
+ * query settles so the header does not reflow when the creature appears;
+ * `ChatAvatar` synthesizes fallback traits, so drawing early would flash the
+ * bundled green and then jump to the real color.
  */
 export function AssistantAvatarTile({
   size = 24,
