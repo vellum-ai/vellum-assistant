@@ -1533,10 +1533,18 @@ describe("LiveVoiceSession server VAD", () => {
     const signal = spawnBackgroundContinuation.mock.calls[0]?.[0]?.signal;
     expect(signal?.aborted).toBe(false);
 
+    // skill_load is non-contending too: it only registers tool definitions,
+    // and it is the first call of a follow-up turn that re-enters the skill
+    // the interrupted turn was using — it must not kill the continuation.
+    followUp?.callbacks?.tool_use_start?.("skill_load", {
+      toolUseId: "tool-2",
+    });
+    expect(signal?.aborted).toBe(false);
+
     // A tool the registry does not know (e.g. an MCP or plugin tool) is not
     // provably read-only: fail closed and abort.
     followUp?.callbacks?.tool_use_start?.("calendar_lookup", {
-      toolUseId: "tool-2",
+      toolUseId: "tool-3",
     });
     expect(signal?.aborted).toBe(true);
   });

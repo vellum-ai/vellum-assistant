@@ -528,8 +528,13 @@ export class SubagentManager {
     // Subagents execute as background child conversations, but their tool
     // permissions must still be scoped to the actor that spawned them. Without
     // this, tool execution falls back to `unknown` trust and guardian-owned
-    // desktop turns get denied as unverified.
-    if (parentConversation?.trustContext) {
+    // desktop turns get denied as unverified. An explicit config trust context
+    // wins over parent inheritance: a parent that stamps trust per-turn (the
+    // live-voice bridge) has already cleared it by the time a detached spawn
+    // reads it, so its spawner resolves trust itself.
+    if (config.trustContext) {
+      conversation.setTrustContext({ ...config.trustContext });
+    } else if (parentConversation?.trustContext) {
       conversation.setTrustContext({ ...parentConversation.trustContext });
     }
     const parentAuthContext = parentConversation?.getAuthContext();

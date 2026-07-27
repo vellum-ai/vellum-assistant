@@ -38,7 +38,6 @@ import {
   LiveVoiceFrontModelConfigSchema,
 } from "../config/schemas/live-voice.js";
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
-import { findConversation } from "../daemon/conversation-registry.js";
 import { isRefusedInReadOnlyPass } from "../daemon/conversation-tool-setup.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
@@ -657,6 +656,35 @@ function buildDuplexContinuationObjective(interruptedRequest: string): string {
   return interruptedRequest.length > 0
     ? `${base} Their request was: "${interruptedRequest}".`
     : base;
+}
+
+// Built-ins beyond the strict read-only allowlist that cannot contend with a
+// background continuation's writes: they touch no workspace, host, or
+// extension state. `skill_load` reads skill files and registers tool
+// definitions — and it is the FIRST call of a barge-in follow-up that
+// re-enters the skill the interrupted turn was using, so counting it as
+// consequential would kill nearly every continuation doing skill-based work
+// at the moment it matters most.
+const FOREGROUND_NON_CONTENDING_TOOLS: ReadonlySet<string> = new Set([
+  "skill_load",
+]);
+
+// Foreground-wins classification: does this foreground tool start force the
+// running continuations to be aborted? Fail closed — anything that is not a
+// provably read-only or non-contending BUILT-IN contends. `skill_execute`
+// always contends: it is a dispatcher whose resolved inner tool can mutate.
+function foregroundToolContendsWithContinuation(toolName: string): boolean {
+  if (toolName === "skill_execute") {
+    return true;
+  }
+  const ownerKind = getToolOwner(toolName)?.kind;
+  if (
+    FOREGROUND_NON_CONTENDING_TOOLS.has(toolName) &&
+    ownerKind === "default"
+  ) {
+    return false;
+  }
+  return isRefusedInReadOnlyPass(toolName, ownerKind);
 }
 
 // Upper bound on how long a barge-in waits for the interrupted turn's teardown
@@ -2937,12 +2965,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // race on the same workspace, host, or extension state. Kill
             // running continuations and skip pending detaches; a continuation
             // only survives while foreground turns stay provably read-only
-            // (the topic-change case it exists for). Fail closed: only the
-            // built-in read-only allowlist keeps a continuation alive — a
-            // name-based side-effect denylist misses mutators like plugin/
-            // MCP/skill tools — and `skill_execute` counts as consequential
-            // because its resolved inner tool can mutate. Over-aborting only
-            // drops a best-effort salvage; under-aborting risks a write race.
+            // (the topic-change case it exists for). Fail closed: only
+            // provably non-contending built-ins keep a continuation alive
+            // (see foregroundToolContendsWithContinuation) — a name-based
+            // side-effect denylist misses mutators like plugin/MCP/skill
+            // tools. Over-aborting only drops a best-effort salvage;
+            // under-aborting risks a write race.
             // An already-completed continuation's stashed answer is kept — it
             // cannot race anything.
             //
@@ -2956,10 +2984,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // background teardown here would stall the live call's turn.
             // This gate already makes voice stricter than that baseline; the
             // residual is bounded to one in-flight call at barge-over time.
-            if (
-              toolName === "skill_execute" ||
-              isRefusedInReadOnlyPass(toolName, getToolOwner(toolName)?.kind)
-            ) {
+            if (foregroundToolContendsWithContinuation(toolName)) {
               this.abortDetachedRuns({ keepPendingResult: true });
             }
             // The op counts toward the narration threshold on start (not
@@ -4503,12 +4528,32 @@ async function defaultSpawnBackgroundContinuation(args: {
   label: string;
   signal: AbortSignal;
 }): Promise<string> {
-  const parentConversation = findConversation(args.parentConversationId);
-  if (!parentConversation) {
-    throw new Error(
-      `Cannot detach interrupted voice turn: conversation ${args.parentConversationId} is not resident.`,
-    );
+  // getOrCreateConversation (not a raw registry read): it rebuilds a stale
+  // instance and awaits loadFromDb, so the snapshot below sees the persisted
+  // history. A raw findConversation can return a cold instance whose in-memory
+  // `messages` is empty, which silently forks a continuation with no context.
+  const { getOrCreateConversation } =
+    await import("../daemon/conversation-store.js");
+  const parentConversation = await getOrCreateConversation(
+    args.parentConversationId,
+  );
+  // Belt-and-suspenders for a resident-but-unhydrated instance: the teardown
+  // settle that gated this spawn guarantees the interrupted turn's partial is
+  // persisted, so an empty in-memory history on a conversation that has rows
+  // means the instance is cold — hydrate before snapshotting. A genuinely new
+  // conversation loads zero rows; harmless.
+  if (parentConversation.getMessages().length === 0) {
+    await parentConversation.loadFromDb();
   }
+  // The bridge stamps trust per-turn and clears it at teardown, which has
+  // settled by now — inheriting from the parent would read the cleared window
+  // and run the continuation fail-closed as `unknown`, denying every
+  // consequential tool. Resolve the same guardian trust the foreground turn
+  // ran under and pass it explicitly (resolution itself stays fail-closed:
+  // on a miss the continuation runs as `unknown`, exactly as before).
+  const trustContext = await resolveLocalLiveVoiceTrustContext(
+    args.parentConversationId,
+  );
   return await getSubagentManager().spawnAndAwait(
     {
       parentConversationId: args.parentConversationId,
@@ -4519,14 +4564,15 @@ async function defaultSpawnBackgroundContinuation(args: {
       // Full subagent abilities: the continuation runs like any other
       // background subagent, so it can genuinely finish build-shaped work
       // (JARVIS-1354). Side effects are governed by the standard
-      // non-interactive permission path via the inherited trust context —
-      // auto-approved up to the background risk threshold, auto-denied above
-      // it — the same policy the foreground voice turn it continues ran
-      // under. Workspace write races with the user's next foreground turn
-      // are prevented by the session's foreground-wins abort (a
-      // side-effecting tool start on a live turn aborts running
+      // non-interactive permission path under the explicit trust context
+      // resolved above — auto-approved up to the background risk threshold,
+      // auto-denied above it — the same policy the foreground voice turn it
+      // continues ran under. Workspace write races with the user's next
+      // foreground turn are prevented by the session's foreground-wins abort
+      // (a side-effecting tool start on a live turn aborts running
       // continuations; see the tool_use_start handler).
-      parentMessages: [...parentConversation.messages],
+      ...(trustContext ? { trustContext } : {}),
+      parentMessages: [...parentConversation.getMessages()],
       parentSystemPrompt: parentConversation.getCurrentSystemPrompt(),
     },
     // No client-facing events: the continuation is silent; its result is folded
