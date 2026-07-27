@@ -136,23 +136,6 @@ export const CHANNEL_METADATA: Partial<Record<ChannelId, ChannelInfo>> = {
         "I'd like to connect with another assistant via A2A. Can you help me set that up?",
     },
   },
-  // `/v1/channels/available` builds from `BASE_AVAILABLE_CHANNELS`, which
-  // omits Discord, so this metadata reaches no client. `supportsVerification`
-  // is false because there is no Discord verification flow — clients render
-  // the card display-only.
-  discord: {
-    id: "discord",
-    label: "Discord",
-    subtitle: "Message your assistant from Discord",
-    icon: "message-circle",
-    supportsVerification: false,
-    setupMessages: {
-      guardian:
-        "I'd like to verify my identity as your guardian on Discord. Can you help me set that up?",
-      contact:
-        "I'd like to verify a contact's Discord identity. Can you walk me through it?",
-    },
-  },
 };
 
 export const INTERFACE_IDS = [
