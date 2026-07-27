@@ -42,7 +42,11 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { ProPackage } from "@/domains/settings/billing/package-types";
 import { SWITCH_CAPTION } from "@/domains/settings/billing/plans/package-switch-copy";
-import { makeProPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
+import {
+  makeProPackage,
+  makeSuperPackage,
+  makeUltraPackage,
+} from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import type {
   OnboardingStateResponse,
   PackageChangeResponse,
@@ -212,29 +216,12 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 const { PlansPage } = await import("./plans-page");
 const { getPlanTierCopy } = await import("./plans-copy");
 
-// This page's assertions key off the storage/credit/price rows, so each tier
-// pins whatever it has to differ on and inherits the rest of the Mighty shape;
-// the fixture's tier keys and component prices are read by nothing under test.
-const MIGHTY = makeProPackage({
-  storage_gib: 10,
-  total_price_cents: 3000,
-});
-const SUPER = makeProPackage({
-  key: "super",
-  name: "Super",
-  machine_size: "medium",
-  storage_gib: 25,
-  credits_usd: 50,
-  total_price_cents: 10000,
-});
-const ULTRA = makeProPackage({
-  key: "ultra",
-  name: "Ultra",
-  machine_size: "large",
-  storage_gib: 50,
-  credits_usd: 100,
-  total_price_cents: 20000,
-});
+// This page's assertions key off the storage/credit/price rows, so the three
+// tiers come straight from the catalog fixtures rather than being re-specced
+// here.
+const MIGHTY = makeProPackage();
+const SUPER = makeSuperPackage();
+const ULTRA = makeUltraPackage();
 
 function plansWith(packages: ProPackage[]): PlanListResponse {
   return {
@@ -363,8 +350,8 @@ describe("PlansPage — full catalog render", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
     // Storage rows.
     expect(html).toContain("10 GB Storage");
-    expect(html).toContain("25 GB Storage");
-    expect(html).toContain("50 GB Storage");
+    expect(html).toContain("30 GB Storage");
+    expect(html).toContain("60 GB Storage");
     // Free plan's baseline storage (FREE_STORAGE_GIB).
     expect(html).toContain("4 GB Storage");
     // Credits row, formatted from credits_usd.
