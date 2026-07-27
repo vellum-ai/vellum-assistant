@@ -55,22 +55,23 @@ describe("seedAdmissionPolicyDefaults", () => {
     expect(store.get("email")).toBe("trusted_contacts");
   });
 
-  test("picks up discord generically — enforced, configurable, default floor", () => {
+  test("picks up discord generically — enforced, hidden, pinned at the default floor", () => {
     // Discord carries no entry in CHANNEL_ADMISSION_DEFAULTS and no special
-    // casing anywhere in the seed. Adding it to CHANNEL_IDS must be enough to
-    // put it in the enforced-and-configurable bucket, so a new channel can
-    // never reach ingress without an admission floor. If Discord is ever
-    // added to the exempt or hidden set, this test fails loudly.
+    // casing in the seed: adding it to CHANNEL_IDS is enough to give it a
+    // floor, so a channel id can never reach ingress unenforced.
     seedAdmissionPolicyDefaults(store);
 
-    // Enforced (not skipped as exempt) and seeded at the universal default.
+    // Enforced — not skipped as exempt — at the universal default.
     expect(store.get("discord")).toBe("trusted_contacts");
 
-    // Configurable (not hidden): a user-set floor survives re-seeding, unlike
-    // the hidden channels asserted below.
-    store.set("discord", "strangers", "user widened discord");
+    // Hidden while the channel has no ingress: it is absent from the Channel
+    // Trust Floors list, so the seed must re-pin any row rather than leave a
+    // floor the user cannot see or reset. Drop Discord from
+    // ADMISSION_POLICY_HIDDEN_CHANNELS in the slice that lands ingress, and
+    // this expectation flips to the configurable behaviour asserted above.
+    store.set("discord", "strangers", "drifted row");
     seedAdmissionPolicyDefaults(store);
-    expect(store.get("discord")).toBe("strangers");
+    expect(store.get("discord")).toBe("trusted_contacts");
   });
 
   test("resets a stranded hidden-channel row back to its default", () => {
