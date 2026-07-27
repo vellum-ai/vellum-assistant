@@ -327,6 +327,22 @@ describe("sandboxPolicyWithHostFallback", () => {
     }
   });
 
+  test("a root-configured security dir denies every absolute target", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    process.env.GATEWAY_SECURITY_DIR = "/";
+
+    const result = sandboxPolicyWithHostFallback(
+      join(outside, "trust.json"),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
   test("denies the daemon dotenv", () => {
     const boundary = makeTempDir();
 

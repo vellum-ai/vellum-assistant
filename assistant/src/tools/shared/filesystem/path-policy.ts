@@ -251,7 +251,11 @@ function securityDirConfigMirrorable(): boolean {
 }
 
 function isWithinDir(path: string, dir: string): boolean {
-  return path === dir || path.startsWith(dir + "/");
+  const normalized = dir !== "/" && dir.endsWith("/") ? dir.slice(0, -1) : dir;
+  if (normalized === "/") {
+    return isAbsolute(path);
+  }
+  return path === normalized || path.startsWith(normalized + "/");
 }
 
 /**
