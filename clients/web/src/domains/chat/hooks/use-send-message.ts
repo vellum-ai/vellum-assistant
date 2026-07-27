@@ -20,12 +20,14 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
-import { DOCTOR_PROMPT_PARAM, routes } from "@/utils/routes";
+import { routes } from "@/utils/routes";
 import { conversationsByIdSlashPost } from "@/generated/daemon/sdk.gen";
 import {
   isLocalMetaCommand,
   parseDoctorCommand,
 } from "@/domains/chat/components/chat-composer/slash-command-catalog";
+import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { saveContextWindowUsage } from "@/domains/chat/utils/context-window-storage";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
@@ -175,6 +177,10 @@ export function useSendMessage({
 }: UseSendMessageParams) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  // The Doctor is platform-hosted only; when the active assistant is
+  // self-hosted the Doctor tab doesn't exist, so `/doctor` must fall through
+  // to a normal send rather than navigating to a doomed, empty tab.
+  const doctorGate = usePlatformGate({ platformHostedOnly: true });
   const addOptimisticSend = useChatSessionStore.use.addOptimisticSend();
   const setOptimisticSends = useChatSessionStore.use.setOptimisticSends();
   const setError = useChatSessionStore.use.setError();
@@ -581,17 +587,19 @@ export function useSendMessage({
       // queue path below.
       const isHidden = opts.hidden === true;
       // `/doctor <message>` navigates to the Doctor panel rather than starting
-      // an assistant turn, carrying the first message in the query string so the
+      // an assistant turn, parking the first message in a hand-off store so the
       // panel can auto-start a session and send it. Handled before the
-      // conversation/disk-pressure guards below since it needs neither.
-      const doctorPrompt = parseDoctorCommand(content);
+      // conversation/disk-pressure guards below since it needs neither. Skipped
+      // when the Doctor is gated (self-hosted assistant) so the command falls
+      // through to a normal send instead of a dead-end navigation.
+      const doctorPrompt =
+        doctorGate === "gated" ? null : parseDoctorCommand(content);
       if (doctorPrompt !== null) {
-        const params = new URLSearchParams({ tab: "doctor" });
         if (doctorPrompt) {
-          params.set(DOCTOR_PROMPT_PARAM, doctorPrompt);
+          useDoctorHandoffStore.getState().setPendingPrompt(doctorPrompt);
         }
         useComposerStore.getState().setInput("");
-        navigate(`${routes.settings.debug}?${params.toString()}`);
+        navigate(`${routes.settings.debug}?tab=doctor`);
         return;
       }
       // Explicit user override from the composer secret guard's "Send
@@ -888,6 +896,8 @@ export function useSendMessage({
     [
       activeConversationId,
       assistantId,
+      doctorGate,
+      navigate,
       diskPressureChatBlockReason,
       uiContextRef,
       runLocalMetaCommand,

@@ -25,13 +25,6 @@ const SETTINGS_USAGE_PATH = r("/assistant/settings/usage");
  */
 export const SCROLL_TO_MESSAGE_PARAM = "message";
 
-/**
- * Search param the Doctor panel reads on load to auto-start a session and send
- * a first message. Shared by the producer (the chat `/doctor <message>` slash
- * command) and the consumer (the Doctor panel on the Debug page).
- */
-export const DOCTOR_PROMPT_PARAM = "doctorPrompt";
-
 export const routes = {
   assistant: r("/assistant"),
   /**

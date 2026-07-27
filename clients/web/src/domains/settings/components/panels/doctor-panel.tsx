@@ -2,7 +2,6 @@ import { ArrowUp, Check, ChevronDown, ClipboardCopy, Loader2, Play, Square } fro
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useSearchParams } from "react-router";
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 
@@ -58,7 +57,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
 import { isPointerCoarse } from "@/utils/pointer";
-import { DOCTOR_PROMPT_PARAM } from "@/utils/routes";
+import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 
 // ---------------------------------------------------------------------------
 // CopySessionButton
@@ -140,10 +139,9 @@ export function DoctorPanel() {
 
   const platformGate = usePlatformGate();
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const [searchParams, setSearchParams] = useSearchParams();
   // `/doctor <message>` slash command: the first message to send once the
   // auto-started session becomes active, and a one-shot guard so the
-  // param-driven start fires only once per navigation.
+  // hand-off-driven start fires only once per navigation.
   const pendingInitialMessageRef = useRef<string | null>(null);
   const autoStartHandledRef = useRef(false);
 
@@ -525,7 +523,7 @@ export function DoctorPanel() {
   useEffect(() => {
     // A pending /doctor slash command auto-starts a fresh session below; skip
     // the resume/rediscover path so it doesn't race that start.
-    if (searchParams.get(DOCTOR_PROMPT_PARAM) !== null) {
+    if (useDoctorHandoffStore.getState().pendingPrompt !== null) {
       return;
     }
     const store = useDoctorPanelStore.getState();
@@ -570,26 +568,23 @@ export function DoctorPanel() {
   }, [abort]);
 
   // Auto-start from the chat `/doctor <message>` slash command: the composer
-  // navigates here with the first message in the query string. Start a fresh
-  // session and stash the message to send once it's active, then strip the
-  // param so a reload or back-nav doesn't restart the session.
+  // parks the first message in the hand-off store and navigates here. Start a
+  // fresh session and stash the message to send once it's active. The store's
+  // one-shot read (and the instance guard) keep a reload or back-nav from
+  // restarting the session. The prompt is consumed only once an assistant is
+  // resolved so it isn't dropped during the lifecycle loading window.
   useEffect(() => {
     if (autoStartHandledRef.current) {
       return;
     }
-    const prompt = searchParams.get(DOCTOR_PROMPT_PARAM);
+    if (!assistantId) {
+      return;
+    }
+    const prompt = useDoctorHandoffStore.getState().consumePendingPrompt();
     if (prompt === null) {
       return;
     }
     autoStartHandledRef.current = true;
-
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.delete(DOCTOR_PROMPT_PARAM);
-    setSearchParams(nextParams, { replace: true });
-
-    if (!assistantId) {
-      return;
-    }
 
     const store = useDoctorPanelStore.getState();
     abort();
@@ -597,10 +592,9 @@ export function DoctorPanel() {
       cleanupServerSession(assistantId, store.sessionId);
     }
     store.resetForNewSession();
-    const trimmed = prompt.trim();
-    pendingInitialMessageRef.current = trimmed.length > 0 ? trimmed : null;
+    pendingInitialMessageRef.current = prompt.length > 0 ? prompt : null;
     startMutation.mutate({ path: { assistant_id: assistantId } });
-  }, [searchParams, setSearchParams, assistantId, abort, startMutation]);
+  }, [assistantId, abort, startMutation]);
 
   // ---------------------------------------------------------------------------
   // Derived state
