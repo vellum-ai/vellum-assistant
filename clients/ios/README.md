@@ -30,9 +30,12 @@ which URL is baked into the build.
   process. With `server.url`, only native shell changes (Swift code,
   entitlements, Capacitor plugin updates) require a store submission.
 - **Thin native surface** — the IPC bridge between the WKWebView and
-  native code is minimal (two plugins: `NativeAuthPlugin` and
-  `NativeBiometricPlugin`), so version skew risk between the web app
-  and native shell is low. Contrast with the Electron app, where the
+  native code is minimal (three plugins: `NativeAuthPlugin`,
+  `NativeBiometricPlugin`, and `VoiceAudioSessionPlugin`), so version
+  skew risk between the web app and native shell is low. Every plugin
+  call from the web side must still be capability-probed, because a new
+  web bundle always ships ahead of the shell that hosts it. Contrast
+  with the Electron app, where the
   `window.vellum.*` IPC surface is broad and tightly coupled.
 - **WKWebView security model** — unlike Electron's renderer, `WKWebView`
   runs in a full iOS process sandbox with no access to native APIs
@@ -133,7 +136,7 @@ Apple's reference for the toolbar controls:
 
 The app has two layers — the **WKWebView contents** (the React app loaded
 from the configured server URL) and the **native Swift shell** (Capacitor
-bridge, `MyViewController`, the two native plugins). Each has its own
+bridge, `MyViewController`, the three native plugins). Each has its own
 debugger.
 
 ### Safari Web Inspector — for the web side (JS / CSS / network / `console.log`)
@@ -180,8 +183,8 @@ For a **physical iPhone**:
 
 ⌘R runs with `lldb` already attached. Click in the gutter next to any
 line in `AppDelegate.swift`, `MyViewController.swift`,
-`NativeAuthPlugin.swift`, or `NativeBiometricPlugin.swift` to set a
-breakpoint.
+`NativeAuthPlugin.swift`, `NativeBiometricPlugin.swift`, or
+`VoiceAudioSessionPlugin.swift` to set a breakpoint.
 
 - **Console / log output**: View → Debug Area → Activate Console (⇧⌘Y),
   or click the bottom-right console toggle. `print()` and `NSLog()` from
@@ -199,7 +202,8 @@ breakpoint.
 
 ### Common debugging recipes
 
-- **A native plugin call (`NativeAuth`, `NativeBiometric`) seems broken**:
+- **A native plugin call (`NativeAuth`, `NativeBiometric`,
+  `VoiceAudioSession`) seems broken**:
   set a Swift breakpoint in the relevant `@objc func` inside the plugin
   file and trigger the action from the web app. If the breakpoint never
   hits, the JS-side `Capacitor.Plugins.NativeAuth` lookup is wrong (check
@@ -551,6 +555,7 @@ clients/
     │   │   ├── MyViewController.swift  # CAPBridgeViewController subclass
     │   │   ├── NativeAuthPlugin.swift  # ASWebAuthenticationSession OIDC flow
     │   │   ├── NativeBiometricPlugin.swift # Face ID / Touch ID Keychain
+    │   │   ├── VoiceAudioSessionPlugin.swift # AVAudioSession for live voice
     │   │   └── Info.plist
     │   └── CapApp-SPM/               # SPM local package: pulls in @capacitor/ios
     │                                 # and any Capacitor plugin native deps
