@@ -52,9 +52,8 @@ export type DiscordIntentName = keyof typeof DISCORD_INTENTS;
 export const DISCORD_GATEWAY_INTENTS =
   DISCORD_INTENTS.GUILDS | DISCORD_INTENTS.GUILD_MESSAGES;
 
-/** Names of the intents in a bitmask, for logging and diagnostics. */
-export function describeIntents(bitmask: number): DiscordIntentName[] {
-  return (Object.keys(DISCORD_INTENTS) as DiscordIntentName[]).filter(
-    (name) => (bitmask & DISCORD_INTENTS[name]) !== 0,
-  );
-}
+/** Intents Discord gates behind a portal toggle and, past a size threshold, approval. */
+export const PRIVILEGED_DISCORD_INTENTS = [
+  DISCORD_INTENTS.GUILD_MEMBERS,
+  DISCORD_INTENTS.MESSAGE_CONTENT,
+] as const;
