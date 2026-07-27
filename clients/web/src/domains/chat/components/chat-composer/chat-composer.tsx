@@ -41,6 +41,7 @@ import {
   getLiveVoiceInputAmplitude,
   isLiveVoiceSessionActive,
   releaseLiveVoiceTurn,
+  restoreVoiceRoom,
   setLiveVoiceEntryOrigin,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
@@ -54,6 +55,7 @@ import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-sto
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
+import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { isNativeIOS } from "@/runtime/platform-detection";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -347,6 +349,11 @@ export function ChatComposer({
   // the first-run card path defers the actual start to its own handler.
   const liveVoiceEntryOriginRef = useRef<{ x: number; y: number } | null>(null);
   const navigate = useNavigate();
+  // Window-lifetime, not mount-time: the composer is a per-route component
+  // that can remount after an in-window navigation has dropped `?popout=1`,
+  // so a mount-time capture could misread a pop-out as a main window and ship
+  // a dead expand-to-room control (pop-outs never render the voice room).
+  const isPopout = isPopoutWindowLifetime();
   // "Configure voice" copy surfaced when the pre-open preflight returns
   // `not-ready` — the daemon's human-readable `userMessage`. Non-null renders
   // the notice below (with a deep-link to voice settings) and the room stays
@@ -894,6 +901,10 @@ export function ChatComposer({
                 // Turn-scoped stop is hands-free-only; a manual session's
                 // interrupt ends the whole session (✕ owns that).
                 onStop={liveVoiceHandsFree ? stopLiveVoiceResponse : undefined}
+                // Expand back to the full-screen room — omitted in pop-out
+                // windows, where the room never renders (the standalone pill
+                // is their only session surface).
+                onExpand={isPopout ? undefined : restoreVoiceRoom}
               />
             ) : (
               <div className="flex items-center justify-between gap-1 px-2 pb-2">

@@ -26,6 +26,7 @@ function renderBar(state: LiveVoiceSessionState, overrides?: {
   onEnd?: () => void;
   onSend?: () => void;
   onStop?: () => void;
+  onExpand?: () => void;
 }) {
   return render(
     <VoiceComposerBar
@@ -36,6 +37,7 @@ function renderBar(state: LiveVoiceSessionState, overrides?: {
       onEnd={overrides?.onEnd ?? (() => {})}
       onSend={overrides?.onSend ?? (() => {})}
       onStop={overrides?.onStop}
+      onExpand={overrides?.onExpand}
     />,
   );
 }
@@ -158,6 +160,22 @@ describe("VoiceComposerBar — stop response", () => {
     renderBar("speaking");
     expect(
       screen.queryByRole("button", { name: "Stop assistant response" }),
+    ).toBeNull();
+  });
+});
+
+describe("VoiceComposerBar — expand to room", () => {
+  test("renders with onExpand wired and fires it", () => {
+    const onExpand = mock(() => {});
+    renderBar("listening", { onExpand });
+    fireEvent.click(screen.getByRole("button", { name: "Open voice room" }));
+    expect(onExpand).toHaveBeenCalledTimes(1);
+  });
+
+  test("absent without onExpand (pop-out windows)", () => {
+    renderBar("listening");
+    expect(
+      screen.queryByRole("button", { name: "Open voice room" }),
     ).toBeNull();
   });
 });

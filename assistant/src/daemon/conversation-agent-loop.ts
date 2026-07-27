@@ -1670,7 +1670,13 @@ export async function runAgentLoopImpl(
     // the API, enabling stable prefix caching across turns.  Compaction
     // consolidates when it summarizes old messages (cache miss is expected).
 
-    ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
+    // kickDrainQueue never rejects — a drain failure here would otherwise be
+    // an unhandled rejection that strands the queue with nothing left to
+    // re-trigger it.
+    void ctx.kickDrainQueue(
+      yieldedForHandoff ? "checkpoint_handoff" : "loop_complete",
+      "agent_loop_finally",
+    );
   }
 }
 

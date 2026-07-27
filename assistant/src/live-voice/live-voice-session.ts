@@ -7,7 +7,8 @@ import {
 } from "../calls/media-turn-detector.js";
 import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
 import {
-  couldBeControlMarker,
+  isIncompleteControlMarkerTail,
+  MINIMIZE_ROOM_MARKER,
   stripInternalSpeechMarkers,
 } from "../calls/voice-control-protocol.js";
 import type {
@@ -433,6 +434,9 @@ interface ActiveAssistantTurn {
   progress: TurnProgressState;
   assistantCompleted: boolean;
   ttsDone: boolean;
+  // Latched when the leg's stream contains MINIMIZE_ROOM_MARKER; consumed
+  // once at TTS drain, where the minimize_room frame goes out after tts_done.
+  minimizeRequested: boolean;
   // A tts_audio frame actually went out to the client — latches on the first
   // forwarded chunk so the firstTtsAudio metric is marked exactly once per turn.
   ttsAudioStarted: boolean;
@@ -521,13 +525,82 @@ interface ActiveAssistantTurn {
   assistantAudioSampleRate?: number;
 }
 
+/**
+ * Control-marker hygiene for one model leg's delta stream, shared by the
+ * front-door answer stage and the default/escalated leg. The returned flush
+ * forwards the stripped (stripInternalSpeechMarkers) prefix of `raw` that has
+ * not been emitted yet and cannot contain a still-streaming control marker:
+ * the flush stops at the first "[" whose tail is an incomplete marker
+ * (isIncompleteControlMarkerTail) and holds from there until a later delta
+ * completes or disproves it; `force` (leg completion) emits the held tail so
+ * real text that merely resembles a marker prefix is not dropped. The scan
+ * runs forward from the emitted boundary — not from the last "[" — so
+ * brackets INSIDE a streaming marker body (a JSON array or "]"-bearing string
+ * in ASK_GUARDIAN_APPROVAL) can neither mask the marker's start nor pass as
+ * its terminator. As a side effect the force flush latches the turn's
+ * `minimizeRequested` when the completed stream ENDS with
+ * MINIMIZE_ROOM_MARKER — terminal position only, matching the prompt's
+ * "end the reply with it" contract, so a reply whose CONTENT happens to
+ * contain "[-1]" (an array literal, a temperature) never minimizes the
+ * room. The marker itself is stripped wherever it appears (the shared
+ * marker-strip convention), so the latch is the only observable.
+ */
+function createControlMarkerHoldback(
+  turn: ActiveAssistantTurn,
+  emit: (chunk: string) => void,
+): (raw: string, opts?: { force?: boolean }) => void {
+  let emitted = 0;
+  return (raw, opts) => {
+    if (
+      opts?.force === true &&
+      !turn.minimizeRequested &&
+      raw.trimEnd().endsWith(MINIMIZE_ROOM_MARKER)
+    ) {
+      turn.minimizeRequested = true;
+    }
+    let safeEnd = raw.length;
+    if (opts?.force !== true) {
+      for (
+        let i = raw.indexOf("[", emitted);
+        i !== -1;
+        i = raw.indexOf("[", i + 1)
+      ) {
+        if (isIncompleteControlMarkerTail(raw.slice(i))) {
+          safeEnd = i;
+          break;
+        }
+      }
+    }
+    if (safeEnd > emitted) {
+      emit(stripInternalSpeechMarkers(raw.slice(emitted, safeEnd)));
+      emitted = safeEnd;
+    }
+  };
+}
+
 // Base control prompt for every live-voice turn. When a turn starts from a
 // barge-in, the interruption merge note is appended to it (see
 // buildInterruptionMergeNote) so the model reconciles the interrupted request
 // with the new utterance.
-const LIVE_VOICE_CONTROL_PROMPT =
-  "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. " +
-  VOICE_NO_SETUP_FLOWS_RULE;
+const LIVE_VOICE_CONTROL_PROMPT_BASE =
+  "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. ";
+
+// MINIMIZE_ROOM_MARKER teaching, appended for the legs that can actually put
+// something on screen — the main leg and the escalated leg. The front-door
+// (fast) leg never receives it: that leg is toolless, so it has nothing to
+// show, and its decision rule promises that apart from a leading verdict
+// token every character is spoken verbatim — teaching it the marker would
+// contradict that rule and could only produce spurious minimizes.
+//
+// The teaching deliberately keeps the no-interactive-UI rule intact
+// (live-voice turns are non-interactive, JARVIS-1291): the marker does not
+// render UI — it asks the client to reveal the screen the call overlay
+// covers. The gate in createControlMarkerHoldback strips it from speech, and
+// completeTtsForTurn sends the minimize_room frame only after the reply's
+// TTS drains, so "end your reply with it" is the whole contract the model
+// needs.
+const LIVE_VOICE_MINIMIZE_MARKER_TEACHING =
+  "The call renders as a full-screen overlay covering the app. If this reply created or changed something on screen worth looking at (an app, a page, a document), you may end the reply with the marker [-1]: after you finish speaking, the overlay minimizes so the user can see the screen while the call continues. Use it at most once per reply, only when there is genuinely something new to show, never speak the marker aloud or mention it, and never emit any other bracketed marker. ";
 
 // System-level guidance appended to a barge-in turn's control prompt so the
 // model treats the new utterance as a continuation of the request it was cut
@@ -547,12 +620,20 @@ function buildResurfaceContextNote(continuationResult: string): string {
   return `Earlier the user interrupted you, and in the background you finished the reply they cut off. What you worked out was: "${continuationResult}". If their current message relates to it, use it to answer; otherwise you may briefly offer it or leave it aside, and do not repeat it verbatim if it no longer fits.`;
 }
 
-// Assemble a turn's model-facing control prompt: the base live-voice rules plus
+// Assemble a leg's model-facing control prompt: the base live-voice rules,
+// the [-1] minimize teaching (withheld from the front-door leg — see
+// LIVE_VOICE_MINIMIZE_MARKER_TEACHING), the shared no-setup-flows rule, plus
 // any pending barge-in merge context and/or completed-continuation context. A
-// turn can carry both (a barge-in follow-up that also has a continuation result
-// waiting); the notes are model-only and never render as user bubbles.
-function buildVoiceControlPrompt(turn: ActiveAssistantTurn): string {
-  let prompt = LIVE_VOICE_CONTROL_PROMPT;
+// turn can carry both (a barge-in follow-up that also has a continuation
+// result waiting); the notes are model-only and never render as user bubbles.
+function buildVoiceControlPrompt(
+  turn: ActiveAssistantTurn,
+  leg: { frontDoor?: boolean },
+): string {
+  let prompt =
+    LIVE_VOICE_CONTROL_PROMPT_BASE +
+    (leg.frontDoor === true ? "" : LIVE_VOICE_MINIMIZE_MARKER_TEACHING) +
+    VOICE_NO_SETUP_FLOWS_RULE;
   if (turn.interruptedRequest) {
     prompt = `${prompt}\n\n${buildInterruptionMergeNote(turn.interruptedRequest)}`;
   }
@@ -2465,6 +2546,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       },
       assistantCompleted: false,
       ttsDone: false,
+      minimizeRequested: false,
       ttsAudioStarted: false,
       finalized: false,
       speculativePending: opts?.speculative === true,
@@ -2593,29 +2675,32 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     const { token, utterance, turnId } = activeTurn;
 
-    // Front-door verdict gate (verdict-first protocol — see
-    // voice-triage-escalate.ts). `rawText` accumulates this leg's full
-    // stream; the leg starts in `deciding` until its leading tokens
-    // classify as hold / escalate / answer. An answer flushes through
-    // `flushFrontDoor` (with `frontDoorEmitted` tracking what has been
-    // forwarded); an escalation buffers the post-verdict stream into
-    // `bridgeRaw` until the bridge is complete, then hands off.
+    // `rawText` accumulates this leg's full stream. A front-door leg starts
+    // in `deciding` until its leading tokens classify as hold / escalate /
+    // answer: an answer flushes through the shared marker holdback, while an
+    // escalation buffers the post-verdict stream into `bridgeRaw` until the
+    // bridge is complete, then hands off. A default/escalated leg flushes
+    // every delta through the same holdback, so a stray control marker from
+    // the main model is stripped instead of spoken.
     let rawText = "";
-    let frontDoorEmitted = 0;
     let frontDoorStage: "deciding" | "answer" | "bridging" | "handedOff" =
       "deciding";
     let bridgeRaw = "";
 
-    const emitFrontDoor = (chunk: string): void => {
+    const emitLegText = (chunk: string): void => {
       if (chunk.length === 0) {
         return;
       }
       this.markFirstAssistantDelta(utterance, turnId);
       this.markFirstDeltaForAck(activeTurn);
-      // Same send-time abort gate as the default-leg delta path: a front-door
-      // delta queued behind a backed-up outbound frame must not be written
-      // once barge-in aborts the turn. Escalation aborts the front-door handle,
-      // not this turn's controller, so legitimate front-door text still sends.
+      // Send-time abort gate: a delta queued behind a backed-up outbound
+      // frame must not be written once barge-in aborts the turn, or the
+      // cancelled reply's text leaks ahead of turn_cancelled. Key off this
+      // turn's own abort signal — a normal message_complete finalizes and
+      // clears activeAssistantTurn while trailing deltas may still be
+      // draining, so an activeAssistantTurn-based guard would drop them.
+      // Escalation aborts the front-door handle, not this turn's controller,
+      // so legitimate front-door text still sends.
       void this.sendFrame(
         { type: "assistant_text_delta", text: chunk },
         () => !activeTurn.abortController.signal.aborted && !this.isClosed,
@@ -2623,26 +2708,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.bufferAssistantTextForTts(token, chunk);
     };
 
-    // Forward the stripped, non-partial-marker prefix that has not been
-    // emitted yet (answer stage only). A trailing "[…" that could still
-    // become a control marker is held back until a later delta disproves
-    // it; a real partial that never completes is simply never spoken.
-    const flushFrontDoor = (): void => {
-      let safeEnd = rawText.length;
-      const lastOpen = rawText.lastIndexOf("[");
-      if (lastOpen >= frontDoorEmitted) {
-        const tail = rawText.slice(lastOpen);
-        if (!tail.includes("]") && couldBeControlMarker(tail)) {
-          safeEnd = lastOpen;
-        }
-      }
-      if (safeEnd > frontDoorEmitted) {
-        emitFrontDoor(
-          stripInternalSpeechMarkers(rawText.slice(frontDoorEmitted, safeEnd)),
-        );
-        frontDoorEmitted = safeEnd;
-      }
-    };
+    const flushLegText = createControlMarkerHoldback(activeTurn, emitLegText);
 
     // Hand off once enough of the post-verdict stream has arrived to cap
     // the bridge (sentence terminator or hard cap). Until then nothing is
@@ -2665,7 +2731,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         assistantMessageChannel: "vellum",
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
-        voiceControlPrompt: buildVoiceControlPrompt(activeTurn),
+        voiceControlPrompt: buildVoiceControlPrompt(activeTurn, {
+          ...(leg.frontDoor !== undefined ? { frontDoor: leg.frontDoor } : {}),
+        }),
         content: leg.content,
         isInbound: true,
         launchedAtMs: activeTurn.launchedAtMs,
@@ -2739,7 +2807,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
                 }
                 frontDoorStage = "answer";
               }
-              flushFrontDoor();
+              flushLegText(rawText);
               return;
             }
             // Defensive: speculative legs are always front-door today, but a
@@ -2754,24 +2822,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
                 return;
               }
             }
-            this.markFirstAssistantDelta(utterance, turnId);
-            this.markFirstDeltaForAck(activeTurn);
-            void this.sendFrame(
-              {
-                type: "assistant_text_delta",
-                text: msg.text,
-              },
-              // Re-check at send time (mirrors the tts_audio path): a delta
-              // already queued behind a backed-up outbound frame must not be
-              // written once barge-in has aborted the turn, or the cancelled
-              // reply's text leaks ahead of turn_cancelled. Key off this turn's
-              // own abort signal — a normal message_complete finalizes and
-              // clears activeAssistantTurn while trailing deltas may still be
-              // draining, so an activeAssistantTurn-based guard would drop them.
-              () =>
-                !activeTurn.abortController.signal.aborted && !this.isClosed,
-            );
-            this.bufferAssistantTextForTts(token, msg.text);
+            rawText += msg.text;
+            flushLegText(rawText);
           },
           message_complete: (msg) => {
             const current = this.activeAssistantTurn;
@@ -2812,6 +2864,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // (including the generation_cancelled from its abort) is a no-op.
             if (leg.frontDoor && current.escalationHandedOff) {
               return;
+            }
+            // A held "[…"-tail that never completed a marker is real text —
+            // force-flush it before assistantCompleted closes the TTS buffer
+            // and completeTtsForTurn signals the drain, so it is spoken and
+            // emitted rather than dropped.
+            if (!leg.frontDoor && msg.type === "message_complete") {
+              flushLegText(rawText, { force: true });
             }
             current.assistantCompleted = true;
             if (msg.type === "generation_cancelled") {
@@ -3587,6 +3646,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             currentTurn.finalized &&
             !this.isClosed,
         );
+
+        // Drain-scoped minimize: the latched marker is consumed here, after
+        // the turn's speech has fully drained — never mid-speech, never for
+        // a barged-in turn, at most once per turn.
+        if (
+          currentTurn.minimizeRequested &&
+          !currentTurn.abortController.signal.aborted
+        ) {
+          currentTurn.minimizeRequested = false;
+          await this.sendFrame(
+            { type: "minimize_room", turnId: currentTurn.turnId },
+            () => !this.isClosed,
+          );
+        }
 
         if (this.activeAssistantTurn?.token === token) {
           if (currentTurn.handle && currentTurn.finalized) {
