@@ -200,6 +200,7 @@ describe("sandboxPolicyWithHostFallback", () => {
   afterEach(() => {
     delete process.env.IS_CONTAINERIZED;
     delete process.env.GATEWAY_SECURITY_DIR;
+    delete process.env.CREDENTIAL_SECURITY_DIR;
   });
 
   test("matches sandboxPolicy for in-bounds paths", () => {
@@ -279,7 +280,25 @@ describe("sandboxPolicyWithHostFallback", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe("denied");
-      expect(result.error).toContain("gateway security directory");
+      expect(result.error).toContain("service security directory");
+    }
+  });
+
+  test("denies paths inside the CES security dir (env override)", () => {
+    const boundary = makeTempDir();
+    const securityDir = makeTempDir();
+    process.env.CREDENTIAL_SECURITY_DIR = securityDir;
+
+    for (const basename of ["keys.enc", "store.key"]) {
+      const result = sandboxPolicyWithHostFallback(
+        join(securityDir, basename),
+        boundary,
+        { mustExist: false },
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("denied");
+      }
     }
   });
 

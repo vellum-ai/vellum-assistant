@@ -188,23 +188,33 @@ function safeUserInfoHomedir(): string {
 }
 
 /**
- * Gateway-owned security directory (trust material, token signing keys).
- * The daemon must never read from or write to it — gateway-owned data flows
- * through the gateway's APIs instead (root AGENTS.md). Mirrors the
- * resolution in gateway/src/paths.ts `getGatewaySecurityDir()`, since the
- * cross-package import boundary bars importing it directly:
- * GATEWAY_SECURITY_DIR when set, else `<home>/.vellum/protected`.
+ * Security directories owned by other services: gateway trust material and
+ * token signing keys (GATEWAY_SECURITY_DIR) and CES credential keys
+ * (CREDENTIAL_SECURITY_DIR — `keys.enc`, `store.key`). The daemon must
+ * never read from or write to them — that data flows through the gateway
+ * and CES APIs (root AGENTS.md). The env-based resolution mirrors the
+ * owning services' own resolution, since the cross-package import boundary
+ * bars importing it; the shared bare-metal default `<home>/.vellum/protected`
+ * is always denied. A relative override resolves against the owning
+ * service's cwd, which this process cannot know — the daemon-cwd-resolved
+ * form is denied as a best effort alongside the always-denied default.
  */
-function getGatewaySecurityDirMirror(): string {
-  const override = process.env.GATEWAY_SECURITY_DIR?.trim();
-  if (override) {
-    return resolve(override);
-  }
-  return join(
-    process.env.HOME || safeUserInfoHomedir() || homedir(),
-    ".vellum",
-    "protected",
+function getServiceSecurityDirs(): string[] {
+  const dirs = new Set<string>();
+  dirs.add(
+    join(
+      process.env.HOME || safeUserInfoHomedir() || homedir(),
+      ".vellum",
+      "protected",
+    ),
   );
+  for (const name of ["GATEWAY_SECURITY_DIR", "CREDENTIAL_SECURITY_DIR"]) {
+    const override = process.env[name]?.trim();
+    if (override) {
+      dirs.add(resolve(override));
+    }
+  }
+  return [...dirs];
 }
 
 function isWithinDir(path: string, dir: string): boolean {
@@ -212,26 +222,27 @@ function isWithinDir(path: string, dir: string): boolean {
 }
 
 /**
- * Deny an out-of-workspace target that lands in the gateway security
- * directory. Both the lexical and symlink-resolved target are checked
- * against both the lexical and symlink-resolved directory, so neither a
- * symlinked target nor a symlinked directory prefix can mask the hit.
+ * Deny a target that lands in a service-owned security directory. Both the
+ * lexical and symlink-resolved target are checked against both the lexical
+ * and symlink-resolved directory, so neither a symlinked target nor a
+ * symlinked directory prefix can mask the hit.
  */
-function gatewaySecurityDenial(target: SandboxTarget): PathResult | null {
-  const securityDir = getGatewaySecurityDirMirror();
-  const realSecurityDir = resolveRealPath(securityDir);
-  const hit = [target.resolved, target.realResolved].some(
-    (path) =>
-      isWithinDir(path, securityDir) || isWithinDir(path, realSecurityDir),
-  );
-  if (!hit) {
-    return null;
+function securityDirDenial(target: SandboxTarget): PathResult | null {
+  for (const securityDir of getServiceSecurityDirs()) {
+    const realSecurityDir = resolveRealPath(securityDir);
+    const hit = [target.resolved, target.realResolved].some(
+      (path) =>
+        isWithinDir(path, securityDir) || isWithinDir(path, realSecurityDir),
+    );
+    if (hit) {
+      return {
+        ok: false,
+        reason: "denied",
+        error: "Access to the service security directory is denied",
+      };
+    }
   }
-  return {
-    ok: false,
-    reason: "denied",
-    error: "Access to the gateway security directory is denied",
-  };
+  return null;
 }
 
 function evaluateSandboxPolicy(
@@ -250,9 +261,9 @@ function evaluateSandboxPolicy(
     return outOfBoundsFailure(rawPath, target);
   }
 
-  // Applied unconditionally — even a boundary configured to contain the
-  // gateway security dir must not expose it through the file tools.
-  const securityDenied = gatewaySecurityDenial(target);
+  // Applied unconditionally — even a boundary configured to contain a
+  // service security dir must not expose it through the file tools.
+  const securityDenied = securityDirDenial(target);
   if (securityDenied) {
     return securityDenied;
   }
@@ -293,7 +304,7 @@ export function sandboxPolicy(
  * Identical to {@link sandboxPolicy} for in-bounds targets. A target that
  * escapes the boundary is allowed with host-style validation: the basename
  * denylist still applies to both the logical and symlink-resolved paths, and
- * the gateway security directory stays denied outright.
+ * the service security directories stay denied outright.
  * The permission lane runs before tool execution and classifies
  * out-of-workspace file operations as elevated risk (see the gateway
  * FileRiskClassifier), so an escape reaching this policy has already been
