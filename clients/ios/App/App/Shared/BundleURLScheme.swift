@@ -29,9 +29,9 @@ import Foundation
 /// - **Auth** (`NativeAuthPlugin`) falls back to the production scheme: the
 ///   OAuth callback is not a cross-app launch, and a sign-in that reaches a
 ///   working callback beats one that fails outright.
-/// - **Voice deep links** (`VoiceModeDeepLink`, ``VoiceSessionDeepLink``) do
-///   *not* fall back. Emitting no link is strictly better than launching voice
-///   mode in the wrong app.
+/// - **Voice deep links** (``VoiceModeDeepLink``, shared by the App Intents
+///   and the Live Activity's `widgetURL`) do *not* fall back. Emitting no link
+///   is strictly better than launching voice mode in the wrong app.
 enum BundleURLScheme {
     /// Info.plist key carrying the scheme where `CFBundleURLTypes` is absent.
     static let infoPlistKey = "VellumURLScheme"

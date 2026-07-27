@@ -38,31 +38,6 @@ extension VoiceSessionAttributes.ContentState {
     }
 }
 
-/// Deep link back into the running session.
-///
-/// `mode=resume` is the web-side contract: it foregrounds the app into the
-/// live voice room, falling through to starting a fresh session if the app was
-/// killed and the session no longer exists.
-enum VoiceSessionDeepLink {
-    /// Built from *this* build's own scheme, so a Dev island opens the Dev app
-    /// even with production installed.
-    ///
-    /// `nil` when the appex declares no scheme — a misconfigured build. The
-    /// island then carries no tap target, which is the correct failure: a
-    /// production-scheme fallback would make a Dev island foreground the
-    /// *production* app, the exact mis-routing this indirection prevents. The
-    /// `.widgetURL(_:)` modifier already accepts an optional, so nil simply
-    /// leaves the presentation untappable.
-    static let resume: URL? = {
-        guard let scheme = BundleURLScheme.current else { return nil }
-        var components = URLComponents()
-        components.scheme = scheme
-        components.host = "voice"
-        components.queryItems = [URLQueryItem(name: "mode", value: "resume")]
-        return components.url
-    }()
-}
-
 /// The accent-tinted state indicator: a waveform, tinted with the avatar
 /// accent. Small enough to be the entire content of the minimal presentation
 /// and of the compact leading slot.
