@@ -103,7 +103,8 @@ export function parseBillingCheckoutCompleteDeepLink(
   return null;
 }
 
-export const START_VOICE_DEEP_LINK_HOST = "voice";
+/** Host segment shared with `VoiceModeDeepLink.swift` on the native side. */
+const START_VOICE_DEEP_LINK_HOST = "voice";
 
 /**
  * What a `<scheme>://voice` deep link asks the app to do.
@@ -115,7 +116,7 @@ export const START_VOICE_DEEP_LINK_HOST = "voice";
  *   (Siri's `AskVellumIntent`). `null` whenever the link carries no usable
  *   prompt, which includes every prompt this parser rejects.
  */
-export interface StartVoiceDeepLinkPayload {
+interface StartVoiceDeepLinkPayload {
   mode: "new" | "resume";
   prompt: string | null;
 }

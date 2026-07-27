@@ -12,25 +12,31 @@
  * Settings (see that module's skew contract), and is then fired and forgotten.
  *
  * **Everything runs inside an effect**, reading the store through
- * `useLiveVoiceStore.subscribe` rather than a reactive selector. The controller
- * sets `observeAudioState: false` precisely so the high-frequency amplitude and
- * transcript updates a live session emits never re-render the mounting layout;
- * a selector here would subscribe that layout to session churn all over again.
+ * {@link subscribeSettledLiveVoiceState} rather than a reactive selector. The
+ * controller sets `observeAudioState: false` precisely so the high-frequency
+ * amplitude and transcript updates a live session emits never re-render the
+ * mounting layout; a selector here would subscribe that layout to session churn
+ * all over again. *Settled* state, not raw: a session transition is several
+ * `set()` calls, and a reconnect's `reset()` → `setState("connecting")` pair
+ * would otherwise end and immediately re-request the activity — a visible
+ * island flicker on every retry.
  *
  * **Updates are pushed only when the content actually changes.** ActivityKit
  * rate-limits updates and silently drops the overflow, so an activity that
  * spends its budget on redundant pushes stops reflecting the session at all.
- * The mirror therefore reads only the four `ContentState` inputs (phase,
- * reconnecting, muted, accent) and compares each candidate against the last
- * payload it pushed. `inputAmplitude` is never read: it changes per animation
- * frame and would exhaust the budget within a second.
+ * The mirror therefore reads only what a `ContentState` is built from (phase,
+ * reconnecting, `assistantAudioActive` for the label remap, muted, accent) and
+ * compares each candidate against the last payload it pushed. `inputAmplitude`
+ * is never read: it changes per animation frame and would exhaust the budget
+ * within a second.
  */
 
 import { useEffect } from "react";
 
 import {
   isLiveVoiceSessionActive,
-  liveVoiceStateLabel,
+  liveVoiceSurfaceLabel,
+  subscribeSettledLiveVoiceState,
   useLiveVoiceStore,
   type LiveVoiceState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -41,7 +47,6 @@ import {
   updateVoiceLiveActivity,
   type VoiceLiveActivityContent,
 } from "@/runtime/native-live-activity";
-import { fireAndForgetNativeVoice } from "@/runtime/native-voice";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { assistantDisplayName } from "@/utils/assistant-display-name";
 
@@ -62,9 +67,15 @@ function toActivityContent(
   }
   return {
     phase: session.state,
-    // The room's label, verbatim — including its "Reconnecting…" relabel — so
-    // the island never has wording of its own to drift from.
-    label: liveVoiceStateLabel(session.state, session.reconnecting),
+    // The room's label, verbatim — the same `liveVoiceSurfaceLabel` call the
+    // room makes, including both its "Reconnecting…" relabel and its
+    // silent-`speaking` → "Thinking…" remap — so the island never has wording
+    // of its own to drift from.
+    label: liveVoiceSurfaceLabel(
+      session.state,
+      session.reconnecting,
+      session.assistantAudioActive,
+    ),
     // The accent the avatar (and therefore the voice room) renders. `""` for
     // an avatar with no color to match: the native side canonicalizes
     // unparseable input to its neutral gray. An avatar still loading when the
@@ -107,23 +118,21 @@ export function useLiveActivityMirror(): void {
           return;
         }
         pushed = null;
-        fireAndForgetNativeVoice(endVoiceLiveActivity());
+        void endVoiceLiveActivity();
         return;
       }
 
       if (pushed === null) {
         pushed = content;
-        fireAndForgetNativeVoice(
-          startVoiceLiveActivity({
-            ...content,
-            // An `ActivityAttributes` field, not `ContentState`: fixed for the
-            // activity's lifetime, so it is read once here and never pushed
-            // again.
-            assistantName: assistantDisplayName(
-              useAssistantIdentityStore.getState().name,
-            ),
-          }),
-        );
+        void startVoiceLiveActivity({
+          ...content,
+          // An `ActivityAttributes` field, not `ContentState`: fixed for the
+          // activity's lifetime, so it is read once here and never pushed
+          // again.
+          assistantName: assistantDisplayName(
+            useAssistantIdentityStore.getState().name,
+          ),
+        });
         return;
       }
 
@@ -131,7 +140,7 @@ export function useLiveActivityMirror(): void {
         return;
       }
       pushed = content;
-      fireAndForgetNativeVoice(updateVoiceLiveActivity(content));
+      void updateVoiceLiveActivity(content);
     };
 
     // A session can already be running when this mounts — the controller
@@ -139,7 +148,7 @@ export function useLiveActivityMirror(): void {
     // plugin holds at most one activity, so a redundant `start` updates the
     // running one rather than stacking a second island.
     sync(useLiveVoiceStore.getState());
-    const unsubscribe = useLiveVoiceStore.subscribe(sync);
+    const unsubscribe = subscribeSettledLiveVoiceState(sync);
 
     return () => {
       unsubscribe();
@@ -147,7 +156,7 @@ export function useLiveActivityMirror(): void {
       // phase nothing is driving.
       if (pushed !== null) {
         pushed = null;
-        fireAndForgetNativeVoice(endVoiceLiveActivity());
+        void endVoiceLiveActivity();
       }
     };
   }, []);

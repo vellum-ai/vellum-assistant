@@ -19,39 +19,39 @@
  *
  * That fallback also covers the case where the user has turned Live Activities
  * off for the app in iOS Settings — the plugin reports that as
- * {@link isVoiceLiveActivityAvailable} resolving `false` and
- * {@link startVoiceLiveActivity} resolving `false`, never as an error.
+ * {@link startVoiceLiveActivity} resolving `false`, never as an error. There is
+ * no separate availability probe: `start` resolving `false` already covers
+ * every "no island here" case, and a probe that can itself be absent just moves
+ * the problem.
  *
  * Reference: https://developer.apple.com/documentation/activitykit/activity
  */
 
 import { registerPlugin } from "@capacitor/core";
 
-import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
+import type { ActiveLiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { callNativeVoice } from "@/runtime/native-voice";
-
-/**
- * Session phase the island renders. Exactly the non-`idle`
- * {@link LiveVoiceSessionState} values, derived rather than restated so the two
- * cannot drift.
- *
- * `idle` is excluded because an idle session has no Live Activity at all — the
- * mirror ends the activity instead of pushing an idle phase.
- *
- * These raw strings cross the bridge and are decoded by
- * `VoiceSessionAttributes.ContentState.Phase` in
- * `clients/ios/App/App/Shared/VoiceSessionAttributes.swift`. **The two must
- * change together**: a value added or renamed here without a matching Swift
- * case fails to decode on the native side.
- */
-export type VoiceLiveActivityPhase = Exclude<LiveVoiceSessionState, "idle">;
 
 /** The mutable half of the activity — everything that can change mid-session. */
 export interface VoiceLiveActivityContent {
-  phase: VoiceLiveActivityPhase;
   /**
-   * User-facing activity copy. Pass `liveVoiceStateLabel(state, reconnecting)`
-   * so the island shows exactly what the voice room shows; the native side
+   * Session phase the island renders — exactly the phases of a *running*
+   * session, which is why the type is `isLiveVoiceSessionActive`'s narrowed
+   * result rather than a restated union that could drift from it. `idle` is the
+   * absence of a session and `failed` ends the activity rather than rendering
+   * as a phase, so neither has an island to appear on.
+   *
+   * These raw strings cross the bridge and are decoded by
+   * `VoiceSessionAttributes.ContentState.Phase` in
+   * `clients/ios/App/App/Shared/VoiceSessionAttributes.swift`. **The two must
+   * change together**: a value added or renamed here without a matching Swift
+   * case fails to decode on the native side.
+   */
+  phase: ActiveLiveVoiceSessionState;
+  /**
+   * User-facing activity copy. Pass
+   * `liveVoiceSurfaceLabel(state, reconnecting, assistantAudioActive)` so the
+   * island shows exactly what the voice room shows; the native side
    * deliberately owns no phase wording of its own.
    */
   label: string;
@@ -66,7 +66,6 @@ export interface VoiceLiveActivityStart extends VoiceLiveActivityContent {
 }
 
 interface VoiceLiveActivityPlugin {
-  isAvailable(): Promise<{ available: boolean }>;
   start(options: VoiceLiveActivityStart): Promise<{ started: boolean }>;
   update(content: VoiceLiveActivityContent): Promise<void>;
   end(): Promise<void>;
@@ -76,30 +75,9 @@ const VoiceLiveActivity =
   registerPlugin<VoiceLiveActivityPlugin>("VoiceLiveActivity");
 
 /**
- * Whether this device can show a voice Live Activity right now — `false`
- * off-iOS, on a shell without the plugin, and when the user has disabled Live
- * Activities for the app in Settings.
- *
- * Callers do not need this to be safe: {@link startVoiceLiveActivity} already
- * resolves `false` in every one of those cases. It exists for surfaces that
- * want to know before they ask.
- */
-export async function isVoiceLiveActivityAvailable(): Promise<boolean> {
-  return callNativeVoice(async () => {
-    // Only the result crosses this `async` boundary, never `VoiceLiveActivity`
-    // itself: per `docs/CAPACITOR.md` § "Capacitor plugins must be destructured
-    // inline", a plugin Proxy in a Promise-resolution context dispatches a
-    // native `then()` that never resolves and hangs the caller forever.
-    const { available } = await VoiceLiveActivity.isAvailable();
-    // Normalized rather than returned raw — the bridge payload is untyped at
-    // runtime, and a shell that answers `{}` must read as "not available".
-    return available === true;
-  }, false);
-}
-
-/**
  * Show a Live Activity for a session that just became active. Resolves whether
- * one is now running.
+ * one is now running — `false` off-iOS, on a shell without the plugin, and when
+ * the user has disabled Live Activities for the app in Settings.
  *
  * Safe to call when one is already running: the plugin updates it rather than
  * requesting a second island. Pair every call with {@link endVoiceLiveActivity}
@@ -110,7 +88,13 @@ export async function startVoiceLiveActivity(
   options: VoiceLiveActivityStart,
 ): Promise<boolean> {
   return callNativeVoice(async () => {
+    // Only the result crosses this `async` boundary, never `VoiceLiveActivity`
+    // itself: per `docs/CAPACITOR.md` § "Capacitor plugins must be destructured
+    // inline", a plugin Proxy in a Promise-resolution context dispatches a
+    // native `then()` that never resolves and hangs the caller forever.
     const { started } = await VoiceLiveActivity.start(options);
+    // Normalized rather than returned raw — the bridge payload is untyped at
+    // runtime, and a shell that answers `{}` must read as "not running".
     return started === true;
   }, false);
 }

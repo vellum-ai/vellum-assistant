@@ -135,7 +135,7 @@ The shell registers **four** Capacitor plugins in [`MyViewController.capacitorDi
 | --- | --- | --- |
 | `NativeAuth` | [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts) | `ASWebAuthenticationSession` OIDC flow |
 | `NativeBiometric` | [`src/runtime/native-biometric.ts`](../src/runtime/native-biometric.ts) | Face ID / Touch ID Keychain |
-| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | `.playAndRecord` / `.voiceChat` session + interruption and route-change events |
+| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | `.playAndRecord` / `.voiceChat` session + interruption events |
 | `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | The one ActivityKit activity mirroring a session |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
@@ -146,35 +146,15 @@ The two voice plugins are consumed only through `use-live-voice-session-controll
 
 This is a rule, not a caveat. The iOS app is a `server.url` shell: it bundles no web assets and navigates `WKWebView` straight at the deployed origin at launch (see [`clients/ios/README.md` § Web content delivery](../../../clients/ios/README.md#web-content-delivery)). So this bundle is live for every iOS user on their next app load, while the shell hosting it only changes after an App Store review cycle. At any moment an arbitrarily old shell can be running an arbitrarily new bundle. There is no build flag that tells you which.
 
-**Route every JS → native voice call through `callNativeVoice`** ([`src/runtime/native-voice.ts`](../src/runtime/native-voice.ts)). It returns the fallback off-iOS and on any bridge failure, and never throws:
-
-```ts
-export async function callNativeVoice<T>(
-  invoke: () => Promise<T>,
-  fallback: T,
-): Promise<T> {
-  if (!isNativeIOS()) {
-    return fallback;
-  }
-  try {
-    return await invoke();
-  } catch (err) {
-    // `console.debug`, not `captureError`: an older App Store shell without the
-    // plugin is an expected state on every web deploy, not a fault, and
-    // reporting it would spam Sentry once per skewed install.
-    console.debug("[native-voice] bridge call unavailable:", err);
-    return fallback;
-  }
-}
-```
+**Route every JS → native voice call through `callNativeVoice`** ([`src/runtime/native-voice.ts`](../src/runtime/native-voice.ts) — read it there, it is twenty lines). It short-circuits off-iOS, swallows any bridge failure into the caller's fallback, and never throws or rejects.
 
 Three things follow from the rule:
 
 - **Pick a fallback the caller can proceed with.** `activateVoiceAudioSession()` resolves `false`, `endVoiceLiveActivity()` resolves `undefined`. There is no error branch to write, and no call site may treat a `false` as a reason not to start a session.
-- **Fire and forget at the call site.** Use `fireAndForgetNativeVoice()` from the same module. `callNativeVoice` already swallows failures, so this is belt-and-braces — but it keeps "a hung or failed bridge call must never delay a voice session" a property each call site owns locally, and it makes the call site testable against a bridge that rejects outright.
+- **Fire and forget at the call site.** A bare `void` is enough: because every export in these modules goes through `callNativeVoice`, none of them can reject, so there is no rejection for a call site to handle. A hung or failed bridge call must never delay a voice session.
 - **Destructure the plugin inline inside `invoke`.** The lazy-import rule at the top of this document applies verbatim: only the *result* may cross the `async` boundary, never the plugin Proxy.
 
-A capability probe is not a substitute. `VoiceLiveActivity.isAvailable()` exists (it also reports whether the user has disabled Live Activities in Settings), but the mirror does not consult it — `start` resolving `false` already covers every case, and a probe that can itself be absent just moves the problem. `VoiceAudioSessionPlugin` has an `isAvailable` method too, and the web module deliberately does not expose it: `activateVoiceAudioSession()` resolving `false` *is* the probe, and it is the only answer a caller can act on.
+**No capability probes.** Neither voice plugin exposes an `isAvailable`, and neither web module wants one: `startVoiceLiveActivity()` resolving `false` and `activateVoiceAudioSession()` resolving `false` already cover every reason there is no native side — off-iOS, an older shell, and (for Live Activities) the user having switched them off in Settings. A probe that can itself be absent just moves the problem, and it is the only answer a caller could act on anyway.
 
 ### The background-audio contract
 

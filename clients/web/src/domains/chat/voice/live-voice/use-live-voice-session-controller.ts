@@ -40,6 +40,7 @@ import {
 import {
   endLiveVoiceSession,
   isLiveVoiceSessionActive,
+  subscribeSettledLiveVoiceState,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -50,7 +51,6 @@ import {
   deactivateVoiceAudioSession,
   subscribeVoiceAudioInterruptions,
 } from "@/runtime/native-audio-session";
-import { fireAndForgetNativeVoice } from "@/runtime/native-voice";
 
 /** Injectable primitive factories, for tests. */
 export type UseLiveVoiceSessionControllerOptions = Pick<
@@ -67,11 +67,14 @@ export type UseLiveVoiceSessionControllerOptions = Pick<
  * a reconnect — are covered symmetrically, and so `failed` releases the audio
  * session just as `idle` does.
  *
- * Everything runs through `useLiveVoiceStore.subscribe` inside an effect, never
- * a reactive selector in a render body: the controller sets
+ * Everything runs through {@link subscribeSettledLiveVoiceState} inside an
+ * effect, never a reactive selector in a render body: the controller sets
  * `observeAudioState: false` precisely so high-frequency amplitude/transcript
  * updates do not re-render the mounting layout, and reading `state` reactively
- * here would subscribe the layout to session churn all over again.
+ * here would subscribe the layout to session churn all over again. Settled
+ * rather than raw because a reconnect passes through `idle` on its way back to
+ * `connecting` within one tick, and tearing the audio session down and back up
+ * on every retry is exactly what the `audio` background mode exists to prevent.
  *
  * Off the iOS shell every call is a no-op (see `runtime/native-audio-session`),
  * so this is inert in the browser and on Electron.
@@ -89,15 +92,17 @@ function useNativeAudioSessionLifecycle(): void {
         return;
       }
       holdingAudioSession = active;
-      fireAndForgetNativeVoice(
-        active ? activateVoiceAudioSession() : deactivateVoiceAudioSession(),
-      );
+      void (active
+        ? activateVoiceAudioSession()
+        : deactivateVoiceAudioSession());
     };
 
     // A session can already be running when this mounts (the controller
     // remounts across layout-level route changes while the store persists).
     sync(useLiveVoiceStore.getState().state);
-    const unsubscribeStore = useLiveVoiceStore.subscribe((s) => sync(s.state));
+    const unsubscribeStore = subscribeSettledLiveVoiceState((s) =>
+      sync(s.state),
+    );
 
     const unsubscribeInterruptions = subscribeVoiceAudioInterruptions(
       (event) => {
@@ -123,7 +128,7 @@ function useNativeAudioSessionLifecycle(): void {
       // orders where it has not.
       if (holdingAudioSession) {
         holdingAudioSession = false;
-        fireAndForgetNativeVoice(deactivateVoiceAudioSession());
+        void deactivateVoiceAudioSession();
       }
     };
   }, []);

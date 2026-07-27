@@ -49,7 +49,7 @@ import {
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
-  liveVoiceStateLabel,
+  liveVoiceSurfaceLabel,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
   useLiveVoiceStore,
@@ -150,10 +150,13 @@ function VoiceRoomOverlay() {
   // The label + sr-only announcement must follow the same audio-aware mapping as
   // the visual: a silent mid-turn `speaking` (ack spoken, tool now running)
   // reads as "Thinking…", not "Speaking…", so screen-reader users aren't told
-  // the assistant is talking while it's actually silent (JARVIS-1279).
-  const labelState =
-    state === "speaking" && !assistantAudioActive ? "thinking" : state;
-  const stateLabel = liveVoiceStateLabel(labelState, reconnecting);
+  // the assistant is talking while it's actually silent (JARVIS-1279). Shared
+  // with the iOS Live Activity mirror, which shows this exact string.
+  const stateLabel = liveVoiceSurfaceLabel(
+    state,
+    reconnecting,
+    assistantAudioActive,
+  );
 
   // The state caption (e.g. "Listening…") shows only while the assistant
   // transcript is hidden; the captions toggle itself lives in the room's

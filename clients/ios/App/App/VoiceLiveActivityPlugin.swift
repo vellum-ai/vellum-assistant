@@ -34,10 +34,11 @@ import Foundation
 /// swallows failures through `callNativeVoice`. A Live Activity is a flourish —
 /// a session must run identically without it.
 ///
-/// `isAvailable` is both the shell-version probe (an older App Store shell
-/// rejects the call with Capacitor's "not implemented") *and* the user-
-/// preference probe: Live Activities can be switched off per-app in Settings,
-/// which must read as `false`, never as an error.
+/// There is deliberately no separate availability probe. `start` resolving
+/// `started: false` already covers every "no island here" case — an older App
+/// Store shell (whose rejection `callNativeVoice` turns into the same `false`)
+/// and Live Activities switched off per-app in Settings, which is a user
+/// preference and never an error.
 ///
 /// ## No stranded islands
 ///
@@ -55,7 +56,6 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "VoiceLiveActivityPlugin"
     public let jsName = "VoiceLiveActivity"
     public let pluginMethods: [CAPPluginMethod] = [
-        CAPPluginMethod(name: "isAvailable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "end", returnType: CAPPluginReturnPromise),
@@ -93,15 +93,6 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     deinit {
         guard let activity else { return }
         Task { await activity.end(nil, dismissalPolicy: .immediate) }
-    }
-
-    // MARK: - isAvailable
-
-    /// Capability probe: `false` when the user has turned Live Activities off
-    /// for this app in Settings, and a rejection (which the web side reads as
-    /// `false`) on a shell that predates this plugin.
-    @objc public func isAvailable(_ call: CAPPluginCall) {
-        call.resolve(["available": ActivityAuthorizationInfo().areActivitiesEnabled])
     }
 
     // MARK: - start

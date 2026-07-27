@@ -94,6 +94,31 @@ export function liveVoiceStateLabel(
 }
 
 /**
+ * The label a *surface* shows for a session — {@link liveVoiceStateLabel} plus
+ * the audio-aware `speaking` remap.
+ *
+ * `speaking` stays set across a mid-turn tool run: the assistant spoke an ack,
+ * then went silent while a tool runs. Announcing "Speaking…" while nothing is
+ * audible is wrong for the room's caption, wrong for its screen-reader
+ * announcement, and wrong for the Dynamic Island (JARVIS-1279). Every surface
+ * that renders session activity calls this — the voice room and the iOS Live
+ * Activity mirror — so the island always reads exactly what the room reads.
+ *
+ * {@link liveVoiceStateLabel} stays the lower layer for callers that have no
+ * audio signal to consult.
+ */
+export function liveVoiceSurfaceLabel(
+  state: LiveVoiceSessionState,
+  reconnecting: boolean,
+  assistantAudioActive: boolean,
+): string {
+  return liveVoiceStateLabel(
+    state === "speaking" && !assistantAudioActive ? "thinking" : state,
+    reconnecting,
+  );
+}
+
+/**
  * Imperative controls for the active session, registered by the
  * {@link useLiveVoice} controller instance that owns it. Lets a globally
  * mounted component (e.g. the title-bar session pill) drive a session owned by
@@ -355,13 +380,24 @@ export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
 // ---------------------------------------------------------------------------
 
 /**
+ * The phases of a session that is actually running — everything
+ * {@link isLiveVoiceSessionActive} admits. Surfaces that only exist for a
+ * running session (the iOS Live Activity's phase) derive their own union from
+ * this rather than restating it, so the two cannot drift.
+ */
+export type ActiveLiveVoiceSessionState = Exclude<
+  LiveVoiceSessionState,
+  "idle" | "failed"
+>;
+
+/**
  * Whether `state` is a live session phase (anything but idle/failed). Narrows,
  * so callers that only handle a running session — e.g. mapping the phase onto
  * a surface's own narrower union — get that for free.
  */
 export function isLiveVoiceSessionActive(
   state: LiveVoiceSessionState,
-): state is Exclude<LiveVoiceSessionState, "idle" | "failed"> {
+): state is ActiveLiveVoiceSessionState {
   return state !== "idle" && state !== "failed";
 }
 
@@ -486,6 +522,57 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
 }));
 
 export const useLiveVoiceStore = createSelectors(useLiveVoiceStoreBase);
+
+/**
+ * Subscribe to the *settled* session state: the store as it stands once the
+ * current synchronous burst of `set()` calls has finished.
+ *
+ * `useLiveVoiceStore.subscribe` fires synchronously on every single `set()`,
+ * and a session transition is rarely one `set()`. Starting a session runs
+ * `reset()` (→ `idle`) immediately followed by `setState("connecting")`, then
+ * re-applies `reconnecting`, the session context, the carried-over `muted`, and
+ * the controls — so a raw subscriber sees an `idle` that never existed as a
+ * state of the world, plus four intermediate frames of a half-built session.
+ *
+ * React consumers never notice: they read through selectors and React batches
+ * the burst into one render. Consumers that drive *the world* do, and for them
+ * that phantom `idle` is destructive rather than cosmetic — on every hands-free
+ * reconnect (a dropped velay socket, JARVIS-1255/1256) it tears down and
+ * immediately re-creates the `AVAudioSession`, possibly while backgrounded or
+ * locked, and ends and restarts the Live Activity so the island visibly
+ * disappears and comes back.
+ *
+ * So: coalesce the burst into one microtask and hand the listener a fresh
+ * `getState()`. A superseded state never reaches it, and a transition costs one
+ * callback instead of five — which also keeps the mirror inside ActivityKit's
+ * update budget. A microtask rather than a timer, so nothing observable is
+ * deferred past the transition itself.
+ */
+export function subscribeSettledLiveVoiceState(
+  listener: (session: LiveVoiceState) => void,
+): () => void {
+  let scheduled = false;
+  let disposed = false;
+  const unsubscribe = useLiveVoiceStore.subscribe(() => {
+    if (scheduled) {
+      return;
+    }
+    scheduled = true;
+    queueMicrotask(() => {
+      scheduled = false;
+      // Unsubscribed inside the burst — a controller unmounting mid-transition.
+      // Its own teardown is authoritative; this must not fire after it.
+      if (disposed) {
+        return;
+      }
+      listener(useLiveVoiceStore.getState());
+    });
+  });
+  return () => {
+    disposed = true;
+    unsubscribe();
+  };
+}
 
 /**
  * Stable amplitude poll function for waveform canvases: sampled ~30 Hz inside

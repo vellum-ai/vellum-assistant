@@ -38,21 +38,14 @@ import { isNativeIOS } from "@/runtime/platform-detection";
  * An `AVAudioSession` interruption — something else took the audio hardware.
  *
  * - `began` — a phone call, a Siri invocation, or another app grabbed the mic.
- * - `ended` — the interrupting activity finished. `shouldResume` mirrors
- *   Apple's `.shouldResume` option; we deliberately do not act on it (see
- *   {@link subscribeVoiceAudioInterruptions}).
+ * - `ended` — the interrupting activity finished.
+ *
+ * Apple's `.shouldResume` option is deliberately not carried: the session is
+ * over by the time `ended` arrives and the user restarts explicitly, so there
+ * is nothing to resume (see {@link subscribeVoiceAudioInterruptions}).
  */
 export interface VoiceAudioInterruptionEvent {
   type: "began" | "ended";
-  shouldResume: boolean;
-}
-
-/**
- * An `AVAudioSession` route change (AirPods connected/removed, …). The plugin
- * emits these; nothing consumes them yet, so no subscriber is exported.
- */
-interface VoiceAudioRouteChangeEvent {
-  reason: string;
 }
 
 interface VoiceAudioSessionPlugin {
@@ -61,10 +54,6 @@ interface VoiceAudioSessionPlugin {
   addListener(
     eventName: "voiceAudioInterruption",
     handler: (event: VoiceAudioInterruptionEvent) => void,
-  ): Promise<PluginListenerHandle>;
-  addListener(
-    eventName: "voiceAudioRouteChange",
-    handler: (event: VoiceAudioRouteChangeEvent) => void,
   ): Promise<PluginListenerHandle>;
 }
 

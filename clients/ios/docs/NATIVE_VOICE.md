@@ -20,7 +20,7 @@ exactly four things:
 
 | Native surface | What it is |
 | --- | --- |
-| `VoiceAudioSessionPlugin` | Owns `AVAudioSession` for the duration of a session (`.playAndRecord` / `.voiceChat`), and reports interruptions and route changes |
+| `VoiceAudioSessionPlugin` | Owns `AVAudioSession` for the duration of a session (`.playAndRecord` / `.voiceChat`), and reports interruptions |
 | `VoiceLiveActivityPlugin` | Requests, updates, and ends the one ActivityKit activity mirroring the session |
 | `VoiceActivity` widget extension | Renders that activity on the Lock Screen and in the Dynamic Island, plus the Control Center control |
 | App Intents + `AppShortcutsProvider` | Turn a Siri phrase, a Spotlight hit, an Action Button press, or a control tap into a `<scheme>://voice` URL |
@@ -37,9 +37,9 @@ One direction of data (web → native) and one of commands (native → web).
 
 ```
 live-voice-store.ts            zustand store; `state`, `muted`, `reconnecting`
-        │  useLiveVoiceStore.subscribe (inside an effect, never a selector)
+        │  subscribeSettledLiveVoiceState (inside an effect, never a selector)
         ▼
-use-live-activity-mirror.ts    diffs the four ContentState fields, drops no-op pushes
+use-live-activity-mirror.ts    diffs the ContentState fields, drops no-op pushes
         │  startVoiceLiveActivity / updateVoiceLiveActivity / endVoiceLiveActivity
         ▼
 runtime/native-live-activity.ts   every call wrapped in callNativeVoice
@@ -86,45 +86,47 @@ idle | connecting | listening | transcribing | thinking | speaking | ending | fa
 
 `VoiceSessionAttributes.ContentState.Phase` in
 [`App/App/Shared/VoiceSessionAttributes.swift`](../App/App/Shared/VoiceSessionAttributes.swift)
-declares the same cases **minus `idle`**, with raw values that string-match. The
-web side sends those raw strings across the Capacitor bridge and
-`VoiceLiveActivityPlugin.contentState(from:)` decodes them with
+declares the same cases **minus `idle` and `failed`**, with raw values that
+string-match. The web side sends those raw strings across the Capacitor bridge
+and `VoiceLiveActivityPlugin.contentState(from:)` decodes them with
 `Phase(rawValue:)`, so a case added or renamed on one side without the other
 fails to decode and the plugin rejects the call. The TypeScript type is
-`Exclude<LiveVoiceSessionState, "idle">` — derived, not restated — so a web-side
-rename is a compile error on the web and a silent decode failure natively. **The
-native enum is the half that has to be remembered.**
+`ActiveLiveVoiceSessionState` — the type `isLiveVoiceSessionActive()` narrows
+to, derived rather than restated — so a web-side rename is a compile error on
+the web and a silent decode failure natively. **The native enum is the half that
+has to be remembered.**
 
-`idle` is absent because an idle session has no Live Activity; a case for it
-would be unreachable state the island UI would still have to handle.
-
-One asymmetry worth knowing: `Phase.failed` exists but the mirror never sends
-it. `isLiveVoiceSessionActive()` excludes `failed` as well as `idle`, so
-`toActivityContent()` returns `null` and the mirror *ends* the activity on a
-failure — the failure is surfaced in the app, where it can be dismissed, and an
-island the user cannot act on is worse than none. The case is kept so the wire
-model stays a faithful mirror of the web enum rather than a filtered one.
+Both omissions are the same rule: a Live Activity exists only for a *running*
+session. `idle` is the absence of one, and on a failure `toActivityContent()`
+returns `null` and the mirror *ends* the activity rather than rendering it — the
+failure is surfaced in the app, where it can be dismissed, and an island the user
+cannot act on is worse than none. A case for either would be unreachable state
+the island UI would still have to handle.
 
 ### Why label copy comes from the web
 
 `ContentState.label` is a string passed through from
-`liveVoiceStateLabel(state, reconnecting)`. The native side never switches on
-`phase` to produce wording — not in the expanded island, not in the compact
-slots, not on the Lock Screen. Three reasons, in order of importance:
+`liveVoiceSurfaceLabel(state, reconnecting, assistantAudioActive)` — the *same
+call the voice room makes*, so the island reads exactly what the room reads. The
+native side never switches on `phase` to produce wording — not in the expanded
+island, not in the compact slots, not on the Lock Screen. Three reasons, in order
+of importance:
 
 1. **Cadence.** `LIVE_VOICE_STATE_LABELS` deploys continuously; this shell ships
    on App Store review. A native `switch` would fossilize whatever wording was
    current at submission and drift silently from the room the user is looking at.
-2. **One relabel rule.** `liveVoiceStateLabel` maps `connecting` +
-   `reconnecting` to "Reconnecting…". Reproducing that natively means shipping
-   `reconnecting` across the bridge and duplicating the rule.
+2. **Two relabel rules, neither derivable from `phase` alone.**
+   `liveVoiceSurfaceLabel` maps `connecting` + `reconnecting` to "Reconnecting…",
+   and a `speaking` with no audio actually playing to "Thinking…" — `speaking`
+   stays set across a mid-turn tool run (JARVIS-1279). Reproducing either
+   natively means shipping more state across the bridge and duplicating the rule.
 3. **Localization.** The web layer already owns user-facing copy.
 
 The compact trailing slot is very tight. It *truncates* the passed label
 (`.lineLimit(1)` + `.truncationMode(.tail)` in `VoiceSessionText`); it does not
-substitute a shorter native string. `LIVE_VOICE_STATE_LABELS` maps `failed` to
-`""`, so `VoiceSessionText` renders nothing at all for an empty string rather
-than an empty `Text` that still claims layout space.
+substitute a shorter native string. Every phase that reaches an activity has a
+non-empty label, so there is no empty-string case for `VoiceSessionText` to
+handle.
 
 ## The deep-link contract
 
@@ -244,10 +246,12 @@ everywhere you would think to look.
 App Intents database at install time, outside the app's process. Verification is
 manual: install, wait for indexing, and say each phrase to Siri.
 
-Translations live in `App/App/Intents/en.lproj/AppShortcuts.strings` (and
-siblings), keyed by the English phrase with the token spelled
-`${applicationName}` — the strings-file form of the same token. Every phrase in
-every locale must keep it.
+Translations live in `App/App/Intents/<locale>.lproj/AppShortcuts.strings`, keyed
+by the English phrase with the token spelled `${applicationName}` — the
+strings-file form of the same token. Every phrase in every locale must keep it.
+There is no `en.lproj`: App Intents falls back to the Swift literals, so an
+English table would be identity mappings and a second place for the phrases to
+drift.
 
 ## `VOICE_ACTIVITY_EXTENSION` — what compiles out of the appex
 
@@ -468,7 +472,7 @@ agree character for character across the portal, the xcconfigs, and
 
 | Path | Role |
 | --- | --- |
-| `App/App/VoiceAudioSessionPlugin.swift` | `AVAudioSession` ownership, interruption and route-change events |
+| `App/App/VoiceAudioSessionPlugin.swift` | `AVAudioSession` ownership, interruption events |
 | `App/App/VoiceLiveActivityPlugin.swift` | ActivityKit lifecycle, at most one activity |
 | `App/App/MyViewController.swift` | Registers all four plugins in `capacitorDidLoad()` |
 | `App/App/AppDelegate.swift` | Voice command stash + replay; `applicationWillTerminate` island teardown |
@@ -477,7 +481,7 @@ agree character for character across the portal, the xcconfigs, and
 | `App/App/Shared/BundleURLScheme.swift` | Per-build scheme resolution, deliberately optional |
 | `App/App/Shared/CSSHexColor.swift` | `UIColor`/`Color` from a CSS hex, plus contrast-picking |
 | `App/App/Shared/StartNewVoiceConversationIntent.swift` | In `Shared/` because the Control Center control needs the type |
-| `App/App/Intents/` | The other two intents, `VoiceAppShortcuts`, `en.lproj/AppShortcuts.strings` |
+| `App/App/Intents/` | The other two intents and `VoiceAppShortcuts` |
 | `App/VoiceActivity/` | Widget extension: bundle, Live Activity, island views, Control Center control |
 | `App/App/Config/Extension*.xcconfig` | Extension build settings; bundle IDs, schemes, profile specifiers |
 | `App/project.yml` | Six targets, `VOICE_ACTIVITY_EXTENSION`, embed relationships |

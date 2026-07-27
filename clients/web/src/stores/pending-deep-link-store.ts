@@ -29,14 +29,16 @@ export interface PendingDeepLinkState {
   /** Latest pending `deeplink.send` message text, or `null` if none. */
   pendingComposerMessage: string | null;
   /**
-   * Whether a `deeplink.startVoice` is waiting for a live-voice session
-   * starter. Same cold-launch race as `pendingComposerMessage`: the starter is
-   * registered by `useLiveVoiceSessionController` at `ChatLayout` scope, so it
-   * does not exist yet when a launch deep link fires (and never exists on
-   * settings / logs / account routes). Boolean rather than a payload — a
-   * second link before the drain is the same request.
+   * When a `deeplink.startVoice` was parked waiting for a live-voice session
+   * starter (`Date.now()`), or `null` if none is. Same cold-launch race as
+   * `pendingComposerMessage`: the starter is registered by
+   * `useLiveVoiceSessionController` at `ChatLayout` scope, so it does not exist
+   * yet when a launch deep link fires (and never exists on settings / logs /
+   * account routes). A timestamp rather than a payload — a second link before
+   * the drain is the same request, but the drain needs to know how stale it is
+   * (see `consumePendingVoiceStart`).
    */
-  pendingVoiceStart: boolean;
+  pendingVoiceStartAt: number | null;
 }
 
 export interface PendingDeepLinkActions {
@@ -54,10 +56,14 @@ export interface PendingDeepLinkActions {
   /** Park a start-voice deep link until a session starter is registered. */
   setPendingVoiceStart: () => void;
   /**
-   * Read and clear the parked start-voice request. Returns `false` if none was
-   * parked. Used by `drainPendingVoiceStartDeepLink` in the live-voice domain.
+   * Read and clear the parked start-voice request. Returns `false` when none
+   * was parked, and when the parked one is older than `maxAgeMs` — a park that
+   * was never drained (its navigation bounced off a route guard, say) must not
+   * open a full-screen voice session minutes later. Either way the park is
+   * cleared. Used by `drainPendingVoiceStartDeepLink` in the live-voice domain,
+   * which owns the age bound.
    */
-  consumePendingVoiceStart: () => boolean;
+  consumePendingVoiceStart: (maxAgeMs: number) => boolean;
 }
 
 export type PendingDeepLinkStore = PendingDeepLinkState &
@@ -66,7 +72,7 @@ export type PendingDeepLinkStore = PendingDeepLinkState &
 const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
   (set, get) => ({
     pendingComposerMessage: null,
-    pendingVoiceStart: false,
+    pendingVoiceStartAt: null,
     setPendingComposerMessage: (message) =>
       set({ pendingComposerMessage: message }),
     consumePendingComposerMessage: () => {
@@ -74,11 +80,12 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
       if (message !== null) set({ pendingComposerMessage: null });
       return message;
     },
-    setPendingVoiceStart: () => set({ pendingVoiceStart: true }),
-    consumePendingVoiceStart: () => {
-      const pending = get().pendingVoiceStart;
-      if (pending) set({ pendingVoiceStart: false });
-      return pending;
+    setPendingVoiceStart: () => set({ pendingVoiceStartAt: Date.now() }),
+    consumePendingVoiceStart: (maxAgeMs) => {
+      const parkedAt = get().pendingVoiceStartAt;
+      if (parkedAt === null) return false;
+      set({ pendingVoiceStartAt: null });
+      return Date.now() - parkedAt <= maxAgeMs;
     },
   }),
 );
@@ -93,6 +100,6 @@ export const usePendingDeepLinkStore = createSelectors(
 export function __resetPendingDeepLinkForTesting(): void {
   usePendingDeepLinkStoreBase.setState({
     pendingComposerMessage: null,
-    pendingVoiceStart: false,
+    pendingVoiceStartAt: null,
   });
 }

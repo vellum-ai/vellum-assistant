@@ -12,7 +12,7 @@ import SwiftUI
 // 1. **No native phase copy.** Every user-facing string here is either
 //    `ContentState.label` or `VoiceSessionAttributes.assistantName`, both
 //    passed through from the web side. `LIVE_VOICE_STATE_LABELS` /
-//    `liveVoiceStateLabel` in `live-voice-store.ts` own the wording — this
+//    `liveVoiceSurfaceLabel` in `live-voice-store.ts` own the wording — this
 //    shell ships on App Store cadence while that copy deploys continuously,
 //    so a native `switch` over `phase` would fossilize old strings. Tight
 //    slots truncate the passed label; they never substitute a shorter native
@@ -87,24 +87,21 @@ struct VoiceMuteGlyph: View {
 ///
 /// Always one line with a tail ellipsis. The web side decides how long the
 /// string is, so the tight slots shorten what they were given instead of
-/// substituting a native string of their own.
-///
-/// Empty text renders nothing at all rather than an empty `Text` that still
-/// claims layout space: `LIVE_VOICE_STATE_LABELS` maps `failed` to `""`, and a
-/// blank line would leave a lopsided gap.
+/// substituting a native string of their own. Every phase that reaches an
+/// activity has a non-empty label (`LIVE_VOICE_STATE_LABELS` maps only the
+/// phases with no activity to `""`), and the plugin rejects an empty
+/// `assistantName`, so there is no empty-string case to special-case.
 struct VoiceSessionText: View {
     let text: String
     var font: Font = .subheadline
     var color: HierarchicalShapeStyle = .primary
 
     var body: some View {
-        if !text.isEmpty {
-            Text(text)
-                .font(font)
-                .foregroundStyle(color)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
+        Text(text)
+            .font(font)
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .truncationMode(.tail)
     }
 }
 

@@ -21,17 +21,15 @@ mock.module("@/runtime/platform-detection", () => ({
   isNativeIOS: () => onNativeIOS,
 }));
 
-const isAvailable = mock(async () => ({ available: true }));
 const start = mock(async () => ({ started: true }));
 const update = mock(async () => undefined);
 const end = mock(async () => undefined);
 
 mock.module("@capacitor/core", () => ({
-  registerPlugin: () => ({ isAvailable, start, update, end }),
+  registerPlugin: () => ({ start, update, end }),
 }));
 
 const {
-  isVoiceLiveActivityAvailable,
   startVoiceLiveActivity,
   updateVoiceLiveActivity,
   endVoiceLiveActivity,
@@ -52,8 +50,6 @@ const startOptions: VoiceLiveActivityStart = {
 
 beforeEach(() => {
   onNativeIOS = true;
-  isAvailable.mockClear();
-  isAvailable.mockImplementation(async () => ({ available: true }));
   start.mockClear();
   start.mockImplementation(async () => ({ started: true }));
   update.mockClear();
@@ -69,11 +65,6 @@ beforeEach(() => {
 describe("off the iOS shell", () => {
   beforeEach(() => {
     onNativeIOS = false;
-  });
-
-  test("availability reports false without touching the bridge", async () => {
-    expect(await isVoiceLiveActivityAvailable()).toBe(false);
-    expect(isAvailable).not.toHaveBeenCalled();
   });
 
   test("start resolves false without touching the bridge", async () => {
@@ -97,19 +88,12 @@ describe("off the iOS shell", () => {
 // ---------------------------------------------------------------------------
 
 describe("with the plugin present", () => {
-  test("availability tracks the native answer", async () => {
-    expect(await isVoiceLiveActivityAvailable()).toBe(true);
-    expect(isAvailable).toHaveBeenCalledTimes(1);
-
-    // Live Activities switched off for the app in iOS Settings.
-    isAvailable.mockImplementation(async () => ({ available: false }));
-    expect(await isVoiceLiveActivityAvailable()).toBe(false);
-  });
-
   test("start forwards the payload and reports whether one is running", async () => {
     expect(await startVoiceLiveActivity(startOptions)).toBe(true);
     expect(start).toHaveBeenCalledWith(startOptions);
 
+    // Live Activities switched off for the app in iOS Settings: a `false`, not
+    // an error, and the only availability answer a caller ever needs.
     start.mockImplementation(async () => ({ started: false }));
     expect(await startVoiceLiveActivity(startOptions)).toBe(false);
   });
@@ -124,9 +108,7 @@ describe("with the plugin present", () => {
 
   test("a payload missing the expected shape reads as not running", async () => {
     // A shell that answers `{}` must not read as success.
-    isAvailable.mockImplementation(async () => ({}) as { available: boolean });
     start.mockImplementation(async () => ({}) as { started: boolean });
-    expect(await isVoiceLiveActivityAvailable()).toBe(false);
     expect(await startVoiceLiveActivity(startOptions)).toBe(false);
   });
 });
@@ -143,14 +125,12 @@ describe("with an older shell that has no plugin", () => {
   };
 
   beforeEach(() => {
-    isAvailable.mockImplementation(notImplemented);
     start.mockImplementation(notImplemented);
     update.mockImplementation(notImplemented);
     end.mockImplementation(notImplemented);
   });
 
   test("every export swallows the rejection and returns its fallback", async () => {
-    expect(await isVoiceLiveActivityAvailable()).toBe(false);
     expect(await startVoiceLiveActivity(startOptions)).toBe(false);
     expect(await updateVoiceLiveActivity(content)).toBeUndefined();
     expect(await endVoiceLiveActivity()).toBeUndefined();
@@ -162,13 +142,21 @@ describe("with an older shell that has no plugin", () => {
 // ---------------------------------------------------------------------------
 
 describe("phase typing", () => {
+  // `VoiceSessionAttributes.ContentState.Phase` has neither case: a Live
+  // Activity exists only for a running session. The assertions are the
+  // `@ts-expect-error`s themselves — `bun run typecheck` fails if the union
+  // ever admits either value.
   test("rejects idle at compile time", () => {
-    // `VoiceSessionAttributes.ContentState.Phase` has no `idle` case: an idle
-    // session has no Live Activity, so this must not typecheck. The assertion
-    // is the `@ts-expect-error` itself — `bun run typecheck` fails if the
-    // union ever admits `"idle"`.
     // @ts-expect-error — "idle" is not a Live Activity phase.
     const idle: VoiceLiveActivityContent = { ...content, phase: "idle" };
     expect(idle).toBeDefined();
+  });
+
+  test("rejects failed at compile time", () => {
+    // The mirror ends the activity on a failure rather than pushing a phase
+    // for it, so `failed` is unreachable and must not typecheck either.
+    // @ts-expect-error — "failed" is not a Live Activity phase.
+    const failed: VoiceLiveActivityContent = { ...content, phase: "failed" };
+    expect(failed).toBeDefined();
   });
 });

@@ -2,8 +2,8 @@ import AVFoundation
 import Capacitor
 
 /// Capacitor plugin that owns the app's `AVAudioSession` for the duration of a
-/// live-voice session, and reports the two system events that can interrupt or
-/// reroute it.
+/// live-voice session, and reports the system interruptions that can take it
+/// away.
 ///
 /// ## Why this exists
 ///
@@ -55,12 +55,13 @@ import Capacitor
 ///
 /// The iOS app is a `server.url` shell: the web bundle updates continuously
 /// while this shell only changes on an App Store release, so an arbitrarily new
-/// bundle can be running against an arbitrarily old shell. `isAvailable` is the
-/// capability probe the web side uses to detect a shell that has this plugin;
-/// on an older shell the same call rejects with Capacitor's "not implemented"
-/// error, which `callNativeVoice` in `clients/web/src/runtime/native-voice.ts`
-/// swallows into its fallback. No method here may ever crash or hang — a failed
-/// bridge call must degrade to a voice session that behaves as it does today.
+/// bundle can be running against an arbitrarily old shell. There is deliberately
+/// no separate capability probe — on an older shell `activate` rejects with
+/// Capacitor's "not implemented" error, which `callNativeVoice` in
+/// `clients/web/src/runtime/native-voice.ts` swallows into its `false` fallback,
+/// and that `false` *is* the probe. No method here may ever crash or hang — a
+/// failed bridge call must degrade to a voice session that behaves as it does
+/// today.
 ///
 /// References:
 /// - https://developer.apple.com/documentation/avfaudio/avaudiosession
@@ -72,13 +73,11 @@ public class VoiceAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "activate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deactivate", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "isAvailable", returnType: CAPPluginReturnPromise),
     ]
 
-    /// Event names forwarded to JS via `notifyListeners`. Must match the
-    /// listener names in `clients/web/src/runtime/`.
+    /// Event name forwarded to JS via `notifyListeners`. Must match the
+    /// listener name in `clients/web/src/runtime/native-audio-session.ts`.
     private static let interruptionEvent = "voiceAudioInterruption"
-    private static let routeChangeEvent = "voiceAudioRouteChange"
 
     /// Stable rejection code for every `AVAudioSession` failure, so the web
     /// side can branch on it without matching against a localized message.
@@ -86,25 +85,16 @@ public class VoiceAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // MARK: - Lifecycle
 
-    /// Subscribe to the session events for the plugin's lifetime. Capacitor
-    /// calls `load()` once, when the bridge instantiates the plugin, so these
-    /// observers outlive any individual voice session — a route change that
-    /// happens between sessions is still reported, and `notifyListeners` is a
-    /// no-op when JS has no listener attached.
+    /// Subscribe to interruptions for the plugin's lifetime. Capacitor calls
+    /// `load()` once, when the bridge instantiates the plugin, so this observer
+    /// outlives any individual voice session, and `notifyListeners` is a no-op
+    /// when JS has no listener attached.
     override public func load() {
-        let center = NotificationCenter.default
-        let session = AVAudioSession.sharedInstance()
-        center.addObserver(
+        NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleInterruption(_:)),
             name: AVAudioSession.interruptionNotification,
-            object: session
-        )
-        center.addObserver(
-            self,
-            selector: #selector(handleRouteChange(_:)),
-            name: AVAudioSession.routeChangeNotification,
-            object: session
+            object: AVAudioSession.sharedInstance()
         )
     }
 
@@ -170,86 +160,27 @@ public class VoiceAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    // MARK: - isAvailable
-
-    /// Capability probe. Resolving at all is the signal: a shell that predates
-    /// this plugin rejects the call with "not implemented" instead.
-    @objc public func isAvailable(_ call: CAPPluginCall) {
-        call.resolve(["available": true])
-    }
-
     // MARK: - System events
 
     /// Forward an audio-session interruption (an incoming phone call, Siri,
     /// another app taking the session) to JS as `voiceAudioInterruption`
-    /// `{ type: "began" | "ended", shouldResume: Bool }`.
+    /// `{ type: "began" | "ended" }`.
     ///
-    /// `shouldResume` is only ever true on `.ended`, and only when the system
-    /// says the interrupting audio is finished and it is safe to reactivate.
+    /// Apple's `.shouldResume` option is deliberately not forwarded: the web
+    /// side ends the session on `began` and the user restarts explicitly, so
+    /// there is never anything to resume.
     @objc private func handleInterruption(_ notification: Notification) {
         guard let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: raw)
         else { return }
 
-        let shouldResume: Bool
-        if type == .ended,
-           let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt {
-            shouldResume = AVAudioSession.InterruptionOptions(rawValue: rawOptions).contains(.shouldResume)
-        } else {
-            shouldResume = false
-        }
-
-        emit(Self.interruptionEvent, data: [
-            "type": type == .began ? "began" : "ended",
-            "shouldResume": shouldResume,
-        ])
-    }
-
-    /// Forward a route change (AirPods removed, headphones unplugged, a
-    /// Bluetooth device connecting) to JS as `voiceAudioRouteChange`
-    /// `{ reason: String }`.
-    @objc private func handleRouteChange(_ notification: Notification) {
-        guard let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
-              let reason = AVAudioSession.RouteChangeReason(rawValue: raw)
-        else { return }
-
-        emit(Self.routeChangeEvent, data: ["reason": Self.routeChangeReasonName(for: reason)])
-    }
-
-    /// `notifyListeners` walks the plugin's `eventListeners` dictionary, which
-    /// JS mutates on the main thread via `addListener`/`removeListener`.
-    /// `AVAudioSession` posts its notifications on an arbitrary thread, so hop
-    /// to main before touching it.
-    private func emit(_ event: String, data: [String: Any]) {
+        // `notifyListeners` walks the plugin's `eventListeners` dictionary,
+        // which JS mutates on the main thread via `addListener`/
+        // `removeListener`. `AVAudioSession` posts its notifications on an
+        // arbitrary thread, so hop to main before touching it.
+        let payload = ["type": type == .began ? "began" : "ended"]
         DispatchQueue.main.async { [weak self] in
-            self?.notifyListeners(event, data: data)
-        }
-    }
-
-    /// Stable JS-facing names for `AVAudioSession.RouteChangeReason`. Kept as an
-    /// explicit mapping rather than the raw integer so the web side reads as
-    /// intent, and so a future OS case degrades to `"unknown"` instead of a
-    /// number nothing handles.
-    private static func routeChangeReasonName(for reason: AVAudioSession.RouteChangeReason) -> String {
-        switch reason {
-        case .unknown:
-            return "unknown"
-        case .newDeviceAvailable:
-            return "newDeviceAvailable"
-        case .oldDeviceUnavailable:
-            return "oldDeviceUnavailable"
-        case .categoryChange:
-            return "categoryChange"
-        case .override:
-            return "override"
-        case .wakeFromSleep:
-            return "wakeFromSleep"
-        case .noSuitableRouteForCategory:
-            return "noSuitableRouteForCategory"
-        case .routeConfigurationChange:
-            return "routeConfigurationChange"
-        @unknown default:
-            return "unknown"
+            self?.notifyListeners(Self.interruptionEvent, data: payload)
         }
     }
 }

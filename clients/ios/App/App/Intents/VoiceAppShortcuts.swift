@@ -16,8 +16,11 @@ import AppIntents
 /// sets via `BUNDLE_DISPLAY_NAME`: "Vellum", "Vellum Staging", "Vellum Dev".
 /// All three are pronounceable, so one phrase list serves every build.
 ///
-/// Translations go in `Intents/en.lproj/AppShortcuts.strings` and its siblings
-/// — the filename App Intents looks for — keyed by the literals below.
+/// Localized phrases go in `Intents/<locale>.lproj/AppShortcuts.strings` — the
+/// filename App Intents looks for — keyed by the English literals below, with
+/// the token spelled `${applicationName}`. There is no `en.lproj`: App Intents
+/// falls back to these literals, so an English table would be identity mappings
+/// that only add a second place to keep the phrases in sync.
 struct VoiceAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(

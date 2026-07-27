@@ -19,9 +19,14 @@ struct VoiceSessionAttributes: ActivityAttributes {
         /// bridge, so a case added or renamed there without a matching change
         /// here fails to decode.
         ///
-        /// `idle` is deliberately absent. An idle session has no Live Activity,
-        /// so a case for it would be unreachable state the island UI would still
-        /// have to handle.
+        /// `idle` and `failed` are deliberately absent — these are exactly the
+        /// phases of a *running* session. An idle session has no Live Activity,
+        /// and the web mirror ends the activity on a failure rather than
+        /// rendering it (the failure is surfaced in the app, where it can be
+        /// dismissed). A case for either would be unreachable state the island
+        /// UI would still have to handle. The web type is derived from the same
+        /// predicate that decides this — `isLiveVoiceSessionActive` — so it
+        /// cannot drift on that side.
         enum Phase: String, Codable, Hashable {
             case connecting
             case listening
@@ -29,7 +34,6 @@ struct VoiceSessionAttributes: ActivityAttributes {
             case thinking
             case speaking
             case ending
-            case failed
         }
 
         /// Neutral accent (`systemGray`) used when `accentHex` is unparseable.
@@ -39,10 +43,12 @@ struct VoiceSessionAttributes: ActivityAttributes {
 
         /// User-facing activity copy, passed through from the web side.
         ///
-        /// `LIVE_VOICE_STATE_LABELS` and `liveVoiceStateLabel` (including its
-        /// `reconnecting` → "Reconnecting…" case) in `live-voice-store.ts` are
-        /// the single source of this copy. **The native side must never invent
-        /// its own phase wording** — the shell ships on App Store cadence while
+        /// `LIVE_VOICE_STATE_LABELS` and `liveVoiceSurfaceLabel` (including its
+        /// `reconnecting` → "Reconnecting…" case and its silent-`speaking` →
+        /// "Thinking…" remap) in `live-voice-store.ts` are the single source of
+        /// this copy — it is the same call the voice room makes. **The native
+        /// side must never invent its own phase wording** — the shell ships on
+        /// App Store cadence while
         /// that copy deploys continuously, so a native `switch` over `phase`
         /// would silently fossilize old strings.
         var label: String
