@@ -1,5 +1,6 @@
 import type { BrowserOptions } from "@sentry/react";
 
+import { snapshotCommitPressure } from "@/lib/commit-pressure";
 import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
 import {
   installSentryControlListeners,
@@ -35,6 +36,10 @@ function resolveDsn(): string | undefined {
  * here must never match errors raised from `src/` — fix those at the call
  * site so real regressions are not hidden.
  *
+ * `beforeSend` enriches React's `Maximum update depth exceeded` with the
+ * commit-pressure snapshot — that error's stack frame is a bystander, so
+ * without the extra context the events are not actionable.
+ *
  * `beforeBreadcrumb` strips auth codes, invite tokens, and OAuth fragment
  * tokens from URLs the browser SDK records on navigation / fetch / XHR.
  * Regex-based scrubbing of CC/SSN/password patterns is handled by
@@ -68,6 +73,23 @@ const options: BrowserOptions = {
   // after sourcemap upload.
   // Reference: https://docs.sentry.io/platforms/javascript/configuration/options/#attach-stacktrace
   attachStacktrace: true,
+  beforeSend(event) {
+    // React error 185 is thrown from whatever `setState` runs after the nested
+    // update limit is already breached, so its stack names a bystander — every
+    // occurrence so far has blamed a different frame. Attach the update
+    // traffic that was actually in flight so the next one names the cause.
+    // See `lib/commit-pressure.ts`.
+    const raisedMaxUpdateDepth = event.exception?.values?.some((value) =>
+      value.value?.includes("Maximum update depth exceeded"),
+    );
+    if (!raisedMaxUpdateDepth) return event;
+    const pressure = snapshotCommitPressure();
+    if (!pressure) return event;
+    return {
+      ...event,
+      contexts: { ...event.contexts, commit_pressure: { ...pressure } },
+    };
+  },
   beforeBreadcrumb(breadcrumb) {
     const data = breadcrumb.data;
     if (!data || typeof data !== "object") return breadcrumb;

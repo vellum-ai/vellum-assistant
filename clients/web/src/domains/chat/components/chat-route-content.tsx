@@ -54,6 +54,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
+import { recordCommit } from "@/lib/commit-pressure";
 import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
@@ -481,6 +482,14 @@ export function ChatMainPanel({
     transcriptContainerRef.current = el;
   });
   useNativeQuoteReply(transcriptContainerRef);
+
+  // Commit counter for the chat-route subtree. Deliberately dependency-less:
+  // it has to run on every commit to measure how tightly they are packed,
+  // which is what `Maximum update depth exceeded` actually reacts to. Records
+  // nothing but two integers — see `lib/commit-pressure.ts`.
+  useEffect(() => {
+    recordCommit();
+  });
 
   // Clear staged quotes and dismiss the reply bubble when the active
   // conversation changes to prevent quotes from one conversation leaking

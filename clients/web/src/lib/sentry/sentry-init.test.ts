@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { BrowserOptions } from "@sentry/react";
+import type { BrowserOptions, ErrorEvent } from "@sentry/react";
+
+import { recordUpdate, resetCommitPressure } from "@/lib/commit-pressure";
 
 // Capture the options the init path dispatches so we can assert the resolved DSN.
 let syncedOptions: BrowserOptions | undefined;
@@ -81,5 +83,52 @@ describe("initSentry client_os tag", () => {
     electron = true;
     initSentry();
     expect(clientOsTag()).toBe("macos");
+  });
+});
+
+describe("initSentry commit-pressure enrichment", () => {
+  function sendEvent(message: string): ErrorEvent | null {
+    initSentry();
+    const beforeSend = syncedOptions?.beforeSend;
+    if (!beforeSend) throw new Error("beforeSend not configured");
+    const event = {
+      exception: { values: [{ type: "Error", value: message }] },
+    } as ErrorEvent;
+    return beforeSend(event, {}) as ErrorEvent | null;
+  }
+
+  beforeEach(() => {
+    resetCommitPressure();
+  });
+
+  test("attaches the pressure snapshot to a max-update-depth event", () => {
+    recordUpdate("smooth-stream");
+    recordUpdate("avatar-morph");
+    recordUpdate("smooth-stream");
+
+    const sent = sendEvent(
+      "Maximum update depth exceeded. This can happen when a component repeatedly calls setState...",
+    );
+
+    const pressure = sent?.contexts?.commit_pressure as
+      | { updates: number; sources: Record<string, number> }
+      | undefined;
+    expect(pressure?.updates).toBe(3);
+    expect(pressure?.sources["smooth-stream"]).toBe(2);
+  });
+
+  test("leaves unrelated errors untouched", () => {
+    recordUpdate("smooth-stream");
+
+    const sent = sendEvent("Something else broke");
+
+    expect(sent?.contexts?.commit_pressure).toBeUndefined();
+  });
+
+  test("passes the event through when the probe has no data", () => {
+    const sent = sendEvent("Maximum update depth exceeded.");
+
+    expect(sent).not.toBeNull();
+    expect(sent?.contexts?.commit_pressure).toBeUndefined();
   });
 });
