@@ -95,4 +95,10 @@ describe("VirtualList rendering", () => {
     });
     expect(html).toContain('data-slot="virtual-list"');
   });
+
+  test("renders initial items when initialItemCount is set", () => {
+    const html = render({ initialItemCount: 2 });
+    expect(html).toContain("a");
+    expect(html).toContain("b");
+  });
 });

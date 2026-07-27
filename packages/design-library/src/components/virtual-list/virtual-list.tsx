@@ -61,6 +61,8 @@ export interface VirtualListProps<T> {
 
   // --- Initial position ---
   initialTopMostItemIndex?: number | "LAST";
+  /** Render this many items before the first viewport measurement lands. */
+  initialItemCount?: number;
 
   // --- Layout ---
   overscan?: number;
@@ -122,6 +124,7 @@ export function VirtualList<T>({
   startReached,
   endReached,
   initialTopMostItemIndex,
+  initialItemCount,
   overscan,
   increaseViewportBy,
   className,
@@ -167,7 +170,6 @@ export function VirtualList<T>({
       className={cn("bg-[var(--surface-base)]", className)}
       data={items}
       itemContent={itemContent}
-      computeItemKey={computeItemKey}
       followOutput={resolvedFollowOutput}
       atBottomStateChange={atBottomStateChange}
       atBottomThreshold={atBottomThreshold}
@@ -183,10 +185,12 @@ export function VirtualList<T>({
       // own numeric defaults (e.g. overscan/increaseViewportBy default to 0),
       // which then throws in its viewport math. Only forward these when the
       // consumer actually set them so virtuoso keeps its defaults otherwise.
+      {...(computeItemKey !== undefined ? { computeItemKey } : {})}
       {...(firstItemIndex !== undefined ? { firstItemIndex } : {})}
       {...(resolvedInitialTopMostItemIndex !== undefined
         ? { initialTopMostItemIndex: resolvedInitialTopMostItemIndex }
         : {})}
+      {...(initialItemCount !== undefined ? { initialItemCount } : {})}
       {...(overscan !== undefined ? { overscan } : {})}
       {...(increaseViewportBy !== undefined ? { increaseViewportBy } : {})}
     />
