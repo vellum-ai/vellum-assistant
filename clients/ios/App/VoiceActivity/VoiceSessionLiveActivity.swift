@@ -31,7 +31,7 @@ struct VoiceSessionLiveActivity: Widget {
                 assistantName: context.attributes.assistantName,
                 state: context.state
             )
-            .widgetURL(VoiceModeDeepLink.resume.url)
+            .widgetURL(VoiceModeDeepLink.resume.url())
         } dynamicIsland: { context in
             let state = context.state
             return DynamicIsland {
@@ -64,7 +64,7 @@ struct VoiceSessionLiveActivity: Widget {
             } minimal: {
                 VoiceAccentGlyph(accent: state.accentColor, scale: .small)
             }
-            .widgetURL(VoiceModeDeepLink.resume.url)
+            .widgetURL(VoiceModeDeepLink.resume.url())
             .keylineTint(state.accentColor)
         }
     }
