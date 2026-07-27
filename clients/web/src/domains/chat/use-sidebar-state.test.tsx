@@ -213,3 +213,43 @@ describe("useSidebarState open-section persistence", () => {
     );
   });
 });
+
+describe("useSidebarState custom-group open-section persistence", () => {
+  // Custom groups render in their own accordion root, but attention forces
+  // them open the same way the shared root's sections are forced open — so
+  // their writes need the same filter, or a group the user never opened
+  // stays expanded once the attention clears.
+  test("does not persist a custom group that only attention forced open", () => {
+    const conversations = [
+      makeConversation(0, { conversationId: "g1", groupId: "grp-a" }),
+      makeConversation(1, { conversationId: "g2", groupId: "grp-b" }),
+    ];
+    const conversationGroups = [
+      { id: "grp-a", name: "Alpha", sortPosition: 0, isSystemGroup: false },
+      { id: "grp-b", name: "Beta", sortPosition: 1, isSystemGroup: false },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations,
+        conversationGroups,
+        attentionConversationIds: new Set(["g2"]),
+      }),
+    );
+
+    expect(result.current.effectiveOpenCustomGroups).toContain("grp-b");
+
+    // Opening Alpha emits Beta's forced key alongside the real change.
+    act(() =>
+      result.current.onOpenCustomGroupsChange([
+        ...result.current.effectiveOpenCustomGroups,
+        "grp-a",
+      ]),
+    );
+
+    const stored = useSidebarCollapseStore.getState().openCustomGroups;
+    expect(stored).toContain("grp-a");
+    expect(stored).not.toContain("grp-b");
+  });
+});

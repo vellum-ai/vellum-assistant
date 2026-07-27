@@ -262,10 +262,6 @@ export function useSidebarState({
     if (!attentionConversationIds || attentionConversationIds.size === 0)
       return openCategories;
     const extra: string[] = [];
-    if (grouped.scheduled.length > 0 && hasAttentionIn(grouped.scheduled))
-      extra.push("scheduled");
-    if (grouped.background.length > 0 && hasAttentionIn(grouped.background))
-      extra.push("background");
     for (const section of grouped.channelSections) {
       if (
         section.conversations.length > 0 &&
@@ -279,8 +275,6 @@ export function useSidebarState({
   }, [
     openCategories,
     attentionConversationIds,
-    grouped.scheduled,
-    grouped.background,
     grouped.channelSections,
     hasAttentionIn,
   ]);
@@ -334,13 +328,26 @@ export function useSidebarState({
   // when the user toggles some *other* section — persisting them would outlive
   // the attention that opened them and leave the section stuck open.
   const forcedOpenKeys = useMemo(() => {
-    const stored = new Set([...openPrimary, ...openCategories]);
+    const stored = new Set([
+      ...openPrimary,
+      ...openCategories,
+      ...openCustomGroups,
+    ]);
     return new Set(
-      [...effectiveOpenPrimary, ...effectiveOpenCategories].filter(
-        (key) => !stored.has(key),
-      ),
+      [
+        ...effectiveOpenPrimary,
+        ...effectiveOpenCategories,
+        ...effectiveOpenCustomGroups,
+      ].filter((key) => !stored.has(key)),
     );
-  }, [openPrimary, openCategories, effectiveOpenPrimary, effectiveOpenCategories]);
+  }, [
+    openPrimary,
+    openCategories,
+    openCustomGroups,
+    effectiveOpenPrimary,
+    effectiveOpenCategories,
+    effectiveOpenCustomGroups,
+  ]);
 
   const onOpenSectionsChange = useCallback(
     (next: string[]) => {
@@ -351,6 +358,15 @@ export function useSidebarState({
     [forcedOpenKeys, setOpenPrimary, setOpenCategories],
   );
 
+  // Custom groups render in their own root but are force-opened by attention
+  // the same way, so their writes need the same filter.
+  const onOpenCustomGroupsChange = useCallback(
+    (next: string[]) => {
+      setOpenCustomGroups(next.filter((key) => !forcedOpenKeys.has(key)));
+    },
+    [forcedOpenKeys, setOpenCustomGroups],
+  );
+
   return {
     pinned: grouped.pinned,
     channelSections,
@@ -359,6 +375,6 @@ export function useSidebarState({
     effectiveOpenSections,
     onOpenSectionsChange,
     effectiveOpenCustomGroups,
-    onOpenCustomGroupsChange: setOpenCustomGroups,
+    onOpenCustomGroupsChange,
   };
 }

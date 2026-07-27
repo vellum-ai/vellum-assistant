@@ -211,7 +211,9 @@ function CollapsibleNavSectionSection({
       {trailing ? (
         <span
           data-slot="collapsible-nav-section-trailing"
-          className="flex items-center shrink-0 pr-[6px] max-md:pr-2"
+          /* `empty:hidden` so a trailing component that renders nothing (a
+             menu with no wired actions) doesn't leave a padded box behind. */
+          className="flex items-center shrink-0 pr-[6px] max-md:pr-2 empty:hidden"
           onClick={(event) => event.stopPropagation()}
         >
           {trailing}
