@@ -7,7 +7,7 @@ import { useMutation } from "@tanstack/react-query";
 import { organizationsBillingSubscriptionUpgradeCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { usePlatformGateWithPending } from "@/hooks/use-platform-gate";
 import { checkoutContinuation } from "@/lib/billing/checkout-continuation";
 import {
   clearCheckoutIntent,
@@ -43,6 +43,9 @@ type CheckoutPhase = "idle" | "running" | "handed_off" | "settled";
  *
  * Flow:
  *   - Missing `package` → back to the plans takeover.
+ *   - Gate `"pending"` → hold on the spinner. The platform-session probe has
+ *     not answered yet, and a cold reload of this URL is exactly where that
+ *     window falls.
  *   - Gate `"disabled"`/`"gated"` → back to plans (its own gating owns the
  *     messaging).
  *   - `marketing-pricing-takeover` off → back to plans. The flag is the kill
@@ -64,7 +67,14 @@ export function CheckoutPage() {
   const packageKey = searchParams.get("package") ?? "";
   // Default (session-only) gate: a signed-in platform session reads `"full"`
   // even without an active assistant. See `use-platform-gate.ts`.
-  const gate = usePlatformGate();
+  //
+  // The pending-aware variant, because a hard reload of this URL lands while
+  // the platform-session probe is still in flight: `sessionStatus` settles
+  // ahead of it, so the route is already mounted and reading a session that has
+  // not answered yet. Bailing on that would throw away a paid deep link a
+  // moment before it becomes valid. `"pending"` is bounded — it decides on
+  // `"disabled"` if the probe never lands.
+  const gate = usePlatformGateWithPending();
   // The request interceptor reads `Vellum-Organization-Id` from the org store,
   // which hydrates asynchronously after auth. On a cold deep link the platform
   // session can settle before the org id lands, so gate the fire on this too.
@@ -165,9 +175,10 @@ export function CheckoutPage() {
       navigate(bailTarget, { replace: true });
       return;
     }
-    // Hold until the funnel flag resolves, the platform gate is full, AND the
-    // org store is ready. Firing before the org id hydrates sends a header-less
-    // request that fails; the "Preparing checkout…" spinner keeps showing meanwhile.
+    // Hold until the funnel flag resolves, the platform gate is full (a
+    // `"pending"` session lands here), AND the org store is ready. Firing
+    // before the org id hydrates sends a header-less request that fails; the
+    // "Preparing checkout…" spinner keeps showing meanwhile.
     if (
       takeover !== "enabled" ||
       gate !== "full" ||

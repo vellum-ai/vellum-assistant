@@ -17,7 +17,7 @@ import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
 import * as orgReadyMod from "@/hooks/use-is-org-ready";
 import * as platformGateMod from "@/hooks/use-platform-gate";
-import type { PlatformGateState } from "@/hooks/use-platform-gate";
+import type { PlatformGateStateWithPending } from "@/hooks/use-platform-gate";
 import * as takeoverMod from "@/hooks/use-marketing-pricing-takeover";
 import type { MarketingPricingTakeoverState } from "@/hooks/use-marketing-pricing-takeover";
 
@@ -31,8 +31,9 @@ const ONBOARDING_ENTRY = `/assistant/checkout?package=super&continue=${encodeURI
 type Captured = { body?: unknown };
 const upgradeCalls: Captured[] = [];
 let openedUrl: string | null = null;
-// Gate value the mocked `usePlatformGate` returns (default: session-only full).
-let gateValue: PlatformGateState = "full";
+// Gate value the mocked `usePlatformGateWithPending` returns (default:
+// session-only full).
+let gateValue: PlatformGateStateWithPending = "full";
 // Org-readiness the mocked `useIsOrgReady` returns (default: hydrated/ready).
 let orgReadyValue = true;
 // `marketing-pricing-takeover` state (default: funnel on).
@@ -79,7 +80,7 @@ mock.module("@/runtime/browser", () => ({
 
 mock.module("@/hooks/use-platform-gate", () => ({
   ...platformGateMod,
-  usePlatformGate: () => gateValue,
+  usePlatformGateWithPending: () => gateValue,
 }));
 
 mock.module("@/hooks/use-is-org-ready", () => ({
@@ -296,6 +297,51 @@ describe("CheckoutPage", () => {
       resumeAfterOnboarding: true,
     });
     const { getByTestId } = renderCheckout("/assistant/checkout?package=super");
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
+    );
+    expect(upgradeCalls.length).toBe(0);
+    expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+  });
+
+  test("an unsettled session holds, then fires once it resolves", async () => {
+    // The cold-reload window. The probe has not answered, so nothing here is
+    // decided: bouncing would drop a deep link a moment before it becomes
+    // valid, and firing would send a request no session backs.
+    gateValue = "pending";
+    const client = freshQueryClient();
+    const makeTree = () =>
+      checkoutTree("/assistant/checkout?package=super", client);
+    const { getByLabelText, getByTestId, rerender } = render(makeTree());
+
+    getByLabelText("Preparing checkout");
+    expect(upgradeCalls.length).toBe(0);
+    expect(getByTestId("loc").textContent).toBe(
+      "/assistant/checkout?package=super",
+    );
+
+    gateValue = "full";
+    rerender(makeTree());
+    await waitFor(() => expect(upgradeCalls.length).toBe(1));
+  });
+
+  test("an unsettled session that resolves to no login bails and drops the stash", async () => {
+    // The other end of the same window: once the probe settles absent, the
+    // gate's bounded `"pending"` is over and the bail happens as it always did.
+    gateValue = "pending";
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+    const client = freshQueryClient();
+    const makeTree = () =>
+      checkoutTree("/assistant/checkout?package=super", client);
+    const { getByTestId, rerender } = render(makeTree());
+
+    gateValue = "disabled";
+    rerender(makeTree());
 
     await waitFor(() =>
       expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
