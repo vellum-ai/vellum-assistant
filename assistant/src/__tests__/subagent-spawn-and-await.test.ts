@@ -54,6 +54,11 @@ let runLoopInvoked = false;
 let lastPersistedUserMessage: string | undefined;
 /** Records `setSubagentDenySideEffects` on the most recent FakeConversation. */
 let lastDenySideEffects: boolean | undefined;
+/**
+ * Records `setSubagentSuppressParentNotifications` on the most recent
+ * FakeConversation.
+ */
+let lastSuppressParentNotifications: boolean | undefined;
 /** Options the most recent `bootstrapConversation` call received. */
 let lastBootstrapOptions: Record<string, unknown> | undefined;
 
@@ -99,6 +104,9 @@ class FakeConversation {
   setSubagentDenySideEffects(deny: boolean) {
     lastDenySideEffects = deny;
   }
+  setSubagentSuppressParentNotifications(suppress: boolean) {
+    lastSuppressParentNotifications = suppress;
+  }
   setPreactivatedSkillIds() {}
   getCurrentSystemPrompt() {
     return "system";
@@ -125,7 +133,9 @@ class FakeConversation {
           this.resolveAbort = resolve;
         });
       }
-      if (this.cfg.resolveOnAbort) {return;}
+      if (this.cfg.resolveOnAbort) {
+        return;
+      }
       throw new Error("aborted");
     }
     if (this.cfg.runError) {
@@ -228,6 +238,7 @@ describe("SubagentManager.spawnAndAwait", () => {
   // `undefined` across the opaque spawnAndAwait call.
   beforeEach(() => {
     lastDenySideEffects = undefined;
+    lastSuppressParentNotifications = undefined;
   });
 
   test("wires denySideEffectTools onto the subagent conversation (read-only)", async () => {
@@ -249,6 +260,17 @@ describe("SubagentManager.spawnAndAwait", () => {
     await manager.spawnAndAwait(makeConfig(), () => {});
 
     expect(lastDenySideEffects).toBeUndefined();
+  });
+
+  test("suppresses mid-run parent notifications on the synchronous path", async () => {
+    nextConversationConfig = {};
+
+    const manager = new SubagentManager();
+    await manager.spawnAndAwait(makeConfig(), () => {});
+
+    // The awaiting caller is the child's only parent channel: notify_parent
+    // must not inject a user-role turn into the live parent mid-await.
+    expect(lastSuppressParentNotifications).toBe(true);
   });
 
   test("stamps the parent conversation id on the subagent's conversation", async () => {

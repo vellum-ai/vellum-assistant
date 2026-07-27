@@ -39,6 +39,7 @@ import {
 } from "../config/schemas/live-voice.js";
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { findConversation } from "../daemon/conversation-registry.js";
+import { isRefusedInReadOnlyPass } from "../daemon/conversation-tool-setup.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
@@ -54,7 +55,7 @@ import type {
   SttStreamServerEvent,
 } from "../stt/types.js";
 import { getSubagentManager } from "../subagent/index.js";
-import { isSideEffectTool } from "../tools/side-effects.js";
+import { getToolOwner } from "../tools/registry.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -2920,13 +2921,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             current.toolUseStarted = true;
             // Foreground wins the workspace: the continuation runs with full
             // subagent abilities (it can write files, run commands), so the
-            // moment a live turn starts a side-effecting tool the two could
-            // race on the same workspace. Kill running continuations and skip
-            // pending detaches; a continuation only survives while foreground
-            // turns stay read-only (the topic-change case it exists for). An
-            // already-completed continuation's stashed answer is kept — it
+            // moment a live turn starts a consequential tool the two could
+            // race on the same workspace, host, or extension state. Kill
+            // running continuations and skip pending detaches; a continuation
+            // only survives while foreground turns stay provably read-only
+            // (the topic-change case it exists for). Fail closed: only the
+            // built-in read-only allowlist keeps a continuation alive — a
+            // name-based side-effect denylist misses mutators like plugin/
+            // MCP/skill tools — and `skill_execute` counts as consequential
+            // because its resolved inner tool can mutate. Over-aborting only
+            // drops a best-effort salvage; under-aborting risks a write race.
+            // An already-completed continuation's stashed answer is kept — it
             // cannot race anything.
-            if (isSideEffectTool(toolName)) {
+            if (
+              toolName === "skill_execute" ||
+              isRefusedInReadOnlyPass(toolName, getToolOwner(toolName)?.kind)
+            ) {
               this.abortDetachedRuns({ keepPendingResult: true });
             }
             // The op counts toward the narration threshold on start (not

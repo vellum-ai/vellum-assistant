@@ -164,10 +164,7 @@ import { canonicalizeTimeZone } from "./date-context.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { shouldAttachHostProxyForCapability } from "./host-proxy-preactivation.js";
-import type {
-  SurfaceType,
-  UsageStats,
-} from "./message-protocol.js";
+import type { SurfaceType, UsageStats } from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
@@ -345,6 +342,15 @@ export class Conversation {
    * @internal
    */
   subagentDenySideEffects?: boolean;
+  /**
+   * When true, mid-run subagent → parent notifications (`notify_parent`) are
+   * suppressed for this child. Set on synchronous (spawnAndAwait) subagents:
+   * the awaiting caller is their only parent channel, so injecting a
+   * user-role turn into the live parent mid-await would start an unsolicited
+   * parent run. Checked in `notifyParentFromChild`.
+   * @internal
+   */
+  subagentSuppressParentNotifications?: boolean;
   /**
    * Tool names a subagent attempted but that its role allowlist
    * ({@link subagentAllowedTools}) denied. Recorded by the tool executor;
@@ -1463,6 +1469,10 @@ export class Conversation {
 
   setSubagentDenySideEffects(deny: boolean): void {
     this.subagentDenySideEffects = deny;
+  }
+
+  setSubagentSuppressParentNotifications(suppress: boolean): void {
+    this.subagentSuppressParentNotifications = suppress;
   }
 
   /**

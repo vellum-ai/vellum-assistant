@@ -574,6 +574,15 @@ export class SubagentManager {
       conversation.setSubagentDenySideEffects(true);
     }
 
+    // A synchronous child's only parent channel is the awaiting caller: a
+    // mid-run notify_parent would inject a user-role turn into the live
+    // parent conversation (starting an unsolicited parent run) instead of
+    // reaching that caller, so suppress it — the same reason runSubagent
+    // skips the terminal parent-injection on this path.
+    if (opts?.synchronous) {
+      conversation.setSubagentSuppressParentNotifications(true);
+    }
+
     // Pre-activate skills defined by the role config, merged with any caller-provided skill IDs.
     const mergedSkillIds = mergeSkillIds(
       roleConfig.skillIds,

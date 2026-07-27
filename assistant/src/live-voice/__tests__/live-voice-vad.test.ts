@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
 
 import type { TurnDetectorConfig } from "../../calls/media-turn-detector.js";
 import type {
@@ -19,6 +19,7 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import { __resetRegistryForTesting } from "../../tools/registry.js";
 import type { VoiceFrontDecider } from "../front-decision.js";
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
@@ -311,6 +312,11 @@ async function flushAsyncCallbacks(): Promise<void> {
 }
 
 describe("LiveVoiceSession server VAD", () => {
+  // The foreground-wins classification consults the tool registry's owner map
+  // (a tool is only provably read-only when it is the trusted built-in);
+  // register the core baseline so built-in names resolve like in the daemon.
+  beforeAll(() => __resetRegistryForTesting());
+
   // The voice-duplex-handoff flag is toggled via the override cache in a few
   // tests below; reset it so it never leaks into the flag-off default cases.
   afterEach(() => clearCachedOverrides());
@@ -1412,10 +1418,10 @@ describe("LiveVoiceSession server VAD", () => {
     resolvers[1]?.("");
   });
 
-  test("voice-duplex-handoff on: a foreground side-effecting tool start aborts an in-flight continuation", async () => {
+  test("voice-duplex-handoff on: a foreground consequential tool start aborts an in-flight continuation", async () => {
     setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
     // Hang the continuation so it is still running when the follow-up turn
-    // starts writing; resolve it when its signal aborts.
+    // starts mutating; resolve it when its signal aborts.
     const spawnBackgroundContinuation = mock(
       (args: {
         parentConversationId: string;
@@ -1458,17 +1464,19 @@ describe("LiveVoiceSession server VAD", () => {
     const signal = spawnBackgroundContinuation.mock.calls[0]?.[0]?.signal;
     expect(signal?.aborted).toBe(false);
 
-    // The follow-up turn starts a side-effecting tool: foreground wins the
+    // The follow-up turn starts a consequential tool: foreground wins the
     // workspace, so the still-running continuation is aborted before the two
-    // can race on writes.
+    // can race on writes. `remember` is deliberately NOT on the core
+    // side-effect name list — the classification must fail closed on any
+    // tool that is not provably read-only, not just named writers.
     const followUp = calls.find((c) => c.content === "second question");
-    followUp?.callbacks?.tool_use_start?.("file_write", {
+    followUp?.callbacks?.tool_use_start?.("remember", {
       toolUseId: "tool-1",
     });
     expect(signal?.aborted).toBe(true);
   });
 
-  test("voice-duplex-handoff on: a foreground read-only tool start leaves the continuation running", async () => {
+  test("voice-duplex-handoff on: a read-only built-in leaves the continuation running; an unclassified tool fails closed", async () => {
     setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
     let abortListenerArmed = false;
     const spawnBackgroundContinuation = mock(
@@ -1508,15 +1516,20 @@ describe("LiveVoiceSession server VAD", () => {
     await waitFor(() => abortListenerArmed);
     await waitFor(() => calls.some((c) => c.content === "second question"));
 
-    // A read-only tool cannot contend on the workspace: the continuation
-    // survives (this is the topic-change case the handoff exists for).
+    // A provably read-only built-in cannot contend on the workspace: the
+    // continuation survives (this is the topic-change case the handoff
+    // exists for).
     const followUp = calls.find((c) => c.content === "second question");
     followUp?.callbacks?.tool_use_start?.("file_read", { toolUseId: "tool-1" });
     const signal = spawnBackgroundContinuation.mock.calls[0]?.[0]?.signal;
     expect(signal?.aborted).toBe(false);
 
-    // Cleanup: the interrupt aborts the still-pending continuation.
-    await session.handleClientFrame({ type: "interrupt" });
+    // A tool the registry does not know (e.g. an MCP or plugin tool) is not
+    // provably read-only: fail closed and abort.
+    followUp?.callbacks?.tool_use_start?.("calendar_lookup", {
+      toolUseId: "tool-2",
+    });
+    expect(signal?.aborted).toBe(true);
   });
 
   test("voice-duplex-handoff on: a foreground-wins abort keeps an already-stashed continuation result", async () => {

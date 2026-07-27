@@ -44,7 +44,13 @@ const capturedParentIds: string[] = [];
 // Live subagent conversations, keyed by conversationId. notifyParentFromChild
 // routes to the parent recorded here (the non-writable in-process source), so
 // tests register a child before expecting a notification to route.
-const liveSubagents = new Map<string, { parentConversationId: string }>();
+const liveSubagents = new Map<
+  string,
+  {
+    parentConversationId: string;
+    subagentSuppressParentNotifications?: boolean;
+  }
+>();
 
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => {
@@ -60,9 +66,7 @@ mock.module("../daemon/conversation-registry.js", () => ({
   },
   findConversationOrSubagent: (id: string) => {
     const live = liveSubagents.get(id);
-    return live
-      ? { parentConversationId: live.parentConversationId }
-      : undefined;
+    return live ? { ...live } : undefined;
   },
 }));
 
@@ -319,6 +323,23 @@ describe("notifyParentFromChild", () => {
       true,
     );
     expect(lastCapturedMessage()).toContain("Test message");
+  });
+
+  test("returns false for a synchronous child that suppresses parent notifications", () => {
+    clearCaptured();
+    const conversationId = "conv-suppressed-1";
+    seedSubagent(conversationId);
+    // spawnAndAwait children carry this flag: the awaiting caller is their
+    // only parent channel, so a mid-run injection must not reach the parent.
+    const live = liveSubagents.get(conversationId);
+    if (live) {
+      live.subagentSuppressParentNotifications = true;
+    }
+
+    expect(
+      notifyParentFromChild(conversationId, "Should not arrive", "info"),
+    ).toBe(false);
+    expect(capturedMessages).toHaveLength(0);
   });
 
   test("labels forks as Fork", () => {
