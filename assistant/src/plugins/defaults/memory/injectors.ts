@@ -1,16 +1,19 @@
 /**
- * `default-memory` plugin injectors — the personal-memory per-turn injections.
+ * `default-memory` plugin injectors — the personal-memory per-turn injections,
+ * and the plugin's single injector entry point: {@link memoryInjectors} is the
+ * complete set `defaultMemoryPlugin` contributes, so the host registers memory
+ * injectors without reaching into a tier directory for one.
  *
  * Contributes the PKB `<knowledge_base>` block, the PKB `<system_reminder>`
- * (with hybrid-search hints), and the memory-v2 static `<info>` block. Each
- * reads its inputs directly off the {@link TurnContext} (and the workspace
- * memory/PKB files), runs its own gating (injection mode, the personal-memory
- * trust gate, the memory-tier gate, null-input short-circuits), and returns an
+ * (with hybrid-search hints), the memory-v2 static `<info>` block, and the two
+ * memory-v3 injectors defined in `v3/injector.ts`. Each reads its inputs
+ * directly off the {@link TurnContext} (and the workspace memory/PKB files),
+ * runs its own gating (injection mode, the personal-memory trust gate, the
+ * memory-tier gate, null-input short-circuits), and returns an
  * {@link InjectionBlock} with the placement that yields the canonical
  * positional semantics.
  *
- * `defaultMemoryPlugin` contributes these (alongside the memory-v3 injectors in
- * `v3/injector.ts`) to the global injector registry
+ * `defaultMemoryPlugin` contributes the array to the global injector registry
  * (`plugins/injector-registry.ts`), which unions every plugin's injectors and
  * sorts by `order` into the single sequence `applyRuntimeInjections` walks each
  * turn. The shared ordering contract lives in {@link DEFAULT_INJECTOR_ORDER}.
@@ -44,6 +47,9 @@ import { getPkbAutoInjectList } from "./v1/pkb/autoinject.js";
 import { readPkbContext } from "./v1/pkb/context.js";
 import { searchPkbFiles } from "./v1/pkb/pkb-search.js";
 import { getPkbRoot } from "./v1/pkb/types.js";
+// V3 — delete with v3. Re-exported through `memoryInjectors` below so the
+// host registers them without importing `v3/` itself.
+import { memoryV3Injector, memoryV3SpotlightInjector } from "./v3/injector.js";
 
 const pkbReminderLog = getLogger("pkb-reminder");
 
@@ -405,11 +411,11 @@ function buildMemoryV2StaticBlock(content: string): string {
 }
 
 /**
- * The `default-memory` plugin's personal-memory injectors, in ascending
- * `order`. `defaultMemoryPlugin` contributes these alongside the memory-v3
- * injectors; the registry sorts the union by `order` (see
- * {@link DEFAULT_INJECTOR_ORDER}), so this array's literal order is only a
- * readability convenience.
+ * Every injector the `default-memory` plugin contributes, in ascending
+ * `order`. This is the plugin's whole injector surface — `defaultMemoryPlugin`
+ * passes the array straight through, and the registry sorts the cross-plugin
+ * union by `order` (see {@link DEFAULT_INJECTOR_ORDER}), so this array's
+ * literal order is only a readability convenience.
  */
 export const memoryInjectors: Injector[] = [
   // V1 — delete with v1. The PKB pair is the legacy engine's entire injection
@@ -422,4 +428,8 @@ export const memoryInjectors: Injector[] = [
   // `memory-v2-static` is FROZEN: `daemon/conversation-runtime-assembly.ts`
   // switches on it to capture the block into persisted message metadata.
   memoryV2StaticInjector,
+  // V3 — delete with v3. The frozen net-new card block and its ephemeral
+  // spotlight companion; both self-gate on `memory.v3.live`.
+  memoryV3Injector,
+  memoryV3SpotlightInjector,
 ];

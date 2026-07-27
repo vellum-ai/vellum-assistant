@@ -148,16 +148,14 @@ export function registerConfigCommand(program: Command): void {
                 : String(value),
             );
           }
-          // A `memory.v2` substrate tunable is not the effective value when
-          // its `memory.substrate` twin is set — print the key that wins so a
-          // read cannot confirm a value the runtime ignores.
-          const { findSubstrateShadowing } =
+          // A `memory.v2` substrate tunable whose `memory.substrate` twin is
+          // set has a second reader — print which key the runtime consults so
+          // the value above cannot be mistaken for the effective one.
+          const { describeShadowedConfigGet, findSubstrateShadowing } =
             await import("../../config/substrate-twin-shadowing.js");
           const shadowing = findSubstrateShadowing(raw, key);
           if (shadowing) {
-            log.warn(
-              `Shadowed: ${shadowing.substratePath} = ${JSON.stringify(shadowing.substrateValue)} takes precedence and is the effective value.`,
-            );
+            log.warn(describeShadowedConfigGet(shadowing, key));
           }
         },
       );

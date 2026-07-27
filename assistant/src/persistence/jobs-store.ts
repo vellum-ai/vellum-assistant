@@ -72,12 +72,12 @@ export type MemoryJobType =
   | "delete_message_lexical"
   | "backfill_lexical_index"
   | "skill_card_insert"
+  | "memory_retrospective"
   | "memory_retrospective_sweep"
   // Retired/legacy — no live handler; persisted rows drop via LEGACY_JOB_TYPES.
   | "memory_v3_consolidate"
   | "memory_v3_index_maintenance"
   | "memory_v3_edge_learning"
-  | "memory_retrospective"
   | "conversation_analyze";
 
 export const EMBED_JOB_TYPES: MemoryJobType[] = [
