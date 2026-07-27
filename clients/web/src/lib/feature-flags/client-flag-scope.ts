@@ -32,9 +32,9 @@ import { requestScopeKey } from "@/utils/request-scope-key";
  * The organization comes from `getActiveOrganizationIdForRequests()` — the
  * same derivation that builds `Vellum-Organization-Id` and that
  * `useOrgHeaderReadiness()` releases the fetch on — so the scope names whoever
- * the server actually evaluated for. The store's id slice alone would not: it
- * is null while the sessionStorage fallback is carrying requests, which stamps
- * an organization's evaluation as belonging to no organization at all.
+ * the server actually evaluated for. The store's resolved id alone would not:
+ * it is null while the persisted id is carrying requests, which stamps an
+ * organization's evaluation as belonging to no organization at all.
  *
  * Agreement is enforced rather than assumed: values carry the scope they were
  * produced under, and the store drops any the scope in hand no longer answers.
@@ -51,11 +51,10 @@ export function currentClientFlagScopeKey(): string {
 /**
  * Call once at startup. Returns an unsubscribe for tests.
  *
- * Subscribing without a selector is what lets the scope follow a non-reactive
- * source: every write to the sessionStorage fallback is immediately followed by
- * an organization-store `set()`, and a selectorless subscriber runs on all of
- * them — including the ones that leave every slice untouched, like
- * `clearOrganization()` revoking a fallback the id slice never held.
+ * The subscriptions carry no selector: the scope is a function of several
+ * slices across both stores, and a selectorless subscriber runs on every write
+ * to either — including `clearOrganization()` revoking a persisted id the
+ * resolved id slice never held.
  */
 export function setupClientFlagScopeSync(): () => void {
   const claimCurrentScope = () => {

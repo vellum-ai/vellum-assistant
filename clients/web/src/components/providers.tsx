@@ -28,7 +28,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
 import { installQueryPressureProbe } from "@/lib/commit-pressure";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
-import { useOrganizationStore } from "@/stores/organization-store";
+import { useRequestOrganizationId } from "@/stores/organization-store";
 import { queryRetryDelay, shouldRetryQuery } from "@/utils/query-retry";
 import { requestScopeKey } from "@/utils/request-scope-key";
 
@@ -82,19 +82,15 @@ function ScopeKeyedQueryClientProvider({
 }) {
   const isAuthenticated = useIsAuthenticated();
   const user = useAuthStore.use.user();
-  // The organization comes from the store slice, not the request-header
-  // derivation the flag scope uses: a React key is only as current as the
-  // render that computes it, and the header's sessionStorage fallback can be
-  // revoked without moving any subscribed slice. Keying a cache on a value
-  // nothing re-reads would let it outlive the identity it holds; keying on the
-  // slice at worst rotates the cache a beat late, discarding entries rather
-  // than serving them to the wrong identity.
-  const currentOrganizationId =
-    useOrganizationStore.use.currentOrganizationId();
+  // The organization is the one requests carry, which is the store's resolved
+  // selection or the persisted id standing in for it. Both are store slices,
+  // so the key recomputes whenever the identity behind the cache moves and a
+  // response is never read as the answer for an identity that replaced it.
+  const organizationId = useRequestOrganizationId();
   const scopeKey = requestScopeKey({
     isAuthenticated,
     userId: user?.id,
-    organizationId: currentOrganizationId,
+    organizationId,
   });
 
   return (

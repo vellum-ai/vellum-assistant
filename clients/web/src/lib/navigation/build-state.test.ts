@@ -41,7 +41,10 @@ beforeEach(() => {
   mockIsLocalMode = true;
   mockIsRemoteGatewayMode = false;
   useAuthStore.setState(initialAuthState, true);
-  useOrganizationStore.setState({ currentOrganizationId: null });
+  useOrganizationStore.setState({
+    currentOrganizationId: null,
+    persistedOrganizationId: null,
+  });
   globalThis.sessionStorage?.clear();
   useResolvedAssistantsStore.setState({
     assistants: [],
@@ -181,6 +184,7 @@ describe("buildNavigationState — hasPlatformHostedAssistant", () => {
   test("falls back to the persisted org id when the store has not hydrated", () => {
     useResolvedAssistantsStore.setState({ assistants: [managedInOrgA] });
     globalThis.sessionStorage.setItem("vellum_active_organization_id", ORG_B);
+    useOrganizationStore.setState({ persistedOrganizationId: ORG_B });
 
     expect(buildNavigationState().hasPlatformHostedAssistant).toBe(false);
   });
