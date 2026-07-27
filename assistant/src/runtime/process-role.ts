@@ -12,16 +12,28 @@
  * {@link markCurrentProcessAsMainDaemon} once at startup. Every other process
  * (which never runs that entrypoint) is a non-daemon by default — no per-worker
  * bookkeeping to keep in sync.
+ *
+ * State lives on the shared `globalThis.vellumAssistant` slot (like the other
+ * process-scoped singletons) so the test preload can default a test process to
+ * "main daemon" — a test runs daemon code in-process and expects local hub
+ * delivery — without importing this module.
  */
 
-let mainDaemon = false;
+type VellumAssistantNamespace = {
+  mainDaemonProcess?: boolean;
+};
+
+function ns(): VellumAssistantNamespace {
+  const g = globalThis as { vellumAssistant?: VellumAssistantNamespace };
+  return (g.vellumAssistant ??= {});
+}
 
 /**
  * Mark the current process as the main assistant daemon. Called once, early in
  * the daemon entrypoint (`runDaemon`), before anything can publish an event.
  */
 export function markCurrentProcessAsMainDaemon(): void {
-  mainDaemon = true;
+  ns().mainDaemonProcess = true;
 }
 
 /**
@@ -29,5 +41,5 @@ export function markCurrentProcessAsMainDaemon(): void {
  * daemon entrypoint did not run — sidecar workers, the route host, the CLI.
  */
 export function isMainDaemonProcess(): boolean {
-  return mainDaemon;
+  return ns().mainDaemonProcess === true;
 }

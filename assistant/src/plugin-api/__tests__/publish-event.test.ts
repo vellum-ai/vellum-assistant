@@ -9,12 +9,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { AssistantEventEnvelope } from "../../api/index.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
-import { markCurrentProcessAsMainDaemon } from "../../runtime/process-role.js";
 import { publishEvent } from "../publish-event.js";
 
-// These assertions exercise the daemon-side publish path (local hub delivery),
-// so mark this process the main daemon (otherwise the facade would forward).
-markCurrentProcessAsMainDaemon();
+// A test process defaults to "main daemon" (set by the test preload), so the
+// hub publishes locally here rather than forwarding.
 
 function syncEvent(): AssistantEventEnvelope {
   return {
