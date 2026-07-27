@@ -2933,6 +2933,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // drops a best-effort salvage; under-aborting risks a write race.
             // An already-completed continuation's stashed answer is kept — it
             // cannot race anything.
+            //
+            // Accepted residual: the abort is signal-level. A tool call
+            // already executing inside the continuation is not awaited (the
+            // agent loop abandons the in-flight promise on cancellation), so
+            // that one call can briefly overlap the foreground tool. Closing
+            // it would take a cross-conversation execution lock that the
+            // subagent model deliberately does not have — parallel subagents
+            // share the workspace with the parent everywhere — and awaiting
+            // background teardown here would stall the live call's turn.
+            // This gate already makes voice stricter than that baseline; the
+            // residual is bounded to one in-flight call at barge-over time.
             if (
               toolName === "skill_execute" ||
               isRefusedInReadOnlyPass(toolName, getToolOwner(toolName)?.kind)
