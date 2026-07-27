@@ -124,9 +124,13 @@ function isPostCheckoutReturn(
   path: string,
   pathnameWithSearch: string,
 ): boolean {
-  if (!POST_CHECKOUT_LANDING_PATHS.has(path)) return false;
+  if (!POST_CHECKOUT_LANDING_PATHS.has(path)) {
+    return false;
+  }
   const qIdx = pathnameWithSearch.indexOf("?");
-  if (qIdx < 0) return false;
+  if (qIdx < 0) {
+    return false;
+  }
   return new URLSearchParams(pathnameWithSearch.slice(qIdx + 1)).has(
     "session_id",
   );
@@ -289,12 +293,18 @@ function requirePostCheckoutProvisioning(
   // An org with a platform-hosted assistant has a target for the purchase, so
   // the return stays on billing and the pro onboarding wizard consumes
   // `session_id` there.
-  if (state.hasPlatformHostedAssistant) return null;
-  if (!isPostCheckoutReturn(path, pathnameWithSearch)) return null;
+  if (state.hasPlatformHostedAssistant) {
+    return null;
+  }
+  if (!isPostCheckoutReturn(path, pathnameWithSearch)) {
+    return null;
+  }
   // Not signed in yet: fall through so `requireAuth` sends the user to login
   // with a `returnTo` that still carries `session_id`, and this step decides
   // again on the way back.
-  if (!state.isAuthenticated) return null;
+  if (!state.isAuthenticated) {
+    return null;
+  }
   // The platform assistants list boots empty and loads asynchronously, so
   // deciding on that default would funnel an established user out of their own
   // billing page. Local mode is excluded for the same reason as in
