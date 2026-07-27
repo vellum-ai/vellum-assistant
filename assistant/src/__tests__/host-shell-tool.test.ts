@@ -357,7 +357,7 @@ describe("host_bash — input validation", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("command is required");
+    expect(result.content).toContain('Invalid input for tool "host_bash"');
   });
 
   test("rejects non-string command", async () => {
@@ -369,9 +369,7 @@ describe("host_bash — input validation", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain(
-      "command is required and must be a string",
-    );
+    expect(result.content).toContain('Invalid input for tool "host_bash"');
   });
 
   test("rejects non-string working_dir", async () => {
@@ -384,7 +382,7 @@ describe("host_bash — input validation", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("working_dir must be a string");
+    expect(result.content).toContain('Invalid input for tool "host_bash"');
   });
 });
 

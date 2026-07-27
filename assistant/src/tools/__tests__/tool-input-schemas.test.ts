@@ -5,6 +5,13 @@ import { fileEditTool } from "../filesystem/edit.js";
 import { fileListTool } from "../filesystem/list.js";
 import { fileReadTool } from "../filesystem/read.js";
 import { fileWriteTool } from "../filesystem/write.js";
+import { hostFileEditTool } from "../host-filesystem/edit.js";
+import { hostFileReadTool } from "../host-filesystem/read.js";
+import { hostFileWriteTool } from "../host-filesystem/write.js";
+import { hostShellTool } from "../host-terminal/host-shell.js";
+import { notifyParentTool } from "../subagent/notify-parent.js";
+import { requestSystemPermissionTool } from "../system/request-permission.js";
+import { shellTool } from "../terminal/shell.js";
 import { parseToolInput, TOOL_INPUT_SCHEMAS } from "../tool-input-schemas.js";
 
 describe("parseToolInput", () => {
@@ -126,6 +133,13 @@ describe("derived input_schema", () => {
     fileEditTool,
     fileListTool,
     askQuestionTool,
+    hostFileReadTool,
+    hostFileWriteTool,
+    hostFileEditTool,
+    shellTool,
+    hostShellTool,
+    requestSystemPermissionTool,
+    notifyParentTool,
   ];
 
   test("every registered schema belongs to a tool whose input_schema is derived from it", () => {

@@ -5,7 +5,14 @@ import { fileEditInputSchema } from "./filesystem/edit.js";
 import { fileListInputSchema } from "./filesystem/list.js";
 import { fileReadInputSchema } from "./filesystem/read.js";
 import { fileWriteInputSchema } from "./filesystem/write.js";
+import { hostFileEditInputSchema } from "./host-filesystem/edit.js";
+import { hostFileReadInputSchema } from "./host-filesystem/read.js";
+import { hostFileWriteInputSchema } from "./host-filesystem/write.js";
+import { hostShellInputSchema } from "./host-terminal/host-shell.js";
 import { formatToolInputError } from "./shared/zod-tool-schema.js";
+import { notifyParentInputSchema } from "./subagent/notify-parent.js";
+import { requestSystemPermissionInputSchema } from "./system/request-permission.js";
+import { shellInputSchema } from "./terminal/shell.js";
 
 /**
  * Per-tool Zod input schemas, keyed by tool name. Tool calls are a
@@ -39,10 +46,17 @@ import { formatToolInputError } from "./shared/zod-tool-schema.js";
  */
 export const TOOL_INPUT_SCHEMAS: Readonly<Record<string, z.ZodType>> = {
   ask_question: askQuestionInputSchema,
+  bash: shellInputSchema,
   file_edit: fileEditInputSchema,
   file_list: fileListInputSchema,
   file_read: fileReadInputSchema,
   file_write: fileWriteInputSchema,
+  host_bash: hostShellInputSchema,
+  host_file_edit: hostFileEditInputSchema,
+  host_file_read: hostFileReadInputSchema,
+  host_file_write: hostFileWriteInputSchema,
+  notify_parent: notifyParentInputSchema,
+  request_system_permission: requestSystemPermissionInputSchema,
 };
 
 /**
