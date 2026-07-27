@@ -20,7 +20,9 @@ export const VALID_INFERENCE_PROVIDERS = [
   "openrouter",
 ] as const;
 
-const VALID_IMAGE_GEN_PROVIDERS = ["gemini", "openai"] as const;
+// `vellum` generates through the platform runtime proxy; the backend
+// (gemini/openai) derives from the selected model's prefix at request time.
+const VALID_IMAGE_GEN_PROVIDERS = ["vellum", "gemini", "openai"] as const;
 
 /**
  * Derived from `SEARCH_PROVIDER_CATALOG`. Adding a new web-search provider
@@ -51,7 +53,13 @@ const BaseServiceSchema = z.object({
  */
 const InferenceServiceSchema = z.object({});
 
-const ImageGenerationServiceSchema = BaseServiceSchema.extend({
+/**
+ * Image generation carries no `mode`: `provider` is the only axis. `"vellum"`
+ * generates through the platform runtime proxy for the model-appropriate
+ * backend, billed to Vellum credits; `"gemini"`/`"openai"` use the user's
+ * key. A `mode` key sent by an older client is stripped at parse.
+ */
+const ImageGenerationServiceSchema = z.object({
   provider: z.enum(VALID_IMAGE_GEN_PROVIDERS).default("gemini"),
   model: z.string().default(DEFAULT_IMAGE_MODEL),
 });

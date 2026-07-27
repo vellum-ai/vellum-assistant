@@ -16,6 +16,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../../agent/message-types.js";
+import type { AssistantEvent } from "../../api/index.js";
 import {
   BackgroundToolCompletionSchema,
   type ConversationContentBlock,
@@ -81,7 +82,6 @@ import {
   shouldAttachHostProxyForCapability,
 } from "../../daemon/host-proxy-preactivation.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
   NonHostProxyTransportMetadata,
@@ -494,7 +494,7 @@ async function tryConsumeGuardianReply(params: {
     filePath?: string;
   }>;
   conversation: Conversation;
-  onEvent: (msg: ServerMessage) => void;
+  onEvent: (msg: AssistantEvent) => void;
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Verified actor identity from actor-token middleware. */
   verifiedActorExternalUserId?: string;
@@ -3007,6 +3007,12 @@ export const ROUTES: RouteDefinition[] = [
           "Plugin ids that scope this conversation to a subset of installed plugins (first-party defaults are always available). When present on a message, it sets/updates the conversation's plugin scope (the web client sends it only on the first message of a new chat). null clears the scope to default (all enabled plugins); omitting the field leaves the existing scope unchanged.",
         ),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
+      bypassSecretCheck: z
+        .boolean()
+        .optional()
+        .describe(
+          'When true, skip the secret-ingress scan for this message only. Set exclusively when the user explicitly confirms a client-side blocked send (the composer\'s "Send anyway" action); it is per-message and never persisted.',
+        ),
       hidden: z
         .boolean()
         .optional()

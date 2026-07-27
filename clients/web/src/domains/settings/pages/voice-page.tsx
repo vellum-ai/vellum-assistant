@@ -18,6 +18,9 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { VoicePickerCard } from "@/domains/settings/pages/voice-picker-card";
 
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
+
 import { DetailCard } from "@/components/detail-card";
 import {
   DEFAULT_INTERRUPT_SENSITIVITY,
@@ -133,21 +136,28 @@ export function VoiceSections() {
 }
 
 /**
- * Pointer to the BYO speech providers, which live with every other provider on
- * Models & Services rather than on this page. Restores the cross-link the Voice
- * page carried before speech briefly moved into a Services tab — most people
- * want the managed voice above, but the ones bringing their own key need a way
- * across.
+ * Pointer to Models & Services, which carries the BYO speech providers (they
+ * live with every other provider there, not on this page) and the managed
+ * custom-voice-ID entry: most people want the managed voice above, but those
+ * bringing their own key or a specific voice ID need a way across.
+ *
+ * Shown only alongside the managed picker. An assistant already on its own
+ * provider gets that same pointer from the card itself, which has nothing else
+ * to offer — a second copy of the sentence directly beneath it just repeats.
  */
 function SpeechServicesBanner() {
+  const { available } = useManagedVoiceSelection(useActiveAssistantId());
+
+  if (!available) return null;
+
   return (
     <div className="flex flex-wrap items-center gap-1.5 px-1 text-body-small-default text-[var(--content-tertiary)]">
       <Info className="h-3.5 w-3.5 shrink-0 text-[var(--content-quiet)]" />
       <span>
-        Want to use your own API key for speech-to-text or text-to-speech?
+        Want to use your own API key for STT or TTS, or set a custom voice?
       </span>
       <Link
-        to={routes.settings.ai}
+        to={`${routes.settings.ai}#text-to-speech`}
         className="inline-flex items-center gap-1 text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
       >
         Set it up in Models &amp; Services

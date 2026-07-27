@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   createSurfaceMutex,
   type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
 import type {
-  ServerMessage,
   SurfaceType,
   UiSurfaceShow,
   UiSurfaceShowWorkResult,
@@ -15,7 +15,7 @@ import type {
 import { INTERACTIVE_SURFACE_TYPES } from "../daemon/message-protocol.js";
 import { uiShowTool } from "../tools/ui-surface/definitions.js";
 
-function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext {
+function makeContext(sent: AssistantEvent[] = []): SurfaceConversationContext {
   return {
     conversationId: "session-1",
     sendToClient: (msg) => sent.push(msg),
@@ -108,7 +108,7 @@ describe("work_result surface protocol", () => {
   });
 
   test("ui_show can emit a work_result surface", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {

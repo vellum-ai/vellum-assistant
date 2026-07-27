@@ -103,4 +103,4 @@ Key Airtable-specific differences for Path B:
 
 - Loopback callback won't work from a remote channel - need public ingress configured
 - Add the ingress-based redirect URI under the OAuth redirect URL field on the integration page
-- Airtable OAuth secrets don't have a known prefix that triggers scanners, but still use `assistant credentials prompt` or `assistant credentials set` for security
+- Airtable OAuth secrets don't have a known prefix that triggers scanners, but still use `assistant credentials prompt` for security (never inline `assistant credentials set`)

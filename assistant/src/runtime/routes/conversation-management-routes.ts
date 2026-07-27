@@ -716,11 +716,17 @@ async function handleRetryLastAssistantTurn({
   // send) re-runs as a hidden turn so it stays out of the titler, mirroring
   // how the original turn ran.
   const isHiddenPrompt = isEchoSuppressedUserMessage(anchorMetadata);
-  // Reproduce the anchor's original permission mode: a background-event turn
-  // ran non-interactively (trust-rule auto-resolution, not blocking prompts),
-  // so forcing interactive would stall a retried scheduled turn on approvals
-  // the original never asked for.
-  const isInteractive = !isBackgroundEventMetadata(anchorMetadata);
+  // Reproduce the anchor's original permission mode so the re-run keeps the
+  // same approval semantics: a background-event wake records the interactivity
+  // it ran under (`backgroundEventInteractive`; see persistWakeTriggerMessage).
+  // Legacy anchors written before the field existed fall back to non-interactive
+  // — the conservative choice that keeps a retried scheduled turn from stalling
+  // on approvals the original never asked for.
+  const recordedInteractive = anchorMetadata?.backgroundEventInteractive;
+  const isInteractive =
+    typeof recordedInteractive === "boolean"
+      ? recordedInteractive
+      : !isBackgroundEventMetadata(anchorMetadata);
   const contentText = extractUserPromptText(anchor.content);
 
   // Fire-and-forget: return 202 immediately, stream the re-run over SSE. The

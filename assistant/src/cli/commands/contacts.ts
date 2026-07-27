@@ -3,7 +3,7 @@ import type { Command } from "commander";
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
-import { shouldOutputJson, writeOutput } from "../output.js";
+import { shouldOutputJson, writeError, writeOutput } from "../output.js";
 import { contactsHelp } from "./contacts.help.js";
 
 // ---------------------------------------------------------------------------
@@ -146,14 +146,6 @@ function formatContactDetail(
     );
   }
   return lines.join("\n");
-}
-
-function writeError(cmd: Command, message: string): void {
-  if (shouldOutputJson(cmd)) {
-    writeOutput(cmd, { ok: false, error: message });
-  } else {
-    process.stderr.write(`Error: ${message}\n`);
-  }
 }
 
 export function registerContactsCommand(program: Command): void {

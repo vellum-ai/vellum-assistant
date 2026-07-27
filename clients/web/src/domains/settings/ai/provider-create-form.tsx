@@ -21,6 +21,10 @@ import {
 
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ChatgptOAuthSection } from "@/domains/settings/ai/chatgpt-oauth-section";
+import {
+  CUSTOM_PROVIDER_NAME_ERRORS,
+  customProviderNameConflict,
+} from "@/domains/settings/ai/custom-provider-names";
 import { deriveProviderDefaults } from "@/domains/settings/ai/profile-prefill";
 import type {
   Auth,
@@ -55,6 +59,8 @@ import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-c
 export interface ProviderCreateFormProps {
   assistantId: string;
   existingNames: string[];
+  /** Existing connections, for custom-provider name-collision checks. */
+  connections?: ProviderConnection[];
   /** Pre-selected provider type. */
   defaultProviderType?: ConnectionProvider;
   onCreated: (connection: ProviderConnection) => void;
@@ -66,6 +72,7 @@ export interface ProviderCreateFormProps {
 export function ProviderCreateForm({
   assistantId,
   existingNames,
+  connections,
   defaultProviderType,
   onCreated,
   onCancel,
@@ -85,7 +92,9 @@ export function ProviderCreateForm({
     existingNames,
   );
 
-  const [label, setLabel] = useState(initialDefaults.name);
+  const [label, setLabel] = useState(
+    initialProvider === "openai-compatible" ? "" : initialDefaults.name,
+  );
   const [name, setName] = useState(initialDefaults.key);
   // The picker offers real connection providers plus "chatgpt", a
   // subscription-auth pseudo-provider: its connection is created by the OAuth
@@ -102,8 +111,15 @@ export function ProviderCreateForm({
     : provider === "ollama"
       ? "none"
       : "api_key";
+  // Custom providers get per-connection credential slots: keying the ref by
+  // the provider type would share ONE vault slot across every custom
+  // endpoint, so saving any endpoint's key overwrites the others'.
   const [credential, setCredential] = useState(() =>
-    initialProvider === "ollama" ? "" : `credential/${initialProvider}/api_key`,
+    initialProvider === "ollama"
+      ? ""
+      : initialProvider === "openai-compatible"
+        ? `credential/${initialDefaults.key}/api_key`
+        : `credential/${initialProvider}/api_key`,
   );
   const [baseUrl, setBaseUrl] = useState("");
   const [connectionModels, setConnectionModels] = useState("");
@@ -161,7 +177,16 @@ export function ProviderCreateForm({
     enabled: true,
   });
 
-  const canSave = name.trim().length > 0;
+  // A custom provider must not take a built-in provider's name or another
+  // custom provider's — entries share one flat list. Mirrors the daemon's
+  // route-side validation for inline feedback.
+  const nameConflict = isOpenAICompatible
+    ? customProviderNameConflict(label, connections)
+    : null;
+  const canSave =
+    name.trim().length > 0 &&
+    (!isOpenAICompatible || label.trim().length > 0) &&
+    nameConflict === null;
 
   async function handleSave() {
     if (!canSave) {
@@ -174,7 +199,8 @@ export function ProviderCreateForm({
 
       if (authType === "api_key") {
         const effectiveCredential =
-          credential.trim() || `credential/${provider}/api_key`;
+          credential.trim() ||
+          `credential/${isOpenAICompatible ? name : provider}/api_key`;
         const trimmedKey = apiKeyValue.trim();
 
         if (trimmedKey) {
@@ -360,27 +386,78 @@ export function ProviderCreateForm({
               existingNames,
             );
             if (!isLabelDirty.current) {
-              setLabel(seedName);
+              // A custom provider's name is the user's identity for it —
+              // seeding the protocol's display name would produce
+              // "Add OpenAI-compatible".
+              setLabel(newSelected === "openai-compatible" ? "" : seedName);
             }
             setName(seedKey);
             setCredential(
               newSelected === "ollama"
                 ? ""
-                : `credential/${newSelected}/api_key`,
+                : newSelected === "openai-compatible"
+                  ? `credential/${seedKey}/api_key`
+                  : `credential/${newSelected}/api_key`,
             );
             // Credential ref changes above trigger a new TQ query key,
             // so the presence check auto-refetches for the new provider.
           }}
-          options={connectionProviderOptions.map((p) => ({
-            value: p,
-            label: PROVIDER_DISPLAY_NAMES[p],
-          }))}
+          options={[
+            // Catalog providers first; the custom-provider entry closes the
+            // list. "OpenAI-compatible" is the protocol a custom provider
+            // must speak, not the provider's identity.
+            ...connectionProviderOptions
+              .filter((p) => p !== "openai-compatible")
+              .map((p) => ({
+                value: p,
+                label: PROVIDER_DISPLAY_NAMES[p],
+              })),
+            ...(connectionProviderOptions.includes("openai-compatible")
+              ? [
+                  {
+                    value: "openai-compatible" as ConnectionProvider,
+                    label: "Custom provider",
+                  },
+                ]
+              : []),
+          ]}
         />
+        {isOpenAICompatible ? (
+          <Typography
+            variant="body-small-default"
+            as="p"
+            className="text-[var(--content-tertiary)]"
+          >
+            Custom providers connect to any endpoint that serves the
+            OpenAI-compatible API — xAI, Groq, LM Studio, vLLM, and similar.
+          </Typography>
+        ) : null}
       </div>
 
-      {/* Base URL + Models — openai-compatible only */}
+      {/* Name + Base URL + Models — custom providers only. Name leads:
+          the user is adding "xAI", not configuring a URL. */}
       {isOpenAICompatible && (
         <>
+          <div className="space-y-1">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              Name
+            </label>
+            <Input
+              value={label}
+              onChange={(e) => handleLabelChange(e.target.value)}
+              placeholder="xAI"
+              fullWidth
+            />
+            {nameConflict ? (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="text-(--system-negative-strong)"
+              >
+                {CUSTOM_PROVIDER_NAME_ERRORS[nameConflict]}
+              </Typography>
+            ) : null}
+          </div>
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
               Base URL
@@ -388,7 +465,7 @@ export function ProviderCreateForm({
             <Input
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.example.com/v1"
+              placeholder="https://api.x.ai/v1"
               fullWidth
             />
           </div>
@@ -429,6 +506,16 @@ export function ProviderCreateForm({
         />
       )}
 
+      {isOpenAICompatible && authType === "api_key" ? (
+        <Typography
+          variant="body-small-default"
+          as="p"
+          className="text-[var(--content-tertiary)]"
+        >
+          Leave the key empty for local endpoints — they connect keyless.
+        </Typography>
+      ) : null}
+
       {/* ChatGPT Subscription OAuth — shown when auth type is oauth_subscription */}
       {authType === "oauth_subscription" && (
         <ChatgptOAuthSection
@@ -437,7 +524,7 @@ export function ProviderCreateForm({
         />
       )}
 
-      {!isChatgpt && advancedDetailsSection}
+      {!isChatgpt && !isOpenAICompatible && advancedDetailsSection}
 
       {error && (
         <Typography
@@ -463,7 +550,11 @@ export function ProviderCreateForm({
           disabled={!canSave || saving || isSavingKey}
           onClick={() => void handleSave()}
         >
-          {saving ? "Saving…" : "Add"}
+          {saving
+            ? "Saving…"
+            : isOpenAICompatible && label.trim()
+              ? `Add ${label.trim()}`
+              : "Add"}
         </Button>
       )}
     </>

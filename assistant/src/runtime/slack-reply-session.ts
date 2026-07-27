@@ -1,5 +1,6 @@
 import type { SlackStreamTask } from "@vellumai/gateway-client";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   extractThreadTsFromCallbackUrl,
   isSlackDeliveryCallbackUrl,
@@ -9,7 +10,6 @@ import {
   incompleteVellumLinkSuffixLength,
   stripVellumLinks,
 } from "../daemon/assistant-attachments.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js";
 import { renderSlackBlocks } from "../messaging/providers/slack/render.js";
 import { getLogger } from "../util/logger.js";
@@ -51,7 +51,7 @@ export type SlackStreamReconciliation =
   | { mode: "fallback" };
 
 export type SlackReplySession = {
-  observeEvent: (msg: ServerMessage) => void;
+  observeEvent: (msg: AssistantEvent) => void;
   /**
    * Settle in-flight stream operations, finalize the stream, and report how
    * durable delivery should reconcile. Call once after processing completes.
@@ -79,12 +79,12 @@ export function shouldStreamSlackReply(params: {
   recipientUserId?: string;
   recipientTeamId?: string;
 }): boolean {
-  if (params.sourceChannel !== "slack") return false;
-  if (!isSlackDeliveryCallbackUrl(params.replyCallbackUrl)) return false;
+  if (params.sourceChannel !== "slack") {return false;}
+  if (!isSlackDeliveryCallbackUrl(params.replyCallbackUrl)) {return false;}
   if (extractThreadTsFromCallbackUrl(params.replyCallbackUrl) === null) {
     return false;
   }
-  if (params.chatType === "im") return true;
+  if (params.chatType === "im") {return true;}
   return Boolean(params.recipientUserId && params.recipientTeamId);
 }
 
@@ -130,7 +130,7 @@ export function createSlackReplySession(params: {
   const coalesceMs = params.coalesceMs ?? STREAM_COALESCE_MS;
   const replyCallbackUrl = params.replyCallbackUrl;
   const threadTs = extractThreadTsFromCallbackUrl(replyCallbackUrl);
-  if (threadTs === null) return undefined;
+  if (threadTs === null) {return undefined;}
 
   let state: StreamState = "idle";
   let started = false;
@@ -172,7 +172,7 @@ export function createSlackReplySession(params: {
   // (and `stripVellumLinks` can remove it). Once `finished`, no delta can
   // extend the text, so the full cleaned reply is safe to emit.
   const streamableText = (): string => {
-    if (finished) return cleanedText();
+    if (finished) {return cleanedText();}
     const hold = incompleteVellumLinkSuffixLength(rawText);
     const stable = hold > 0 ? rawText.slice(0, rawText.length - hold) : rawText;
     return stripVellumLinks(stable).replace(NO_RESPONSE_INLINE_RE, "");
@@ -205,7 +205,7 @@ export function createSlackReplySession(params: {
   const enqueueStart = (): void => {
     enqueue(async () => {
       const clean = streamableText();
-      if (clean.trim().length === 0) return;
+      if (clean.trim().length === 0) {return;}
       const firstChunk = clean.slice(0, SLACK_STREAM_MARKDOWN_LIMIT);
       const title = activeProgress?.title;
       const tasks = planTasks();
@@ -234,7 +234,18 @@ export function createSlackReplySession(params: {
           confirmedLength = firstChunk.length;
           deliveredProgressKey = progressKey(title, tasks);
           state = "streaming";
-          params.onStreamOpen?.(result.ts);
+          // The stream is already open on Slack's side, so an `onStreamOpen`
+          // failure must not downgrade to fallback and repost the visible
+          // reply. Losing the breadcrumb only forfeits crash-window dedup —
+          // strictly better than a guaranteed duplicate post.
+          try {
+            params.onStreamOpen?.(result.ts);
+          } catch (err) {
+            log.warn(
+              { err, chatId },
+              "Slack onStreamOpen callback failed; keeping streamed state",
+            );
+          }
         } else {
           state = "fallback";
         }
@@ -248,7 +259,7 @@ export function createSlackReplySession(params: {
 
   const enqueueAppend = (): void => {
     enqueue(async () => {
-      if (state !== "streaming" || !streamTs) return;
+      if (state !== "streaming" || !streamTs) {return;}
       const clean = streamableText();
       const title = activeProgress?.title;
       const tasks = planTasks();
@@ -318,9 +329,9 @@ export function createSlackReplySession(params: {
       clearTimeout(coalesceTimer);
       coalesceTimer = undefined;
     }
-    if (finished || state === "fallback") return;
+    if (finished || state === "fallback") {return;}
     if (!started) {
-      if (!hasDeliverableAssistantText(streamableText())) return;
+      if (!hasDeliverableAssistantText(streamableText())) {return;}
       started = true;
       enqueueStart();
       return;
@@ -329,7 +340,7 @@ export function createSlackReplySession(params: {
   };
 
   const scheduleFlush = (): void => {
-    if (coalesceTimer || finished) return;
+    if (coalesceTimer || finished) {return;}
     coalesceTimer = setTimeout(() => {
       coalesceTimer = undefined;
       flush();
@@ -345,15 +356,15 @@ export function createSlackReplySession(params: {
     }
   };
 
-  const observeTaskProgress = (msg: ServerMessage): void => {
+  const observeTaskProgress = (msg: AssistantEvent): void => {
     if (msg.type === "ui_surface_show") {
       const progress = getTaskProgressDataFromSurfaceData(msg.data);
-      if (!progress) return;
+      if (!progress) {return;}
       taskProgressBySurfaceId.set(msg.surfaceId, progress);
     } else if (msg.type === "ui_surface_update") {
       const existing = taskProgressBySurfaceId.get(msg.surfaceId);
       const progress = mergeTaskProgressData(existing, msg.data);
-      if (!progress) return;
+      if (!progress) {return;}
       taskProgressBySurfaceId.set(msg.surfaceId, progress);
     } else {
       return;
@@ -364,7 +375,7 @@ export function createSlackReplySession(params: {
 
   return {
     observeEvent(msg) {
-      if (finished) return;
+      if (finished) {return;}
 
       if (msg.type === "ui_surface_show" || msg.type === "ui_surface_update") {
         observeTaskProgress(msg);
@@ -404,7 +415,7 @@ export function createSlackReplySession(params: {
 
       enqueueAppend();
       enqueue(async () => {
-        if (state !== "streaming" || !streamTs) return;
+        if (state !== "streaming" || !streamTs) {return;}
         const clean = cleanedText();
         const remaining = clean.slice(confirmedLength);
         const blocks = imageBlocks(clean);

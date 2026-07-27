@@ -9,8 +9,8 @@
 
 import { eq, sql } from "drizzle-orm";
 
-import { getDb } from "../../../../persistence/db-connection.js";
 import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import type { EmotionalCharge, Fidelity } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -132,12 +132,13 @@ export interface DecayTickResult {
  * computeEffectiveSignificance in scoring.ts, so it's not applied here.
  */
 export function runDecayTick(): DecayTickResult {
-  const db = getDb();
   const result: DecayTickResult = {
     nodesProcessed: 0,
     emotionalDecays: 0,
     fidelityDowngrades: 0,
   };
+  const db = memoryDbOrNull("runDecayTick");
+  if (!db) return result;
 
   const rows = db
     .select()

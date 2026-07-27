@@ -124,7 +124,14 @@ export function remoteGatewayApiPath(
   return `${remoteGatewayPublicPathPrefix(location)}${path}`;
 }
 
-function remoteGatewayPublicBaseUrl(): string {
+/**
+ * The server's public base URL: origin plus any path prefix the deployment is
+ * served under (via {@link remoteGatewayPublicPathPrefix}). A prefix-served
+ * assistant (pair page at `https://host/assistant-123/assistant/pair`) resolves
+ * to `https://host/assistant-123`; consumers append their own route or API path
+ * onto this base, so it must carry the prefix to reach the right assistant.
+ */
+export function remoteGatewayPublicBaseUrl(): string {
   return `${window.location.origin}${remoteGatewayPublicPathPrefix()}`;
 }
 

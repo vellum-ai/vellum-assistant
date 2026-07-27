@@ -4,6 +4,7 @@ import {
   formatAssistantLookupError,
   lookupAssistantByIdentifier,
 } from "../lib/assistant-config.js";
+import { crossEnvironmentAssistantHint } from "../lib/environments/detect.js";
 
 type FeatureFlagEntry = {
   key: string;
@@ -132,7 +133,9 @@ function rethrowFetchError(err: unknown): never {
     (err.message.includes("fetch") || err.message.includes("connect"))
   ) {
     throw new Error(
-      "Could not reach the assistant gateway. Is it running? Try 'vellum wake'.",
+      `Could not reach the assistant gateway. Is it running? Try 'vellum wake'.${
+        crossEnvironmentAssistantHint() ?? ""
+      }`,
     );
   }
   throw err;

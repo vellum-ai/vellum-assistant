@@ -95,7 +95,7 @@ describe("CredentialBroker", () => {
       if (!result.authorized) {
         expect(result.reason).toContain("not allowed");
         expect(result.reason).toContain("No tools are currently allowed");
-        expect(result.reason).toContain("assistant credentials set");
+        expect(result.reason).toContain("assistant credentials prompt");
       }
     });
 

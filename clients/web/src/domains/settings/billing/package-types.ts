@@ -5,9 +5,26 @@
  * `pro-packages` LaunchDarkly flag is off; callers no-op on an empty array.
  */
 
-import type { ProPackage } from "@/generated/api/types.gen";
+import type {
+  ProPackage,
+  SubscriptionPackage,
+} from "@/generated/api/types.gen";
 
 export type { ProPackage };
+
+/** A Pro sub pinned to a stock package whose tiers still match it (not customized). */
+export function isCleanPin(
+  pkg: SubscriptionPackage | null | undefined,
+): pkg is SubscriptionPackage {
+  return pkg != null && !pkg.customized;
+}
+
+/** A clean pin reads its stock name; anything else reads "Custom" (tiers can diverge). */
+export function proPackageDisplayName(
+  pkg: SubscriptionPackage | null | undefined,
+): string {
+  return isCleanPin(pkg) ? pkg.name : "Custom";
+}
 
 /**
  * Catalog display order (mirrors `PRO_PACKAGES` insertion order from

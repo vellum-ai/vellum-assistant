@@ -498,6 +498,7 @@ describe("memory-v3 integration — selection-log readout", () => {
         dense: 0,
         edge: 0,
         reply: 0,
+        span: 0,
         learned: 0,
         entity: 0,
       },

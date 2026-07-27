@@ -393,6 +393,7 @@ export async function runMemoryJobsOnce(
       maybeEnqueueScheduledCleanupJobs(config);
     }
     maybeEnqueueGraphMaintenanceJobs(config);
+    maybeEnqueueRetrospectiveSweepJob(config);
     if (memoryEnabled) {
       await maybeRunDbMaintenance();
       await maybeRunPassiveWalCheckpoint();
@@ -462,6 +463,7 @@ export async function runMemoryJobsOnce(
     maybeEnqueueScheduledCleanupJobs(config);
   }
   maybeEnqueueGraphMaintenanceJobs(config);
+  maybeEnqueueRetrospectiveSweepJob(config);
   await maybeRunDbMaintenance();
   await maybeRunPassiveWalCheckpoint();
   return slowProcessed + fastProcessed + embedProcessed;
@@ -841,6 +843,62 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   pkbFiling: "pkb_filing_last_run",
   pkbCompaction: "pkb_compaction_last_run",
 } as const;
+
+/**
+ * Durable checkpoint (epoch-ms) tracking the last scheduled retrospective
+ * sweep so the cadence survives daemon restarts.
+ */
+export const RETROSPECTIVE_SWEEP_CHECKPOINT = "retro_sweep:last_run";
+
+/**
+ * Enqueue the scheduled `memory_retrospective_sweep` job once its interval has
+ * elapsed — the timer-driven backstop for retrospective triggers that an
+ * abnormal turn end (crash / IPC drop) skipped. See
+ * `memory-retrospective-sweep.ts`.
+ *
+ * First-run seeding: a missing checkpoint is seeded to `nowMs` WITHOUT
+ * enqueuing, so the first sweep fires one full interval after startup instead
+ * of treating the sweep as immediately overdue — a `?? "0"` fallback would make
+ * `nowMs - 0 >= sweepIntervalMs` true on the first tick and enqueue
+ * retrospective LLM work the moment the worker starts, violating the
+ * no-startup-LLM-work invariant. Mirrors the PKB schedule's null-checkpoint
+ * seed.
+ *
+ * Deduped against an in-flight sweep so a slow scan can't stack copies; the
+ * checkpoint still advances in that case to hold the cadence steady.
+ *
+ * Exported for tests; the worker calls it on every idle/drain tick. Returns
+ * true if a sweep job was enqueued this call.
+ */
+export function maybeEnqueueRetrospectiveSweepJob(
+  config: AssistantConfig,
+  nowMs = Date.now(),
+): boolean {
+  if (config.memory.enabled === false) {
+    return false;
+  }
+
+  const checkpoint = getMemoryCheckpoint(RETROSPECTIVE_SWEEP_CHECKPOINT);
+  if (checkpoint === null) {
+    setMemoryCheckpoint(RETROSPECTIVE_SWEEP_CHECKPOINT, String(nowMs));
+    return false;
+  }
+
+  const lastRun = parseInt(checkpoint, 10);
+  const sweepIntervalMs = config.memory.retrospective.sweepIntervalMs;
+  if (nowMs - lastRun < sweepIntervalMs) {
+    return false;
+  }
+
+  if (hasActiveJobOfType("memory_retrospective_sweep")) {
+    setMemoryCheckpoint(RETROSPECTIVE_SWEEP_CHECKPOINT, String(nowMs));
+    return false;
+  }
+
+  enqueueMemoryJob("memory_retrospective_sweep", {});
+  setMemoryCheckpoint(RETROSPECTIVE_SWEEP_CHECKPOINT, String(nowMs));
+  return true;
+}
 
 /**
  * Enqueue periodic graph maintenance jobs.

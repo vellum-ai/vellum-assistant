@@ -12,8 +12,8 @@
  * Client-oriented queries (list, find-by-capability) are methods on the hub.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 
 // ---------------------------------------------------------------------------
 // Message type → capability inference
@@ -40,10 +40,11 @@ export function capabilityForMessageType(
   const stem = type.replace(/_(request|cancel)$/, "");
   return HOST_PREFIX_TO_CAPABILITY[stem];
 }
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
-import type { AssistantEvent } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
+import type { AssistantEventPublishOptions } from "./assistant-event-publish-options.js";
 import { stampAndBuffer } from "./assistant-stream-state.js";
 
 const log = getLogger("assistant-event-hub");
@@ -57,7 +58,7 @@ export type AssistantEventFilter = {
 };
 
 export type AssistantEventCallback = (
-  event: AssistantEvent,
+  event: AssistantEventEnvelope,
 ) => void | Promise<void>;
 
 /** Opaque handle returned by `subscribe`. Call `dispose()` to remove the subscription. */
@@ -138,7 +139,7 @@ type SubscriberInput = DistributiveOmit<
 // ── Hub ───────────────────────────────────────────────────────────────────────
 
 /**
- * Lightweight pub/sub hub for `AssistantEvent` messages.
+ * Lightweight pub/sub hub for `AssistantEventEnvelope` messages.
  *
  * Filtering is applied at subscription level:
  *   - `conversationId`: scoped events match subscribers with same conversationId
@@ -301,20 +302,8 @@ export class AssistantEventHub {
    * delivery to remaining subscribers.
    */
   async publish(
-    event: AssistantEvent,
-    options?: {
-      targetCapability?: HostProxyCapability;
-      targetClientId?: string;
-      targetInterfaceId?: InterfaceId;
-      /**
-       * Skip the subscriber with this `clientId`. Used for self-echo
-       * suppression on `sync_changed`: the route handler echoes the
-       * originating tab's `X-Vellum-Client-Id` back on the event, and the
-       * hub uses it here to avoid re-delivering the invalidation to the
-       * tab that already mutated its own optimistic state.
-       */
-      excludeClientId?: string;
-    },
+    event: AssistantEventEnvelope,
+    options?: AssistantEventPublishOptions,
   ): Promise<void> {
     if (event.conversationId) {
       try {
@@ -332,7 +321,9 @@ export class AssistantEventHub {
     const errors: unknown[] = [];
 
     for (const entry of snapshot) {
-      if (!entry.active) continue;
+      if (!entry.active) {
+        continue;
+      }
 
       // Self-echo suppression: the originating client never receives the
       // event back. Checked before every other rule so it composes with
@@ -349,27 +340,34 @@ export class AssistantEventHub {
       // the requested interface. Composes with `targetClientId` and
       // `targetCapability` below.
       if (targetInterfaceId != null) {
-        if (entry.type !== "client" || entry.interfaceId !== targetInterfaceId)
+        if (
+          entry.type !== "client" ||
+          entry.interfaceId !== targetInterfaceId
+        ) {
           continue;
+        }
       }
 
       if (targetClientId != null) {
         // Targeted: bypass conversation filter, deliver only to the named client.
-        if (entry.type !== "client" || entry.clientId !== targetClientId)
+        if (entry.type !== "client" || entry.clientId !== targetClientId) {
           continue;
+        }
         if (
           targetCapability != null &&
           !entry.capabilities.includes(targetCapability)
-        )
+        ) {
           continue;
+        }
       } else {
         // Untargeted: existing conversation-scoped + capability logic.
         if (
           event.conversationId != null &&
           entry.filter.conversationId != null &&
           entry.filter.conversationId !== event.conversationId
-        )
+        ) {
           continue;
+        }
 
         // Capability targeting: targeted events only go to subscribers that
         // declare the required capability.
@@ -377,8 +375,9 @@ export class AssistantEventHub {
           if (
             entry.type !== "client" ||
             !entry.capabilities.includes(targetCapability)
-          )
+          ) {
             continue;
+          }
         }
       }
 
@@ -407,8 +406,9 @@ export class AssistantEventHub {
         entry.active &&
         entry.type === "client" &&
         entry.clientId === clientId
-      )
+      ) {
         return entry;
+      }
     }
     return undefined;
   }
@@ -430,10 +430,12 @@ export class AssistantEventHub {
    * event based on the same conversation matching rules as publish().
    */
   hasSubscribersForEvent(
-    event: Pick<AssistantEvent, "conversationId">,
+    event: Pick<AssistantEventEnvelope, "conversationId">,
   ): boolean {
     for (const entry of this.subscribers) {
-      if (!entry.active) continue;
+      if (!entry.active) {
+        continue;
+      }
       if (
         event.conversationId != null &&
         entry.filter.conversationId != null &&
@@ -563,7 +565,7 @@ export class AssistantEventHub {
  */
 export const assistantEventHub = new AssistantEventHub({ maxSubscribers: 100 });
 
-// ── Convenience: ServerMessage → AssistantEvent publish ───────────────────────
+// ── Convenience: AssistantEvent → AssistantEventEnvelope publish ───────────────────────
 
 /**
  * Promise chain that serializes publishes so subscribers always observe
@@ -572,7 +574,7 @@ export const assistantEventHub = new AssistantEventHub({ maxSubscribers: 100 });
 let _hubChain = Promise.resolve();
 
 /**
- * Wraps a `ServerMessage` in an `AssistantEvent` envelope and publishes it
+ * Wraps a `AssistantEvent` in an `AssistantEventEnvelope` envelope and publishes it
  * to the process-level hub.
  *
  * When `conversationId` is omitted, it is auto-extracted from the message
@@ -588,7 +590,7 @@ let _hubChain = Promise.resolve();
  * services should call this directly instead of threading a broadcast callback.
  */
 export function broadcastMessage(
-  msg: ServerMessage,
+  msg: AssistantEvent,
   conversationId?: string,
   options?: { targetClientId?: string; targetInterfaceId?: InterfaceId },
 ): void {
@@ -666,7 +668,7 @@ export function broadcastMessage(
     });
 }
 
-function extractConversationId(msg: ServerMessage): string | undefined {
+function extractConversationId(msg: AssistantEvent): string | undefined {
   const record = msg as unknown as Record<string, unknown>;
   if ("conversationId" in msg && typeof record.conversationId === "string") {
     return record.conversationId as string;

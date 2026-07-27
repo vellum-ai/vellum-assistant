@@ -431,6 +431,7 @@ export type PostChatMessageOptions = Pick<
   | "inferenceProfile"
   | "enabledPlugins"
   | "hidden"
+  | "bypassSecretCheck"
 > & {
   /** PreChat onboarding context — see the `postChatMessage` docs. */
   onboarding?: PreChatOnboardingContext;
@@ -470,6 +471,7 @@ export async function postChatMessage(
     inferenceProfile,
     enabledPlugins,
     hidden,
+    bypassSecretCheck,
   } = options;
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
@@ -543,6 +545,13 @@ export async function postChatMessage(
   // the channel-setup wizard close/hand-off notifications.
   if (hidden) {
     body.hidden = true;
+  }
+  // Single-use override for the daemon's `secret_blocked` ingress guard,
+  // set only when the user explicitly confirmed a client-side blocked send
+  // (the composer's "Send anyway" action). Applies to this message alone —
+  // never persisted, and omitted from every ordinary send.
+  if (bypassSecretCheck) {
+    body.bypassSecretCheck = true;
   }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)
@@ -711,24 +720,40 @@ export async function postChatMessage(
   };
 }
 
+function queuedMessageHeaders(conversationId: string) {
+  return { "X-Vellum-Conversation-Id": conversationId };
+}
+
 /**
  * Steer the assistant to a queued message by aborting the current
  * generation and promoting the message to the head of the queue.
  */
+export type SteerQueuedMessageResult =
+  | "steered"
+  | "not_steerable"
+  | "request_failed";
+
 export async function steerToMessage(
   assistantId: string,
   conversationId: string,
   requestId: string,
-): Promise<boolean> {
+): Promise<SteerQueuedMessageResult> {
   try {
     const { response } = await messagesQueuedByIdSteerPost({
       path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
+      headers: queuedMessageHeaders(conversationId),
       throwOnError: false,
     });
-    return response?.ok ?? false;
+    if (response?.ok) {
+      return "steered";
+    }
+    if (response?.status === 404) {
+      return "not_steerable";
+    }
+    return "request_failed";
   } catch {
-    return false;
+    return "request_failed";
   }
 }
 
@@ -746,6 +771,7 @@ export async function deleteQueuedMessage(
     const { response } = await messagesQueuedByIdDelete({
       path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
+      headers: queuedMessageHeaders(conversationId),
       throwOnError: false,
     });
     return response?.ok ?? false;

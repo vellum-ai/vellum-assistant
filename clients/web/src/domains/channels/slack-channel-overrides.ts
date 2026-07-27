@@ -32,35 +32,46 @@ interface CapabilityTierMeta {
   /** Preset name, straight from the matching global Assistant Access preset. */
   label: string;
   /**
-   * Short qualifier shown under the label in the tier picker. The full
-   * per-tier description lives in the one-time legend
-   * (`SlackChannelTierLegend`) — it needs the assistant name and a settings
-   * link, so it can't be a static string here.
+   * Short qualifier shown beside the label in the picker and the legend key.
+   * Frames how much the assistant does on its own before checking with the
+   * owner — reads/answers only, since writes/sends/spends always escalate. The
+   * full per-tier sentence lives in the legend (`SlackChannelTierLegend`); it
+   * interpolates the assistant name, so it can't be a static string here.
    */
   sublabel: string;
   tone: TagTone;
+  /**
+   * Accent dot color for this tier, the single source shared by the per-row
+   * picker and the legend key so the two can't drift. Mirrors the tone's Tag
+   * accent (`--system-*-strong`).
+   */
+  dotColor: string;
 }
 
 export const CAPABILITY_TIER_META: Record<RiskThreshold, CapabilityTierMeta> = {
   none: {
     label: presetFromThreshold("none").label,
-    sublabel: "ask before every action",
+    sublabel: "asks every time",
     tone: "negative",
+    dotColor: "var(--system-negative-strong)",
   },
   low: {
     label: presetFromThreshold("low").label,
-    sublabel: "low-risk actions, ask for the rest",
+    sublabel: "safe lookups",
     tone: "warning",
+    dotColor: "var(--system-mid-strong)",
   },
   medium: {
     label: presetFromThreshold("medium").label,
-    sublabel: "beyond its workspace too",
+    sublabel: "broader lookups",
     tone: "info",
+    dotColor: "var(--system-info-strong)",
   },
   high: {
     label: presetFromThreshold("high").label,
-    sublabel: "acts freely",
+    sublabel: "any lookup",
     tone: "positive",
+    dotColor: "var(--system-positive-strong)",
   },
 };
 
@@ -118,29 +129,55 @@ export function tierOverridesFromCells(
   return overrides;
 }
 
-/** The row's resolved tier plus whether a persisted cell backs it. */
-export interface SlackChannelTierSettings {
-  /**
-   * The persisted tier, or `null` when no cell exists — the runtime then
-   * falls through to broader-scope cells and the owner's global Assistant
-   * Access setting, so the UI must not present a tier as set.
-   */
-  tier: RiskThreshold | null;
-  /**
-   * True when a persisted cell backs the tier. A cell is an override by
-   * existing: it pins the channel above the global auto-approve cascade
-   * even when its tier matches the room default, so it must stay visible
-   * (badge, callout, reset).
-   */
-  overridden: boolean;
+/**
+ * The two broader-scope default "buckets" the channel-type UI exposes:
+ * `"channels"` writes an `adapter`-scope cell (the default for every room of
+ * this adapter), `"dm"` writes a `channel_type: dm` cell that overrides it for
+ * 1:1 DMs. Only 1:1 DMs (`im`) reach the runtime as `channelType: "dm"`; the
+ * gateway collapses group DMs (mpim), private, and public rooms into `"channel"`
+ * with no type, so a `channel_type: dm|private|public` cell never matches for
+ * those. Group DMs therefore follow the `"channels"` default, and public/private
+ * can't be split here without a gateway change.
+ */
+export type ChannelDefaultBucket = "channels" | "dm";
+
+/**
+ * Whether a cell is the broader-scope default cell for `bucket`: `"channels"` is
+ * the adapter-scope cell, `"dm"` is the `channel_type: dm` cell. Shared by the
+ * read path here and the write/optimistic path in
+ * `use-channel-permission-overrides` so the two can't drift.
+ */
+export function isBucketCell(
+  cell: Pick<ChannelTierCell, "selector">,
+  adapter: string,
+  bucket: ChannelDefaultBucket,
+): boolean {
+  return bucket === "channels"
+    ? cell.selector.scope === "adapter" && cell.selector.adapter === adapter
+    : cell.selector.scope === "channel_type" &&
+        cell.selector.adapter === adapter &&
+        cell.selector.channelType === "dm";
 }
 
-/** Resolves the row's tier from a persisted cell, if any. */
-export function resolveChannelTier(
-  override: RiskThreshold | undefined,
-): SlackChannelTierSettings {
-  return {
-    tier: override ?? null,
-    overridden: override !== undefined,
-  };
+/**
+ * The persisted tier for a bucket's cell, if any — the `trusted_contact` cell is
+ * the representative when non-guardian contact-type cells diverge (the write
+ * path keeps them aligned). `undefined` when the bucket has no cell (it then
+ * follows the next tier up the cascade).
+ */
+export function bucketDefaultFromCells(
+  cells: ChannelTierCell[],
+  adapter: string,
+  bucket: ChannelDefaultBucket,
+): RiskThreshold | undefined {
+  let tier: RiskThreshold | undefined;
+  for (const cell of cells) {
+    if (!isBucketCell(cell, adapter, bucket)) {
+      continue;
+    }
+    if (cell.contactType === "trusted_contact" || tier === undefined) {
+      tier = cell.threshold;
+    }
+  }
+  return tier;
 }

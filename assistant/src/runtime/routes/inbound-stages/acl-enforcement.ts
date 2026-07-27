@@ -20,13 +20,15 @@ import {
   resolveBootstrapToken,
 } from "../../../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../../../channels/types.js";
-import { channelStatusToMemberStatus } from "../../../contacts/member-status.js";
+import {
+  channelStatusToMemberStatus,
+  isKeptOutStatus,
+} from "../../../contacts/member-status.js";
 import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../../notifications/notification-utils.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";
 import {
-  isAccessRequestDenied,
   isApprovalHandshakeInProgress,
   notifyGuardianOfAccessRequest,
 } from "../../access-request-helper.js";
@@ -381,19 +383,12 @@ export async function enforceIngressAcl(
           "Ingress ACL: no member record, denying",
         );
 
-        // Terminal deny: if the guardian already rejected this sender, skip all
-        // re-engagement (self-verify challenge + guardian notify) and deliver
-        // only the canned reply. Otherwise a denied sender whose first
-        // verification session expired would be handed a fresh, unusable
-        // challenge the guardian was never told about.
-        const nonMemberSenderId = canonicalSenderId ?? rawSenderId;
-        const terminallyDenied =
-          !!nonMemberSenderId &&
-          (await isAccessRequestDenied({
-            canonicalAssistantId,
-            sourceChannel,
-            actorExternalId: nonMemberSenderId,
-          }));
+        // A sender with no member record has no durable keep-out on file — a
+        // block/leave-unverified decision persists a contact (revoked /
+        // unverified), so a genuinely memberless sender is either brand-new or
+        // one whose decision never seeded a contact. Either way re-engagement
+        // is correct, so this lane runs no keep-out suppression; the durable
+        // keep-out check lives on the inactive-member lane below.
 
         // Slack-specific: send a verification challenge directly to the
         // user's DM instead of requiring guardian-mediated approval. The
@@ -404,7 +399,6 @@ export async function enforceIngressAcl(
           sourceChannel === "slack" &&
           isBot !== true &&
           (canonicalSenderId ?? rawSenderId) &&
-          !terminallyDenied &&
           !isCallbackInteraction
         ) {
           const slackVerifyResult = await initiateVerificationChallenge({
@@ -488,7 +482,6 @@ export async function enforceIngressAcl(
         if (
           sourceChannel === "email" &&
           (canonicalSenderId ?? rawSenderId) &&
-          !terminallyDenied &&
           !isCallbackInteraction
         ) {
           const emailVerifyResult = await initiateVerificationChallenge({
@@ -692,30 +685,22 @@ export async function enforceIngressAcl(
             "Ingress ACL: member not active, denying",
           );
 
-          // Terminal deny: a sender the guardian already rejected must not be
-          // handed a fresh self-verify challenge on re-contact (the guardian is
-          // no longer notified, so the code would go nowhere). Skip the
-          // challenge and fall through to the canned reply.
-          const inactiveSenderId = canonicalSenderId ?? rawSenderId;
-          const terminallyDenied =
-            !isBlockedMember &&
-            !!inactiveSenderId &&
-            (await isAccessRequestDenied({
-              canonicalAssistantId,
-              sourceChannel,
-              actorExternalId: inactiveSenderId,
-            }));
+          // Durable keep-out: a contact the guardian revoked/blocked must not
+          // be handed a fresh self-verify challenge on re-contact — they are
+          // deliberately kept out and the guardian is not re-notified. A parked
+          // `unverified` (or mid-handshake `pending`) member is NOT kept out, so
+          // its re-contact re-fires the challenge and re-notifies the guardian.
+          const terminallyKeptOut = isKeptOutStatus(resolvedMember.status);
 
           // Slack-specific: re-verify inactive members via DM challenge
-          // (same as non-member path). Blocked members are excluded —
-          // the guardian made an explicit decision to block them. Bots are
+          // (same as non-member path). Blocked/revoked members are excluded —
+          // the guardian made an explicit decision to keep them out. Bots are
           // excluded — a bot cannot return a code.
           if (
             sourceChannel === "slack" &&
             isBot !== true &&
-            resolvedMember.status !== "blocked" &&
             (canonicalSenderId ?? rawSenderId) &&
-            !terminallyDenied &&
+            !terminallyKeptOut &&
             !isCallbackInteraction
           ) {
             const slackVerifyResult = await initiateVerificationChallenge({
@@ -790,14 +775,14 @@ export async function enforceIngressAcl(
             }
           }
 
-          // For revoked/pending members, notify the guardian so they can
-          // re-approve. Blocked members are intentionally excluded — the
-          // guardian already made an explicit decision to block them.
-          // Callback interactions never create an access request; the
-          // handshake window is still probed for reply copy.
+          // Pending/unverified members re-fire the flow: notify the guardian so
+          // they can trust or verify the contact. Revoked/blocked members are
+          // deliberately kept out — no re-notification. Callback interactions
+          // never create an access request; the handshake window is still
+          // probed for reply copy.
           let guardianNotified = false;
           let handshakeInProgress = false;
-          if (resolvedMember.status !== "blocked") {
+          if (!terminallyKeptOut) {
             if (isCallbackInteraction) {
               handshakeInProgress = await isApprovalHandshakeInProgress({
                 canonicalAssistantId,

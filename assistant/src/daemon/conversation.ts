@@ -18,6 +18,8 @@
 import type { AgentLoopConfig } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
+import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
+import type { AssistantEvent } from "../api/index.js";
 import { decideGuardianRequest } from "../channels/gateway-guardian-requests.js";
 import type {
   ChannelId,
@@ -163,14 +165,12 @@ import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { shouldAttachHostProxyForCapability } from "./host-proxy-preactivation.js";
 import type {
-  ServerMessage,
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
-import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import {
   resolveSummarizeBoundary,
@@ -320,7 +320,7 @@ export class Conversation {
   /** @internal */ prompter: PermissionPrompter;
   /** @internal */ secretPrompter: SecretPrompter;
   private executor: ToolExecutor;
-  /** @internal */ sendToClient: (msg: ServerMessage) => void;
+  /** @internal */ sendToClient: (msg: AssistantEvent) => void;
   /** @internal */ workingDir: string;
   /** @internal */ allowedToolNames?: Set<string>;
   /**
@@ -672,7 +672,7 @@ export class Conversation {
   originChannel: ChannelId | undefined = undefined;
   /** @internal */ activityVersion = 0;
   /** Last emitted activity state message, retained for replay on SSE reconnection. */
-  /** @internal */ lastActivityStateMsg: ServerMessage | null = null;
+  /** @internal */ lastActivityStateMsg: AssistantEvent | null = null;
   /** Set by the agent loop to track confirmation outcomes for persistence. */
   onConfirmationOutcome?: (
     requestId: string,
@@ -685,7 +685,7 @@ export class Conversation {
     conversationId: string,
     provider: Provider,
     systemPrompt: string,
-    sendToClient: (msg: ServerMessage) => void,
+    sendToClient: (msg: AssistantEvent) => void,
     workingDir: string,
     options?: ConversationConstructorOptions,
   ) {
@@ -1431,7 +1431,7 @@ export class Conversation {
   }
 
   updateClient(
-    sendToClient: (msg: ServerMessage) => void,
+    sendToClient: (msg: AssistantEvent) => void,
     hasNoClient = false,
   ): void {
     this.sendToClient = sendToClient;
@@ -1453,7 +1453,7 @@ export class Conversation {
   }
 
   /** Returns the current sendToClient reference for identity comparison. */
-  getCurrentSender(): (msg: ServerMessage) => void {
+  getCurrentSender(): (msg: AssistantEvent) => void {
     return this.sendToClient;
   }
 
@@ -1750,7 +1750,7 @@ export class Conversation {
       selectedScope?: string;
       decisionContext?: string;
       emissionContext?: {
-        source?: ConfirmationStateChanged["source"];
+        source?: ConfirmationStateChangedEvent["source"];
         causedByRequestId?: string;
         decisionText?: string;
       };
@@ -1864,12 +1864,12 @@ export class Conversation {
   // ── Server-authoritative state signals ─────────────────────────────
 
   emitConfirmationStateChanged(
-    params: Omit<ConfirmationStateChanged, "type">,
+    params: Omit<ConfirmationStateChangedEvent, "type">,
   ): void {
-    const msg: ServerMessage = {
+    const msg: AssistantEvent = {
       type: "confirmation_state_changed",
       ...params,
-    } as ServerMessage;
+    } as AssistantEvent;
     try {
       this.sendToClient(msg);
     } catch (err) {
@@ -1891,7 +1891,7 @@ export class Conversation {
   ): void {
     const { anchor = "assistant_turn", requestId, statusText } = options ?? {};
     this.activityVersion++;
-    const msg: ServerMessage = {
+    const msg: AssistantEvent = {
       type: "assistant_activity_state",
       conversationId: this.conversationId,
       activityVersion: this.activityVersion,
@@ -1900,7 +1900,7 @@ export class Conversation {
       requestId,
       reason,
       ...(statusText ? { statusText } : {}),
-    } as ServerMessage;
+    } as AssistantEvent;
     this.lastActivityStateMsg = msg;
     try {
       this.sendToClient(msg);
@@ -2454,7 +2454,7 @@ export class Conversation {
     content: string,
     userMessageId: string,
     options?: {
-      onEvent?: (msg: ServerMessage) => void;
+      onEvent?: (msg: AssistantEvent) => void;
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;

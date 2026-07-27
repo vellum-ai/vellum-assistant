@@ -91,6 +91,22 @@ function jobIds(): string[] {
 
 beforeEach(() => {
   const raw = mainRaw();
+  // A later migration moved the graph cluster to the memory DB, dropping
+  // memory_graph_nodes from main. This migration reads that table on the main
+  // connection (it ran before the move), so recreate its minimal shape here to
+  // reproduce the pre-move main DB the sweep was written against.
+  raw.run(/*sql*/ `CREATE TABLE IF NOT EXISTS memory_graph_nodes (
+    id TEXT PRIMARY KEY, content TEXT NOT NULL, type TEXT NOT NULL,
+    created INTEGER NOT NULL, last_accessed INTEGER NOT NULL,
+    last_consolidated INTEGER NOT NULL, emotional_charge TEXT NOT NULL,
+    fidelity TEXT NOT NULL DEFAULT 'vivid', confidence REAL NOT NULL,
+    significance REAL NOT NULL, stability REAL NOT NULL DEFAULT 14,
+    reinforcement_count INTEGER NOT NULL DEFAULT 0,
+    last_reinforced INTEGER NOT NULL,
+    source_conversations TEXT NOT NULL DEFAULT '[]',
+    source_type TEXT NOT NULL DEFAULT 'inferred',
+    scope_id TEXT NOT NULL DEFAULT 'default'
+  )`);
   raw.run("DELETE FROM memory_embeddings");
   raw.run("DELETE FROM memory_graph_nodes");
   getMemorySqlite()!.run("DELETE FROM memory_jobs");

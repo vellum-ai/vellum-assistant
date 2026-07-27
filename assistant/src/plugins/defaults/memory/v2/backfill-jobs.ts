@@ -25,7 +25,7 @@ import {
 } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getDb } from "../../../../persistence/db-connection.js";
+import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import { enqueueEmbedConceptPageJob } from "../jobs/embed-concept-page.js";
 import { getLogger } from "../logging.js";
@@ -65,10 +65,20 @@ export async function memoryV2MigrateJob(
   const force =
     typeof job.payload.force === "boolean" ? job.payload.force : false;
 
+  // The v1 graph the migration reads now lives in the dedicated memory
+  // database, so gatherV1State reads it there. Defer (throw for retry) if that
+  // connection cannot be opened rather than migrating an empty graph.
+  const database = getMemoryDb();
+  if (!database) {
+    throw new Error(
+      "memory database unavailable — deferring memory v2 migration",
+    );
+  }
+
   try {
     const result = await runMemoryV2Migration({
       workspaceDir: getWorkspaceDir(),
-      database: getDb(),
+      database,
       force,
       config,
     });

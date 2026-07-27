@@ -50,14 +50,12 @@ mock.module("../../gateway-client.js", () => ({
 }));
 
 const accessRequestCalls: unknown[] = [];
-let accessRequestDeniedForTest = false;
 let approvalHandshakeForTest = false;
 mock.module("../../access-request-helper.js", () => ({
   notifyGuardianOfAccessRequest: (params: unknown) => {
     accessRequestCalls.push(params);
     return { notified: true };
   },
-  isAccessRequestDenied: () => accessRequestDeniedForTest,
   isApprovalHandshakeInProgress: () => approvalHandshakeForTest,
 }));
 
@@ -129,7 +127,6 @@ beforeEach(() => {
   findContactChannelCalls.length = 0;
   deliverReplyCalls.length = 0;
   accessRequestCalls.length = 0;
-  accessRequestDeniedForTest = false;
   approvalHandshakeForTest = false;
   guardianDeliveryCalls.length = 0;
 });
@@ -528,16 +525,12 @@ describe("enforceIngressAcl — fail-closed on malformed member verdict", () => 
   });
 });
 
-describe("enforceIngressAcl — a terminal deny suppresses re-prompting, not admission", () => {
-  // Per the Slack-permissions PRD, admission is pure rank-vs-floor: a
-  // guardian-denied sender is persisted as an unverified contact (rank 2) and is
-  // admitted on exactly the same terms as any other unverified contact. The deny
-  // only stops the guardian from being re-prompted; holding a contact out of
-  // every floor is the (separate) block action's job. These matched pairs pin
-  // that the denied flag does NOT change the admission outcome.
-  test("any_contact: a terminally-denied unverified member is still admitted by the floor", async () => {
-    accessRequestDeniedForTest = true;
-
+describe("enforceIngressAcl — admission is floor-governed (independent of any prior decision)", () => {
+  // Admission is pure rank-vs-floor: a parked `unverified` contact (rank 2) is
+  // admitted on exactly the same terms as any other unverified contact. A prior
+  // decision only governs re-prompting, never admission; holding a contact out
+  // of every floor is the (separate) block action's job.
+  test("any_contact: an unverified member is admitted by the floor", async () => {
     const result = await enforceIngressAcl(
       makeParams({
         sourceMetadata: withVerdict(memberVerdict({ status: "unverified" })),
@@ -550,24 +543,7 @@ describe("enforceIngressAcl — a terminal deny suppresses re-prompting, not adm
     expect(result.resolvedMember!.status).toBe("unverified");
   });
 
-  test("any_contact: a non-denied unverified member is admitted identically", async () => {
-    accessRequestDeniedForTest = false;
-
-    const result = await enforceIngressAcl(
-      makeParams({
-        sourceMetadata: withVerdict(memberVerdict({ status: "unverified" })),
-        effectiveAdmissionPolicy: "any_contact",
-      }),
-    );
-
-    expect(result.earlyResponse).toBeUndefined();
-    expect(result.resolvedMember).not.toBeNull();
-    expect(result.resolvedMember!.status).toBe("unverified");
-  });
-
-  test("strangers: a terminally-denied non-member is still bypassed to the floor", async () => {
-    accessRequestDeniedForTest = true;
-
+  test("strangers: a non-member stranger is bypassed to the floor", async () => {
     const result = await enforceIngressAcl(
       makeParams({
         canonicalSenderId: "stranger-1",
@@ -584,31 +560,9 @@ describe("enforceIngressAcl — a terminal deny suppresses re-prompting, not adm
     expect(result.resolvedMember).toBeNull();
   });
 
-  test("strangers: a non-denied stranger is bypassed identically", async () => {
-    accessRequestDeniedForTest = false;
-
-    const result = await enforceIngressAcl(
-      makeParams({
-        canonicalSenderId: "stranger-1",
-        rawSenderId: "stranger-1",
-        sourceMetadata: withVerdict({
-          trustClass: "unknown",
-          canonicalSenderId: "stranger-1",
-        }),
-        effectiveAdmissionPolicy: "strangers",
-      }),
-    );
-
-    expect(result.earlyResponse).toBeUndefined();
-    expect(result.resolvedMember).toBeNull();
-  });
-
-  test("trusted_contacts: a denied unverified member is denied by the floor, not re-admitted", async () => {
-    // Under a strict floor (rank 3) an unverified contact (rank 2) does not clear
-    // the floor and is denied — same as any unverified contact, denied or not.
-    // The floor governs exclusion here; the deny governs only re-prompting.
-    accessRequestDeniedForTest = true;
-
+  test("trusted_contacts: an unverified member is denied by the floor", async () => {
+    // Under a strict floor (rank 3) an unverified contact (rank 2) does not
+    // clear the floor and is denied — the floor governs exclusion here.
     const result = await enforceIngressAcl(
       makeParams({
         sourceMetadata: withVerdict(memberVerdict({ status: "unverified" })),
@@ -620,6 +574,60 @@ describe("enforceIngressAcl — a terminal deny suppresses re-prompting, not adm
     expect(result.earlyResponse!.denied).toBe(true);
     // `unverified` maps to `pending` at the API-facing member layer.
     expect(result.earlyResponse!.reason).toBe("member_pending");
+  });
+});
+
+describe("enforceIngressAcl — keep-out suppresses re-engagement; a park re-fires (D1)", () => {
+  // A `revoked`/`blocked` contact is deliberately kept out: no self-verify
+  // challenge and no guardian notification on re-contact. A parked `unverified`
+  // contact is NOT kept out, so its re-contact re-fires the flow — suppression
+  // keys off the durable contact status, never a prior denied-request row.
+  test("slack: a revoked member gets no challenge and no guardian notification", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U-revoked",
+        rawSenderId: "U-revoked",
+        sourceMetadata: withVerdict(
+          memberVerdict({
+            status: "revoked",
+            type: "slack",
+            address: "U-revoked",
+            canonicalSenderId: "U-revoked",
+          }),
+        ),
+        effectiveAdmissionPolicy: "trusted_contacts",
+      }),
+    );
+
+    expect(result.earlyResponse!.denied).toBe(true);
+    expect(result.earlyResponse!.reason).toBe("member_revoked");
+    expect(gatewaySessions.calls.create.length).toBe(0);
+    expect(accessRequestCalls.length).toBe(0);
+  });
+
+  test("slack: a parked unverified member re-fires the self-verify challenge and notifies", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U-parked",
+        rawSenderId: "U-parked",
+        sourceMetadata: withVerdict(
+          memberVerdict({
+            status: "unverified",
+            type: "slack",
+            address: "U-parked",
+            canonicalSenderId: "U-parked",
+          }),
+        ),
+        effectiveAdmissionPolicy: "trusted_contacts",
+      }),
+    );
+
+    expect(result.earlyResponse!.denied).toBe(true);
+    expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
+    expect(gatewaySessions.calls.create.length).toBe(1);
+    expect(accessRequestCalls.length).toBe(1);
   });
 });
 

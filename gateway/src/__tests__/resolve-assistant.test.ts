@@ -118,4 +118,66 @@ describe("resolveAssistant", () => {
     const result = resolveAssistant(config, "99001", "55001");
     expect(isRejection(result)).toBe(true);
   });
+
+  test("rejects a no-identity event even under the default policy", () => {
+    // Fail-closed: an event with neither a conversation nor an actor id has
+    // nothing to route on, so it must reject rather than fall through to the
+    // default assistant.
+    const config = makeConfig({
+      unmappedPolicy: "default",
+      defaultAssistantId: "assistant-default",
+    });
+
+    for (const [conversationId, actorId] of [
+      ["", ""],
+      [undefined, undefined],
+      ["", undefined],
+      [undefined, ""],
+    ] as const) {
+      const result = resolveAssistant(config, conversationId, actorId);
+      expect(isRejection(result)).toBe(true);
+      if (isRejection(result)) {
+        expect(result.reason).toContain("No routable identity");
+      }
+    }
+  });
+
+  test("still resolves when only one identity is present and matches a route", () => {
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "99001", assistantId: "assistant-a" },
+        { type: "actor_id", key: "55001", assistantId: "assistant-b" },
+      ],
+    });
+
+    // Missing actor, conversation matches.
+    const byConversation = resolveAssistant(config, "99001", undefined);
+    expect(isRejection(byConversation)).toBe(false);
+    if (!isRejection(byConversation)) {
+      expect(byConversation.assistantId).toBe("assistant-a");
+    }
+
+    // Missing conversation, actor matches.
+    const byActor = resolveAssistant(config, undefined, "55001");
+    expect(isRejection(byActor)).toBe(false);
+    if (!isRejection(byActor)) {
+      expect(byActor.assistantId).toBe("assistant-b");
+    }
+  });
+
+  test("applies the default policy when one identity is present but unrouted", () => {
+    // A valid-but-unrouted event (real identity, no explicit route) still gets
+    // the default — only the no-identity case is rejected.
+    const config = makeConfig({
+      unmappedPolicy: "default",
+      defaultAssistantId: "assistant-default",
+    });
+
+    const result = resolveAssistant(config, "C-unrouted", undefined);
+    expect(isRejection(result)).toBe(false);
+    if (!isRejection(result)) {
+      expect(result.assistantId).toBe("assistant-default");
+      expect(result.routeSource).toBe("default");
+    }
+  });
 });

@@ -1,20 +1,23 @@
 import { Capacitor } from "@capacitor/core";
 
+import { shareFileViaMacSheet } from "@/runtime/native-share";
+
 /**
  * Cross-platform file save/share utility.
  *
- * On Capacitor iOS, the standard web pattern (`<a download>` with a blob URL)
- * is broken — WKWebView does not support the `download` attribute on anchors
- * with `blob:` URLs (WebKit bug 216918). Instead, this module writes the blob
- * to a temporary file via `@capacitor/filesystem` and presents the native iOS
- * Share Sheet via `@capacitor/share`, which wraps `UIActivityViewController`.
- * The Share Sheet gives the user "Save to Files", AirDrop, Mail, Messages,
- * and every other system sharing target — the standard iOS UX for exporting
- * content from an app.
+ * - **Electron (macOS):** presents the native macOS Share Sheet
+ *   (`NSSharingServicePicker`) via the `window.vellum.share` bridge — the
+ *   desktop counterpart to the iOS sheet (Messages, Mail, AirDrop, Slack,
+ *   Save to Files, …). Falls through to the browser download if the desktop
+ *   bridge is unavailable.
+ * - **Capacitor iOS:** the standard web pattern (`<a download>` with a blob
+ *   URL) is broken — WKWebView does not support the `download` attribute on
+ *   anchors with `blob:` URLs (WebKit bug 216918). Instead the blob is written
+ *   to a temp file via `@capacitor/filesystem` and presented via
+ *   `@capacitor/share`, which wraps `UIActivityViewController`.
+ * - **Web (plain browser):** the `<a download>` pattern.
  *
- * On web (non-Capacitor), the existing `<a download>` pattern is used.
- *
- * Both plugins are lazy-imported so they are never loaded in SSR or
+ * The Capacitor plugins are lazy-imported so they are never loaded in SSR or
  * plain-browser contexts.
  *
  * References:
@@ -25,21 +28,42 @@ import { Capacitor } from "@capacitor/core";
  */
 
 /**
- * Save or share a file. On iOS, presents the native Share Sheet. On web,
- * triggers a browser download via the `<a download>` pattern.
+ * Save or share a file. On Electron (macOS) and Capacitor iOS, presents the
+ * native Share Sheet; on plain web, triggers a browser download.
  *
- * Accepts either a `Blob` or a URL string. When a URL is provided on iOS,
- * the file is fetched first, then written to a temp location for sharing.
+ * Accepts either a `Blob` or a URL string; a URL is fetched first on the
+ * share-sheet paths (see `toBlob`).
  */
 export async function saveFile(
   source: Blob | string,
   filename: string,
 ): Promise<void> {
+  // Electron (macOS): native Share Sheet. The blob is resolved lazily so a URL
+  // source is only fetched once the desktop bridge is confirmed present;
+  // otherwise we fall through to the browser download (older preload).
+  if (await shareFileViaMacSheet(() => toBlob(source), filename)) {
+    return;
+  }
   if (Capacitor.isNativePlatform()) {
     await saveFileNative(source, filename);
-  } else {
-    saveFileWeb(source, filename);
+    return;
   }
+  saveFileWeb(source, filename);
+}
+
+/**
+ * Resolve a `Blob | string` source to a `Blob`, fetching when given a URL.
+ * Shared by the iOS (Capacitor) and Electron share-sheet paths.
+ */
+async function toBlob(source: Blob | string): Promise<Blob> {
+  if (typeof source !== "string") {
+    return source;
+  }
+  const response = await fetch(source);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch file: ${response.statusText}`);
+  }
+  return response.blob();
 }
 
 async function saveFileNative(
@@ -49,18 +73,7 @@ async function saveFileNative(
   const { Filesystem, Directory } = await import("@capacitor/filesystem");
   const { Share } = await import("@capacitor/share");
 
-  let blob: Blob;
-  if (typeof source === "string") {
-    const response = await fetch(source);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch file: ${response.statusText}`);
-    }
-    blob = await response.blob();
-  } else {
-    blob = source;
-  }
-
-  const base64 = await blobToBase64(blob);
+  const base64 = await blobToBase64(await toBlob(source));
 
   const result = await Filesystem.writeFile({
     path: filename,

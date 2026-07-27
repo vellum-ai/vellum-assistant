@@ -6,12 +6,16 @@
  * host_file_edit, host_file_transfer.
  *
  * Risk escalation paths:
- * - file_read: Low by default, High if targeting the actor token signing key
- *   or the monitoring data directory (snapshot files may contain secrets).
- * - file_write / file_edit: Low by default, High if targeting skill source
- *   code, the workspace hooks directory, the user plugins directory, the
- *   workspace tools directory, the workspace routes directory, the workspace
- *   workflows directory, or the monitoring data directory.
+ * - file_read: Low by default, Medium when the target resolves outside the
+ *   sandbox working directory on a non-containerized install, High if
+ *   targeting the actor token signing key or the monitoring data directory
+ *   (snapshot files may contain secrets).
+ * - file_write / file_edit: Low by default, Medium when the target resolves
+ *   outside the sandbox working directory on a non-containerized install,
+ *   High if targeting skill source code, the workspace hooks directory, the
+ *   user plugins directory, the workspace tools directory, the workspace
+ *   routes directory, the workspace workflows directory, or the monitoring
+ *   data directory.
  * - host_file_read: Medium (tool registry default; no special escalation).
  * - host_file_write / host_file_edit: Medium by default, High if targeting
  *   skill source code, the workspace hooks directory, the user plugins
@@ -122,6 +126,21 @@ export interface FileClassifierInput {
    */
   resolvedPath?: string;
   /**
+   * The sandbox working directory with symlinks resolved, canonicalized by the
+   * caller. Paired with {@link resolvedPath} for the workspace-boundary check
+   * so a symlinked workspace prefix (e.g. macOS /var → /private/var) does not
+   * read as an escape. When either canonical field is absent, the boundary
+   * check falls back to comparing lexical path against lexical workingDir.
+   */
+  resolvedWorkingDir?: string;
+  /**
+   * Whether the caller runs containerized. Suppresses the out-of-workspace
+   * escalation: containerized installs keep a hard workspace boundary at
+   * execution time, so an elevated classification would only prompt ahead of
+   * a guaranteed failure.
+   */
+  isContainerized?: boolean;
+  /**
    * For `host_file_transfer` with `direction: "to_sandbox"`: the workspace-side
    * destination path (where the copied file lands). `filePath` carries the
    * host-side `source_path`, so without this the workspace write destination —
@@ -180,6 +199,44 @@ function resolveSandboxPath(rawPath: string, workingDir: string): string {
     }
   }
   return resolve(workingDir, effectivePath);
+}
+
+/**
+ * Whether `filePath` resolves to `root` itself or a descendant of it.
+ * Lexical containment only — callers that need symlink awareness must pass
+ * pre-canonicalized paths. Shared with the IPC handler's bash
+ * sandbox-auto-approve path check.
+ */
+export function isPathWithinRoot(filePath: string, root: string): boolean {
+  if (!filePath || !root) return false;
+  const normalizedRoot = root.endsWith("/") ? root : root + "/";
+  const normalizedPath = resolve(filePath);
+  return (
+    normalizedPath === root.replace(/\/$/, "") ||
+    normalizedPath.startsWith(normalizedRoot)
+  );
+}
+
+/**
+ * Whether a sandbox file operation targets a path outside its working-dir
+ * boundary. Mirrors the execution-time predicate in the assistant's
+ * `sandboxPolicy`: the boundary check is on the real (symlink-resolved)
+ * target, so an in-workspace symlink pointing out escalates, while an
+ * outside path whose real target lands in the workspace does not.
+ * Containerized installs never escalate — execution keeps the hard
+ * workspace boundary there.
+ */
+function isOutsideSandboxBoundary(input: FileClassifierInput): boolean {
+  if (input.isContainerized || !input.filePath) {
+    return false;
+  }
+  if (input.resolvedPath && input.resolvedWorkingDir) {
+    return !isPathWithinRoot(input.resolvedPath, input.resolvedWorkingDir);
+  }
+  return !isPathWithinRoot(
+    resolveSandboxPath(input.filePath, input.workingDir),
+    input.workingDir,
+  );
 }
 
 /**
@@ -542,6 +599,16 @@ export class FileRiskClassifier implements RiskClassifier<
             break;
           }
         }
+        if (isOutsideSandboxBoundary(input)) {
+          assessment = {
+            riskLevel: "medium",
+            reason: "File read outside the workspace",
+            scopeOptions: [],
+            matchType: "registry",
+            allowlistOptions,
+          };
+          break;
+        }
         assessment = {
           riskLevel: "low",
           reason: "File read (default)",
@@ -568,6 +635,16 @@ export class FileRiskClassifier implements RiskClassifier<
             assessment = sink;
             break;
           }
+        }
+        if (isOutsideSandboxBoundary(input)) {
+          assessment = {
+            riskLevel: "medium",
+            reason: `File ${toolName === "file_write" ? "write" : "edit"} outside the workspace`,
+            scopeOptions: [],
+            matchType: "registry",
+            allowlistOptions,
+          };
+          break;
         }
         assessment = {
           riskLevel: "low",

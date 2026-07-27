@@ -36,6 +36,10 @@ import {
 } from "@/domains/chat/utils/stream-updaters/surface-updaters";
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import { clearConfirmationByRequestId } from "@/domains/chat/utils/send-message-utils";
+import {
+  applyQueuedMessageDequeue,
+  removeQueuedMessage,
+} from "@/domains/chat/utils/stream-updaters/shared";
 
 /** Parse the envelope's ISO `emittedAt` to epoch ms, the deterministic stamp
  *  for any row an event opens. Falls back to `seq` so a malformed/absent time
@@ -79,6 +83,10 @@ export function appendEventToMessages(
         },
         at,
       );
+    case "message_dequeued":
+      return applyQueuedMessageDequeue(messages, event.requestId);
+    case "message_queued_deleted":
+      return removeQueuedMessage(messages, event.requestId);
     case "assistant_activity_state":
       // Only the terminal `idle` phase changes message content (it finalizes
       // running tool calls); other phases drive turn state, not history.
@@ -141,7 +149,9 @@ export function appendEventToMessages(
             : at,
       });
     case "tool_output_chunk":
-      if (!event.chunk) return messages;
+      if (!event.chunk) {
+        return messages;
+      }
       return appendToolOutputChunk(messages, {
         chunk: event.chunk,
         toolUseId: event.toolUseId,
@@ -190,7 +200,7 @@ export function appendEventToMessages(
         : messages;
     default:
       // Total: events that don't change message content (turn lifecycle,
-      // queue, subagent/workflow, sync, unknowns) leave the list untouched.
+      // subagent/workflow, sync, unknowns) leave the list untouched.
       return messages;
   }
 }
@@ -216,8 +226,12 @@ function nextProcessingState(
   event: AssistantEvent,
   seq: number | null | undefined,
 ): boolean | undefined {
-  if (current === undefined) return undefined;
-  if (typeof seq !== "number") return current;
+  if (current === undefined) {
+    return undefined;
+  }
+  if (typeof seq !== "number") {
+    return current;
+  }
   switch (event.type) {
     case "assistant_turn_start":
     case "assistant_text_delta":

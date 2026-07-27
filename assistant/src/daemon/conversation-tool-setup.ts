@@ -6,6 +6,7 @@
  * keeping the constructor body focused on wiring.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   type HostProxyCapability,
   supportsHostProxy,
@@ -62,6 +63,7 @@ import {
   type UsageAttributionSnapshot,
 } from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
+import { conversationSupportsDynamicUi } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
 import { projectSkillTools } from "./conversation-skill-tools.js";
 import {
@@ -72,7 +74,6 @@ import {
   isDoordashCommand,
   markDoordashStepInProgress,
 } from "./doordash-steps.js";
-import type { ServerMessage } from "./message-protocol.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 
@@ -390,8 +391,8 @@ export function createToolExecutor(
       enabledPluginSet: effectiveEnabledPluginSet,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
-        // signature, but at runtime these are always ServerMessage instances.
-        ctx.sendToClient(msg as ServerMessage);
+        // signature, but at runtime these are always AssistantEvent instances.
+        ctx.sendToClient(msg as AssistantEvent);
         if (msg.type === "ui_surface_show") {
           // The tool-context sendToClient signature is loose, so the show
           // message's fields are untyped here; map them through the same
@@ -418,6 +419,10 @@ export function createToolExecutor(
         ctx.currentTurnIsNonInteractive !== undefined
           ? !ctx.currentTurnIsNonInteractive
           : !ctx.hasNoClient && !ctx.headlessLock,
+      // Lets UI-dependent tools (e.g. `ask_question`) degrade to text on
+      // channels that can't render dynamic surfaces (Telegram, SMS) instead of
+      // emitting one the channel silently drops.
+      supportsDynamicUi: conversationSupportsDynamicUi(ctx),
       proxyToolResolver: (
         toolName: string,
         proxyInput: Record<string, unknown>,
@@ -871,10 +876,10 @@ export function createResolveToolsCallback(
 
     // Same treatment for user-plugin tools: pull the plugin mtime-cache's
     // active tool set into the registry (a no-op costs a fingerprint compare
-    // per plugin). This pull is a pure cache read — the sentinel reconcile that
-    // activates plugins runs on the hook-dispatch path that precedes tool
-    // resolution each turn — so a plugin installed/removed/edited at runtime is
-    // still picked up here without recreating the conversation.
+    // per plugin). This pull is a pure cache read — plugin activation happens
+    // only at boot and through the install/uninstall routes, both main-daemon
+    // paths — so a plugin installed or removed through the routes is still
+    // picked up here without recreating the conversation.
     void loadPluginTools();
 
     // Read every registered plugin tool each turn (so runtime installs/edits

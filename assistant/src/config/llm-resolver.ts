@@ -12,7 +12,7 @@ import {
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
 import {
   getEffectiveProfile,
-  isDefaultProfileKey,
+  isMatrixProfileKey,
   resolveDefaultProfileForProvider,
 } from "./default-profile-catalog.js";
 import {
@@ -233,7 +233,7 @@ function providerAwareEntry(
     name,
     defaultProvider,
   );
-  if (!isDefaultProfileKey(name) || entry?.mix != null) {
+  if (!isMatrixProfileKey(name) || entry?.mix != null) {
     return entry;
   }
   if (

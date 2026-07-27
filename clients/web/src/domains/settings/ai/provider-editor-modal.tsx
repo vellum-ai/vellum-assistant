@@ -23,6 +23,10 @@ import type {
   InferenceProviderconnectionsByNamePatchData,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
+import {
+  CUSTOM_PROVIDER_NAME_ERRORS,
+  customProviderNameConflict,
+} from "@/domains/settings/ai/custom-provider-names";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
@@ -48,6 +52,8 @@ export interface ProviderEditorContentProps {
   connection?: ProviderConnection;
   assistantId: string;
   existingNames: string[];
+  /** Existing connections, for custom-provider name-collision checks. */
+  connections?: ProviderConnection[];
   onSave: (connection: ProviderConnection) => void;
   onCancel: () => void;
 }
@@ -57,6 +63,7 @@ export function ProviderEditorContent({
   connection,
   assistantId,
   existingNames,
+  connections,
   onSave,
   onCancel,
 }: ProviderEditorContentProps) {
@@ -148,7 +155,15 @@ export function ProviderEditorContent({
 
   // Only edit reaches this component's own Save. The internal provider name
   // remains fixed, so a non-empty value is the only save gate.
-  const canSave = name.trim().length > 0;
+  // A custom provider must not take a built-in provider's name or another
+  // custom provider's — mirrors the daemon's route-side validation.
+  // Only a changed label is validated — keeping the stored label must never
+  // lock the row out of unrelated edits (key rotation).
+  const labelChanged = label.trim() !== (connection?.label ?? "").trim();
+  const nameConflict = isOpenAICompatible && labelChanged
+    ? customProviderNameConflict(label, connections, connection?.name)
+    : null;
+  const canSave = name.trim().length > 0 && nameConflict === null;
 
   async function handleSave() {
     if (!canSave) {
@@ -294,6 +309,7 @@ export function ProviderEditorContent({
         variant="modal"
         assistantId={assistantId}
         existingNames={existingNames}
+        connections={connections}
         defaultProviderType={provider}
         onCreated={onSave}
         onCancel={onCancel}
@@ -325,6 +341,15 @@ export function ProviderEditorContent({
             placeholder="e.g. My Anthropic Key"
             fullWidth
           />
+          {nameConflict ? (
+            <Typography
+              variant="body-small-default"
+              as="p"
+              className="text-(--system-negative-strong)"
+            >
+              {CUSTOM_PROVIDER_NAME_ERRORS[nameConflict]}
+            </Typography>
+          ) : null}
         </div>
 
         {/* Base URL + Models — openai-compatible only */}

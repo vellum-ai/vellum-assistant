@@ -174,12 +174,14 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "messaging/providers/whatsapp/api.ts", // WhatsApp Cloud API client (bot token for direct sends)
       "messaging/providers/slack/adapter.ts", // Slack bot token lookup for Socket Mode connectivity check
       "credential-health/credential-health-service.ts", // proactive credential health monitoring
+      "providers/inference/credential-slot-repair.ts", // boot repair: copies the shared openai-compatible slot value into per-connection slots (get/set of provider API keys only; values never logged or returned)
+      "runtime/routes/inference-provider-connection-routes.ts", // connection delete removes its dedicated per-connection key slot (deleteSecureKeyAsync only; no reads)
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
       "providers/platform-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "platform/client.ts", // platform client credential store fallback for standalone CLI auth
       "mcp/mcp-header-store.ts", // MCP static auth header persistence (credential store CRUD + legacy migration)
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
-      "runtime/routes/integrations/slack/token.ts", // shared Slack token resolver (bot/user token lookup for CLI use routes)
+      "messaging/providers/slack/auth.ts", // canonical Slack auth resolver (bot/user token lookup for adapter + routes)
       "mcp/client.ts", // MCP client cached-token lookup
       "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
       "oauth/credential-token-resolver.ts", // centralized access-token key resolution for OAuth and manual-token providers

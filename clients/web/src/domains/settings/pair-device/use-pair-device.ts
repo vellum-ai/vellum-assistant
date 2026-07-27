@@ -17,6 +17,29 @@ import {
 /** localStorage key for the last public URL that successfully minted a code. */
 const PUBLIC_BASE_URL_STORAGE_KEY = "vellum:pair-device:public-base-url";
 
+/** Where the URL field's initial value came from. */
+export type PairDevicePrefillSource = "tunnel" | "stored" | "none";
+
+/**
+ * Resolve the URL field's initial value and its provenance. Priority: the
+ * assistant's `vellum tunnel`-recorded ingress URL, then the last URL that
+ * successfully minted a code, then empty.
+ */
+function resolvePrefill(recordedIngressUrl: string | null): {
+  url: string;
+  source: PairDevicePrefillSource;
+} {
+  const tunnel = recordedIngressUrl?.trim();
+  if (tunnel) {
+    return { url: tunnel, source: "tunnel" };
+  }
+  const stored = getLocalSetting(PUBLIC_BASE_URL_STORAGE_KEY, "").trim();
+  if (stored) {
+    return { url: stored, source: "stored" };
+  }
+  return { url: "", source: "none" };
+}
+
 export type PairDevicePhase =
   | { kind: "idle" }
   | { kind: "minting" }
@@ -24,9 +47,11 @@ export type PairDevicePhase =
   | { kind: "error"; message: string; hint?: string };
 
 export interface PairDeviceController {
-  /** The public URL to advertise, editable and prefilled from the last success. */
+  /** The public URL to advertise, editable and prefilled from the tunnel/last success. */
   publicBaseUrl: string;
   setPublicBaseUrl: (value: string) => void;
+  /** Where {@link publicBaseUrl}'s initial value came from. */
+  prefillSource: PairDevicePrefillSource;
   /** Client-side validation message for the URL field, or `null`. */
   inputError: string | null;
   phase: PairDevicePhase;
@@ -46,15 +71,16 @@ export interface PairDeviceController {
  * `webRemoteIngressEnabled` is the host's `web-remote-ingress` flag — when off,
  * generating reports the enable guidance without minting (the loopback routes
  * succeed regardless of the flag, but a scan can only connect through public
- * ingress, so a minted QR would be unusable).
+ * ingress, so a minted QR would be unusable). `recordedIngressUrl` is the
+ * assistant's `vellum tunnel`-recorded public URL, used to prefill the field.
  */
 export function usePairDevice(
   base: string | null,
   webRemoteIngressEnabled: boolean,
+  recordedIngressUrl: string | null,
 ): PairDeviceController {
-  const [publicBaseUrl, setPublicBaseUrlState] = useState(() =>
-    getLocalSetting(PUBLIC_BASE_URL_STORAGE_KEY, ""),
-  );
+  const [prefill] = useState(() => resolvePrefill(recordedIngressUrl));
+  const [publicBaseUrl, setPublicBaseUrlState] = useState(prefill.url);
   const [inputError, setInputError] = useState<string | null>(null);
   const [phase, setPhase] = useState<PairDevicePhase>({ kind: "idle" });
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -85,9 +111,10 @@ export function usePairDevice(
     if (!base) {
       return;
     }
-    const resolved = resolvePublicBaseUrl(publicBaseUrl.trim());
+    const trimmed = publicBaseUrl.trim();
+    const resolved = resolvePublicBaseUrl(trimmed);
     if (!resolved.ok) {
-      setInputError(publicBaseUrlRejectionMessage(resolved.reason));
+      setInputError(publicBaseUrlRejectionMessage(resolved.reason, trimmed));
       return;
     }
     setInputError(null);
@@ -148,6 +175,7 @@ export function usePairDevice(
   return {
     publicBaseUrl,
     setPublicBaseUrl,
+    prefillSource: prefill.source,
     inputError,
     phase,
     remainingMs,

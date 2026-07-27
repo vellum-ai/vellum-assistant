@@ -54,10 +54,7 @@ export function isVellumLink(href: string | undefined): boolean {
  * `vellum://` shapes are rejected to limit protocol-handler attack surface.
  */
 function vellumUrlTransform(url: string): string {
-  if (
-    url.startsWith("vellum://workspace/") ||
-    url.startsWith("vellum://host/")
-  ) {
+  if (isVellumLink(url)) {
     return url;
   }
   return defaultUrlTransform(url);

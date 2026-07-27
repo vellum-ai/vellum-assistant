@@ -4,7 +4,7 @@
  * Tests:
  *   - 401 unauthorized (missing bearer token)
  *   - 200 when conversationKey is omitted (unfiltered subscription)
- *   - Happy path: stream receives a published AssistantEvent
+ *   - Happy path: stream receives a published AssistantEventEnvelope
  *   - Unfiltered: streams events from multiple conversations
  */
 import { beforeEach, describe, expect, test } from "bun:test";
@@ -110,7 +110,10 @@ describe("SSE assistant-events endpoint", () => {
 
     // start() is called synchronously during ReadableStream construction, so the
     // hub subscription is already registered before we publish.
-    const event = buildAssistantEvent({ type: "pong" }, conversationId);
+    const event = buildAssistantEvent(
+      { type: "message_complete" },
+      conversationId,
+    );
     await assistantEventHub.publish(event);
 
     // Read the first frame directly from the stream.
@@ -129,7 +132,7 @@ describe("SSE assistant-events endpoint", () => {
     const frame = new TextDecoder().decode(value);
     expect(frame).toContain("event: assistant_event");
     expect(frame).toContain(`"conversationId":"${conversationId}"`);
-    expect(frame).toContain('"type":"pong"');
+    expect(frame).toContain('"type":"message_complete"');
   });
 
   // ── Unfiltered subscription ──────────────────────────────────────────────
@@ -157,8 +160,14 @@ describe("SSE assistant-events endpoint", () => {
     expect(new TextDecoder().decode(heartbeat.value)).toBe(": heartbeat\n\n");
 
     // Publish events with two different conversationIds.
-    const eventA = buildAssistantEvent({ type: "pong" }, "conversation-aaa");
-    const eventB = buildAssistantEvent({ type: "pong" }, "conversation-bbb");
+    const eventA = buildAssistantEvent(
+      { type: "message_complete" },
+      "conversation-aaa",
+    );
+    const eventB = buildAssistantEvent(
+      { type: "message_complete" },
+      "conversation-bbb",
+    );
     await testHub.publish(eventA);
     await testHub.publish(eventB);
 

@@ -158,7 +158,8 @@ async function performTtsRequest(
     throw new DeepgramTtsError(
       "DEEPGRAM_TTS_NO_API_KEY",
       "Deepgram API key not configured. " +
-        "Add it in Settings → Voice or via: assistant keys set deepgram <key>",
+        "Ask the user to add it in Settings → Voice, or collect it securely via: " +
+        'assistant credentials prompt --service deepgram --field api_key --label "Deepgram API Key"',
     );
   }
 
@@ -320,7 +321,8 @@ export const deepgramTtsProviderDefinition: TtsProviderDefinition = {
     {
       credentialStoreKey: "credential/deepgram/api_key",
       displayName: "Deepgram API Key",
-      setCommand: "assistant keys set deepgram <key>",
+      setCommand:
+        "assistant keys set deepgram <key> (run in your own terminal)",
     },
   ],
   adapter: createDeepgramProvider(),

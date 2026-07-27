@@ -6,13 +6,17 @@
 // retrieval mode based on conversation state.
 // ---------------------------------------------------------------------------
 
-import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
+import type {
+  AssistantEvent,
+  ContentBlock,
+  ImageContent,
+  Message,
+} from "@vellumai/plugin-api";
 import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { estimateTextTokens } from "../../../../context/token-estimator.js";
-import type { ServerMessage } from "../../../../daemon/message-protocol.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
 import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
@@ -80,7 +84,7 @@ const liveByConversation = new Map<string, ConversationGraphMemory>();
 export function getLiveGraphMemory(
   conversationId: string | undefined,
 ): ConversationGraphMemory | undefined {
-  if (!conversationId) return undefined;
+  if (!conversationId) {return undefined;}
   return liveByConversation.get(conversationId);
 }
 
@@ -132,7 +136,7 @@ export class ConversationGraphMemory {
    * Called during conversation disposal.
    */
   persistState(): void {
-    if (!this.initialized) return;
+    if (!this.initialized) {return;}
     try {
       const snapshot: InContextTrackerSnapshot & {
         initialized: boolean;
@@ -156,10 +160,10 @@ export class ConversationGraphMemory {
    * On failure or missing row, silently falls back to full context-load.
    */
   restoreState(): void {
-    if (this.stateRestored) return;
+    if (this.stateRestored) {return;}
     try {
       const json = loadGraphMemoryState(this.conversationId);
-      if (!json) return;
+      if (!json) {return;}
 
       const snapshot = JSON.parse(json) as InContextTrackerSnapshot & {
         initialized: boolean;
@@ -360,7 +364,7 @@ export class ConversationGraphMemory {
    * not the original user message.
    */
   retrackCachedNodes(): void {
-    if (this.lastInjectedNodeIds.length === 0) return;
+    if (this.lastInjectedNodeIds.length === 0) {return;}
     this.tracker.add(this.lastInjectedNodeIds);
   }
 
@@ -419,7 +423,7 @@ export class ConversationGraphMemory {
     messages: Message[],
     config: AssistantConfig,
     abortSignal: AbortSignal,
-    onEvent: (msg: ServerMessage) => void,
+    onEvent: (msg: AssistantEvent) => void,
   ): Promise<{
     runMessages: Message[];
     injectedTokens: number;
@@ -480,12 +484,12 @@ export class ConversationGraphMemory {
     // Gate: skip for empty/tool-result-only messages — unless we need to
     // reload after compaction (needsReload) or haven't initialized yet.
     const lastMessage = messages[messages.length - 1];
-    if (!lastMessage || lastMessage.role !== "user") return noopResult;
+    if (!lastMessage || lastMessage.role !== "user") {return noopResult;}
     const hasUserContent = lastMessage.content.some(
       (block) => block.type === "text" && block.text.trim().length > 0,
     );
     if (!hasUserContent && this.initialized && !this.needsReload)
-      return noopResult;
+      {return noopResult;}
 
     try {
       // Decide which retrieval mode to use
@@ -530,7 +534,7 @@ export class ConversationGraphMemory {
     recentSummaries: string[],
     userQuery: string | undefined,
     signal: AbortSignal,
-    onEvent: (msg: ServerMessage) => void,
+    onEvent: (msg: AssistantEvent) => void,
   ) {
     // Use the raw user text (no >10-char filter) so even short greetings
     // ("hi") get a fresh top-K activation dump on the first user message.
@@ -650,7 +654,7 @@ export class ConversationGraphMemory {
       type: "memory_status",
       enabled: true,
       degraded: false,
-    } as ServerMessage);
+    } as AssistantEvent);
 
     this.lastInjectedBlock = contextBlock;
     this.lastInjectedNodeIds = [
@@ -700,7 +704,7 @@ export class ConversationGraphMemory {
       } else if (msg.role === "assistant" && !assistantLast) {
         assistantLast = text;
       }
-      if (userLastBlocks.length > 0 && assistantLast) break;
+      if (userLastBlocks.length > 0 && assistantLast) {break;}
     }
 
     // v2 path — skip v1 retrieval entirely when v2 is enabled. See the
@@ -991,12 +995,12 @@ export function countMemoryPrefixBlocks(content: ContentBlock[]): number {
  * `reinjectCachedMemory` is idempotent — no duplicate images after compaction.
  */
 export function stripExistingMemoryInjections(messages: Message[]): Message[] {
-  if (messages.length === 0) return messages;
+  if (messages.length === 0) {return messages;}
   const last = messages[messages.length - 1];
-  if (!last || last.role !== "user") return messages;
+  if (!last || last.role !== "user") {return messages;}
 
   const stripped = stripMemoryPrefixFromUserMessage(last);
-  if (stripped === last) return messages;
+  if (stripped === last) {return messages;}
 
   return [...messages.slice(0, -1), stripped];
 }
@@ -1011,9 +1015,9 @@ export function stripExistingMemoryInjections(messages: Message[]): Message[] {
  * assembly strips only the TAIL's fresh v2 prefix when v3 supersedes it.
  */
 function stripMemoryPrefixFromUserMessage(message: Message): Message {
-  if (message.role !== "user") return message;
+  if (message.role !== "user") {return message;}
   const firstNonMemory = countMemoryPrefixBlocks(message.content);
-  if (firstNonMemory === 0) return message;
+  if (firstNonMemory === 0) {return message;}
   return { ...message, content: message.content.slice(firstNonMemory) };
 }
 
@@ -1024,21 +1028,21 @@ function stripMemoryPrefixFromUserMessage(message: Message): Message {
  * rendering) that otherwise discard the prepended content.
  */
 export function extractMemoryPrefixBlocks(messages: Message[]): ContentBlock[] {
-  if (messages.length === 0) return [];
+  if (messages.length === 0) {return [];}
   const last = messages[messages.length - 1];
-  if (!last || last.role !== "user") return [];
+  if (!last || last.role !== "user") {return [];}
   const count = countMemoryPrefixBlocks(last.content);
   return count === 0 ? [] : last.content.slice(0, count);
 }
 
 function injectTextBlock(messages: Message[], text: string): Message[] {
-  if (text.trim().length === 0) return messages;
-  if (messages.length === 0) return messages;
+  if (text.trim().length === 0) {return messages;}
+  if (messages.length === 0) {return messages;}
   // Strip existing memory blocks from the last user message first to prevent
   // duplicates when the message was loaded from DB with a persisted block.
   const cleaned = stripExistingMemoryInjections(messages);
   const userTail = cleaned[cleaned.length - 1];
-  if (!userTail || userTail.role !== "user") return messages;
+  if (!userTail || userTail.role !== "user") {return messages;}
   return [
     ...cleaned.slice(0, -1),
     {
@@ -1059,13 +1063,13 @@ function injectMemoryBlock(
   text: string,
   images: Map<string, ResolvedImage>,
 ): Message[] {
-  if (text.trim().length === 0 && images.size === 0) return messages;
-  if (messages.length === 0) return messages;
+  if (text.trim().length === 0 && images.size === 0) {return messages;}
+  if (messages.length === 0) {return messages;}
   // Strip existing memory blocks from the last user message first to prevent
   // duplicates when the message was loaded from DB with a persisted block.
   const cleaned = stripExistingMemoryInjections(messages);
   const userTail = cleaned[cleaned.length - 1];
-  if (!userTail || userTail.role !== "user") return messages;
+  if (!userTail || userTail.role !== "user") {return messages;}
 
   const blocks: ContentBlock[] = [];
 
@@ -1106,7 +1110,7 @@ function injectMemoryBlock(
  */
 function extractUserText(message: Message): string | null {
   const joined = readRawUserText(message);
-  if (!joined) return null;
+  if (!joined) {return null;}
   return joined.length > 10 ? joined : null;
 }
 
@@ -1117,12 +1121,12 @@ function extractUserText(message: Message): string | null {
  * v1 needs would unnecessarily starve v2 on short greetings.
  */
 function readRawUserText(message: Message | undefined): string | null {
-  if (!message) return null;
+  if (!message) {return null;}
   const texts = message.content
     .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
     .map((b) => b.text.trim())
     .filter((t) => t.length > 0);
-  if (texts.length === 0) return null;
+  if (texts.length === 0) {return null;}
   return texts.join(" ");
 }
 

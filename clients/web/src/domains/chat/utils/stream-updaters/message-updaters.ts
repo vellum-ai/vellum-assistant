@@ -401,8 +401,9 @@ export function finalizeMessageComplete(
  * send and an already-resolved row is short-circuited by id upstream, so the
  * nonce match needs no separate optimistic flag. When the event carries no
  * nonce — a daemon that predates the idempotency contract, or a synthetic
- * surface-action echo — fall back to the most recent still-optimistic user
- * row, which has no nonce to key on and so is identified by `isOptimistic`.
+ * surface-action echo — prefer the most recent still-optimistic user row that
+ * also lacks a nonce. Fall back to any optimistic user row for compatibility
+ * with daemons that accept a client nonce but do not echo it.
  */
 function findOptimisticUserEchoIdx(
   prev: DisplayMessage[],
@@ -414,13 +415,19 @@ function findOptimisticUserEchoIdx(
     );
   }
 
+  let nonceBearingFallbackIdx = -1;
   for (let i = prev.length - 1; i >= 0; i--) {
     const m = prev[i];
     if (m && m.role === "user" && m.isOptimistic === true) {
-      return i;
+      if (!m.clientMessageId) {
+        return i;
+      }
+      if (nonceBearingFallbackIdx === -1) {
+        nonceBearingFallbackIdx = i;
+      }
     }
   }
-  return -1;
+  return nonceBearingFallbackIdx;
 }
 
 /**

@@ -55,23 +55,41 @@ export interface DevicePairing {
   expiresAt: string;
 }
 
+/** What the "Pair a device" card needs about the assistant it pairs. */
+export interface PairDeviceTarget {
+  /** Absolute local-gateway base URL to mint the pairing challenge against. */
+  base: string;
+  /** The paired assistant's display name, or `null` when it has none. */
+  assistantName: string | null;
+  /**
+   * The public https URL `vellum tunnel` recorded for this assistant, or `null`
+   * when none is recorded — used to prefill the URL field.
+   */
+  ingressUrl: string | null;
+}
+
 /**
- * The absolute local-gateway base URL to mint against, or `null` when device
- * pairing isn't available from here. `getLocalGatewayUrl` already resolves only
- * in desktop/local mode (never remote-gateway or platform mode) and only for an
- * on-machine assistant with a recorded loopback gateway — exactly the cases
- * where a host-presence mint is possible — so this doubles as the section's
- * visibility gate.
+ * Resolve the selected assistant and its local-gateway base URL, or `null` when
+ * device pairing isn't available from here. `getLocalGatewayUrl` already
+ * resolves only in desktop/local mode (never remote-gateway or platform mode)
+ * and only for an on-machine assistant with a recorded loopback gateway —
+ * exactly the cases where a host-presence mint is possible — so a `null` here
+ * doubles as the section's visibility gate.
  */
-export function resolvePairDeviceGatewayBase(): string | null {
+export function resolvePairDeviceTarget(): PairDeviceTarget | null {
   if (typeof window === "undefined") {
     return null;
   }
-  const path = getLocalGatewayUrl(getSelectedAssistant());
+  const assistant = getSelectedAssistant();
+  const path = getLocalGatewayUrl(assistant);
   if (!path) {
     return null;
   }
-  return `${window.location.origin}${path}`;
+  return {
+    base: `${window.location.origin}${path}`,
+    assistantName: assistant?.name?.trim() || null,
+    ingressUrl: assistant?.ingressUrl?.trim() || null,
+  };
 }
 
 function serverErrorMessage(payload: unknown): string | null {

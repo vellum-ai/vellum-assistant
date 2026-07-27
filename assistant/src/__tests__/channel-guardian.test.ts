@@ -46,14 +46,6 @@ mock.module("../messaging/providers/telegram-bot/send.js", () => ({
   }),
   sendTelegramTypingIndicator: async () => true,
 }));
-// Capture broadcastMessage calls so tests can inspect responses
-const broadcastedMessages: unknown[] = [];
-mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: unknown) => {
-    broadcastedMessages.push(msg);
-  },
-}));
-
 // Gateway relay mock — the revoke path relays the ACL downgrade over IPC and
 // validates the response; return a well-formed mark_channel_revoked result.
 // The gateway owns the revoke and dual-writes the local assistant row to
@@ -117,15 +109,16 @@ import {
   findActiveSession as serviceFindActiveSession,
   getPendingSession,
   resolveBootstrapToken,
+  revokePendingSessions,
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as serviceUpdateSessionStatus,
   validateAndConsumeVerification,
 } from "../channels/gateway-verification-sessions.js";
-import { handleChannelVerificationSession } from "../daemon/handlers/config-channels.js";
-import type {
-  ChannelVerificationSessionRequest,
-  ChannelVerificationSessionResponse,
-} from "../daemon/message-protocol.js";
+import {
+  createInboundChallenge,
+  getVerificationStatus,
+  revokeVerificationForChannel,
+} from "../daemon/handlers/config-channels.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { upsertBinding as upsertExternalBinding } from "../persistence/external-conversation-store.js";
@@ -135,8 +128,11 @@ import {
   isGuardian,
 } from "../runtime/channel-verification-service.js";
 import {
+  cancelOutbound,
   MAX_SENDS_PER_SESSION,
   RESEND_COOLDOWN_MS,
+  resendOutbound,
+  startOutbound,
 } from "../runtime/verification-outbound-actions.js";
 import {
   composeVerificationTelegram,
@@ -772,41 +768,13 @@ describe("channel-scoped guardian resolution", () => {
 // 10. HTTP handler — channel-aware guardian status response
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Returns a helper that reads the latest broadcastMessage call as a
- * ChannelVerificationSessionResponse. Resets the capture array first so
- * each test gets a clean slate.
- */
-function createResponseReader(): {
-  lastResponse: () => ChannelVerificationSessionResponse | null;
-} {
-  broadcastedMessages.length = 0;
-  return {
-    lastResponse: () =>
-      broadcastedMessages.length > 0
-        ? (broadcastedMessages[
-            broadcastedMessages.length - 1
-          ] as ChannelVerificationSessionResponse)
-        : null,
-  };
-}
-
 describe("HTTP handler channel-aware guardian status", () => {
   beforeEach(() => {
     resetTables();
   });
 
   test("status action for telegram returns channel and assistantId fields", async () => {
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "status",
-      channel: "telegram",
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    const resp = await getVerificationStatus("telegram");
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.channel).toBe("telegram");
@@ -816,16 +784,7 @@ describe("HTTP handler channel-aware guardian status", () => {
   });
 
   test("status action for voice returns channel: voice and assistantId: self", async () => {
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "status",
-      channel: "phone",
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    const resp = await getVerificationStatus("phone");
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.channel).toBe("phone");
@@ -841,16 +800,7 @@ describe("HTTP handler channel-aware guardian status", () => {
       guardianDeliveryChatId: "chat-42",
     });
 
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "status",
-      channel: "telegram",
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    const resp = await getVerificationStatus("telegram");
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.bound).toBe(true);
@@ -893,65 +843,30 @@ describe("HTTP handler channel-aware guardian status", () => {
       displayName: "Guardian Name",
     });
 
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "status",
-      channel: "telegram",
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    const resp = await getVerificationStatus("telegram");
     expect(resp).not.toBeNull();
     expect(resp!.guardianUsername).toBe("guardian_handle");
     expect(resp!.guardianDisplayName).toBe("Guardian Name");
   });
 
   test("status action defaults channel to telegram when omitted", async () => {
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "status",
-      // channel omitted — should default to 'telegram'
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    // channel omitted — the handler defaulted to 'telegram'
+    const resp = await getVerificationStatus("telegram");
     expect(resp).not.toBeNull();
     expect(resp!.channel).toBe("telegram");
     expect(resp!.assistantId).toBe("self");
   });
 
   test("status action defaults assistantId to self when omitted", async () => {
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "status",
-      channel: "phone",
-      // assistantId omitted — should default to 'self'
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    // assistantId omitted — the handler defaulted to 'self'
+    const resp = await getVerificationStatus("phone");
     expect(resp).not.toBeNull();
     expect(resp!.assistantId).toBe("self");
     expect(resp!.channel).toBe("phone");
   });
 
   test("status action for unbound voice does not return guardianDeliveryChatId", async () => {
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "status",
-      channel: "phone",
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    const resp = await getVerificationStatus("phone");
     expect(resp).not.toBeNull();
     expect(resp!.bound).toBe(false);
     expect(resp!.guardianDeliveryChatId).toBeUndefined();
@@ -961,32 +876,14 @@ describe("HTTP handler channel-aware guardian status", () => {
   test("status action includes hasPendingChallenge when challenge exists", async () => {
     await createInboundVerificationSession("phone");
 
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "status",
-      channel: "phone",
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    const resp = await getVerificationStatus("phone");
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.hasPendingChallenge).toBe(true);
   });
 
   test("status action hasPendingChallenge is false when no challenge exists", async () => {
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "status",
-      channel: "phone",
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    const resp = await getVerificationStatus("phone");
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.hasPendingChallenge).toBe(false);
@@ -1415,16 +1312,7 @@ describe("HTTP handler voice guardian verification", () => {
   });
 
   test("create_challenge for voice returns a high-entropy hex secret", async () => {
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "phone",
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    const resp = await createInboundChallenge("phone");
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.secret).toBeDefined();
@@ -1435,16 +1323,7 @@ describe("HTTP handler voice guardian verification", () => {
   });
 
   test("status for voice reflects unbound state", async () => {
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "status",
-      channel: "phone",
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    const resp = await getVerificationStatus("phone");
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.channel).toBe("phone");
@@ -1460,16 +1339,7 @@ describe("HTTP handler voice guardian verification", () => {
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "status",
-      channel: "phone",
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    const resp = await getVerificationStatus("phone");
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.bound).toBe(true);
@@ -1486,16 +1356,7 @@ describe("HTTP handler voice guardian verification", () => {
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "revoke",
-      channel: "phone",
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    const resp = await revokeVerificationForChannel("phone");
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.bound).toBe(false);
@@ -1518,14 +1379,7 @@ describe("HTTP handler voice guardian verification", () => {
       guardianDeliveryChatId: "tg-chat-1",
     });
 
-    broadcastedMessages.length = 0;
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "revoke",
-      channel: "phone",
-    };
-
-    await handleChannelVerificationSession(msg);
+    await revokeVerificationForChannel("phone");
 
     expect(await getGuardianBinding("self", "phone")).toBeNull();
     expect(await getGuardianBinding("self", "telegram")).not.toBeNull();
@@ -1948,17 +1802,10 @@ describe("outbound voice verification", () => {
   });
 
   test("start_outbound creates session with expected E.164 identity and returns code", async () => {
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "phone",
       destination: "+15551234567",
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    });
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.verificationSessionId).toBeDefined();
@@ -1984,18 +1831,11 @@ describe("outbound voice verification", () => {
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "phone",
       destination: "+15559876543",
       rebind: false,
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    });
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe("already_bound");
@@ -2010,18 +1850,11 @@ describe("outbound voice verification", () => {
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    const { lastResponse } = createResponseReader();
-    const msg: ChannelVerificationSessionRequest = {
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "phone",
       destination: "+15559876543",
       rebind: true,
-    };
-
-    await handleChannelVerificationSession(msg);
-
-    const resp = lastResponse();
+    });
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.verificationSessionId).toBeDefined();
@@ -2029,23 +1862,10 @@ describe("outbound voice verification", () => {
 
   test("resend_outbound before cooldown is rejected", async () => {
     // Start an outbound session first
-    broadcastedMessages.length = 0;
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "phone",
-      destination: "+15551234567",
-    });
+    await startOutbound({ channel: "phone", destination: "+15551234567" });
 
     // Immediately try to resend (before cooldown)
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "resend_session",
-      channel: "phone",
-    });
-
-    const resp = lastResponse();
+    const resp = await resendOutbound({ channel: "phone" });
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe("rate_limited");
@@ -2053,15 +1873,10 @@ describe("outbound voice verification", () => {
 
   test("resend_outbound after cooldown succeeds and increments sendCount", async () => {
     // Start an outbound session
-    const { lastResponse: startResp } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const startResponse = await startOutbound({
       channel: "phone",
       destination: "+15551234567",
     });
-
-    const startResponse = startResp();
     expect(startResponse!.success).toBe(true);
 
     // Manually update the session's nextResendAt to the past to simulate cooldown elapsed
@@ -2075,14 +1890,7 @@ describe("outbound voice verification", () => {
     );
 
     // Now resend should succeed
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "resend_session",
-      channel: "phone",
-    });
-
-    const resp = lastResponse();
+    const resp = await resendOutbound({ channel: "phone" });
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.sendCount).toBe(2);
@@ -2091,13 +1899,7 @@ describe("outbound voice verification", () => {
 
   test("resend_outbound exceeding max sends is rejected", async () => {
     // Start an outbound session
-    broadcastedMessages.length = 0;
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "phone",
-      destination: "+15551234567",
-    });
+    await startOutbound({ channel: "phone", destination: "+15551234567" });
 
     // Set the send count to MAX_SENDS_PER_SESSION and nextResendAt to the past
     const session = await serviceFindActiveSession("phone");
@@ -2110,14 +1912,7 @@ describe("outbound voice verification", () => {
     );
 
     // Resend should be rejected due to max sends
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "resend_session",
-      channel: "phone",
-    });
-
-    const resp = lastResponse();
+    const resp = await resendOutbound({ channel: "phone" });
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe("max_sends_exceeded");
@@ -2125,32 +1920,17 @@ describe("outbound voice verification", () => {
 
   test("cancel_outbound revokes active session", async () => {
     // Start an outbound session
-    broadcastedMessages.length = 0;
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "phone",
-      destination: "+15551234567",
-    });
+    await startOutbound({ channel: "phone", destination: "+15551234567" });
 
     // Verify session exists
     const sessionBefore = await serviceFindActiveSession("phone");
     expect(sessionBefore).not.toBeNull();
 
     // Cancel it
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "cancel_session",
-      channel: "phone",
-    });
+    await cancelOutbound({ channel: "phone" });
+    await revokePendingSessions("phone");
 
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(true);
-    expect(resp!.channel).toBe("phone");
-
-    // Verify session is no longer active
+    // Cancelling revokes the active session.
     const sessionAfter = await serviceFindActiveSession("phone");
     expect(sessionAfter).toBeNull();
   });
@@ -2205,60 +1985,38 @@ describe("outbound voice verification", () => {
   });
 
   test("start_outbound succeeds for email channel", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "email",
       destination: "user@example.com",
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.channel).toBe("email");
   });
 
   test("create_session without destination falls through to inbound challenge", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "phone",
-      // no destination — unified create_session creates an inbound challenge
-    });
-
-    const resp = lastResponse();
+    // no destination — unified create_session creates an inbound challenge
+    const resp = await createInboundChallenge("phone");
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.secret).toBeDefined();
   });
 
   test("start_outbound rejects unparseable phone number", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "phone",
       destination: "not-a-phone",
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe("invalid_destination");
   });
 
   test("start_outbound normalizes formatted phone number for voice", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "phone",
       destination: "(555) 123-4567",
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.verificationSessionId).toBeDefined();
@@ -2280,16 +2038,11 @@ describe("outbound voice verification", () => {
   });
 
   test("cancel_session succeeds even when no active session (idempotent)", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "cancel_session",
-      channel: "phone",
-    });
-
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(true);
+    // With no active session, cancelling is idempotent: the calls resolve
+    // without throwing and leave no active session behind.
+    await cancelOutbound({ channel: "phone" });
+    await revokePendingSessions("phone");
+    expect(await serviceFindActiveSession("phone")).toBeNull();
   });
 });
 
@@ -2303,15 +2056,10 @@ describe("outbound Telegram verification", () => {
   });
 
   test("start_outbound for telegram with handle returns deep link URL, no outbound message", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "telegram",
       destination: "@someuser",
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.verificationSessionId).toBeDefined();
@@ -2334,15 +2082,10 @@ describe("outbound Telegram verification", () => {
   });
 
   test("start_outbound for telegram with handle (no @ prefix) returns deep link", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "telegram",
       destination: "someuser",
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.telegramBootstrapUrl).toContain(
@@ -2352,15 +2095,10 @@ describe("outbound Telegram verification", () => {
   });
 
   test("start_outbound for telegram with known chat ID sends message, no deep link", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "telegram",
       destination: "123456789",
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.verificationSessionId).toBeDefined();
@@ -2389,15 +2127,10 @@ describe("outbound Telegram verification", () => {
   test("start_outbound for telegram without bot username fails", async () => {
     mockBotUsername = undefined;
 
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "telegram",
       destination: "@someuser",
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe("no_bot_username");
@@ -2411,16 +2144,11 @@ describe("outbound Telegram verification", () => {
       guardianDeliveryChatId: "chat-42",
     });
 
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "telegram",
       destination: "@newuser",
       rebind: false,
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe("already_bound");
@@ -2565,13 +2293,7 @@ describe("outbound Telegram verification", () => {
 
   test("resend_outbound for telegram works with known chat ID", async () => {
     // Start an outbound session with a known chat ID
-    broadcastedMessages.length = 0;
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "telegram",
-      destination: "123456789",
-    });
+    await startOutbound({ channel: "telegram", destination: "123456789" });
 
     // Fast-forward the cooldown
     const session = await serviceFindActiveSession("telegram");
@@ -2583,14 +2305,7 @@ describe("outbound Telegram verification", () => {
       Date.now() - 1000,
     );
 
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "resend_session",
-      channel: "telegram",
-    });
-
-    const resp = lastResponse();
+    const resp = await resendOutbound({ channel: "telegram" });
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.sendCount).toBe(2);
@@ -2603,22 +2318,9 @@ describe("outbound Telegram verification", () => {
 
   test("resend_outbound for pending_bootstrap session is rejected", async () => {
     // Start an outbound session with a handle (pending_bootstrap)
-    broadcastedMessages.length = 0;
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "telegram",
-      destination: "@someuser",
-    });
+    await startOutbound({ channel: "telegram", destination: "@someuser" });
 
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "resend_session",
-      channel: "telegram",
-    });
-
-    const resp = lastResponse();
+    const resp = await resendOutbound({ channel: "telegram" });
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe("pending_bootstrap");
@@ -2626,29 +2328,15 @@ describe("outbound Telegram verification", () => {
 
   test("cancel_outbound for telegram revokes session", async () => {
     // Start an outbound session
-    broadcastedMessages.length = 0;
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "telegram",
-      destination: "123456789",
-    });
+    await startOutbound({ channel: "telegram", destination: "123456789" });
 
     const session = await serviceFindActiveSession("telegram");
     expect(session).not.toBeNull();
 
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "cancel_session",
-      channel: "telegram",
-    });
+    await cancelOutbound({ channel: "telegram" });
+    await revokePendingSessions("telegram");
 
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(true);
-
-    // Session should be revoked
+    // Cancelling revokes the session.
     const revoked = await serviceFindActiveSession("telegram");
     expect(revoked).toBeNull();
   });
@@ -2682,14 +2370,7 @@ describe("outbound Telegram verification", () => {
   });
 
   test("create_session for telegram without destination falls through to inbound challenge", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "telegram",
-    });
-
-    const resp = lastResponse();
+    const resp = await createInboundChallenge("telegram");
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.secret).toBeDefined();
@@ -2697,13 +2378,7 @@ describe("outbound Telegram verification", () => {
 
   test("rate limits apply to telegram outbound (per-session send cap)", async () => {
     // Start an outbound session with a known chat ID
-    broadcastedMessages.length = 0;
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "telegram",
-      destination: "123456789",
-    });
+    await startOutbound({ channel: "telegram", destination: "123456789" });
 
     // Set the send count to MAX_SENDS_PER_SESSION and nextResendAt to the past
     const session = await serviceFindActiveSession("telegram");
@@ -2716,14 +2391,7 @@ describe("outbound Telegram verification", () => {
     );
 
     // Resend should be rejected due to max sends
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "resend_session",
-      channel: "telegram",
-    });
-
-    const resp = lastResponse();
+    const resp = await resendOutbound({ channel: "telegram" });
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe("max_sends_exceeded");
@@ -2731,23 +2399,10 @@ describe("outbound Telegram verification", () => {
 
   test("rate limits apply to telegram outbound (cooldown)", async () => {
     // Start an outbound session with a known chat ID
-    broadcastedMessages.length = 0;
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "telegram",
-      destination: "123456789",
-    });
+    await startOutbound({ channel: "telegram", destination: "123456789" });
 
     // Immediately try to resend (before cooldown)
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "resend_session",
-      channel: "telegram",
-    });
-
-    const resp = lastResponse();
+    const resp = await resendOutbound({ channel: "telegram" });
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe("rate_limited");
@@ -2764,15 +2419,10 @@ describe("outbound voice verification", () => {
   });
 
   test("start_outbound for voice creates session with 6-digit code and initiates call", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "phone",
       destination: "+15551234567",
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.verificationSessionId).toBeDefined();
@@ -2802,30 +2452,20 @@ describe("outbound voice verification", () => {
   });
 
   test("start_outbound for voice rejects unparseable phone number", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "phone",
       destination: "not-a-phone",
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe("invalid_destination");
   });
 
   test("start_outbound for voice normalizes formatted phone number", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "phone",
       destination: "555-123-4567",
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.verificationSessionId).toBeDefined();
@@ -2856,16 +2496,11 @@ describe("outbound voice verification", () => {
       guardianDeliveryChatId: "+15551234567",
     });
 
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "phone",
       destination: "+15559876543",
       rebind: false,
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe("already_bound");
@@ -2873,23 +2508,10 @@ describe("outbound voice verification", () => {
 
   test("resend_outbound for voice initiates a new call with cooldown check", async () => {
     // Start an outbound session first
-    broadcastedMessages.length = 0;
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "phone",
-      destination: "+15551234567",
-    });
+    await startOutbound({ channel: "phone", destination: "+15551234567" });
 
     // Immediately try to resend (before cooldown)
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "resend_session",
-      channel: "phone",
-    });
-
-    const resp = lastResponse();
+    const resp = await resendOutbound({ channel: "phone" });
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe("rate_limited");
@@ -2897,27 +2519,13 @@ describe("outbound voice verification", () => {
 
   test("cancel_outbound for voice cancels session", async () => {
     // Start an outbound session first
-    broadcastedMessages.length = 0;
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "phone",
-      destination: "+15551234567",
-    });
+    await startOutbound({ channel: "phone", destination: "+15551234567" });
 
     // Cancel the session
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "cancel_session",
-      channel: "phone",
-    });
+    await cancelOutbound({ channel: "phone" });
+    await revokePendingSessions("phone");
 
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(true);
-
-    // Session should no longer be active
+    // Cancelling leaves the session no longer active.
     const session = await serviceFindActiveSession("phone");
     expect(session).toBeNull();
   });
@@ -2939,29 +2547,17 @@ describe("outbound voice verification", () => {
       });
     }
 
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "phone",
       destination: "+15551234567",
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe("rate_limited");
   });
 
   test("create_session for voice without destination falls through to inbound challenge", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "phone",
-    });
-
-    const resp = lastResponse();
+    const resp = await createInboundChallenge("phone");
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.secret).toBeDefined();
@@ -2986,15 +2582,10 @@ describe("M1–M4 hardening coverage", () => {
   // ── M2: start_outbound for voice returns secret in response ──
 
   test("start_outbound for voice response includes secret", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "phone",
       destination: "+15551234567",
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.secret).toBeDefined();
@@ -3006,13 +2597,7 @@ describe("M1–M4 hardening coverage", () => {
 
   test("resend_outbound for voice response includes secret", async () => {
     // Start a session first
-    broadcastedMessages.length = 0;
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
-      channel: "phone",
-      destination: "+15551234567",
-    });
+    await startOutbound({ channel: "phone", destination: "+15551234567" });
 
     // Move past cooldown
     const session = await serviceFindActiveSession("phone");
@@ -3025,14 +2610,7 @@ describe("M1–M4 hardening coverage", () => {
     );
 
     // Resend
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "resend_session",
-      channel: "phone",
-    });
-
-    const resp = lastResponse();
+    const resp = await resendOutbound({ channel: "phone" });
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     expect(resp!.secret).toBeDefined();
@@ -3043,15 +2621,10 @@ describe("M1–M4 hardening coverage", () => {
   // ── M2: start_outbound for Telegram bootstrap does NOT return secret ──
 
   test("start_outbound for Telegram bootstrap (handle) does NOT return secret", async () => {
-    const { lastResponse } = createResponseReader();
-    await handleChannelVerificationSession({
-      type: "channel_verification_session",
-      action: "create_session",
+    const resp = await startOutbound({
       channel: "telegram",
       destination: "@someuser",
     });
-
-    const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
     // Security: secret must NOT be revealed for pending_bootstrap sessions

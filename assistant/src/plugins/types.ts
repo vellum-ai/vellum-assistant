@@ -54,6 +54,27 @@ export interface PluginManifest {
    * validators land in M2/M3 PRs.
    */
   config?: unknown;
+  /**
+   * Declared API-key formats for the plugin's service, parsed from the
+   * plugin's `package.json` `credentialKeyPatterns` field. Each entry pairs
+   * a human-readable label with a regex source string matching the service's
+   * credential format. Security-validated and fed into secret ingress
+   * detection + redaction when the plugin activates; the loader only
+   * enforces shape (a malformed declaration degrades to `undefined` and
+   * never blocks plugin load).
+   */
+  credentialKeyPatterns?: PluginCredentialKeyPattern[];
+}
+
+/**
+ * One declared credential format for a plugin's service: a display `label`
+ * plus the regex source string (`pattern`) that matches keys of that format.
+ */
+export interface PluginCredentialKeyPattern {
+  /** Human-readable name for the key format (e.g. "Example API token"). */
+  label: string;
+  /** Regex source string matching the service's credential format. */
+  pattern: string;
 }
 
 // ─── Public plugin-API types ─────────────────────────────────────────────────
@@ -70,8 +91,8 @@ export type {
 /**
  * The complete set of compaction circuit-breaker transition events:
  * `compaction_circuit_open` when the breaker trips and `compaction_circuit_closed`
- * on the open→closed transition. Both are a subset of `ServerMessage`, so any
- * existing `ServerMessage` sink remains assignable to a
+ * on the open→closed transition. Both are a subset of `AssistantEvent`, so any
+ * existing `AssistantEvent` sink remains assignable to a
  * `(msg: CompactionCircuitEvent) => void` parameter.
  */
 export type CompactionCircuitEvent =

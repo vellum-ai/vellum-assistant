@@ -1,6 +1,6 @@
 import { and, sql } from "drizzle-orm";
 
-import { getDb } from "../../../../persistence/db-connection.js";
+import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
 import { parsePlaybookStatement } from "../../../../playbooks/types.js";
 import type {
@@ -18,7 +18,10 @@ export async function executePlaybookList(
     typeof input.category === "string" ? input.category : null;
 
   try {
-    const db = getDb();
+    const db = getMemoryDb();
+    if (!db) {
+      return { content: "No playbooks found.", isError: false };
+    }
 
     const rows = db
       .select({

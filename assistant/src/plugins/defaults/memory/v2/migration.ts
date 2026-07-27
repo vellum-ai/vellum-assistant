@@ -489,11 +489,8 @@ export function collapseEdges(
  * pending embed for the same slug is reused rather than duplicated.
  *
  * The `memory_jobs` queue lives in the dedicated memory database
- * (`assistant-memory.db`), not the main DB. `upsertEmbedConceptPageJob`
- * targets it by default, so we pass no DB override here: the migration's
- * `database` handle is the *main* DB (the v1 graph source read by
- * `gatherV1State`) and must not receive `memory_jobs` writes — doing so
- * silently drops the jobs into a table that doesn't exist there.
+ * (`assistant-memory.db`). `upsertEmbedConceptPageJob` targets that queue by
+ * default, so we pass no DB override here.
  */
 export function enqueueEmbeds(slugs: string[]): number {
   for (const slug of slugs) {

@@ -232,6 +232,14 @@ export interface ToolContext {
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
   /** True when an interactive client is connected (not just a no-op callback). */
   isInteractive?: boolean;
+  /**
+   * Whether the current turn's channel can render dynamic UI surfaces
+   * (interactive cards, tappable option pickers, secure prompts). `false` on
+   * text-only channels (e.g. Telegram, SMS); `undefined` is treated as
+   * supported. UI-dependent tools read this to degrade to a text-formatted
+   * equivalent instead of emitting a surface the channel silently drops.
+   */
+  supportsDynamicUi?: boolean;
   /** When true, tools with side effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
   /**

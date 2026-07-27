@@ -13,6 +13,7 @@ import {
   isQdrantBreakerOpen,
   shouldAllowQdrantProbe,
 } from "./embeddings/qdrant-circuit-breaker.js";
+import { isLifecycleQuiesced } from "./lifecycle-quiesce.js";
 import { rawMemoryAll, rawMemoryChanges } from "./raw-query.js";
 import { memoryJobs } from "./schema/index.js";
 
@@ -68,6 +69,7 @@ export type MemoryJobType =
   | "delete_message_lexical"
   | "backfill_lexical_index"
   | "skill_card_insert"
+  | "memory_retrospective_sweep"
   // Retired/legacy — no live handler; persisted rows drop via LEGACY_JOB_TYPES.
   | "memory_v3_consolidate"
   | "memory_v3_index_maintenance"
@@ -374,6 +376,33 @@ function mergeSkillCardEntries(
 }
 
 /**
+ * Source-conversation ids of every PENDING `memory_retrospective` job. The
+ * retrospective sweep skips these up front: a pending row already covers the
+ * source's unprocessed span, and a coalescing upsert against it must not
+ * consume the sweep's per-pass enqueue cap. Deliberately excludes `running`
+ * rows — a running job's fork and cursor are pre-run snapshots, so messages
+ * arriving mid-run need a follow-up row behind it, and the sweep must be able
+ * to create that follow-up. Mirrors `upsertMemoryRetrospectiveJob`'s
+ * pending-only coalescing.
+ */
+export function listPendingMemoryRetrospectiveSourceConversationIds(): string[] {
+  return memoryDb()
+    .select({
+      conversationId: sql<string>`json_extract(${memoryJobs.payload}, '$.conversationId')`,
+    })
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "memory_retrospective"),
+        eq(memoryJobs.status, "pending"),
+      ),
+    )
+    .all()
+    .map((row) => row.conversationId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+}
+
+/**
  * Check whether a pending or running job of the given type already exists.
  * Used to prevent duplicate enqueues for long-running maintenance jobs.
  */
@@ -614,6 +643,13 @@ export function claimMemoryJobs(
   restrictToTypes?: readonly MemoryJobType[],
 ): MemoryJob[] {
   if (limits.slowLlm <= 0 && limits.fast <= 0 && limits.embed <= 0) {
+    return [];
+  }
+
+  // Drain gate: while a quiesce lease is active, claim nothing so in-flight
+  // jobs finish and the queue drains to a stop. Enqueues are unaffected;
+  // claims resume when the lease expires. Fail-open via the lease read.
+  if (isLifecycleQuiesced()) {
     return [];
   }
 
@@ -865,6 +901,26 @@ export function resetRunningJobsToPending(): number {
     .where(eq(memoryJobs.status, "running"))
     .run();
   return rawMemoryChanges();
+}
+
+/** Currently-running memory jobs, oldest first — the drain-status view. */
+export function listRunningMemoryJobs(): Array<{
+  id: string;
+  type: string;
+  startedAt: number | null;
+}> {
+  const db = memoryDb();
+  return db
+    .select({
+      id: memoryJobs.id,
+      type: memoryJobs.type,
+      startedAt: memoryJobs.startedAt,
+    })
+    .from(memoryJobs)
+    .where(eq(memoryJobs.status, "running"))
+    .orderBy(asc(memoryJobs.startedAt))
+    .limit(20)
+    .all();
 }
 
 /**

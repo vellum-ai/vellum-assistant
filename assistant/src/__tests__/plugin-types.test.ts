@@ -39,6 +39,9 @@ describe("plugin core types", () => {
       name: "sample-plugin",
       version: "0.1.0",
       config: { parse: (input: unknown) => input },
+      credentialKeyPatterns: [
+        { label: "Example API token", pattern: "^ex_tkn_[A-Za-z0-9]{24}$" },
+      ],
     };
 
     const sampleTool: Tool = {

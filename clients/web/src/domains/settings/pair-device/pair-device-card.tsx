@@ -7,55 +7,94 @@ import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useSupportsRemoteWebPairing } from "@/lib/backwards-compat/remote-web-pairing-gate";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
-import { resolvePairDeviceGatewayBase } from "./pair-device-client";
+import { resolvePairDeviceTarget } from "./pair-device-client";
 import { PairDeviceReady } from "./pair-device-ready";
 import { usePairDevice } from "./use-pair-device";
 
 /**
- * Settings card that pairs a phone to this assistant without shell commands —
+ * Settings card that pairs another device to this assistant without shell
+ * commands —
  * the UI equivalent of `vellum pair --qr`. It mints and auto-approves a
  * device-code challenge against the host's loopback gateway and renders the
  * https pair URL as a QR with a copyable link and expiry countdown.
  *
  * Rendered only in desktop/local mode against an on-machine gateway (the gate
- * lives in {@link resolvePairDeviceGatewayBase}) whose assistant version
- * serves the pairing routes ({@link useSupportsRemoteWebPairing}); a remote or
- * platform session, or an older assistant, sees nothing. Generating also
- * requires the `web-remote-ingress` flag — checked before minting, like the
- * CLI, so a rendered QR always represents a scannable pairing.
+ * lives in {@link resolvePairDeviceTarget}) whose assistant version serves the
+ * pairing routes ({@link useSupportsRemoteWebPairing}); a remote or platform
+ * session, or an older assistant, sees nothing. Generating also requires the
+ * `web-remote-ingress` flag — checked before minting, like the CLI, so a
+ * rendered QR always represents a scannable pairing.
  */
 export function PairDeviceCard() {
-  const base = resolvePairDeviceGatewayBase();
+  const target = resolvePairDeviceTarget();
   const supported = useSupportsRemoteWebPairing();
-  const webRemoteIngressOn = useAssistantFeatureFlagStore.use.webRemoteIngress();
-  const pair = usePairDevice(base, webRemoteIngressOn);
+  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
+  const webRemoteIngressOn =
+    useAssistantFeatureFlagStore.use.webRemoteIngress();
+  const pair = usePairDevice(
+    target?.base ?? null,
+    webRemoteIngressOn,
+    target?.ingressUrl ?? null,
+  );
   const { copy, copied } = useCopyToClipboard();
 
-  if (!base || !supported) {
+  if (!target || !supported) {
     return null;
   }
 
   const { phase } = pair;
   const isMinting = phase.kind === "minting";
   const isReady = phase.kind === "ready";
-  const buttonLabel = isMinting
-    ? "Generating…"
-    : isReady
-      ? "Generate new code"
-      : "Generate pairing QR";
+  const prefilledFromTunnel = pair.prefillSource === "tunnel";
+  // Honest empty state: no recorded tunnel URL, no stored value, field still
+  // empty. Advanced users can still type an address into the field below.
+  const showNoTunnelGuidance =
+    pair.prefillSource === "none" && pair.publicBaseUrl.trim() === "";
+  // Until the feature-flag store hydrates, webRemoteIngressOn is the registry
+  // default (false), not this assistant's real value, so the mint precheck
+  // can't be trusted until hasHydrated is true.
+  const buttonLabel = !flagsHydrated
+    ? "Loading…"
+    : isMinting
+      ? "Generating…"
+      : isReady
+        ? "Generate new code"
+        : "Generate pairing QR";
+
+  // Both the button and the Enter key mint through here, so the flag precheck
+  // is never evaluated against the pre-hydration default.
+  const handleGenerate = () => {
+    if (!flagsHydrated) {
+      return;
+    }
+    pair.generate();
+  };
 
   return (
     <DetailCard
       title="Pair a device"
-      subtitle="Scan from your phone's camera to open this assistant on it."
+      subtitle={`Scan with another device's camera — or open the link on it — to use ${
+        target.assistantName ?? "this assistant"
+      } there.`}
     >
       <div className="flex flex-col gap-4">
+        {showNoTunnelGuidance && (
+          <Notice tone="info" title="No tunnel detected">
+            {
+              "On this computer, run `vellum tunnel --provider tailscale` (or another provider) — its address appears here."
+            }
+          </Notice>
+        )}
         <div className="flex flex-col gap-3">
           <Input
             label="Public URL"
             fullWidth
             placeholder="https://your-assistant.ts.net"
-            helperText="The https address your phone can reach this assistant at (e.g. your Tailscale or tunnel URL)."
+            helperText={
+              prefilledFromTunnel
+                ? "This address comes from `vellum tunnel` on this computer. Edit it if your devices reach this assistant at a different URL."
+                : "The https address your devices can reach this assistant at (your Tailscale URL, or another tunnel's)."
+            }
             value={pair.publicBaseUrl}
             errorText={pair.inputError ?? undefined}
             disabled={isMinting}
@@ -63,15 +102,17 @@ export function PairDeviceCard() {
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                pair.generate();
+                handleGenerate();
               }
             }}
           />
           <Button
             variant="primary"
             className="self-start"
-            disabled={isMinting || pair.publicBaseUrl.trim() === ""}
-            onClick={pair.generate}
+            disabled={
+              !flagsHydrated || isMinting || pair.publicBaseUrl.trim() === ""
+            }
+            onClick={handleGenerate}
           >
             {buttonLabel}
           </Button>

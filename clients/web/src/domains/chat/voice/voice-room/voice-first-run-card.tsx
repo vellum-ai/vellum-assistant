@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Link } from "react-router";
 
 import { ArrowLeft, AudioLines, Captions, MicOff, Settings } from "lucide-react";
 
@@ -7,10 +6,12 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import { VoiceList } from "@/components/speech/voice-list";
+import { VoiceProvidersNote } from "@/components/speech/voice-providers-note";
+import { MANAGED_VOICE_CREDITS_NOTE } from "@/lib/tts/managed-voice-catalog";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { routes } from "@/utils/routes";
 
 /**
  * One-time welcome card shown the first time a user enters voice mode, before
@@ -111,7 +112,7 @@ export function VoiceFirstRunCard({
         size="sm"
         // Held constant across views: a sub-view that resized the dialog would
         // shift the back arrow and ✕ out from under the pointer.
-        className="max-w-[440px]"
+        className="max-w-[520px]"
         // iOS lock: strip the ✕, the backdrop-tap dismiss, and Escape so the
         // only way forward is "Start talking" → the mic alert.
         hideCloseButton={nonDismissible}
@@ -211,34 +212,81 @@ export function VoiceFirstRunCard({
         )}
 
         {view === "settings" && (
-          <>
-            <Modal.Header>
-              <div className="flex items-center gap-2">
-                <BackButton onClick={backToIntro} />
-                <Modal.Title className="leading-tight">Voice settings</Modal.Title>
-              </div>
-            </Modal.Header>
-            <Modal.Body className="space-y-4">
-              {/* Just the voice — the one thing most people come here to change,
-                  and it hot-applies on the next reply (no Save). The list hides
-                  itself for assistants on a bring-your-own provider, leaving the
-                  note below as their path. */}
-              <VoiceList assistantId={assistantId} showSource />
-              <p className="text-label-small-default text-[var(--content-tertiary)]">
-                Speech providers, transcription, and API keys live in{" "}
-                <Link
-                  to={routes.settings.ai}
-                  className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
-                >
-                  Models &amp; Services
-                </Link>
-                .
-              </p>
-            </Modal.Body>
-          </>
+          <VoiceSettingsView
+            assistantId={assistantId}
+            onStart={onStart}
+            onBack={backToIntro}
+          />
         )}
       </Modal.Content>
     </Modal.Root>
+  );
+}
+
+/**
+ * The "Voices" view reached from the intro's "Voice settings" link: pick the
+ * assistant's voice, then start. Split into its own component so the managed-
+ * voice query runs only when this view is open — not on the intro (which would
+ * pull the React Query graph into every first-run render).
+ */
+function VoiceSettingsView({
+  assistantId,
+  onStart,
+  onBack,
+}: {
+  assistantId: string | null;
+  onStart: () => void;
+  onBack: () => void;
+}) {
+  // Own the selection here (rather than let the list self-commit) so the write's
+  // in-flight state can gate Start: the picker reports a pick via `onChange`, and
+  // `selecting` stays true until the config patch and refetch settle. Managed
+  // assistants also get the credits subtitle; BYO ones see no catalog (the footer
+  // note is their path), so the Vellum-credits line wouldn't apply.
+  const { available, currentModel, selectModel, selecting } =
+    useManagedVoiceSelection(assistantId);
+
+  return (
+    <>
+      <Modal.Header>
+        <div className="flex items-center gap-2">
+          <BackButton onClick={onBack} />
+          <div className="flex min-w-0 flex-col">
+            <Modal.Title className="leading-tight">Voices</Modal.Title>
+            {available && (
+              <Modal.Description>{MANAGED_VOICE_CREDITS_NOTE}</Modal.Description>
+            )}
+          </div>
+        </div>
+      </Modal.Header>
+      <Modal.Body>
+        {/* Just the voice — the one thing most people come here to change, and
+            it hot-applies on the next reply (no Save). A provider dropdown
+            scopes the list; it hides itself for assistants on a bring-your-own
+            provider, leaving the footer note as their path. */}
+        <VoiceList
+          assistantId={assistantId}
+          filterBySource
+          value={currentModel}
+          onChange={selectModel}
+        />
+      </Modal.Body>
+      {/* Mirrors the intro footer (fine print left, primary right) and is always
+          present, so the picker flows straight into the session without a size
+          change when a voice is chosen. Start waits out an in-flight voice write
+          so the session can't open on the previous voice. */}
+      <Modal.Footer className="items-center justify-between gap-3">
+        <VoiceProvidersNote />
+        <Button
+          variant="primary"
+          onClick={onStart}
+          disabled={selecting}
+          className="shrink-0"
+        >
+          Start talking
+        </Button>
+      </Modal.Footer>
+    </>
   );
 }
 

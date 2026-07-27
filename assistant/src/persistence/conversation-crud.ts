@@ -547,7 +547,10 @@ export const parseConversation = createRowMapper<
   title: "title",
   createdAt: "createdAt",
   updatedAt: "updatedAt",
-  totalInputTokens: "totalInputTokens",
+  totalInputTokens: {
+    from: "totalInputTokens",
+    transform: (v) => (v as number | null) ?? 0,
+  },
   totalOutputTokens: "totalOutputTokens",
   totalEstimatedCost: "totalEstimatedCost",
   contextSummary: "contextSummary",
@@ -2716,6 +2719,42 @@ export function isConversationProcessing(id: string): boolean {
     id,
   );
   return row?.processing_started_at != null;
+}
+
+/**
+ * Conversations currently mid-turn, longest-running first. Throws on a read
+ * failure — drain callers must distinguish "nothing processing" from "could
+ * not read", so this does not degrade to an empty list.
+ */
+export function listProcessingConversations(limit = 20): Array<{
+  conversationId: string;
+  title: string | null;
+  originChannel: string | null;
+  originInterface: string | null;
+  processingStartedAt: number;
+}> {
+  const rows = rawAll<{
+    id: string;
+    title: string | null;
+    origin_channel: string | null;
+    origin_interface: string | null;
+    processing_started_at: number;
+  }>(
+    "conversation:listProcessing",
+    `SELECT id, title, origin_channel, origin_interface, processing_started_at
+     FROM conversations
+     WHERE processing_started_at IS NOT NULL
+     ORDER BY processing_started_at ASC
+     LIMIT ?`,
+    limit,
+  );
+  return rows.map((row) => ({
+    conversationId: row.id,
+    title: row.title,
+    originChannel: row.origin_channel,
+    originInterface: row.origin_interface,
+    processingStartedAt: row.processing_started_at,
+  }));
 }
 
 /**

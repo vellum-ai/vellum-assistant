@@ -15,6 +15,7 @@ import type {
   CheckpointDecision,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   ChannelId,
   InterfaceId,
@@ -112,7 +113,11 @@ import { recordUsage } from "./conversation-usage.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
-import type { ServerMessage, UsageStats } from "./message-protocol.js";
+import {
+  registerInflightTurn,
+  unregisterInflightTurn,
+} from "./inflight-turn-registry.js";
+import type { UsageStats } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
 import { runWithLatencySubSpans } from "./turn-latency-sub-spans.js";
@@ -236,7 +241,7 @@ export async function runAgentLoopImpl(
   ctx: Conversation,
   content: string,
   userMessageId: string,
-  onEvent: (msg: ServerMessage) => void,
+  onEvent: (msg: AssistantEvent) => void,
   options?: {
     isInteractive?: boolean;
     isUserMessage?: boolean;
@@ -596,6 +601,11 @@ export async function runAgentLoopImpl(
   startToolProfilingRequest(ctx.conversationId);
   let turnStarted = false;
   const state = createEventHandlerState();
+  // Publish this turn's flushed-content watermark so the worker → daemon
+  // persist hand-off can cap a snapshot anchor at flushed content rather than
+  // the live seq counter, which runs ahead while the turn streams. Cleared in
+  // the `finally`.
+  registerInflightTurn(ctx.conversationId, state);
   let persistedErrorAssistantMessage = false;
   let deletedReservedAssistantMessage = false;
   // Abnormal turn outcome for telemetry, stamped onto the user-message row in
@@ -1584,6 +1594,10 @@ export async function runAgentLoopImpl(
     }
     ctx.abortController = null;
     ctx.setProcessing(false);
+    // The turn's content is fully flushed by here (`settlePendingPartialFlush`
+    // ran inside the try), so daemon-side callers can safely fall back to the
+    // live seq counter once this registration is gone.
+    unregisterInflightTurn(ctx.conversationId, state);
 
     if (turnStarted) {
       ctx.turnCount++;
@@ -1667,7 +1681,7 @@ function emitUsage(
   inputTokens: number,
   outputTokens: number,
   model: string,
-  onEvent: (msg: ServerMessage) => void,
+  onEvent: (msg: AssistantEvent) => void,
   actor: UsageActor,
   requestId: string | null = null,
   cacheCreationInputTokens = 0,
@@ -1756,7 +1770,7 @@ export async function applyCompactionResult(
     summaryCallSite?: LLMCallSite;
     summaryOverrideProfile?: string | null;
   },
-  onEvent: (msg: ServerMessage) => void,
+  onEvent: (msg: AssistantEvent) => void,
   reqId: string | null,
   options: {
     slackContextCompactionWatermarkTs?: string | null;

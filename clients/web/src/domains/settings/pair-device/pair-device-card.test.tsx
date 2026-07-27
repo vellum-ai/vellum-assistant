@@ -11,10 +11,17 @@ import {
 let gatewayPath: string | undefined = "/assistant/__gateway/20100";
 let supportsPairingRoutes = true;
 let webRemoteIngressOn = true;
+let flagsHydrated = true;
+let selectedAssistant: {
+  assistantId: string;
+  cloud: string;
+  name?: string;
+  ingressUrl?: string;
+} = { assistantId: "self", cloud: "local" };
 
 mock.module("@/lib/local-mode", () => ({
   getLocalGatewayUrl: () => gatewayPath,
-  getSelectedAssistant: () => ({ assistantId: "self", cloud: "local" }),
+  getSelectedAssistant: () => selectedAssistant,
 }));
 
 mock.module("@/lib/backwards-compat/remote-web-pairing-gate", () => ({
@@ -23,7 +30,10 @@ mock.module("@/lib/backwards-compat/remote-web-pairing-gate", () => ({
 
 mock.module("@/stores/assistant-feature-flag-store", () => ({
   useAssistantFeatureFlagStore: {
-    use: { webRemoteIngress: () => webRemoteIngressOn },
+    use: {
+      webRemoteIngress: () => webRemoteIngressOn,
+      hasHydrated: () => flagsHydrated,
+    },
   },
 }));
 
@@ -99,6 +109,8 @@ beforeEach(() => {
   gatewayPath = "/assistant/__gateway/20100";
   supportsPairingRoutes = true;
   webRemoteIngressOn = true;
+  flagsHydrated = true;
+  selectedAssistant = { assistantId: "self", cloud: "local" };
   requests = [];
   localStorage.clear();
 });
@@ -130,6 +142,33 @@ describe("PairDeviceCard", () => {
     const { container } = render(<PairDeviceCard />);
     expect(container.firstChild).toBeNull();
     expect(screen.queryByText("Pair a device")).toBeNull();
+  });
+
+  test("holds the action in a loading state until feature flags hydrate", () => {
+    // Before hydration the store still reports registry defaults
+    // (webRemoteIngress false), so the precheck must not run against it yet.
+    flagsHydrated = false;
+    webRemoteIngressOn = false;
+    const fetchMock = installFetch(() => jsonResponse(challengeBody()));
+    render(<PairDeviceCard />);
+    typeUrl(PUBLIC_URL);
+
+    const button = screen.getByRole("button", {
+      name: "Loading…",
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+
+    // Enter is a second mint path the disabled button doesn't cover, so it must
+    // also no-op until hydration — otherwise the default flag reaches the
+    // precheck and shows a spurious "disabled" error.
+    fireEvent.keyDown(screen.getByLabelText("Public URL"), { key: "Enter" });
+
+    expect(
+      screen.queryByText(
+        "Remote web access is disabled on this assistant, so a scanned code couldn't connect.",
+      ),
+    ).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(0);
   });
 
   test("reports the enable guidance without minting when web-remote-ingress is off", async () => {
@@ -206,9 +245,79 @@ describe("PairDeviceCard", () => {
 
     expect(
       screen.getByText(
-        "This is a loopback address your phone can't reach. Enter the assistant's public https URL.",
+        "This is a loopback address other devices can't reach. Enter the assistant's public https URL.",
       ),
     ).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("prefills the URL field from the assistant's recorded tunnel URL", () => {
+    selectedAssistant = {
+      assistantId: "self",
+      cloud: "local",
+      ingressUrl: "https://tunnel.example.ts.net",
+    };
+    render(<PairDeviceCard />);
+
+    const input = screen.getByLabelText("Public URL") as HTMLInputElement;
+    expect(input.value).toBe("https://tunnel.example.ts.net");
+    // Helper text explains the prefilled address came from `vellum tunnel`.
+    expect(screen.getByText(/comes from/)).toBeTruthy();
+    // A recorded tunnel URL suppresses the no-tunnel empty state.
+    expect(screen.queryByText("No tunnel detected")).toBeNull();
+  });
+
+  test("shows honest no-tunnel guidance when no ingress URL and no stored value", () => {
+    render(<PairDeviceCard />);
+
+    expect(screen.getByText("No tunnel detected")).toBeTruthy();
+    expect(screen.getByText(/vellum tunnel --provider tailscale/)).toBeTruthy();
+    // The manual field stays available beneath the guidance.
+    expect(screen.getByLabelText("Public URL")).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Public URL") as HTMLInputElement).value,
+    ).toBe("");
+  });
+
+  test("rejects a tunnel-provider website URL (Tailscale admin invite) with a service-website message", () => {
+    const fetchMock = installFetch(() => jsonResponse(challengeBody()));
+    render(<PairDeviceCard />);
+    typeUrl("https://login.tailscale.com/admin/invite/abc123");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Generate pairing QR" }),
+    );
+
+    expect(
+      screen.getByText(
+        "This is Tailscale's website, not your assistant's address. Run `vellum tunnel` on the host to get one.",
+      ),
+    ).toBeTruthy();
+    // The bad URL is refused client-side — no challenge is ever minted.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("names the assistant it pairs in the subtitle", () => {
+    selectedAssistant = {
+      assistantId: "self",
+      cloud: "local",
+      name: "My Assistant",
+    };
+    render(<PairDeviceCard />);
+
+    expect(
+      screen.getByText(
+        "Scan with another device's camera — or open the link on it — to use My Assistant there.",
+      ),
+    ).toBeTruthy();
+  });
+
+  test("falls back to generic copy when the assistant has no name", () => {
+    render(<PairDeviceCard />);
+
+    expect(
+      screen.getByText(
+        "Scan with another device's camera — or open the link on it — to use this assistant there.",
+      ),
+    ).toBeTruthy();
   });
 });

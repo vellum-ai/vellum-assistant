@@ -75,8 +75,8 @@ mock.module("@vellumai/plugin-api", () => ({
 import { resetDbForTesting } from "../../../../__tests__/db-test-helpers.js";
 import { DEFAULT_CONFIG } from "../../../../config/defaults.js";
 import type { AssistantConfig } from "../../../../config/types.js";
+import { getMemorySqlite } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
-import { resetTestTables } from "../../../../persistence/raw-query.js";
 import { InContextTracker } from "./injection.js";
 import { loadContextMemory, retrieveForTurn } from "./retriever.js";
 import { createNode } from "./store.js";
@@ -320,11 +320,9 @@ describe("retrieveForTurn — topic-pivot recovery", () => {
     embedCallCount = 0;
     embedRouter = keywordEmbedRouter;
     searchRouter = vectorSearchRouter;
-    resetTestTables(
-      "memory_graph_triggers",
-      "memory_graph_edges",
-      "memory_graph_nodes",
-    );
+    // The graph cluster lives in the dedicated memory database; reset it there.
+    // Deleting nodes cascades to edges and triggers.
+    getMemorySqlite()!.run("DELETE FROM memory_graph_nodes");
     cakeNodeId = createNode(
       makeEpisodicNode("Notes on the birthday cake from the bakery."),
     ).id;
@@ -470,11 +468,9 @@ describe("loadContextMemory — dual-query capability ranking", () => {
     embedCallCount = 0;
     embedRouter = null;
     searchRouter = null;
-    resetTestTables(
-      "memory_graph_triggers",
-      "memory_graph_edges",
-      "memory_graph_nodes",
-    );
+    // The graph cluster lives in the dedicated memory database; reset it there.
+    // Deleting nodes cascades to edges and triggers.
+    getMemorySqlite()!.run("DELETE FROM memory_graph_nodes");
 
     const inbox = createNode(
       makeCapabilityNode(

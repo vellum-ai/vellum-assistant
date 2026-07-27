@@ -6,6 +6,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import {
   useBookmarkToggle,
+  useCanBookmark,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
 
@@ -102,15 +103,10 @@ export function MessageHoverActions({
 }: MessageHoverActionsProps) {
   const { role } = message;
 
-  // Only persisted messages qualify for bookmarking — optimistic/streaming
-  // rows carry a client-generated id the daemon can't resolve. The toggle's
-  // data hooks live in `MessageBookmarkButton` so they only mount (and only
-  // touch TanStack Query) for bookmarkable rows; that keeps the
-  // no-conversation path free of any query client.
-  const canBookmark =
-    Boolean(conversationId) &&
-    Boolean(message.id) &&
-    !message.isOptimistic;
+  // The toggle's data hooks live in `MessageBookmarkButton` so they only mount
+  // (and only touch TanStack Query) for bookmarkable rows; that keeps the
+  // unsupported-assistant and no-conversation paths free of any query client.
+  const canBookmark = useCanBookmark(message, conversationId);
 
   // Flat plain-text body derived from the message's text blocks; this is the
   // copy payload and mirrors the daemon's `joinWithSpacing`.

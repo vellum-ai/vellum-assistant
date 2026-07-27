@@ -42,7 +42,7 @@ export const TOUR_INTRO: TourStep = {
 export const TOUR_SIDEBAR: TourStep = {
   id: "side-menu",
   title: "Your sidebar",
-  body: "Everything lives here — our chats, my page, your settings.",
+  body: "Everything lives here: our chats, my page, your settings.",
   icon: PanelLeft,
 };
 
@@ -55,7 +55,7 @@ export const TOUR_SIDEBAR: TourStep = {
 export const TOUR_COMPOSER: TourStep = {
   id: "chat-composer",
   title: "Your chat",
-  body: "Don't get distracted by all the noise, start by talking to me!",
+  body: "I have tons of features, but let's chat before you start exploring!",
   icon: MessageCircle,
 };
 
@@ -63,13 +63,13 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: "assistant-page",
     title: "Your Assistant",
-    body: "My personality, the library of things I've built for you, and more. I keep it all tidy — you never have to.",
+    body: "My personality, things I've built for you, and more. I keep it all tidy so you never have to.",
     icon: Brain,
   },
   {
     id: "new-chat",
     title: "New Chat",
-    body: "A fresh chat when you want one.",
+    body: "You probably already know this one.",
     icon: Plus,
   },
   {

@@ -5,6 +5,7 @@ import {
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -159,6 +160,58 @@ describe("tunnel nginx ingress feature flag", () => {
       "Could not verify the `web-remote-ingress` feature flag",
     );
 
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+    expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("rejects an unknown --provider with a stale-CLI hint", async () => {
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "bogus"];
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation(
+      (...a: unknown[]) => {
+        errors.push(a.join(" "));
+      },
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    let exited = false;
+    try {
+      await tunnel();
+    } catch (e) {
+      exited = (e as Error).message === "exit:1";
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+
+    expect(exited).toBe(true);
+    const joined = errors.join("\n");
+    expect(joined).toContain("unknown tunnel provider 'bogus'");
+    expect(joined).toContain("your CLI may be out of date");
+    expect(joined).toContain("bun install -g vellum@latest");
+    expect(runNgrokTunnelMock).not.toHaveBeenCalled();
+    expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
+  });
+
+  test("a not-yet-implemented provider error carries the stale-CLI hint", async () => {
+    // The default `vellum` provider has no runtime yet, so it exercises the
+    // not-yet-implemented path without any network call.
+    process.argv = ["bun", "vellum", "tunnel", "--provider", "vellum"];
+
+    let err: Error | undefined;
+    try {
+      await tunnel();
+    } catch (e) {
+      err = e as Error;
+    }
+
+    expect(err?.message).toContain("is not yet implemented");
+    expect(err?.message).toContain("your CLI may be out of date");
+    expect(err?.message).toContain("bun install -g vellum@latest");
     expect(runNgrokTunnelMock).not.toHaveBeenCalled();
     expect(runCloudflareTunnelMock).not.toHaveBeenCalled();
   });

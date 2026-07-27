@@ -1,7 +1,8 @@
 import {
+  rawAll,
   rawGet,
+  rawMemoryAll,
   rawMemoryRun,
-  rawRun,
 } from "../../../persistence/raw-query.js";
 import { getLogger } from "./logging.js";
 
@@ -50,38 +51,74 @@ export function invalidateAssistantInferredItemsForConversation(
 ): number {
   cancelPendingExtractionJobsForConversation(conversationId);
 
-  const affected = rawRun(
-    "taskMemory:invalidateInferredNodes",
-    `UPDATE memory_graph_nodes
-        SET fidelity = 'gone',
-            last_accessed = ?
+  // memory_graph_nodes lives on the memory connection and cron_runs on the main
+  // connection, so this reads across both in two steps: pull the candidate nodes
+  // from memory, ask main which of their corroborating conversations failed, then
+  // invalidate the nodes with no surviving corroborator in JS.
+  const candidates = rawMemoryAll<{
+    id: string;
+    source_conversations: string;
+  }>(
+    "taskMemory:invalidateInferredNodes:candidates",
+    `SELECT id, source_conversations
+       FROM memory_graph_nodes
       WHERE source_type = 'inferred'
         AND fidelity != 'gone'
         AND EXISTS (
           SELECT 1 FROM json_each(source_conversations) jc
            WHERE jc.value = ?
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM json_each(source_conversations) jc2
-           WHERE jc2.value != ?
-             AND NOT EXISTS (
-               -- Check only the most recent cron_run for each conversation
-               -- so reused conversations with historical errors but recent
-               -- successes are still treated as valid corroborators.
-               SELECT 1 FROM cron_runs cr
-                WHERE cr.conversation_id = jc2.value
-                  AND cr.status = 'error'
-                  AND cr.id = (
-                    SELECT cr2.id FROM cron_runs cr2
-                     WHERE cr2.conversation_id = jc2.value
-                     ORDER BY cr2.created_at DESC LIMIT 1
-                  )
-             )
         )`,
-    Date.now(),
-    conversationId,
     conversationId,
   );
+  if (candidates.length === 0) return 0;
+
+  // Gather every corroborating (non-failed-conversation) source id across the
+  // candidates, then ask the main DB which of them are failed.
+  const otherIds = new Set<string>();
+  const parsed = candidates.map((c) => {
+    let sources: string[] = [];
+    try {
+      const raw = JSON.parse(c.source_conversations) as unknown;
+      if (Array.isArray(raw)) {
+        sources = raw.filter((s): s is string => typeof s === "string");
+      }
+    } catch {
+      sources = [];
+    }
+    const others = sources.filter((s) => s !== conversationId);
+    for (const o of others) otherIds.add(o);
+    return { id: c.id, others };
+  });
+
+  const failedIds = failedConversationIds(otherIds);
+
+  // A node keeps its memory if at least one other source is a valid corroborator
+  // (a conversation whose most recent run did not error, or any id with no run
+  // at all). Invalidate the rest — the exact predicate of the old NOT EXISTS.
+  const toInvalidate = parsed
+    .filter((p) => !p.others.some((o) => !failedIds.has(o)))
+    .map((p) => p.id);
+  if (toInvalidate.length === 0) return 0;
+
+  // Chunk the id list so a conversation attached to more nodes than SQLite's
+  // bound-parameter limit still invalidates them all instead of throwing.
+  const now = Date.now();
+  const CHUNK = 500;
+  let affected = 0;
+  for (let i = 0; i < toInvalidate.length; i += CHUNK) {
+    const chunk = toInvalidate.slice(i, i + CHUNK);
+    const placeholders = chunk.map(() => "?").join(", ");
+    affected += rawMemoryRun(
+      "taskMemory:invalidateInferredNodes:update",
+      `UPDATE memory_graph_nodes
+          SET fidelity = 'gone',
+              last_accessed = ?
+        WHERE fidelity != 'gone'
+          AND id IN (${placeholders})`,
+      now,
+      ...chunk,
+    );
+  }
 
   if (affected > 0) {
     log.info(
@@ -91,6 +128,38 @@ export function invalidateAssistantInferredItemsForConversation(
   }
 
   return affected;
+}
+
+/**
+ * The subset of `ids` whose most recent `cron_runs` row has status `'error'`.
+ * A conversation with no runs is not failed. Read on the main connection (where
+ * `cron_runs` lives), chunked to stay under SQLite's bound-parameter limit.
+ */
+function failedConversationIds(ids: Set<string>): Set<string> {
+  const failed = new Set<string>();
+  if (ids.size === 0) return failed;
+
+  const all = [...ids];
+  const CHUNK = 500;
+  for (let i = 0; i < all.length; i += CHUNK) {
+    const chunk = all.slice(i, i + CHUNK);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const rows = rawAll<{ conversation_id: string }>(
+      "taskMemory:failedConversations",
+      `SELECT cr.conversation_id
+         FROM cron_runs cr
+        WHERE cr.conversation_id IN (${placeholders})
+          AND cr.status = 'error'
+          AND cr.id = (
+            SELECT cr2.id FROM cron_runs cr2
+             WHERE cr2.conversation_id = cr.conversation_id
+             ORDER BY cr2.created_at DESC LIMIT 1
+          )`,
+      ...chunk,
+    );
+    for (const r of rows) failed.add(r.conversation_id);
+  }
+  return failed;
 }
 
 /**

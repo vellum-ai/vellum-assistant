@@ -3,13 +3,14 @@
  * Channels tab (tier badges, the segmented picker, the legend card).
  *
  * The surface requires the gateway's channel-permission-overrides
- * list/set/delete routes, which shipped with 0.10.7 — the pinned version
- * below. The web bundle always serves latest while gateways update on the
- * user's schedule, so on an older assistant the requests 404 and the
- * panel would render a dead error state with a permanently disabled
- * picker. When unsupported, the channel list renders without access
- * controls instead (read-path degrade); channels remain visible and the
- * rest of the tab works.
+ * list/set/delete routes, which shipped in 0.10.8 (`git tag --contains` the
+ * route commit — v0.10.7 has zero occurrences of the handler, v0.10.8 has
+ * them) — the pinned version below. The web bundle always serves latest while
+ * gateways update on the user's schedule, so on an older assistant the
+ * requests 404 and the panel would render a dead error state with a
+ * permanently disabled picker. When unsupported, the channel list renders
+ * without access controls instead (read-path degrade); channels remain
+ * visible and the rest of the tab works.
  *
  * The read-only `/resolve` operation behind the "{Tier} • default"
  * badges ships after 0.10.7 and degrades on its own: while resolve is
@@ -24,7 +25,7 @@
  */
 import { useAssistantSupports } from "./utils";
 
-export const MIN_VERSION = "0.10.7";
+export const MIN_VERSION = "0.10.8";
 
 /** Render-path gate for the Channels tab's Assistant Access controls. */
 export function useSupportsChannelAccessControls(): boolean {

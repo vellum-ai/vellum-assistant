@@ -39,7 +39,7 @@
  * is. The key handler attaches only while the room is mounted.
  */
 
-import { useEffect, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Mic, MicOff, Square, X } from "lucide-react";
 
@@ -125,7 +125,7 @@ function VoiceRoomOverlay() {
   // `speaking` stays set across a mid-turn tool run; gate `responding` on audio
   // actually flowing so the room reads `thinking` while the tool works.
   const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
-  const assistantId = useLiveVoiceStore.use.assistantId();
+  const liveAssistantId = useLiveVoiceStore.use.assistantId();
   const muted = useLiveVoiceStore.use.muted();
   // Turn-scoped ■ stop is hands-free-only (a manual session's interrupt ends
   // the whole session); room sessions are hands-free except on the
@@ -133,8 +133,17 @@ function VoiceRoomOverlay() {
   const handsFree = useLiveVoiceStore.use.handsFree();
   // Viewport point the entrance grows from (the tapped voice button); null →
   // the color look falls back to its screen-center origin.
-  const entryOrigin = useLiveVoiceStore.use.entryOrigin();
+  const liveEntryOrigin = useLiveVoiceStore.use.entryOrigin();
   const reduce = useReducedMotion();
+
+  // The room is one session, so freeze the avatar identity and the entry origin
+  // at mount. Ending the session calls the store `reset()` (assistantId /
+  // entryOrigin → null) while the room is still mounted for its exit animation;
+  // reading the live values there would flip the look to the "V" fallback
+  // mid-close and drop the shrink-to-origin target. The captured values hold for
+  // the room's whole lifetime (both are session-constant).
+  const [assistantId] = useState(liveAssistantId);
+  const [entryOrigin] = useState(liveEntryOrigin);
 
   const visual = toVoiceAvatarVisual(state, reconnecting, assistantAudioActive);
   // The label + sr-only announcement must follow the same audio-aware mapping as
@@ -219,6 +228,10 @@ function VoiceRoomOverlay() {
       }}
       initial={reduce ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
+      // On close the chrome and rectangular backgrounds fade, while the avatar
+      // shape itself shrinks back toward the entry origin — the color look's
+      // body + eyes and the void look's centered avatar each own that exit — so
+      // the room collapses into the avatar, not a shrinking rectangle.
       exit={{ opacity: 0 }}
       transition={{ duration: reduce ? 0 : 0.4 }}
     >
@@ -342,6 +355,18 @@ function VoiceRoomOverlay() {
           className="relative z-0"
           initial={reduce ? false : { scale: 0.8, y: 24, opacity: 0 }}
           animate={{ scale: 1, y: 0, opacity: 1 }}
+          // Exit is the inverse of the entry spring: the centered avatar settles
+          // back down and shrinks away rather than fading in place.
+          exit={
+            reduce
+              ? { opacity: 0 }
+              : {
+                  scale: 0.8,
+                  y: 24,
+                  opacity: 0,
+                  transition: { duration: 0.32, ease: "easeIn" },
+                }
+          }
           transition={reduce ? { duration: 0 } : AVATAR_ENTER_SPRING}
         >
           <VoiceAvatar

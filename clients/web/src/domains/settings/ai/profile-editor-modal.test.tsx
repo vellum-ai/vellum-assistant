@@ -146,18 +146,27 @@ function dropdownTriggers(): HTMLButtonElement[] {
   );
 }
 
+/** An option row's label, excluding any right-aligned suffix meta. */
+function optionLabel(option: Element): string {
+  return (
+    option.querySelector(".truncate")?.textContent ??
+    option.textContent ??
+    ""
+  ).trim();
+}
+
 /** Open the dropdown trigger and click the option whose label matches. */
-function pickOption(trigger: HTMLButtonElement, optionLabel: string): void {
+function pickOption(trigger: HTMLButtonElement, wantedLabel: string): void {
   fireEvent.click(trigger);
   const option = Array.from(
     document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ).find((o) => o.textContent?.trim() === optionLabel);
+  ).find((o) => optionLabel(o) === wantedLabel);
   if (!option) {
     throw new Error(
-      `expected option "${optionLabel}" — saw: ${Array.from(
+      `expected option "${wantedLabel}" — saw: ${Array.from(
         document.querySelectorAll('[role="option"]'),
       )
-        .map((o) => `"${o.textContent?.trim()}"`)
+        .map((o) => `"${optionLabel(o)}"`)
         .join(", ")}`,
     );
   }
@@ -189,7 +198,7 @@ function selectModel(label: string): void {
     fireEvent.click(trigger);
     const option = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).find((o) => o.textContent?.trim() === label);
+    ).find((o) => optionLabel(o) === label);
     if (option) {
       fireEvent.click(option);
       return;
@@ -325,17 +334,15 @@ beforeEach(async () => {
   // Seed a hydrated pre-gate version: the save path awaits
   // whenAssistantVersionKnown(), and an unhydrated store would stall each
   // save until that helper's timeout. Gate-on tests override per-test.
-  const { useAssistantIdentityStore } = await import(
-    "@/stores/assistant-identity-store"
-  );
+  const { useAssistantIdentityStore } =
+    await import("@/stores/assistant-identity-store");
   useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
 });
 
 afterEach(async () => {
   cleanup();
-  const { useAssistantIdentityStore } = await import(
-    "@/stores/assistant-identity-store"
-  );
+  const { useAssistantIdentityStore } =
+    await import("@/stores/assistant-identity-store");
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
@@ -426,7 +433,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     fireEvent.click(providerTrigger());
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => o.textContent?.trim());
+    ).map((o) => optionLabel(o));
     expect(optionLabels).toEqual(["+ Create new provider"]);
   });
 
@@ -438,7 +445,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     fireEvent.click(providerTrigger());
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => o.textContent?.trim());
+    ).map((o) => optionLabel(o));
     // A single Vellum entry — never the managed upstreams it routes to.
     expect(optionLabels).toEqual(["Vellum", "+ Create new provider"]);
   });
@@ -490,10 +497,68 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     expect(saveCalls[0].entry.provider_connection).toBe("vellum-managed");
   });
 
-  test("a new-enough assistant gets the identity payload: provider vellum, no binding", async () => {
-    const { useAssistantIdentityStore } = await import(
-      "@/stores/assistant-identity-store"
+  test("catalog providers show no connection field, even with multiple keys", async () => {
+    renderCreate([
+      makeConnection("anthropic-personal"),
+      makeConnection("anthropic-personal-2"),
+    ]);
+    selectProvider("Anthropic");
+    expect(document.body.textContent).not.toContain("Connection");
+    expect(document.body.textContent).not.toContain("Endpoint");
+  });
+
+  test("each openai-compatible endpoint is its own provider entry", async () => {
+    const lmStudio = {
+      ...makeConnection("lm-studio", "openai-compatible"),
+      models: [{ id: "model-1", displayName: "Model 1" }],
+    } as unknown as ProviderConnection;
+    const vllmBox = {
+      ...makeConnection("vllm-box", "openai-compatible"),
+      models: [{ id: "model-2", displayName: "Model 2" }],
+    } as unknown as ProviderConnection;
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    renderCreate([lmStudio, vllmBox], onSave);
+
+    // Both endpoints are individual entries; no generic collapsed entry and
+    // no second field.
+    fireEvent.click(providerTrigger());
+    const optionLabels = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => optionLabel(o));
+    expect(optionLabels).toEqual([
+      "lm-studio",
+      "vllm-box",
+      "+ Create new provider",
+    ]);
+    fireEvent.click(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find((o) => optionLabel(o) === "lm-studio")!,
     );
+    expect(document.body.textContent).not.toContain("Endpoint");
+    expect(document.body.textContent).not.toContain("Connection (optional)");
+
+    selectModel("Model 1");
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    // The endpoint entry implies the provider plus its binding on the wire.
+    expect(saveCalls[0].entry.provider).toBe("openai-compatible");
+    expect(saveCalls[0].entry.provider_connection).toBe("lm-studio");
+    expect(saveCalls[0].entry.model).toBe("model-1");
+  });
+
+  test("a new-enough assistant gets the identity payload: provider vellum, no binding", async () => {
+    const { useAssistantIdentityStore } =
+      await import("@/stores/assistant-identity-store");
     useAssistantIdentityStore
       .getState()
       .setIdentity("test-asst", "0.10.12", ASSISTANT_ID);
@@ -525,9 +590,8 @@ describe("ProfileEditorModal create mode — provider-first", () => {
   });
 
   test("an older assistant keeps the legacy payload byte-identical", async () => {
-    const { useAssistantIdentityStore } = await import(
-      "@/stores/assistant-identity-store"
-    );
+    const { useAssistantIdentityStore } =
+      await import("@/stores/assistant-identity-store");
     useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
     try {
       const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
@@ -554,6 +618,45 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     } finally {
       useAssistantIdentityStore.getState().clearIdentity();
     }
+  });
+
+  test("an unbound openai-compatible profile keeps its provider label in edit mode", async () => {
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-local"
+          initialValues={
+            {
+              name: "my-local",
+              provider: "openai-compatible",
+              model: "my-model",
+            } as never
+          }
+          existingNames={["my-local"]}
+          connections={[
+            {
+              ...makeConnection("lm-studio", "openai-compatible"),
+              models: [{ id: "my-model" }],
+            },
+            {
+              ...makeConnection("vllm-box", "openai-compatible"),
+              models: [{ id: "other-model" }],
+            },
+          ]}
+          assistantId={ASSISTANT_ID}
+          onSave={() => Promise.resolve()}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    // No endpoint entry matches the unbound state; the bare protocol value
+    // keeps the trigger labeled instead of falling to the placeholder.
+    await waitFor(() => {
+      expect(providerTrigger().textContent?.trim()).toBe("OpenAI-compatible");
+    });
   });
 
   test("a legacy-shape managed profile presents as Vellum in edit mode", async () => {
@@ -583,7 +686,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     );
 
     await waitFor(() => {
-      expect(providerTrigger().textContent?.trim()).toBe("Vellum");
+      expect(optionLabel(providerTrigger())).toBe("Vellum");
     });
     expect(document.body.textContent).not.toContain("Connection (optional)");
   });
@@ -667,8 +770,10 @@ describe("ProfileEditorModal create mode — provider-first", () => {
       </Wrapper>,
     );
 
+    // The trigger renders the ENDPOINT entry (labeled by the row name) —
+    // not Vellum picker mode; the wire payload proves the distinction.
     await waitFor(() => {
-      expect(providerTrigger().textContent?.trim()).toBe("OpenAI-compatible");
+      expect(optionLabel(providerTrigger())).toBe("vellum");
     });
 
     await waitFor(() => {
@@ -777,7 +882,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     fireEvent.click(providerTrigger());
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => o.textContent?.trim());
+    ).map((o) => optionLabel(o));
     expect(optionLabels).toEqual(["Anthropic", "+ Create new provider"]);
   });
 
@@ -834,7 +939,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => o.textContent?.trim());
+    ).map((o) => optionLabel(o));
     expect(optionLabels).toEqual(["+ Create new provider"]);
   });
 
@@ -1111,7 +1216,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).map((o) => o.textContent?.trim());
+      ).map((o) => optionLabel(o));
       fireEvent.click(trigger);
       return labels;
     });
@@ -1161,7 +1266,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).map((o) => o.textContent?.trim());
+      ).map((o) => optionLabel(o));
       fireEvent.click(trigger);
       return labels;
     });
@@ -1267,7 +1372,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).map((o) => o.textContent?.trim());
+      ).map((o) => optionLabel(o));
       fireEvent.click(trigger);
       return labels;
     });

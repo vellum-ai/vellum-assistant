@@ -38,6 +38,7 @@ mock.module("../daemon/conversation-store.js", () => ({
   },
 }));
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import {
   insertPendingHeartbeatRun,
@@ -51,7 +52,6 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { recordUsageEvent } from "../persistence/llm-usage-store.js";
 import { rawRun } from "../persistence/raw-query.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "../runtime/routes/heartbeat-routes.js";
@@ -82,7 +82,9 @@ function findRoute(endpoint: string, method: string): RouteDefinition {
   const route = SCHEDULE_ROUTES.find(
     (r) => r.endpoint === endpoint && r.method === method,
   );
-  if (!route) throw new Error(`Route ${method} ${endpoint} not found`);
+  if (!route) {
+    throw new Error(`Route ${method} ${endpoint} not found`);
+  }
   return route;
 }
 
@@ -90,7 +92,9 @@ function findHeartbeatRoute(endpoint: string, method: string): RouteDefinition {
   const route = HEARTBEAT_ROUTES.find(
     (r) => r.endpoint === endpoint && r.method === method,
   );
-  if (!route) throw new Error(`Route ${method} ${endpoint} not found`);
+  if (!route) {
+    throw new Error(`Route ${method} ${endpoint} not found`);
+  }
   return route;
 }
 
@@ -152,7 +156,9 @@ function setScheduleRunWindow({
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 500;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error("Timed out waiting for schedule route event");
@@ -417,7 +423,7 @@ describe("GET /schedules — default defer exclusion", () => {
   });
 
   test("mutation routes emit schedule sync invalidation", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {

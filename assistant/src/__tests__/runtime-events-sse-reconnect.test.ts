@@ -52,9 +52,9 @@ describe("SSE reconnect replay (B7.2)", () => {
     // broadcast prior to the client's reconnect. Seqs start at 1, so
     // these get seqs 1, 2, 3.
     const events = [
-      buildAssistantEvent({ type: "pong" }, conversationId),
-      buildAssistantEvent({ type: "pong" }, conversationId),
-      buildAssistantEvent({ type: "pong" }, conversationId),
+      buildAssistantEvent({ type: "message_complete" }, conversationId),
+      buildAssistantEvent({ type: "message_complete" }, conversationId),
+      buildAssistantEvent({ type: "message_complete" }, conversationId),
     ];
     for (const event of events) stampAndBuffer(event);
 
@@ -96,10 +96,10 @@ describe("SSE reconnect replay (B7.2)", () => {
     const { conversationId: convA } = getOrCreateConversation("multi-conv-a");
     const { conversationId: convB } = getOrCreateConversation("multi-conv-b");
 
-    stampAndBuffer(buildAssistantEvent({ type: "pong" }, convA)); // seq 1
-    stampAndBuffer(buildAssistantEvent({ type: "pong" }, convB)); // seq 2
-    stampAndBuffer(buildAssistantEvent({ type: "pong" }, convA)); // seq 3
-    stampAndBuffer(buildAssistantEvent({ type: "pong" }, convB)); // seq 4
+    stampAndBuffer(buildAssistantEvent({ type: "message_complete" }, convA)); // seq 1
+    stampAndBuffer(buildAssistantEvent({ type: "message_complete" }, convB)); // seq 2
+    stampAndBuffer(buildAssistantEvent({ type: "message_complete" }, convA)); // seq 3
+    stampAndBuffer(buildAssistantEvent({ type: "message_complete" }, convB)); // seq 4
 
     const ac = new AbortController();
     const { handleSubscribeAssistantEvents } =
@@ -145,7 +145,9 @@ describe("SSE reconnect replay (B7.2)", () => {
     // count-based eviction (cap 200) drops seqs 1 and 2. A cursor of
     // 0 then falls outside what getReplayWindow can serve.
     for (let i = 0; i < 202; i++) {
-      stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId));
+      stampAndBuffer(
+        buildAssistantEvent({ type: "message_complete" }, conversationId),
+      );
     }
     const { _peekStreamForTesting } =
       await import("../runtime/assistant-stream-state.js");
@@ -178,8 +180,12 @@ describe("SSE reconnect replay (B7.2)", () => {
     const { conversationId } = getOrCreateConversation("reconnect-noparam");
 
     // Pre-fill the ring -- without the cursor, these MUST NOT be replayed.
-    stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId));
-    stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId));
+    stampAndBuffer(
+      buildAssistantEvent({ type: "message_complete" }, conversationId),
+    );
+    stampAndBuffer(
+      buildAssistantEvent({ type: "message_complete" }, conversationId),
+    );
 
     const ac = new AbortController();
     const { handleSubscribeAssistantEvents } =
@@ -202,8 +208,14 @@ describe("SSE reconnect replay (B7.2)", () => {
     const { conversationId } = getOrCreateConversation("reconnect-dedup");
 
     // Stamp two events. Seqs start at 1, so eventA=1 and eventB=2.
-    const eventA = buildAssistantEvent({ type: "pong" }, conversationId);
-    const eventB = buildAssistantEvent({ type: "pong" }, conversationId);
+    const eventA = buildAssistantEvent(
+      { type: "message_complete" },
+      conversationId,
+    );
+    const eventB = buildAssistantEvent(
+      { type: "message_complete" },
+      conversationId,
+    );
     stampAndBuffer(eventA); // seq 1
     stampAndBuffer(eventB); // seq 2
 
@@ -240,7 +252,10 @@ describe("SSE reconnect replay (B7.2)", () => {
     // SHOULD be delivered.
     await testHub.publish(eventB);
 
-    const eventC = buildAssistantEvent({ type: "pong" }, conversationId);
+    const eventC = buildAssistantEvent(
+      { type: "message_complete" },
+      conversationId,
+    );
     stampAndBuffer(eventC); // seq 3
     await testHub.publish(eventC);
 
@@ -258,11 +273,18 @@ describe("SSE reconnect replay (B7.2)", () => {
     // seq 2. The subscriber receives seq 1 and 3.
     const { conversationId } = getOrCreateConversation("replay-targeting");
 
-    stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId));
-    stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId), {
-      targeting: { targetCapability: "host_bash" },
-    });
-    stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId));
+    stampAndBuffer(
+      buildAssistantEvent({ type: "message_complete" }, conversationId),
+    );
+    stampAndBuffer(
+      buildAssistantEvent({ type: "message_complete" }, conversationId),
+      {
+        targeting: { targetCapability: "host_bash" },
+      },
+    );
+    stampAndBuffer(
+      buildAssistantEvent({ type: "message_complete" }, conversationId),
+    );
 
     const ac = new AbortController();
     const { handleSubscribeAssistantEvents } =
@@ -315,8 +337,14 @@ describe("SSE reconnect replay (B7.2)", () => {
     expect(heartbeat).toBe(": heartbeat\n\n");
 
     // Publish two live events with seq via stampAndBuffer.
-    const e1 = buildAssistantEvent({ type: "pong" }, conversationId);
-    const e2 = buildAssistantEvent({ type: "pong" }, conversationId);
+    const e1 = buildAssistantEvent(
+      { type: "message_complete" },
+      conversationId,
+    );
+    const e2 = buildAssistantEvent(
+      { type: "message_complete" },
+      conversationId,
+    );
     stampAndBuffer(e1);
     stampAndBuffer(e2);
     await testHub.publish(e1);

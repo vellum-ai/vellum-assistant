@@ -13,9 +13,6 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import { routes } from "@/utils/routes";
 
-const OFFLINE_NOTICE =
-  "Assistant will go offline briefly while it resizes. Chat might not work during that time.";
-
 let avatarComponents: unknown = { colors: [] };
 mock.module("@/utils/use-bundled-avatar-components", () => ({
   preloadBundledAvatarComponents: () => {},
@@ -115,44 +112,5 @@ describe("CompleteState return button", () => {
     expect(getByTestId("onboarding-complete-return").textContent).toBe(
       "Return to your assistant",
     );
-  });
-});
-
-describe("CompleteState offline notice", () => {
-  test("is absent when not finishing in the background", () => {
-    const { queryByText } = render(<CompleteState />);
-    expect(queryByText(OFFLINE_NOTICE)).toBeNull();
-  });
-
-  test("shows only while finishing in background and clears once done", () => {
-    const { queryByText, rerender } = render(
-      <CompleteState finishedInBackground />,
-    );
-    expect(queryByText(OFFLINE_NOTICE)).toBeTruthy();
-    // The still-mounted provisioning hook reaching DONE flips the prop off;
-    // mirror that transition and confirm the notice clears.
-    rerender(<CompleteState finishedInBackground={false} />);
-    expect(queryByText(OFFLINE_NOTICE)).toBeNull();
-  });
-
-  test("stalled recovery controls take precedence over the offline notice", () => {
-    const onApply = mock(() => {});
-    const { getByTestId, getByText, queryByText } = render(
-      <CompleteState
-        finishedInBackground
-        stalledAction={{ onApply, pending: false, error: null }}
-      />,
-    );
-
-    expect(
-      getByText(/We couldn't finish your machine upgrade automatically/),
-    ).toBeTruthy();
-    expect(queryByText(OFFLINE_NOTICE)).toBeNull();
-
-    fireEvent.click(getByTestId("complete-stalled-apply"));
-    expect(onApply).toHaveBeenCalledTimes(1);
-
-    // The Return button stays available across all completion variants.
-    expect(getByTestId("onboarding-complete-return")).toBeTruthy();
   });
 });

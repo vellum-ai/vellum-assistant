@@ -40,12 +40,14 @@
  * mid-fanout (the hub delivers one object to every subscriber in turn).
  */
 
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../api/index.js";
+import { forwardEventPublishToDaemon } from "../ipc/events-publish-client.js";
 import {
   type AssistantEventFilter,
   type AssistantEventHub,
   assistantEventHub,
 } from "../runtime/assistant-event-hub.js";
+import { isMainDaemonProcess } from "../runtime/process-role.js";
 
 /**
  * The subset of {@link AssistantEventHub} workspace plugins may use. Picking
@@ -86,8 +88,12 @@ function wireSnapshot<T>(value: T): T {
  * client receives it.
  */
 function deepFreeze<T>(value: T, seen: WeakSet<object> = new WeakSet()): T {
-  if (value === null || typeof value !== "object") return value;
-  if (seen.has(value)) return value;
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (seen.has(value)) {
+    return value;
+  }
   seen.add(value);
   for (const key of Object.keys(value)) {
     deepFreeze((value as Record<string, unknown>)[key], seen);
@@ -105,7 +111,9 @@ const startsWith = Function.prototype.call.bind(
 ) as (str: string, search: string) => boolean;
 
 /** The blocked event type if `event` is a host-proxy control event, else `undefined`. */
-function hostControlEventType(event: AssistantEvent): string | undefined {
+function hostControlEventType(
+  event: AssistantEventEnvelope,
+): string | undefined {
   const type: unknown = event.message?.type;
   return typeof type === "string" &&
     startsWith(type, HOST_CONTROL_EVENT_TYPE_PREFIX)
@@ -134,7 +142,7 @@ export const pluginAssistantEventHub: PluginEventHub = Object.freeze({
       type: "process",
       filter,
       callback: (event) => {
-        let isolated: AssistantEvent;
+        let isolated: AssistantEventEnvelope;
         try {
           isolated = deepFreeze(wireSnapshot(event));
         } catch {
@@ -146,7 +154,7 @@ export const pluginAssistantEventHub: PluginEventHub = Object.freeze({
   },
 
   publish: async (event, options) => {
-    let snapshot: AssistantEvent;
+    let snapshot: AssistantEventEnvelope;
     let snapshotOptions: Parameters<AssistantEventHub["publish"]>[1];
     try {
       snapshot = deepFreeze(wireSnapshot(event));
@@ -159,6 +167,14 @@ export const pluginAssistantEventHub: PluginEventHub = Object.freeze({
       throw new Error(
         `Plugins may not publish daemon-to-client host-proxy control events (type "${blockedType}").`,
       );
+    }
+    // Outside the main daemon (a sidecar worker, the route host) this process's
+    // hub reaches no SSE subscriber, so hand the already-guarded,
+    // wire-canonicalized event to the daemon — it republishes on the hub real
+    // clients subscribe to. The `host_*` guard above runs on both paths (the
+    // daemon's publish route is a raw transport that does not re-check it).
+    if (!isMainDaemonProcess()) {
+      return forwardEventPublishToDaemon(snapshot, snapshotOptions);
     }
     return assistantEventHub.publish(snapshot, snapshotOptions);
   },

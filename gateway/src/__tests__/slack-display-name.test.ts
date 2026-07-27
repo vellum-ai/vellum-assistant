@@ -40,8 +40,9 @@ mock.module("../runtime/client.js", () => ({
     forwardToRuntimeMock(...args),
 }));
 
+const { normalizeSlackAppMention } =
+  await import("../slack/message-normalizer.js");
 const {
-  normalizeSlackAppMention,
   resolveSlackChannel,
   resolveSlackUser,
   resolveSlackUserSync,
@@ -50,12 +51,12 @@ const {
   clearUserInfoCache,
   getChannelInfoCacheSize,
   getUserInfoCacheSize,
-} = await import("../slack/normalize.js");
+} = await import("../slack/user-directory.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
 const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
 const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
   await import("../risk/admission-policy-cache.js");
-import type { SlackAppMentionEvent } from "../slack/normalize.js";
+import type { SlackAppMentionEvent } from "../slack/message-schemas.js";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {

@@ -158,7 +158,7 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
             )}
 
             <Link
-              to={routes.settings.usageBilling}
+              to={routes.settings.usageBillingConfigureTopUps}
               className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
               onClick={() => onOpenChange(false)}
             >

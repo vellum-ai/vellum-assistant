@@ -230,7 +230,7 @@ async function performTtsRequest(
     throw new ElevenLabsTtsError(
       "ELEVENLABS_TTS_NO_API_KEY",
       "ElevenLabs API key not configured. " +
-        "Add it in Settings → Voice or via: assistant credentials set --service elevenlabs --field api_key <key>",
+        'Add it in Settings → Voice or via: assistant credentials prompt --service elevenlabs --field api_key --label "ElevenLabs API Key"',
     );
   }
 
@@ -396,7 +396,7 @@ export const elevenLabsTtsProviderDefinition: TtsProviderDefinition = {
       credentialStoreKey: "credential/elevenlabs/api_key",
       displayName: "ElevenLabs API Key",
       setCommand:
-        "assistant credentials set --service elevenlabs --field api_key <key>",
+        'assistant credentials prompt --service elevenlabs --field api_key --label "ElevenLabs API Key"',
     },
   ],
   adapter: createElevenLabsProvider(),

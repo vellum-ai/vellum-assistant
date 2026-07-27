@@ -114,4 +114,4 @@ Key Discord-specific differences for Path B:
 
 - Loopback callback won't work from a remote channel - need public ingress configured
 - Add the ingress-based redirect URI under **Redirects** on the OAuth2 page
-- Discord app secrets don't have a known prefix that triggers scanners, but still use `assistant credentials prompt` or `assistant credentials set` for security
+- Discord app secrets don't have a known prefix that triggers scanners, but still use `assistant credentials prompt` for security (never inline `assistant credentials set`)

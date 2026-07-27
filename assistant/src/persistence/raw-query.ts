@@ -132,6 +132,20 @@ function telemetrySqlite(): Database {
   return sqlite;
 }
 
+/** {@link rawGet} against the memory connection. */
+export function rawMemoryGet<T>(
+  label: string,
+  sql: string,
+  ...params: SqlParam[]
+): T | null {
+  return (
+    (memorySqlite()
+      .label(label)
+      .query(sql)
+      .get(...params) as T) ?? null
+  );
+}
+
 /** {@link rawAll} against the memory connection. */
 export function rawMemoryAll<T>(
   label: string,

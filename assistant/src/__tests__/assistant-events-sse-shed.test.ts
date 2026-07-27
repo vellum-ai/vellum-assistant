@@ -86,7 +86,7 @@ describe("SSE route — backpressure shed observability", () => {
     // publishing `SSE_HIGH_WATER_MARK` events triggers the shed on the
     // final publish when desiredSize hits 0.
     for (let i = 0; i < SSE_HIGH_WATER_MARK; i += 1) {
-      await hub.publish(buildAssistantEvent({ type: "pong" }));
+      await hub.publish(buildAssistantEvent({ type: "message_complete" }));
     }
 
     expect(hub.subscriberCount()).toBe(0);
@@ -119,7 +119,7 @@ describe("SSE route — backpressure shed observability", () => {
     // Fill the queue up to its limit without sending the publish that
     // would shed via the callback path.
     for (let i = 0; i < SSE_HIGH_WATER_MARK - 1; i += 1) {
-      await hub.publish(buildAssistantEvent({ type: "pong" }));
+      await hub.publish(buildAssistantEvent({ type: "message_complete" }));
     }
     expect(reports.length).toBe(0);
 
@@ -149,7 +149,7 @@ describe("SSE route — backpressure shed observability", () => {
     void reader.read();
 
     for (let i = 0; i < 32; i += 1) {
-      await hub.publish(buildAssistantEvent({ type: "pong" }));
+      await hub.publish(buildAssistantEvent({ type: "message_complete" }));
       void reader.read();
     }
 
@@ -177,7 +177,7 @@ describe("SSE route — backpressure shed observability", () => {
     );
 
     for (let i = 0; i < SSE_HIGH_WATER_MARK; i += 1) {
-      await hub.publish(buildAssistantEvent({ type: "pong" }));
+      await hub.publish(buildAssistantEvent({ type: "message_complete" }));
     }
 
     expect(reports.length).toBe(1);

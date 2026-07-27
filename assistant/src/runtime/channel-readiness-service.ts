@@ -3,6 +3,7 @@ import {
   normalizePublicBaseUrl,
   resolveTwilioPublicBaseUrl,
 } from "@vellumai/service-contracts/twilio-ingress";
+import { z } from "zod";
 
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
@@ -22,6 +23,97 @@ import type {
 
 /** Remote check results are cached for 5 minutes before being considered stale. */
 export const REMOTE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Bot scopes the Slack manifest requests that the app cannot work without.
+ *
+ * Slack's install flow can return a token carrying a fraction of the manifest's
+ * scopes while `auth.test` still succeeds — a live install produced 2 of 18, and
+ * the first real API call failed with `missing_scope`. `auth.test` passing is
+ * therefore not evidence the install is usable; the granted set has to be read
+ * off the `x-oauth-scopes` response header and compared.
+ *
+ * Mirrors the non-optional half of `oauth_config.scopes.bot` in
+ * `skills/slack-app-setup/scripts/build-manifest.ts` (and its copy in
+ * `clients/web/src/utils/slack-manifest.ts`). Scopes the manifest marks
+ * declinable are deliberately absent: a workspace may refuse those at the
+ * consent screen, and flagging that choice as a fault would be noise.
+ */
+const SLACK_REQUIRED_BOT_SCOPES = [
+  "app_mentions:read",
+  "assistant:write",
+  "channels:history",
+  "channels:read",
+  "chat:write",
+  "groups:history",
+  "groups:read",
+  "im:history",
+  "im:read",
+  "im:write",
+  "mpim:history",
+  "mpim:read",
+  "users:read",
+] as const;
+
+/**
+ * Shape of a Slack `auth.test` response.
+ *
+ * Validated rather than cast: this crosses a runtime boundary, so a `ok` that
+ * arrives as a string would slip past a cast and make `!data.ok` decide on the
+ * wrong value. Unknown keys are ignored — Slack adds fields over time and a
+ * new one is not a reason to report the integration broken.
+ */
+const AuthTestResponseSchema = z.object({
+  ok: z.boolean(),
+  error: z.string().optional(),
+  team_id: z.string().optional(),
+  team: z.string().optional(),
+  user: z.string().optional(),
+});
+
+/** Slack returns `x-oauth-scopes` as a comma-separated list on every response. */
+function parseGrantedScopes(raw: string | null): string[] | null {
+  if (raw === null) {
+    return null;
+  }
+  const scopes = raw
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  return scopes.length > 0 ? scopes : null;
+}
+
+/**
+ * Compare what Slack granted against what the app needs.
+ *
+ * Passes when the header is unreadable: a check that cannot see the grant must
+ * not report a fault it has no evidence for. Reinstalling re-grants the scopes
+ * to the same token, so recovery needs no new credentials — but Slack forces an
+ * app "update" prompt first, and skipping it leaves the scopes unchanged.
+ */
+function scopeGrantCheck(rawHeader: string | null): ReadinessCheckResult {
+  const granted = parseGrantedScopes(rawHeader);
+  if (granted === null) {
+    return check(
+      "scopes_granted",
+      true,
+      "Slack did not report granted scopes — skipped",
+      "Slack did not report granted scopes — skipped",
+    );
+  }
+
+  const grantedSet = new Set(granted);
+  const missing = SLACK_REQUIRED_BOT_SCOPES.filter(
+    (scope) => !grantedSet.has(scope),
+  );
+
+  return check(
+    "scopes_granted",
+    missing.length === 0,
+    `Bot token carries all ${SLACK_REQUIRED_BOT_SCOPES.length} required scopes`,
+    `Bot token is missing ${missing.length} of ${SLACK_REQUIRED_BOT_SCOPES.length} required scopes (${missing.join(", ")}) — open the app at https://api.slack.com/apps, accept the update prompt, then OAuth & Permissions → Reinstall to Workspace`,
+  );
+}
 
 function hasIngressConfigured(options: { twilio?: boolean } = {}): boolean {
   try {
@@ -298,13 +390,18 @@ const slackProbe: ChannelProbe = {
         method: "POST",
         headers: { Authorization: `Bearer ${botToken}` },
       });
-      const data = (await res.json()) as {
-        ok: boolean;
-        error?: string;
-        team_id?: string;
-        team?: string;
-        user?: string;
-      };
+      const parsed = AuthTestResponseSchema.safeParse(await res.json());
+      if (!parsed.success) {
+        return [
+          check(
+            "auth_test",
+            false,
+            "Slack auth.test ok",
+            `Slack auth.test returned an unexpected response shape: ${parsed.error.issues.map((i) => i.path.join(".") || "(root)").join(", ")}`,
+          ),
+        ];
+      }
+      const data = parsed.data;
       if (!data.ok) {
         return [
           check(
@@ -334,6 +431,7 @@ const slackProbe: ChannelProbe = {
           "Stored workspace matches bot token",
           `Stored workspace ${storedTeamId} does not match bot token's workspace ${data.team_id ?? "unknown"} — run 'assistant channels slack reconnect' to refresh metadata`,
         ),
+        scopeGrantCheck(res.headers.get("x-oauth-scopes")),
       ];
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

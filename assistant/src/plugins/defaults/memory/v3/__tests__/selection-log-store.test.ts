@@ -403,6 +403,7 @@ describe("summarizeSelections", () => {
       dense: 0,
       edge: 2,
       reply: 0,
+      span: 0,
       learned: 0,
       entity: 0,
     });
@@ -421,6 +422,7 @@ describe("summarizeSelections", () => {
         dense: 0,
         edge: 0,
         reply: 0,
+        span: 0,
         learned: 0,
         entity: 0,
       },
@@ -443,6 +445,7 @@ describe("summarizeSelections", () => {
         dense: 0,
         edge: 0,
         reply: 0,
+        span: 0,
         learned: 0,
         entity: 0,
       },

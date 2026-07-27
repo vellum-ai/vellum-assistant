@@ -4,14 +4,6 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
 /** Pro package tier keys, keyed by `ProPackage.key` ("free" is the base plan). */
 export type PlanTierKey = "free" | "mighty" | "super" | "ultra";
 
-/** Accent color per Pro package tier, keyed by `ProPackage.key` ("free" for the base plan). */
-export const TIER_ACCENT: Record<string, string> = {
-    free: "#E9C91A",
-    mighty: "#4C9B50",
-    super: "#0E9B8B",
-    ultra: "#EF4300",
-};
-
 /** Vellum creature traits per plan tier, matching the pricing-page creatures. */
 export const TIER_TRAITS: Record<
     string,
@@ -31,6 +23,14 @@ export const TIER_TRAITS: Record<
 export const FREE_STORAGE_GIB = 4;
 
 /**
+ * Monthly included credits ($USD) for the free/base plan. The plan catalog's
+ * BasePlan entry carries no credits field, so this is the baseline the plan
+ * card shows on the current-plan chip for a free user.
+ * TODO(confirm): verify the product-correct free credit grant (may be $0).
+ */
+export const FREE_CREDITS_USD = 0;
+
+/**
  * Vellum creature avatar for a plan tier. The ~48 kB bundled component payload
  * loads lazily; a same-size placeholder holds the layout until it resolves.
  */
@@ -46,10 +46,13 @@ export function PlanTierAvatar({
     return (
         <div aria-hidden className="inline-flex shrink-0">
             {components ? (
+                // Plan-tier avatars render eyeless (body-only); the eye style is
+                // deliberately omitted here. `TIER_TRAITS[tier].eyeStyle` is
+                // kept so the trait table stays a complete creature descriptor
+                // matching the pricing-page creatures, not because it's read here.
                 <AvatarRenderer
                     components={components}
                     bodyShapeId={traits.bodyShape}
-                    eyeStyleId={traits.eyeStyle}
                     colorId={traits.color}
                     size={size}
                 />

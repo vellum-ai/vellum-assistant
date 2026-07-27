@@ -197,8 +197,8 @@ async function injectOptionalCredential(
  * (per-workspace, rotated, etc.) are never silently clobbered:
  *   1. `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` in `config.json` —
  *      the user-supplied env override on the resolved agent config.
- *   2. Secure store via CLI: `assistant credentials set --service acp \
- *        --field claude_oauth_token <token>` — read through the
+ *   2. Secure store via CLI: `assistant credentials prompt --service acp \
+ *        --field claude_oauth_token --label ...` — read through the
  *      credential broker for policy enforcement and audit logging.
  * After resolution, this asserts the token is present (from either route)
  * before spawning. The "fail-fast" throw is symmetric with the existing
@@ -269,8 +269,10 @@ export async function prepareAgentEnv(
           "flow does paste a key). Do NOT tell them to run `claude setup-token`, " +
           "paste a token in chat, or run credential CLI commands, and do NOT " +
           "retry the spawn yourself — the card and auto-continue handle it. " +
-          "(Headless only, where no card can appear: `assistant credentials set " +
-          "--service acp --field claude_oauth_token <token>`.)",
+          "(Headless only, where no card can appear: `assistant credentials prompt " +
+          '--service acp --field claude_oauth_token --label "Claude Code OAuth ' +
+          'Token"` — it collects the token securely, falling back to a one-time ' +
+          "collection link to relay to the user.)",
         { code: ACP_CLAUDE_OAUTH_MISSING_CODE },
       );
     }

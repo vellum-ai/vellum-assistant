@@ -158,7 +158,7 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const {
     didOnboarding,
-    onboardingTasksEmpty,
+    onboardingChoiceEligible,
     onboardingConversationId,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
@@ -554,7 +554,7 @@ export function ActiveChatView() {
     uiContextRef,
 
     // Onboarding
-    onboardingTasksEmpty,
+    onboardingChoiceEligible,
     didOnboarding,
     onboardingConversationId,
   };

@@ -81,10 +81,14 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 }));
 
 const configPatchCalls: { path?: unknown; body?: unknown }[] = [];
+// Held open, `patchGate` keeps every PATCH in flight so a second pick can be
+// made while the first is still going — the audition case.
+let patchGate: Promise<void> | null = null;
 mock.module("@/generated/daemon/sdk.gen", () => ({
-  configPatch: (opts: { path?: unknown; body?: unknown }) => {
+  configPatch: async (opts: { path?: unknown; body?: unknown }) => {
     configPatchCalls.push(opts);
-    return Promise.resolve({ response: { ok: true, status: 200 } });
+    if (patchGate) await patchGate;
+    return { response: { ok: true, status: 200 } };
   },
 }));
 
@@ -113,6 +117,7 @@ function renderList(assistantId: string | null = ASSISTANT_ID) {
 beforeEach(() => {
   orgReady = true;
   configPatchCalls.length = 0;
+  patchGate = null;
   daemonConfigData = { services: { tts: { provider: "vellum" } } };
   providersData = {
     providers: [
@@ -178,6 +183,56 @@ describe("VoiceList", () => {
     expect(configPatchCalls[0]!.body).toEqual({
       services: { tts: { providers: { vellum: { model: "aura-2-zeus-en" } } } },
     });
+  });
+
+  test("the pick is marked selected before its write lands", async () => {
+    let openGate = () => {};
+    patchGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    renderList();
+
+    const zeus = () =>
+      screen
+        .getAllByRole("option")
+        .find((o) => o.textContent?.includes("Deep, trustworthy"))!;
+    fireEvent.click(zeus());
+
+    // Still mid-write — the check has to follow the click, not the round trip.
+    await waitFor(() => expect(zeus().getAttribute("aria-selected")).toBe("true"));
+    expect(configPatchCalls.length).toBe(1);
+    openGate();
+  });
+
+  test("picks made during a write are serialized in click order", async () => {
+    let openGate = () => {};
+    patchGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    renderList();
+
+    const option = (text: string) =>
+      screen.getAllByRole("option").find((o) => o.textContent?.includes(text))!;
+    // Zeus, then straight back to Sarah while Zeus's write is still in flight.
+    fireEvent.click(option("Deep, trustworthy"));
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    fireEvent.click(option("Professional, reassuring"));
+
+    // The second write waits its turn rather than racing the first: config
+    // would otherwise settle on whichever landed last, not the last click.
+    expect(configPatchCalls.length).toBe(1);
+    openGate();
+    patchGate = null;
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(2));
+    expect(configPatchCalls.map((c) => c.body)).toEqual([
+      { services: { tts: { providers: { vellum: { model: "aura-2-zeus-en" } } } } },
+      {
+        services: {
+          tts: { providers: { vellum: { model: "EXAVITQu4vr4xnSDxMaL" } } },
+        },
+      },
+    ]);
   });
 
   test("each row previews its own voice via the hosted sample", async () => {

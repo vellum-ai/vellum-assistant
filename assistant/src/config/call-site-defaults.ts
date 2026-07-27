@@ -121,28 +121,25 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
+  // Endpoint decisions gate live-voice turn-end latency, and `cost-optimized`'s
+  // upstream cannot fit any usable decision budget (~1s+ per forced tool call).
+  // `latency-optimized` is the internal latency-class profile (see
+  // default-profile-catalog.ts): managed installs get the pinned latency model,
+  // BYOK installs resolve their own provider's latency model through the intent
+  // table rather than a model id they may hold no credential for.
   voiceFrontDecision: {
-    profile: "cost-optimized",
-    // Endpoint decisions gate live-voice turn-end latency, and the default
-    // profile's upstream cannot fit any usable decision budget (~1s+ per
-    // forced tool call). Pin a latency-optimized model instead — the bare
-    // model pin lets the catalog imply the provider, which preserves the
-    // provider-agnostic managed connection. Replace only with a model whose
-    // managed credentials are provisioned in every environment.
-    model: "claude-haiku-4-5-20251001",
+    profile: "latency-optimized",
     effort: "low",
     thinking: { enabled: false },
   },
+  // The front-door leg fronts EVERY unified live-voice turn and its leading
+  // tokens ARE the endpointing/triage verdict, so both TTFT variance and
+  // judgment quality gate the whole call. Same latency class as the endpoint
+  // decider: live drives showed the cost-optimized upstream with multi-second
+  // cross-session TTFT tails and over-escalation of small talk under open-task
+  // context pressure.
   voiceFrontDoor: {
-    profile: "cost-optimized",
-    // The front-door leg fronts EVERY unified live-voice turn and its
-    // leading tokens ARE the endpointing/triage verdict, so both TTFT
-    // variance and judgment quality gate the whole call. Pin the same
-    // latency-class model the endpoint decider uses: live drives showed the
-    // cost-optimized upstream with multi-second cross-session TTFT tails
-    // and over-escalation of small talk under open-task context pressure.
-    // Same model-pin caveat as voiceFrontDecision above.
-    model: "claude-haiku-4-5-20251001",
+    profile: "latency-optimized",
     effort: "low",
     thinking: { enabled: false },
   },

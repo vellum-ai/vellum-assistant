@@ -92,6 +92,15 @@ mock.module("@/lib/auth/remote-gateway-session", () => ({
       userCode: url.searchParams.get("userCode"),
     };
   },
+  remoteGatewayPublicBaseUrl: () => {
+    const { origin, pathname } = window.location;
+    const match = /\/assistant(?:\/|$)/.exec(pathname);
+    const prefix =
+      match && match.index > 0
+        ? pathname.slice(0, match.index).replace(/\/+$/, "")
+        : "";
+    return `${origin}${prefix}`;
+  },
   RemoteWebPairingError: MockRemoteWebPairingError,
 }));
 

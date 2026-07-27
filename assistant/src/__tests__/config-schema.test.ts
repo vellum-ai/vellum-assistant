@@ -68,7 +68,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.services["image-generation"].model).toBe(
       "gemini-3.1-flash-image-preview",
     );
-    expect(result.services["image-generation"].mode).toBe("your-own");
+    expect(result.services["image-generation"]).not.toHaveProperty("mode");
     expect(result.services["web-search"].provider).toBe(
       "inference-provider-native",
     );
@@ -94,8 +94,20 @@ describe("AssistantConfigSchema", () => {
       enabled: true,
       blockIngress: true,
       allowOneTimeSend: false,
+      blockTokenShapedMessages: true,
     });
     expect(result.auditLog).toEqual({ retentionDays: 0 });
+  });
+
+  test("accepts vellum as an image generation provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        "image-generation": { provider: "vellum", model: "gpt-image-2" },
+      },
+    });
+
+    expect(result.services["image-generation"].provider).toBe("vellum");
+    expect(result.services["image-generation"].model).toBe("gpt-image-2");
   });
 
   test("accepts Tavily as a web search provider", () => {

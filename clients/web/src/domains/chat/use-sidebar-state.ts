@@ -115,8 +115,10 @@ export interface SidebarState {
 
   effectiveOpenCategories: string[];
   effectiveOpenCustomGroups: string[];
+  effectiveOpenPrimary: string[];
   onOpenCategoriesChange: (next: string[]) => void;
   onOpenCustomGroupsChange: (next: string[]) => void;
+  onOpenPrimaryChange: (next: string[]) => void;
 
   /**
    * Reveal the Background section, enabling its lazy fetch. Wired to the
@@ -169,8 +171,10 @@ export function useSidebarState({
 
   const openCategories = useSidebarCollapseStore.use.openCategories();
   const openCustomGroups = useSidebarCollapseStore.use.openCustomGroups();
+  const openPrimary = useSidebarCollapseStore.use.openPrimary();
   const setOpenCategories = useSidebarCollapseStore.use.setOpenCategories();
   const setOpenCustomGroups = useSidebarCollapseStore.use.setOpenCustomGroups();
+  const setOpenPrimary = useSidebarCollapseStore.use.setOpenPrimary();
   const activateBackground = useSidebarCollapseStore.use.activateBackground();
   const activateScheduled = useSidebarCollapseStore.use.activateScheduled();
   const backgroundActivated = useSidebarCollapseStore.use.backgroundActivated();
@@ -336,6 +340,21 @@ export function useSidebarState({
     return [...new Set([...openCustomGroups, ...extra])];
   }, [openCustomGroups, attentionConversationIds, grouped.customGroups]);
 
+  // Pinned and Chats default open; force-open still applies if the user
+  // collapsed one and a conversation in it needs attention.
+  const effectiveOpenPrimary = useMemo(() => {
+    if (!attentionConversationIds || attentionConversationIds.size === 0)
+      return openPrimary;
+    const extra: string[] = [];
+    if (grouped.pinned.length > 0 && hasAttentionIn(grouped.pinned))
+      extra.push("pinned");
+    if (grouped.recents.length > 0 && hasAttentionIn(grouped.recents))
+      extra.push("recents");
+    if (extra.length === 0) return openPrimary;
+    if (extra.every((k) => openPrimary.includes(k))) return openPrimary;
+    return [...new Set([...openPrimary, ...extra])];
+  }, [openPrimary, attentionConversationIds, grouped.pinned, grouped.recents, hasAttentionIn]);
+
   return {
     pinned: grouped.pinned,
     scheduled: grouped.scheduled,
@@ -347,8 +366,10 @@ export function useSidebarState({
     customGroups: grouped.customGroups,
     effectiveOpenCategories,
     effectiveOpenCustomGroups,
+    effectiveOpenPrimary,
     onOpenCategoriesChange: setOpenCategories,
     onOpenCustomGroupsChange: setOpenCustomGroups,
+    onOpenPrimaryChange: setOpenPrimary,
     activateBackground,
     backgroundLoading,
     activateScheduled,

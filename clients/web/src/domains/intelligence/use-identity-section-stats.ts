@@ -58,13 +58,11 @@ function pluralLabel(n: number, singular: string, pluralForm: string): string {
 interface UseIdentitySectionStatsOptions {
   /** Skip the plugin fetch on assistants without the plugin routes. */
   supportsPlugins: boolean;
-  /** Skip the channels fetch while the Channels surface is flagged off. */
-  showChannels: boolean;
 }
 
 export function useIdentitySectionStats(
   assistantId: string,
-  { supportsPlugins, showChannels }: UseIdentitySectionStatsOptions,
+  { supportsPlugins }: UseIdentitySectionStatsOptions,
 ): Record<string, IdentitySectionStat | undefined> {
   const path = { assistant_id: assistantId };
   const common = { staleTime: STATS_STALE_MS, retry: false, enabled: true };
@@ -106,7 +104,6 @@ export function useIdentitySectionStats(
     ...channelsReadinessGetOptions({ path }),
     select: (data) => data.snapshots.filter((s) => s.ready).length,
     ...common,
-    enabled: showChannels,
   });
   // Shares the schedules cache entry owned by `fetchSchedules` (Settings
   // and the Activity page key it identically with a `Schedule[]` payload)

@@ -8,6 +8,12 @@
 
 import { v7 as uuidv7 } from "uuid";
 
+import type {
+  AssistantEvent,
+  AssistantTextDeltaEvent,
+  GenerationCancelledEvent,
+  MessageCompleteEvent,
+} from "../api/index.js";
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import type {
   ChannelId,
@@ -20,7 +26,6 @@ import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   deleteMessageById,
@@ -216,15 +221,8 @@ export interface VoiceToolResultEvent {
  * standard channel path.
  */
 export interface VoiceRunEventSink {
-  onTextDelta(
-    msg: Extract<ServerMessage, { type: "assistant_text_delta" }>,
-  ): void;
-  onMessageComplete(
-    msg: Extract<
-      ServerMessage,
-      { type: "message_complete" } | { type: "generation_cancelled" }
-    >,
-  ): void;
+  onTextDelta(msg: AssistantTextDeltaEvent): void;
+  onMessageComplete(msg: MessageCompleteEvent | GenerationCancelledEvent): void;
   onError(message: string): void;
   onToolUse(
     toolName: string,
@@ -235,14 +233,9 @@ export interface VoiceRunEventSink {
 }
 
 export interface VoiceTurnCallbacks {
-  assistant_text_delta?: (
-    msg: Extract<ServerMessage, { type: "assistant_text_delta" }>,
-  ) => void;
+  assistant_text_delta?: (msg: AssistantTextDeltaEvent) => void;
   message_complete?: (
-    msg: Extract<
-      ServerMessage,
-      { type: "message_complete" } | { type: "generation_cancelled" }
-    >,
+    msg: MessageCompleteEvent | GenerationCancelledEvent,
   ) => void;
   persisted_user_message_id?: (messageId: string) => void;
   persisted_assistant_message_id?: (messageId: string) => void;
@@ -1034,7 +1027,7 @@ export async function startVoiceTurn(
   // Hook into conversation to intercept confirmation_request and secret_request events.
   // Voice auto-denies/auto-allows/auto-resolves these since there's no interactive UI.
   let lastError: string | null = null;
-  conversation.updateClient(async (msg: ServerMessage) => {
+  conversation.updateClient(async (msg: AssistantEvent) => {
     if (msg.type === "confirmation_request") {
       // Broadcast the request BEFORE resolving it: resolution synchronously
       // broadcasts `interaction_resolved` (handleConfirmationResponse →
@@ -1283,7 +1276,7 @@ export async function startVoiceTurn(
         frontDoorToolsSuppressed = true;
       }
       await conversation.runAgentLoop(persistedContent, messageId, {
-        onEvent: (msg: ServerMessage) => {
+        onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {
             reservedAssistantRowId = msg.messageId;
           } else if (msg.type === "error") {

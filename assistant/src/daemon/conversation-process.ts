@@ -11,6 +11,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../agent/message-types.js";
+import type { AssistantEvent } from "../api/index.js";
 import { listPendingRequestsByScopeOrEmpty } from "../channels/gateway-guardian-requests.js";
 import {
   parseChannelId,
@@ -57,7 +58,6 @@ import {
 import { getModelInfo } from "./handlers/config-model.js";
 import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type {
-  ServerMessage,
   UserMessageAttachment,
 } from "./message-protocol.js";
 import { buildTransportHints } from "./transport-hints.js";
@@ -96,8 +96,10 @@ export function isEchoSuppressedUserMessage(
 /**
  * True when the row is a persisted `<background_event source="...">` trigger —
  * every wake, scheduled run, and backgrounded-tool completion stamps one (see
- * {@link persistWakeTriggerMessage}). Such turns are dispatched
- * non-interactively (clientless/headless).
+ * {@link persistWakeTriggerMessage}). The permission mode such a turn ran under
+ * varies (most run interactive; clientless/headless wakes do not) and is
+ * recorded separately in `backgroundEventInteractive`; this predicate only
+ * identifies the row as a background event.
  */
 export function isBackgroundEventMetadata(
   metadata: Record<string, unknown> | undefined,
@@ -190,7 +192,7 @@ export function formatCleanResult(result: CleanResult): string {
 /** Build a model_info event with fresh config data. */
 export async function buildModelInfoEvent(
   conversationId?: string,
-): Promise<ServerMessage> {
+): Promise<AssistantEvent> {
   return { type: "model_info", conversationId, ...(await getModelInfo()) };
 }
 
@@ -1501,7 +1503,7 @@ async function drainBatch(
   const successfulEventSinks = Array.from(
     new Set(successfulBatch.map((qm) => qm.onEvent)),
   );
-  const fanOutOnEvent = (msg: ServerMessage) => {
+  const fanOutOnEvent = (msg: AssistantEvent) => {
     for (const onEvent of successfulEventSinks) {
       onEvent(msg);
     }
@@ -1565,7 +1567,7 @@ async function drainBatch(
 export interface ProcessMessageOptions {
   content: string;
   attachments: UserMessageAttachment[];
-  onEvent?: (msg: ServerMessage) => void;
+  onEvent?: (msg: AssistantEvent) => void;
   requestId?: string;
   activeSurfaceId?: string;
   currentPage?: string;

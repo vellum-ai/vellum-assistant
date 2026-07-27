@@ -13,6 +13,7 @@ import {
   createRemoteWebPairingChallenge,
   exchangeRemoteWebPairingToken,
   parseRemoteWebPairingParams,
+  remoteGatewayPublicBaseUrl,
   RemoteWebPairingError,
 } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
@@ -124,24 +125,6 @@ function clearDeviceCodeFromUrl(): void {
 const VELLUM_APP_SCHEME = "vellum-assistant";
 
 /**
- * The server's public base URL: origin plus any path prefix the deployment is
- * served under, derived by stripping this page's own route from the pathname.
- * A prefix-served assistant (pair page at
- * `https://host/assistant-123/assistant/pair`) must hand the app
- * `https://host/assistant-123` — the connect handler appends the pair route
- * back onto whatever base it receives.
- */
-function publicBaseFromLocation(): string {
-  const { origin, pathname } = window.location;
-  const normalized = pathname.replace(/\/+$/, "");
-  const suffix = "/assistant/pair";
-  if (normalized.endsWith(suffix)) {
-    return `${origin}${normalized.slice(0, -suffix.length)}`;
-  }
-  return origin;
-}
-
-/**
  * Build the `vellum-assistant://connect?url=<base>&code=<device-code>` deep
  * link the iOS app consumes to persist this server and finish pairing inside
  * the app. `url` is the page's own public base (origin + served path prefix)
@@ -150,7 +133,7 @@ function publicBaseFromLocation(): string {
  */
 function buildAppHandoffUrl(deviceCode: string): string {
   const query = new URLSearchParams({
-    url: publicBaseFromLocation(),
+    url: remoteGatewayPublicBaseUrl(),
     code: deviceCode,
   });
   return `${VELLUM_APP_SCHEME}://connect?${query.toString()}`;

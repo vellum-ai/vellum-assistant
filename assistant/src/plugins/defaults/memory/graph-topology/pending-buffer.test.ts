@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildPendingGraph,
+  findPendingEntryForContent,
   parseBufferEntries,
   PENDING_KIND,
   PENDING_NODE_ID_PREFIX,
@@ -142,5 +143,39 @@ describe("buildPendingGraph", () => {
     expect(nodes).toHaveLength(200);
     expect(nodes[0]!.label).toBe("fact number 50");
     expect(nodes[199]!.label).toBe("fact number 249");
+  });
+});
+
+describe("findPendingEntryForContent", () => {
+  const entries = parseBufferEntries(
+    "- [Jul 20, 3:15 PM] alpha fact\n" +
+      "- [Jul 20, 3:16 PM] beta fact\n" +
+      "- [Jul 20, 3:17 PM] alpha fact\n",
+  );
+
+  test("returns the LAST entry matching the content, not the buffer tail", () => {
+    const match = findPendingEntryForContent(entries, "alpha fact");
+    expect(match!.id).toBe(entries[2]!.id);
+    // Interleave shape: with "beta fact" sitting at the tail instead, the
+    // alpha lookup must still resolve to alpha, never beta.
+    const interleaved = parseBufferEntries(
+      "- [Jul 20, 3:15 PM] alpha fact\n- [Jul 20, 3:16 PM] beta fact\n",
+    );
+    expect(findPendingEntryForContent(interleaved, "alpha fact")!.id).toBe(
+      interleaved[0]!.id,
+    );
+  });
+
+  test("normalizes multiline content the way the buffer parse folds it", () => {
+    const multi = parseBufferEntries(
+      "- [Jul 20, 3:15 PM] headline\nsecond line\n",
+    );
+    const match = findPendingEntryForContent(multi, "headline\nsecond line");
+    expect(match!.id).toBe(multi[0]!.id);
+  });
+
+  test("returns undefined when nothing matches or content is blank", () => {
+    expect(findPendingEntryForContent(entries, "unknown fact")).toBeUndefined();
+    expect(findPendingEntryForContent(entries, "   ")).toBeUndefined();
   });
 });

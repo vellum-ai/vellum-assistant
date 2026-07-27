@@ -229,10 +229,6 @@ mock.module("@/domains/onboarding/screens/give-me-a-face-screen", () => ({
   GiveMeAFaceScreen: () => <div data-testid="face-step" />,
 }));
 
-mock.module("@/domains/onboarding/use-onboarding-voice-flag", () => ({
-  useOnboardingVoiceFlag: () => false,
-}));
-
 mock.module("@/domains/onboarding/screens/introduction-screen", () => ({
   IntroductionScreen: () => <div data-testid="intro-step" />,
 }));

@@ -228,7 +228,11 @@ export function isHandshakeOffered(
  *   external / stranger / guest:     [ Verify with a code ] [ Trust anyway ]
  *                                    [ Leave unverified ] [ Block ]
  *
- * The code option is NEVER rendered for a bot.
+ * `leave_unverified` is the silent "park" outcome: it leaves the sender an
+ * `unverified` contact and never notifies the requester. It is NOT a guaranteed
+ * keep-out — an `unverified` contact is still admitted under the permissive
+ * admission floors (`any_contact`, `strangers`); the hard keep-out is `block`
+ * (→ revoked). The code option is NEVER rendered for a bot.
  */
 export function buildIntroductionActions(
   sourceChannel: string | undefined,
@@ -292,6 +296,11 @@ export interface IntroductionModePolicy {
    * requester.
    */
   notifyRequesterOnTrust: boolean;
+  /**
+   * Whether the requester is notified when the guardian's decision resolves to
+   * a `denied` request. Applies to the `block` outcome only — `leave_unverified`
+   * is always silent (a neutral park at `unverified`), regardless of mode.
+   */
   notifyRequesterOnDeny: boolean;
   notifyRequesterOnExpiry: boolean;
   /** Guardian confirmation for Leave unverified (desktop inline reply). */
@@ -311,8 +320,11 @@ const INTRODUCTION_MODES: Record<AccessRequestTrigger, IntroductionModePolicy> =
       notifyRequesterOnTrust: true,
       notifyRequesterOnDeny: true,
       notifyRequesterOnExpiry: true,
+      // Accurate for the neutral park: an `unverified` contact is not a
+      // guaranteed keep-out (still admitted under permissive floors), so the
+      // reply does not promise they "won't be able to message."
       leaveUnverifiedGuardianReply: (requesterLabel) =>
-        `${requesterLabel} will stay unverified. They won't be able to message the assistant.`,
+        `${requesterLabel} will stay unverified.`,
     },
     admitted: {
       urgency: "medium",

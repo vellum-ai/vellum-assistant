@@ -312,64 +312,6 @@ describe("assistant ID boundary", () => {
   // surfaces invites callers to pass external IDs into daemon scoping.
   // -------------------------------------------------------------------------
 
-  test("message contract types do not contain assistantId for guardian requests", () => {
-    const contractPath = join(
-      import.meta.dir,
-      "..",
-      "daemon",
-      "message-types",
-      "integrations.ts",
-    );
-    const content = readFileSync(contractPath, "utf-8");
-
-    // Extract the interface blocks for the request types and verify
-    // none of them declare an assistantId property.
-    const requestTypeNames = ["ChannelVerificationSessionRequest"];
-
-    for (const typeName of requestTypeNames) {
-      // Find the interface/type block — match from the type name to the next
-      // closing brace at the same indentation level. We use a simple heuristic:
-      // find the line declaring the type, then scan forward to the closing '}'.
-      const typeIndex = content.indexOf(typeName);
-      expect(
-        typeIndex,
-        `Expected to find ${typeName} in message contract`,
-      ).toBeGreaterThan(-1);
-
-      // Extract from the type declaration to the next '}' line
-      const blockStart = content.indexOf("{", typeIndex);
-      if (blockStart === -1) continue;
-      let braceDepth = 0;
-      let blockEnd = blockStart;
-      for (let i = blockStart; i < content.length; i++) {
-        if (content[i] === "{") braceDepth++;
-        if (content[i] === "}") braceDepth--;
-        if (braceDepth === 0) {
-          blockEnd = i + 1;
-          break;
-        }
-      }
-      const block = content.slice(blockStart, blockEnd);
-
-      // The block should not contain an assistantId property declaration
-      // (matches "assistantId?" or "assistantId:" on a non-comment line)
-      const lines = block.split("\n");
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (
-          trimmed.startsWith("//") ||
-          trimmed.startsWith("*") ||
-          trimmed.startsWith("/*")
-        )
-          continue;
-        expect(
-          /\bassistantId\s*[?:]/.test(trimmed),
-          `${typeName} must not declare an assistantId property. Found: "${trimmed}"`,
-        ).toBe(false);
-      }
-    }
-  });
-
   test("guardian outbound param interfaces do not contain assistantId", () => {
     const actionsPath = join(
       import.meta.dir,

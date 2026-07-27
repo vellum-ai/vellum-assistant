@@ -44,6 +44,13 @@ const { MEMORY_V3_EVER_INJECTED_RELOCATION } =
   await import("../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js");
 const { MEMORY_RETROSPECTIVE_STATE_RELOCATION } =
   await import("../../../../persistence/migrations/346-move-memory-retrospective-state-to-memory-db.js");
+const {
+  MEMORY_GRAPH_NODES_RELOCATION,
+  MEMORY_GRAPH_EDGES_RELOCATION,
+  MEMORY_GRAPH_TRIGGERS_RELOCATION,
+  MEMORY_GRAPH_NODE_EDITS_RELOCATION,
+} =
+  await import("../../../../persistence/migrations/349-move-memory-graph-tables-to-memory-db.js");
 
 await initializeDb();
 
@@ -738,5 +745,152 @@ describe("memory_retrospective_state drain", () => {
       last_run_at: 5_000,
       remembered_log: null,
     });
+  });
+});
+
+describe("memory graph cluster drain", () => {
+  test("drains nodes then children into memory, preserving the intra-cluster cascade", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    // Clean slate on the memory side (children before parents — FK order), then
+    // rebuild the four staging tables on main shaped like the post-205/206
+    // source. Staging tables carry no FK; the cascade lives on the memory side.
+    memory.exec(`DELETE FROM memory_graph_node_edits`);
+    memory.exec(`DELETE FROM memory_graph_triggers`);
+    memory.exec(`DELETE FROM memory_graph_edges`);
+    memory.exec(`DELETE FROM memory_graph_nodes`);
+    for (const t of [
+      "memory_graph_nodes",
+      "memory_graph_edges",
+      "memory_graph_triggers",
+      "memory_graph_node_edits",
+    ]) {
+      sqlite.exec(`DROP TABLE IF EXISTS main."${t}__relocating"`);
+    }
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_graph_nodes__relocating" (
+        id TEXT PRIMARY KEY, content TEXT NOT NULL, type TEXT NOT NULL,
+        created INTEGER NOT NULL, last_accessed INTEGER NOT NULL,
+        last_consolidated INTEGER NOT NULL, emotional_charge TEXT NOT NULL,
+        fidelity TEXT NOT NULL DEFAULT 'vivid', confidence REAL NOT NULL,
+        significance REAL NOT NULL, stability REAL NOT NULL DEFAULT 14,
+        reinforcement_count INTEGER NOT NULL DEFAULT 0,
+        last_reinforced INTEGER NOT NULL,
+        source_conversations TEXT NOT NULL DEFAULT '[]',
+        source_type TEXT NOT NULL DEFAULT 'inferred',
+        narrative_role TEXT, part_of_story TEXT,
+        scope_id TEXT NOT NULL DEFAULT 'default',
+        event_date INTEGER, image_refs TEXT
+      );
+      CREATE TABLE main."memory_graph_edges__relocating" (
+        id TEXT PRIMARY KEY, source_node_id TEXT NOT NULL,
+        target_node_id TEXT NOT NULL, relationship TEXT NOT NULL,
+        weight REAL NOT NULL DEFAULT 1.0, created INTEGER NOT NULL
+      );
+      CREATE TABLE main."memory_graph_triggers__relocating" (
+        id TEXT PRIMARY KEY, node_id TEXT NOT NULL, type TEXT NOT NULL,
+        schedule TEXT, condition TEXT, condition_embedding BLOB, threshold REAL,
+        event_date INTEGER, ramp_days INTEGER, follow_up_days INTEGER,
+        recurring INTEGER NOT NULL DEFAULT 0, consumed INTEGER NOT NULL DEFAULT 0,
+        cooldown_ms INTEGER, last_fired INTEGER
+      );
+      CREATE TABLE main."memory_graph_node_edits__relocating" (
+        id TEXT PRIMARY KEY, node_id TEXT NOT NULL,
+        previous_content TEXT NOT NULL, new_content TEXT NOT NULL,
+        source TEXT NOT NULL, conversation_id TEXT, created INTEGER NOT NULL
+      );
+    `);
+
+    const insertNode = sqlite.prepare(
+      `INSERT INTO main."memory_graph_nodes__relocating"
+         (id, content, type, created, last_accessed, last_consolidated,
+          emotional_charge, confidence, significance, last_reinforced, scope_id)
+       VALUES (?, ?, 'semantic', 0, 0, 0, '{}', 0.5, 0.5, 0, 'default')`,
+    );
+    insertNode.run("n1", "first");
+    insertNode.run("n2", "second");
+    sqlite
+      .prepare(
+        `INSERT INTO main."memory_graph_edges__relocating"
+           (id, source_node_id, target_node_id, relationship, weight, created)
+         VALUES (?, ?, ?, 'reminds-of', 1.0, 0)`,
+      )
+      .run("e1", "n1", "n2");
+    sqlite
+      .prepare(
+        `INSERT INTO main."memory_graph_triggers__relocating"
+           (id, node_id, type, recurring, consumed)
+         VALUES (?, ?, 'semantic', 0, 0)`,
+      )
+      .run("t1", "n1");
+    sqlite
+      .prepare(
+        `INSERT INTO main."memory_graph_node_edits__relocating"
+           (id, node_id, previous_content, new_content, source, created)
+         VALUES (?, ?, 'old', 'new', 'user', 0)`,
+      )
+      .run("ed1", "n1");
+
+    // Parent first, then children: draining edges/triggers/edits before nodes
+    // would fail FK enforcement on the memory connection (no node to point at).
+    await drainStagedTable(sqlite, MEMORY_GRAPH_NODES_RELOCATION);
+    await drainStagedTable(sqlite, MEMORY_GRAPH_EDGES_RELOCATION);
+    await drainStagedTable(sqlite, MEMORY_GRAPH_TRIGGERS_RELOCATION);
+    await drainStagedTable(sqlite, MEMORY_GRAPH_NODE_EDITS_RELOCATION);
+
+    for (const t of [
+      "memory_graph_nodes",
+      "memory_graph_edges",
+      "memory_graph_triggers",
+      "memory_graph_node_edits",
+    ]) {
+      expect(existsInMain(`${t}__relocating`)).toBe(false);
+    }
+
+    expect(
+      memory.query(`SELECT id FROM memory_graph_nodes ORDER BY id`).all(),
+    ).toEqual([{ id: "n1" }, { id: "n2" }]);
+    expect(memory.query(`SELECT id FROM memory_graph_edges`).all()).toEqual([
+      { id: "e1" },
+    ]);
+    expect(memory.query(`SELECT id FROM memory_graph_triggers`).all()).toEqual([
+      { id: "t1" },
+    ]);
+    expect(
+      memory.query(`SELECT id FROM memory_graph_node_edits`).all(),
+    ).toEqual([{ id: "ed1" }]);
+
+    // The intra-cluster ON DELETE CASCADE was recreated on the memory side and
+    // the memory connection enforces foreign keys: deleting n1 removes its edge,
+    // trigger, and edit, while the unrelated n2 survives.
+    memory.exec(`DELETE FROM memory_graph_nodes WHERE id = 'n1'`);
+    expect(
+      memory.query(`SELECT id FROM memory_graph_nodes ORDER BY id`).all(),
+    ).toEqual([{ id: "n2" }]);
+    expect(
+      memory
+        .query<
+          { c: number },
+          []
+        >(`SELECT COUNT(*) AS c FROM memory_graph_edges`)
+        .get(),
+    ).toEqual({ c: 0 });
+    expect(
+      memory
+        .query<
+          { c: number },
+          []
+        >(`SELECT COUNT(*) AS c FROM memory_graph_triggers`)
+        .get(),
+    ).toEqual({ c: 0 });
+    expect(
+      memory
+        .query<
+          { c: number },
+          []
+        >(`SELECT COUNT(*) AS c FROM memory_graph_node_edits`)
+        .get(),
+    ).toEqual({ c: 0 });
   });
 });

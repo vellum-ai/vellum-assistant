@@ -308,12 +308,19 @@ export function VoiceRoomColorLook({
       />
 
       {/* The avatar color fills in behind the body so coverage is end-to-end
-          even where the body shape has gaps/spikes. */}
+          even where the body shape has gaps/spikes. On close it clears early so
+          the shrinking body silhouette — not the full-screen rectangle — is what
+          collapses into the origin. */}
       <motion.div
         className="absolute inset-0"
         style={{ backgroundColor: look.bgHex }}
         initial={reduce ? false : { opacity: 0 }}
         animate={{ opacity: 1 }}
+        exit={
+          reduce
+            ? { opacity: 0 }
+            : { opacity: 0, transition: { duration: 0.2, ease: "easeIn" } }
+        }
         transition={reduce ? { duration: 0 } : { duration: 0.6, delay: 0.35 }}
       />
 
@@ -340,6 +347,18 @@ export function VoiceRoomColorLook({
                 }
           }
           animate={{ scale: 1, x: 0, y: 0 }}
+          // Close reverses the grow: the body shrinks back to its "avatar on the
+          // screen" size at the entry origin.
+          exit={
+            reduce
+              ? { opacity: 0 }
+              : {
+                  scale: bodyGeometry.startScale,
+                  x: bodyGeometry.startX,
+                  y: bodyGeometry.startY,
+                  transition: { duration: 0.4, ease: "easeIn" },
+                }
+          }
           transition={
             reduce
               ? { duration: 0 }
@@ -908,6 +927,19 @@ export function VoiceRoomEyes({
               scale: [0.35, 1, 1],
             }
           : { x: 0, y: 0, scale: 1 }
+      }
+      // Close reverses the grow: the eyes shrink back to the entry origin
+      // alongside the body, so the whole avatar shape collapses to the point.
+      exit={
+        reduce
+          ? { opacity: 0 }
+          : {
+              x: geometry.startX,
+              y: geometry.startY,
+              scale: 0.35,
+              opacity: 0,
+              transition: { duration: 0.4, ease: "easeIn" },
+            }
       }
       transition={
         playEntrance && !entranceDone

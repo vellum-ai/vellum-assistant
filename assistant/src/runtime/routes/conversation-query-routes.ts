@@ -459,10 +459,10 @@ async function handleSetEmbeddingConfig({ body }: RouteHandlerArgs) {
  * response needs the same treatment so external clients (macOS, web, CLI)
  * see the effective value rather than `undefined` when the daemon hasn't
  * persisted an explicit choice yet. For example, on a freshly-hatched
- * platform-managed assistant, `services.image-generation.mode` may be absent
- * from disk (only `llm.profiles` was written by `seedInferenceProfiles`); the
- * fill pass ensures clients receive `"managed"` rather than falling back to
- * their own defaults.
+ * platform-managed assistant, `services.image-generation.provider` may be
+ * absent from disk (only `llm.profiles` was written by
+ * `seedInferenceProfiles`); the fill pass ensures clients receive `"vellum"`
+ * rather than falling back to their own defaults.
  *
  * Guards against `loadRawConfig()` handing us a value that is technically
  * valid JSON but not a plain object (e.g. literal `null`, a number, or an
@@ -703,7 +703,10 @@ const ConfigGetResponseSchema = z
           .passthrough()
           .optional(),
         "image-generation": z
-          .object({ mode: ServiceModeSchema.optional() })
+          .object({
+            provider: z.string().optional(),
+            model: z.string().optional(),
+          })
           .passthrough()
           .optional(),
         inference: z
@@ -807,7 +810,10 @@ const ConfigPatchRequestSchema = z
           .nullable()
           .optional(),
         "image-generation": z
-          .object({ mode: ServiceModeSchema.optional() })
+          .object({
+            provider: z.string().optional(),
+            model: z.string().optional(),
+          })
           .passthrough()
           .nullable()
           .optional(),
@@ -1449,6 +1455,28 @@ export async function commitConfigWrite(
   }
 }
 
+/**
+ * Web clients pair provider writes with a legacy `mode` key so their saves
+ * stay valid on daemons whose schemas still carry it. The provider-only
+ * services (web-search, image-generation) parse-strip that key, but the
+ * deep-merge would still persist it to raw config.json on every save —
+ * scrub it so the removed field cannot be resurrected on disk.
+ */
+function scrubRemovedServiceModes(raw: Record<string, unknown>): void {
+  const services = raw.services as
+    | Record<string, Record<string, unknown> | undefined>
+    | undefined;
+  if (!services) {
+    return;
+  }
+  for (const key of ["web-search", "image-generation"]) {
+    const entry = services[key];
+    if (entry && typeof entry === "object" && "mode" in entry) {
+      delete entry.mode;
+    }
+  }
+}
+
 async function handlePatchConfig({ body }: RouteHandlerArgs) {
   if (
     !body ||
@@ -1467,6 +1495,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   const patch = body as Record<string, unknown>;
   backfillNewCallSiteEntries(raw, patch);
   deepMergeOverwrite(raw, patch);
+  scrubRemovedServiceModes(raw);
 
   await commitConfigWrite(raw, "patch");
 
@@ -2041,15 +2070,26 @@ async function handleGetLlmRequestLogContext({
   return normalizeLlmContextLog(log);
 }
 
-function handleDeleteQueuedMessage({
+function resolveQueuedMessageConversationId({
   queryParams = {},
-  pathParams = {},
-}: RouteHandlerArgs) {
-  const conversationId = queryParams.conversationId;
+  body,
+  headers = {},
+}: RouteHandlerArgs): string | undefined {
+  const bodyConversationId = body?.conversationId;
+  const conversationId =
+    queryParams.conversationId ??
+    (typeof bodyConversationId === "string" ? bodyConversationId : undefined) ??
+    headers["x-vellum-conversation-id"];
+  return typeof conversationId === "string" && conversationId.length > 0
+    ? conversationId
+    : undefined;
+}
+
+function handleDeleteQueuedMessage(args: RouteHandlerArgs) {
+  const { pathParams = {} } = args;
+  const conversationId = resolveQueuedMessageConversationId(args);
   if (!conversationId) {
-    throw new BadRequestError(
-      "Missing required query parameter: conversationId",
-    );
+    throw new BadRequestError("Missing required parameter: conversationId");
   }
   const result = deleteQueuedMessage(conversationId, pathParams.id ?? "");
   if (result.removed) {
@@ -2061,17 +2101,10 @@ function handleDeleteQueuedMessage({
   throw new NotFoundError("Queued message not found");
 }
 
-function handleSteerToMessage({
-  queryParams = {},
-  pathParams = {},
-  body,
-}: RouteHandlerArgs) {
-  const conversationId =
-    queryParams.conversationId ??
-    (body && typeof body === "object" && "conversationId" in body
-      ? (body as Record<string, unknown>).conversationId
-      : undefined);
-  if (!conversationId || typeof conversationId !== "string") {
+function handleSteerToMessage(args: RouteHandlerArgs) {
+  const { pathParams = {} } = args;
+  const conversationId = resolveQueuedMessageConversationId(args);
+  if (!conversationId) {
     throw new BadRequestError("Missing required parameter: conversationId");
   }
   const result = steerToMessage(conversationId, pathParams.id ?? "");

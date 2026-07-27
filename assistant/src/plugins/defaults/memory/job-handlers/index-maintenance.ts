@@ -24,6 +24,7 @@ import {
   messages,
 } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import { extractMediaBlockMeta } from "../message-media.js";
 
 const log = getLogger("memory-jobs-worker");
@@ -82,24 +83,30 @@ export async function rebuildIndexJob(): Promise<void> {
     }
   }
 
-  // Re-embed graph nodes stored in the memory graph.
-  const graphNodes = db
-    .select({ id: memoryGraphNodes.id })
-    .from(memoryGraphNodes)
-    .where(ne(memoryGraphNodes.fidelity, "gone"))
-    .all();
-  for (const node of graphNodes) {
-    enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
-  }
+  // The graph cluster lives on the memory connection; re-embeds read it there.
+  // memory_embeddings/segments/summaries above stay on the main handle (Wave 4),
+  // and each read is a separate query, so the split across connections is fine.
+  const memoryDb = memoryDbOrNull("rebuildIndexJob");
+  if (memoryDb) {
+    // Re-embed graph nodes stored in the memory graph.
+    const graphNodes = memoryDb
+      .select({ id: memoryGraphNodes.id })
+      .from(memoryGraphNodes)
+      .where(ne(memoryGraphNodes.fidelity, "gone"))
+      .all();
+    for (const node of graphNodes) {
+      enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
+    }
 
-  // Re-embed semantic triggers that have condition text.
-  const triggers = db
-    .select({ id: memoryGraphTriggers.id })
-    .from(memoryGraphTriggers)
-    .where(isNotNull(memoryGraphTriggers.condition))
-    .all();
-  for (const trigger of triggers) {
-    enqueueMemoryJob("graph_trigger_embed", { triggerId: trigger.id });
+    // Re-embed semantic triggers that have condition text.
+    const triggers = memoryDb
+      .select({ id: memoryGraphTriggers.id })
+      .from(memoryGraphTriggers)
+      .where(isNotNull(memoryGraphTriggers.condition))
+      .all();
+    for (const trigger of triggers) {
+      enqueueMemoryJob("graph_trigger_embed", { triggerId: trigger.id });
+    }
   }
 }
 

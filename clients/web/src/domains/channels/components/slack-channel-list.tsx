@@ -1,23 +1,14 @@
-import { ChevronDown, Hash, Lock, Search } from "lucide-react";
+import { Hash, Lock, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { cn } from "@vellumai/design-library";
-import { Button } from "@vellumai/design-library/components/button";
-import { Card } from "@vellumai/design-library/components/card";
-import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Input } from "@vellumai/design-library/components/input";
 import { ListRow } from "@vellumai/design-library/components/list-row";
-import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 
 import { EmptyState } from "@/components/empty-state";
-import { SlackChannelOverridePanel } from "@/domains/channels/components/slack-channel-override-panel";
-import { SlackChannelTierLegend } from "@/domains/channels/components/slack-channel-tier-legend";
-import {
-  CAPABILITY_TIER_META,
-  resolveChannelTier,
-} from "@/domains/channels/slack-channel-overrides";
+import { TierPicker } from "@/domains/channels/components/tier-picker";
 import type { RiskThreshold } from "@/utils/threshold-presets";
 import type { SlackChannel } from "@/domains/channels/slack-channels-query";
 
@@ -169,11 +160,15 @@ const EMPTY_PENDING_IDS: ReadonlySet<string> = new Set();
 
 /**
  * Presence channel list for the Slack sub-tab: every Slack channel the
- * assistant is a member of, with a per-row resolved-access badge. Rows
- * expand inline (single-open accordion; "Expand all" switches to multi-open)
- * to configure the channel's Assistant Access tier. Search and the kind chips
- * narrow the list client-side; the membership filter itself is server-side
- * (`?memberOnly=true`) with no toggle.
+ * assistant is a member of, each with an inline Assistant Access picker
+ * ({@link TierPicker}) that names the effective level and marks the one it
+ * inherits. Search and the kind chips narrow the list client-side; the
+ * membership filter itself is server-side (`?memberOnly=true`) with no toggle.
+ *
+ * Renders bare — presence hint, search, chips, and rows, no card of its own —
+ * because it only ever mounts inside the "Per-channel overrides" collapsible
+ * card in {@link SlackChannelSection}, whose header is the toggle. The Assistant
+ * Access key lives in the sibling default-access card, not here.
  */
 export function SlackChannelList({
   assistantDisplayName,
@@ -192,36 +187,6 @@ export function SlackChannelList({
 }: SlackChannelListProps) {
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<SlackRoomKind | null>(null);
-  const [openIds, setOpenIds] = useState<ReadonlySet<string>>(new Set());
-  const [multiOpen, setMultiOpen] = useState(false);
-
-  // Rows are stock ListRows (not Accordion.Triggers), so the open set is
-  // toggled here and drives the Collapsible.Root value one-way. Outside
-  // "Expand all" mode the single-open rule keeps only the newest row.
-  const toggleRow = (id: string) => {
-    setOpenIds((prev) => {
-      if (multiOpen) {
-        const next = new Set(prev);
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
-        return next;
-      }
-      return prev.has(id) ? new Set() : new Set([id]);
-    });
-  };
-
-  const toggleExpandAll = () => {
-    if (multiOpen) {
-      setMultiOpen(false);
-      setOpenIds(new Set());
-    } else {
-      setMultiOpen(true);
-      setOpenIds(new Set(allChannels.map((channel) => channel.id)));
-    }
-  };
 
   const allChannels = useMemo(() => roomsOnly(channels ?? []), [channels]);
   const visibleChannels = useMemo(
@@ -234,213 +199,166 @@ export function SlackChannelList({
   );
 
   const handle = slackHandle ?? `@${assistantDisplayName}`;
-  const inviteHint = (
+  const presenceHint = (
     <>
-      To add {assistantDisplayName} to a channel, type{" "}
+      Add with{" "}
       <code className="text-[color:var(--content-secondary)]">
         /invite {handle}
       </code>{" "}
-      inside that Slack channel.
+      or remove with{" "}
+      <code className="text-[color:var(--content-secondary)]">
+        /remove {handle}
+      </code>{" "}
+      in that Slack channel. Only channels {assistantDisplayName} is in appear
+      here.
     </>
   );
 
   return (
-    <>
-      <Card.Root>
-        <Card.Header>
-          <div className="flex flex-col gap-1">
-            Where {assistantDisplayName} is present
-            <Typography
-              as="p"
-              variant="body-small-default"
-              className="text-[color:var(--content-tertiary)]"
+    <div className="flex flex-col gap-3 p-4">
+      <Typography
+        as="p"
+        variant="body-small-default"
+        className="text-[color:var(--content-tertiary)]"
+      >
+        {presenceHint}
+      </Typography>
+      {loading ? (
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className="text-[color:var(--content-tertiary)]"
+        >
+          Loading…
+        </Typography>
+      ) : error ? (
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className="text-[color:var(--content-negative)]"
+        >
+          Couldn’t load channels. Try reopening this page.
+        </Typography>
+      ) : allChannels.length === 0 ? (
+        <EmptyState icon={<Hash className="h-6 w-6" />} title="No channels yet" />
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-56 flex-1">
+              <Input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search channels"
+                aria-label="Search channels"
+                leftIcon={<Search className="h-4 w-4" />}
+                fullWidth
+              />
+            </div>
+            <div
+              className="flex items-center gap-2"
+              role="group"
+              aria-label="Filter channels by type"
             >
-              {inviteHint}
-            </Typography>
+              {CHANNEL_KIND_FILTERS.map(({ value, label }) => {
+                const active = kindFilter === value;
+                const count =
+                  value === null ? allChannels.length : kindCounts[value];
+                return (
+                  <button
+                    key={value ?? "all"}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setKindFilter(value)}
+                    className={cn(
+                      "inline-flex h-6 items-center rounded-full px-2.5 text-body-small-emphasised leading-none transition-colors",
+                      active
+                        ? "bg-[var(--content-default)] text-[var(--surface-base)]"
+                        : "bg-[var(--tag-bg-neutral)] text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)]",
+                    )}
+                  >
+                    {label} {count}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </Card.Header>
-        <Card.Body className="flex flex-col gap-3">
-          {loading ? (
+          {visibleChannels.length === 0 ? (
             <Typography
               as="span"
               variant="body-small-default"
-              className="text-[color:var(--content-tertiary)]"
+              className="py-4 text-center text-[color:var(--content-tertiary)]"
             >
-              Loading…
+              No channels match.
             </Typography>
-          ) : error ? (
-            <Typography
-              as="span"
-              variant="body-small-default"
-              className="text-[color:var(--content-negative)]"
-            >
-              Couldn’t load channels. Try reopening this page.
-            </Typography>
-          ) : allChannels.length === 0 ? (
-            <EmptyState
-              icon={<Hash className="h-6 w-6" />}
-              title="No channels yet"
-            />
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="min-w-56 flex-1">
-                  <Input
-                    type="search"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search channels"
-                    aria-label="Search channels"
-                    leftIcon={<Search className="h-4 w-4" />}
-                    fullWidth
+          ) : visibleChannels.length > VIRTUALIZE_THRESHOLD ? (
+            // Virtuoso sizes its scroller to 100% of the wrapper, so the wrapper
+            // needs a bounded height. h-96 (~24rem) is tall enough to show a
+            // useful run of rows while the list scrolls within the collapsible
+            // rather than stretching the panel; the plain branch below caps at
+            // the same height.
+            <div className="h-96">
+              <VirtualList
+                items={visibleChannels}
+                computeItemKey={(_, channel) => channel.id}
+                itemContent={(_, channel) => (
+                  <SlackChannelRow
+                    channel={channel}
+                    pending={pendingChannelIds.has(channel.id)}
+                    overridesLoading={tierOverridesLoading}
+                    overridesError={tierOverridesError}
+                    defaultTier={defaultTier}
+                    accessControls={accessControlsSupported}
+                    tierOverride={tierOverrides?.[channel.id]}
+                    onTierChange={(tier) => onTierChange?.(channel.id, tier)}
+                    onReset={() => onTierReset?.(channel.id)}
                   />
-                </div>
-                <div
-                  className="flex items-center gap-2"
-                  role="group"
-                  aria-label="Filter channels by type"
-                >
-                  {CHANNEL_KIND_FILTERS.map(({ value, label }) => {
-                    const active = kindFilter === value;
-                    const count =
-                      value === null ? allChannels.length : kindCounts[value];
-                    return (
-                      <button
-                        key={value ?? "all"}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() => setKindFilter(value)}
-                        className={cn(
-                          "inline-flex h-6 items-center rounded-full px-2.5 text-body-small-emphasised leading-none transition-colors",
-                          active
-                            ? "bg-[var(--content-default)] text-[var(--surface-base)]"
-                            : "bg-[var(--tag-bg-neutral)] text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)]",
-                        )}
-                      >
-                        {label} {count}
-                      </button>
-                    );
-                  })}
-                </div>
-                <Button
-                  type="button"
-                  variant="outlined"
-                  onClick={toggleExpandAll}
-                >
-                  {multiOpen ? "Collapse all" : "Expand all"}
-                </Button>
-              </div>
-              {visibleChannels.length === 0 ? (
-                <Typography
-                  as="span"
-                  variant="body-small-default"
-                  className="py-4 text-center text-[color:var(--content-tertiary)]"
-                >
-                  No channels match.
-                </Typography>
-              ) : (
-                <Collapsible.Root type="multiple" value={[...openIds]}>
-                  {visibleChannels.length > VIRTUALIZE_THRESHOLD ? (
-                    // Virtuoso sizes its scroller to 100% of the wrapper, so
-                    // the fixed height lives on the wrapper, not the list.
-                    <div className="h-96">
-                      <VirtualList
-                        items={visibleChannels}
-                        computeItemKey={(_, channel) => channel.id}
-                        itemContent={(_, channel) => (
-                          <SlackChannelRow
-                            channel={channel}
-                            open={openIds.has(channel.id)}
-                            onToggle={() => toggleRow(channel.id)}
-                            pending={pendingChannelIds.has(channel.id)}
-                            overridesLoading={tierOverridesLoading}
-                            overridesError={tierOverridesError}
-                            defaultTier={defaultTier}
-                            accessControls={accessControlsSupported}
-                            tierOverride={tierOverrides?.[channel.id]}
-                            onTierChange={(tier) =>
-                              onTierChange?.(channel.id, tier)
-                            }
-                            onReset={() => onTierReset?.(channel.id)}
-                          />
-                        )}
-                        className="h-full"
-                      />
-                    </div>
-                  ) : (
-                    visibleChannels.map((channel) => (
-                      <SlackChannelRow
-                        key={channel.id}
-                        channel={channel}
-                        open={openIds.has(channel.id)}
-                        onToggle={() => toggleRow(channel.id)}
-                        pending={pendingChannelIds.has(channel.id)}
-                        overridesLoading={tierOverridesLoading}
-                        overridesError={tierOverridesError}
-                        defaultTier={defaultTier}
-                        accessControls={accessControlsSupported}
-                        tierOverride={tierOverrides?.[channel.id]}
-                        onTierChange={(tier) =>
-                          onTierChange?.(channel.id, tier)
-                        }
-                        onReset={() => onTierReset?.(channel.id)}
-                      />
-                    ))
-                  )}
-                </Collapsible.Root>
-              )}
-            </>
+                )}
+                className="h-full"
+              />
+            </div>
+          ) : (
+            <div className="max-h-96 overflow-y-auto">
+              {visibleChannels.map((channel) => (
+                <SlackChannelRow
+                  key={channel.id}
+                  channel={channel}
+                  pending={pendingChannelIds.has(channel.id)}
+                  overridesLoading={tierOverridesLoading}
+                  overridesError={tierOverridesError}
+                  defaultTier={defaultTier}
+                  accessControls={accessControlsSupported}
+                  tierOverride={tierOverrides?.[channel.id]}
+                  onTierChange={(tier) => onTierChange?.(channel.id, tier)}
+                  onReset={() => onTierReset?.(channel.id)}
+                />
+              ))}
+            </div>
           )}
-        </Card.Body>
-        {!loading && !error && allChannels.length > 0 ? (
-          <Card.Footer>
-            <Typography
-              as="p"
-              variant="body-small-default"
-              className="text-[color:var(--content-tertiary)]"
-            >
-              Only showing channels {assistantDisplayName} is in. To remove{" "}
-              {assistantDisplayName} from a channel, use{" "}
-              <code className="text-[color:var(--content-secondary)]">
-                /remove {handle}
-              </code>{" "}
-              in that Slack channel.
-            </Typography>
-          </Card.Footer>
-        ) : null}
-      </Card.Root>
-      {accessControlsSupported &&
-      !loading &&
-      !error &&
-      allChannels.length > 0 ? (
-        <SlackChannelTierLegend assistantName={assistantDisplayName} />
-      ) : null}
-    </>
+        </>
+      )}
+    </div>
   );
 }
 
 function SlackChannelRow({
   channel,
-  open,
   pending,
   overridesLoading,
   overridesError,
   defaultTier,
   accessControls,
   tierOverride,
-  onToggle,
   onTierChange,
   onReset,
 }: {
   channel: SlackChannel;
-  open: boolean;
   pending: boolean;
   overridesLoading: boolean;
   overridesError: boolean;
   defaultTier: RiskThreshold | null;
   accessControls: boolean;
   tierOverride: RiskThreshold | undefined;
-  onToggle: () => void;
   onTierChange: (tier: RiskThreshold) => void;
   onReset: () => void;
 }) {
@@ -451,19 +369,14 @@ function SlackChannelRow({
   }
   const Icon = CHANNEL_KIND_ICONS[kind];
   const metaLabel = slackChannelMetaLabel(channel);
-  const settings = resolveChannelTier(tierOverride);
-  // No cell → the row shows the gateway-resolved fall-through tier marked
-  // "default", never a hardcoded one.
-  const tierMeta =
-    settings.tier !== null ? CAPABILITY_TIER_META[settings.tier] : null;
-  const defaultMeta =
-    defaultTier !== null ? CAPABILITY_TIER_META[defaultTier] : null;
+  const rowClassName = "[&+&]:border-t [&+&]:border-[var(--border-base)]";
 
-  // Older assistant without the channel-permission routes: a plain
-  // presence row — no badge, no expansion, nothing to configure.
+  // Older assistant without the channel-permission routes: a plain presence
+  // row — no picker, nothing to configure.
   if (!accessControls) {
     return (
       <ListRow
+        className={rowClassName}
         leading={<Icon className="h-4 w-4 text-[var(--content-tertiary)]" />}
         title={channel.name}
         trailing={
@@ -477,59 +390,28 @@ function SlackChannelRow({
     );
   }
 
+  // Per-channel override: the shared picker names the effective level and marks
+  // the one that follows the resolved default (see {@link TierPicker}).
   return (
-    <Collapsible.Item
-      value={channel.id}
-      className="[&+&]:border-t [&+&]:border-[var(--border-base)]"
-    >
-      <ListRow
-        leading={<Icon className="h-4 w-4 text-[var(--content-tertiary)]" />}
-        title={channel.name}
-        onClick={onToggle}
-        contentAriaLabel={`${channel.name} — ${open ? "collapse" : "expand"} channel settings`}
-        showChevron={false}
-        selected={open}
-        trailing={
-          <>
-            {pending ? (
-              <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-                Saving…
-              </span>
-            ) : metaLabel != null ? (
-              <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-                {metaLabel}
-              </span>
-            ) : null}
-            {tierMeta !== null ? (
-              <Tag tone={tierMeta.tone}>{tierMeta.label} • custom</Tag>
-            ) : (
-              <Tag>
-                {defaultMeta !== null
-                  ? `${defaultMeta.label} • default`
-                  : "Default"}
-              </Tag>
-            )}
-            <ChevronDown
-              aria-hidden="true"
-              className={cn(
-                "h-4 w-4 text-[var(--content-tertiary)] transition-transform",
-                open && "rotate-180",
-              )}
-            />
-          </>
-        }
-      />
-      <Collapsible.Content>
-        <SlackChannelOverridePanel
-          channelName={channel.name}
-          settings={settings}
-          defaultTier={defaultTier}
-          loading={overridesLoading}
-          error={overridesError}
-          onTierChange={onTierChange}
-          onReset={onReset}
-        />
-      </Collapsible.Content>
-    </Collapsible.Item>
+    <ListRow
+      className={rowClassName}
+      leading={<Icon className="h-4 w-4 text-[var(--content-tertiary)]" />}
+      title={channel.name}
+      // Member count rides the subtitle (not the trailing cluster), so the
+      // fixed-width picker never squeezes the channel name off narrow screens.
+      subtitle={metaLabel ?? undefined}
+      trailing={
+        <div className="w-40 sm:w-48">
+          <TierPicker
+            tier={tierOverride}
+            defaultTier={defaultTier}
+            disabled={pending || overridesLoading || overridesError}
+            onTierChange={onTierChange}
+            onReset={onReset}
+            aria-label={`Assistant Access in ${channel.name}`}
+          />
+        </div>
+      }
+    />
   );
 }

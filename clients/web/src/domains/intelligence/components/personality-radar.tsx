@@ -127,11 +127,13 @@ export function PersonalityRadar({ values, className }: PersonalityRadarProps) {
           points={polygonPoints((i) =>
             R * Math.max(MIN_VALUE_FRACTION, RADAR_SPOKES[i]!.value(values) / 100),
           )}
-          fill="var(--card-accent)"
-          fillOpacity={0.25}
+          fill="var(--radar-fill, var(--card-accent))"
           stroke="var(--card-accent)"
           strokeWidth={2}
           strokeLinejoin="round"
+          // The photo-backdrop overlay sets a lighter fill at a softer
+          // opacity than the accent-derived default (Figma 7219-160964).
+          style={{ fillOpacity: "var(--radar-fill-opacity, 0.25)" }}
         />
       </motion.g>
 

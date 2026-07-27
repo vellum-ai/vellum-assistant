@@ -62,7 +62,7 @@ async function handleOAuthConnectStart({
   if (providerRow.authorizeUrl === "urn:manual-token") {
     throw new BadRequestError(
       `"${service}" uses manual token configuration, not an OAuth browser flow. ` +
-        `Set the token with: assistant credentials set <token_value> --service ${service} --field <field_name>`,
+        `Collect the token securely with: assistant credentials prompt --service ${service} --field <field_name> --label "<label>"`,
     );
   }
 

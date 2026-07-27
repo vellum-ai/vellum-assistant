@@ -17,6 +17,7 @@
 
 import { getLogger } from "../../util/logger.js";
 import { recoverInflightContent } from "./inflight-content.js";
+import { recoverOrphanedChannelEvents } from "./orphaned-channel-events.js";
 import { clearStaleProcessing } from "./stale-processing.js";
 
 const log = getLogger("recovery");
@@ -36,6 +37,7 @@ export interface RecoveryStep {
 const RECOVERY_STEPS: RecoveryStep[] = [
   { name: "clear-stale-processing", run: clearStaleProcessing },
   { name: "inflight-content", run: recoverInflightContent },
+  { name: "orphaned-channel-events", run: recoverOrphanedChannelEvents },
 ];
 
 /**

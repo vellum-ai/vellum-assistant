@@ -20,9 +20,13 @@ let globalCursor: number | null = null;
 // The abandoned-generation ceiling, recorded on a seq generation reset and
 // read by the stale-frontier guard. Mirrors reconnect-cursor.ts semantics.
 let abandonedGenerationCeiling: number | null = null;
+// The current seq generation, advanced on each observed reset and read by the
+// stale-frontier guard to date each conversation's frontier.
+let seqGeneration = 0;
 mock.module("@/lib/streaming/reconnect-cursor", () => ({
   getReconnectCursor: () => globalCursor,
   getAbandonedGenerationCeiling: () => abandonedGenerationCeiling,
+  getSeqGeneration: () => seqGeneration,
   // Monotonic — matches the real implementation (won't lower the cursor).
   advanceReconnectCursor: (seq: number) => {
     if (globalCursor === null || seq > globalCursor) {
@@ -35,6 +39,9 @@ mock.module("@/lib/streaming/reconnect-cursor", () => ({
       abandonedGenerationCeiling = seq;
     }
   },
+  advanceSeqGeneration: () => {
+    seqGeneration += 1;
+  },
   // Unconditional — used for generation resets and gap resolves.
   replaceReconnectCursor: (seq: number) => {
     globalCursor = seq;
@@ -42,6 +49,7 @@ mock.module("@/lib/streaming/reconnect-cursor", () => ({
   resetReconnectCursor: () => {
     globalCursor = null;
     abandonedGenerationCeiling = null;
+    seqGeneration = 0;
   },
 }));
 
@@ -93,6 +101,7 @@ beforeEach(() => {
   mockStreamEpoch = 7;
   globalCursor = null;
   abandonedGenerationCeiling = null;
+  seqGeneration = 0;
   __resetLocalSeqForTesting();
   recordDiagnosticMock.mockClear();
 });
@@ -719,8 +728,9 @@ describe("sse-event-consumer — stale seq-generation recovery", () => {
      * live event is classified as an already-applied replay.
      */
     // GIVEN a cursor and a conversation frontier from the old seq space
+    // (generation 0 — no reset observed yet)
     globalCursor = 907779;
-    recordLocalSeq("conv-1", 907779);
+    recordLocalSeq("conv-1", 907779, 0);
     const { deps, handleStreamEvent, reconcileActive } = makeDeps({
       activeConversationId: "conv-1",
     });
@@ -747,14 +757,17 @@ describe("sse-event-consumer — stale seq-generation recovery", () => {
     );
   });
 
-  test("a stale /messages anchor re-poisoning the frontier after an observed reset is dropped as stale generation", () => {
+  test("a stale /messages anchor at the abandoned ceiling re-poisoning the frontier after an observed reset is dropped as stale generation", () => {
     /**
      * After the client observes the generation reset and clears its
      * frontiers, a `/messages` request that raced the reset can still land
-     * the dead generation's anchor back on the frontier. The next live
-     * event trails that poisoned frontier by more than the ring; because a
-     * reset abandoned a ceiling the live cursor has not re-climbed to, the
-     * frontier is proven stale, dropped, and re-seeded from the live event.
+     * the dead generation's anchor back on the frontier. Here the
+     * conversation's watermark IS the abandoned ceiling (a single-conversation
+     * daemon), and the racing anchor is tagged with the pre-reset generation.
+     * The next live event trails that poisoned frontier; because the frontier
+     * is dated to an older generation than the live stream (and additionally
+     * sits at the abandoned ceiling), it is proven stale, dropped, and
+     * re-seeded from the live event.
      */
     // GIVEN a warm cursor from the pre-restart generation
     globalCursor = 907779;
@@ -764,8 +777,8 @@ describe("sse-event-consumer — stale seq-generation recovery", () => {
     const consumer = createSseEventConsumer(deps);
 
     // WHEN the first event of the new (lower) seq space arrives, the client
-    // observes the generation reset — cursor replaced, frontiers cleared,
-    // and the abandoned ceiling (907779) recorded
+    // observes the generation reset — cursor replaced, frontiers cleared, the
+    // abandoned ceiling (907779) recorded, and the seq generation advanced
     consumer.handleSseEvent(
       makeEnvelope({
         conversationId: "conv-1",
@@ -774,10 +787,11 @@ describe("sse-event-consumer — stale seq-generation recovery", () => {
       }),
     );
     expect(abandonedGenerationCeiling).toBe(907779);
+    expect(seqGeneration).toBe(1);
 
-    // AND a `/messages` request that raced the reset re-poisons the frontier
-    // with the dead generation's anchor
-    recordLocalSeq("conv-1", 907779);
+    // AND a `/messages` request that raced the reset (issued in the pre-reset
+    // generation 0) re-poisons the frontier with the dead generation's anchor
+    recordLocalSeq("conv-1", 907779, 0);
 
     // AND the next live event arrives contiguously, trailing the poisoned
     // frontier by far more than the ring
@@ -800,9 +814,116 @@ describe("sse-event-consumer — stale seq-generation recovery", () => {
     );
   });
 
+  test("a stale /messages anchor BELOW the abandoned ceiling (multi-conversation) is recovered by the generation tag", () => {
+    /**
+     * In a multi-conversation daemon `/messages` returns the conversation's
+     * own persisted watermark (`conversations.seq`), which can sit BELOW the
+     * global abandoned ceiling whenever another conversation emitted the later
+     * pre-reset seqs. A value-only ceiling comparison (`localSeq >= ceiling`)
+     * cannot identify such an anchor as dead, so a live event through the anchor
+     * would drop as a replay and wedge the transcript until the counter
+     * re-climbs past it. The generation tag is the signal that proves it stale:
+     * the racing anchor carries the pre-reset generation, so it is dead by
+     * construction even though its value is under the ceiling, and the frontier
+     * recovers.
+     */
+    // GIVEN the client had reached global seq 1000 (another conversation held
+    // the later seqs; conv-1's own watermark is 900)
+    globalCursor = 1000;
+    const { deps, handleStreamEvent } = makeDeps({
+      activeConversationId: "conv-1",
+    });
+    const consumer = createSseEventConsumer(deps);
+
+    // WHEN the counter resets to 10 — reset observed, ceiling 1000 recorded,
+    // generation advanced to 1, frontiers cleared, reset event applied
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 10,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+    expect(abandonedGenerationCeiling).toBe(1000);
+    expect(seqGeneration).toBe(1);
+
+    // AND a `/messages` request that raced the reset (issued in generation 0)
+    // re-applies conv-1's old persisted anchor 900 — BELOW the ceiling
+    recordLocalSeq("conv-1", 900, 0);
+    expect(getLocalSeq("conv-1")).toBe(900);
+
+    // AND the next live event arrives contiguously at seq 11, trailing the
+    // poisoned frontier (900) though the ceiling check would never fire
+    // (900 < 1000)
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 11,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+
+    // THEN the stale frontier is cleared by the generation tag and the live
+    // event applies — the stream is not wedged behind the below-ceiling anchor
+    expect(handleStreamEvent).toHaveBeenCalledTimes(2);
+    expect(getLocalSeq("conv-1")).toBe(11);
+    expect(recordDiagnosticMock).toHaveBeenCalledWith(
+      "sse_local_seq_stale_generation",
+      expect.objectContaining({ eventSeq: 11, localSeq: 900 }),
+    );
+  });
+
+  test("a post-reset anchor at the ceiling (current-generation tag) is still recovered by the ceiling check", () => {
+    /**
+     * A snapshot fetched AFTER the reset carries the current generation, so
+     * the generation tag can't date it as stale — yet `conversations.seq` is
+     * monotonic, so it can still return the pre-reset watermark until the new
+     * generation re-climbs past it. When that watermark IS the abandoned
+     * ceiling (single-conversation daemon), the ceiling check clears it: this
+     * is the dead-anchor shape the generation tag cannot see, which is why the
+     * guard needs both signals.
+     */
+    // GIVEN the client reaches global seq 1000, then observes the reset to 10
+    globalCursor = 1000;
+    const { deps, handleStreamEvent } = makeDeps({
+      activeConversationId: "conv-1",
+    });
+    const consumer = createSseEventConsumer(deps);
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 10,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+    expect(seqGeneration).toBe(1);
+
+    // AND a post-reset reconcile (issued in the CURRENT generation 1) re-applies
+    // the monotonic watermark still stuck at the ceiling 1000
+    recordLocalSeq("conv-1", 1000, 1);
+
+    // WHEN the next live event trails that frontier
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 11,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+
+    // THEN the generation tag can't help (same generation), but the ceiling
+    // check clears it — the live event applies
+    expect(handleStreamEvent).toHaveBeenCalledTimes(2);
+    expect(getLocalSeq("conv-1")).toBe(11);
+    expect(recordDiagnosticMock).toHaveBeenCalledWith(
+      "sse_local_seq_stale_generation",
+      expect.objectContaining({ eventSeq: 11, localSeq: 1000 }),
+    );
+  });
+
   test("a large snapshot overlap with no generation reset is an idempotent replay, not a stale generation", () => {
     /**
-     * The false-positive Codex flagged: a `/messages` reseed or reconcile
+     * The benign false-positive case: a `/messages` reseed or reconcile
      * advances the frontier far past the live cursor during a bursty turn
      * or a main-thread stall, so the queued live backlog trails it by more
      * than the ring — WITHOUT any daemon reset. Those events are contained
@@ -826,11 +947,12 @@ describe("sse-event-consumer — stale seq-generation recovery", () => {
     );
 
     // AND a bursty-turn snapshot that jumps the frontier far ahead of the
-    // live cursor (no generation reset — the abandoned ceiling stays null).
-    // Only the seed has dispatched so far.
+    // live cursor (no generation reset — the abandoned ceiling stays null and
+    // the anchor carries the current generation 0). Only the seed dispatched.
     const frontier = base + SSE_REPLAY_RING_COUNT_LIMIT + 50;
-    recordLocalSeq("conv-1", frontier);
+    recordLocalSeq("conv-1", frontier, 0);
     expect(abandonedGenerationCeiling).toBeNull();
+    expect(seqGeneration).toBe(0);
     expect(handleStreamEvent).toHaveBeenCalledTimes(1);
 
     // WHEN a queued live frame, contiguous with the cursor, trails the
@@ -877,12 +999,15 @@ describe("sse-event-consumer — stale seq-generation recovery", () => {
      * overlap. A reset earlier in a long session must not permanently arm
      * the stale-generation clear.
      */
-    // GIVEN a past reset whose ceiling the live cursor has since climbed past
+    // GIVEN a past reset (generation now 1) whose ceiling the live cursor has
+    // since climbed past
     abandonedGenerationCeiling = 1000;
     globalCursor = 1600;
-    // AND a snapshot that advanced the frontier ahead of the live cursor
+    seqGeneration = 1;
+    // AND a current-generation snapshot that advanced the frontier ahead of
+    // the live cursor
     const frontier = 1600 + SSE_REPLAY_RING_COUNT_LIMIT + 50;
-    recordLocalSeq("conv-1", frontier);
+    recordLocalSeq("conv-1", frontier, 1);
     const { deps, handleStreamEvent } = makeDeps({
       activeConversationId: "conv-1",
     });

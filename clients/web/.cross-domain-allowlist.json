@@ -14,6 +14,12 @@
   "src/domains/chat/in-chat-onboarding/tour-telemetry.ts": [
     "onboarding"
   ],
+  "src/domains/chat/surface-actions.test.ts": [
+    "onboarding"
+  ],
+  "src/domains/chat/surface-actions.ts": [
+    "onboarding"
+  ],
   "src/domains/home/home-page.tsx": [
     "settings"
   ],

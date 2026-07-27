@@ -1395,14 +1395,18 @@ describe("sanitizePluginName", () => {
     expect(sanitizePluginName("a")).toBe("a");
   });
 
-  test.each(["default-advisor", "default-memory", "default-", "default-x"])(
-    "rejects reserved prefix name %p",
-    (reserved) => {
-      expect(() => sanitizePluginName(reserved)).toThrow(
-        InvalidPluginNameError,
-      );
-    },
-  );
+  test.each([
+    "default-advisor",
+    "default-memory",
+    "default-",
+    "default-x",
+    "vellum-db",
+    "vellum-memory",
+    "vellum-",
+    "vellum-x",
+  ])("rejects reserved prefix name %p", (reserved) => {
+    expect(() => sanitizePluginName(reserved)).toThrow(InvalidPluginNameError);
+  });
 });
 
 describe("resolveTreeRefPath", () => {

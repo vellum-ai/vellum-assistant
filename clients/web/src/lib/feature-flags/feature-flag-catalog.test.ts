@@ -35,6 +35,16 @@ describe("feature flag catalog", () => {
     );
   });
 
+  test("exposes the billing CTA experiment as a client string flag", () => {
+    expect(CLIENT_STRING_FLAG_DEFAULTS.experimentBillingCta20260723).toBe(
+      "control",
+    );
+    expect("experimentBillingCta20260723" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("experimentBillingCta20260723" in ASSISTANT_FLAG_DEFAULTS).toBe(
+      false,
+    );
+  });
+
   test("exposes proactive tips as a client string flag defaulted off", () => {
     expect(CLIENT_STRING_FLAG_DEFAULTS.proactiveTips).toBe("off");
     expect("proactiveTips" in CLIENT_FLAG_DEFAULTS).toBe(false);

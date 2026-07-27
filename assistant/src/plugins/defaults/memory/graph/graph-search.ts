@@ -261,13 +261,14 @@ export async function embedGraphTriggerJob(
   }
 
   // Import here to avoid circular dependency
-  const { getDb } = await import("../../../../persistence/db-connection.js");
+  const { memoryDbOrNull } = await import("../memory-db.js");
   const { eq } = await import("drizzle-orm");
   const { memoryGraphTriggers } =
     await import("../../../../persistence/schema/index.js");
   const { embedWithBackend } = await import("../embeddings.js");
 
-  const db = getDb();
+  const db = memoryDbOrNull("embedGraphTriggerJob");
+  if (!db) return;
   const row = db
     .select()
     .from(memoryGraphTriggers)

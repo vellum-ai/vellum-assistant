@@ -17,6 +17,7 @@ import {
   extractErrorMessage,
 } from "@/utils/api-errors";
 import { recordDiagnostic } from "@/lib/diagnostics";
+import { getSeqGeneration } from "@/lib/streaming/reconnect-cursor";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
@@ -90,6 +91,12 @@ async function fetchPaginatedHistory(
   assistantId: string,
   query: HistoryQuery,
 ): Promise<PaginatedHistoryResult> {
+  // Capture the seq generation at request-ISSUE time: if the daemon's counter
+  // resets while this fetch is in flight, the watermark it returns belongs to
+  // the abandoned generation. Stamping the page with the issue-time generation
+  // lets the snapshot-anchor frontier be tagged accordingly (see
+  // `use-conversation-history`), so the stale-frontier guard can clear it.
+  const seqGeneration = getSeqGeneration();
   const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query,
@@ -111,7 +118,10 @@ async function fetchPaginatedHistory(
     throw new ApiError(response.status, message);
   }
 
-  const result = parsePaginatedResponse(data);
+  const result: PaginatedHistoryResult = {
+    ...parsePaginatedResponse(data),
+    seqGeneration,
+  };
   recordDiagnostic("history_page_fetch", {
     assistantId,
     query,

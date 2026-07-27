@@ -115,10 +115,14 @@ mock.module("./trust-store.js", () => ({
   onRulesChanged: () => {},
 }));
 
-// Mock workspace policy.
+// Mock workspace policy. Spread the real module so pure path helpers
+// (resolveSandboxBase) keep their real behavior for param building.
+const realWorkspacePolicy = await import("./workspace-policy.js");
 let mockIsPathWithinWorkspaceRoot = true;
 mock.module("./workspace-policy.js", () => ({
+  ...realWorkspacePolicy,
   isWorkspaceScopedInvocation: () => false,
+  isOutOfWorkspaceFileInvocation: () => false,
   isPathWithinWorkspaceRoot: () => mockIsPathWithinWorkspaceRoot,
 }));
 
@@ -143,9 +147,13 @@ mock.module("../tools/network/url-safety.js", () => ({
 import type { ClassificationResult } from "./ipc-risk-types.js";
 
 let mockIpcClassifyRiskResult: ClassificationResult | undefined;
+let lastClassifyRiskParams: Record<string, unknown> | undefined;
 
 mock.module("../ipc/gateway-client.js", () => ({
-  ipcClassifyRisk: async () => mockIpcClassifyRiskResult,
+  ipcClassifyRisk: async (params: Record<string, unknown>) => {
+    lastClassifyRiskParams = params;
+    return mockIpcClassifyRiskResult;
+  },
   ipcCall: async () => undefined,
   ipcCallPersistent: async () => undefined,
   resetPersistentClient: () => {},
@@ -155,6 +163,7 @@ mock.module("../ipc/gateway-client.js", () => ({
 
 import {
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   unlinkSync,
@@ -180,6 +189,7 @@ describe("Permission Checker (gateway IPC)", () => {
   beforeEach(() => {
     mockIsContainerized = false;
     mockIpcClassifyRiskResult = undefined;
+    lastClassifyRiskParams = undefined;
     mockCachedThreshold = "low";
     mockRefreshedThreshold = null;
     mockProcToSkillsActive = true;
@@ -244,6 +254,70 @@ describe("Permission Checker (gateway IPC)", () => {
       await expect(classifyRisk("bash", { command: "ls" })).rejects.toThrow(
         /Gateway IPC classify_risk failed/,
       );
+    });
+
+    test("sends canonicalized boundary params for sandbox file tools", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "File write outside the workspace",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const workingDir = mkdtempSync(join(tmpdir(), "checker-boundary-"));
+      try {
+        await classifyRisk(
+          "file_write",
+          { path: "/tmp/checker-boundary-outside.txt" },
+          workingDir,
+        );
+        expect(lastClassifyRiskParams?.isContainerized).toBe(false);
+        // The boundary is canonicalized so the gateway compares canonical
+        // against canonical (macOS tmpdir lives behind a /var symlink).
+        expect(lastClassifyRiskParams?.resolvedWorkingDir).toBe(
+          realpathSync(workingDir),
+        );
+      } finally {
+        rmSync(workingDir, { recursive: true, force: true });
+      }
+    });
+
+    test("classifies a dangling symlink by its destination", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "File write outside the workspace",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const workingDir = realpathSync(
+        mkdtempSync(join(tmpdir(), "checker-dangling-")),
+      );
+      const outside = realpathSync(
+        mkdtempSync(join(tmpdir(), "checker-dangling-out-")),
+      );
+      try {
+        const destination = join(outside, "not-yet.txt");
+        symlinkSync(destination, join(workingDir, "dangle"));
+        await classifyRisk("file_write", { path: "dangle" }, workingDir);
+        // The destination does not exist, but a write through the link
+        // creates it — classification must see the destination.
+        expect(lastClassifyRiskParams?.resolvedPath).toBe(destination);
+      } finally {
+        rmSync(workingDir, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    test("omits the canonicalized boundary for host file tools", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "Host file write (default)",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      await classifyRisk("host_file_write", {
+        path: "/tmp/checker-boundary-host.txt",
+      });
+      expect(lastClassifyRiskParams?.resolvedWorkingDir).toBeUndefined();
     });
 
     test("caches results for identical inputs", async () => {

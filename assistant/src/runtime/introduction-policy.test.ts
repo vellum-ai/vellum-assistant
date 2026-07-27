@@ -156,6 +156,14 @@ describe("introduction action lists", () => {
     expect(actions[0].label).toBe("Verify with a code");
     expect(actions[1].label).toBe("Trust anyway");
   });
+
+  test("leave_unverified is labeled 'Leave unverified' (the silent park)", () => {
+    const leaveUnverifiedLabel = buildIntroductionActions(
+      "slack",
+      SLACK_MEMBER,
+    ).find((a) => a.id === "leave_unverified")?.label;
+    expect(leaveUnverifiedLabel).toBe("Leave unverified");
+  });
 });
 
 describe("binding strength", () => {

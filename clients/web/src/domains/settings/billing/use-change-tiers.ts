@@ -50,9 +50,17 @@ export interface ChangeTiersResult {
    * A resource dimension grew and persisted — a storage upgrade or a machine
    * upgrade — so the assistant must provision the new compute/disk and the
    * caller opens the resize takeover. A machine downgrade, a credit-only
-   * change, or a no-op leaves this false.
+   * change, or a no-op leaves this false. Credits are kept out of it so
+   * downstream resize logic stays keyed on "the assistant must provision".
    */
   needsResize: boolean;
+  /**
+   * The credit bundle changed and persisted. Reported alongside `needsResize`
+   * so the caller can surface the takeover for a credit-only change (a readable
+   * confirmation moment) even though no compute/disk provisioning is owed.
+   * False for a machine/storage-only change or a no-op.
+   */
+  creditChanged: boolean;
 }
 
 export interface UseChangeTiersResult {
@@ -251,7 +259,7 @@ export function useChangeTiers({
     // Nothing diverged from the current config — treat as a successful no-op so
     // the caller closes the modal without opening the resize takeover.
     if (pending.length === 0) {
-      return { needsResize: false };
+      return { needsResize: false, creditChanged: false };
     }
 
     const results = await Promise.all(pending);
@@ -270,6 +278,11 @@ export function useChangeTiers({
       (r) => r.ok && r.dimension === "storage",
     );
     const needsResize = machineUpgradeSucceeded || storageSucceeded;
+    // A persisted credit-bundle change surfaces the takeover without owing any
+    // compute/disk provisioning, so it is tracked apart from `needsResize`.
+    const creditSucceeded = results.some(
+      (r) => r.ok && r.dimension === "credit",
+    );
 
     const failures = results.filter((r) => !r.ok);
     if (failures.length > 0) {
@@ -282,14 +295,16 @@ export function useChangeTiers({
         )
         .join(" ");
       toast.error(message);
-      // A resource dimension can persist server-side even when another one
-      // fails, so still surface the resize takeover to provision it; the caller
+      // A resource or credit dimension can persist server-side even when another
+      // one fails, so still surface the takeover for what landed; the caller
       // closes the modal. Only when nothing landed do we return null to hold the
       // modal open for a retry.
-      return needsResize ? { needsResize: true } : null;
+      return needsResize || creditSucceeded
+        ? { needsResize, creditChanged: creditSucceeded }
+        : null;
     }
 
-    return { needsResize };
+    return { needsResize, creditChanged: creditSucceeded };
   };
 
   return { changeTiers, isPending, current, eligible, currentReady };

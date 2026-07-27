@@ -1,5 +1,6 @@
 import { isAnalyticsEnabled } from "@/domains/onboarding/prefs";
 import { postTelemetryEvents } from "@/lib/telemetry/ingest";
+import type { FirstRunScope } from "@/domains/onboarding/first-run-scope";
 import type { ResearchStep } from "@/domains/onboarding/research-onboarding-persistence";
 
 export const ONBOARDING_FUNNEL_VERSION = "onboarding_v3_2026_05";
@@ -94,6 +95,20 @@ export const RESEARCH_CHECKIN_CALENDAR_ATTRIBUTION = "research_checkin";
 export const RESEARCH_ONBOARDING_CHECKIN_STEP = {
   stepName: "research_checkin_open",
   stepIndex: 11,
+} as const satisfies OnboardingFunnelStepDescriptor;
+
+/**
+ * The first-run scope option click. Like the check-in event above, it rides
+ * RESEARCH_ONBOARDING_FUNNEL_VERSION but fires after the flow ends — from the
+ * chat surface-action path when the user clicks one of the work / personal /
+ * both options the "Let's chat" greeting renders (see `first-run-scope.ts`) —
+ * so it lives outside RESEARCH_ONBOARDING_FUNNEL_STEPS and takes the next free
+ * index. The chosen scope rides `screen`, the same dimension-in-`screen`
+ * pattern the tips and tour funnels use.
+ */
+export const FIRST_MESSAGE_SCOPE_STEP = {
+  stepName: "first_message_scope_selected",
+  stepIndex: 13,
 } as const satisfies OnboardingFunnelStepDescriptor;
 
 /**
@@ -231,6 +246,27 @@ export function emitResearchOnboardingCheckinCalendarOpened(
   emitOnboardingFunnelStepCompleted(RESEARCH_ONBOARDING_CHECKIN_STEP, {
     userId: options.userId,
     funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
+    outcome: "completed",
+  });
+}
+
+/**
+ * Emit the first-run scope option click. The chosen scope rides the event's
+ * `screen` field — the same dimension-in-`screen` pattern the tips and tour
+ * funnels use — so analysts read the scope from `screen`, not `step_name`.
+ * Stamped with the research funnel version and `control` variant like the
+ * in-flow steps, so click-through rate is derivable against their completion
+ * rows in the same funnel. `userId` keys the row to the clicking user; when
+ * unavailable the event still emits with `user_id: null`.
+ */
+export function emitFirstMessageScopeSelected(
+  scope: FirstRunScope,
+  options: { userId?: string | null } = {},
+): void {
+  emitOnboardingFunnelStepCompleted(FIRST_MESSAGE_SCOPE_STEP, {
+    userId: options.userId,
+    funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
+    screen: scope,
     outcome: "completed",
   });
 }

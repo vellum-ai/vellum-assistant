@@ -3,35 +3,12 @@ import { describe, expect, test } from "bun:test";
 import { THRESHOLD_PRESETS } from "@/utils/threshold-presets";
 
 import {
+  bucketDefaultFromCells,
   CAPABILITY_TIER_META,
   CAPABILITY_TIER_VALUES,
-  resolveChannelTier,
   tierOverridesFromCells,
   type ChannelTierCell,
 } from "./slack-channel-overrides";
-
-describe("resolveChannelTier", () => {
-  test("no cell resolves to an unset tier — the global setting applies, not a hardcoded default", () => {
-    expect(resolveChannelTier(undefined)).toEqual({
-      tier: null,
-      overridden: false,
-    });
-  });
-
-  test("a persisted cell flags the row as custom", () => {
-    expect(resolveChannelTier("low")).toEqual({
-      tier: "low",
-      overridden: true,
-    });
-  });
-
-  test("a high cell is still an override — it pins the channel above the global cascade", () => {
-    expect(resolveChannelTier("high")).toEqual({
-      tier: "high",
-      overridden: true,
-    });
-  });
-});
 
 describe("tier ↔ preset parity", () => {
   test("tiers are the global presets' thresholds, in preset order", () => {
@@ -57,15 +34,15 @@ describe("CAPABILITY_TIER_META", () => {
     expect(CAPABILITY_TIER_META.high.tone).toBe("positive");
   });
 
-  test("sublabels use the behavior framing, not tool inventory", () => {
-    expect(CAPABILITY_TIER_META.none.sublabel).toBe("ask before every action");
-    expect(CAPABILITY_TIER_META.low.sublabel).toBe(
-      "low-risk actions, ask for the rest",
-    );
-    expect(CAPABILITY_TIER_META.medium.sublabel).toBe(
-      "beyond its workspace too",
-    );
-    expect(CAPABILITY_TIER_META.high.sublabel).toBe("acts freely");
+  // The tier only gates non-sensitive lookup tools — every side-effect tool
+  // (file writes, bash) and every host tool (MCP, messaging, phone) escalates
+  // to the owner at any tier via the capability floor. So the sublabels stay on
+  // one axis, lookup depth, and none of them may imply free action.
+  test("sublabels all sit on the lookup-depth axis", () => {
+    expect(CAPABILITY_TIER_META.none.sublabel).toBe("asks every time");
+    expect(CAPABILITY_TIER_META.low.sublabel).toBe("safe lookups");
+    expect(CAPABILITY_TIER_META.medium.sublabel).toBe("broader lookups");
+    expect(CAPABILITY_TIER_META.high.sublabel).toBe("any lookup");
   });
 });
 
@@ -125,5 +102,60 @@ describe("tierOverridesFromCells", () => {
       "slack",
     );
     expect(overrides).toEqual({ C1: "high" });
+  });
+});
+
+describe("bucketDefaultFromCells", () => {
+  const adapterCell = (
+    adapter: string,
+    threshold: ChannelTierCell["threshold"],
+    contactType = "trusted_contact",
+  ): ChannelTierCell => ({
+    selector: { scope: "adapter", adapter },
+    contactType,
+    threshold,
+  });
+
+  const dmCell = (
+    adapter: string,
+    threshold: ChannelTierCell["threshold"],
+    contactType = "trusted_contact",
+  ): ChannelTierCell => ({
+    selector: { scope: "channel_type", adapter, channelType: "dm" },
+    contactType,
+    threshold,
+  });
+
+  test("reads the adapter-scope cell as the 'channels' default", () => {
+    const cells = [adapterCell("slack", "medium")];
+    expect(bucketDefaultFromCells(cells, "slack", "channels")).toBe("medium");
+    expect(bucketDefaultFromCells(cells, "slack", "dm")).toBeUndefined();
+  });
+
+  test("reads the channel_type:dm cell as the 'dm' default", () => {
+    const cells = [dmCell("slack", "none")];
+    expect(bucketDefaultFromCells(cells, "slack", "dm")).toBe("none");
+    expect(bucketDefaultFromCells(cells, "slack", "channels")).toBeUndefined();
+  });
+
+  test("ignores other adapters and non-dm channel types", () => {
+    const cells: ChannelTierCell[] = [
+      adapterCell("telegram", "high"),
+      {
+        selector: { scope: "channel_type", adapter: "slack", channelType: "private" },
+        contactType: "trusted_contact",
+        threshold: "high",
+      },
+    ];
+    expect(bucketDefaultFromCells(cells, "slack", "channels")).toBeUndefined();
+    expect(bucketDefaultFromCells(cells, "slack", "dm")).toBeUndefined();
+  });
+
+  test("trusted_contact is representative when contact types diverge", () => {
+    const cells = [
+      adapterCell("slack", "none", "unknown"),
+      adapterCell("slack", "medium", "trusted_contact"),
+    ];
+    expect(bucketDefaultFromCells(cells, "slack", "channels")).toBe("medium");
   });
 });

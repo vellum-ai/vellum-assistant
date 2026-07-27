@@ -164,6 +164,15 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
     >;
     expect(webSearchRaw.mode).not.toBe("managed");
 
+    // image-generation's managed axis is its provider: the seeded value is
+    // the platform fill "vellum", never an injected managed mode.
+    const imageGenRaw = (servicesRaw["image-generation"] ?? {}) as Record<
+      string,
+      unknown
+    >;
+    expect(imageGenRaw.provider).toBe("vellum");
+    expect(imageGenRaw.mode).not.toBe("managed");
+
     // Regression guard: on the NEXT load (config.json now exists with the
     // provider leaf absent), the platform default re-applies in memory rather
     // than being lost to a persisted "auto" read back as an explicit choice.

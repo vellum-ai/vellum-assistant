@@ -82,11 +82,12 @@
  *   advances the frontier far past the live cursor (a bursty turn or a
  *   main-thread stall), so a large under-frontier gap is an ordinary
  *   idempotent replay — dropped, frontier held. The exception is a
- *   stale-generation anchor (a snapshot of a pre-reset seq space recorded
- *   onto the frontier by a `/messages` request that raced a counter
- *   reset): provable only inside the re-climb window of an observed
- *   generation reset, where the frontier is dropped and re-seeded from the
- *   live event rather than allowed to swallow the stream.
+ *   stale-generation anchor (a `/messages` watermark from a pre-reset seq
+ *   space): each frontier is tagged with the seq generation its value
+ *   belongs to, so a frontier from an older generation is dead by
+ *   construction — dropped and re-seeded from the live event rather than
+ *   allowed to swallow the stream. See the stale-frontier guard for the two
+ *   provable dead-anchor shapes it recognises.
  *
  * Reconnect handling:
  *   On reconnect the transport sends the cursor as `lastSeenSeq` and
@@ -108,13 +109,16 @@ import { recordDiagnostic } from "@/lib/diagnostics";
 import {
   clearLocalSeq,
   getLocalSeq,
+  getLocalSeqGeneration,
   recordLocalSeq,
   resetLocalSeqs,
 } from "@/lib/streaming/local-seq";
 import {
   advanceReconnectCursor,
+  advanceSeqGeneration,
   getAbandonedGenerationCeiling,
   getReconnectCursor,
+  getSeqGeneration,
   recordAbandonedGeneration,
   replaceReconnectCursor,
 } from "@/lib/streaming/reconnect-cursor";
@@ -206,11 +210,15 @@ export function createSseEventConsumer(
             observed: eventSeq,
           });
           replaceReconnectCursor(eventSeq);
-          // Remember the abandoned generation's ceiling so the stale-frontier
-          // guard below can tell a dead-generation anchor (recorded from a
-          // `/messages` snapshot that raced this reset) from an ordinary
-          // large snapshot overlap.
+          // Remember the abandoned generation's ceiling and advance the seq
+          // generation so the stale-frontier guard below can tell a
+          // dead-generation anchor (recorded from a `/messages` snapshot that
+          // raced this reset) from an ordinary large snapshot overlap. The
+          // generation tag catches a stale anchor whose value sits BELOW the
+          // ceiling (a multi-conversation daemon's per-conversation watermark);
+          // the ceiling still catches one AT it (see the guard).
           recordAbandonedGeneration(stored);
+          advanceSeqGeneration();
           resetLocalSeqs();
           gapDeferred = true;
           // Fire-and-forget: cursor is already replaced above (the old
@@ -332,9 +340,10 @@ export function createSseEventConsumer(
           // Advance the per-conversation frontier once the event is
           // applied so the snapshot/stream merge knows how far the
           // stream has carried this conversation, and so a later replay
-          // of this seq is recognised as a no-op above.
+          // of this seq is recognised as a no-op above. A live event's seq
+          // is always in the current generation, so tag the frontier with it.
           // `recordLocalSeq` ignores a null/undefined seq itself.
-          recordLocalSeq(eventConversationId, eventSeq);
+          recordLocalSeq(eventConversationId, eventSeq, getSeqGeneration());
         };
         if (
           eventSeq != null &&
@@ -358,21 +367,38 @@ export function createSseEventConsumer(
           // delta/completion handlers and duplicate or roll back chat state.
           // Gap SIZE is therefore not the signal.
           //
-          // The frontier is genuinely new content — a stale-generation
-          // anchor recorded by a `/messages` request that raced the daemon's
-          // counter reset — only inside the re-climb window of an OBSERVED
-          // generation reset: the reset abandoned a seq ceiling the live
-          // cursor has not yet climbed back to, and the frontier sits at or
-          // above it. There, a replay drop would silently swallow every live
-          // event until the counter re-passes the stale anchor, so clear the
-          // frontier and apply the live event as the new frontier instead.
+          // The frontier is genuinely a dead-generation anchor — a `/messages`
+          // watermark recorded against a pre-reset seq space — in two provable
+          // shapes, both scoped to an OBSERVED generation reset:
+          //   (a) the frontier was recorded under an older seq generation than
+          //       the live stream now runs in. `conversations.seq` is a
+          //       per-conversation watermark, so a request that raced the reset
+          //       lands a value BELOW the global abandoned ceiling in a
+          //       multi-conversation daemon; the generation tag catches it
+          //       where a ceiling comparison cannot.
+          //   (b) the frontier sits at or above the abandoned ceiling the live
+          //       cursor has not yet re-climbed to — a stale watermark a
+          //       post-reset snapshot re-applied at the ceiling (the
+          //       conversation whose watermark IS the global ceiling, e.g. a
+          //       single-conversation daemon), which (a) cannot see because the
+          //       post-reset request was issued in the current generation.
+          // In both, a replay drop would silently swallow every live event
+          // until the counter re-passes the stale anchor, so clear the frontier
+          // and apply the live event as the new frontier instead. A benign
+          // same-generation overlap satisfies neither (its generation is
+          // current and, during any re-climb, its value stays below the
+          // ceiling), so it still drops as a replay.
+          const frontierGeneration = getLocalSeqGeneration(eventConversationId);
+          const currentGeneration = getSeqGeneration();
           const abandonedCeiling = getAbandonedGenerationCeiling();
           const liveCursor = getReconnectCursor();
           const frontierFromDeadGeneration =
-            abandonedCeiling != null &&
-            liveCursor != null &&
-            liveCursor < abandonedCeiling &&
-            localSeq >= abandonedCeiling;
+            (frontierGeneration != null &&
+              frontierGeneration < currentGeneration) ||
+            (abandonedCeiling != null &&
+              liveCursor != null &&
+              liveCursor < abandonedCeiling &&
+              localSeq >= abandonedCeiling);
           if (frontierFromDeadGeneration) {
             recordDiagnostic("sse_local_seq_stale_generation", seqDiagnostic);
             clearLocalSeq(eventConversationId);

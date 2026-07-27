@@ -1,16 +1,18 @@
 /**
- * Assistant Events -- shared envelope type, SSE framing helpers, and the
+ * Assistant Events -- generic SSE envelope, framing helpers, and the
  * daemon-side specialization.
  *
  * The generic `BaseAssistantEvent<TMessage>` envelope and its framing
- * helpers carry no daemon imports. This file pins the generic payload to
- * the daemon-side `ServerMessage` union so existing callers continue to get
- * full discriminated-union narrowing.
+ * helpers carry no daemon imports. The daemon-side `AssistantEvent` type and
+ * `buildAssistantEvent` builder pin the payload to the canonical
+ * `AssistantEvent` message union (`z.infer<AssistantEventSchema>`), so callers
+ * get full discriminated-union narrowing. The concrete envelope shape is the
+ * canonical `AssistantEventEnvelope` from `../api`.
  */
 
 import { randomUUID } from "node:crypto";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
 
 // -- Generic base --------------------------------------------------------------
 
@@ -37,24 +39,6 @@ interface BaseAssistantEvent<TMessage = unknown> {
   emittedAt: string;
   /** Outbound message payload. */
   message: TMessage;
-}
-
-/**
- * Construct a `BaseAssistantEvent` envelope around a message payload.
- *
- * @param message         The outbound message payload.
- * @param conversationId  Optional conversation id -- pass when known.
- */
-function baseBuildAssistantEvent<TMessage>(
-  message: TMessage,
-  conversationId?: string,
-): BaseAssistantEvent<TMessage> {
-  return {
-    id: randomUUID(),
-    conversationId,
-    emittedAt: new Date().toISOString(),
-    message,
-  };
 }
 
 // -- SSE framing ---------------------------------------------------------------
@@ -92,13 +76,18 @@ export function formatSseHeartbeat(): string {
 
 // -- Daemon-side specialization ------------------------------------------------
 
-/** Daemon-side specialization of the generic event envelope. */
-export type AssistantEvent = BaseAssistantEvent<ServerMessage>;
-
-/** Daemon-side wrapper preserving the original `ServerMessage`-typed signature. */
+/**
+ * Build a daemon event envelope (`AssistantEventEnvelope`) around an
+ * `AssistantEvent` message payload.
+ */
 export function buildAssistantEvent(
-  message: ServerMessage,
+  message: AssistantEvent,
   conversationId?: string,
-): AssistantEvent {
-  return baseBuildAssistantEvent<ServerMessage>(message, conversationId);
+): AssistantEventEnvelope {
+  return {
+    id: randomUUID(),
+    conversationId,
+    emittedAt: new Date().toISOString(),
+    message,
+  };
 }

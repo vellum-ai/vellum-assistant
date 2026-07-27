@@ -24,13 +24,13 @@ let lastGenerateCredentials: unknown = null;
 
 /**
  * Seed the image-generation service entry in the real workspace config.
- * Omitted fields fall back to the schema defaults (`mode: "your-own"`,
- * `provider: "gemini"`, model `gemini-3.1-flash-image-preview`).
+ * Omitted fields fall back to the schema defaults (`provider: "gemini"`,
+ * model `gemini-3.1-flash-image-preview`).
  */
 function seedImageGenService(
   overrides: {
-    mode?: "your-own" | "managed";
-    provider?: "gemini" | "openai";
+    provider?: "vellum" | "gemini" | "openai";
+    model?: string;
   } = {},
 ): void {
   setConfig("services", { "image-generation": overrides });
@@ -151,8 +151,8 @@ describe("image-studio skill script wrapper", () => {
     expect(result.content).toContain("No Gemini API key");
   });
 
-  test("managed mode uses managed proxy credentials", async () => {
-    seedImageGenService({ mode: "managed" });
+  test("provider vellum uses managed proxy credentials", async () => {
+    seedImageGenService({ provider: "vellum" });
     mockManagedBaseUrl = "https://platform.example.com/v1/runtime-proxy/gemini";
     mockManagedProxyContext = {
       enabled: true,
@@ -172,8 +172,59 @@ describe("image-studio skill script wrapper", () => {
     });
   });
 
-  test("managed mode returns error when managed proxy is unavailable", async () => {
-    seedImageGenService({ mode: "managed" });
+  test("provider vellum routes managed to the gemini proxy for gemini models", async () => {
+    seedImageGenService({ provider: "vellum" });
+    mockManagedProxyContext = {
+      enabled: true,
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "managed-key-123",
+    };
+
+    const result = await run({ prompt: "a hippo" }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(lastGenerateProvider).toBe("gemini");
+    expect(lastGenerateCredentials).toEqual({
+      type: "managed-proxy",
+      assistantApiKey: "managed-key-123",
+      baseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
+    });
+  });
+
+  test("provider vellum routes a gpt model to the openai proxy", async () => {
+    seedImageGenService({ provider: "vellum", model: "gpt-image-2" });
+    mockManagedProxyContext = {
+      enabled: true,
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "managed-key-123",
+    };
+
+    const result = await run({ prompt: "a hippo" }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(lastGenerateProvider).toBe("openai");
+    expect(lastGenerateCredentials).toEqual({
+      type: "managed-proxy",
+      assistantApiKey: "managed-key-123",
+      baseUrl: "https://platform.example.com/v1/runtime-proxy/openai",
+    });
+  });
+
+  test("provider vellum with no platform is a hard error, not a BYOK fallback", async () => {
+    // Billing rule: an explicit vellum choice never silently spends a stored
+    // provider key.
+    seedImageGenService({ provider: "vellum" });
+    mockGeminiKey = "gemini-key-should-not-be-used";
+
+    const result = await run({ prompt: "a hippo" }, fakeContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Managed proxy is not available");
+    expect(lastGenerateProvider).toBeNull();
+  });
+
+  test("provider vellum returns error when managed proxy is unavailable", async () => {
+    seedImageGenService({ provider: "vellum" });
     mockGeminiKey = "direct-key"; // should be ignored in managed mode
     mockManagedBaseUrl = undefined;
 
@@ -184,7 +235,7 @@ describe("image-studio skill script wrapper", () => {
   });
 
   test("your-own mode uses direct API key", async () => {
-    seedImageGenService({ mode: "your-own" });
+    seedImageGenService({ provider: "gemini" });
     mockGeminiKey = "direct-key";
     mockManagedBaseUrl = "https://platform.example.com/v1/runtime-proxy/gemini";
     mockManagedProxyContext = {
@@ -365,8 +416,8 @@ describe("image-studio skill script wrapper", () => {
     );
   });
 
-  test("managed mode credential error includes guidance not to change service config", async () => {
-    seedImageGenService({ mode: "managed" });
+  test("provider vellum credential error includes guidance not to change service config", async () => {
+    seedImageGenService({ provider: "vellum" });
     mockManagedBaseUrl = undefined;
 
     const result = await run({ prompt: "a cat" }, fakeContext);

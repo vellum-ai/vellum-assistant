@@ -10,13 +10,19 @@
 
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { assistantEventHub as pluginHub } from "../plugin-api/index.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub as rawHub } from "../runtime/assistant-event-hub.js";
+import { markCurrentProcessAsMainDaemon } from "../runtime/process-role.js";
+
+// The facade's `publish` fans out locally only in the daemon; elsewhere it
+// forwards over IPC. These assertions check local delivery, so mark this
+// process the main daemon.
+markCurrentProcessAsMainDaemon();
 
 /** Minimal event envelope; the facade guard keys only off `message.type`. */
-function envelope(type: string): AssistantEvent {
-  return { message: { type } } as unknown as AssistantEvent;
+function envelope(type: string): AssistantEventEnvelope {
+  return { message: { type } } as unknown as AssistantEventEnvelope;
 }
 
 function eventType(event: unknown): unknown {
@@ -24,7 +30,7 @@ function eventType(event: unknown): unknown {
 }
 
 /** Register a host-capable desktop client subscriber on the raw hub. */
-function subscribeHostClient(clientId: string, sink: AssistantEvent[]) {
+function subscribeHostClient(clientId: string, sink: AssistantEventEnvelope[]) {
   return rawHub.subscribe({
     type: "client",
     clientId,
@@ -65,11 +71,14 @@ describe("plugin-facing assistantEventHub facade", () => {
     const proto = Object.getPrototypeOf(pluginHub) as { publish?: unknown };
     expect(typeof proto?.publish).not.toBe("function");
 
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const sub = subscribeHostClient("facade-proto-client", received);
     try {
       const p = Object.getPrototypeOf(pluginHub) as {
-        publish?: (event: AssistantEvent, options?: unknown) => Promise<void>;
+        publish?: (
+          event: AssistantEventEnvelope,
+          options?: unknown,
+        ) => Promise<void>;
       } | null;
       await p?.publish?.call(pluginHub, envelope("host_bash_request"), {
         targetClientId: "facade-proto-client",
@@ -97,7 +106,7 @@ describe("plugin-facing assistantEventHub facade", () => {
   });
 
   test("snapshots the event so a mutating type getter cannot bypass the guard (Codex P1)", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const sub = subscribeHostClient("facade-toctou-client", received);
     try {
       // `message.type` reads benign first (what the guard would see) then turns
@@ -111,7 +120,7 @@ describe("plugin-facing assistantEventHub facade", () => {
           return reads === 1 ? "sync_changed" : "host_bash_request";
         },
       });
-      const sneaky = { message } as unknown as AssistantEvent;
+      const sneaky = { message } as unknown as AssistantEventEnvelope;
 
       await pluginHub.publish(sneaky, {
         targetClientId: "facade-toctou-client",
@@ -127,7 +136,7 @@ describe("plugin-facing assistantEventHub facade", () => {
   });
 
   test("freezes the published snapshot so a subscriber cannot mutate it mid-fanout (Codex P1)", async () => {
-    const hostReceived: AssistantEvent[] = [];
+    const hostReceived: AssistantEventEnvelope[] = [];
     // A malicious subscriber registered first tries to turn the in-flight event
     // into a host request before the host-capable client (registered after)
     // receives the same fanned-out object.
@@ -154,7 +163,7 @@ describe("plugin-facing assistantEventHub facade", () => {
   });
 
   test("rejects host events disguised as boxed strings (Codex P1)", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const sub = subscribeHostClient("facade-boxed-client", received);
     try {
       // `new String(...)` is typeof "object" (slipping a naive string guard) but
@@ -164,7 +173,7 @@ describe("plugin-facing assistantEventHub facade", () => {
       const boxedType = new String("host_bash_request");
       const boxed = {
         message: { type: boxedType },
-      } as unknown as AssistantEvent;
+      } as unknown as AssistantEventEnvelope;
       let rejected: unknown;
       try {
         await pluginHub.publish(boxed, {
@@ -183,7 +192,7 @@ describe("plugin-facing assistantEventHub facade", () => {
   });
 
   test("delegates non-host publish to the shared singleton", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     // Subscribe on the RAW hub, publish through the FACADE: delivery proves the
     // facade delegates to the same instance (shared subscriber state). The
     // delivered event is a snapshot, so it is compared by value, not identity.
@@ -214,7 +223,7 @@ describe("plugin-facing assistantEventHub facade", () => {
   });
 
   test("downgrades plugin client subscriptions to in-process (no host-event interception) (Codex P1)", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     // Ask for a host-capable client subscription; the facade must register a
     // process subscriber, which never receives capability-targeted host events.
     const sub = pluginHub.subscribe({
@@ -237,7 +246,7 @@ describe("plugin-facing assistantEventHub facade", () => {
   });
 
   test("isolates plugin callbacks so they cannot mutate the in-flight fanout event (Codex P1)", async () => {
-    const hostReceived: AssistantEvent[] = [];
+    const hostReceived: AssistantEventEnvelope[] = [];
     // The plugin subscribes first and, from its callback, tries to rewrite the
     // shared in-flight event into a host request. It must only see an isolated
     // copy, leaving the real client's event untouched.
@@ -292,7 +301,7 @@ describe("plugin-facing assistantEventHub facade", () => {
         {
           message: { type: "host_bash_request" },
           conversationId: "conv-1",
-        } as unknown as AssistantEvent,
+        } as unknown as AssistantEventEnvelope,
         { targetCapability: "host_bash" },
       );
       expect(getterCalls).toBe(callsAfterSubscribe);

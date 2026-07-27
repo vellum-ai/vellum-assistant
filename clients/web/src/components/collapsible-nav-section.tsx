@@ -9,6 +9,12 @@ import {
 } from "@vellumai/design-library/components/collapsible";
 import { cn } from "@vellumai/design-library/utils/cn";
 
+import {
+    SIDEBAR_CHIP_GAP,
+    SIDEBAR_CHIP_SIZE,
+    SIDEBAR_ROW_PADDING_X,
+} from "@/components/sidebar-nav-geometry";
+
 /**
  * Navigation-specific collapsible section — composes the design library
  * `Collapsible` primitive with sidebar-tuned trigger styling:
@@ -64,6 +70,12 @@ export interface CollapsibleNavSectionSectionProps
   label: string;
   trailing?: ReactNode;
   contextMenuContent?: ReactNode;
+  /**
+   * Activity indicator rendered inline in the header, but only while the
+   * section is collapsed — when open, the child rows show their own
+   * indicators, so a header dot would be redundant.
+   */
+  collapsedIndicator?: ReactNode;
   children?: ReactNode;
   contentClassName?: string;
   ref?: Ref<HTMLDivElement>;
@@ -75,6 +87,7 @@ function CollapsibleNavSectionSection({
   label,
   trailing,
   contextMenuContent,
+  collapsedIndicator,
   children,
   className,
   contentClassName,
@@ -83,18 +96,31 @@ function CollapsibleNavSectionSection({
 }: CollapsibleNavSectionSectionProps) {
   const headerEl = (
     <div data-slot="collapsible-nav-section-header" className="flex items-center justify-between">
+      {/* The horizontal geometry (padding, chip width, gap) is inline from
+          sidebar-nav-geometry at every breakpoint — the assistant cluster
+          shares it, so section icons and labels sit on the same axes as
+          the New Chat plus and the assistant eyes. Only the vertical
+          metrics grow on mobile. */}
       <Collapsible.Trigger
         className={cn(
-          "group h-[30px] max-md:h-auto gap-[4px] max-md:gap-[8px]",
-          "rounded-[6px] p-[6px] max-md:px-2 max-md:py-3",
+          "group h-[30px] max-md:h-auto",
+          "rounded-[6px] py-[6px] max-md:py-3",
           "text-left text-body-medium-default max-md:text-body-large-default",
           "text-[var(--content-tertiary)]",
         )}
+        style={{
+          paddingLeft: SIDEBAR_ROW_PADDING_X,
+          paddingRight: SIDEBAR_ROW_PADDING_X,
+          gap: SIDEBAR_CHIP_GAP,
+        }}
       >
-        <span className="relative inline-flex size-[14px] shrink-0 items-center justify-center">
+        <span
+          className="relative inline-flex h-[14px] shrink-0 items-center justify-center"
+          style={{ width: SIDEBAR_CHIP_SIZE }}
+        >
           {Icon ? (
             <Icon
-              size={14}
+              size={12}
               aria-hidden
               className={cn(
                 "absolute inset-0 m-auto transition-opacity",
@@ -104,7 +130,7 @@ function CollapsibleNavSectionSection({
             />
           ) : null}
           <ChevronRight
-            size={14}
+            size={12}
             aria-hidden
             className={cn(
               "absolute inset-0 m-auto transition-[opacity,transform]",
@@ -117,6 +143,11 @@ function CollapsibleNavSectionSection({
           />
         </span>
         <span className="min-w-0 flex-1 truncate">{label}</span>
+        {collapsedIndicator ? (
+          <span className="ml-1 flex shrink-0 items-center group-data-[state=open]:hidden">
+            {collapsedIndicator}
+          </span>
+        ) : null}
       </Collapsible.Trigger>
       {trailing ? (
         <span

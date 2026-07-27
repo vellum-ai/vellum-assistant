@@ -127,7 +127,7 @@ export { RiskLevel } from "./types.js";
 // Workspace-local plugins resolve these via the boot-time shim, which
 // re-binds each from the assistant's globalThis-parked namespace so they
 // share module identity with the assistant's own singletons.
-export type { AssistantEvent } from "../runtime/assistant-event.js";
+export type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
 export type {
   AssistantEventCallback,
   AssistantEventFilter,
@@ -144,12 +144,18 @@ export type {
 export type { PluginEventHub } from "./event-hub-facade.js";
 /**
  * @deprecated Direct hub access is being replaced by narrower, purpose-built
- * importable helpers (e.g. a plugin-driven publish wrapper) so plugins don't
- * hold the general publish/subscribe surface. Avoid new usage; prefer the
- * scoped helpers as they land.
+ * importable helpers so plugins don't hold the general publish/subscribe
+ * surface. To emit an event, prefer {@link publishEvent}; avoid new usage of
+ * the raw hub.
  */
 export { pluginAssistantEventHub as assistantEventHub } from "./event-hub-facade.js";
 export { getModelProfiles } from "./model-profiles.js";
+// Purpose-built publish wrapper: emit a runtime event to the assistant's event
+// hub without holding the general hub handle. Route/hook authors surfacing a UI
+// invalidation (e.g. `sync_changed`) import this. Delegates to the same
+// capability-restricted facade, so host-proxy control events stay rejected.
+export type { AssistantEventPublishOptions } from "../runtime/assistant-event-publish-options.js";
+export { publishEvent } from "./publish-event.js";
 // Check whether a model or profile can process image input. Accepts a concrete
 // model id, a profile key, or a `ModelProfileInfo`; a bare string is resolved
 // as a model id first and then as a profile key. Profile resolution merges over

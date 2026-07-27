@@ -10,6 +10,7 @@ import { v4 as uuid } from "uuid";
 
 import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import type { SlackInboundMessageMetadata } from "../runtime/http-types.js";
 import { parseJsonSafe } from "../util/json.js";
 import { isPlainObject } from "../util/object.js";
 import { selectSlackMetaCandidateMetadata } from "./conversation-crud.js";
@@ -110,7 +111,9 @@ function legacySlackConversationHasThreadEvidence(
       { includeFlatLegacy: true },
     );
 
-    if (metadataRows.length === 0) return false;
+    if (metadataRows.length === 0) {
+      return false;
+    }
     for (const metadata of metadataRows) {
       const slackMeta = readSlackMetadataFromMessageMetadata(metadata, {
         allowFlatLegacy: true,
@@ -123,7 +126,9 @@ function legacySlackConversationHasThreadEvidence(
       }
     }
 
-    if (metadataRows.length < batchLimit) return false;
+    if (metadataRows.length < batchLimit) {
+      return false;
+    }
     offset += metadataRows.length;
   }
 
@@ -308,7 +313,9 @@ export function findMessageBySourceId(
     )
     .get();
 
-  if (!row || !row.messageId) return null;
+  if (!row || !row.messageId) {
+    return null;
+  }
   return { messageId: row.messageId, conversationId: row.conversationId };
 }
 
@@ -436,6 +443,23 @@ export function storeReplyMessageId(
  */
 export function storeStreamedReplyTs(eventId: string, streamTs: string): void {
   mergeRawPayload(eventId, { slackStreamMessageTs: streamTs });
+}
+
+/**
+ * Persist the Slack inbound metadata captured at ingress onto the stored
+ * payload, so the retry sweep replays the turn with the SAME `slackInbound` the
+ * live path used rather than reconstructing a partial one. This keeps the
+ * derived idempotency key (`deriveIngressIdempotencyKey`) byte-identical across
+ * the live and replay paths — so a replay of an already-persisted turn dedups —
+ * and carries full `slackMeta` onto the replayed message row. No-ops when the
+ * payload was cleared (e.g. a secret-bearing ingress), so cleared secrets are
+ * never resurrected.
+ */
+export function storeInboundSlackMetadata(
+  eventId: string,
+  slackInbound: SlackInboundMessageMetadata,
+): void {
+  mergeRawPayload(eventId, { slackInbound });
 }
 
 /**

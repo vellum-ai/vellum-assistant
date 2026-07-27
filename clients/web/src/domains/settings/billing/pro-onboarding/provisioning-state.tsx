@@ -10,10 +10,10 @@ import {
 } from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import type { CreditTierEnum } from "@/generated/api/types.gen";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
-import { MACHINE_TIER_LABEL, SIZE_LABEL } from "@/lib/billing/machine-sizes";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
+import { SURFACE_GROUND } from "@/utils/avatar-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -22,12 +22,17 @@ import type {
   ProvisioningDimensions,
   ProvisioningStateKind,
 } from "./provisioning-machine";
-import { SERIF_HEADING_STYLE, type StalledApplyAction } from "./primitives";
+import { SERIF_HEADING_STYLE } from "./primitives";
 import {
   buildResourceChanges,
   type ResourceChangeKey,
 } from "./resource-changes";
-import { useProvisioningCredits } from "./use-provisioning-credits";
+import { TakeoverBackdrop } from "./takeover-backdrop";
+import {
+  useCreditTierLabel,
+  useProvisioningCredits,
+} from "./use-provisioning-credits";
+import { useTakeoverSurface } from "./use-takeover-surface";
 import { useRotatingIndex } from "./use-rotating-index";
 import { useHeldPhase } from "./use-held-phase";
 import {
@@ -36,9 +41,13 @@ import {
   PROVISION_PHASE_MIN_MS,
 } from "./utils";
 
-// The mock's takeover tint, matched to the green Vellum creature. No token
-// holds this, so it follows the plans-page PAGE_BACKGROUND raw-hex precedent.
-export const TAKEOVER_BACKGROUND = "#1D271E";
+// The takeover's paint, published as a custom property on the modal so the
+// takeover and the sheet that covers it on the way out resolve one value. The
+// fallback is the hue-neutral ground the surface holds until the avatar
+// resolves. It carries no space after the comma — happy-dom's inline-style
+// parser drops the whole declaration otherwise, so the tests can't see it.
+export const TAKEOVER_SURFACE_VAR = "--takeover-surface";
+export const TAKEOVER_SURFACE = `var(${TAKEOVER_SURFACE_VAR},${SURFACE_GROUND})`;
 
 const CHIP_BACKGROUND =
   "color-mix(in srgb, var(--content-emphasised) 10%, transparent)";
@@ -57,8 +66,8 @@ const AVATAR_GROWTH = 1.414;
 
 // The stage reserves the grown height from first paint, so the takeover needs
 // `size * AVATAR_GROWTH + 309` of viewport before the phase block underneath —
-// which carries the escape hatch and the stalled retry — starts to clip. Step
-// the creature down instead of pushing those actions off a short screen.
+// which carries the escape hatch — starts to clip. Step the creature down
+// instead of pushing that control off a short screen.
 const AVATAR_SIZE_STEPS: Array<{ minHeight: number; size: number }> = [
   { minHeight: 680, size: AVATAR_SIZE },
   { minHeight: 600, size: 184 },
@@ -100,6 +109,16 @@ export interface ProvisioningStateProps {
   softWaiting: boolean;
   /** The checkout selection stashed before the Stripe redirect. */
   intent: CheckoutIntent | null;
+  /**
+   * The credit tier just applied by an in-place resize change, threaded from
+   * the plans page so the terminal phase can confirm a credit-bundle change —
+   * a credit-only change skips WAITING/RESIZING, where the checkout-driven
+   * credits chip lives, so this is its only surface. `undefined` = no credit
+   * change (omit the chip); a tier or explicit `null` ("No extra credits") =
+   * show the confirmation. Distinct from `intent` on purpose: resize mode never
+   * reads the checkout intent, so a stale one can't leak in here.
+   */
+  resizeCredits?: CreditTierEnum | null;
   targets: ProvisioningDimensions;
   /** Pre-resize actuals rendered as the "from" side of the resource chips. */
   fromSnapshot: ProvisioningDimensions;
@@ -111,7 +130,11 @@ export interface ProvisioningStateProps {
   onEscape: () => void;
   /** Reports the phase actually on screen, which lags `state` by the hold. */
   onPhaseChange?: (phase: ProvisioningStateKind) => void;
-  stalledAction: StalledApplyAction;
+  /**
+   * ensure-provisioned failure held by the hook; with STALLED it selects the
+   * snag variant.
+   */
+  kickError?: unknown;
   confirm: { onRetry: () => void; onGoToBilling: () => void };
   /** Test hook — overrides the per-phase minimum; 0 disables the hold. */
   phaseMinMs?: number;
@@ -186,24 +209,13 @@ function TakeoverAvatar({
   assistantId?: string | null;
   mode: AvatarMode;
 }) {
-  const activeId = useResolvedAssistantsStore.use.activeAssistantId();
-  // An explicit null is the provisioning hook saying it does not know the
-  // target yet — it withholds `primary_assistant_id` until onboarding is fresh
-  // precisely so a multi-assistant org does not aim at the active assistant
-  // when the two diverge. Only an omitted prop falls back to active; a null one
-  // stays unresolved, so the takeover never fades in a different assistant's
-  // avatar on the way to the right one.
-  const resolvedId = assistantId === undefined ? activeId : assistantId;
-  const { components, traits, customImageUrl, isLoading } =
-    useAssistantAvatar(resolvedId);
+  // `useTakeoverSurface` owns which assistant the takeover draws and when its
+  // avatar is safe to draw, so the creature and the paint around it can never
+  // disagree about either.
+  const { avatar, ready: avatarReady } = useTakeoverSurface(assistantId);
   const fallbackComponents = useBundledAvatarComponents();
   const size = useTakeoverAvatarSize();
   const laboring = mode === "working" || mode === "settling";
-  // A null id means the target assistant has not resolved yet, not that it has
-  // no avatar — and `useAssistantAvatar(null)` is a disabled query, which
-  // reports `isLoading: false` with no data. Both have to clear before there is
-  // anything safe to draw.
-  const avatarReady = resolvedId != null && !isLoading;
   // Every mode animates the wrapper or its child, so the class waits for
   // something to animate. Otherwise a phase that resolves before the fetch does
   // — likely here, since the avatar is read off the machine being restarted —
@@ -213,7 +225,7 @@ function TakeoverAvatar({
   return (
     <div
       aria-hidden
-      className={`provision-avatar-evolve flex flex-col items-center${AVATAR_MODE_CLASS[activeMode]}`}
+      className={`provision-avatar-evolve relative z-10 flex flex-col items-center${AVATAR_MODE_CLASS[activeMode]}`}
       style={
         {
           "--provision-avatar-size": `${size}px`,
@@ -228,9 +240,9 @@ function TakeoverAvatar({
               {avatarReady && (
                 <div className="provision-avatar-reveal">
                   <ChatAvatar
-                    components={components ?? fallbackComponents}
-                    traits={traits}
-                    customImageUrl={customImageUrl}
+                    components={avatar.components ?? fallbackComponents}
+                    traits={avatar.traits}
+                    customImageUrl={avatar.customImageUrl}
                     size={size}
                     isAssistantBusy={laboring}
                   />
@@ -448,7 +460,13 @@ function IntentChips({ intent }: { intent: CheckoutIntent }) {
   );
 }
 
-/** Machine/Storage from→to chips, driven by the resolved provisioning targets. */
+/**
+ * Machine/Storage from→to chips, derived from the shared `buildResourceChanges`
+ * derivation (credits omitted) so the STALLED/DONE path can't drift from the
+ * WAITING `ResourceChangeChips`. An unchanged dimension renders as a singular
+ * value with no arrow (the helper omits its `from`); `done` strips the from-side
+ * entirely, so the terminal phase shows just the achieved target with a check.
+ */
 function TargetChips({
   targets,
   fromSnapshot,
@@ -458,34 +476,19 @@ function TargetChips({
   fromSnapshot: ProvisioningDimensions;
   done?: boolean;
 }) {
+  const changes = buildResourceChanges({ targets, fromSnapshot, credits: null });
   return (
     <ChipRow>
-      {targets.machineSize != null && (
+      {changes.map((change) => (
         <DimensionChip
-          icon={Cpu}
-          label="Machine"
-          from={
-            !done && fromSnapshot.machineSize != null
-              ? SIZE_LABEL[fromSnapshot.machineSize]
-              : undefined
-          }
-          to={SIZE_LABEL[targets.machineSize]}
+          key={change.key}
+          icon={RESOURCE_CHIP_ICON[change.key]}
+          label={change.label}
+          from={done ? undefined : change.from}
+          to={change.to}
           done={done}
         />
-      )}
-      {targets.storageGib != null && (
-        <DimensionChip
-          icon={HardDrive}
-          label="Storage"
-          from={
-            !done && fromSnapshot.storageGib != null
-              ? `${fromSnapshot.storageGib} GB`
-              : undefined
-          }
-          to={`${targets.storageGib} GB`}
-          done={done}
-        />
-      )}
+      ))}
     </ChipRow>
   );
 }
@@ -494,6 +497,7 @@ export function ProvisioningState({
   state,
   softWaiting,
   intent,
+  resizeCredits,
   targets,
   fromSnapshot,
   celebrating,
@@ -502,11 +506,16 @@ export function ProvisioningState({
   escapeAvailable,
   onEscape,
   onPhaseChange,
-  stalledAction,
+  kickError,
   confirm,
   dwellMs = PROVISION_MIN_DWELL_MS,
   phaseMinMs = PROVISION_PHASE_MIN_MS,
 }: ProvisioningStateProps) {
+  // `undefined` = no credit change; a tier or explicit null both surface the
+  // terminal confirmation (see the `resizeCredits` prop).
+  const showCreditConfirmation = resizeCredits !== undefined;
+  const creditConfirmationLabel = useCreditTierLabel(resizeCredits ?? null);
+
   const onCelebrationEndRef = useRef(onCelebrationEnd);
   useEffect(() => {
     onCelebrationEndRef.current = onCelebrationEnd;
@@ -529,6 +538,10 @@ export function ProvisioningState({
     onPhaseChangeRef.current?.(heldState);
   }, [heldState]);
 
+  // The surface commits to a hue only once the avatar query settles, and eases
+  // there over `--provision-reveal` — the same beat the avatar fades in on.
+  const { tintHex, backdropImageUrl } = useTakeoverSurface(assistantId);
+
   const dwelling = celebrating && resolved;
   useEffect(() => {
     if (!dwelling) {
@@ -541,9 +554,17 @@ export function ProvisioningState({
   return (
     <div
       data-theme="dark"
-      className="relative flex h-full min-h-[420px] w-full flex-col items-center [justify-content:safe_center] gap-10 px-6 py-10 text-center"
-      style={{ backgroundColor: TAKEOVER_BACKGROUND }}
+      className="provision-surface-settle relative flex h-full min-h-[420px] w-full flex-col items-center [justify-content:safe_center] gap-10 px-6 py-10 text-center"
+      style={
+        {
+          [TAKEOVER_SURFACE_VAR]: tintHex,
+          backgroundColor: TAKEOVER_SURFACE,
+        } as CSSProperties
+      }
     >
+      {/* An absolutely positioned layer paints over in-flow siblings, so the
+          content below carries `z-10` to sit on top of it. */}
+      {backdropImageUrl && <TakeoverBackdrop imageUrl={backdropImageUrl} />}
       <TakeoverAvatar
         assistantId={assistantId}
         mode={avatarModeFor(heldState, softWaiting)}
@@ -557,14 +578,14 @@ export function ProvisioningState({
           mid-animation. */}
       <div
         key={phaseKey}
-        className="flex min-h-[144px] w-full flex-col items-center gap-8 [animation:onboarding-step-in_420ms_ease-out] motion-reduce:[animation:none]"
+        className="relative z-10 flex min-h-[144px] w-full flex-col items-center gap-8 [animation:onboarding-step-in_420ms_ease-out] motion-reduce:[animation:none]"
       >
         {renderPhase()}
       </div>
     </div>
   );
 
-  function escapeButton() {
+  function escapeButton(label = "Continue in the background") {
     if (!escapeAvailable) {
       return null;
     }
@@ -574,8 +595,33 @@ export function ProvisioningState({
         data-testid="provisioning-escape"
         onClick={onEscape}
       >
-        Continue in the background
+        {label}
       </Button>
+    );
+  }
+
+  // Confirmation chip for a credit-only (or credit-inclusive) in-place change,
+  // shown on the terminal phase. Resolves to the catalog label ("$50
+  // credits/mo") when known, matching the WAITING credits chip; falls back to
+  // a plain "Credits updated" for the "No extra credits" choice or before the
+  // catalog resolves, so the terminal phase is never left blank.
+  function creditConfirmationChip() {
+    if (!showCreditConfirmation) {
+      return null;
+    }
+    return (
+      <ChipRow>
+        {creditConfirmationLabel != null ? (
+          <DimensionChip
+            icon={RESOURCE_CHIP_ICON.credits}
+            label="Credits"
+            to={creditConfirmationLabel}
+            done
+          />
+        ) : (
+          <TextChip label="Credits updated" />
+        )}
+      </ChipRow>
     );
   }
 
@@ -619,34 +665,48 @@ export function ProvisioningState({
         <>
           <Copy status="All done!" />
           <TargetChips targets={targets} fromSnapshot={fromSnapshot} done />
+          {creditConfirmationChip()}
         </>
       );
     }
 
     if (heldState === "NOT_APPLICABLE") {
-      return <Copy status="Your plan is ready" />;
+      return (
+        <>
+          <Copy status="Your plan is ready" />
+          {creditConfirmationChip()}
+        </>
+      );
     }
 
     if (heldState === "STALLED") {
+      // With no captured reconcile error the wait is just slow — say so
+      // honestly. Only an actual failure escalates to the "snag" variant with
+      // the mapped error and a retry-flavoured escape label.
+      const snag = kickError != null;
       return (
         <>
           <Copy
-            status="We couldn't finish this automatically"
-            caption={extractOnboardingErrorMessage(
-              stalledAction.error,
-              "Apply the changes below to finish setting up your upgrade.",
-            )}
+            status={
+              snag
+                ? "We hit a snag upgrading your assistant"
+                : "This is taking longer than expected"
+            }
+            caption={
+              snag
+                ? extractOnboardingErrorMessage(
+                    kickError,
+                    "Retry in the background — we'll keep working on your upgrade.",
+                  )
+                : "This may take a couple of minutes."
+            }
           />
-          <TargetChips targets={targets} fromSnapshot={fromSnapshot} />
-          <Button
-            variant="primary"
-            data-testid="provisioning-apply"
-            disabled={stalledAction.pending}
-            onClick={stalledAction.onApply}
-          >
-            Apply &amp; Restart
-          </Button>
-          {escapeButton()}
+          <ResourceChangeChips
+            intent={intent}
+            targets={targets}
+            fromSnapshot={fromSnapshot}
+          />
+          {snag ? escapeButton("Retry in the background") : escapeButton()}
         </>
       );
     }

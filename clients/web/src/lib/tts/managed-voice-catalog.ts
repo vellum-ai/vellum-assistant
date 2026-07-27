@@ -16,6 +16,14 @@ export const MANAGED_VOICE_SOURCE_LABELS: Record<string, string> = {
 };
 
 /**
+ * Subtitle for managed-voice pickers: managed TTS bills Vellum credits while
+ * being served by upstream providers. Shared so the Voice-page card and the
+ * live-voice first-run picker can't drift.
+ */
+export const MANAGED_VOICE_CREDITS_NOTE =
+  "Uses Vellum credits, through providers like ElevenLabs and Deepgram.";
+
+/**
  * Split a voice `description` ("American · calm, smooth, professional") into its
  * character traits and its accent. The traits are the distinguishing part, so
  * UIs lead with them and de-emphasize the accent; `traits` is also the natural

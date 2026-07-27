@@ -14,6 +14,9 @@ import * as motionReact from "motion/react";
 import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { PlanListResponse } from "@/generated/api/types.gen";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { SURFACE_GROUND } from "@/utils/avatar-tone";
 
 import type { ProvisioningStateProps } from "./provisioning-state";
 
@@ -22,13 +25,19 @@ import type { ProvisioningStateProps } from "./provisioning-state";
 let avatarQueryId: string | null | undefined;
 /** Flipped per-test to hold the avatar query in flight. */
 let avatarLoading = false;
+/** The avatar the mocked query resolves to; null components keep the neutral
+ *  fallback the phase/mode cases render against. */
+let avatarComponents: CharacterComponents | null = null;
+let avatarTraits: CharacterTraits | null = null;
+/** An uploaded avatar image, which the takeover also blurs behind its content. */
+let avatarCustomImageUrl: string | null = null;
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: (assistantId: string | null) => {
     avatarQueryId = assistantId;
     return {
-      components: null,
-      traits: null,
-      customImageUrl: null,
+      components: avatarComponents,
+      traits: avatarTraits,
+      customImageUrl: avatarCustomImageUrl,
       isLoading: avatarLoading,
       invalidate: () => {},
     };
@@ -44,11 +53,15 @@ mock.module("motion/react", () => ({
   useReducedMotion: () => reducedMotion,
 }));
 
-const { ProvisioningState } = await import("./provisioning-state");
+const { ProvisioningState, TAKEOVER_SURFACE, TAKEOVER_SURFACE_VAR } =
+  await import("./provisioning-state");
 
 beforeEach(() => {
   avatarQueryId = undefined;
   avatarLoading = false;
+  avatarComponents = null;
+  avatarTraits = null;
+  avatarCustomImageUrl = null;
   reducedMotion = false;
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
@@ -70,7 +83,6 @@ function baseProps(
     onCelebrationEnd: () => {},
     escapeAvailable: false,
     onEscape: () => {},
-    stalledAction: { onApply: () => {}, pending: false, error: null },
     confirm: { onRetry: () => {}, onGoToBilling: () => {} },
     ...overrides,
   };
@@ -96,6 +108,7 @@ function plansResponse(): PlanListResponse {
             credits_usd: 50,
             price_cents: 5000,
             lookup_key: "credits_50_key",
+            legacy: false,
           },
         ],
         packages: [
@@ -365,43 +378,136 @@ describe("done / not_applicable", () => {
     expect(queryByTestId("provisioning-apply")).toBeNull();
     await waitFor(() => expect(onCelebrationEnd).toHaveBeenCalledTimes(1));
   });
+
+  test("not_applicable confirms an applied credit bundle with the catalog label", () => {
+    // A credit-only in-place change owes no resize, so it lands here — the only
+    // surface where its bundle can be confirmed (the WAITING credits chip never
+    // shows).
+    const { getByText } = renderState({
+      state: "NOT_APPLICABLE",
+      resizeCredits: "credits_50",
+    });
+
+    expect(getByText("Your plan is ready")).toBeTruthy();
+    expect(getByText("Credits")).toBeTruthy();
+    expect(getByText("$50 credits/mo")).toBeTruthy();
+  });
+
+  test("not_applicable falls back to plain copy when the bundle can't resolve", () => {
+    // "No extra credits" (null tier) still counts as a change, so it confirms
+    // without a catalog label rather than leaving the phase blank.
+    const { getByText, queryByText } = renderState({
+      state: "NOT_APPLICABLE",
+      resizeCredits: null,
+    });
+
+    expect(getByText("Credits updated")).toBeTruthy();
+    expect(queryByText(/credits\/mo/)).toBeNull();
+  });
+
+  test("done confirms an applied credit bundle alongside the target chips", () => {
+    const { getByText } = renderState({
+      state: "DONE",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+      resizeCredits: "credits_50",
+    });
+
+    expect(getByText("All done!")).toBeTruthy();
+    expect(getByText("Large")).toBeTruthy();
+    expect(getByText("$50 credits/mo")).toBeTruthy();
+  });
 });
 
 describe("stalled", () => {
-  test("renders the stalled status, keeps the chips, and Apply & Restart invokes the callback", () => {
-    const onApply = mock(() => {});
-    const { getByText, getByTestId } = renderState({
+  test("with no captured error shows the honest taking-longer copy, chips, and the background button — never an Apply", () => {
+    const onEscape = mock(() => {});
+    const { getByText, queryByTestId, getByTestId } = renderState({
       state: "STALLED",
       targets: { machineSize: "large", storageGib: null },
       fromSnapshot: { machineSize: "small", storageGib: null },
-      stalledAction: { onApply, pending: false, error: null },
+      escapeAvailable: true,
+      onEscape,
     });
 
-    expect(getByText("We couldn't finish this automatically")).toBeTruthy();
-    expect(
-      getByText("Apply the changes below to finish setting up your upgrade."),
-    ).toBeTruthy();
+    expect(getByText("This is taking longer than expected")).toBeTruthy();
+    expect(getByText("This may take a couple of minutes.")).toBeTruthy();
     expect(getByText("Machine")).toBeTruthy();
-    fireEvent.click(getByTestId("provisioning-apply"));
-    expect(onApply).toHaveBeenCalledTimes(1);
+    // The takeover renders no Apply & Restart control in any phase.
+    expect(queryByTestId("provisioning-apply")).toBeNull();
+    expect(getByText("Continue in the background")).toBeTruthy();
+    fireEvent.click(getByTestId("provisioning-escape"));
+    expect(onEscape).toHaveBeenCalledTimes(1);
   });
 
-  test("disables the Apply button while pending and renders the extracted error as the caption", () => {
-    const onApply = mock(() => {});
-    const { getByText, getByTestId } = renderState({
+  test("with a captured reconcile error shows the snag copy, the mapped error, and a Retry-in-background button", () => {
+    const { getByText, queryByTestId } = renderState({
       state: "STALLED",
-      stalledAction: {
-        onApply,
-        pending: true,
-        error: { detail: "Resize already in progress." },
-      },
+      escapeAvailable: true,
+      kickError: { detail: "Resize already in progress." },
     });
 
+    expect(getByText("We hit a snag upgrading your assistant")).toBeTruthy();
     expect(getByText("Resize already in progress.")).toBeTruthy();
-    const apply = getByTestId("provisioning-apply") as HTMLButtonElement;
-    expect(apply.disabled).toBe(true);
-    fireEvent.click(apply);
-    expect(onApply).not.toHaveBeenCalled();
+    expect(queryByTestId("provisioning-apply")).toBeNull();
+    expect(getByText("Retry in the background")).toBeTruthy();
+  });
+
+  test("the background button relabels to Retry once a reconcile has errored", () => {
+    const { getByText, queryByText, rerender } = renderState({
+      state: "STALLED",
+      escapeAvailable: true,
+    });
+
+    expect(getByText("Continue in the background")).toBeTruthy();
+    expect(queryByText("Retry in the background")).toBeNull();
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ProvisioningState
+          {...baseProps({
+            state: "STALLED",
+            escapeAvailable: true,
+            kickError: { error: "provisioning_submission_failed" },
+          })}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(getByText("Retry in the background")).toBeTruthy();
+    expect(queryByText("Continue in the background")).toBeNull();
+  });
+
+  test("an unchanged machine dimension renders singular while storage still arrows", () => {
+    const { getByText, getAllByText, container } = renderState({
+      state: "STALLED",
+      targets: { machineSize: "medium", storageGib: 100 },
+      fromSnapshot: { machineSize: "medium", storageGib: 30 },
+    });
+
+    // Machine is unchanged: the label appears once (target only), never as a
+    // "Medium → Medium" self-arrow.
+    expect(getByText("Machine")).toBeTruthy();
+    expect(getAllByText("Medium").length).toBe(1);
+    // Storage changed: both endpoints render, with a single from→to arrow.
+    expect(getByText("30 GB")).toBeTruthy();
+    expect(getByText("100 GB")).toBeTruthy();
+    expect(container.querySelectorAll(".lucide-arrow-right").length).toBe(1);
+  });
+
+  test("both dimensions unchanged render singular with no arrows", () => {
+    const { getByText, container } = renderState({
+      state: "STALLED",
+      targets: { machineSize: "medium", storageGib: 30 },
+      fromSnapshot: { machineSize: "medium", storageGib: 30 },
+    });
+
+    expect(getByText("Machine")).toBeTruthy();
+    expect(getByText("Medium")).toBeTruthy();
+    expect(getByText("Storage")).toBeTruthy();
+    expect(getByText("30 GB")).toBeTruthy();
+    // Nothing changed, so neither chip draws a current→new arrow.
+    expect(container.querySelector(".lucide-arrow-right")).toBeNull();
   });
 });
 
@@ -465,6 +571,117 @@ describe("takeover avatar", () => {
     renderState();
 
     expect(avatarQueryId).toBe("active-assistant");
+  });
+});
+
+/** The takeover root, which publishes the tint, paints from it, and holds the
+ *  backdrop and the content layered over it. */
+function root(container: HTMLElement): HTMLElement {
+  const el = container.querySelector<HTMLElement>(".provision-surface-settle");
+  if (!el) {
+    throw new Error("takeover root not found");
+  }
+  return el;
+}
+
+describe("takeover surface", () => {
+  test("paints from the published variable rather than a literal colour", () => {
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(root(container).style.backgroundColor).toBe(TAKEOVER_SURFACE);
+  });
+
+  test("a purple character publishes its own deep tint", () => {
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(
+      root(container)
+        .style.getPropertyValue(TAKEOVER_SURFACE_VAR)
+        .toLowerCase(),
+    ).toBe("#29202e");
+  });
+
+  test("an unresolved avatar holds the neutral ground", () => {
+    // A hue committed before the query settles is the wrong assistant's, at
+    // full-viewport scale.
+    avatarLoading = true;
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(root(container).style.getPropertyValue(TAKEOVER_SURFACE_VAR)).toBe(
+      SURFACE_GROUND,
+    );
+  });
+
+  test("the default green creature keeps the takeover's established tint", () => {
+    avatarComponents = BUNDLED_COMPONENTS;
+
+    const { container } = renderState({ assistantId: "primary-assistant" });
+
+    expect(
+      root(container)
+        .style.getPropertyValue(TAKEOVER_SURFACE_VAR)
+        .toLowerCase(),
+    ).toBe("#1d281d");
+  });
+});
+
+describe("takeover backdrop", () => {
+  test("a custom-image avatar blurs that image behind the takeover", () => {
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+
+    const { getByTestId } = renderState({ assistantId: "primary-assistant" });
+
+    expect(
+      getByTestId("takeover-backdrop")
+        .querySelector("img")
+        ?.getAttribute("src"),
+    ).toBe("blob:vellum/avatar-image");
+  });
+
+  test("every layer beside the backdrop stacks above it", () => {
+    // The backdrop is absolutely positioned, so it paints over any sibling left
+    // in normal flow — the avatar and the phase block both have to be raised.
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+
+    const { container, getByTestId } = renderState({
+      state: "WAITING",
+      assistantId: "primary-assistant",
+    });
+    const backdrop = getByTestId("takeover-backdrop");
+    const content = Array.from(root(container).children).filter(
+      (el) => el !== backdrop,
+    );
+
+    expect(content.length).toBeGreaterThan(0);
+    for (const el of content) {
+      expect(el.className).toContain("z-10");
+    }
+  });
+
+  test("a character avatar gets the flat tint and no image layer", () => {
+    avatarComponents = BUNDLED_COMPONENTS;
+    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
+
+    const { queryByTestId } = renderState({ assistantId: "primary-assistant" });
+
+    expect(queryByTestId("takeover-backdrop")).toBeNull();
+  });
+
+  test("withholds the backdrop until the avatar query settles", () => {
+    // A backdrop that appears and then disappears is worse than one that
+    // arrives late.
+    avatarLoading = true;
+    avatarCustomImageUrl = "blob:vellum/avatar-image";
+
+    const { queryByTestId } = renderState({ assistantId: "primary-assistant" });
+
+    expect(queryByTestId("takeover-backdrop")).toBeNull();
   });
 });
 

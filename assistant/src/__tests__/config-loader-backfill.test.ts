@@ -855,10 +855,9 @@ describe("loadConfig startup behavior", () => {
     expect(effective.balanced?.model).toBe("accounts/fireworks/models/glm-5p2");
     expect(effective.balanced?.effort).toBe("high");
     expect(effective.balanced?.source).toBe("managed");
-    // Quality pins Anthropic Fable, the most capable managed model.
+    // Quality pins OpenAI Sol, the most capable managed model.
     expect(effective["quality-optimized"]?.provider).toBe("vellum");
-    expect(effective["quality-optimized"]?.model).toBe("claude-fable-5");
-    expect(effective["quality-optimized"]?.model).toBe("claude-fable-5");
+    expect(effective["quality-optimized"]?.model).toBe("gpt-5.6-sol");
     // Speed is served by DeepSeek V4 Flash on Fireworks.
     expect(effective["cost-optimized"]?.provider).toBe("vellum");
     expect(effective["cost-optimized"]?.model).toBe(
@@ -916,7 +915,7 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.profiles["quality-optimized"]).toEqual(legacy);
-    // The shadow wins over the catalog body (which serves claude-fable-5).
+    // The shadow wins over the catalog body (which serves gpt-5.6-sol).
     const effectiveQuality = getEffectiveProfile(
       raw.llm.profiles,
       "quality-optimized",
@@ -941,7 +940,7 @@ describe("loadConfig startup behavior", () => {
       "quality-optimized",
     );
     expect(effectiveQuality?.source).toBe("managed");
-    expect(effectiveQuality?.model).toBe("claude-fable-5");
+    expect(effectiveQuality?.model).toBe("gpt-5.6-sol");
   });
 
   test("platform boot leaves a drifted managed entry byte-identical; resolution serves catalog content", () => {
