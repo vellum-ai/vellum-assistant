@@ -1,19 +1,36 @@
+import { z } from "zod";
+
 import { getSubagentManager } from "../../subagent/index.js";
+import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
-import { resolveSubagentId } from "./resolve.js";
+import { resolveSubagentId, subagentSelectorFields } from "./resolve.js";
+
+/**
+ * Model-input schema. Both selectors optional — omitting them lists every
+ * subagent of the conversation. `activity` is status-only and never read
+ * here, so a malformed value degrades instead of failing the call.
+ */
+export const subagentStatusInputSchema = z.looseObject({
+  ...subagentSelectorFields,
+  activity: z.string().optional().catch(undefined),
+});
 
 export async function executeSubagentStatus(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const subagentId = resolveSubagentId(input, context);
+  const parsed = subagentStatusInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return invalidToolInputResult("subagent_status", parsed.error);
+  }
+  const subagentId = resolveSubagentId(parsed.data, context);
   const manager = getSubagentManager();
 
   // If a label was provided but didn't resolve, that's an error — don't fall
   // through to the "list all" path.
-  if (!subagentId && input.label) {
+  if (!subagentId && parsed.data.label) {
     return {
-      content: `No subagent found with label "${input.label as string}".`,
+      content: `No subagent found with label "${parsed.data.label}".`,
       isError: true,
     };
   }

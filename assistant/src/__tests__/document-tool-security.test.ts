@@ -338,3 +338,62 @@ describe("executeDocumentUpdate — input validation", () => {
     expect(body.error).toContain("Invalid input: surface_id is required");
   });
 });
+
+// ── Input schema validation (LUM-2797) ──────────────────────────────
+
+describe("document tools input schema validation", () => {
+  beforeEach(() => {
+    bootstrapDocumentTables();
+    seedDocument({
+      surfaceId: "doc-current",
+      conversationId: "conv-current",
+      title: "Current Business Plan",
+      content: "current plan",
+      updatedAt: 1000,
+    });
+  });
+
+  test("valid input with junk in the status-only activity field still parses", () => {
+    const result = executeDocumentRead(
+      { surface_id: "doc-current", activity: null },
+      makeContext(),
+    );
+    expect(result.isError).toBe(false);
+  });
+
+  test("executeDocumentUpdate returns Invalid input for a non-string content", () => {
+    const result = executeDocumentUpdate(
+      { surface_id: "doc-current", content: 42 },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    const body = parseResult<{ error: string }>(result);
+    expect(body.error).toBe(
+      "Invalid input: content is required and must be a string",
+    );
+  });
+
+  test("executeDocumentUpdate falls back to the current document on a malformed surface_id", () => {
+    const result = executeDocumentUpdate(
+      { surface_id: 42, content: "hello" },
+      makeContext({ sendToClient: () => {} }),
+    );
+    expect(result.isError).toBe(false);
+    const body = parseResult<{ surface_id: string }>(result);
+    expect(body.surface_id).toBe("doc-current");
+  });
+
+  test("executeDocumentList ignores a malformed query and lists the conversation's documents", () => {
+    const result = executeDocumentList({ query: 42 }, makeContext());
+    expect(result.isError).toBe(false);
+    const body = parseResult<{ documents: { surface_id: string }[] }>(result);
+    expect(body.documents.map((d) => d.surface_id)).toContain("doc-current");
+  });
+
+  test("executeDocumentRead returns Invalid input for a numeric surface_id", () => {
+    const result = executeDocumentRead({ surface_id: 42 }, makeContext());
+    expect(result.isError).toBe(true);
+    const body = parseResult<{ error: string }>(result);
+    expect(body.error).toContain("Invalid input: surface_id is required");
+  });
+});

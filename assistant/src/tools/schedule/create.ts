@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { resolveCapabilities } from "../../runtime/capabilities.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { formatIntegrationSummary } from "../../schedule/integration-status.js";
@@ -19,14 +21,64 @@ import {
   CapabilityManifestSchema,
   resolveCapabilities as resolveWorkflowCapabilities,
 } from "../../workflows/capabilities.js";
+import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
-const VALID_ROUTING_INTENTS: RoutingIntent[] = [
+export const VALID_MODES = [
+  "notify",
+  "execute",
+  "script",
+  "workflow",
+] as const satisfies readonly ScheduleMode[];
+export const VALID_ROUTING_INTENTS = [
   "single_channel",
   "multi_channel",
   "all_channels",
-];
+] as const satisfies readonly RoutingIntent[];
+
+/**
+ * Model-input schema. Validates field types and enum membership only; the
+ * cross-field rules (mode-specific requirements, expression vs fire_at,
+ * cron/RRULE syntax) stay in the executor body, which reads the parsed
+ * values instead of casting raw input. `activity` is status-only and never
+ * read here, so a malformed value degrades instead of failing the call.
+ */
+export const scheduleCreateInputSchema = z.looseObject({
+  name: z.string().nullish(),
+  description: z.string().nullish(),
+  syntax: z.enum(["cron", "rrule"]).nullish(),
+  expression: z.string().nullish(),
+  fire_at: z.string().nullish(),
+  timezone: z.string().nullish(),
+  message: z.string().nullish(),
+  script: z.string().nullish(),
+  then_execute: z.boolean().nullish(),
+  skill_id: z.string().nullish(),
+  enabled: z.boolean().nullish(),
+  mode: z
+    .enum(VALID_MODES, {
+      message: `mode must be one of: ${VALID_MODES.join(", ")}`,
+    })
+    .nullish(),
+  workflow_name: z.string().nullish(),
+  workflow_args: z.unknown(),
+  capabilities: z.unknown(),
+  routing_intent: z
+    .enum(VALID_ROUTING_INTENTS, {
+      message: `routing_intent must be one of: ${VALID_ROUTING_INTENTS.join(", ")}`,
+    })
+    .optional(),
+  routing_hints: z.record(z.string(), z.unknown()).nullish(),
+  quiet: z.boolean().nullish(),
+  reuse_conversation: z.boolean().nullish(),
+  max_retries: z.number().nullish(),
+  retry_backoff_ms: z.number().nullish(),
+  timeout_ms: z.number().nullish(),
+  inference_profile: z
+    .string({ message: "inference_profile must be a string" })
+    .optional(),
+  activity: z.string().optional().catch(undefined),
+});
 
 export async function executeScheduleCreate(
   input: Record<string, unknown>,
@@ -39,30 +91,36 @@ export async function executeScheduleCreate(
       isError: true,
     };
   }
-  const name = input.name as string;
-  const description = input.description as string | undefined;
-  const timezone = (input.timezone as string) ?? null;
-  const message = (input.message as string) ?? "";
-  const script = (input.script as string) ?? null;
-  const enabled = (input.enabled as boolean) ?? true;
-  const fireAt = input.fire_at as string | undefined;
-  const mode = (input.mode as ScheduleMode | undefined) ?? "execute";
-  const routingIntent = input.routing_intent as string | undefined;
-  const routingHints = input.routing_hints as
-    | Record<string, unknown>
-    | undefined;
-  const quiet = (input.quiet as boolean) ?? false;
-  const reuseConversation = input.reuse_conversation as boolean | undefined;
-  const maxRetries = input.max_retries as number | undefined;
-  const retryBackoffMs = input.retry_backoff_ms as number | undefined;
-  const timeoutMs = input.timeout_ms as number | undefined;
+  const parsed = scheduleCreateInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return invalidToolInputResult("schedule_create", parsed.error);
+  }
+  const name = parsed.data.name;
+  const description = parsed.data.description;
+  const timezone = parsed.data.timezone ?? null;
+  const message = parsed.data.message ?? "";
+  const script = parsed.data.script ?? null;
+  const enabled = parsed.data.enabled ?? true;
+  const fireAt = parsed.data.fire_at;
+  const mode = parsed.data.mode ?? "execute";
+  const routingIntent = parsed.data.routing_intent;
+  const routingHints = parsed.data.routing_hints ?? undefined;
+  const quiet = parsed.data.quiet ?? false;
+  const reuseConversation = parsed.data.reuse_conversation ?? undefined;
+  const maxRetries = parsed.data.max_retries ?? undefined;
+  const retryBackoffMs = parsed.data.retry_backoff_ms ?? undefined;
+  const timeoutMs = parsed.data.timeout_ms ?? undefined;
   const workflowName =
-    typeof input.workflow_name === "string" ? input.workflow_name.trim() : null;
-  const workflowArgs = input.workflow_args;
-  const inferenceProfile = input.inference_profile as string | undefined;
-  const thenExecute = (input.then_execute as boolean) ?? false;
+    typeof parsed.data.workflow_name === "string"
+      ? parsed.data.workflow_name.trim()
+      : null;
+  const workflowArgs = parsed.data.workflow_args;
+  const inferenceProfile = parsed.data.inference_profile;
+  const thenExecute = parsed.data.then_execute ?? false;
   const skillId =
-    typeof input.skill_id === "string" ? input.skill_id.trim() : null;
+    typeof parsed.data.skill_id === "string"
+      ? parsed.data.skill_id.trim()
+      : null;
 
   // Validated workflow capability manifest, resolved only for workflow mode.
   // Left null for non-workflow modes so `createSchedule` persists no manifest.
@@ -85,47 +143,29 @@ export async function executeScheduleCreate(
   }
 
   if (inferenceProfile !== undefined) {
-    if (typeof inferenceProfile !== "string") {
-      return {
-        content: "Error: inference_profile must be a string",
-        isError: true,
-      };
-    }
     const profileError = validateScheduleInferenceProfile(inferenceProfile);
     if (profileError) {
       return { content: `Error: ${profileError}`, isError: true };
     }
   }
 
-  if (!name || typeof name !== "string") {
+  if (!name) {
     return {
       content: "Error: name is required and must be a string",
       isError: true,
     };
   }
 
-  if (
-    !description ||
-    typeof description !== "string" ||
-    description.trim().length === 0
-  ) {
+  if (!description || description.trim().length === 0) {
     return {
       content: "Error: description is required and must be a non-empty string",
       isError: true,
     };
   }
 
-  // Validate mode
-  if (!VALID_MODES.includes(mode)) {
-    return {
-      content: `Error: mode must be one of: ${VALID_MODES.join(", ")}`,
-      isError: true,
-    };
-  }
-
   // Mode-specific field validation
   if (mode === "script") {
-    if (!script || typeof script !== "string") {
+    if (!script) {
       return {
         content:
           "Error: script is required for script mode and must be a non-empty string",
@@ -158,9 +198,11 @@ export async function executeScheduleCreate(
     // declared shape, then run the same forbidden/unknown/host-tool checks
     // resolveCapabilities applies at launch. A side-effecting manifest forces a
     // fresh approval at CREATION (see executor.ts).
-    if (input.capabilities !== undefined) {
+    if (parsed.data.capabilities !== undefined) {
       try {
-        const manifest = CapabilityManifestSchema.parse(input.capabilities);
+        const manifest = CapabilityManifestSchema.parse(
+          parsed.data.capabilities,
+        );
         resolveWorkflowCapabilities(manifest);
         capabilities = manifest;
       } catch (err) {
@@ -172,23 +214,12 @@ export async function executeScheduleCreate(
       }
     }
   } else {
-    if (!message || typeof message !== "string") {
+    if (!message) {
       return {
         content: "Error: message is required and must be a string",
         isError: true,
       };
     }
-  }
-
-  // Validate routing_intent
-  if (
-    routingIntent !== undefined &&
-    !VALID_ROUTING_INTENTS.includes(routingIntent as RoutingIntent)
-  ) {
-    return {
-      content: `Error: routing_intent must be one of: ${VALID_ROUTING_INTENTS.join(", ")}`,
-      isError: true,
-    };
   }
 
   // ── One-shot schedule (fire_at) ──────────────────────────────────
@@ -230,7 +261,7 @@ export async function executeScheduleCreate(
         expression: null,
         nextRunAt: fireAtMs,
         mode,
-        routingIntent: routingIntent as RoutingIntent | undefined,
+        routingIntent,
         routingHints,
         quiet,
         reuseConversation,
@@ -274,8 +305,8 @@ export async function executeScheduleCreate(
 
   // ── Recurring schedule (expression) ──────────────────────────────
   const resolved = normalizeScheduleSyntax({
-    syntax: input.syntax as "cron" | "rrule" | undefined,
-    expression: input.expression as string | undefined,
+    syntax: parsed.data.syntax ?? undefined,
+    expression: parsed.data.expression ?? undefined,
   });
 
   if (!resolved) {
@@ -322,7 +353,7 @@ export async function executeScheduleCreate(
       syntax: resolved.syntax,
       expression: resolved.expression,
       mode,
-      routingIntent: routingIntent as RoutingIntent | undefined,
+      routingIntent,
       routingHints,
       quiet,
       reuseConversation,

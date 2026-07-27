@@ -1,17 +1,36 @@
+import { z } from "zod";
+
 import { getSubagentManager } from "../../subagent/index.js";
+import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
-import { resolveSubagentId } from "./resolve.js";
+import { resolveSubagentId, subagentSelectorFields } from "./resolve.js";
+
+/**
+ * Model-input schema. `content` plus one of the selectors is required,
+ * enforced in the executor so the combined error message stays intact.
+ * `activity` is status-only and never read here, so a malformed value
+ * degrades instead of failing the call.
+ */
+export const subagentMessageInputSchema = z.looseObject({
+  ...subagentSelectorFields,
+  content: z.string().nullish(),
+  activity: z.string().optional().catch(undefined),
+});
 
 export async function executeSubagentMessage(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const subagentId = resolveSubagentId(input, context);
-  const content = input.content as string;
+  const parsed = subagentMessageInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return invalidToolInputResult("subagent_message", parsed.error);
+  }
+  const subagentId = resolveSubagentId(parsed.data, context);
+  const content = parsed.data.content;
 
-  if (!subagentId && input.label) {
+  if (!subagentId && parsed.data.label) {
     return {
-      content: `No subagent found with label "${input.label as string}".`,
+      content: `No subagent found with label "${parsed.data.label}".`,
       isError: true,
     };
   }

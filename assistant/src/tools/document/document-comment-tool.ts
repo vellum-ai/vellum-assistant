@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import {
   createComment,
   getComment,
@@ -5,7 +7,40 @@ import {
   resolveComment,
 } from "../../documents/document-comments-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
-import { canAccessDocument, documentNotFound } from "./document-tool.js";
+import {
+  canAccessDocument,
+  documentNotFound,
+  invalidInputFromZod,
+  surfaceIdSchema,
+} from "./document-tool.js";
+
+/**
+ * Model-input schemas. `activity` is status-only and never read by these
+ * executors, so a malformed value degrades instead of failing the call.
+ */
+const activityField = z.string().optional().catch(undefined);
+
+export const commentListInputSchema = z.looseObject({
+  surface_id: surfaceIdSchema,
+  activity: activityField,
+});
+
+export const commentResolveInputSchema = z.looseObject({
+  surface_id: surfaceIdSchema,
+  comment_id: z.string({
+    message: "comment_id is required and must be a string",
+  }),
+  activity: activityField,
+});
+
+export const commentReplyInputSchema = z.looseObject({
+  surface_id: surfaceIdSchema,
+  comment_id: z.string({
+    message: "comment_id is required and must be a string",
+  }),
+  content: z.string({ message: "content is required and must be a string" }),
+  activity: activityField,
+});
 
 // ── Exported execute functions ─────────────────────────────────────────
 
@@ -13,7 +48,9 @@ export function executeCommentList(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
+  const parsed = commentListInputSchema.safeParse(input);
+  if (!parsed.success) return invalidInputFromZod(parsed.error);
+  const surfaceId = parsed.data.surface_id;
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
@@ -46,8 +83,10 @@ export function executeCommentResolve(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
-  const commentId = input.comment_id as string;
+  const parsed = commentResolveInputSchema.safeParse(input);
+  if (!parsed.success) return invalidInputFromZod(parsed.error);
+  const surfaceId = parsed.data.surface_id;
+  const commentId = parsed.data.comment_id;
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
@@ -91,9 +130,11 @@ export function executeCommentReply(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
-  const commentId = input.comment_id as string;
-  const content = input.content as string;
+  const parsed = commentReplyInputSchema.safeParse(input);
+  if (!parsed.success) return invalidInputFromZod(parsed.error);
+  const surfaceId = parsed.data.surface_id;
+  const commentId = parsed.data.comment_id;
+  const content = parsed.data.content;
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);

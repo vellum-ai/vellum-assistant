@@ -275,6 +275,40 @@ describe("executeSubagentNotifyParent", () => {
     expect(parsed.urgency).toBe("info");
   });
 
+  test("a malformed urgency degrades to info instead of failing the call", async () => {
+    const conversationId = "conv-notify-junk-urg-1";
+    seedSubagent(conversationId);
+
+    const result = await executeSubagentNotifyParent(
+      { message: "Progress update", urgency: "extremely-urgent" },
+      makeContext(conversationId),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.urgency).toBe("info");
+  });
+
+  test("junk in the status-only activity field still parses", async () => {
+    const conversationId = "conv-notify-junk-activity-1";
+    seedSubagent(conversationId);
+
+    const result = await executeSubagentNotifyParent(
+      { message: "Progress update", activity: null },
+      makeContext(conversationId),
+    );
+    expect(result.isError).toBe(false);
+  });
+
+  test("rejects a non-string message with a retryable error", async () => {
+    const result = await executeSubagentNotifyParent(
+      { message: 42 },
+      makeContext("some-conv"),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "notify_parent"');
+    expect(result.content).toContain("retry");
+  });
+
   test("appends guidance hint for blocked urgency", async () => {
     clearCaptured();
     const conversationId = "conv-notify-blocked-1";

@@ -5,6 +5,7 @@ import { fileEditTool } from "../filesystem/edit.js";
 import { fileListTool } from "../filesystem/list.js";
 import { fileReadTool } from "../filesystem/read.js";
 import { fileWriteTool } from "../filesystem/write.js";
+import { notifyParentTool } from "../subagent/notify-parent.js";
 import { parseToolInput, TOOL_INPUT_SCHEMAS } from "../tool-input-schemas.js";
 
 describe("parseToolInput", () => {
@@ -126,6 +127,7 @@ describe("derived input_schema", () => {
     fileEditTool,
     fileListTool,
     askQuestionTool,
+    notifyParentTool,
   ];
 
   test("every registered schema belongs to a tool whose input_schema is derived from it", () => {

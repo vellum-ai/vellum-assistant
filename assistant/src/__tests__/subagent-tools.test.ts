@@ -1591,12 +1591,14 @@ describe("Subagent role-based spawn", () => {
       },
       makeContext("sess-role-invalid", { sendToClient: () => {} }),
     );
+    // The input schema rejects the role before the spawn manager runs, with
+    // the valid options listed in the retryable error.
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("Invalid subagent role");
-    expect(result.content).toContain("nonexistent-role");
-    expect(result.content).toContain("Must be one of");
+    expect(result.content).toContain('Invalid input for tool "subagent_spawn"');
+    expect(result.content).toContain("role");
     expect(result.content).toContain("general");
     expect(result.content).toContain("researcher");
+    expect(result.content).toContain("retry");
   });
 
   test("spawn tool definition includes role property", () => {
@@ -1984,5 +1986,72 @@ describe("Advisor role is tool-less", () => {
       (ctx as unknown as { allowedToolNames?: Set<string> }).allowedToolNames
         ?.size ?? 0,
     ).toBe(0);
+  });
+});
+
+// ── Input schema validation (LUM-2797) ──────────────────────────────
+
+describe("subagent tools input schema validation", () => {
+  test("spawn accepts junk in the status-only activity field and degrades a malformed fork to the default", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "schema-junk-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Junk fields task",
+          objective: "Do something",
+          activity: 123,
+          fork: "yes",
+        },
+        makeContext("sess-schema-junk", { sendToClient: () => {} }),
+      );
+      // `fork: "yes"` degrades to the non-fork default instead of failing,
+      // matching the tool's historical `fork === true` check.
+      expect(result.isError).toBe(false);
+      expect(capturedConfig).toBeDefined();
+      expect(capturedConfig!.fork).toBeUndefined();
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn rejects a non-string objective with a retryable error", async () => {
+    const result = await executeSubagentSpawn(
+      { label: "Bad objective", objective: 42 },
+      makeContext("sess-schema-bad-objective", { sendToClient: () => {} }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "subagent_spawn"');
+    expect(result.content).toContain("objective");
+    expect(result.content).toContain("retry");
+  });
+
+  test("status rejects a non-string subagent_id with a retryable error", async () => {
+    const result = await executeSubagentStatus(
+      { subagent_id: 42 },
+      makeContext("sess-schema-bad-id"),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "subagent_status"',
+    );
+    expect(result.content).toContain("subagent_id");
+  });
+
+  test("read ignores a malformed last_n instead of failing the call", async () => {
+    const result = await executeSubagentRead(
+      { subagent_id: "does-not-exist", last_n: "three" },
+      makeContext("sess-schema-junk-lastn"),
+    );
+    // The malformed last_n is dropped; the call proceeds to the normal
+    // not-found path instead of failing input validation.
+    expect(result.content).toContain("No subagent found");
   });
 });

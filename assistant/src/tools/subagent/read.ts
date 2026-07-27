@@ -1,17 +1,36 @@
+import { z } from "zod";
+
 import { getMessages } from "../../persistence/conversation-crud.js";
 import { extractTextFromStoredMessageContent } from "../../persistence/message-content.js";
 import { getSubagentManager, TERMINAL_STATUSES } from "../../subagent/index.js";
+import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
-import { resolveSubagentId } from "./resolve.js";
+import { resolveSubagentId, subagentSelectorFields } from "./resolve.js";
+
+/**
+ * Model-input schema. `last_n` catches to `undefined` because the tool has
+ * always silently ignored a malformed value and returned all messages.
+ * `activity` is status-only and never read here, so a malformed value
+ * degrades instead of failing the call.
+ */
+export const subagentReadInputSchema = z.looseObject({
+  ...subagentSelectorFields,
+  last_n: z.number().nullish().catch(undefined),
+  activity: z.string().optional().catch(undefined),
+});
 
 export async function executeSubagentRead(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const subagentId = resolveSubagentId(input, context);
-  if (!subagentId && input.label) {
+  const parsed = subagentReadInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return invalidToolInputResult("subagent_read", parsed.error);
+  }
+  const subagentId = resolveSubagentId(parsed.data, context);
+  if (!subagentId && parsed.data.label) {
     return {
-      content: `No subagent found with label "${input.label as string}".`,
+      content: `No subagent found with label "${parsed.data.label}".`,
       isError: true,
     };
   }
@@ -87,8 +106,8 @@ export async function executeSubagentRead(
   }
 
   const lastN =
-    typeof input.last_n === "number" && input.last_n > 0
-      ? input.last_n
+    typeof parsed.data.last_n === "number" && parsed.data.last_n > 0
+      ? parsed.data.last_n
       : undefined;
   const sliced = lastN ? messageTexts.slice(-lastN) : messageTexts;
 

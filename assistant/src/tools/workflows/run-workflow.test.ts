@@ -421,3 +421,43 @@ describe("manage_workflows", () => {
     expect(abortMock).toHaveBeenCalledWith("mine");
   });
 });
+
+// ── Input schema validation (LUM-2797) ──────────────────────────────
+
+describe("workflow tools input schema validation", () => {
+  test("run_workflow accepts junk in the status-only activity field", async () => {
+    const result = await executeRunWorkflow(
+      { script: "export const meta = {}", activity: null },
+      makeContext(),
+    );
+    expect(result.isError).toBe(false);
+    expect(lastStartArgs?.scriptSource).toBe("export const meta = {}");
+  });
+
+  test("run_workflow rejects a non-string script with a retryable error", async () => {
+    const result = await executeRunWorkflow({ script: 42 }, makeContext());
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "run_workflow"');
+    expect(result.content).toContain("script");
+    expect(result.content).toContain("retry");
+    expect(startMock).not.toHaveBeenCalled();
+  });
+
+  test("manage_workflows rejects an unknown action with the action list", async () => {
+    const result = await executeManageWorkflows(
+      { action: "bogus" },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Unknown action. Use one of:");
+    expect(result.content).toContain('"list_profiles"');
+  });
+
+  test("manage_workflows accepts junk in the status-only activity field", async () => {
+    const result = await executeManageWorkflows(
+      { action: "list_runs", activity: 7 },
+      makeContext(),
+    );
+    expect(result.isError).toBe(false);
+  });
+});

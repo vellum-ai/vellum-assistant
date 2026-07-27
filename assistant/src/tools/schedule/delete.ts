@@ -1,14 +1,29 @@
+import { z } from "zod";
+
 import { deleteSchedule, getSchedule } from "../../schedule/schedule-store.js";
+import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+/**
+ * Model-input schema. `activity` is status-only and never read here, so a
+ * malformed value degrades instead of failing the call.
+ */
+export const scheduleDeleteInputSchema = z.looseObject({
+  job_id: z
+    .string({ message: "job_id is required" })
+    .min(1, { message: "job_id is required" }),
+  activity: z.string().optional().catch(undefined),
+});
 
 export async function executeScheduleDelete(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const jobId = input.job_id as string;
-  if (!jobId || typeof jobId !== "string") {
-    return { content: "Error: job_id is required", isError: true };
+  const parsed = scheduleDeleteInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return invalidToolInputResult("schedule_delete", parsed.error);
   }
+  const jobId = parsed.data.job_id;
 
   // Fetch the job first for the confirmation message
   const job = getSchedule(jobId);

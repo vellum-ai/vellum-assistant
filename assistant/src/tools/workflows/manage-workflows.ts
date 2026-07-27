@@ -13,19 +13,55 @@
  * by the type checker.
  */
 
+import { z } from "zod";
+
 import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
 import { loadConfig } from "../../config/loader.js";
 import { callerOwnsWorkflowRun } from "../../workflows/capabilities.js";
 import type { WorkflowRun } from "../../workflows/journal-store.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
+import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+const MANAGE_WORKFLOWS_ACTIONS = [
+  "status",
+  "get_result",
+  "abort",
+  "resume",
+  "list_runs",
+  "list_profiles",
+] as const;
+
+/**
+ * Model-input schema. `action` is nullish so a missing action falls through
+ * to the switch's default case with its action-list message; a present but
+ * unknown action rejects with the same list. Per-action `run_id`
+ * requiredness is a cross-field rule and stays in the switch. `activity` is
+ * status-only and never read here, so a malformed value degrades instead of
+ * failing the call.
+ */
+export const manageWorkflowsInputSchema = z.looseObject({
+  action: z
+    .enum(MANAGE_WORKFLOWS_ACTIONS, {
+      message: `Unknown action. Use one of: ${MANAGE_WORKFLOWS_ACTIONS.map(
+        (a) => `"${a}"`,
+      ).join(", ")}.`,
+    })
+    .nullish(),
+  run_id: z.string().nullish(),
+  activity: z.string().optional().catch(undefined),
+});
 
 export async function executeManageWorkflows(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const action = input.action as string | undefined;
-  const runId = input.run_id as string | undefined;
+  const parsed = manageWorkflowsInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return invalidToolInputResult("manage_workflows", parsed.error);
+  }
+  const action = parsed.data.action;
+  const runId = parsed.data.run_id;
   const manager = getWorkflowRunManager();
 
   // Authorization scope ({@link callerOwnsWorkflowRun}, shared with the

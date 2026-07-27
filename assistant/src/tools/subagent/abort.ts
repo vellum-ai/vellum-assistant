@@ -1,15 +1,33 @@
+import { z } from "zod";
+
 import { getSubagentManager } from "../../subagent/index.js";
+import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
-import { resolveSubagentId } from "./resolve.js";
+import { resolveSubagentId, subagentSelectorFields } from "./resolve.js";
+
+/**
+ * Model-input schema. One of the selectors is required, enforced in the
+ * executor so the "or" error message stays intact. `activity` is status-only
+ * and never read here, so a malformed value degrades instead of failing the
+ * call.
+ */
+export const subagentAbortInputSchema = z.looseObject({
+  ...subagentSelectorFields,
+  activity: z.string().optional().catch(undefined),
+});
 
 export async function executeSubagentAbort(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const subagentId = resolveSubagentId(input, context);
-  if (!subagentId && input.label) {
+  const parsed = subagentAbortInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return invalidToolInputResult("subagent_abort", parsed.error);
+  }
+  const subagentId = resolveSubagentId(parsed.data, context);
+  if (!subagentId && parsed.data.label) {
     return {
-      content: `No subagent found with label "${input.label as string}".`,
+      content: `No subagent found with label "${parsed.data.label}".`,
       isError: true,
     };
   }

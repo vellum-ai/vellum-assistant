@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { z } from "zod";
+
 import {
   addDocumentConversation,
   deleteDocument,
@@ -51,16 +53,102 @@ function invalidInput(message: string): ToolExecutionResult {
   };
 }
 
-function validateSurfaceId(
-  input: Record<string, unknown>,
-): ToolExecutionResult | string {
-  if (typeof input.surface_id !== "string" || input.surface_id.trim() === "") {
-    return invalidInput(
-      "surface_id is required and must be a non-empty string",
-    );
-  }
-  return input.surface_id;
+/**
+ * Render a failed parse in the document family's JSON error shape. Every
+ * schema field below carries a custom message that names the field, so the
+ * joined issue list reads the same as the imperative checks it replaced.
+ */
+export function invalidInputFromZod(error: z.ZodError): ToolExecutionResult {
+  return invalidInput(error.issues.map((issue) => issue.message).join("; "));
 }
+
+/**
+ * `surface_id` for the tools that require one — a non-empty (after trim)
+ * string, matching the check the executors have always applied.
+ */
+export const surfaceIdSchema = z
+  .string({ message: "surface_id is required and must be a non-empty string" })
+  .refine((s) => s.trim() !== "", {
+    message: "surface_id is required and must be a non-empty string",
+  });
+
+/**
+ * `activity` is status-only and never read by these executors, so a
+ * malformed value degrades instead of failing the call.
+ */
+const activityField = z.string().optional().catch(undefined);
+
+export const documentOpenInputSchema = z.looseObject({
+  surface_id: surfaceIdSchema,
+  activity: activityField,
+});
+
+export const documentCreateInputSchema = z.looseObject({
+  title: z.string({ message: "title must be a string" }).nullish(),
+  initial_content: z
+    .string({ message: "initial_content must be a string" })
+    .nullish(),
+  activity: activityField,
+});
+
+/**
+ * `surface_id` catches to `undefined` because document_update has always
+ * treated a malformed value as absent and fallen back to the conversation's
+ * most recent document (see {@link resolveUpdateSurfaceId}).
+ */
+export const documentUpdateInputSchema = z.looseObject({
+  surface_id: z.string().nullish().catch(undefined),
+  content: z.string({ message: "content is required and must be a string" }),
+  mode: z
+    .enum(["replace", "append"], {
+      message: 'mode must be "replace" or "append"',
+    })
+    .nullish(),
+  activity: activityField,
+});
+
+export const documentReadInputSchema = z.looseObject({
+  surface_id: surfaceIdSchema,
+  activity: activityField,
+});
+
+/**
+ * `query` catches to `undefined` because document_list has always ignored a
+ * malformed query and listed the conversation's documents instead.
+ */
+export const documentListInputSchema = z.looseObject({
+  query: z.string().nullish().catch(undefined),
+  activity: activityField,
+});
+
+export const documentDeleteInputSchema = z.looseObject({
+  surface_id: surfaceIdSchema,
+  activity: activityField,
+});
+
+export const documentFindInputSchema = z.looseObject({
+  surface_id: surfaceIdSchema,
+  query: z.string({ message: "query is required and must be a string" }),
+  regex: z.boolean({ message: "regex must be a boolean" }).nullish(),
+  case_sensitive: z
+    .boolean({ message: "case_sensitive must be a boolean" })
+    .nullish(),
+  activity: activityField,
+});
+
+export const documentReplaceTextInputSchema = z.looseObject({
+  surface_id: surfaceIdSchema,
+  find: z.string({ message: "find is required and must be a string" }),
+  replace: z.string({ message: "replace must be a string" }).nullish(),
+  regex: z.boolean({ message: "regex must be a boolean" }).nullish(),
+  case_sensitive: z
+    .boolean({ message: "case_sensitive must be a boolean" })
+    .nullish(),
+  max_replacements: z
+    .number({ message: "max_replacements must be a number" })
+    .nullish(),
+  activity: activityField,
+});
 
 // ── Exported execute functions ──────────────────────────────────────
 
@@ -68,9 +156,9 @@ export function executeDocumentOpen(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceIdOrError = validateSurfaceId(input);
-  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
-  const surfaceId = surfaceIdOrError;
+  const parsed = documentOpenInputSchema.safeParse(input);
+  if (!parsed.success) return invalidInputFromZod(parsed.error);
+  const surfaceId = parsed.data.surface_id;
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
   }
@@ -200,8 +288,10 @@ export function executeDocumentCreate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const title = (input.title as string | undefined) || "Untitled Document";
-  const initialContent = (input.initial_content as string | undefined) || "";
+  const parsed = documentCreateInputSchema.safeParse(input);
+  if (!parsed.success) return invalidInputFromZod(parsed.error);
+  const title = parsed.data.title || "Untitled Document";
+  const initialContent = parsed.data.initial_content || "";
 
   const reused = maybeReuseEmptyDocument(title, initialContent, context);
   if (reused) return reused;
@@ -279,11 +369,11 @@ export function executeDocumentCreate(
  * its first chunk.
  */
 function resolveUpdateSurfaceId(
-  input: Record<string, unknown>,
+  surfaceId: string | null | undefined,
   context: ToolContext,
 ): ToolExecutionResult | string {
-  if (typeof input.surface_id === "string" && input.surface_id.trim() !== "") {
-    return input.surface_id;
+  if (typeof surfaceId === "string" && surfaceId.trim() !== "") {
+    return surfaceId;
   }
   const docs = getDocumentsForConversation(context.conversationId);
   if (docs.length === 0) {
@@ -298,24 +388,20 @@ export function executeDocumentUpdate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  if (typeof input.content !== "string") {
-    return invalidInput("content is required and must be a string");
-  }
-  const surfaceIdOrError = resolveUpdateSurfaceId(input, context);
+  // `mode` is nullish in the schema to match validateInputAgainstSchema,
+  // which treats null as "absent" for enum checks — { mode: null } must fall
+  // through to the access check, not reject. The `?? "append"` below handles
+  // null.
+  const parsed = documentUpdateInputSchema.safeParse(input);
+  if (!parsed.success) return invalidInputFromZod(parsed.error);
+  const surfaceIdOrError = resolveUpdateSurfaceId(
+    parsed.data.surface_id,
+    context,
+  );
   if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
   const surfaceId = surfaceIdOrError;
-  // Loose `!= null` to match validateInputAgainstSchema, which treats null as
-  // "absent" for enum checks — without this, { mode: null } passes the
-  // factory validator but rejects here. The `?? "append"` below handles null.
-  if (
-    input.mode != null &&
-    input.mode !== "replace" &&
-    input.mode !== "append"
-  ) {
-    return invalidInput('mode must be "replace" or "append"');
-  }
-  const content = input.content;
-  const mode = (input.mode as "replace" | "append" | undefined) ?? "append";
+  const content = parsed.data.content;
+  const mode = parsed.data.mode ?? "append";
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
@@ -368,9 +454,9 @@ export function executeDocumentRead(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceIdOrError = validateSurfaceId(input);
-  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
-  const surfaceId = surfaceIdOrError;
+  const parsed = documentReadInputSchema.safeParse(input);
+  if (!parsed.success) return invalidInputFromZod(parsed.error);
+  const surfaceId = parsed.data.surface_id;
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
   }
@@ -396,10 +482,9 @@ export function executeDocumentList(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const query =
-    typeof input.query === "string" && input.query.trim().length > 0
-      ? input.query.trim()
-      : undefined;
+  const parsed = documentListInputSchema.safeParse(input);
+  if (!parsed.success) return invalidInputFromZod(parsed.error);
+  const query = parsed.data.query?.trim() || undefined;
   const docs = query
     ? searchDocumentsByTitle(
         query,
@@ -427,9 +512,9 @@ export function executeDocumentDelete(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceIdOrError = validateSurfaceId(input);
-  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
-  const surfaceId = surfaceIdOrError;
+  const parsed = documentDeleteInputSchema.safeParse(input);
+  if (!parsed.success) return invalidInputFromZod(parsed.error);
+  const surfaceId = parsed.data.surface_id;
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
   }
@@ -452,12 +537,12 @@ export function executeDocumentFind(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceIdOrError = validateSurfaceId(input);
-  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
-  const surfaceId = surfaceIdOrError;
-  const query = input.query as string;
-  const regex = (input.regex as boolean | undefined) ?? false;
-  const caseSensitive = (input.case_sensitive as boolean | undefined) ?? false;
+  const parsed = documentFindInputSchema.safeParse(input);
+  if (!parsed.success) return invalidInputFromZod(parsed.error);
+  const surfaceId = parsed.data.surface_id;
+  const query = parsed.data.query;
+  const regex = parsed.data.regex ?? false;
+  const caseSensitive = parsed.data.case_sensitive ?? false;
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
@@ -505,14 +590,14 @@ export function executeDocumentReplaceText(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceIdOrError = validateSurfaceId(input);
-  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
-  const surfaceId = surfaceIdOrError;
-  const find = input.find as string;
-  const replace = (input.replace as string) ?? "";
-  const regex = (input.regex as boolean | undefined) ?? false;
-  const caseSensitive = (input.case_sensitive as boolean | undefined) ?? false;
-  const maxReplacements = input.max_replacements as number | undefined;
+  const parsed = documentReplaceTextInputSchema.safeParse(input);
+  if (!parsed.success) return invalidInputFromZod(parsed.error);
+  const surfaceId = parsed.data.surface_id;
+  const find = parsed.data.find;
+  const replace = parsed.data.replace ?? "";
+  const regex = parsed.data.regex ?? false;
+  const caseSensitive = parsed.data.case_sensitive ?? false;
+  const maxReplacements = parsed.data.max_replacements ?? undefined;
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);

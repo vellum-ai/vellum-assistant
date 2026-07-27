@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { hasSetConstructs } from "../../schedule/recurrence-engine.js";
 import {
   describeCronExpression,
@@ -6,7 +8,19 @@ import {
   getScheduleRuns,
   listSchedules,
 } from "../../schedule/schedule-store.js";
+import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+/**
+ * Model-input schema — both fields optional: `job_id` switches to detail
+ * mode, `enabled_only` filters the list. `activity` is status-only and never
+ * read here, so a malformed value degrades instead of failing the call.
+ */
+export const scheduleListInputSchema = z.looseObject({
+  job_id: z.string().nullish(),
+  enabled_only: z.boolean().nullish(),
+  activity: z.string().optional().catch(undefined),
+});
 
 function describeSchedule(job: {
   syntax: string;
@@ -33,8 +47,12 @@ export async function executeScheduleList(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const jobId = input.job_id as string | undefined;
-  const enabledOnly = (input.enabled_only as boolean) ?? false;
+  const parsed = scheduleListInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return invalidToolInputResult("schedule_list", parsed.error);
+  }
+  const jobId = parsed.data.job_id;
+  const enabledOnly = parsed.data.enabled_only ?? false;
 
   // Detail mode for a specific job
   if (jobId) {

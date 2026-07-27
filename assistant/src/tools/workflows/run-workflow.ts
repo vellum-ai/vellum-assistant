@@ -15,12 +15,32 @@
  * of truth the model reads when generating the `script`.
  */
 
+import { z } from "zod";
+
 import { findConversation } from "../../daemon/conversation-registry.js";
 import { FALLBACK_TURN_TRUST } from "../../daemon/trust-context.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { CapabilityManifestSchema } from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
+import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+/**
+ * Model-input schema. `args` and `capabilities` stay `unknown`: `args` is
+ * forwarded verbatim to the run (the manager accepts any JSON value), and
+ * `capabilities` is validated by `CapabilityManifestSchema` in the executor
+ * body. The script-vs-name exclusivity is a cross-field rule and stays in the
+ * executor. `activity` is status-only and never read here, so a malformed
+ * value degrades instead of failing the call.
+ */
+export const runWorkflowInputSchema = z.looseObject({
+  script: z.string().nullish(),
+  name: z.string().nullish(),
+  args: z.unknown(),
+  capabilities: z.unknown(),
+  label: z.string().nullish(),
+  activity: z.string().optional().catch(undefined),
+});
 
 /**
  * Resolve the {@link TrustContext} to forward to the run's leaves. Prefer the
@@ -41,8 +61,12 @@ export async function executeRunWorkflow(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const script = input.script as string | undefined;
-  const name = input.name as string | undefined;
+  const parsed = runWorkflowInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return invalidToolInputResult("run_workflow", parsed.error);
+  }
+  const script = parsed.data.script;
+  const name = parsed.data.name;
 
   // Exactly one of script/name is required.
   if ((script == null) === (name == null)) {
@@ -52,17 +76,25 @@ export async function executeRunWorkflow(
       isError: true,
     };
   }
+  const target =
+    script != null
+      ? { scriptSource: script }
+      : // The exclusivity check above guarantees `name` here; `??` only
+        // narrows the type.
+        { name: name ?? "" };
 
-  const args = (input.args as Record<string, unknown> | undefined) ?? {};
-  const label = input.label as string | undefined;
+  const args = parsed.data.args ?? {};
+  const label = parsed.data.label;
   const trustContext = resolveTrustContext(context);
 
   try {
     // The schema fills defaults (empty arrays, persona:false) for omitted
     // fields and throws (caught below) on a malformed `capabilities` object.
-    const manifest = CapabilityManifestSchema.parse(input.capabilities ?? {});
+    const manifest = CapabilityManifestSchema.parse(
+      parsed.data.capabilities ?? {},
+    );
     const { runId } = getWorkflowRunManager().start({
-      ...(script != null ? { scriptSource: script } : { name: name as string }),
+      ...target,
       args,
       manifest,
       conversationId: context.conversationId,

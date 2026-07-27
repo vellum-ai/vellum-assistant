@@ -6,6 +6,7 @@ import { fileListInputSchema } from "./filesystem/list.js";
 import { fileReadInputSchema } from "./filesystem/read.js";
 import { fileWriteInputSchema } from "./filesystem/write.js";
 import { formatToolInputError } from "./shared/zod-tool-schema.js";
+import { notifyParentInputSchema } from "./subagent/notify-parent.js";
 
 /**
  * Per-tool Zod input schemas, keyed by tool name. Tool calls are a
@@ -43,6 +44,7 @@ export const TOOL_INPUT_SCHEMAS: Readonly<Record<string, z.ZodType>> = {
   file_list: fileListInputSchema,
   file_read: fileReadInputSchema,
   file_write: fileWriteInputSchema,
+  notify_parent: notifyParentInputSchema,
 };
 
 /**

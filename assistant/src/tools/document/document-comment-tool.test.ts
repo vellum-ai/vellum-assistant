@@ -375,3 +375,47 @@ describe("executeCommentReply", () => {
     expect(body.comment.content).toBe("Answer");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Input schema validation (LUM-2797)
+// ---------------------------------------------------------------------------
+
+describe("comment tools input schema validation", () => {
+  test("valid input with junk in the status-only activity field still parses", () => {
+    const result = executeCommentList(
+      { surface_id: SURFACE_ID, activity: null },
+      makeContext(),
+    );
+    expect(result.isError).toBe(false);
+  });
+
+  test("comment_resolve rejects a non-string comment_id with a JSON invalid-input error", () => {
+    const result = executeCommentResolve(
+      { surface_id: SURFACE_ID, comment_id: 42 },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    const body = parseResult<{ error: string }>(result);
+    expect(body.error).toContain(
+      "Invalid input: comment_id is required and must be a string",
+    );
+  });
+
+  test("comment_reply rejects a missing content with a JSON invalid-input error", () => {
+    const c = createComment({
+      surfaceId: SURFACE_ID,
+      conversationId: CONVERSATION_ID,
+      author: "user1",
+      content: "Question",
+    });
+    const result = executeCommentReply(
+      { surface_id: SURFACE_ID, comment_id: c.id },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    const body = parseResult<{ error: string }>(result);
+    expect(body.error).toContain(
+      "Invalid input: content is required and must be a string",
+    );
+  });
+});

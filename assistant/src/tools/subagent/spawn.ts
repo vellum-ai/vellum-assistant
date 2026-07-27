@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import type { AssistantEvent } from "../../api/index.js";
 import { validateInferenceProfileKey } from "../../config/inference-profile-validation.js";
 import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
@@ -19,8 +21,38 @@ import {
 } from "../../subagent/index.js";
 import type { SubagentRole } from "../../subagent/types.js";
 import { getLogger } from "../../util/logger.js";
+import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { createConsultDeadline } from "./consult-deadline.js";
+
+const SUBAGENT_ROLES = [
+  "general",
+  "researcher",
+  "coder",
+  "planner",
+  "investigator",
+  "advisor",
+] as const satisfies readonly SubagentRole[];
+
+/**
+ * Model-input schema. `fork` and `send_result_to_user` catch to `undefined`
+ * because the tool has always treated anything but a literal boolean as "use
+ * the default" (`fork === true`, `send_result_to_user !== false`). `activity`
+ * is status-only and never read here, so a malformed value degrades instead
+ * of failing the call.
+ */
+export const subagentSpawnInputSchema = z.looseObject({
+  label: z.string().nullish(),
+  objective: z.string().nullish(),
+  context: z.string().nullish(),
+  fork: z.boolean().nullish().catch(undefined),
+  send_result_to_user: z.boolean().nullish().catch(undefined),
+  role: z.enum(SUBAGENT_ROLES).nullish(),
+  inference_profile: z
+    .string({ message: "inference_profile must be a string" })
+    .optional(),
+  activity: z.string().optional().catch(undefined),
+});
 
 const log = getLogger("subagent-spawn");
 
@@ -46,18 +78,22 @@ export async function executeSubagentSpawn(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const label = input.label as string;
-  const objective = input.objective as string;
-  const extraContext = input.context as string | undefined;
-  const fork = input.fork === true;
-  const role = (input.role as string | undefined) ?? undefined;
-  const inferenceProfile = input.inference_profile;
+  const parsed = subagentSpawnInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return invalidToolInputResult("subagent_spawn", parsed.error);
+  }
+  const label = parsed.data.label;
+  const objective = parsed.data.objective;
+  const extraContext = parsed.data.context ?? undefined;
+  const fork = parsed.data.fork === true;
+  const role = parsed.data.role ?? undefined;
+  const inferenceProfile = parsed.data.inference_profile;
 
   // For fork mode, sendResultToUser defaults to false unless explicitly set to true.
   // For regular mode, sendResultToUser defaults to true (existing behavior).
   const sendResultToUser = fork
-    ? input.send_result_to_user === true
-    : input.send_result_to_user !== false;
+    ? parsed.data.send_result_to_user === true
+    : parsed.data.send_result_to_user !== false;
 
   if (!label || !objective) {
     return {
@@ -69,12 +105,6 @@ export async function executeSubagentSpawn(
   let requestedOverrideProfile: string | undefined;
   let forceOverrideProfile = false;
   if (inferenceProfile !== undefined) {
-    if (typeof inferenceProfile !== "string") {
-      return {
-        content: "Error: inference_profile must be a string",
-        isError: true,
-      };
-    }
     const profileError = validateInferenceProfileKey(inferenceProfile);
     if (profileError) {
       return {
@@ -187,7 +217,7 @@ export async function executeSubagentSpawn(
         sendResultToUser,
         // Regular forks omit the role so they default to general; the advisor
         // role is special-cased earlier via runAdvisorConsult, not here.
-        ...(!fork && role ? { role: role as SubagentRole } : {}),
+        ...(!fork && role ? { role } : {}),
         ...(inheritedOverrideProfile
           ? { overrideProfile: inheritedOverrideProfile }
           : {}),
