@@ -23,8 +23,11 @@ export type CheckoutIntent =
        * signup routed through consent). Only the onboarding privacy screen
        * resumes checkout from a marked intent, so an ordinary billing-surface
        * stash (CheckoutPage, the plans/adjust takeovers) can't hijack
-       * onboarding. Optional and backward-compatible: ordinary saves omit it,
-       * and the provisioning takeover ignores it.
+       * onboarding. Optional and backward-compatible: ordinary saves omit it.
+       *
+       * The Stripe hand-off rewrites the stash without the marker, so a marked
+       * stash is one no checkout ever handed off — see
+       * {@link readPurchasedCheckoutIntent}.
        */
       resumeAfterOnboarding?: true;
     }
@@ -99,6 +102,24 @@ export function readCheckoutIntent(): CheckoutIntent | null {
     return null;
   }
   return parsed;
+}
+
+/**
+ * The stashed intent when it names a package the user actually paid for, else
+ * `null`.
+ *
+ * A stash still carrying `resumeAfterOnboarding` never reached the Stripe
+ * hand-off — the hand-off replaces the record without the marker — so it names
+ * a package nobody bought. Surfaces that report a purchase to the user read
+ * this rather than {@link readCheckoutIntent}, which every bail path would
+ * otherwise leave able to render a phantom.
+ */
+export function readPurchasedCheckoutIntent(): CheckoutIntent | null {
+  const intent = readCheckoutIntent();
+  if (intent?.kind === "package" && intent.resumeAfterOnboarding === true) {
+    return null;
+  }
+  return intent;
 }
 
 export function clearCheckoutIntent(): void {

@@ -17,12 +17,15 @@ mock.module("@/stores/auth-store", () => ({
   useHasPlatformSession: () => hasPlatformSessionMock,
 }));
 
-const { useIsOrgReady } = await import("./use-is-org-ready");
+const { useIsOrgReady, useOrgHeaderReadiness } = await import(
+  "./use-is-org-ready"
+);
 const { useOrganizationStore } = await import("@/stores/organization-store");
 
 const STORAGE_KEY = "vellum_active_organization_id";
 
 let latest: boolean | null = null;
+let latestReadiness: string | null = null;
 
 function Probe() {
   const ready = useIsOrgReady();
@@ -32,9 +35,18 @@ function Probe() {
   return null;
 }
 
+function ReadinessProbe() {
+  const readiness = useOrgHeaderReadiness();
+  useEffect(() => {
+    latestReadiness = readiness;
+  });
+  return null;
+}
+
 beforeEach(() => {
   hasPlatformSessionMock = true;
   latest = null;
+  latestReadiness = null;
   sessionStorage.clear();
   useOrganizationStore.setState({
     organizations: [],
@@ -95,5 +107,47 @@ describe("useIsOrgReady", () => {
       useOrganizationStore.getState().clearOrganization();
     });
     expect(latest).toBe(false);
+  });
+});
+
+describe("useOrgHeaderReadiness", () => {
+  // Callers that wait for the header need "no id yet" and "no id ever" to be
+  // different answers — the boolean gate collapses them, so a waiter can't tell
+  // a cold load from a dead end.
+  test("an in-flight org fetch is resolving, not unavailable", () => {
+    useOrganizationStore.setState({ status: "loading" });
+    render(<ReadinessProbe />);
+    expect(latestReadiness).toBe("resolving");
+  });
+
+  test("an unstarted org fetch is resolving", () => {
+    render(<ReadinessProbe />);
+    expect(latestReadiness).toBe("resolving");
+  });
+
+  test("a terminal org failure with no fallback id is unavailable", () => {
+    // `fetchOrganizations()` lands on `ready` or `error` on every exit path, so
+    // this is the bound on how long a waiter can sit in `resolving`.
+    useOrganizationStore.setState({
+      status: "error",
+      error: "Failed to load organizations.",
+    });
+    render(<ReadinessProbe />);
+    expect(latestReadiness).toBe("unavailable");
+  });
+
+  test("a hydrated org id is ready", () => {
+    useOrganizationStore.setState({
+      currentOrganizationId: "org-1",
+      status: "ready",
+    });
+    render(<ReadinessProbe />);
+    expect(latestReadiness).toBe("ready");
+  });
+
+  test("no platform session needs no header at all", () => {
+    hasPlatformSessionMock = false;
+    render(<ReadinessProbe />);
+    expect(latestReadiness).toBe("ready");
   });
 });

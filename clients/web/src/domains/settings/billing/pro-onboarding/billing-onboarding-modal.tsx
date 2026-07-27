@@ -12,7 +12,7 @@ import { assistantsDomainsListQueryKey } from "@/generated/api/@tanstack/react-q
 import type { CreditTierEnum } from "@/generated/api/types.gen";
 import {
   clearCheckoutIntent,
-  readCheckoutIntent,
+  readPurchasedCheckoutIntent,
   type CheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -122,7 +122,7 @@ export function BillingOnboardingModal({
 
   useEffect(() => {
     if (open) {
-      setIntent(isResize ? null : readCheckoutIntent());
+      setIntent(isResize ? null : readPurchasedCheckoutIntent());
       // Fence the domains freshness check to this open before any domains fetch
       // can land, so a pre-open cached list never reads as fresh.
       setDomainsOpenedAt((prev) => prev ?? Date.now());

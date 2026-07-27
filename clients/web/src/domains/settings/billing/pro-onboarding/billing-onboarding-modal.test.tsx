@@ -387,6 +387,26 @@ describe("BillingOnboardingModal", () => {
     });
   });
 
+  test("a stash still carrying the signup marker is not named as purchased", async () => {
+    // Keep the plan at base so CONFIRMING persists and the chip row is
+    // observable — the happy path above is the same screen with an unmarked
+    // stash, which does name its package. The marker only survives on a stash
+    // that never reached the Stripe hand-off, so nothing was bought and naming
+    // the package here would report a purchase that never happened.
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+    const { getByText, queryByText } = renderModal();
+
+    await waitFor(
+      () => expect(getByText("Confirming your upgrade…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(queryByText("Super package")).toBeNull();
+  });
+
   test("domain_setup_available false skips straight to complete and clears the intent stash", async () => {
     saveCheckoutIntent({ kind: "package", packageKey: "super" });
     subscriptionPlanId = "pro";
