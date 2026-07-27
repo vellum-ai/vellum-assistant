@@ -28,6 +28,15 @@ import { createSelectors } from "@/utils/create-selectors";
 export interface PendingDeepLinkState {
   /** Latest pending `deeplink.send` message text, or `null` if none. */
   pendingComposerMessage: string | null;
+  /**
+   * Whether a `deeplink.startVoice` is waiting for a live-voice session
+   * starter. Same cold-launch race as `pendingComposerMessage`: the starter is
+   * registered by `useLiveVoiceSessionController` at `ChatLayout` scope, so it
+   * does not exist yet when a launch deep link fires (and never exists on
+   * settings / logs / account routes). Boolean rather than a payload — a
+   * second link before the drain is the same request.
+   */
+  pendingVoiceStart: boolean;
 }
 
 export interface PendingDeepLinkActions {
@@ -42,6 +51,13 @@ export interface PendingDeepLinkActions {
    * none was set. Used by `useDeepLinkConsumer` in the chat domain.
    */
   consumePendingComposerMessage: () => string | null;
+  /** Park a start-voice deep link until a session starter is registered. */
+  setPendingVoiceStart: () => void;
+  /**
+   * Read and clear the parked start-voice request. Returns `false` if none was
+   * parked. Used by `drainPendingVoiceStartDeepLink` in the live-voice domain.
+   */
+  consumePendingVoiceStart: () => boolean;
 }
 
 export type PendingDeepLinkStore = PendingDeepLinkState &
@@ -50,12 +66,19 @@ export type PendingDeepLinkStore = PendingDeepLinkState &
 const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
   (set, get) => ({
     pendingComposerMessage: null,
+    pendingVoiceStart: false,
     setPendingComposerMessage: (message) =>
       set({ pendingComposerMessage: message }),
     consumePendingComposerMessage: () => {
       const message = get().pendingComposerMessage;
       if (message !== null) set({ pendingComposerMessage: null });
       return message;
+    },
+    setPendingVoiceStart: () => set({ pendingVoiceStart: true }),
+    consumePendingVoiceStart: () => {
+      const pending = get().pendingVoiceStart;
+      if (pending) set({ pendingVoiceStart: false });
+      return pending;
     },
   }),
 );
@@ -68,5 +91,8 @@ export const usePendingDeepLinkStore = createSelectors(
  * Reset hook for tests. Not intended for production callers.
  */
 export function __resetPendingDeepLinkForTesting(): void {
-  usePendingDeepLinkStoreBase.setState({ pendingComposerMessage: null });
+  usePendingDeepLinkStoreBase.setState({
+    pendingComposerMessage: null,
+    pendingVoiceStart: false,
+  });
 }

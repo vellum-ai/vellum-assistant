@@ -103,6 +103,30 @@ export function assistantSupports(minVersion: string): boolean {
   return supportsVersion(version, minVersion);
 }
 
+/**
+ * Non-hook variant of {@link useAssistantScopedSupports}, for imperative
+ * callers (event handlers, async ops) — same owner-scoping rule, read off a
+ * `getState()` snapshot.
+ *
+ * Narrows `ownerAssistantId` to `string`: a null/undefined owner is never
+ * supported, so a `true` result always carries a usable assistant id.
+ *
+ * Inherits {@link assistantSupports}'s conservative `false` while the version
+ * is unhydrated, so callers that may run before the identity fetch lands must
+ * await {@link whenAssistantVersionKnown} first.
+ */
+export function assistantScopedSupports(
+  minVersion: string,
+  ownerAssistantId: string | null | undefined,
+): ownerAssistantId is string {
+  const identityAssistantId = useAssistantIdentityStore.getState().assistantId;
+  return (
+    assistantSupports(minVersion) &&
+    ownerAssistantId != null &&
+    ownerAssistantId === identityAssistantId
+  );
+}
+
 function supportsVersion(
   version: string | null | undefined,
   minVersion: string,

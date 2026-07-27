@@ -41,6 +41,12 @@ import {
 const { useLiveVoiceSessionController } =
   await import("@/domains/chat/voice/live-voice/use-live-voice-session-controller");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
+const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
+  await import("@/stores/pending-deep-link-store");
 const { useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 
@@ -114,12 +120,16 @@ beforeEach(() => {
     pauseBeforeReplyMs: null,
     interruptSensitivity: null,
   });
+  __resetPendingDeepLinkForTesting();
+  useAssistantIdentityStore.setState({ assistantId: null, version: null });
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
 
 afterEach(() => {
   cleanup();
   useLiveVoiceStore.getState().reset();
   useLiveVoiceStore.getState().setStarter(null);
+  __resetPendingDeepLinkForTesting();
 });
 
 // ---------------------------------------------------------------------------
@@ -164,6 +174,37 @@ describe("starter registration", () => {
       turnDetection: "server_vad",
     });
     expect(useLiveVoiceStore.getState().startedConversationId).toBeNull();
+  });
+
+  test("drains a start-voice deep link parked before this mount (cold launch)", async () => {
+    useAssistantIdentityStore.setState({
+      assistantId: "assistant-1",
+      version: "0.10.12",
+    });
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+
+    const h = renderPersistentController();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(h.lastClient().connectArgs).toEqual({
+      assistantId: "assistant-1",
+      conversationId: undefined,
+      turnDetection: "server_vad",
+    });
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStart).toBe(false);
+  });
+
+  test("mounting with nothing parked starts no session", async () => {
+    const h = renderPersistentController();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(h.clients).toHaveLength(0);
   });
 });
 

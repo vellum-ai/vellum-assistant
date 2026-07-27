@@ -38,7 +38,10 @@
  * and the voice bar / room must survive a mid-session eligibility drop so the
  * ✕ stays reachable until teardown completes.
  */
-import { useAssistantScopedSupports } from "@/lib/backwards-compat/utils";
+import {
+  assistantScopedSupports,
+  useAssistantScopedSupports,
+} from "@/lib/backwards-compat/utils";
 
 const MIN_VERSION = "0.10.12";
 
@@ -53,4 +56,20 @@ export function useSupportsLiveVoice(
   ownerAssistantId: string | null | undefined,
 ): boolean {
   return useAssistantScopedSupports(MIN_VERSION, ownerAssistantId);
+}
+
+/**
+ * Non-hook variant of {@link useSupportsLiveVoice} for imperative callers —
+ * the start-voice deep link, which starts a session from a bus handler rather
+ * than a render. Same conservative semantics, read off a `getState()` snapshot.
+ *
+ * Callers must have a *resolved* version in hand: the snapshot collapses
+ * "unknown" and "known-old" into `false`, so a caller running before the
+ * identity fetch lands has to await `whenAssistantVersionKnown()` first (see
+ * `start-voice-deep-link.ts`).
+ */
+export function supportsLiveVoice(
+  ownerAssistantId: string | null | undefined,
+): ownerAssistantId is string {
+  return assistantScopedSupports(MIN_VERSION, ownerAssistantId);
 }

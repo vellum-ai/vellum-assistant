@@ -151,6 +151,18 @@ export interface BusEventMap {
   "deeplink.billingCheckoutComplete":
     | { status: "success"; sessionId: string }
     | { status: "cancel"; sessionId: null };
+  /**
+   * The user asked to talk, from outside the SPA:
+   * `<scheme>://voice?mode=new|resume`. The single native→SPA voice
+   * command channel — Siri / the Action Button (App Intents), the
+   * Dynamic Island Live Activity's tap-to-return `widgetURL`, and
+   * manual test links all publish through it.
+   *
+   * `useGlobalDeepLinkConsumer` navigates and hands the request to the
+   * live-voice starter, parking it when the layout-scoped session
+   * controller has not mounted yet (cold launch).
+   */
+  "deeplink.startVoice": { mode: "new" | "resume" };
   "deeplink.unknown": { url: string };
   /**
    * Connectivity state change from the Electron host. Main fuses
