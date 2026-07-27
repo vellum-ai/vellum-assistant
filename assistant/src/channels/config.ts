@@ -73,6 +73,15 @@ const CHANNEL_POLICIES = {
       conversationStrategy: "continue_existing_conversation",
     },
   },
+  discord: {
+    notification: {
+      // Discord has no outbound transport yet — ingress-only. Enabling
+      // delivery before one exists would route notifications at a callback
+      // no transport owns. Flip to true alongside the Discord transport.
+      deliveryEnabled: false,
+      conversationStrategy: "continue_existing_conversation",
+    },
+  },
 } as const satisfies Record<ChannelId, ChannelNotificationPolicy>;
 
 export type ChannelPolicies = typeof CHANNEL_POLICIES;

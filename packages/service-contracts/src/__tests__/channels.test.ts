@@ -18,8 +18,16 @@ describe("isChannelId", () => {
     expect(isChannelId("vellum")).toBe(true);
   });
 
+  test("includes discord", () => {
+    // Discord is canonical vocabulary ahead of its ingress implementation:
+    // the gateway's inbound list and the admission-policy seed both derive
+    // from CHANNEL_IDS, so it must be here for a Discord message to be
+    // routable and to carry an admission floor at all.
+    expect(isChannelId("discord")).toBe(true);
+  });
+
   test("rejects unknown strings and non-string values", () => {
-    expect(isChannelId("discord")).toBe(false);
+    expect(isChannelId("mastodon")).toBe(false);
     expect(isChannelId("")).toBe(false);
     expect(isChannelId(undefined)).toBe(false);
     expect(isChannelId(null)).toBe(false);

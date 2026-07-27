@@ -136,6 +136,24 @@ export const CHANNEL_METADATA: Partial<Record<ChannelId, ChannelInfo>> = {
         "I'd like to connect with another assistant via A2A. Can you help me set that up?",
     },
   },
+  // Present so the metadata is ready for the ingress slice, but not yet listed
+  // in `BASE_AVAILABLE_CHANNELS` — `/v1/channels/available` builds from that
+  // list, so nothing surfaces Discord to clients until it is added there.
+  // `supportsVerification` stays false until a Discord verification flow
+  // exists; clients render the card display-only meanwhile.
+  discord: {
+    id: "discord",
+    label: "Discord",
+    subtitle: "Message your assistant from Discord",
+    icon: "message-circle",
+    supportsVerification: false,
+    setupMessages: {
+      guardian:
+        "I'd like to verify my identity as your guardian on Discord. Can you help me set that up?",
+      contact:
+        "I'd like to verify a contact's Discord identity. Can you walk me through it?",
+    },
+  },
 };
 
 export const INTERFACE_IDS = [
@@ -150,6 +168,7 @@ export const INTERFACE_IDS = [
   "email",
   "chrome-extension",
   "a2a",
+  "discord",
   // Turns injected by workspace custom routes (webhook receivers, cron jobs,
   // device/service callbacks). Non-interactive — permission prompts route
   // through the guardian system, not an interactive client — and non-host-proxy.

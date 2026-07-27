@@ -10,7 +10,7 @@ import type { ChannelId } from "./types.js";
 
 export type InboundChannelId = Extract<
   ChannelId,
-  "telegram" | "whatsapp" | "slack" | "email" | "a2a"
+  "telegram" | "whatsapp" | "slack" | "email" | "a2a" | "discord"
 >;
 
 interface InboundEventBase<C extends InboundChannelId> {
@@ -70,10 +70,18 @@ export type WhatsAppInboundEvent = InboundEventBase<"whatsapp">;
 export type SlackInboundEvent = InboundEventBase<"slack">;
 export type EmailInboundEvent = InboundEventBase<"email">;
 export type A2aInboundEvent = InboundEventBase<"a2a">;
+/**
+ * Discord carries no normalizer yet — the variant exists so the ingress
+ * vocabulary is complete ahead of the Gateway client. `conversationExternalId`
+ * will be the channel snowflake, `actorExternalId` the author's user snowflake,
+ * and `source.threadId` a thread / forum-post snowflake.
+ */
+export type DiscordInboundEvent = InboundEventBase<"discord">;
 
 export type GatewayInboundEvent =
   | TelegramInboundEvent
   | WhatsAppInboundEvent
   | SlackInboundEvent
   | EmailInboundEvent
-  | A2aInboundEvent;
+  | A2aInboundEvent
+  | DiscordInboundEvent;

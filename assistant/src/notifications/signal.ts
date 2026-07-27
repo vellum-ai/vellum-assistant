@@ -25,6 +25,7 @@ export const NOTIFICATION_SOURCE_CHANNELS = [
   { id: "email", description: "Email channel" },
   { id: "platform", description: "Platform-managed channel" },
   { id: "a2a", description: "Agent-to-agent protocol channel" },
+  { id: "discord", description: "Discord channel" },
   { id: "scheduler", description: "Scheduled task runner (reminders, cron)" },
   { id: "watcher", description: "File/event watcher subsystem" },
 ] as const;
