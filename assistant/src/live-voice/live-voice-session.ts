@@ -46,6 +46,7 @@ import {
   supportsBoundary,
 } from "../providers/speech-to-text/provider-catalog.js";
 import type { ResolveStreamingTranscriberOptions } from "../providers/speech-to-text/resolve.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationListAndMetadataChanged } from "../runtime/sync/resource-sync-events.js";
 import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
 import type {
@@ -483,6 +484,10 @@ interface ActiveAssistantTurn {
   // or reference it in reply to the user, without ever speaking it unprompted.
   // Null when no continuation result is pending for this turn.
   continuationResult: string | null;
+  // Set when a barge-in handed the interrupted work to a background subagent:
+  // that request's transcript, so the model can tell the user the work is
+  // still running instead of appearing to have dropped it.
+  handedOffRequest: string | null;
   // The agent run started a definitive tool use this turn — tool use implies
   // a guaranteed-slow turn, so acknowledgment logic can key off this.
   toolUseStarted: boolean;
@@ -621,6 +626,18 @@ function buildResurfaceContextNote(continuationResult: string): string {
   return `Earlier the user interrupted you, and in the background you finished the reply they cut off. What you worked out was: "${continuationResult}". If their current message relates to it, use it to answer; otherwise you may briefly offer it or leave it aside, and do not repeat it verbatim if it no longer fits.`;
 }
 
+// Appended to the turn that follows a barge-in whose interrupted work was
+// handed to a background subagent. Without this the assistant simply stops
+// talking about the request it was mid-way through, and the user has no way to
+// know the work survived — it reads as dropped. The model decides whether to
+// mention it, because only it can tell "keep working on that" (the foreground
+// turn continues the same work, so announcing a background copy would be
+// confusing) from a genuine topic change (where "I'm still working on that in
+// the background" is exactly what the user needs to hear).
+function buildHandoffAnnouncementNote(handedOffRequest: string): string {
+  return `You handed your unfinished work on "${handedOffRequest}" to a background task, which is still running. If the user has moved to a different topic, briefly let them know you are still working on it in the background before answering them. If they are asking you to continue that same work, just continue and do not mention the background task.`;
+}
+
 // Assemble a leg's model-facing control prompt: the base live-voice rules,
 // the [-1] minimize teaching (withheld from the front-door leg — see
 // LIVE_VOICE_MINIMIZE_MARKER_TEACHING), the shared no-setup-flows rule, plus
@@ -641,7 +658,26 @@ function buildVoiceControlPrompt(
   if (turn.continuationResult) {
     prompt = `${prompt}\n\n${buildResurfaceContextNote(turn.continuationResult)}`;
   }
+  if (turn.handedOffRequest) {
+    prompt = `${prompt}\n\n${buildHandoffAnnouncementNote(turn.handedOffRequest)}`;
+  }
   return prompt;
+}
+
+// Delivered into the conversation when a continuation finishes AFTER the voice
+// session ended. There is no next voice turn to fold into, so this lands as a
+// normal turn in the thread — where the user actually goes looking for the
+// work. Framed as a system-style report rather than a user request so the
+// reply reads as "here is what I finished", not a fresh instruction.
+function buildClosedSessionDeliveryPrompt(
+  interruptedRequest: string,
+  answer: string,
+): string {
+  const what =
+    interruptedRequest.length > 0
+      ? `their earlier request ("${interruptedRequest}")`
+      : "their earlier request";
+  return `[Background work finished] The voice call ended while you were still finishing ${what} in the background. You have now finished it. Tell the user briefly that it is done and give them the result. Do not re-run any tool calls; the work is already complete. What you produced was:\n\n${answer}`;
 }
 
 // Objective handed to the background subagent that continues a barged-in turn.
@@ -798,6 +834,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // starts as context. Consumed (and cleared) when that turn launches; cleared
   // on a hard stop (abortDetachedRuns) so a stale result never surfaces later.
   private pendingContinuationResult: string | null = null;
+  // Set when a continuation actually spawns: the request it took over, so the
+  // NEXT turn can tell the user the work is still running. Consumed by that
+  // turn; cleared when the continuation finishes (by then the result note
+  // takes over and "still running" would be stale).
+  private pendingHandoffRequest: string | null = null;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
@@ -1022,7 +1063,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.turnDetector?.dispose();
     this.clearEndpointExtensionTimer();
     this.stopSessionTranscriber();
-    this.abortDetachedRuns({ reason: "session_closed" });
+    // Deliberately NOT aborting detached continuations: outliving the call is
+    // the entire premise of the handoff. Hanging up used to destroy the work
+    // the user had just asked to keep — and the natural test sequence (barge
+    // in, hear the answer, close the room, go look for the result) hit that
+    // every time. A deliberate `interrupt()` still aborts; ending the session
+    // does not. With no next voice turn to fold into, a continuation that
+    // finishes after this point delivers into the conversation instead (see
+    // the completion handler in detachInterruptedTurn).
     await this.cancelAssistantTurn("session_closed");
     if (shouldEmitSessionEndMetrics) {
       await this.emitSessionEndMetrics();
@@ -1714,13 +1762,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             return;
           }
         }
-        if (controller.signal.aborted || this.isClosed) {
+        // A closed session is NOT a reason to skip: the work outlives the
+        // call, and its result is delivered into the conversation below.
+        // Only an explicit invalidation (stop/interrupt/supersede) stops it.
+        if (controller.signal.aborted) {
           log.info(
             {
               turnId: turn.turnId,
-              skipReason: this.isClosed
-                ? "session_closed"
-                : "invalidated_before_spawn",
+              skipReason: "invalidated_before_spawn",
               waitedMs: Date.now() - detachStartedAtMs,
             },
             "Voice duplex continuation skipped",
@@ -1735,6 +1784,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           },
           "Voice duplex continuation starting",
         );
+        // The next turn tells the user this is still running. Set before the
+        // await so a follow-up turn launching during the run picks it up.
+        this.pendingHandoffRequest =
+          interruptedRequest.length > 0 ? interruptedRequest : null;
         const resultText = await spawn({
           parentConversationId: this.conversationId,
           objective: buildDuplexContinuationObjective(interruptedRequest),
@@ -1748,24 +1801,46 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // barge-in has started, an older continuation completing (before or
         // after it, empty or not) can't surface a stale answer. Only non-empty
         // text is actually surfaced.
-        const stillCurrent =
+        this.pendingHandoffRequest = null;
+        const answer = resultText.trim();
+        const notInvalidated =
           !controller.signal.aborted &&
-          !this.isClosed &&
           this.detachStopGeneration === stopGeneration &&
           detachSeq === this.detachSequence;
-        if (stillCurrent) {
-          const answer = resultText.trim();
+        // Two destinations, decided by whether a next voice turn still exists.
+        // Live session: stash for that turn's control prompt (never spoken
+        // unprompted). Session closed: there is no next turn, so deliver into
+        // the conversation — the call is over, nobody is being talked over,
+        // and the thread is exactly where the user goes looking for the work.
+        const deliverToConversation =
+          notInvalidated && this.isClosed && answer.length > 0;
+        if (notInvalidated && !this.isClosed) {
           this.pendingContinuationResult = answer.length > 0 ? answer : null;
+        }
+        if (deliverToConversation) {
+          const { injectMessageIntoParent } =
+            await import("../subagent/notify.js");
+          injectMessageIntoParent(
+            this.conversationId,
+            buildClosedSessionDeliveryPrompt(interruptedRequest, answer),
+          );
         }
         log.info(
           {
             turnId: turn.turnId,
             ranMs: Date.now() - detachStartedAtMs,
-            resultChars: resultText.trim().length,
-            // false = it finished, but a stop/interrupt or a newer barge-in
-            // landed while it ran, so its answer is dropped rather than
-            // folded into the next turn.
-            resultStashed: stillCurrent && resultText.trim().length > 0,
+            resultChars: answer.length,
+            // Where the answer went. "stashed" = folded into the next voice
+            // turn; "conversation" = the call had ended, so it was delivered
+            // into the thread; "dropped" = a stop/interrupt or a newer
+            // barge-in landed while it ran.
+            resultDestination: !notInvalidated
+              ? "dropped"
+              : answer.length === 0
+                ? "empty"
+                : this.isClosed
+                  ? "conversation"
+                  : "stashed",
           },
           "Voice duplex continuation finished",
         );
@@ -2657,9 +2732,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.pendingInterruptedRequest = null;
     const continuationResult = this.pendingContinuationResult;
     this.pendingContinuationResult = null;
+    const handedOffRequest = this.pendingHandoffRequest;
+    this.pendingHandoffRequest = null;
     await this.launchAssistantTurn(utterance, content, {
       interruptedRequest,
       continuationResult,
+      handedOffRequest,
     });
   }
 
@@ -2675,6 +2753,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // Set when a background continuation finished the interrupted reply: its
       // answer, appended to the turn's control prompt as context.
       continuationResult?: string | null;
+      // Set when a barge-in handed this request's work to a background
+      // subagent, so the model can say it is still running.
+      handedOffRequest?: string | null;
       // Unified front-door: dispatch without releasing the utterance. The
       // thinking frame and floor-holding timers are deferred until the leg's
       // leading verdict commits the turn (see commitSpeculativeTurn); a hold
@@ -2725,6 +2806,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       speculativeBuffer: "",
       interruptedRequest: opts?.interruptedRequest ?? null,
       continuationResult: opts?.continuationResult ?? null,
+      handedOffRequest: opts?.handedOffRequest ?? null,
       toolUseStarted: false,
       firstDeltaSeen: false,
       deltaEpoch: 0,
@@ -4691,9 +4773,20 @@ async function defaultSpawnBackgroundContinuation(args: {
       parentMessages: [...parentConversation.getMessages()],
       parentSystemPrompt: parentConversation.getCurrentSystemPrompt(),
     },
-    // No client-facing events: the continuation is silent; its result is folded
-    // into the next user turn as context, never spoken on its own.
-    () => {},
+    // Broadcast subagent events to clients attached to this conversation so
+    // the continuation appears in the UI like any other handoff — a background
+    // run the user cannot see reads as the assistant silently dropping their
+    // work. "Silent" means never SPOKEN unprompted (live-voice has no unbidden
+    // TTS); it was never meant to mean invisible.
+    //
+    // NOT the conversation's own sender: the voice bridge resets that to a
+    // no-op at turn teardown (see voice-session-bridge's clientCallbackInstalled
+    // reset), and the detach deliberately waits for that teardown before
+    // spawning — so a sender-based route is guaranteed to be dead by the time
+    // these events fire. `broadcastMessage` is the same path the bridge itself
+    // uses to reach an attached web client. The subagent events carry
+    // `parentConversationId`, not `conversationId`, so scope explicitly.
+    (msg) => broadcastMessage(msg, args.parentConversationId),
     { signal: args.signal },
   );
 }
