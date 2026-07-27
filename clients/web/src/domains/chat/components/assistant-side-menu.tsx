@@ -42,13 +42,6 @@ import {
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
 export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT = SIDEBAR_CONVERSATION_LIMIT;
 
-/**
- * The one gap between sidebar section headers (Pinned, Chats, each channel
- * section, each custom group). Every `CollapsibleNavSection.Root` in the
- * sidebar uses it, so no boundary is spaced differently from its neighbors.
- */
-const SECTION_GAP_CLASS = "gap-2";
-
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
   collapsed: boolean;
@@ -251,9 +244,9 @@ export function AssistantSideMenu({
     onMarkAllRead: onMarkAllReadInGroup
       ? () => onMarkAllReadInGroup(conversations)
       : undefined,
-    hasUnreadConversations: conversations.some(
-      (c) => c.hasUnseenLatestAssistantMessage,
-    ),
+    hasUnreadConversations: onMarkAllReadInGroup
+      ? conversations.some((c) => c.hasUnseenLatestAssistantMessage)
+      : false,
     onArchiveAll: onArchiveAllInGroup
       ? () => onArchiveAllInGroup(groupName, conversations)
       : undefined,
@@ -467,17 +460,14 @@ export function AssistantSideMenu({
             </div>
           ) : (
             <>
-              {/* Pinned, Chats, and the channel sections share ONE accordion
-                  root so every section boundary gets the same gap — splitting
-                  them across two roots made the Chats↔first-channel gap the
-                  Body's `gap-4` instead of the root's own. Their open state
-                  still lives in two storage buckets (Pinned/Chats default
-                  open); `use-sidebar-state` merges and re-splits it. New Chat
-                  lives in the assistant cluster above, not as a section-header
-                  action. */}
+              {/* Pinned, Chats, and the channel sections share one accordion
+                  root, so `CollapsibleNavSection.Root`'s gap governs every
+                  section boundary uniformly. Their open state lives in two
+                  storage buckets (Pinned/Chats default open); `use-sidebar-state`
+                  merges and re-splits it. New Chat lives in the assistant
+                  cluster above, not as a section-header action. */}
               <CollapsibleNavSection.Root
                 type="multiple"
-                className={SECTION_GAP_CLASS}
                 value={sidebar.effectiveOpenSections}
                 onValueChange={sidebar.onOpenSectionsChange}
               >
@@ -526,8 +516,7 @@ export function AssistantSideMenu({
                   <SideMenu.Section title="Your Groups">
                     <CollapsibleNavSection.Root
                       type="multiple"
-                      className={SECTION_GAP_CLASS}
-                      value={sidebar.effectiveOpenCustomGroups}
+                            value={sidebar.effectiveOpenCustomGroups}
                       onValueChange={sidebar.onOpenCustomGroupsChange}
                     >
                       {sidebar.customGroups.map((group) => {
@@ -548,8 +537,8 @@ export function AssistantSideMenu({
                             key={group.id}
                             value={group.id}
                             label={group.name}
-                            /* The "…" button renders the same item set as the
-                               header's right-click menu, from `groupMenu`. */
+                            /* The "…" button and the header's right-click menu
+                               both render from `groupMenu`. */
                             trailing={
                               <GroupActionsMenu
                                 label={group.name}

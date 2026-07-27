@@ -131,7 +131,7 @@ export interface SidebarState {
   /**
    * Reveal the Background section, enabling its lazy fetch. Wired to the
    * collapsed rail's flyout trigger, which opens without going through
-   * `onOpenCategoriesChange`.
+   * `onOpenSectionsChange`.
    */
   activateBackground: () => void;
   /** True once the Background section is revealed but its fetch is still in flight. */
@@ -365,20 +365,34 @@ export function useSidebarState({
 
   // Pinned/Chats and the channel sections render in one accordion root, so
   // their two storage buckets are merged into a single value array here and
-  // split apart again on change. Keeping the buckets separate preserves their
-  // different defaults (primary open, categories closed) and the activation
-  // side effects `setOpenCategories` owns.
+  // split apart again on change. The buckets stay separate because they have
+  // different defaults (primary open, categories closed) and because
+  // `setOpenCategories` owns the lazy-fetch activation side effects.
   const effectiveOpenSections = useMemo(
     () => [...effectiveOpenPrimary, ...effectiveOpenCategories],
     [effectiveOpenPrimary, effectiveOpenCategories],
   );
 
+  // Sections held open by attention rather than by the user. Radix builds each
+  // `onValueChange` payload from the current value array, so these ride along
+  // when the user toggles some *other* section — persisting them would outlive
+  // the attention that opened them and leave the section stuck open.
+  const forcedOpenKeys = useMemo(() => {
+    const stored = new Set([...openPrimary, ...openCategories]);
+    return new Set(
+      [...effectiveOpenPrimary, ...effectiveOpenCategories].filter(
+        (key) => !stored.has(key),
+      ),
+    );
+  }, [openPrimary, openCategories, effectiveOpenPrimary, effectiveOpenCategories]);
+
   const onOpenSectionsChange = useCallback(
     (next: string[]) => {
-      setOpenPrimary(next.filter(isKnownPrimaryKey));
-      setOpenCategories(next.filter((key) => !isKnownPrimaryKey(key)));
+      const toPersist = next.filter((key) => !forcedOpenKeys.has(key));
+      setOpenPrimary(toPersist.filter(isKnownPrimaryKey));
+      setOpenCategories(toPersist.filter((key) => !isKnownPrimaryKey(key)));
     },
-    [setOpenPrimary, setOpenCategories],
+    [forcedOpenKeys, setOpenPrimary, setOpenCategories],
   );
 
   return {

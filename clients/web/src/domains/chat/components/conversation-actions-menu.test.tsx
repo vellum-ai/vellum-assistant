@@ -376,8 +376,12 @@ describe("ConversationActionsMenu — mobile panel details", () => {
       />,
     );
     expect(html).toContain("Mark as unread");
-    expect(html).toContain("pointer-events-none");
-    expect(html).toContain("opacity-50");
+    // Disabled is expressed through PanelItem's own `disabled` prop, which
+    // keeps the row's button semantics, plus the dim styling the design
+    // library's menu surfaces use.
+    expect(html).toContain("disabled=\"\"");
+    expect(html).toContain("cursor-not-allowed");
+    expect(html).toContain("text-[var(--content-disabled)]");
   });
 
   test("hides Open in New Window on native iOS bottom sheet", () => {

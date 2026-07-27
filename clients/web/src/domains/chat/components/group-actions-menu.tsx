@@ -13,9 +13,8 @@
  *   headers, which renders the PanelItem set in a Popover (desktop) or a
  *   BottomSheet (mobile).
  *
- * Mirrors the same split used by `conversation-actions-menu.tsx` for the
- * per-conversation menu (`renderConversationMenuItems` /
- * `renderConversationMenuItemsAsPanelItems`).
+ * `conversation-actions-menu.tsx` splits the per-conversation menu the same
+ * way; the `PanelItem` row primitives both use live in `panel-menu-item.tsx`.
  */
 
 import {
@@ -29,10 +28,13 @@ import { type ReactNode, useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
+    buildPanelMenuItem,
+    PanelMenuDivider,
+} from "@/domains/chat/components/panel-menu-item";
+import {
     BottomSheet,
     ContextMenu,
     Menu,
-    PanelItem,
     Popover,
 } from "@vellumai/design-library";
 
@@ -121,58 +123,6 @@ export function renderGroupMenuItems({
 }
 
 /**
- * 1px divider for the PanelItem surfaces. Mirrors the in-popover separator
- * style used elsewhere in the app.
- */
-function PanelMenuDivider() {
-  return (
-    <div aria-hidden="true" className="my-1 h-px bg-[var(--border-overlay)]" />
-  );
-}
-
-/**
- * Build a single PanelItem row. The `run` handler fires first, then the
- * surface dismisses via `onClose`, so the action's own UI feedback (dialogs,
- * toasts) doesn't appear under a still-open sheet.
- *
- * `PanelItem` has no disabled prop, so a disabled row drops its `onSelect`
- * and is styled/announced as disabled instead.
- */
-function buildGroupPanelItem({
-  key,
-  icon,
-  label,
-  disabled,
-  run,
-  onClose,
-}: {
-  key: string;
-  icon: typeof Pencil;
-  label: string;
-  disabled?: boolean;
-  run: () => void;
-  onClose: () => void;
-}): ReactNode {
-  return (
-    <PanelItem
-      key={key}
-      icon={icon}
-      label={label}
-      onSelect={
-        disabled
-          ? undefined
-          : () => {
-              run();
-              onClose();
-            }
-      }
-      aria-disabled={disabled || undefined}
-      className={disabled ? "pointer-events-none opacity-50" : undefined}
-    />
-  );
-}
-
-/**
  * Popover / bottom-sheet renderer. Returns the same conceptual item set as
  * {@link renderGroupMenuItems}, flattened into `PanelItem` rows.
  */
@@ -191,7 +141,7 @@ export function renderGroupMenuItemsAsPanelItems({
   return (
     <>
       {onMarkAllRead
-        ? buildGroupPanelItem({
+        ? buildPanelMenuItem({
             key: "mark-all-read",
             icon: CircleCheck,
             label: "Mark All as Read",
@@ -201,7 +151,7 @@ export function renderGroupMenuItemsAsPanelItems({
           })
         : null}
       {onArchiveAll
-        ? buildGroupPanelItem({
+        ? buildPanelMenuItem({
             key: "archive-all",
             icon: Archive,
             label: "Archive All…",
@@ -212,7 +162,7 @@ export function renderGroupMenuItemsAsPanelItems({
         : null}
       {hasBulkActions && hasIndividualActions ? <PanelMenuDivider /> : null}
       {onRename
-        ? buildGroupPanelItem({
+        ? buildPanelMenuItem({
             key: "rename",
             icon: Pencil,
             label: "Rename",
@@ -221,7 +171,7 @@ export function renderGroupMenuItemsAsPanelItems({
           })
         : null}
       {onDelete
-        ? buildGroupPanelItem({
+        ? buildPanelMenuItem({
             key: "delete",
             icon: Trash2,
             label: hasConversations ? "Delete group…" : "Delete group",
@@ -239,7 +189,7 @@ export function renderGroupMenuItemsAsPanelItems({
 
 export interface GroupActionsMenuProps extends GroupMenuItemsProps {
   /** Group name, used for the trigger's accessible label. */
-  label?: string;
+  label: string;
 }
 
 /**
@@ -264,7 +214,7 @@ export function GroupActionsMenu({ label, ...menuProps }: GroupActionsMenuProps)
   const trigger = (
     <button
       type="button"
-      aria-label={label ? `${label} actions` : "Group actions"}
+      aria-label={`${label} actions`}
       aria-haspopup="menu"
       onClick={(event) => event.stopPropagation()}
       className="flex h-5 w-5 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)]"
@@ -277,9 +227,9 @@ export function GroupActionsMenu({ label, ...menuProps }: GroupActionsMenuProps)
     return (
       <BottomSheet.Root open={open} onOpenChange={setOpen}>
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
-        <BottomSheet.Content>
+        <BottomSheet.Content aria-describedby={undefined}>
           <BottomSheet.Header className="sr-only">
-            <BottomSheet.Title>{label ?? "Group"} actions</BottomSheet.Title>
+            <BottomSheet.Title>{label} actions</BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body className="pt-0">{items}</BottomSheet.Body>
         </BottomSheet.Content>

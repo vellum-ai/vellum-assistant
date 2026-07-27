@@ -145,3 +145,71 @@ describe("useSidebarState pagination", () => {
     expect(result.current.recents.totalCount).toBe(1);
   });
 });
+
+describe("useSidebarState open-section persistence", () => {
+  // Pinned/Chats and the channel sections share one accordion root, so every
+  // toggle emits the whole value array — including sections that attention
+  // forced open. Persisting those would outlive the attention that opened
+  // them and leave the section stuck open across reloads.
+  test("does not persist a section that only attention forced open", () => {
+    const conversations = [
+      makeConversation(0),
+      makeConversation(1, {
+        conversationId: "slack-1",
+        originChannel: "slack",
+        groupId: undefined,
+      }),
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations,
+        attentionConversationIds: new Set(["slack-1"]),
+      }),
+    );
+
+    // Attention reveals the Slack section without the user touching it.
+    expect(result.current.effectiveOpenSections).toContain("channel:slack");
+
+    // Collapsing Chats emits the forced key alongside the real change.
+    act(() =>
+      result.current.onOpenSectionsChange(
+        result.current.effectiveOpenSections.filter((k) => k !== "recents"),
+      ),
+    );
+
+    expect(useSidebarCollapseStore.getState().openCategories).not.toContain(
+      "channel:slack",
+    );
+    expect(useSidebarCollapseStore.getState().openPrimary).not.toContain(
+      "recents",
+    );
+  });
+
+  test("persists a section the user opened themselves", () => {
+    const conversations = [
+      makeConversation(0),
+      makeConversation(1, {
+        conversationId: "slack-1",
+        originChannel: "slack",
+        groupId: undefined,
+      }),
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations }),
+    );
+
+    act(() =>
+      result.current.onOpenSectionsChange([
+        ...result.current.effectiveOpenSections,
+        "channel:slack",
+      ]),
+    );
+
+    expect(useSidebarCollapseStore.getState().openCategories).toContain(
+      "channel:slack",
+    );
+  });
+});

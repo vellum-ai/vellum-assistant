@@ -128,7 +128,6 @@ export function ConversationNavSection({
               renderGroupMenuItemsAsPanelItems({ ...groupMenu, onClose: close })
           : undefined
       }
-      touchMenuTitle={label}
       collapsedIndicator={collapsedIndicator}
     >
       <ConversationRowList {...listProps} />
