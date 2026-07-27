@@ -579,6 +579,25 @@ an Apple Developer team admin (Vocify, Inc., team `7FZDXZR8P5`) has to
 register them by hand. Until all three environments are done, a release
 build of the affected environment fails while signing or exporting.
 
+> **What happens today, with the secrets absent.** This is expected, not a
+> regression. `release-ios.yaml` does not hard-fail on a missing
+> `IOS_PROVISIONING_PROFILE_EXT*`: "Install provisioning profiles" logs a
+> `::warning::` naming the secret, skips the install, and — kept consistent
+> through the step's `ext_profile_installed` output — omits the extension
+> from `ExportOptions.plist`, since an entry naming an uninstalled profile
+> fails `-exportArchive` on its own.
+>
+> The run still fails, one step later, at **Archive**, with Xcode's own
+> error: `No profile for team '7FZDXZR8P5' matching '<profile name>' found
+> … (in target 'VoiceActivity …')`. That is unavoidable — every app target
+> embeds its extension, and the release archives with
+> `CODE_SIGN_STYLE=Manual`, which never auto-provisions. **No iOS release,
+> of any environment, can be produced until the rows below are done.**
+> Deleting the extension's `PROVISIONING_PROFILE_SPECIFIER_Manual` does not
+> help either; manual signing then fails with `"VoiceActivity …" requires a
+> provisioning profile` instead. The fix is the portal work below, not a
+> workflow change.
+
 | Environment | Extension bundle ID | Profile name (exact) | GitHub secret |
 |-------------|---------------------|----------------------|---------------|
 | production | `ai.vocify-inc.vellum-assistant-ios.VoiceActivity` | `Vellum Assistant iOS VoiceActivity Distribution` | `IOS_PROVISIONING_PROFILE_EXT` |
