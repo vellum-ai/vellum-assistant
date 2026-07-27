@@ -237,21 +237,21 @@ export const askQuestionTool = {
     }
 
     // Text fallback only when the turn has NEITHER an app dynamic-UI surface NOR
-    // an inline-button channel adapter (e.g. SMS, email, or a channel with no
-    // inline renderer). Hand the model the formatted question(s) to present in
-    // its reply and wait for a free-text answer — mirrors the isInteractive
-    // guard above.
+    // a channel adapter that renders the question wizard (e.g. SMS, email, or a
+    // channel with approval buttons but no question wizard yet). Hand the model
+    // the formatted question(s) to present in its reply and wait for a free-text
+    // answer — mirrors the isInteractive guard above.
     //
     // Otherwise park on the prompter below: the app (`supportsDynamicUi`)
-    // renders the SSE question card, and an inline-button channel
-    // (`supportsInlineOptions`, e.g. Telegram) has the pending question
+    // renders the SSE question card, and a wizard-capable channel
+    // (`supportsInlineQuestions`, e.g. Telegram) has the pending question
     // delivered as a native option wizard by the channel watcher
     // (runtime/routes/inbound-stages/background-dispatch.ts) — a tap or a typed
     // reply resolves it. On a channel turn the prompter's SSE broadcast is a
     // harmless no-op (no SSE client), so the same park path serves both.
     if (
       context.supportsDynamicUi === false &&
-      context.supportsInlineOptions !== true
+      context.supportsInlineQuestions !== true
     ) {
       return {
         content: formatQuestionsAsTextFallback(questions),

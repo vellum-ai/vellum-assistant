@@ -13,6 +13,7 @@
 import type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
+  QuestionUIMetadata,
 } from "@vellumai/gateway-client";
 import {
   ChannelDeliveryError,
@@ -62,4 +63,31 @@ export async function deliverApprovalPrompt(
     undefined,
     log,
   );
+}
+
+/**
+ * Deliver one step of a channel-native question wizard. Without `messageTs`,
+ * sends a fresh card and the delivery result's `ts` is the new message id
+ * (captured by the watcher so later steps edit in place); with `messageTs`,
+ * edits that message to advance. Parallels {@link deliverApprovalPrompt}.
+ */
+export async function deliverQuestionPrompt(
+  callbackUrl: string,
+  chatId: string,
+  text: string,
+  question: QuestionUIMetadata,
+  messageTs: string | undefined,
+  assistantId?: string,
+): Promise<ChannelDeliveryResult> {
+  const payload: ChannelReplyPayload = {
+    chatId,
+    text,
+    question,
+    ...(messageTs ? { messageTs } : {}),
+    assistantId,
+  };
+  if (isDirectDelivery(callbackUrl)) {
+    return deliverDirect(callbackUrl, payload);
+  }
+  return _deliverChannelReply(callbackUrl, payload, undefined, log);
 }

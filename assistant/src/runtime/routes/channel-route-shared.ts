@@ -69,6 +69,47 @@ export function parseCallbackData(
 }
 
 // ---------------------------------------------------------------------------
+// Question callback data parser
+// format: "qst:<requestId>:<questionId>:<optionIndex|skip>"
+// ---------------------------------------------------------------------------
+
+/** Parsed `qst:` wizard tap. `selection` is an option index or an explicit skip. */
+export interface QuestionCallbackData {
+  requestId: string;
+  questionId: string;
+  selection: number | "skip";
+}
+
+/**
+ * Parse a question wizard callback. The scheme has exactly four colon-delimited
+ * fields and no field contains a colon (requestId is a uuid, questionId is
+ * `q<n>`, the last is a non-negative integer or the literal `skip`), so a strict
+ * arity check is correct — unlike the approval parser, whose action can itself
+ * contain colons. Returns `null` for anything that isn't a well-formed `qst:`
+ * callback so callers can fall through to other handlers.
+ */
+export function parseQuestionCallbackData(
+  data: string,
+): QuestionCallbackData | null {
+  const parts = data.split(":");
+  if (parts.length !== 4 || parts[0] !== "qst") {
+    return null;
+  }
+  const [, requestId, questionId, raw] = parts;
+  if (!requestId || !questionId || !raw) {
+    return null;
+  }
+  if (raw === "skip") {
+    return { requestId, questionId, selection: "skip" };
+  }
+  const index = Number(raw);
+  if (!Number.isInteger(index) || index < 0) {
+    return null;
+  }
+  return { requestId, questionId, selection: index };
+}
+
+// ---------------------------------------------------------------------------
 // Reaction callback data parser — format: "reaction:<emoji_name>"
 // ---------------------------------------------------------------------------
 

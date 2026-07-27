@@ -74,7 +74,10 @@ import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
-import { channelSupportsInlineOptions } from "./channel-ui-capability.js";
+import {
+  channelSupportsInlineOptions,
+  channelSupportsInlineQuestions,
+} from "./channel-ui-capability.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
 import type { SurfaceShowPair } from "./conversation-surfaces.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
@@ -100,11 +103,20 @@ export interface ChannelCapabilities {
   supportsDynamicUi: boolean;
   /**
    * Whether the channel's adapter can render inline tappable options — approval
-   * buttons and (next) question option pickers. Distinct from `supportsDynamicUi`:
-   * a text-only channel can render inline buttons without dynamic UI. Optional;
-   * absent is treated as `false`.
+   * buttons today. Distinct from `supportsDynamicUi`: a text-only channel can
+   * render inline buttons without dynamic UI. Optional; absent is treated as
+   * `false`.
    */
   supportsInlineOptions?: boolean;
+  /**
+   * Whether the channel's adapter renders the `ask_question` wizard natively
+   * (inline option buttons, advanced in place). A strict subset of
+   * `supportsInlineOptions` — the wizard is implemented per adapter, Telegram
+   * first — so it gates `ask_question` parking without hanging the turn on
+   * channels that render approval buttons but have no question wizard yet.
+   * Optional; absent is treated as `false`.
+   */
+  supportsInlineQuestions?: boolean;
   /** Whether the channel supports voice/microphone input. */
   supportsVoiceInput: boolean;
   /** The client OS/interface identifier (e.g. "macos", "ios", "web"). */
@@ -291,6 +303,7 @@ export function resolveChannelCapabilities(
         dashboardCapable: supportsDesktopUi,
         supportsDynamicUi: supportsDesktopUi || iface === "web",
         supportsInlineOptions: channelSupportsInlineOptions(channel),
+        supportsInlineQuestions: channelSupportsInlineQuestions(channel),
         supportsVoiceInput: supportsDesktopUi,
         clientOS: iface ?? undefined,
         chatType: resolvedChatType,
@@ -306,6 +319,7 @@ export function resolveChannelCapabilities(
         dashboardCapable: false,
         supportsDynamicUi: false,
         supportsInlineOptions: channelSupportsInlineOptions(channel),
+        supportsInlineQuestions: channelSupportsInlineQuestions(channel),
         supportsVoiceInput: false,
         chatType: resolvedChatType,
       };
@@ -315,6 +329,7 @@ export function resolveChannelCapabilities(
         dashboardCapable: false,
         supportsDynamicUi: false,
         supportsInlineOptions: channelSupportsInlineOptions(channel),
+        supportsInlineQuestions: channelSupportsInlineQuestions(channel),
         supportsVoiceInput: false,
         chatType: resolvedChatType,
       };

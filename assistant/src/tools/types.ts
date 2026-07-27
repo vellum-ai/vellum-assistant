@@ -199,15 +199,16 @@ export interface ToolContext {
    */
   supportsDynamicUi?: boolean;
   /**
-   * Whether the current turn's channel can render inline tappable options
-   * (question option pickers, approval buttons) natively — `true` on channels
-   * with an inline-button adapter (Telegram, WhatsApp, Slack), `false`/absent
-   * elsewhere. UI-dependent tools read this to deliver a channel-native option
-   * prompt instead of plain text. Distinct from `supportsDynamicUi` (the app's
-   * dynamic-UI surfaces): a text-only channel supports inline options without
-   * dynamic UI.
+   * Whether the current turn's channel renders the `ask_question` wizard
+   * natively (inline option buttons advanced in place) — `true` on channels
+   * whose adapter implements it (Telegram today), `false`/absent elsewhere.
+   * `ask_question` reads this to park on a channel-native option wizard instead
+   * of returning a plain-text fallback. Narrower than "renders inline buttons"
+   * (approvals): a channel can render approval buttons yet not implement the
+   * question wizard, in which case this stays `false` so the turn degrades to
+   * text rather than parking on a prompt no adapter can deliver.
    */
-  supportsInlineOptions?: boolean;
+  supportsInlineQuestions?: boolean;
   /**
    * When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules.
    * @legacy

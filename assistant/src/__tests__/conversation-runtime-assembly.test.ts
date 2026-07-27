@@ -401,6 +401,31 @@ describe("resolveChannelCapabilities", () => {
     ).toBe(false);
   });
 
+  test("supportsInlineQuestions is true only for channels with a question wizard", () => {
+    // Strict subset of supportsInlineOptions: gates ask_question parking, so it
+    // must be true only where the adapter actually renders the wizard (Telegram
+    // today) — otherwise a parked question would hang with no card to deliver.
+    expect(resolveChannelCapabilities("telegram").supportsInlineQuestions).toBe(
+      true,
+    );
+    // Renders approval buttons but has no question wizard yet → must stay false.
+    expect(resolveChannelCapabilities("whatsapp").supportsInlineQuestions).toBe(
+      false,
+    );
+    expect(resolveChannelCapabilities("slack").supportsInlineQuestions).toBe(
+      false,
+    );
+    expect(resolveChannelCapabilities("email").supportsInlineQuestions).toBe(
+      false,
+    );
+    expect(
+      resolveChannelCapabilities(undefined, "macos").supportsInlineQuestions,
+    ).toBe(false);
+    expect(
+      resolveChannelCapabilities("unknown-thing").supportsInlineQuestions,
+    ).toBe(false);
+  });
+
   test("propagates chatType when provided", () => {
     const caps = resolveChannelCapabilities("telegram", null, "group");
     expect(caps.chatType).toBe("group");

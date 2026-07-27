@@ -342,6 +342,35 @@ describe("AskQuestionTool text fallback (supportsDynamicUi === false)", () => {
     expect(calls).toHaveLength(0);
     expect(result.content.toLowerCase()).toContain("no interactive user");
   });
+
+  test("parks (no text fallback) on a wizard-capable channel even without dynamic UI", async () => {
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+
+    // A channel whose adapter renders the question wizard (Telegram) has no
+    // dynamic UI but must still park on the prompter — the watcher delivers the
+    // pending question as a native option wizard, so falling back to text would
+    // regress it to an untappable message.
+    await askQuestionTool.execute(
+      validInput,
+      makeContext({ supportsDynamicUi: false, supportsInlineQuestions: true }),
+    );
+
+    expect(calls).toHaveLength(1);
+  });
+
+  test("text fallback when a channel renders approval buttons but no question wizard", async () => {
+    // `supportsInlineQuestions` is narrower than "renders inline buttons": a
+    // channel with approval buttons but no question wizard (false/unset here)
+    // must degrade to text rather than park on a prompt no adapter can deliver.
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({ supportsDynamicUi: false, supportsInlineQuestions: false }),
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(result.isError).toBe(false);
+    expect(result.content.toLowerCase()).toContain("plain-text");
+  });
 });
 
 describe("formatQuestionsAsTextFallback", () => {

@@ -9,10 +9,12 @@ export interface DynamicUiCapabilityView {
   readonly currentTurnChannelCapabilities?: {
     readonly supportsDynamicUi: boolean;
     readonly supportsInlineOptions?: boolean;
+    readonly supportsInlineQuestions?: boolean;
   };
   readonly channelCapabilities?: {
     readonly supportsDynamicUi: boolean;
     readonly supportsInlineOptions?: boolean;
+    readonly supportsInlineQuestions?: boolean;
   };
 }
 
@@ -72,4 +74,42 @@ export function conversationSupportsInlineOptions(
     conversation.currentTurnChannelCapabilities ??
     conversation.channelCapabilities;
   return caps?.supportsInlineOptions === true;
+}
+
+/**
+ * Channels whose adapter renders the `ask_question` wizard as native inline
+ * option buttons. A strict subset of {@link INLINE_OPTIONS_CHANNELS}: rendering
+ * inline approval buttons (all of Telegram/Slack/WhatsApp) is a different, more
+ * general capability than implementing the multi-step question wizard, which so
+ * far only the Telegram adapter does. Onboarding another channel's question
+ * wizard = build its renderer, then add it here — no shared-handling change.
+ *
+ * Kept distinct from `supportsInlineOptions` on purpose: gating questions on the
+ * broader approval capability would park `ask_question` on Slack/WhatsApp with
+ * no wizard to deliver it, hanging the turn until the response timeout instead
+ * of degrading to the text fallback.
+ */
+const INLINE_QUESTION_CHANNELS: ReadonlySet<string> = new Set(["telegram"]);
+
+/**
+ * Whether a channel's adapter renders the `ask_question` wizard natively. Pure
+ * set-membership on the canonical channel id (no normalization).
+ */
+export function channelSupportsInlineQuestions(channel: string): boolean {
+  return INLINE_QUESTION_CHANNELS.has(channel);
+}
+
+/**
+ * Whether the conversation's current-turn channel renders the `ask_question`
+ * wizard natively. Opt-in per channel: defaults to `false` when unset. Prefers
+ * the per-turn capabilities, falling back to the structural channel
+ * capabilities.
+ */
+export function conversationSupportsInlineQuestions(
+  conversation: DynamicUiCapabilityView,
+): boolean {
+  const caps =
+    conversation.currentTurnChannelCapabilities ??
+    conversation.channelCapabilities;
+  return caps?.supportsInlineQuestions === true;
 }

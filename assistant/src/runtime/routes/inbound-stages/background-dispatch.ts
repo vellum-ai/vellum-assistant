@@ -17,6 +17,7 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
+import { channelSupportsInlineQuestions } from "../../../daemon/channel-ui-capability.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
 import type { AssistantEvent } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
@@ -41,7 +42,19 @@ import {
   getApprovalInfoByConversation,
   getChannelApprovalPrompt,
 } from "../../channel-approvals.js";
-import { deliverChannelReply } from "../../gateway-client.js";
+import {
+  buildQuestionWizardStep,
+  buildQuestionWizardSummary,
+  clearQuestionWizardState,
+  ensureQuestionWizardState,
+  getPendingQuestionInfoByConversation,
+  getQuestionWizardStateByConversation,
+  setQuestionWizardMessageTs,
+} from "../../channel-questions.js";
+import {
+  deliverChannelReply,
+  deliverQuestionPrompt,
+} from "../../gateway-client.js";
 import type {
   ApprovalCopyGenerator,
   MessageProcessor,
@@ -197,6 +210,15 @@ export function processChannelMessageInBackground(
           replyCallbackUrl,
           assistantId,
           approvalCopyGenerator,
+        })
+      : undefined;
+    const stopQuestionWatcher = replyCallbackUrl
+      ? startPendingQuestionPromptWatcher({
+          conversationId,
+          sourceChannel,
+          externalChatId,
+          replyCallbackUrl,
+          assistantId,
         })
       : undefined;
     const stopTcApprovalNotifier = replyCallbackUrl
@@ -372,6 +394,7 @@ export function processChannelMessageInBackground(
       stopTypingHeartbeat?.();
       slackThinkingStatus?.stop();
       stopApprovalWatcher?.();
+      stopQuestionWatcher?.();
       stopTcApprovalNotifier?.();
     }
   }).catch((err) => {
@@ -857,6 +880,132 @@ function startPendingApprovalPromptWatcher(params: {
   void poll();
   return () => {
     active = false;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Pending question wizard watcher
+// ---------------------------------------------------------------------------
+
+const PENDING_QUESTION_POLL_INTERVAL_MS = 300;
+
+/**
+ * Watch for a parked `ask_question` on a wizard-capable channel and render it
+ * as an inline-option wizard: deliver the first question, edit the same message
+ * in place to advance as answers land, and finalize it to a recap once the
+ * interaction resolves. The single outbound owner — taps (`qst:` callbacks) and
+ * free-text replies only mutate wizard state (see channel-questions.ts); this
+ * watcher reconciles the message to that state.
+ *
+ * Gated on the channel's question-wizard renderer, NOT the broader inline-options
+ * (approval) capability and NOT guardian identity: a question targets whoever is
+ * chatting, guardian or not, so — unlike the approval watcher — there is no
+ * bound-guardian check.
+ */
+function startPendingQuestionPromptWatcher(params: {
+  conversationId: string;
+  sourceChannel: ChannelId;
+  externalChatId: string;
+  replyCallbackUrl: string;
+  assistantId?: string;
+}): () => void {
+  const {
+    conversationId,
+    sourceChannel,
+    externalChatId,
+    replyCallbackUrl,
+    assistantId,
+  } = params;
+
+  if (!channelSupportsInlineQuestions(sourceChannel)) {
+    return () => {};
+  }
+
+  let active = true;
+  // The step each wizard's card currently reflects, keyed by requestId — drives
+  // the edit-to-advance. Local to this watcher (one per parked turn), so it
+  // never races another conversation's poller.
+  const renderedStep = new Map<string, number>();
+  const finalized = new Set<string>();
+  // Single-flight across polls: never overlap two outbound edits/sends.
+  let delivering = false;
+
+  const reconcile = async (): Promise<void> => {
+    if (delivering) return;
+
+    const info = getPendingQuestionInfoByConversation(conversationId)[0];
+    if (info) {
+      const state = ensureQuestionWizardState(info.requestId);
+      if (!state) return;
+      const step = buildQuestionWizardStep(state);
+      // All questions answered but not yet resolved — the next tick (once the
+      // interaction clears) finalizes.
+      if (!step) return;
+      if (renderedStep.get(info.requestId) === step.stepIndex) return;
+
+      delivering = true;
+      try {
+        const result = await deliverQuestionPrompt(
+          replyCallbackUrl,
+          externalChatId,
+          step.text,
+          step.question,
+          state.messageTs,
+          assistantId,
+        );
+        if (result.ts) setQuestionWizardMessageTs(info.requestId, result.ts);
+        renderedStep.set(info.requestId, step.stepIndex);
+      } finally {
+        delivering = false;
+      }
+      return;
+    }
+
+    // No pending question: finalize a lingering wizard card for this
+    // conversation (the interaction resolved — submitted, timed out, or
+    // superseded).
+    const stale = getQuestionWizardStateByConversation(conversationId);
+    if (!stale) return;
+    if (finalized.has(stale.requestId)) return;
+    finalized.add(stale.requestId);
+
+    if (stale.messageTs) {
+      delivering = true;
+      try {
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: externalChatId,
+          text: buildQuestionWizardSummary(stale),
+          messageTs: stale.messageTs,
+          assistantId,
+        });
+      } finally {
+        delivering = false;
+      }
+    }
+    clearQuestionWizardState(stale.requestId);
+  };
+
+  const poll = async (): Promise<void> => {
+    while (active) {
+      try {
+        await reconcile();
+      } catch (err) {
+        log.warn(
+          { err, conversationId },
+          "Pending question prompt watcher failed",
+        );
+      }
+      await delay(PENDING_QUESTION_POLL_INTERVAL_MS);
+    }
+  };
+
+  void poll();
+  return () => {
+    active = false;
+    // Best-effort finalize: if the wizard resolved in the last poll gap and the
+    // turn is ending before the next tick, reconcile once more so the card
+    // doesn't linger with stale buttons.
+    void reconcile().catch(() => {});
   };
 }
 

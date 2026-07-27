@@ -196,6 +196,13 @@ export type RuntimeInboundResponse = {
     | "assistant_turn"
     | "guardian_decision_applied"
     | "stale_ignored";
+  /**
+   * Set when a `qst:` wizard tap (or a free-text answer to a parked question)
+   * was consumed by the runtime. The gateway does not act on it — Telegram is a
+   * direct-delivery channel, so the daemon's question watcher owns advancing and
+   * finalizing the wizard card. Typed here so the response contract is complete.
+   */
+  question?: "answer_recorded" | "answer_completed" | "stale_ignored";
   assistantMessage?: {
     id: string;
     role: "assistant";

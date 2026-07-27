@@ -99,6 +99,10 @@ import {
   notifyGuardianOfAccessRequest,
 } from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import {
+  getPendingQuestionInfoByConversation,
+  recordQuestionFreeTextForConversation,
+} from "../channel-questions.js";
 import { deliverChannelReply } from "../gateway-client.js";
 import { trustContextFromVerdict } from "../trust-verdict-consumer.js";
 import { canonicalChannelAssistantId } from "./channel-route-shared.js";
@@ -115,6 +119,7 @@ import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
 import { handleGuardianActivationIntercept } from "./inbound-stages/guardian-activation-intercept.js";
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
 import { prepareChannelInboundContent } from "./inbound-stages/inbound-content-prep.js";
+import { handleQuestionCallbackIntercept } from "./inbound-stages/question-callback-intercept.js";
 import {
   handleSlackReactionIntercept,
   isSlackReactionEvent,
@@ -124,6 +129,38 @@ import { tryTranscribeAudioAttachments } from "./inbound-stages/transcribe-audio
 import type { RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
+
+/**
+ * Record an inferred "seen" signal for a handled channel callback tap
+ * (Telegram/Slack only). Best-effort — a failure never blocks the interaction.
+ * Mirrors the inline recording on the approval interception path.
+ */
+function recordChannelCallbackSeenSignal(
+  sourceChannel: string,
+  conversationId: string,
+  callbackData: string | undefined,
+): void {
+  if (sourceChannel !== "telegram" && sourceChannel !== "slack") return;
+  try {
+    const preview =
+      callbackData && callbackData.length > 80
+        ? callbackData.slice(0, 80) + "..."
+        : (callbackData ?? "");
+    recordConversationSeenSignal({
+      conversationId,
+      signalType: `${sourceChannel}_callback` as SignalType,
+      confidence: "inferred",
+      sourceChannel,
+      source: "inbound-message-handler",
+      evidenceText: `User tapped callback: '${preview}'`,
+    });
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Failed to record seen signal for channel callback",
+    );
+  }
+}
 
 // Gates the per-channel admission floor stage. When off, the floor is never
 // enforced and inbound falls back to ACL-only behavior (the gateway also skips
@@ -1069,6 +1106,31 @@ export async function handleChannelInbound({
     return bootstrapResponse;
   }
 
+  // ── Question wizard tap (Stage 1) ──
+  // A `qst:` callback answers a parked ask_question wizard. Handle it before the
+  // guardian router / approval interception so it never reaches the agent as
+  // literal text, and return early whether the tap was fresh or stale. Outbound
+  // advance/finalize is the watcher's job — this only records the answer.
+  if (hasCallbackData) {
+    const questionTap = handleQuestionCallbackIntercept({
+      conversationId: result.conversationId,
+      callbackData: body.callbackData,
+    });
+    if (questionTap.handled) {
+      recordChannelCallbackSeenSignal(
+        sourceChannel,
+        result.conversationId,
+        body.callbackData,
+      );
+      return {
+        accepted: true,
+        duplicate: false,
+        eventId: result.eventId,
+        question: questionTap.type,
+      };
+    }
+  }
+
   // All guardian reply routing flows through the guardian reply router below
   // (routeGuardianReply), which handles request code matching, callback
   // parsing, and NL classification against the gateway's guardian_requests.
@@ -1235,6 +1297,37 @@ export async function handleChannelInbound({
         approval: "stale_ignored",
       };
     }
+  }
+
+  // ── Question wizard free-text answer (Stage 2) ──
+  // A typed reply while an ask_question wizard is parked answers the current
+  // question. Resolve it inline and return early — the parked turn continues.
+  // This is also the deadlock fix: routing the reply through background dispatch
+  // would defer it (withChannelTurnAdmission) until the conversation is idle,
+  // but the parked tool holds the processing lock, so idle never comes.
+  if (
+    !result.duplicate &&
+    !hasCallbackData &&
+    trimmedContent.length > 0 &&
+    getPendingQuestionInfoByConversation(result.conversationId).length > 0
+  ) {
+    const rec = recordQuestionFreeTextForConversation(
+      result.conversationId,
+      trimmedContent,
+    );
+    if (rec.status === "recorded") {
+      // The turn is fully handled here (no background dispatch); mark the inbound
+      // event processed so the retry sweep doesn't reprocess it.
+      markProcessed(result.eventId);
+      return {
+        accepted: true,
+        duplicate: false,
+        eventId: result.eventId,
+        question: rec.completed ? "answer_completed" : "answer_recorded",
+      };
+    }
+    // status "no_pending" (a race resolved the question between the check and
+    // the record) falls through to normal processing.
   }
 
   // For new (non-duplicate) messages, run the secret ingress check

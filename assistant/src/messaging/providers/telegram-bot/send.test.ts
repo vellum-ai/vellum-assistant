@@ -30,8 +30,24 @@ mock.module("./api.js", () => ({
 }));
 
 const { TelegramNonRetryableError } = await import("./api.js");
-const { sendTelegramRichReply } = await import("./send.js");
+const { sendTelegramRichReply, sendTelegramQuestion, editTelegramMessageText } =
+  await import("./send.js");
 const { telegramTransport } = await import("./transport.js");
+
+const question = {
+  requestId: "req-1",
+  plainTextFallback: "Which fruit?",
+  questions: [
+    {
+      id: "q1",
+      question: "Which fruit?",
+      options: [
+        { id: "a", label: "Apple" },
+        { id: "b", label: "Banana" },
+      ],
+    },
+  ],
+};
 
 const approval: ApprovalUIMetadata = {
   requestId: "req-1",
@@ -145,6 +161,97 @@ describe("sendTelegramRichReply", () => {
 
     expect(callsTo("sendRichMessage")).toHaveLength(1);
     expect(callsTo("sendMessage")).toHaveLength(0);
+  });
+});
+
+describe("sendTelegramQuestion", () => {
+  test("sends a fresh card with the option + Skip keyboard and returns its id", async () => {
+    callTelegramBotApiMock.mockImplementationOnce(
+      async () => ({ message_id: 101 }) as never,
+    );
+
+    const ts = await sendTelegramQuestion(
+      "chat-1",
+      "Which fruit?",
+      question,
+      undefined,
+    );
+
+    expect(ts).toBe("101");
+    expect(callsTo("sendMessage")).toHaveLength(1);
+    expect(callsTo("sendMessage")[0][1]).toMatchObject({
+      chat_id: "chat-1",
+      text: "Which fruit?",
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "Apple", callback_data: "qst:req-1:q1:0" }],
+          [{ text: "Banana", callback_data: "qst:req-1:q1:1" }],
+          [{ text: "Skip", callback_data: "qst:req-1:q1:skip" }],
+        ],
+      },
+    });
+  });
+
+  test("edits in place to advance when messageTs is set (one call, keyboard included)", async () => {
+    const ts = await sendTelegramQuestion(
+      "chat-1",
+      "Which fruit?",
+      question,
+      "101",
+    );
+
+    expect(ts).toBe("101");
+    // A single editMessageText carries both text and keyboard — no separate send.
+    expect(callsTo("sendMessage")).toHaveLength(0);
+    expect(callsTo("editMessageText")).toHaveLength(1);
+    expect(callsTo("editMessageText")[0][1]).toMatchObject({
+      chat_id: "chat-1",
+      message_id: 101,
+      text: "Which fruit?",
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "Apple", callback_data: "qst:req-1:q1:0" }],
+          [{ text: "Banana", callback_data: "qst:req-1:q1:1" }],
+          [{ text: "Skip", callback_data: "qst:req-1:q1:skip" }],
+        ],
+      },
+    });
+  });
+
+  test("throws when a callback_data would exceed Telegram's 64-byte limit", async () => {
+    const longQuestion = {
+      requestId: "r".repeat(80),
+      plainTextFallback: "Q?",
+      questions: [
+        {
+          id: "q1",
+          question: "Q?",
+          options: [
+            { id: "a", label: "A" },
+            { id: "b", label: "B" },
+          ],
+        },
+      ],
+    };
+    await expect(
+      sendTelegramQuestion("chat-1", "Q?", longQuestion, undefined),
+    ).rejects.toThrow(/64-byte limit/);
+  });
+});
+
+describe("editTelegramMessageText", () => {
+  test("edits text and clears the keyboard by omitting reply_markup", async () => {
+    await editTelegramMessageText("chat-1", "101", "Recorded.");
+
+    expect(callsTo("editMessageText")).toHaveLength(1);
+    const body = callsTo("editMessageText")[0][1] as Record<string, unknown>;
+    expect(body).toMatchObject({
+      chat_id: "chat-1",
+      message_id: 101,
+      text: "Recorded.",
+    });
+    // No reply_markup → Telegram removes the inline keyboard.
+    expect(body.reply_markup).toBeUndefined();
   });
 });
 

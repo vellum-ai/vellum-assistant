@@ -64,7 +64,7 @@ import {
 import { getLogger } from "../util/logger.js";
 import {
   conversationSupportsDynamicUi,
-  conversationSupportsInlineOptions,
+  conversationSupportsInlineQuestions,
 } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
 import { projectSkillTools } from "./conversation-skill-tools.js";
@@ -426,7 +426,7 @@ export function createToolExecutor(
       // channels that can't render dynamic surfaces (Telegram, SMS) instead of
       // emitting one the channel silently drops.
       supportsDynamicUi: conversationSupportsDynamicUi(ctx),
-      supportsInlineOptions: conversationSupportsInlineOptions(ctx),
+      supportsInlineQuestions: conversationSupportsInlineQuestions(ctx),
       proxyToolResolver: (
         toolName: string,
         proxyInput: Record<string, unknown>,

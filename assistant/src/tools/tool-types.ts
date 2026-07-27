@@ -241,13 +241,14 @@ export interface ToolContext {
    */
   supportsDynamicUi?: boolean;
   /**
-   * Whether the current turn's channel can render inline tappable options
-   * (question option pickers, approval buttons) natively; `false`/absent on
-   * channels without an inline-button adapter. UI-dependent tools read this to
-   * deliver a channel-native option prompt instead of plain text. Distinct from
-   * `supportsDynamicUi` (the app's dynamic-UI surfaces).
+   * Whether the current turn's channel renders the `ask_question` wizard
+   * natively (inline option buttons advanced in place); `false`/absent on
+   * channels whose adapter does not implement it. `ask_question` reads this to
+   * park on a channel-native option wizard instead of returning plain text.
+   * Narrower than "renders inline buttons" (approvals) — see the ToolContext
+   * field of the same name.
    */
-  supportsInlineOptions?: boolean;
+  supportsInlineQuestions?: boolean;
   /** When true, tools with side effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
   /**
