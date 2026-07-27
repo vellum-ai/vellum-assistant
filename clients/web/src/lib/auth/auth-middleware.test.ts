@@ -277,6 +277,11 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
   // strands the (paying) user on "Connecting to your assistant…" forever.
   const postCheckoutBilling = `${routes.settings.root}/billing?session_id=cs_test_123`;
 
+  // The funnel entry carries the managed-hatch marker so a local-mode client
+  // provisions on the platform rather than letting its own gateway answer for
+  // the assistant.
+  const managedFunnel = `${routes.onboarding.hatching}?hosting=vellum-cloud`;
+
   function makePaidPlatformReturn(): void {
     isLocalModeMock.mockImplementation(() => false);
     useAuthStore.setState({
@@ -296,7 +301,7 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
 
     const res = await runMiddleware(postCheckoutBilling);
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(routes.onboarding.hatching);
+    expect(res.headers.get("Location")).toBe(managedFunnel);
   });
 
   test("funnels it under a gateway session too, which otherwise bypasses the pipeline", async () => {
@@ -306,7 +311,7 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
 
     const res = await runMiddleware(postCheckoutBilling);
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(routes.onboarding.hatching);
+    expect(res.headers.get("Location")).toBe(managedFunnel);
   });
 
   // A local assistant satisfies `hasAssistants`, so the gateway-auth bypass
@@ -334,7 +339,31 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
 
     const res = await runMiddleware(postCheckoutBilling);
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(routes.onboarding.hatching);
+    expect(res.headers.get("Location")).toBe(managedFunnel);
+  });
+
+  // A local-mode client is "authenticated" on its gateway session alone. With
+  // no platform session there is no account to provision into, so the return
+  // stays on billing, whose login notice carries `session_id` through sign-in.
+  test("admits a local-mode return with no platform session", async () => {
+    makePaidPlatformReturn();
+    isLocalModeMock.mockImplementation(() => true);
+    mockGatewayAuthMode = true;
+    mockSelectedAssistant = localAssistant;
+    useAuthStore.setState({ platformSession: "absent" });
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: localAssistant.assistantId,
+          isLocal: true,
+          isPlatformHosted: false,
+        },
+      ],
+      assistantsHydrated: true,
+    });
+
+    const outcome = await runMiddlewareOutcome(postCheckoutBilling);
+    expect(outcome.admitted).toBe(true);
   });
 
   test("admits the return once a platform-hosted assistant exists", async () => {

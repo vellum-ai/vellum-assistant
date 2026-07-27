@@ -49,12 +49,19 @@ let opStatusNoData = false;
 // Whether the no-id pre-flight getAssistant resolves an already-active
 // assistant (the reload path, Fix 3).
 let preflightActive = false;
+// Whether the no-id pre-flight resolves the SELECTED LOCKFILE assistant, which
+// is what `getAssistant()` answers with under gateway auth in a local-mode
+// build: always `status: "active", is_local: true`.
+let preflightGatewaySelectedLocal = false;
+
+const GATEWAY_SELECTED_LOCAL_ID = "local-selected-1";
 
 interface AssistantShape {
   id: string;
   status: string;
   machine_size: string | null;
   provisioned_storage_gib: number | null;
+  is_local?: boolean;
 }
 let currentAssistant: AssistantShape;
 
@@ -80,6 +87,19 @@ let onboardingThrows = false;
 
 const getAssistantMock = mock(async (id?: string) => {
   if (!id) {
+    if (preflightGatewaySelectedLocal) {
+      return {
+        ok: true as const,
+        status: 200,
+        data: {
+          id: GATEWAY_SELECTED_LOCAL_ID,
+          status: "active",
+          is_local: true,
+          machine_size: null,
+          provisioned_storage_gib: null,
+        },
+      };
+    }
     if (preflightActive) {
       // Reload onto an already-active assistant.
       return { ok: true as const, status: 200, data: { ...currentAssistant } };
@@ -158,6 +178,12 @@ const hatchLocalAssistantMock = mock(async () => ({
   assistantId: "local-1",
 }));
 
+const saveLockfileAssistantMock = mock(
+  async (_entry: { assistantId: string; cloud: string }) => {},
+);
+const clearGatewayTokenMock = mock(() => {});
+const setSelfHostedConnectionMock = mock((_connection: unknown) => {});
+
 mock.module("react-router", () => ({
   useNavigate: () => navigateMock,
   useSearchParams: () => [searchParams],
@@ -201,10 +227,12 @@ mock.module("@/assistant/lifecycle", () => ({
   resolveAssistantLifecycleState: (result: {
     ok?: boolean;
     status?: number;
-    data?: { status?: string };
+    data?: { status?: string; is_local?: boolean };
   }) => {
     if (result?.ok && result.data?.status === "active") {
-      return { kind: "active" };
+      // Mirrors the real projection: an active assistant flagged `is_local`
+      // is self-hosted, never the managed `active` the hatch is waiting for.
+      return result.data.is_local ? { kind: "self_hosted" } : { kind: "active" };
     }
     if (!result?.ok && result.status === 404) {
       return { kind: "auto_hatch" };
@@ -243,11 +271,15 @@ mock.module("@/lib/local-mode", () => ({
   loadLockfile: async () => {},
   primeLocalGatewayConnection: async () => {},
   probeLocalGatewayReady: async () => true,
-  saveLockfileAssistant: async () => {},
+  saveLockfileAssistant: saveLockfileAssistantMock,
 }));
 
 mock.module("@/lib/auth/gateway-session", () => ({
-  clearGatewayToken: () => {},
+  clearGatewayToken: clearGatewayTokenMock,
+}));
+
+mock.module("@/lib/self-hosted/connection", () => ({
+  setSelfHostedConnection: setSelfHostedConnectionMock,
 }));
 
 mock.module("@/lib/navigation/navigation-resolver", () => ({
@@ -359,6 +391,9 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     subscriptionRetrieveMock.mockClear();
     operationalStatusReadMock.mockClear();
     hatchLocalAssistantMock.mockClear();
+    saveLockfileAssistantMock.mockClear();
+    clearGatewayTokenMock.mockClear();
+    setSelfHostedConnectionMock.mockClear();
     searchParams = new URLSearchParams();
     isLocalModeValue = false;
     subscriptionPlanId = "base";
@@ -367,6 +402,7 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     opStatusInFlight = false;
     opStatusNoData = false;
     preflightActive = false;
+    preflightGatewaySelectedLocal = false;
     idPollCount = 0;
     resizePollClockStepMs = 0;
     subscriptionCallCount = 0;
@@ -786,11 +822,10 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
   });
 
   test("a local-mode preflight-active reload completes without provisioning", async () => {
-    // A local-mode session with no hosting param (or hosting=vellum-cloud) makes
-    // useLocalHatch false, so a reload onto an already-active assistant flows
-    // through the platform preflight path into finishActiveHatch. The
-    // provisioning wait must still short-circuit for local mode — no billing
-    // reads, no resize wait — so local hatching stays byte-identical.
+    // A local-mode session with no hosting param makes useLocalHatch false, so
+    // a reload onto an already-active assistant flows through the platform
+    // preflight path into finishActiveHatch. Without the managed marker the
+    // provisioning wait short-circuits — no billing reads, no resize wait.
     isLocalModeValue = true;
     preflightActive = true;
 
@@ -803,5 +838,82 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     expect(subscriptionRetrieveMock).not.toHaveBeenCalled();
     expect(onboardingRetrieveMock).not.toHaveBeenCalled();
     expect(operationalStatusReadMock).not.toHaveBeenCalled();
+  });
+
+  // -- managed hatch in a local-mode build --------------------------------
+  //
+  // The post-checkout funnel sends a local-mode client here with
+  // `hosting=vellum-cloud`: the plan was bought for a managed assistant the
+  // org does not have yet, so the assistant is provisioned on the platform and
+  // the purchased machine and storage must land before the screen completes.
+
+  test(
+    "a managed hatch in local mode waits for the purchased provisioning",
+    async () => {
+      isLocalModeValue = true;
+      searchParams = new URLSearchParams("hosting=vellum-cloud");
+      subscriptionPlanId = "pro";
+      onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
+
+      render(<HatchingScreen />);
+
+      // The purchased ceiling is read and held for, exactly as in platform mode.
+      await waitFor(() => expect(screen.getByText(RESIZE_LABEL)).toBeTruthy());
+      expect(ensureProvisionedMock).toHaveBeenCalled();
+      expect(navigateMock).not.toHaveBeenCalled();
+
+      currentAssistant.machine_size = "extra_large";
+      currentAssistant.provisioned_storage_gib = 50;
+
+      await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+        timeout: 15000,
+      });
+    },
+    20000,
+  );
+
+  test(
+    "a managed hatch never adopts or reclassifies the gateway-selected local assistant",
+    async () => {
+      // Under gateway auth `getAssistant()` answers from the selected lockfile
+      // entry. That entry is self-hosted, so it is never mistaken for the
+      // managed assistant being hatched: the hatch still runs, and the only
+      // lockfile write names the managed id.
+      isLocalModeValue = true;
+      searchParams = new URLSearchParams("hosting=vellum-cloud");
+      preflightGatewaySelectedLocal = true;
+      subscriptionPlanId = "base";
+
+      render(<HatchingScreen />);
+
+      await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+        timeout: 5000,
+      });
+
+      expect(hatchAssistantMock).toHaveBeenCalled();
+      const savedIds = saveLockfileAssistantMock.mock.calls.map(
+        ([entry]) => entry.assistantId,
+      );
+      expect(savedIds).not.toContain(GATEWAY_SELECTED_LOCAL_ID);
+      expect(savedIds).toEqual(["asst-1"]);
+      // The local gateway is dropped up front so the hatch, its polls and its
+      // healthz probes address the platform.
+      expect(clearGatewayTokenMock).toHaveBeenCalled();
+      expect(setSelfHostedConnectionMock).toHaveBeenCalledWith(null);
+    },
+  );
+
+  test("a local hatch keeps its gateway session", async () => {
+    isLocalModeValue = true;
+    searchParams = new URLSearchParams("hosting=docker");
+
+    render(<HatchingScreen />);
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+      timeout: 5000,
+    });
+    // The local hatch's own handoff re-primes the connection; the managed
+    // teardown must not have run ahead of it.
+    expect(setSelfHostedConnectionMock).not.toHaveBeenCalled();
   });
 });

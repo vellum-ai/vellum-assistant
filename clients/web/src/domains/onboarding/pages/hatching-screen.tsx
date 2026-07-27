@@ -34,6 +34,7 @@ import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import { getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, probeLocalGatewayReady, saveLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
@@ -144,6 +145,10 @@ export function HatchingScreen() {
   const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
   const electron = isElectron();
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+  // `hosting=vellum-cloud` names a managed hatch even in a local-mode build
+  // (see `adopt-existing-assistant`): the assistant is provisioned on the
+  // platform, so its purchased machine and storage are waited for.
+  const managedHatch = hostingParam === "vellum-cloud";
   const sessionStatus = useAuthStore.use.sessionStatus();
   // Local hatches drive `sessionStatus` themselves (`connectLocalAssistant`
   // below flips it mid-handoff), so they gate on settled-ness to keep that flip
@@ -205,6 +210,17 @@ export function HatchingScreen() {
       return;
     }
     if (decision.kind === "wait") return;
+
+    // A managed hatch in a local-mode build must address the platform, not the
+    // machine's own gateway: `getAssistant()` answers from the selected
+    // lockfile entry while a gateway token is held, and daemon SDK calls (the
+    // healthz probes below) rewrite to the local gateway while a self-hosted
+    // connection is primed. Dropping both is the same handoff the hosting
+    // screen performs for its Vellum Cloud choice.
+    if (managedHatch && isLocalMode()) {
+      clearGatewayToken();
+      setSelfHostedConnection(null);
+    }
 
     setPlatformHostedDisabled(false);
 
@@ -513,11 +529,11 @@ export function HatchingScreen() {
     const awaitPurchasedProvisioning = async (
       assistantId: string,
     ): Promise<void> => {
-      // Local hatches never provision purchased specs — a self-hosted daemon has
-      // no billing surface to read. Short-circuit so a local-mode reload that
-      // falls through the platform preflight path (hosting=vellum-cloud or no
-      // param, where useLocalHatch is false) stays byte-identical to today.
-      if (isLocalMode()) {
+      // Purchased specs live on the platform, so only a managed hatch reads
+      // them. A local-mode run without the managed marker can reach here off a
+      // preflight that resolved the lockfile assistant, which has no billing
+      // surface — short-circuit there.
+      if (isLocalMode() && !managedHatch) {
         return;
       }
       // Fire the idempotent grow-only reconcile — the same resize the subscribe
@@ -843,6 +859,7 @@ export function HatchingScreen() {
     attempt,
     failParam,
     hatchTraits,
+    managedHatch,
     sessionGateKey,
     navigate,
     queryClient,

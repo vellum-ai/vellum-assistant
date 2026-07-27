@@ -135,6 +135,17 @@ function isPostCheckoutReturn(
   );
 }
 
+/**
+ * The provisioning funnel entry for a purchase with no managed assistant to
+ * apply to.
+ *
+ * `hosting=vellum-cloud` is the onboarding flow's managed-hatch marker (see
+ * `adopt-existing-assistant`): it names a managed hatch even in a local-mode
+ * build, where the hatching screen would otherwise let the local gateway answer
+ * for the assistant and skip the purchased-provisioning wait.
+ */
+const MANAGED_PROVISIONING_DESTINATION = `${routes.onboarding.hatching}?hosting=vellum-cloud`;
+
 function extractPathname(destination: string): string {
   if (
     destination.startsWith("http://") ||
@@ -256,6 +267,11 @@ function waitForSession(state: NavigationState): NavigationDecision | null {
  * into the hatching funnel instead, which provisions the assistant and applies
  * the purchased specs.
  *
+ * The destination is {@link MANAGED_PROVISIONING_DESTINATION}: the marker is
+ * what makes a local-mode client provision on the platform and hold for the
+ * purchased machine and storage instead of letting its own gateway answer for
+ * the assistant.
+ *
  * The decision is `hasPlatformHostedAssistant`, not `hasAssistants`: a managed
  * plan is only expressible on a platform-hosted assistant, so an org whose
  * only entries are local, Docker, or another organization's needs the same
@@ -311,7 +327,21 @@ function requirePostCheckoutProvisioning(
   if (!state.isLocalMode && !state.assistantsHydrated) {
     return { action: "wait" };
   }
-  return { action: "redirect", to: routes.onboarding.hatching };
+  // A local-mode client reaches "authenticated" on its gateway session alone,
+  // so the platform session is a separate question — and the managed hatch this
+  // redirect starts needs one for the org header and the purchased ceiling. The
+  // probe boots `"unknown"`, so hold until it settles. When it settles absent
+  // there is no account to provision into: fall through to billing, whose login
+  // notice carries `session_id` through sign-in and lands back here.
+  if (state.isLocalMode) {
+    if (state.platformSession === "unknown") {
+      return { action: "wait" };
+    }
+    if (state.platformSession !== "present") {
+      return null;
+    }
+  }
+  return { action: "redirect", to: MANAGED_PROVISIONING_DESTINATION };
 }
 
 function allowGatewayAuth(state: NavigationState): NavigationDecision | null {

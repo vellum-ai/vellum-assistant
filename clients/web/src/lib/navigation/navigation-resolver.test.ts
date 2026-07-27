@@ -578,6 +578,14 @@ describe("resolveNavigation", () => {
     const POST_CHECKOUT_BILLING =
       "/assistant/settings/billing?session_id=cs_test_123";
 
+    // The funnel entry carries the managed-hatch marker, so a local-mode
+    // client provisions on the platform instead of letting its own gateway
+    // answer for the assistant and skipping the purchased-provisioning wait.
+    const MANAGED_FUNNEL: NavigationDecision = {
+      action: "redirect",
+      to: "/assistant/onboarding/hatching?hosting=vellum-cloud",
+    };
+
     // A brand-new org: nothing resolved at all.
     const EMPTY_ORG = {
       hasAssistants: false,
@@ -593,25 +601,23 @@ describe("resolveNavigation", () => {
     } as const;
 
     test("funnels a no-assistant post-checkout return into hatching", () => {
-      expect(guard(s(EMPTY_ORG), POST_CHECKOUT_BILLING)).toEqual({
-        action: "redirect",
-        to: "/assistant/onboarding/hatching",
-      });
+      expect(guard(s(EMPTY_ORG), POST_CHECKOUT_BILLING)).toEqual(
+        MANAGED_FUNNEL,
+      );
     });
 
     // The decision is "does a managed plan have a target", not "is the list
     // empty": in a self-hosted-only org the purchase has nothing to apply to.
     test("funnels a return whose only assistants are self-hosted", () => {
-      expect(guard(s(NO_MANAGED_ASSISTANT), POST_CHECKOUT_BILLING)).toEqual({
-        action: "redirect",
-        to: "/assistant/onboarding/hatching",
-      });
+      expect(guard(s(NO_MANAGED_ASSISTANT), POST_CHECKOUT_BILLING)).toEqual(
+        MANAGED_FUNNEL,
+      );
       expect(
         guard(
           s(NO_MANAGED_ASSISTANT),
           "/assistant/settings/usage?tab=billing&session_id=cs_test_123",
         ),
-      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+      ).toEqual(MANAGED_FUNNEL);
     });
 
     test("leaves an existing-assistant post-checkout return on billing", () => {
@@ -635,7 +641,7 @@ describe("resolveNavigation", () => {
           s({ isGatewayAuth: true, isLocalMode: true, ...EMPTY_ORG }),
           POST_CHECKOUT_BILLING,
         ),
-      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+      ).toEqual(MANAGED_FUNNEL);
     });
 
     // The Electron desktop case: gateway auth against a local assistant, so
@@ -646,7 +652,41 @@ describe("resolveNavigation", () => {
           s({ isGatewayAuth: true, isLocalMode: true, ...NO_MANAGED_ASSISTANT }),
           POST_CHECKOUT_BILLING,
         ),
-      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+      ).toEqual(MANAGED_FUNNEL);
+    });
+
+    // A local-mode client is "authenticated" on its gateway session alone, so
+    // the platform session is decided separately — and the managed hatch the
+    // funnel starts needs one. The probe boots "unknown".
+    test("waits for the local-mode platform-session probe before funneling", () => {
+      expect(
+        guard(
+          s({
+            isGatewayAuth: true,
+            isLocalMode: true,
+            platformSession: "unknown",
+            ...NO_MANAGED_ASSISTANT,
+          }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual(WAIT);
+    });
+
+    // Signed out of the platform there is no account to provision into. The
+    // return stays on billing, whose login notice carries `session_id` through
+    // sign-in and lands back here.
+    test("leaves a local-mode return with no platform session on billing", () => {
+      expect(
+        guard(
+          s({
+            isGatewayAuth: true,
+            isLocalMode: true,
+            platformSession: "absent",
+            ...NO_MANAGED_ASSISTANT,
+          }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual(ALLOW);
     });
 
     test("keeps the gateway-auth bypass for every other case", () => {
@@ -737,7 +777,7 @@ describe("resolveNavigation", () => {
           }),
           POST_CHECKOUT_BILLING,
         ),
-      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+      ).toEqual(MANAGED_FUNNEL);
     });
 
     // Consent is enforced at the destination, not skipped: the funnel entry is
@@ -748,11 +788,11 @@ describe("resolveNavigation", () => {
           s({ ...EMPTY_ORG, tosAccepted: false, privacyConsent: false }),
           POST_CHECKOUT_BILLING,
         ),
-      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+      ).toEqual(MANAGED_FUNNEL);
       expect(
         guard(
           s({ ...EMPTY_ORG, tosAccepted: false, privacyConsent: false }),
-          "/assistant/onboarding/hatching",
+          "/assistant/onboarding/hatching?hosting=vellum-cloud",
         ),
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
     });
