@@ -1,10 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { EVENTS_PUBLISH_IPC_METHOD } from "../../../ipc/events-publish-client.js";
 import { assistantEventHub } from "../../../runtime/assistant-event-hub.js";
-import {
-  EVENTS_PUBLISH_IPC_METHOD,
-  handleEventsPublish,
-} from "../events-ipc-routes.js";
+import { handleEventsPublish } from "../events-ipc-routes.js";
 
 describe(`${EVENTS_PUBLISH_IPC_METHOD} IPC route`, () => {
   const disposers: Array<() => void> = [];

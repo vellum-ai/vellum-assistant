@@ -44,6 +44,7 @@ import type { AssistantEventEnvelope } from "../api/index.js";
 import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
 import { buildAssistantEvent } from "./assistant-event.js";
+import type { AssistantEventPublishOptions } from "./assistant-event-publish-options.js";
 import { stampAndBuffer } from "./assistant-stream-state.js";
 
 const log = getLogger("assistant-event-hub");
@@ -302,19 +303,7 @@ export class AssistantEventHub {
    */
   async publish(
     event: AssistantEventEnvelope,
-    options?: {
-      targetCapability?: HostProxyCapability;
-      targetClientId?: string;
-      targetInterfaceId?: InterfaceId;
-      /**
-       * Skip the subscriber with this `clientId`. Used for self-echo
-       * suppression on `sync_changed`: the route handler echoes the
-       * originating tab's `X-Vellum-Client-Id` back on the event, and the
-       * hub uses it here to avoid re-delivering the invalidation to the
-       * tab that already mutated its own optimistic state.
-       */
-      excludeClientId?: string;
-    },
+    options?: AssistantEventPublishOptions,
   ): Promise<void> {
     if (event.conversationId) {
       try {

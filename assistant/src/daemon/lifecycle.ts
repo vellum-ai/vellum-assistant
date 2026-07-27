@@ -46,6 +46,7 @@ import {
 } from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
+import { markCurrentProcessAsMainDaemon } from "../runtime/process-role.js";
 import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
@@ -104,6 +105,11 @@ function loadDotEnv(): void {
 
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
+  // Identify this process as the daemon before anything can publish: it owns
+  // the event hub real clients subscribe to, so plugin-facing publishes made
+  // here fan out locally rather than routing to a daemon over IPC.
+  markCurrentProcessAsMainDaemon();
+
   const startupStartedAt = Date.now();
   // dotenv loads before the first log call so the lazy root logger
   // initializes against the final VELLUM_WORKSPACE_DIR / log path, not

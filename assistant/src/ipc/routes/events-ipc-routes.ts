@@ -23,27 +23,14 @@
 import { z } from "zod";
 
 import { AssistantEventEnvelopeSchema } from "../../api/index.js";
-import {
-  HOST_PROXY_CAPABILITIES,
-  INTERFACE_IDS,
-} from "../../channels/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
+import { AssistantEventPublishOptionsSchema } from "../../runtime/assistant-event-publish-options.js";
 import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
-
-/** IPC method name — the raw publish transport other processes call. */
-export const EVENTS_PUBLISH_IPC_METHOD = "/events/publish";
-
-/** Publish targeting/suppression options — see the hub's `publish`. */
-const PublishOptionsSchema = z.object({
-  targetCapability: z.enum(HOST_PROXY_CAPABILITIES).optional(),
-  targetClientId: z.string().optional(),
-  targetInterfaceId: z.enum(INTERFACE_IDS).optional(),
-  excludeClientId: z.string().optional(),
-});
+import { EVENTS_PUBLISH_IPC_METHOD } from "../events-publish-client.js";
 
 const EventsPublishParamsSchema = z.object({
   event: AssistantEventEnvelopeSchema,
-  options: PublishOptionsSchema.optional(),
+  options: AssistantEventPublishOptionsSchema.optional(),
 });
 
 export async function handleEventsPublish({
