@@ -9,6 +9,12 @@ import {
 } from "@vellumai/design-library/components/collapsible";
 import { cn } from "@vellumai/design-library/utils/cn";
 
+import {
+    SIDEBAR_CHIP_GAP,
+    SIDEBAR_CHIP_SIZE,
+    SIDEBAR_ROW_PADDING_X,
+} from "@/components/sidebar-nav-geometry";
+
 /**
  * Navigation-specific collapsible section — composes the design library
  * `Collapsible` primitive with sidebar-tuned trigger styling:
@@ -90,19 +96,28 @@ function CollapsibleNavSectionSection({
 }: CollapsibleNavSectionSectionProps) {
   const headerEl = (
     <div data-slot="collapsible-nav-section-header" className="flex items-center justify-between">
+      {/* The horizontal geometry (padding, chip width, gap) is inline from
+          sidebar-nav-geometry at every breakpoint — the assistant cluster
+          shares it, so section icons and labels sit on the same axes as
+          the New Chat plus and the assistant eyes. Only the vertical
+          metrics grow on mobile. */}
       <Collapsible.Trigger
         className={cn(
-          "group h-[30px] max-md:h-auto gap-[6px] max-md:gap-[8px]",
-          "rounded-[6px] p-[6px] max-md:px-2 max-md:py-3",
+          "group h-[30px] max-md:h-auto",
+          "rounded-[6px] py-[6px] max-md:py-3",
           "text-left text-body-medium-default max-md:text-body-large-default",
           "text-[var(--content-tertiary)]",
         )}
+        style={{
+          paddingLeft: SIDEBAR_ROW_PADDING_X,
+          paddingRight: SIDEBAR_ROW_PADDING_X,
+          gap: SIDEBAR_CHIP_GAP,
+        }}
       >
-        {/* 20px slot + 6px gap — the assistant cluster's leading-chip
-            geometry (`CHIP_SIZE` in assistant-nav-item), so section icons
-            and labels sit on the same axes as the New Chat plus and the
-            assistant eyes. */}
-        <span className="relative inline-flex h-[14px] w-[20px] shrink-0 items-center justify-center">
+        <span
+          className="relative inline-flex h-[14px] shrink-0 items-center justify-center"
+          style={{ width: SIDEBAR_CHIP_SIZE }}
+        >
           {Icon ? (
             <Icon
               size={12}
