@@ -7,3 +7,6 @@
 
 BUNDLE_URL_SCHEME = vellum-assistant-staging
 PRODUCT_BUNDLE_IDENTIFIER = ai.vocify-inc.vellum-assistant-ios.staging.VoiceActivity
+
+// Exact portal profile name; must equal release-ios.yaml's `ext_profile_name`.
+PROVISIONING_PROFILE_SPECIFIER_Manual = Vellum Assistant iOS Staging VoiceActivity Distribution

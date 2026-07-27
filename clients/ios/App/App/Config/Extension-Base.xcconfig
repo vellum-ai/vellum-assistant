@@ -48,6 +48,15 @@ IPHONEOS_DEPLOYMENT_TARGET = 17.0
 // phase looks the appex up by that reference — a PRODUCT_NAME that
 // disagrees with the target name makes the copy fail on a missing file.
 
+// Manual-signing provisioning profile, resolved per target. Restated here
+// rather than inherited, for the same reason as the settings above: this
+// file deliberately does not #include Base.xcconfig. Each per-target
+// xcconfig sets PROVISIONING_PROFILE_SPECIFIER_Manual to the extension
+// profile for its environment — the appex has its own bundle ID, so the
+// app's profile does not cover it. See the comment in Base.xcconfig for why
+// the value is keyed off CODE_SIGN_STYLE.
+PROVISIONING_PROFILE_SPECIFIER = $(PROVISIONING_PROFILE_SPECIFIER_$(CODE_SIGN_STYLE))
+
 // Required for an embedded extension: the appex is copied into the app
 // bundle by the embed phase, and must not also be installed at the
 // archive root.
