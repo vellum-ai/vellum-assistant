@@ -1266,13 +1266,23 @@ export async function startVoiceTurn(
         } else if (
           joinedTextOfBlocks(row.content).includes(MINIMIZE_ROOM_MARKER)
         ) {
-          updateMessageContent(
-            reservedAssistantRowId,
-            JSON.stringify(
-              trimOuterTextEdges(stripMarkersFromBlocks(row.content)),
-            ),
+          const cleaned = trimOuterTextEdges(
+            stripMarkersFromBlocks(row.content),
           );
-          action = "strip_minimize_marker";
+          // A marker-only reply (the model said nothing beyond "[-1]") strips
+          // to nothing at all; keeping the row would render a blank assistant
+          // bubble, so delete it like the front-door empty case. Any surviving
+          // block — including non-text blocks like tool_use — keeps the row.
+          if (cleaned.length === 0) {
+            deleteMessageById(reservedAssistantRowId);
+            action = "delete_empty";
+          } else {
+            updateMessageContent(
+              reservedAssistantRowId,
+              JSON.stringify(cleaned),
+            );
+            action = "strip_minimize_marker";
+          }
         }
       }
       // Main legs run the pass on every voice turn; keep the no-op case
