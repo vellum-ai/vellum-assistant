@@ -24,6 +24,9 @@
  * - `controls` (stop/release/interrupt) — registered per-session by
  *   {@link useLiveVoice} itself.
  * - `state`/`error`/transcripts/amplitude — observable session state.
+ *
+ * It is also where the iOS native audio session is bound to the session
+ * lifecycle — see {@link useNativeAudioSessionLifecycle}.
  */
 
 import { useEffect } from "react";
@@ -32,14 +35,106 @@ import {
   useLiveVoice,
   type UseLiveVoiceOptions,
 } from "@/domains/chat/voice/live-voice/use-live-voice";
-import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  endLiveVoiceSession,
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+  type LiveVoiceSessionState,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { drainPendingVoiceStartDeepLink } from "@/domains/chat/voice/live-voice/start-voice-deep-link";
+import {
+  activateVoiceAudioSession,
+  deactivateVoiceAudioSession,
+  subscribeVoiceAudioInterruptions,
+} from "@/runtime/native-audio-session";
 
 /** Injectable primitive factories, for tests. */
 export type UseLiveVoiceSessionControllerOptions = Pick<
   UseLiveVoiceOptions,
   "createClient" | "createCapture" | "createPlayer"
 >;
+
+/**
+ * Fire-and-forget a native bridge call. The bridge already swallows its own
+ * failures (`callNativeVoice`), but keeping the catch here makes "a hung or
+ * failed bridge call must never delay or block a voice session" a local,
+ * testable property of this hook rather than one inherited from a distant
+ * module.
+ */
+function fireAndForget(call: Promise<unknown>): void {
+  void call.catch(() => undefined);
+}
+
+/**
+ * Hold the native iOS audio session open for exactly as long as a live-voice
+ * session is running.
+ *
+ * Driven off store *phase transitions* rather than off the `starter`, so
+ * sessions begun from any surface — the composer mic, a start-voice deep link,
+ * a reconnect — are covered symmetrically, and so `failed` releases the audio
+ * session just as `idle` does.
+ *
+ * Everything runs through `useLiveVoiceStore.subscribe` inside an effect, never
+ * a reactive selector in a render body: the controller sets
+ * `observeAudioState: false` precisely so high-frequency amplitude/transcript
+ * updates do not re-render the mounting layout, and reading `state` reactively
+ * here would subscribe the layout to session churn all over again.
+ *
+ * Off the iOS shell every call is a no-op (see `runtime/native-audio-session`),
+ * so this is inert in the browser and on Electron.
+ */
+function useNativeAudioSessionLifecycle(): void {
+  useEffect(() => {
+    // Mirrors whether we currently hold the native audio session, so activate
+    // fires once per session — not once per `listening`/`thinking`/`speaking`
+    // transition — and deactivate never double-fires.
+    let holdingAudioSession = false;
+
+    const sync = (state: LiveVoiceSessionState): void => {
+      const active = isLiveVoiceSessionActive(state);
+      if (active === holdingAudioSession) {
+        return;
+      }
+      holdingAudioSession = active;
+      fireAndForget(
+        active ? activateVoiceAudioSession() : deactivateVoiceAudioSession(),
+      );
+    };
+
+    // A session can already be running when this mounts (the controller
+    // remounts across layout-level route changes while the store persists).
+    sync(useLiveVoiceStore.getState().state);
+    const unsubscribeStore = useLiveVoiceStore.subscribe((s) => sync(s.state));
+
+    const unsubscribeInterruptions = subscribeVoiceAudioInterruptions(
+      (event) => {
+        // A phone call or Siri has taken the mic. End the session rather than
+        // leave it "listening" into a dead input. No auto-resume on `ended` —
+        // the user restarts explicitly.
+        if (event.type !== "began") {
+          return;
+        }
+        if (!isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
+          return;
+        }
+        endLiveVoiceSession();
+      },
+    );
+
+    return () => {
+      unsubscribeStore();
+      unsubscribeInterruptions();
+      // A live audio session must never outlive its controller. Usually the
+      // sibling teardown in `useLiveVoice` has already reset the store to
+      // `idle` (which `sync` observed), leaving this a no-op; it covers the
+      // orders where it has not.
+      if (holdingAudioSession) {
+        holdingAudioSession = false;
+        fireAndForget(deactivateVoiceAudioSession());
+      }
+    };
+  }, []);
+}
 
 export function useLiveVoiceSessionController(
   options: UseLiveVoiceSessionControllerOptions = {},
@@ -70,4 +165,6 @@ export function useLiveVoiceSessionController(
       useLiveVoiceStore.getState().setStarter(null);
     };
   }, [start]);
+
+  useNativeAudioSessionLifecycle();
 }
