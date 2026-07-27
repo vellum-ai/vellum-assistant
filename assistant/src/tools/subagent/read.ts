@@ -7,7 +7,7 @@ import { resolveSubagentId, subagentRefInputSchema } from "./resolve.js";
 
 // `last_n` is deliberately UNDECLARED (loose passthrough): the executor's
 // typeof-guarded read below ignores it when malformed — including non-integer
-// numbers the advertised `integer` type wouldn't admit — and always has.
+// numbers the advertised `integer` type wouldn't admit.
 export const subagentReadInputSchema = subagentRefInputSchema;
 
 export async function executeSubagentRead(
