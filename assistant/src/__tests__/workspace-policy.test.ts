@@ -480,6 +480,19 @@ describe("isExecutableWorkspaceWrite", () => {
     }
   });
 
+  // The sentinel under data/monitoring steers which plugin code the daemon
+  // imports — the classifier gates it as a code-injection sink, so the
+  // channel floor must too.
+  test("blocks a write into the monitoring data directory", () => {
+    expect(
+      isExecutableWorkspaceWrite(
+        "file_write",
+        { path: "data/monitoring/source-versions.json" },
+        wsRoot,
+      ),
+    ).toBe(true);
+  });
+
   test("ordinary workspace writes and reads stay clear", () => {
     expect(
       isExecutableWorkspaceWrite(

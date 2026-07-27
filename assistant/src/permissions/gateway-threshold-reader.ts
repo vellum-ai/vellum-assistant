@@ -221,9 +221,35 @@ export type ChannelPermissionCellResult =
   | { ok: false };
 
 /**
+ * Collapse a non-guardian channel cell to the two-level contract the channel
+ * picker offers: `none` and `low` are themselves; `medium` and `high` are
+ * accepted from the schema and from other writers, and behave as `low`. The
+ * runtime and the picker (web `channelTierBehavesAs`) apply the same
+ * collapse, so a stored cell can never authorize more than the level the
+ * picker displays for it. Guardian-contact-type cells are exempt — the
+ * channel setting governs other people in the room; the guardian's own lane
+ * is out of its scope.
+ */
+function collapseChannelCellThreshold(
+  resolved: ResolvedChannelPermission | null,
+  contactType: ResolveChannelPermissionRequest["contactType"],
+): ResolvedChannelPermission | null {
+  if (!resolved || contactType === "guardian") {
+    return resolved;
+  }
+  if (resolved.threshold === "none" || resolved.threshold === "low") {
+    return resolved;
+  }
+  return { ...resolved, threshold: "low" };
+}
+
+/**
  * Resolve the permission-matrix cell for a channel/actor coordinate via the
  * gateway (`resolve_channel_permission_threshold` IPC): the winning cell
  * threshold + scope, or a null resolution when no cascade level has a cell.
+ * Non-guardian thresholds are collapsed to the picker's two-level contract
+ * ({@link collapseChannelCellThreshold}) before either consumer — the
+ * sensitive-tool gate or the threshold cascade — sees them.
  *
  * Transport failures are not cached, so a transient IPC failure cannot
  * suppress a real cell for the TTL window.
@@ -236,7 +262,13 @@ export async function resolveChannelPermissionCell(
   if (!options?.bypassCache) {
     const cached = channelPermissionCellCache.get(key);
     if (cached && Date.now() - cached.timestamp < CELL_CACHE_TTL_MS) {
-      return { ok: true, resolved: cached.resolved };
+      return {
+        ok: true,
+        resolved: collapseChannelCellThreshold(
+          cached.resolved,
+          query.contactType,
+        ),
+      };
     }
   }
 
@@ -265,8 +297,13 @@ export async function resolveChannelPermissionCell(
     result.resolved && isValidThreshold(result.resolved.threshold)
       ? result.resolved
       : null;
+  // The cache stores the raw resolution — the collapse is a read-side view,
+  // so cache entries stay valid if the contract ever changes.
   channelPermissionCellCache.set(key, { resolved, timestamp: Date.now() });
-  return { ok: true, resolved };
+  return {
+    ok: true,
+    resolved: collapseChannelCellThreshold(resolved, query.contactType),
+  };
 }
 
 // ── Main export ──────────────────────────────────────────────────────────────

@@ -45,9 +45,11 @@ export const CAPABILITY_TIER_VALUES: readonly RiskThreshold[] =
 export const CHANNEL_TIER_VALUES: readonly RiskThreshold[] = ["none", "low"];
 
 /**
- * The level a stored cell behaves as. A `medium` or `high` cell predates the
- * two-level channel picker (or was written by another client); it delegates
- * exactly what `low` delegates, so that is what the picker shows.
+ * The level a stored cell behaves as. The schema and other writers accept all
+ * four threshold values, but a channel cell distinguishes only two: a
+ * `medium` or `high` cell delegates exactly what `low` delegates, so that is
+ * what the picker shows. The runtime applies the same collapse when it
+ * resolves the cell, so display and behavior cannot diverge.
  */
 export function channelTierBehavesAs(
   tier: RiskThreshold | undefined,

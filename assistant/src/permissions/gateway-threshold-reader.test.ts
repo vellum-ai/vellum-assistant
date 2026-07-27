@@ -426,3 +426,89 @@ describe("channel-permission cell layer", () => {
     ).toBe("medium");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Two-level collapse of non-guardian channel cells
+// ---------------------------------------------------------------------------
+
+// The channel picker offers two levels; medium/high cells are accepted from
+// the schema and other writers and behave as low. The collapse lives at the
+// resolve point so a stored cell can never authorize more than the level the
+// picker displays for it — in either consumer lane.
+describe("channel cell two-level collapse", () => {
+  beforeEach(() => {
+    _clearGlobalCacheForTesting();
+    _resetFailureCoalesceForTesting();
+    ipcHandlers.clear();
+    ipcCallLog.length = 0;
+  });
+
+  test.each(["medium", "high"] as const)(
+    "a stored %s cell resolves as low for a contact",
+    async (stored) => {
+      ipcHandlers.set("get_conversation_threshold", () => null);
+      ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+        resolved: { threshold: stored, scope: "channel" },
+      }));
+
+      expect(
+        await getAutoApproveThreshold("conv-cl1", "conversation", CELL_QUERY),
+      ).toBe("low");
+    },
+  );
+
+  test.each(["none", "low"] as const)(
+    "a %s cell is untouched by the collapse",
+    async (stored) => {
+      ipcHandlers.set("get_conversation_threshold", () => null);
+      ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+        resolved: { threshold: stored, scope: "channel" },
+      }));
+
+      expect(
+        await getAutoApproveThreshold("conv-cl2", "conversation", CELL_QUERY),
+      ).toBe(stored);
+    },
+  );
+
+  // The channel setting governs other people in the room; the guardian's own
+  // lane is out of its scope, so a guardian-contact-type cell keeps its value.
+  test("a guardian-contact-type cell keeps its stored threshold", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "high", scope: "channel" },
+    }));
+
+    expect(
+      await getAutoApproveThreshold("conv-cl3", "conversation", {
+        ...CELL_QUERY,
+        contactType: "guardian",
+      }),
+    ).toBe("high");
+  });
+
+  // The cache stores the raw resolution; the collapse is applied on the read
+  // side, so a cache hit collapses identically to a fresh resolve.
+  test("cache hits collapse the same as fresh resolves", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "high", scope: "channel" },
+    }));
+
+    const first = await getAutoApproveThreshold(
+      "conv-cl4",
+      "conversation",
+      CELL_QUERY,
+    );
+    const second = await getAutoApproveThreshold(
+      "conv-cl4",
+      "conversation",
+      CELL_QUERY,
+    );
+
+    expect(first).toBe("low");
+    expect(second).toBe("low");
+    // One IPC round-trip: the second read came from the cell cache.
+    expect(countCalls("resolve_channel_permission_threshold")).toBe(1);
+  });
+});

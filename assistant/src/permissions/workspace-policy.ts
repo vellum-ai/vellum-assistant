@@ -4,6 +4,7 @@ import { basename, dirname, normalize, resolve } from "node:path";
 import { getIsContainerized } from "../config/env-registry.js";
 import { resolveTrailingLinkTarget } from "../util/fs-symlinks.js";
 import {
+  getMonitoringDataDir,
   getWorkspaceHooksDir,
   getWorkspacePluginsDir,
   getWorkspaceRoutesDir,
@@ -170,9 +171,11 @@ export function isOutOfWorkspaceFileInvocation(
 /**
  * Whether a sandbox file-tool invocation writes into one of the workspace
  * directories the daemon imports and executes — hooks, plugins, skills,
- * tools, routes, workflows. A write there is not data, it is code that runs
- * later with the daemon's own reach, so approving the write approves the
- * execution.
+ * tools, routes, workflows — or the monitoring data directory, whose
+ * source-versions sentinel steers which plugin code the daemon imports. A
+ * write to any of them is not data, it is code that runs later with the
+ * daemon's own reach, so approving the write approves the execution. The
+ * list mirrors the file risk classifier's code-injection sinks.
  *
  * Unlike {@link isOutOfWorkspaceFileInvocation} this holds in containerized
  * mode too: the workspace boundary is what contains an escaping *path*, and
@@ -205,6 +208,7 @@ export function isExecutableWorkspaceWrite(
     getWorkspaceToolsDir(),
     getWorkspaceRoutesDir(),
     getWorkspaceWorkflowsDir(),
+    getMonitoringDataDir(),
   ].some((dir) => {
     const canonicalDir = canonicalize(dir);
     const withSep = canonicalDir.endsWith("/")
