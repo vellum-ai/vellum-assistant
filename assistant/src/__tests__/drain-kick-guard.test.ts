@@ -55,9 +55,15 @@ function makeQueued(
   } as unknown as QueuedMessage;
 }
 
-function makeFakeConversation(options: { persistError?: Error } = {}) {
+function makeFakeConversation(
+  options: { persistError?: Error; activityFailures?: number } = {},
+) {
   const queue = new FlakyQueue();
   const persistCalls: string[] = [];
+  // Post-dequeue failure injection: emitActivityState runs after the
+  // message has been popped from the queue, so a throw here exercises the
+  // restore path rather than the pre-mutation (peek) path.
+  let activityFailures = options.activityFailures ?? 0;
   const conversation = {
     conversationId: "conv-drain-kick",
     queue,
@@ -73,7 +79,12 @@ function makeFakeConversation(options: { persistError?: Error } = {}) {
     getTurnInterfaceContext: () => null,
     setTurnInterfaceContext: () => {},
     setTransportHints: () => {},
-    emitActivityState: () => {},
+    emitActivityState: () => {
+      if (activityFailures > 0) {
+        activityFailures -= 1;
+        throw new Error("activity emit exploded");
+      }
+    },
     isProcessing: () => false,
     persistUserMessage: async (opts: { content: string }) => {
       persistCalls.push(opts.content);
@@ -119,6 +130,76 @@ describe("kickQueueDrain", () => {
 
     // Both attempts rejected: nothing was drained or dropped, and each
     // sender received a queue_drain_failed error so the stall is visible.
+    expect(persistCalls).toEqual([]);
+    expect(queue.length).toBe(2);
+    expect(queue.peek(0)?.requestId).toBe("r1");
+    expect(queue.peek(1)?.requestId).toBe("r2");
+    const failures = events.filter(
+      (event) =>
+        event.type === "error" && event.category === "queue_drain_failed",
+    );
+    expect(failures.map((event) => event.requestId).sort()).toEqual([
+      "r1",
+      "r2",
+    ]);
+  });
+
+  test("a throw after the dequeue restores the message so the retry retries it", async () => {
+    const events: FakeEvent[] = [];
+    // Persist fails with a non-busy error so the retry terminates on the
+    // drop-and-continue path instead of entering the full agent loop.
+    const { conversation, queue, persistCalls } = makeFakeConversation({
+      persistError: new Error("disk exploded"),
+      activityFailures: 1,
+    });
+    queue.push(makeQueued("hello there", "r1", events));
+
+    await kickQueueDrain(conversation as never);
+
+    // The first attempt popped r1 and then threw; the restore put it back,
+    // so the retry drained r1 itself instead of skipping past it.
+    expect(persistCalls).toEqual(["hello there"]);
+    expect(queue.length).toBe(0);
+    expect(
+      events.filter((event) => event.category === "queue_drain_failed"),
+    ).toEqual([]);
+  });
+
+  test("a persistent post-dequeue throw leaves the message queued and notified", async () => {
+    const events: FakeEvent[] = [];
+    const { conversation, queue, persistCalls } = makeFakeConversation({
+      activityFailures: 2,
+    });
+    queue.push(makeQueued("hello there", "r1", events));
+
+    await kickQueueDrain(conversation as never);
+
+    // Both attempts popped and restored r1: it is back at the head and its
+    // sender was told about the stall — not silently lost.
+    expect(persistCalls).toEqual([]);
+    expect(queue.length).toBe(1);
+    expect(queue.peek(0)?.requestId).toBe("r1");
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "error" && event.category === "queue_drain_failed",
+      ).length,
+    ).toBe(1);
+  });
+
+  test("a batch popped before a throw is restored in order", async () => {
+    const events: FakeEvent[] = [];
+    const { conversation, queue, persistCalls } = makeFakeConversation({
+      activityFailures: 2,
+    });
+    queue.push(makeQueued("first", "r1", events));
+    queue.push(makeQueued("second", "r2", events));
+
+    await kickQueueDrain(conversation as never);
+
+    // Both batchable messages were shifted out together; both attempts threw
+    // after the pop, and the restore preserved their order for the next
+    // drain trigger.
     expect(persistCalls).toEqual([]);
     expect(queue.length).toBe(2);
     expect(queue.peek(0)?.requestId).toBe("r1");
