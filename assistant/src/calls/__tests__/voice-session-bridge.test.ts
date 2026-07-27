@@ -1502,6 +1502,47 @@ describe("transcript hygiene (teardown pass)", () => {
     expect(events).toContain("loadFromDb");
   });
 
+  test("a terminal marker split across text blocks is stripped whole", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => ({
+      ...makeRow(""),
+      content: [
+        { type: "text", text: "Done, take a look [-" },
+        { type: "text", text: "1]" },
+      ],
+    });
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toEqual([
+      {
+        messageId: "assistant-row-1",
+        content: JSON.stringify([{ type: "text", text: "Done, take a look" }]),
+      },
+    ]);
+    expect(crudLog.deletes).toHaveLength(0);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a marker-only row split across text blocks is deleted", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => ({
+      ...makeRow(""),
+      content: [
+        { type: "text", text: "[-" },
+        { type: "text", text: "1]" },
+      ],
+    });
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toHaveLength(0);
+    expect(crudLog.deletes).toEqual(["assistant-row-1"]);
+    expect(events).toContain("loadFromDb");
+  });
+
   test("a marker-only row with a surviving non-text block is rewritten, never deleted", async () => {
     const { events } = makeReservedRowConversation();
     getMessageByIdImpl = () => ({

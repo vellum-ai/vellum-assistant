@@ -507,6 +507,31 @@ function stripMarkersFromBlocks(blocks: ContentBlock[]): ContentBlock[] {
 }
 
 /**
+ * Remove the terminal MINIMIZE_ROOM_MARKER from the end of a row's text,
+ * walking text blocks from the last one backward so a marker split across
+ * block boundaries (e.g. `"Done [-"` + `"1]"`) is removed whole — the
+ * per-block strip in {@link stripMarkersFromBlocks} only sees fragments and
+ * would leave both halves in place. Callers must have established that the
+ * row's joined text ends with the marker after trimming trailing whitespace.
+ */
+function stripTerminalMinimizeMarker(blocks: ContentBlock[]): ContentBlock[] {
+  const result = blocks.map((block) => ({ ...block }));
+  const joined = joinedTextOfBlocks(result);
+  const cutAt = joined.trimEnd().length - MINIMIZE_ROOM_MARKER.length;
+  let blockEnd = joined.length;
+  for (let i = result.length - 1; i >= 0 && blockEnd > cutAt; i--) {
+    const block = result[i]!;
+    if (block.type !== "text") {
+      continue;
+    }
+    const blockStart = blockEnd - block.text.length;
+    block.text = block.text.slice(0, Math.max(0, cutAt - blockStart));
+    blockEnd = blockStart;
+  }
+  return result;
+}
+
+/**
  * Trim whitespace stranded at a rewritten row's outer edges by a stripped
  * edge marker (e.g. "Done, take a look [-1]"), leaving inter-block spacing
  * untouched.
@@ -1270,8 +1295,10 @@ export async function startVoiceTurn(
             .trimEnd()
             .endsWith(MINIMIZE_ROOM_MARKER)
         ) {
+          // Terminal marker first (boundary-aware — it may span text blocks),
+          // then the per-block strip for any interior complete markers.
           const cleaned = trimOuterTextEdges(
-            stripMarkersFromBlocks(row.content),
+            stripMarkersFromBlocks(stripTerminalMinimizeMarker(row.content)),
           );
           // A marker-only reply (the model said nothing beyond "[-1]") strips
           // to nothing at all; keeping the row would render a blank assistant
