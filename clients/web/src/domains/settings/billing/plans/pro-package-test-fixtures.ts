@@ -17,7 +17,10 @@ export function makeProPackage(
   return {
     key: "mighty",
     name: "Mighty",
-    description: "Small machine, 15 GB of storage, and $25 in monthly credits.",
+    // Deliberately spec-free. The real catalog blurbs are the machine/storage/
+    // credits sentence, and every caller overrides some of those numbers — a
+    // default quoting them would decorate a package it contradicts.
+    description: "A Pro package.",
     version: 1,
     machine_tier: null,
     storage_tier: "s",

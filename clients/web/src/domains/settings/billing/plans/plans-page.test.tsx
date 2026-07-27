@@ -212,11 +212,10 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 const { PlansPage } = await import("./plans-page");
 const { getPlanTierCopy } = await import("./plans-copy");
 
-// This page's assertions key off the storage/credit/price rows, so the three
-// tiers pin those explicitly; the fixture's remaining defaults (component
-// prices, platform fee) are read by nothing under test.
+// This page's assertions key off the storage/credit/price rows, so each tier
+// pins whatever it has to differ on and inherits the rest of the Mighty shape;
+// the fixture's tier keys and component prices are read by nothing under test.
 const MIGHTY = makeProPackage({
-  storage_tier: "xs",
   storage_gib: 10,
   total_price_cents: 3000,
 });

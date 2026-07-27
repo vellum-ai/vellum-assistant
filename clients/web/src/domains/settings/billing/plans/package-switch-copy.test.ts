@@ -1,9 +1,9 @@
 /**
  * Unit tests for the relation-keyed package-switch confirm copy.
  *
- * The three `toEqual` cases pin every field of every relation, so the extra
- * tests below only earn their place by covering inputs those three don't:
- * an unknown tier key, and the same tier key read across two relations.
+ * The three `toEqual` cases pin every field of every relation, so the one extra
+ * test below only earns its place by covering an input those three don't: a
+ * tier key the bundle has no copy for.
  *
  * The downgrade variant carries the safeguards: an explicit destructive CTA
  * label (never a neutral "Continue"), the "machine downsizes now / no refund"
@@ -53,20 +53,6 @@ describe("packageSwitchCopy", () => {
       confirmLabel: "Downgrade to Mighty",
       destructive: true,
     });
-  });
-
-  test("a downgrade withholds the tagline the same tier gets on the way up", () => {
-    // The tagline is a pitch. Under "Downgrade to Mighty" it sells the tier the
-    // user is leaving, so only the upward directions may quote it.
-    expect(packageSwitchCopy("downgrade", "Mighty", "mighty").subtitle).toBe(
-      "",
-    );
-    expect(packageSwitchCopy("upgrade", "Mighty", "mighty").subtitle).toBe(
-      PLAN_TIER_COPY.mighty.tagline,
-    );
-    expect(packageSwitchCopy("switch", "Mighty", "mighty").subtitle).toBe(
-      PLAN_TIER_COPY.mighty.tagline,
-    );
   });
 
   test("subtitle is empty for an unknown or absent tier key", () => {

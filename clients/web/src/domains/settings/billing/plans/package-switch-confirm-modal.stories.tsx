@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useLayoutEffect } from "react";
 
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { makeProPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
@@ -54,10 +55,22 @@ const meta: Meta<typeof PackageSwitchConfirmModal> = {
   decorators: [
     (Story) => {
       // The avatar tile resolves its assistant from the active id, and holds an
-      // empty square while that is null.
-      useResolvedAssistantsStore.setState({
-        activeAssistantId: STORY_ASSISTANT_ID,
-      });
+      // empty square while that is null. Writing the store during render would
+      // update the subscribed tile mid-render on every control change, and the
+      // fake id would outlive these stories — so seed it in an effect and hand
+      // the previous value back on unmount.
+      useLayoutEffect(() => {
+        const previous =
+          useResolvedAssistantsStore.getState().activeAssistantId;
+        useResolvedAssistantsStore.setState({
+          activeAssistantId: STORY_ASSISTANT_ID,
+        });
+        return () => {
+          useResolvedAssistantsStore.setState({
+            activeAssistantId: previous,
+          });
+        };
+      }, []);
       return (
         <QueryClientProvider client={queryClient}>
           <Story />

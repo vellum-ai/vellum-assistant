@@ -1,7 +1,8 @@
 import { AlertTriangle, CircleCheck } from "lucide-react";
-import { useRef } from "react";
+import { useId, useRef } from "react";
 
 import { AssistantAvatarTile } from "@/domains/settings/billing/assistant-avatar-tile";
+import { DialogHeaderTile } from "@/domains/settings/billing/dialog-header-tile";
 import type {
   ProPackage,
   SwitchRelation,
@@ -10,7 +11,6 @@ import { packageHighlights } from "@/domains/settings/billing/plan-spec";
 import { packageSwitchCopy } from "@/domains/settings/billing/plans/package-switch-copy";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
 import { formatMonthly } from "@/domains/settings/components/tier-pricing";
-import { cn } from "@/utils/misc";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -39,10 +39,10 @@ export interface PackageSwitchConfirmModalProps {
 
 /**
  * Reconfirm dialog for a one-click Pro package switch. A downgrade gets the
- * warning glyph, loss-framed checklist copy, neutral spec markers, the danger
- * confirm and its safeguard note; an upgrade and a direction-neutral switch get
- * the assistant avatar and a lighter primary confirm. Layout-only for the
- * mutation — the parent owns `change-package`.
+ * warning glyph, loss-framed checklist copy, the danger confirm and its
+ * safeguard note; an upgrade and a direction-neutral switch get the assistant
+ * avatar and a lighter primary confirm. Layout-only for the mutation — the
+ * parent owns `change-package`.
  */
 export function PackageSwitchConfirmModal({
   open,
@@ -54,16 +54,12 @@ export function PackageSwitchConfirmModal({
   onConfirm,
 }: PackageSwitchConfirmModalProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const noteId = useId();
   const copy = packageSwitchCopy(
     relation,
     packageName,
     targetPackage?.key ?? null,
   );
-  // A downgrade withholds the tagline outright, and the server-driven catalog
-  // can ship a package this bundle has no tier copy for; either way the
-  // package's own factual blurb takes over — without it the description element
-  // disappears while Radix still points `aria-describedby` at its id.
-  const description = copy.subtitle || targetPackage?.description || "";
   // Everything below the header describes one concrete package, so it all
   // resolves — or doesn't — together.
   const details = targetPackage
@@ -75,12 +71,22 @@ export function PackageSwitchConfirmModal({
         ),
       }
     : null;
-  // A green check reads as a win; on a downgrade the rows describe a smaller
-  // machine, so the same glyph goes neutral. An empty marker would instead read
-  // as "not included".
-  const highlightIconColor = copy.destructive
-    ? "text-[var(--content-tertiary)]"
-    : "text-[var(--system-positive-strong)]";
+  // The header's second line, and only ever the tier's tagline. The package's
+  // own catalog blurb is the checklist in sentence form ("Medium machine, 30 GB
+  // of storage, and $45 in monthly credits."), and that checklist renders for
+  // every package there is a blurb to read — so falling back to it would state
+  // the same three facts twice, 40px apart. A relation that withholds the
+  // tagline (a downgrade) simply gets a title-only header.
+  const description = copy.subtitle;
+  // Radix stamps `aria-describedby` at `Modal.Description`'s id whether or not
+  // that element renders, so the dialog owns the attribute outright: a
+  // destructive switch is described by its no-refund safeguard rather than by a
+  // spec line, and a dialog with neither carries no attribute at all.
+  const describedBy = copy.note
+    ? { "aria-describedby": noteId }
+    : description
+      ? {}
+      : { "aria-describedby": undefined };
 
   return (
     <Modal.Root
@@ -94,7 +100,10 @@ export function PackageSwitchConfirmModal({
       <Modal.Content
         size="sm"
         hideCloseButton
-        className="gap-4 p-4"
+        // The mock's card is 421 wide — a 389px content column inside 16px of
+        // padding — where `size="sm"` caps at 400. Overridden here rather than
+        // in the shared Modal, which every other dialog sizes off.
+        className="gap-4 p-4 max-w-[421px]"
         // The confirm sits above Cancel to match the mock, which puts it first
         // in the DOM too — and with no close button it is the first tabbable
         // node, so Radix's mount autofocus would arm Enter on an immediate,
@@ -103,21 +112,19 @@ export function PackageSwitchConfirmModal({
           event.preventDefault();
           cancelRef.current?.focus();
         }}
-        // Radix stamps `aria-describedby` whether or not a description renders.
-        {...(description ? {} : { "aria-describedby": undefined })}
+        {...describedBy}
       >
         {/* 8px here plus the 16px content gap makes the mock's 24px under the
             header, while that gap stays 16px between the checklist and the
             actions. */}
         <Modal.Header className="flex-row items-center gap-3 p-0 pb-2">
           {copy.destructive ? (
-            <div
-              aria-hidden
+            <DialogHeaderTile
               data-testid="package-switch-warning-tile"
-              className="flex size-[52px] shrink-0 items-center justify-center rounded-xl bg-[var(--system-negative-weak)]"
+              className="bg-[var(--system-negative-weak)]"
             >
               <AlertTriangle className="size-6 text-[var(--system-negative-strong)]" />
-            </div>
+            </DialogHeaderTile>
           ) : (
             <AssistantAvatarTile />
           )}
@@ -165,8 +172,12 @@ export function PackageSwitchConfirmModal({
             <ul className="flex flex-col gap-2">
               {details.highlights.map((row) => (
                 <li key={row} className="flex items-center gap-1">
+                  {/* Not --system-positive-strong: velvet restyles that token
+                      to its pink accent, so a check would read as an error.
+                      The plans takeover's checklist is neutral for the same
+                      reason. */}
                   <CircleCheck
-                    className={cn("size-4 shrink-0", highlightIconColor)}
+                    className="size-4 shrink-0 text-[var(--content-secondary)]"
                     aria-hidden
                   />
                   <Typography
@@ -185,6 +196,7 @@ export function PackageSwitchConfirmModal({
             an unresolved target still offers the danger confirm. */}
         {copy.note ? (
           <Typography
+            id={noteId}
             as="p"
             variant="body-medium-default"
             className="text-[var(--content-secondary)]"
