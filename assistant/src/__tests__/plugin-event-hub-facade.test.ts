@@ -10,8 +10,8 @@
 
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { assistantEventHub as pluginHub } from "../plugin-api/index.js";
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { assistantEventHub as rawHub } from "../runtime/assistant-event-hub.js";
 
 /** Minimal event envelope; the facade guard keys only off `message.type`. */

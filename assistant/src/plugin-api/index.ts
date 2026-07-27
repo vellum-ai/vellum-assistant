@@ -127,14 +127,7 @@ export { RiskLevel } from "./types.js";
 // Workspace-local plugins resolve these via the boot-time shim, which
 // re-binds each from the assistant's globalThis-parked namespace so they
 // share module identity with the assistant's own singletons.
-export type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
-/**
- * @deprecated Renamed to {@link AssistantEventEnvelope}. Retained as a
- * compatibility alias so existing plugins that import `AssistantEvent` from
- * `@vellumai/plugin-api` (the SSE envelope a hub subscriber receives) keep
- * compiling. Prefer `AssistantEventEnvelope` in new plugin code.
- */
-export type { AssistantEventEnvelope as AssistantEvent } from "../runtime/assistant-event.js";
+export type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
 export type {
   AssistantEventCallback,
   AssistantEventFilter,

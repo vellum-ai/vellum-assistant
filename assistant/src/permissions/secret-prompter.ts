@@ -11,8 +11,6 @@ import type {
   SecretPromptResult,
 } from "./secret-prompt-types.js";
 
-type SecretRequestMessage = SecretRequestEvent;
-
 const log = getLogger("secret-prompter");
 
 export interface SecretPrompterChannelContext {
@@ -109,7 +107,7 @@ export class SecretPrompter {
       });
       this.ownedIds.add(requestId);
 
-      const msg: SecretRequestMessage = {
+      const msg: SecretRequestEvent = {
         type: "secret_request",
         requestId,
         service,
