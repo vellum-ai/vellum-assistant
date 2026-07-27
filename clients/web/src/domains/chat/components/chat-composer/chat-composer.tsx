@@ -58,6 +58,7 @@ import { useIsNativePlatform } from "@/runtime/native-auth";
 import { isNativeIOS } from "@/runtime/platform-detection";
 import { isPointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { Button, Notice, Popover } from "@vellumai/design-library";
 
 import {
@@ -463,11 +464,26 @@ export function ChatComposer({
   // calls; defaults to end-of-input for the initial render.
   const cursorRef = useRef(input.length);
 
+  // The Doctor is platform-hosted only, so `/doctor` is not offered when the
+  // active assistant is self-hosted (the Doctor tab doesn't exist there).
+  const doctorGated =
+    usePlatformGate({ platformHostedOnly: true }) === "gated";
+  const searchSlashCommands = useCallback(
+    (filter: string) => {
+      const commands = filteredCommands(filter);
+      if (!doctorGated) {
+        return commands;
+      }
+      return commands.filter((command) => command.name !== "doctor");
+    },
+    [doctorGated],
+  );
+
   // Slash and emoji popups — state is derived from the input text, not stored.
   const slash = useTextPopup({
     text: input,
     trigger: SLASH_PREFIX_RE,
-    search: filteredCommands,
+    search: searchSlashCommands,
   });
 
   // Cursor position is a DOM property tracked via onSelect; using state

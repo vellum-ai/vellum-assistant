@@ -589,12 +589,17 @@ export function useSendMessage({
       // `/doctor <message>` navigates to the Doctor panel rather than starting
       // an assistant turn, parking the first message in a hand-off store so the
       // panel can auto-start a session and send it. Handled before the
-      // conversation/disk-pressure guards below since it needs neither. Skipped
-      // when the Doctor is gated (self-hosted assistant) so the command falls
-      // through to a normal send instead of a dead-end navigation.
-      const doctorPrompt =
-        doctorGate === "gated" ? null : parseDoctorCommand(content);
+      // conversation/disk-pressure guards below since it needs neither.
+      const doctorPrompt = parseDoctorCommand(content);
       if (doctorPrompt !== null) {
+        // The Doctor is platform-hosted only. On a self-hosted assistant its
+        // tab doesn't exist, so the command is disabled: clear the input and
+        // surface a notice rather than sending "/doctor …" as a normal turn.
+        if (doctorGate === "gated") {
+          useComposerStore.getState().setInput("");
+          toast.info("The Doctor isn't available on this assistant.");
+          return;
+        }
         if (doctorPrompt) {
           useDoctorHandoffStore.getState().setPendingPrompt(doctorPrompt);
         }
