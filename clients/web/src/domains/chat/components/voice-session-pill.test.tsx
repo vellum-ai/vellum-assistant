@@ -101,13 +101,21 @@ describe("VoiceSessionPill — stop control", () => {
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
+  test("takes the send slot while speaking (send absent)", () => {
+    renderPill({ state: "speaking" });
+    expect(stopButton()).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+  });
+
   test("hidden even while speaking when onStop is not provided", () => {
     // The host omits onStop for manual (version-skew fallback) sessions,
     // where stopping a response would end the whole session; the ✕ stays
-    // the only destructive control there.
+    // the only destructive control there — and the disabled send keeps the
+    // turn slot.
     renderPill({ state: "speaking", onStop: undefined });
     expect(stopButton()).toBeNull();
     expect(endButton()).toBeTruthy();
+    expect(sendButton().hasAttribute("disabled")).toBe(true);
   });
 });
 
@@ -138,11 +146,12 @@ describe("VoiceSessionPill — send control", () => {
   });
 
   test("disabled in every non-listening state", () => {
+    // `speaking` is exercised separately: with onStop wired the ■ stop
+    // replaces send in the turn slot; without it the disabled send stays.
     for (const state of [
       "connecting",
       "transcribing",
       "thinking",
-      "speaking",
       "ending",
     ] as LiveVoiceSessionState[]) {
       const { onSend } = renderPill({ state });

@@ -3,10 +3,11 @@
  * Presentational — the mounting host owns store wiring and visibility rules.
  *
  * Layout, left → right: two-line context label (primary action text over the
- * owning thread's name), optional circular stop control (only when the host
- * provides `onStop` and the assistant is `speaking`), mic glyph + the voice
- * room's listening waves in a compact strip, red ✕ (end session), green ↑
- * (manual turn release — enabled only while `listening`).
+ * owning thread's name), mic glyph + the voice room's listening waves in a
+ * compact strip, red ✕ (end session), and the turn slot — green ↑ (manual
+ * turn release, enabled only while `listening`), replaced in place by a
+ * circular ■ stop while the assistant is `speaking` and the host provides
+ * `onStop`.
  *
  * The pill lives inside `ChatLayoutHeader`, which doubles as the Electron
  * macOS title bar (`-webkit-app-region: drag`). The root opts the whole
@@ -53,10 +54,11 @@ export interface VoiceSessionPillProps {
   onToggleMute: () => void;
   /**
    * Stop the in-flight assistant response without ending the session. The
-   * ■ control is hidden when absent — the host wires it only for hands-free
-   * sessions, where the interrupt is turn-scoped; a manual session's
-   * interrupt ends the whole session, so there the ✕ (`onEnd`) is the only
-   * stop.
+   * ■ control takes the send button's slot while `speaking` (send is
+   * unusable then anyway) and is hidden when absent — the host wires it only
+   * for hands-free sessions, where the interrupt is turn-scoped; a manual
+   * session's interrupt ends the whole session, so there the ✕ (`onEnd`) is
+   * the only stop.
    */
   onStop?: () => void;
   /** End the voice session. */
@@ -128,19 +130,6 @@ export function VoiceSessionPill({
       ) : (
         <div className={labelClass}>{labelContent}</div>
       )}
-      {onStop && state === "speaking" ? (
-        <Button
-          variant="primary"
-          iconOnly={<Square fill="currentColor" />}
-          className="rounded-full"
-          // Compact title-bar affordance: keep desktop sizing so the pill
-          // never exceeds the header row height on touch-mobile web.
-          expandOnMobile={false}
-          aria-label="Stop assistant response"
-          tooltip="Stop assistant response"
-          onClick={onStop}
-        />
-      ) : null}
       <div className="flex items-center gap-1">
         {/* The mic glyph doubles as the mute toggle — the one control a hot
             open mic must always offer, wherever the session surface is. */}
@@ -191,16 +180,33 @@ export function VoiceSessionPill({
         tooltip="End voice session"
         onClick={onEnd}
       />
-      <Button
-        variant="primary"
-        iconOnly={<ArrowUp strokeWidth={2.5} />}
-        className="rounded-full"
-        expandOnMobile={false}
-        disabled={state !== "listening"}
-        aria-label="Send now"
-        tooltip="Send now"
-        onClick={onSend}
-      />
+      {/* Turn slot: ↑ releases the turn while listening; while the assistant
+          speaks (send unusable) the ■ stop takes its place instead of
+          stacking beside a disabled send. `expandOnMobile={false}` keeps
+          desktop sizing so the pill never exceeds the header row height on
+          touch-mobile web. */}
+      {onStop && state === "speaking" ? (
+        <Button
+          variant="primary"
+          iconOnly={<Square fill="currentColor" />}
+          className="rounded-full"
+          expandOnMobile={false}
+          aria-label="Stop assistant response"
+          tooltip="Stop assistant response"
+          onClick={onStop}
+        />
+      ) : (
+        <Button
+          variant="primary"
+          iconOnly={<ArrowUp strokeWidth={2.5} />}
+          className="rounded-full"
+          expandOnMobile={false}
+          disabled={state !== "listening"}
+          aria-label="Send now"
+          tooltip="Send now"
+          onClick={onSend}
+        />
+      )}
     </div>
   );
 }

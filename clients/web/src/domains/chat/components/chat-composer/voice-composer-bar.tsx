@@ -3,9 +3,9 @@
  * active the composer's action row is replaced by this bar — a mic mute
  * toggle and muted state label on the left, the voice room's listening
  * waves filling the middle (the same layered accent-tinted band, scaled to
- * the strip), and the session controls on the right: optional
- * ■ stop-response (while the assistant speaks), optional expand back to the
- * voice room, end (✕), and send-now (↑).
+ * the strip), and the session controls on the right: optional expand back
+ * to the voice room, end (✕), and the turn slot — send-now (↑), replaced in
+ * place by ■ stop-response while the assistant speaks.
  *
  * Purely presentational: the composer observes the live-voice store and
  * wires `state`, an amplitude poll function, and the callbacks. The green ↑
@@ -50,8 +50,9 @@ export interface VoiceComposerBarProps {
   onSend: () => void;
   /**
    * ■ — stop the in-flight assistant response without ending the session.
-   * Rendered only while `speaking`; the composer passes it only for
-   * hands-free sessions, where the interrupt is turn-scoped.
+   * Takes the send button's slot while `speaking` (send is unusable then
+   * anyway); the composer passes it only for hands-free sessions, where the
+   * interrupt is turn-scoped.
    */
   onStop?: () => void;
   /**
@@ -132,15 +133,6 @@ export function VoiceComposerBar({
         />
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        {onStop && state === "speaking" ? (
-          <Button
-            variant="primary"
-            iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
-            onClick={onStop}
-            aria-label="Stop assistant response"
-            tooltip="Stop assistant response"
-          />
-        ) : null}
         {onExpand ? (
           <Button
             variant="ghost"
@@ -156,13 +148,26 @@ export function VoiceComposerBar({
           onClick={onEnd}
           aria-label="End voice session"
         />
-        <Button
-          variant="primary"
-          iconOnly={<ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
-          onClick={onSend}
-          disabled={state !== "listening"}
-          aria-label="Send now"
-        />
+        {/* Turn slot: ↑ releases the turn while listening; while the
+            assistant speaks (send unusable) the ■ stop takes its place
+            instead of stacking beside a disabled send. */}
+        {onStop && state === "speaking" ? (
+          <Button
+            variant="primary"
+            iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
+            onClick={onStop}
+            aria-label="Stop assistant response"
+            tooltip="Stop assistant response"
+          />
+        ) : (
+          <Button
+            variant="primary"
+            iconOnly={<ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
+            onClick={onSend}
+            disabled={state !== "listening"}
+            aria-label="Send now"
+          />
+        )}
       </div>
     </div>
   );

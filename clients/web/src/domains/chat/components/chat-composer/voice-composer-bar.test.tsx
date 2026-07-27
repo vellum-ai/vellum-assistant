@@ -148,6 +148,14 @@ describe("VoiceComposerBar — stop response", () => {
     expect(onStop).toHaveBeenCalledTimes(1);
   });
 
+  test("■ takes the send slot while speaking (send absent)", () => {
+    renderBar("speaking", { onStop: () => {} });
+    expect(
+      screen.getByRole("button", { name: "Stop assistant response" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+  });
+
   test("no ■ outside speaking, or without onStop (manual session)", () => {
     const { unmount } = renderBar("listening", { onStop: () => {} });
     expect(
