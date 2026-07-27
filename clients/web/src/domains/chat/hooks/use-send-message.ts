@@ -20,9 +20,12 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
-import { routes } from "@/utils/routes";
+import { DOCTOR_PROMPT_PARAM, routes } from "@/utils/routes";
 import { conversationsByIdSlashPost } from "@/generated/daemon/sdk.gen";
-import { isLocalMetaCommand } from "@/domains/chat/components/chat-composer/slash-command-catalog";
+import {
+  isLocalMetaCommand,
+  parseDoctorCommand,
+} from "@/domains/chat/components/chat-composer/slash-command-catalog";
 import { saveContextWindowUsage } from "@/domains/chat/utils/context-window-storage";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
@@ -577,6 +580,20 @@ export function useSendMessage({
       // always a fresh first message (conversation idle), so they never take the
       // queue path below.
       const isHidden = opts.hidden === true;
+      // `/doctor <message>` navigates to the Doctor panel rather than starting
+      // an assistant turn, carrying the first message in the query string so the
+      // panel can auto-start a session and send it. Handled before the
+      // conversation/disk-pressure guards below since it needs neither.
+      const doctorPrompt = parseDoctorCommand(content);
+      if (doctorPrompt !== null) {
+        const params = new URLSearchParams({ tab: "doctor" });
+        if (doctorPrompt) {
+          params.set(DOCTOR_PROMPT_PARAM, doctorPrompt);
+        }
+        useComposerStore.getState().setInput("");
+        navigate(`${routes.settings.debug}?${params.toString()}`);
+        return;
+      }
       // Explicit user override from the composer secret guard's "Send
       // anyway" confirmation — forwarded on this send's POST only.
       const bypassSecretCheck = opts.bypassSecretCheck === true;

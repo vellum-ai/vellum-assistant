@@ -2,6 +2,7 @@ import { ArrowUp, Check, ChevronDown, ClipboardCopy, Loader2, Play, Square } fro
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router";
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 
@@ -57,6 +58,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
 import { isPointerCoarse } from "@/utils/pointer";
+import { DOCTOR_PROMPT_PARAM } from "@/utils/routes";
 
 // ---------------------------------------------------------------------------
 // CopySessionButton
@@ -138,6 +140,12 @@ export function DoctorPanel() {
 
   const platformGate = usePlatformGate();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // `/doctor <message>` slash command: the first message to send once the
+  // auto-started session becomes active, and a one-shot guard so the
+  // param-driven start fires only once per navigation.
+  const pendingInitialMessageRef = useRef<string | null>(null);
+  const autoStartHandledRef = useRef(false);
 
   // ---------------------------------------------------------------------------
   // SSE hook (owns only the AbortController lifecycle)
@@ -515,6 +523,11 @@ export function DoctorPanel() {
   // preserves the active session and replay cursor, while useDoctorSSE's
   // AbortController is owned by the mounted hook instance.
   useEffect(() => {
+    // A pending /doctor slash command auto-starts a fresh session below; skip
+    // the resume/rediscover path so it doesn't race that start.
+    if (searchParams.get(DOCTOR_PROMPT_PARAM) !== null) {
+      return;
+    }
     const store = useDoctorPanelStore.getState();
     if (
       store.lastAssistantId === assistantId &&
@@ -556,6 +569,39 @@ export function DoctorPanel() {
     };
   }, [abort]);
 
+  // Auto-start from the chat `/doctor <message>` slash command: the composer
+  // navigates here with the first message in the query string. Start a fresh
+  // session and stash the message to send once it's active, then strip the
+  // param so a reload or back-nav doesn't restart the session.
+  useEffect(() => {
+    if (autoStartHandledRef.current) {
+      return;
+    }
+    const prompt = searchParams.get(DOCTOR_PROMPT_PARAM);
+    if (prompt === null) {
+      return;
+    }
+    autoStartHandledRef.current = true;
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete(DOCTOR_PROMPT_PARAM);
+    setSearchParams(nextParams, { replace: true });
+
+    if (!assistantId) {
+      return;
+    }
+
+    const store = useDoctorPanelStore.getState();
+    abort();
+    if (store.sessionId) {
+      cleanupServerSession(assistantId, store.sessionId);
+    }
+    store.resetForNewSession();
+    const trimmed = prompt.trim();
+    pendingInitialMessageRef.current = trimmed.length > 0 ? trimmed : null;
+    startMutation.mutate({ path: { assistant_id: assistantId } });
+  }, [searchParams, setSearchParams, assistantId, abort, startMutation]);
+
   // ---------------------------------------------------------------------------
   // Derived state
   // ---------------------------------------------------------------------------
@@ -570,6 +616,23 @@ export function DoctorPanel() {
     historyListQuery.isLoading ||
     (!!latestHistorySessionId && historyDetailQuery.isLoading)
   );
+
+  // Once the auto-started session is active, send the stashed first message.
+  useEffect(() => {
+    const message = pendingInitialMessageRef.current;
+    if (!message) {
+      return;
+    }
+    if (!isSessionActive || !sessionId) {
+      return;
+    }
+    pendingInitialMessageRef.current = null;
+    scrollToLatest();
+    sendMutation.mutate({
+      path: { assistant_id: assistantId, session_id: sessionId },
+      body: { content: message },
+    });
+  }, [isSessionActive, sessionId, assistantId, scrollToLatest, sendMutation]);
 
   // ---------------------------------------------------------------------------
   // Render
