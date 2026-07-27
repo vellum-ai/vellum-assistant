@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { createMemoryRouter } from "react-router";
 
 import type { LockfileAssistant } from "@/lib/local-mode";
 
@@ -65,10 +66,18 @@ mock.module("@/utils/when-store-state", () => ({
 }));
 
 // The guard re-runs itself through the router when a timed-out probe reports
-// late; stub the route tree so the assertion is on the re-run, not on routing.
-const revalidateMock = mock(() => Promise.resolve());
+// late. Most cases stub the route tree so the assertion is on the re-run being
+// armed, not on routing. `liveRouter` swaps in a real React Router instance so
+// one case can assert what `revalidate()` actually does to the guard.
+const revalidateMock = mock(() => {});
+let liveRouter: { revalidate: () => Promise<void> } | null = null;
 mock.module("@/routes", () => ({
-  router: { revalidate: revalidateMock },
+  router: {
+    revalidate: (): Promise<void> => {
+      revalidateMock();
+      return liveRouter?.revalidate() ?? Promise.resolve();
+    },
+  },
 }));
 
 import { authMiddleware } from "./auth-middleware";
@@ -86,6 +95,59 @@ const localAssistant: LockfileAssistant = {
   cloud: "local",
   resources: { gatewayPort: 51234, daemonPort: 51235 },
 };
+
+// The platform hardcodes the non-native Stripe `success_url` to this path, and
+// the pricing funnel has a brand-new user pay before an assistant exists.
+// Billing lives under `ActiveAssistantGate`, so admitting the return strands
+// the (paying) user on "Connecting to your assistant…" forever.
+const postCheckoutBilling = `${routes.settings.root}/billing?session_id=cs_test_123`;
+
+// The funnel entry carries the managed-hatch marker so a local-mode client
+// provisions on the platform rather than letting its own gateway answer for
+// the assistant.
+const managedFunnel = `${routes.onboarding.hatching}?hosting=vellum-cloud&post_checkout=1`;
+
+/**
+ * A checkout return on a local-mode client whose lockfile already holds a
+ * self-hosted assistant. `hasAssistants()` is true, so the cold-boot probe wait
+ * does not apply, yet the funnel decision still hangs on the probe.
+ */
+function makeSelfHostedLocalReturn(): void {
+  isLocalModeMock.mockImplementation(() => true);
+  hasAssistantsMock.mockImplementation(() => true);
+  mockGatewayAuthMode = true;
+  mockSelectedAssistant = localAssistant;
+  useAuthStore.setState({
+    sessionStatus: "authenticated",
+    user: fakeUser,
+    platformSession: "unknown",
+  });
+  useOnboardingStore.setState({ consentHydrated: true });
+  useResolvedAssistantsStore.setState({
+    assistants: [
+      {
+        id: localAssistant.assistantId,
+        isLocal: true,
+        isPlatformHosted: false,
+      },
+    ] as never[],
+    assistantsHydrated: true,
+  });
+}
+
+/** Poll until `predicate` holds, giving router-driven work room to settle. */
+async function waitUntil(
+  predicate: () => boolean,
+  label: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 300; attempt++) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`timed out waiting for ${label}`);
+}
 
 /**
  * Run the middleware and report whether it admitted (called `next`) or threw a
@@ -143,6 +205,7 @@ beforeEach(() => {
   mockGatewayTokenPresent = false;
   mockGatewayAuthMode = false;
   revalidateMock.mockClear();
+  liveRouter = null;
   useAuthStore.setState(initialAuthState, true);
   useResolvedAssistantsStore.setState({ assistants: [], activeAssistantId: null });
   useAssistantLifecycleStore.setState({ assistantState: { kind: "error", message: "no assistant" } });
@@ -297,17 +360,6 @@ describe("authMiddleware — app-access admit gate", () => {
 });
 
 describe("authMiddleware — post-checkout return with nothing provisioned", () => {
-  // The platform hardcodes the non-native Stripe `success_url` to this path,
-  // and the pricing funnel has a brand-new user pay before an assistant
-  // exists. Billing lives under `ActiveAssistantGate`, so admitting the return
-  // strands the (paying) user on "Connecting to your assistant…" forever.
-  const postCheckoutBilling = `${routes.settings.root}/billing?session_id=cs_test_123`;
-
-  // The funnel entry carries the managed-hatch marker so a local-mode client
-  // provisions on the platform rather than letting its own gateway answer for
-  // the assistant.
-  const managedFunnel = `${routes.onboarding.hatching}?hosting=vellum-cloud&post_checkout=1`;
-
   function makePaidPlatformReturn(): void {
     isLocalModeMock.mockImplementation(() => false);
     useAuthStore.setState({
@@ -407,35 +459,6 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
 });
 
 describe("authMiddleware — local-mode post-checkout platform probe", () => {
-  const postCheckoutBilling = `${routes.settings.root}/billing?session_id=cs_test_123`;
-  const managedFunnel = `${routes.onboarding.hatching}?hosting=vellum-cloud&post_checkout=1`;
-
-  // A checkout return on a local-mode client whose lockfile already holds a
-  // self-hosted assistant. `hasAssistants()` is true, so the cold-boot probe
-  // wait does not apply, yet the funnel decision still hangs on the probe.
-  function makeSelfHostedLocalReturn(): void {
-    isLocalModeMock.mockImplementation(() => true);
-    hasAssistantsMock.mockImplementation(() => true);
-    mockGatewayAuthMode = true;
-    mockSelectedAssistant = localAssistant;
-    useAuthStore.setState({
-      sessionStatus: "authenticated",
-      user: fakeUser,
-      platformSession: "unknown",
-    });
-    useOnboardingStore.setState({ consentHydrated: true });
-    useResolvedAssistantsStore.setState({
-      assistants: [
-        {
-          id: localAssistant.assistantId,
-          isLocal: true,
-          isPlatformHosted: false,
-        },
-      ] as never[],
-      assistantsHydrated: true,
-    });
-  }
-
   test("holds the return until the probe settles, then funnels it", async () => {
     makeSelfHostedLocalReturn();
 
@@ -520,6 +543,91 @@ describe("authMiddleware — local-mode post-checkout platform probe", () => {
     useAuthStore.setState({ platformSession: "absent" });
     await tick();
     expect(revalidateMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("authMiddleware — late-probe re-run through a real router", () => {
+  // The cases above stub `@/routes`, so they pin that a re-run is *armed* —
+  // not that `router.revalidate()` re-runs middleware. The re-run is a React
+  // Router behavior: a matched route carrying middleware defeats the no-op
+  // revalidation short-circuit. The correction rests entirely on it, and it
+  // degrades silently — the guard keeps its forced "absent" decision and the
+  // paid return stays stranded on billing. These cases drive a real router so
+  // that degradation fails loudly.
+  //
+  // `/assistant` carries the guard exactly as `routes.tsx` wires it. The funnel
+  // target is a middleware-free sibling (same pattern as `/assistant/about`)
+  // so the redirect settles there instead of re-entering the guard.
+  function createGuardedRouter(): ReturnType<typeof createMemoryRouter> {
+    return createMemoryRouter(
+      [
+        { path: routes.onboarding.hatching, Component: () => null },
+        {
+          path: "/assistant",
+          middleware: [authMiddleware],
+          children: [{ path: "settings/billing", Component: () => null }],
+        },
+        { path: "*", Component: () => null },
+      ] as never,
+      { initialEntries: ["/"], future: { v8_middleware: true } },
+    );
+  }
+
+  function currentHref(router: ReturnType<typeof createMemoryRouter>): string {
+    return router.state.location.pathname + router.state.location.search;
+  }
+
+  test("a probe that settles after the timeout re-decides the route", async () => {
+    makeSelfHostedLocalReturn();
+    const router = createGuardedRouter();
+    liveRouter = router;
+
+    try {
+      // The probe outruns the (clamped) wait, so the guard decides on the
+      // forced "absent" and the router lands on billing.
+      await router.navigate(postCheckoutBilling);
+      expect(currentHref(router)).toBe(postCheckoutBilling);
+      expect(revalidateMock).not.toHaveBeenCalled();
+
+      // The probe lands "present" afterwards. The guard has to re-run for the
+      // return to reach provisioning — asserting the redirect, not the call,
+      // is what pins that `revalidate()` still re-runs middleware.
+      useAuthStore.setState({ platformSession: "present" });
+      await waitUntil(
+        () => currentHref(router) === managedFunnel,
+        "the re-run guard to funnel the paid return",
+      );
+      expect(revalidateMock).toHaveBeenCalledTimes(1);
+    } finally {
+      liveRouter = null;
+      router.dispose();
+    }
+  });
+
+  test("the re-run fires once and does not re-decide on later transitions", async () => {
+    makeSelfHostedLocalReturn();
+    const router = createGuardedRouter();
+    liveRouter = router;
+
+    try {
+      await router.navigate(postCheckoutBilling);
+      useAuthStore.setState({ platformSession: "present" });
+      await waitUntil(
+        () => currentHref(router) === managedFunnel,
+        "the re-run guard to funnel the paid return",
+      );
+
+      // A settled probe never reopens "unknown", so no later transition
+      // re-arms the subscription — the correction cannot loop.
+      useAuthStore.setState({ platformSession: "absent" });
+      await tick();
+      await tick();
+      expect(revalidateMock).toHaveBeenCalledTimes(1);
+      expect(currentHref(router)).toBe(managedFunnel);
+    } finally {
+      liveRouter = null;
+      router.dispose();
+    }
   });
 });
 
