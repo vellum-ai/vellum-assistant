@@ -85,10 +85,10 @@ export type SlackInboundEvent = InboundEventBase<"slack">;
 export type EmailInboundEvent = InboundEventBase<"email">;
 export type A2aInboundEvent = InboundEventBase<"a2a">;
 /**
- * Discord has no normalizer, so nothing constructs this variant. It defines the
- * shape one produces: `conversationExternalId` is the channel snowflake,
- * `actorExternalId` the author's user snowflake, and `source.threadId` a thread
- * or forum-post snowflake.
+ * Constructed by `discord/normalize.ts`. `conversationExternalId` is the
+ * channel snowflake — the parent channel when the message is in a thread —
+ * `actorExternalId` the author's user snowflake, and `source.threadId` the
+ * thread or forum-post snowflake for thread messages.
  */
 export type DiscordInboundEvent = InboundEventBase<"discord">;
 

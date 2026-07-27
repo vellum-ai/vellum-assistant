@@ -90,7 +90,7 @@ export class DiscordSessionState {
 
   /**
    * Drop the session. Called for op 9 with `d: false`, and for close codes
-   * whose session is gone (4003 / 4007 / 4009 / a normal 1000 close).
+   * whose session is gone (4003 / 4007 / 4009).
    *
    * The sequence goes with it: a sequence from a dead session is not a valid
    * resume point, and keeping it would make the next resume look legitimate
