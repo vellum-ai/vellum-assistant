@@ -64,7 +64,16 @@ export type NavigationQuery =
 export type NavigationDecision =
   | { action: "allow" }
   | { action: "redirect"; to: string }
-  | { action: "wait" };
+  /**
+   * State the decision depends on has not settled yet.
+   *
+   * `waitFor` names the signal when it is one the caller has to block on
+   * beyond the session itself, so a caller that can await it (the auth
+   * middleware) awaits exactly that signal instead of guessing from the
+   * surrounding state — guessing wrong re-resolves on unchanged state and
+   * spins.
+   */
+  | { action: "wait"; waitFor?: "platform-session" };
 
 // ---------------------------------------------------------------------------
 // Shared predicates & helpers
@@ -335,7 +344,7 @@ function requirePostCheckoutProvisioning(
   // notice carries `session_id` through sign-in and lands back here.
   if (state.isLocalMode) {
     if (state.platformSession === "unknown") {
-      return { action: "wait" };
+      return { action: "wait", waitFor: "platform-session" };
     }
     if (state.platformSession !== "present") {
       return null;
@@ -453,7 +462,9 @@ function requireAssistant(
   if (path === routes.checkout) return null;
 
   if (state.isLocalMode) {
-    if (state.platformSession === "unknown") return { action: "wait" };
+    if (state.platformSession === "unknown") {
+      return { action: "wait", waitFor: "platform-session" };
+    }
     if (state.platformSession === "present") {
       return { action: "redirect", to: routes.onboarding.hosting };
     }

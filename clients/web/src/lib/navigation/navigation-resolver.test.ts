@@ -40,6 +40,12 @@ function s(overrides: Partial<NavigationState>): NavigationState {
 
 const ALLOW: NavigationDecision = { action: "allow" };
 const WAIT: NavigationDecision = { action: "wait" };
+// The auth middleware awaits the probe only for a wait that names it, so the
+// tag is part of the contract, not a label.
+const WAIT_FOR_PLATFORM_SESSION: NavigationDecision = {
+  action: "wait",
+  waitFor: "platform-session",
+};
 
 describe("resolveNavigation", () => {
   // -----------------------------------------------------------------------
@@ -272,7 +278,7 @@ describe("resolveNavigation", () => {
     test("waits for platform probe in local mode with no assistants", () => {
       expect(
         guard(s({ isLocalMode: true, hasAssistants: false, platformSession: "unknown" })),
-      ).toEqual(WAIT);
+      ).toEqual(WAIT_FOR_PLATFORM_SESSION);
     });
 
     test("redirects to hosting when local mode + platform session present", () => {
@@ -657,7 +663,9 @@ describe("resolveNavigation", () => {
 
     // A local-mode client is "authenticated" on its gateway session alone, so
     // the platform session is decided separately — and the managed hatch the
-    // funnel starts needs one. The probe boots "unknown".
+    // funnel starts needs one. The probe boots "unknown". The wait names the
+    // probe because the org already has an assistant here, so nothing else
+    // tells the middleware to await it.
     test("waits for the local-mode platform-session probe before funneling", () => {
       expect(
         guard(
@@ -669,7 +677,7 @@ describe("resolveNavigation", () => {
           }),
           POST_CHECKOUT_BILLING,
         ),
-      ).toEqual(WAIT);
+      ).toEqual(WAIT_FOR_PLATFORM_SESSION);
     });
 
     // Signed out of the platform there is no account to provision into. The

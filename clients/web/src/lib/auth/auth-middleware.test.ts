@@ -183,6 +183,20 @@ describe("authMiddleware — local-mode onboarding fork", () => {
     expect(res.headers.get("Location")).toBe(routes.welcome);
   });
 
+  test("a probe that never settles routes to welcome instead of looping", async () => {
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: fakeUser,
+      platformSession: "unknown",
+    });
+
+    // The probe stays "unknown" for the whole (clamped) wait, so the guard
+    // decides on a settled-absent session rather than re-entering the wait.
+    const res = await runMiddleware(routes.home);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(routes.welcome);
+  });
+
   test("routes to hosting when a resolved platform session exists", async () => {
     useAuthStore.setState({
       sessionStatus: "authenticated",
@@ -375,6 +389,84 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
       assistantState: { kind: "active", isLocal: false },
     });
 
+    const outcome = await runMiddlewareOutcome(postCheckoutBilling);
+    expect(outcome.admitted).toBe(true);
+  });
+});
+
+describe("authMiddleware — local-mode post-checkout platform probe", () => {
+  const postCheckoutBilling = `${routes.settings.root}/billing?session_id=cs_test_123`;
+  const managedFunnel = `${routes.onboarding.hatching}?hosting=vellum-cloud`;
+
+  // A checkout return on a local-mode client whose lockfile already holds a
+  // self-hosted assistant. `hasAssistants()` is true, so the cold-boot probe
+  // wait does not apply, yet the funnel decision still hangs on the probe.
+  function makeSelfHostedLocalReturn(): void {
+    isLocalModeMock.mockImplementation(() => true);
+    hasAssistantsMock.mockImplementation(() => true);
+    mockGatewayAuthMode = true;
+    mockSelectedAssistant = localAssistant;
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: fakeUser,
+      platformSession: "unknown",
+    });
+    useOnboardingStore.setState({ consentHydrated: true });
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: localAssistant.assistantId,
+          isLocal: true,
+          isPlatformHosted: false,
+        },
+      ] as never[],
+      assistantsHydrated: true,
+    });
+  }
+
+  test("holds the return until the probe settles, then funnels it", async () => {
+    makeSelfHostedLocalReturn();
+
+    let settled: Response | null = null;
+    const pending = runMiddleware(postCheckoutBilling).then((res) => {
+      settled = res;
+    });
+
+    // Probe still in flight: deciding now would strand the purchase on a
+    // billing page with nothing to apply it to.
+    await tick();
+    expect(settled).toBeNull();
+
+    useAuthStore.setState({ platformSession: "present" });
+    await pending;
+
+    expect(settled).not.toBeNull();
+    expect(settled!.status).toBe(302);
+    expect(settled!.headers.get("Location")).toBe(managedFunnel);
+  });
+
+  test("leaves the return on billing once the probe settles absent", async () => {
+    makeSelfHostedLocalReturn();
+
+    let decided = false;
+    const pending = runMiddlewareOutcome(postCheckoutBilling).then((res) => {
+      decided = true;
+      return res;
+    });
+
+    await tick();
+    expect(decided).toBe(false);
+
+    useAuthStore.setState({ platformSession: "absent" });
+    expect((await pending).admitted).toBe(true);
+  });
+
+  test("a probe that never settles degrades to a decision instead of looping", async () => {
+    makeSelfHostedLocalReturn();
+
+    // The probe stays "unknown", so the wait runs out its (clamped) timeout and
+    // the guard decides on a settled-absent session: the return stays on
+    // billing, whose login notice carries `session_id` through sign-in.
     const outcome = await runMiddlewareOutcome(postCheckoutBilling);
     expect(outcome.admitted).toBe(true);
   });
