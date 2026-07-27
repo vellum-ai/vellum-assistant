@@ -14,7 +14,11 @@ name: App
 
 options:
   deploymentTarget:
-    iOS: "15.0"
+    # Do not lower: Live Activities need 16.1, interactive Live Activity
+    # content 17.0, the Action Button 17.1. Keep in sync with
+    # IPHONEOS_DEPLOYMENT_TARGET in `App/Config/Base.xcconfig`, which wins
+    # for targets carrying an xcconfig; this covers those that don't.
+    iOS: "17.0"
   developmentLanguage: en
   defaultConfig: Release
   groupSortPosition: top
