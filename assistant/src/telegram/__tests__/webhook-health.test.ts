@@ -21,7 +21,7 @@ let fetchCallCount = 0;
 const fetchedUrls: string[] = [];
 
 const emittedSignals: Array<Record<string, unknown>> = [];
-let emitThrows = false;
+let emitFails = false;
 
 // ── Module mocks ──────────────────────────────────────────────────────
 
@@ -50,10 +50,24 @@ mock.module("../../config/loader.js", () => ({
   getConfig: () => ({ telegram: { apiBaseUrl } }),
 }));
 
+// Mirrors the real `emitNotificationSignal` contract: it swallows pipeline
+// errors and resolves with `dispatched: false` UNLESS `throwOnError` is set.
+// The mock reproduces that conditional rather than throwing unconditionally —
+// otherwise it would validate a contract the real function does not have, and
+// the caller's retry path could be dead in production while tests pass.
 mock.module("../../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async (params: Record<string, unknown>) => {
-    if (emitThrows) {
-      throw new Error("emit failed");
+    if (emitFails) {
+      if (params.throwOnError) {
+        throw new Error("emit failed");
+      }
+      return {
+        signalId: "sig",
+        deduplicated: false,
+        dispatched: false,
+        reason: "Signal pipeline failed: emit failed",
+        deliveryResults: [],
+      };
     }
     emittedSignals.push(params);
     return {
@@ -91,6 +105,7 @@ const {
 // ── Helpers ───────────────────────────────────────────────────────────
 
 const BOT_TOKEN_KEY = "credential/telegram/bot_token";
+const WEBHOOK_SECRET_KEY = "credential/telegram/webhook_secret";
 const WEBHOOK_URL = "https://example.test/webhooks/telegram";
 
 /** Unix seconds, `secondsAgo` in the past — Telegram reports seconds, not ms. */
@@ -105,13 +120,14 @@ function setWebhookInfo(result: Record<string, unknown>): void {
 beforeEach(() => {
   secureKeyValues.clear();
   secureKeyValues.set(BOT_TOKEN_KEY, "12345:test-token");
+  secureKeyValues.set(WEBHOOK_SECRET_KEY, "s3cret");
   webhookRouting = { configured: true, usesManagedCallbacks: false };
   setWebhookInfo({ url: WEBHOOK_URL, pending_update_count: 0 });
   fetchCallCount = 0;
   fetchedUrls.length = 0;
   apiBaseUrl = "https://api.telegram.org";
   emittedSignals.length = 0;
-  emitThrows = false;
+  emitFails = false;
   _resetTelegramWebhookHealthState();
 });
 
@@ -120,6 +136,19 @@ beforeEach(() => {
 describe("gating", () => {
   test("does not run when no Telegram bot token is configured", async () => {
     secureKeyValues.delete(BOT_TOKEN_KEY);
+
+    const result = await runTelegramWebhookHealthCheck();
+
+    expect(result.status).toBe("skipped");
+    expect(fetchCallCount).toBe(0);
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("does not run when the webhook secret is missing", async () => {
+    // The gateway reconciler bails before setWebhook without the secret, so a
+    // bot_token-only workspace has no webhook by design. Alerting here would
+    // name the wrong cause and point at an ingress URL the user hasn't set yet.
+    secureKeyValues.delete(WEBHOOK_SECRET_KEY);
 
     const result = await runTelegramWebhookHealthCheck();
 
@@ -283,7 +312,14 @@ describe("alerting", () => {
     const signal = emittedSignals[0]!;
     expect(signal.sourceEventName).toBe("telegram.webhook_health_alert");
     // Never routed as if it came from Telegram — that channel is the broken one.
-    expect(signal.sourceChannel).toBe("watcher");
+    // "assistant_tool" specifically, because that plus requestedMessage is what
+    // takes the decision engine's verbatim pass-through and skips the LLM
+    // classifier. AGENTS.md forbids LLM work on unconditional timers, and a
+    // classifier could also suppress the alert outright.
+    expect(signal.sourceChannel).toBe("assistant_tool");
+    // Pins the emitNotificationSignal contract: without this the pipeline
+    // swallows failures and the latch-release retry path below is dead code.
+    expect(signal.throwOnError).toBe(true);
     expect(signal.attentionHints).toMatchObject({
       requiresAction: true,
       urgency: "high",
@@ -296,6 +332,12 @@ describe("alerting", () => {
     expect(payload.pendingUpdateCount).toBe(3);
     expect(String(payload.body)).toContain("Telegram (@test_bot)");
     expect(String(payload.body)).toContain("404 Not Found");
+    // The pass-through reads requestedMessage/requestedTitle; the home-feed
+    // writer reads body/title. Both must carry the composed copy or the alert
+    // silently falls back to the LLM path (or renders empty).
+    expect(payload.requestedMessage).toBe(payload.body);
+    expect(payload.requestedTitle).toBe(payload.title);
+    expect(String(payload.requestedMessage)).not.toHaveLength(0);
   });
 
   test("an unregistered webhook alerts with a title matching that status", async () => {
@@ -378,12 +420,15 @@ describe("alerting", () => {
   });
 
   test("a failed emit is retried on the next round", async () => {
+    // Exercises the real contract: the mock only throws because the caller
+    // passes throwOnError. Drop that param and this test fails, which is the
+    // point — the retry path must not be able to go dead silently.
     setFailing();
-    emitThrows = true;
+    emitFails = true;
     await runTelegramWebhookHealthCheck();
     expect(emittedSignals).toHaveLength(0);
 
-    emitThrows = false;
+    emitFails = false;
     await runTelegramWebhookHealthCheck();
 
     expect(emittedSignals).toHaveLength(1);
