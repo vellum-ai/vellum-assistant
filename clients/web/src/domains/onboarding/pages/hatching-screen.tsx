@@ -13,6 +13,7 @@ import {
 } from "@/generated/api/sdk.gen";
 import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
 import {
+    isEntitlementRaceVerdict,
     isResizeOperationInFlight,
     targetsMet,
     type ProvisioningDimensions,
@@ -34,7 +35,11 @@ import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import { getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, probeLocalGatewayReady, saveLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
-import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import {
+    POST_CHECKOUT_HATCH_PARAM,
+    resolveNavigation,
+} from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isElectron } from "@/runtime/is-electron";
@@ -144,6 +149,16 @@ export function HatchingScreen() {
   const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
   const electron = isElectron();
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+  // `hosting=vellum-cloud` names a managed hatch even in a local-mode build
+  // (see `adopt-existing-assistant`): the assistant is provisioned on the
+  // platform, so its purchased machine and storage are waited for.
+  const managedHatch = hostingParam === "vellum-cloud";
+  // This hatch is the return leg of a completed checkout — only the
+  // post-checkout funnel sets the param, and only for a billing landing
+  // carrying Stripe's `session_id`. `managedHatch` is NOT a substitute: it
+  // names a hosting choice a free user can make too.
+  const postCheckoutReturn =
+    searchParams.get(POST_CHECKOUT_HATCH_PARAM) === "1";
   const sessionStatus = useAuthStore.use.sessionStatus();
   // Local hatches drive `sessionStatus` themselves (`connectLocalAssistant`
   // below flips it mid-handoff), so they gate on settled-ness to keep that flip
@@ -205,6 +220,17 @@ export function HatchingScreen() {
       return;
     }
     if (decision.kind === "wait") return;
+
+    // A managed hatch in a local-mode build must address the platform, not the
+    // machine's own gateway: `getAssistant()` answers from the selected
+    // lockfile entry while a gateway token is held, and daemon SDK calls (the
+    // healthz probes below) rewrite to the local gateway while a self-hosted
+    // connection is primed. Dropping both is the same handoff the hosting
+    // screen performs for its Vellum Cloud choice.
+    if (managedHatch && isLocalMode()) {
+      clearGatewayToken();
+      setSelfHostedConnection(null);
+    }
 
     setPlatformHostedDisabled(false);
 
@@ -513,20 +539,21 @@ export function HatchingScreen() {
     const awaitPurchasedProvisioning = async (
       assistantId: string,
     ): Promise<void> => {
-      // Local hatches never provision purchased specs — a self-hosted daemon has
-      // no billing surface to read. Short-circuit so a local-mode reload that
-      // falls through the platform preflight path (hosting=vellum-cloud or no
-      // param, where useLocalHatch is false) stays byte-identical to today.
-      if (isLocalMode()) {
+      // Purchased specs live on the platform, so only a managed hatch reads
+      // them. A local-mode run without the managed marker can reach here off a
+      // preflight that resolved the lockfile assistant, which has no billing
+      // surface — short-circuit there.
+      if (isLocalMode() && !managedHatch) {
         return;
       }
       // Fire the idempotent grow-only reconcile — the same resize the subscribe
       // webhook triggers — covering a webhook that never fired or whose resize
-      // was lost. It is marked done only when it SUCCEEDS: a 503 ("nothing
-      // queued"), a network error, or a pre-org-hydration mount leaves the guard
-      // unset so a later poll iteration re-fires the nudge. It never blocks
-      // completion (which keys off targets + op-status); the re-fires stay
-      // bounded by the RESIZE_WAIT_MAX_MS cap below.
+      // was lost. It is marked done only when it RECONCILES: a 503 ("nothing
+      // queued"), a network error, a pre-org-hydration mount, or the
+      // entitlement race leaves the guard unset so a later poll iteration
+      // re-fires the nudge. It never blocks completion (which keys off targets
+      // + op-status); the re-fires stay bounded by the RESIZE_WAIT_MAX_MS cap
+      // below.
       const fireProvisioningReconcile = (): void => {
         if (provisioningReconcileFiredRef.current) {
           return;
@@ -536,8 +563,13 @@ export function HatchingScreen() {
         })
           .then((result) => {
             // Success carries a body; a 503/5xx resolves with no data under
-            // throwOnError:false. Only a real success consumes the guard.
-            if (result.data != null) {
+            // throwOnError:false. A `no_active_pro` body is the entitlement
+            // race, not an answer — nothing was queued, so it must not consume
+            // the guard or the nudge is lost for the whole hatch.
+            if (
+              result.data != null &&
+              !isEntitlementRaceVerdict(result.data)
+            ) {
               provisioningReconcileFiredRef.current = true;
             }
           })
@@ -608,9 +640,13 @@ export function HatchingScreen() {
           targets != null &&
           (targets.machineSize != null || targets.storageGib != null);
 
-        // Confirmed non-Pro — genuinely free. Complete exactly as a
-        // non-provisioned hatch does today.
-        if (subscriptionState === "non_pro") {
+        // Confirmed non-Pro on an ordinary hatch — genuinely free. Complete
+        // exactly as a non-provisioned hatch does today, with no added poll.
+        // On a post-checkout return the same read is not an answer: Stripe
+        // redirects before the subscribe webhook updates the org, so the plan
+        // still reads at its pre-checkout base. That case falls through to the
+        // capped wait below.
+        if (subscriptionState === "non_pro" && !postCheckoutReturn) {
           return;
         }
         // Confirmed Pro with a purchased ceiling to wait on: hold for the resize
@@ -618,10 +654,11 @@ export function HatchingScreen() {
         if (subscriptionState === "pro" && hasTargets) {
           break;
         }
-        // Pro with targets not yet visible, or an unknown/errored subscription
-        // read: keep polling within the cap rather than completing at baseline
-        // onto an unprovisioned assistant. The cap is the ultimate escape so a
-        // persistently-erroring subscription endpoint still completes.
+        // Pro with targets not yet visible, a still-base read on a paid return,
+        // or an unknown/errored subscription read: keep polling within the cap
+        // rather than completing at baseline onto an unprovisioned assistant.
+        // The cap is the ultimate escape, so a subscription that never flips —
+        // a persistently-erroring endpoint, a lost webhook — still completes.
         if (Date.now() >= resizeDeadline) {
           return;
         }
@@ -843,6 +880,8 @@ export function HatchingScreen() {
     attempt,
     failParam,
     hatchTraits,
+    managedHatch,
+    postCheckoutReturn,
     sessionGateKey,
     navigate,
     queryClient,

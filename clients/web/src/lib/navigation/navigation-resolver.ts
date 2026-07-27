@@ -14,6 +14,16 @@ export interface NavigationState {
   remoteGatewayPublicPathPrefix: string;
   isGatewayAuth: boolean;
   hasAssistants: boolean;
+  /**
+   * Whether the active organization has a **platform-hosted** assistant — the
+   * only kind a managed plan can apply to.
+   *
+   * Strictly narrower than `hasAssistants`, which counts every resolved entry
+   * regardless of hosting or owning org: a local, Docker, or
+   * other-organization assistant satisfies `hasAssistants` while leaving this
+   * org with nothing the purchased plan can be applied to.
+   */
+  hasPlatformHostedAssistant: boolean;
   sessionSettled: boolean;
   isAuthenticated: boolean;
   platformSession: PlatformSessionStatus;
@@ -54,7 +64,16 @@ export type NavigationQuery =
 export type NavigationDecision =
   | { action: "allow" }
   | { action: "redirect"; to: string }
-  | { action: "wait" };
+  /**
+   * State the decision depends on has not settled yet.
+   *
+   * `waitFor` names the signal when it is one the caller has to block on
+   * beyond the session itself, so a caller that can await it (the auth
+   * middleware) awaits exactly that signal instead of guessing from the
+   * surrounding state — guessing wrong re-resolves on unchanged state and
+   * spins.
+   */
+  | { action: "wait"; waitFor?: "platform-session" };
 
 // ---------------------------------------------------------------------------
 // Shared predicates & helpers
@@ -96,6 +115,61 @@ function isOnboardingPath(pathname: string): boolean {
 function onboardingEntrypoint(isLocalMode: boolean): string {
   return isLocalMode ? routes.welcome : routes.onboarding.privacy;
 }
+
+/**
+ * The two paths a finished Stripe Checkout can land on: the platform's
+ * hardcoded non-native `success_url` (`/assistant/settings/billing`, which
+ * `BillingRedirectPage` forwards) and the Billing tab's own path, which the
+ * native deep-link return and `usageBillingCheckout()` build directly.
+ */
+const POST_CHECKOUT_LANDING_PATHS: Set<string> = new Set([
+  `${routes.settings.root}/billing`,
+  routes.settings.usage,
+]);
+
+/** Whether `pathnameWithSearch` is a billing landing carrying Stripe's `session_id`. */
+function isPostCheckoutReturn(
+  path: string,
+  pathnameWithSearch: string,
+): boolean {
+  if (!POST_CHECKOUT_LANDING_PATHS.has(path)) {
+    return false;
+  }
+  const qIdx = pathnameWithSearch.indexOf("?");
+  if (qIdx < 0) {
+    return false;
+  }
+  return new URLSearchParams(pathnameWithSearch.slice(qIdx + 1)).has(
+    "session_id",
+  );
+}
+
+/**
+ * The hatching-screen query param naming a hatch that is the return leg of a
+ * completed Stripe Checkout. Only {@link MANAGED_PROVISIONING_DESTINATION} sets
+ * it, and only for a billing landing carrying Stripe's `session_id`.
+ *
+ * Deliberately separate from `hosting=vellum-cloud`, which says only that the
+ * hatch is managed — a hosting choice a free user can make too. The hatching
+ * screen holds for a lagging subscription webhook on this param alone, so
+ * conflating the two would park every free managed hatch on a spinner.
+ */
+export const POST_CHECKOUT_HATCH_PARAM = "post_checkout";
+
+/**
+ * The provisioning funnel entry for a purchase with no managed assistant to
+ * apply to.
+ *
+ * `hosting=vellum-cloud` is the onboarding flow's managed-hatch marker (see
+ * `adopt-existing-assistant`): it names a managed hatch even in a local-mode
+ * build, where the hatching screen would otherwise let the local gateway answer
+ * for the assistant and skip the purchased-provisioning wait.
+ *
+ * {@link POST_CHECKOUT_HATCH_PARAM} adds the narrower fact that money has
+ * already changed hands, which is what lets the hatching screen treat a
+ * still-base subscription read as a pending webhook rather than a free org.
+ */
+const MANAGED_PROVISIONING_DESTINATION = `${routes.onboarding.hatching}?hosting=vellum-cloud&${POST_CHECKOUT_HATCH_PARAM}=1`;
 
 function extractPathname(destination: string): string {
   if (
@@ -162,12 +236,13 @@ export function resolveNavigation(
 //
 // Conceptual layers:
 //   1. Readiness          — is the session ready?
-//   2. Bypass             — gateway auth skips everything
-//   3. Identity           — is the user authenticated?
-//   4. Mode boundary      — is this path valid for the user's mode?
-//   5. Setup exemptions   — onboarding/consent paths are always reachable
-//   6. Assistant required  — user needs at least one assistant
-//   7. Consent required   — platform users must accept TOS
+//   2. Paid return        — a checkout return with nothing provisioned yet
+//   3. Bypass             — gateway auth skips everything
+//   4. Identity           — is the user authenticated?
+//   5. Mode boundary      — is this path valid for the user's mode?
+//   6. Setup exemptions   — onboarding/consent paths are always reachable
+//   7. Assistant required  — user needs at least one assistant
+//   8. Consent required   — platform users must accept TOS
 
 type RouteGuardStep = (
   state: NavigationState,
@@ -177,6 +252,7 @@ type RouteGuardStep = (
 
 const ROUTE_GUARD_PIPELINE: RouteGuardStep[] = [
   waitForSession,
+  requirePostCheckoutProvisioning,
   allowGatewayAuth,
   requireRemoteGatewayPairing,
   requireAuth,
@@ -202,6 +278,95 @@ function resolveRouteGuard(
 
 function waitForSession(state: NavigationState): NavigationDecision | null {
   return state.sessionSettled ? null : { action: "wait" };
+}
+
+/**
+ * A finished Stripe Checkout returning to an org with nothing the purchased
+ * plan can apply to.
+ *
+ * The marketing pricing funnel has a brand-new user pay BEFORE anything is
+ * provisioned, and the platform hardcodes the non-native `success_url` to the
+ * billing landing. Every billing surface mounts under `ActiveAssistantGate`,
+ * which renders a "Connecting to your assistant…" placeholder for as long as
+ * no assistant resolves — so the paid return dead-ends on a spinner. Send it
+ * into the hatching funnel instead, which provisions the assistant and applies
+ * the purchased specs.
+ *
+ * The destination is {@link MANAGED_PROVISIONING_DESTINATION}: the marker is
+ * what makes a local-mode client provision on the platform and hold for the
+ * purchased machine and storage instead of letting its own gateway answer for
+ * the assistant.
+ *
+ * The decision is `hasPlatformHostedAssistant`, not `hasAssistants`: a managed
+ * plan is only expressible on a platform-hosted assistant, so an org whose
+ * only entries are local, Docker, or another organization's needs the same
+ * provisioning funnel. Hatching is additive — the lockfile keeps every
+ * existing entry and they stay reachable from the assistant switcher — so a
+ * self-hosted user who buys managed hosting ends up holding both.
+ *
+ * The predicate is org membership rather than the active assistant because the
+ * purchase applies to the org: `BillingTab` opens the org-scoped pro onboarding
+ * wizard on `session_id` whichever assistant is selected, and hatching a second
+ * managed assistant for an org that already has one provisions a machine nobody
+ * bought.
+ *
+ * `session_id` is deliberately dropped: the hatch reads the purchased ceiling
+ * from the subscription server-side (`awaitPurchasedProvisioning`), so nothing
+ * downstream of this redirect consumes the Stripe session. Credit top-ups
+ * return with `billing_status`, never `session_id`, so they never reach here.
+ *
+ * Runs before `allowGatewayAuth` because that step short-circuits the whole
+ * pipeline to "allow" for a gateway session — which is how the dead-end is
+ * reached in Electron / local-mode web, where `requireAssistant` never runs.
+ * Electron takes the `"native"` checkout return, but its deep-link handler
+ * lands on the same in-app billing path carrying `session_id`, so it resolves
+ * through this pipeline too.
+ * Consent is still enforced: the destination is an onboarding path, and
+ * `onboardingCompletedMiddleware` re-runs this pipeline there, where
+ * `allowSetupRoutes` bounces an unconsented user to the privacy screen.
+ */
+function requirePostCheckoutProvisioning(
+  state: NavigationState,
+  path: string,
+  pathnameWithSearch: string,
+): NavigationDecision | null {
+  // An org with a platform-hosted assistant has a target for the purchase, so
+  // the return stays on billing and the pro onboarding wizard consumes
+  // `session_id` there.
+  if (state.hasPlatformHostedAssistant) {
+    return null;
+  }
+  if (!isPostCheckoutReturn(path, pathnameWithSearch)) {
+    return null;
+  }
+  // Not signed in yet: fall through so `requireAuth` sends the user to login
+  // with a `returnTo` that still carries `session_id`, and this step decides
+  // again on the way back.
+  if (!state.isAuthenticated) {
+    return null;
+  }
+  // The platform assistants list boots empty and loads asynchronously, so
+  // deciding on that default would funnel an established user out of their own
+  // billing page. Local mode is excluded for the same reason as in
+  // `requireAssistant` — its list is lockfile-driven.
+  if (!state.isLocalMode && !state.assistantsHydrated) {
+    return { action: "wait" };
+  }
+  // A local-mode client reaches "authenticated" on its gateway session alone,
+  // so the platform session is a separate question — and the managed hatch this
+  // redirect starts needs one for the org header and the purchased ceiling. The
+  // probe boots `"unknown"`, so hold until it settles. When it settles absent
+  // there is no account to provision into: fall through to billing, whose login
+  // notice carries `session_id` through sign-in and lands back here.
+  if (state.isLocalMode) {
+    if (state.platformSession === "unknown") {
+      return { action: "wait", waitFor: "platform-session" };
+    }
+    if (state.platformSession !== "present") {
+      return null;
+    }
+  }
+  return { action: "redirect", to: MANAGED_PROVISIONING_DESTINATION };
 }
 
 function allowGatewayAuth(state: NavigationState): NavigationDecision | null {
@@ -313,7 +478,9 @@ function requireAssistant(
   if (path === routes.checkout) return null;
 
   if (state.isLocalMode) {
-    if (state.platformSession === "unknown") return { action: "wait" };
+    if (state.platformSession === "unknown") {
+      return { action: "wait", waitFor: "platform-session" };
+    }
     if (state.platformSession === "present") {
       return { action: "redirect", to: routes.onboarding.hosting };
     }

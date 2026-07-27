@@ -145,6 +145,7 @@ mock.module("@/domains/onboarding/prefs", () => ({
 }));
 
 mock.module("@/lib/navigation/navigation-resolver", () => ({
+  POST_CHECKOUT_HATCH_PARAM: "post_checkout",
   resolveNavigation: () => ({ action: "allow" }),
 }));
 
