@@ -14,10 +14,9 @@ import { canAccessDocument, documentNotFound } from "./document-tool.js";
 //
 // `safeParse`d at the top of each `execute*` — same in-tool pattern and
 // drift guard as `document-tool.ts` (see the schema block there for the
-// framework). Unlike the document tools, these executors had no bespoke
-// input validation at all (a missing/mistyped field fell through to a
-// misleading "Document not found"), so every advertised-required field is
-// simply required here too.
+// framework). Every advertised-required field is required here; without
+// schema rejection a missing/mistyped field would fall through to a
+// misleading "Document not found".
 
 export const commentListInputSchema = z.looseObject({
   surface_id: z.string(),

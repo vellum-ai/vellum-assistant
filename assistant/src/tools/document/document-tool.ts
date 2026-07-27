@@ -78,15 +78,15 @@ function validateSurfaceId(
 // `document-tool-input-schemas.test.ts` guards the two against structural
 // drift.
 //
-// Tolerance mirrors what the executors always accepted — the schemas only
-// reject values that previously crashed downstream (`document_find`'s
-// `query` reaching `.toLowerCase()` as a number) or were persisted as
-// corruption (`document_create`'s `title`):
+// Tolerance matches the executors' own reads — the schemas only reject
+// values the executors would otherwise pass downstream unchecked
+// (`document_find`'s `query` reaching `.toLowerCase()` as a non-string) or
+// persist unvalidated (`document_create`'s `title`):
 //
-// - `nullAsOmitted` on optionals whose falsy/`??` fallbacks treated null as
-//   absent — including `surface_id`, whose bespoke `validateSurfaceId` /
-//   `resolveUpdateSurfaceId` error messages stay the contract for the
-//   missing/empty cases.
+// - `nullAsOmitted` on optionals where null and absent are equivalent under
+//   the falsy/`??` reads — including `surface_id`, whose bespoke
+//   `validateSurfaceId` / `resolveUpdateSurfaceId` error messages stay the
+//   contract for the missing/empty cases.
 // - `.catch(undefined)` on `document_list`'s `query`, which the executor
 //   silently ignores when malformed (falls back to the conversation list).
 // - `document_update`'s `mode` is deliberately UNDECLARED (loose
