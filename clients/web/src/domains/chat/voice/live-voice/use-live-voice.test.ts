@@ -47,7 +47,12 @@ import {
 // static import graph.
 const { useLiveVoice } =
   await import("@/domains/chat/voice/live-voice/use-live-voice");
-const { useLiveVoiceStore, getLiveVoicePlaybackProgress } =
+const {
+  useLiveVoiceStore,
+  getLiveVoicePlaybackProgress,
+  minimizeVoiceRoom,
+  restoreVoiceRoom,
+} =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 
@@ -877,6 +882,56 @@ describe("hands-free mode", () => {
 });
 
 // ---------------------------------------------------------------------------
+// minimize_room (assistant-requested room dismissal)
+// ---------------------------------------------------------------------------
+
+describe("minimize_room", () => {
+  test("emitting minimizeRoom sets roomMinimized on the store", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+
+    act(() => {
+      h.client.emit("minimizeRoom", {
+        type: "minimize_room",
+        seq: 2,
+        turnId: "t1",
+      });
+    });
+
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    // Advisory frame: the session itself is untouched.
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.closed).toBe(false);
+  });
+
+  test("a repeat frame while already minimized stays minimized, and restore still works", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("minimizeRoom", {
+        type: "minimize_room",
+        seq: 2,
+        turnId: "t1",
+      });
+      h.client.emit("minimizeRoom", {
+        type: "minimize_room",
+        seq: 3,
+        turnId: "t2",
+      });
+    });
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+
+    // The user can still bring the room back after a server-driven minimize.
+    act(() => {
+      restoreVoiceRoom();
+    });
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Version skew: hands-free against an older daemon
 // ---------------------------------------------------------------------------
 
@@ -1098,6 +1153,37 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
     });
     expect(h.view.result.current.state).toBe("listening");
     expect(useLiveVoiceStore.getState().muted).toBe(true);
+  });
+
+  test("a minimized room stays minimized across a retryable reconnect", async () => {
+    const h = renderController({ reconnectBackoffMs: [10] });
+    await startListening(h, { handsFree: true });
+    act(() => minimizeVoiceRoom());
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+
+    await act(async () => {
+      h.client.emit("closed", {
+        code: 1013,
+        reason: "assistant tunnel disconnected",
+      });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    // The same logical session is continuing — the room must not remount
+    // over whatever the user minimized it to look at.
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
   });
 
   test("publishes handsFree to the store, downgraded on the version-skew fallback", async () => {
