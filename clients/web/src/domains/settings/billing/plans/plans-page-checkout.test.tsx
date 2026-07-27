@@ -35,7 +35,10 @@ import type {
   ProPackage,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
-import { readCheckoutIntent } from "@/lib/billing/checkout-intent";
+import {
+  clearCheckoutIntent,
+  readCheckoutIntent,
+} from "@/lib/billing/checkout-intent";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
 
@@ -207,7 +210,9 @@ function renderPage(subscription: SubscriptionResponse) {
 beforeEach(() => {
   upgradeCall = null;
   openedUrl = null;
-  sessionStorage.clear();
+  // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
+  // leaves a prior test's intent readable.
+  clearCheckoutIntent();
 });
 
 afterEach(() => {
