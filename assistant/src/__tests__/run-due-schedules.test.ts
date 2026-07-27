@@ -41,6 +41,18 @@ mock.module("../notifications/emit-signal.js", () => ({
   emitNotificationSignal: mockEmitNotificationSignal,
 }));
 
+// Scripted quiesce-lease answers, consumed one per isLifecycleQuiesced()
+// call; empty means "no lease" (the real fail-open default), so existing
+// tests run ungated. Lets a test arm the lease BETWEEN the claim-site check
+// and the per-job re-check, which no real interleaving can do determinstically.
+let quiesceAnswers: boolean[] = [];
+const realLifecycleQuiesce =
+  await import("../persistence/lifecycle-quiesce.js");
+mock.module("../persistence/lifecycle-quiesce.js", () => ({
+  ...realLifecycleQuiesce,
+  isLifecycleQuiesced: () => quiesceAnswers.shift() ?? false,
+}));
+
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { createSchedule } from "../schedule/schedule-store.js";
@@ -55,6 +67,7 @@ function rawDb(): import("bun:sqlite").Database {
 
 beforeEach(() => {
   mockEmitNotificationSignal.mockClear();
+  quiesceAnswers = [];
   const db = getDb();
   db.run("DELETE FROM cron_runs");
   db.run("DELETE FROM cron_jobs");
@@ -118,6 +131,33 @@ describe("runDueSchedulesOnce (the schedule worker's tick)", () => {
       .get(oneShot.id) as { status: string; enabled: number };
     expect(row.status).toBe("fired");
     expect(row.enabled).toBe(0);
+  });
+
+  test("a lease armed between claim and start defers the job back to the queue", async () => {
+    const oneShot = await createSchedule({
+      name: "Deferred notify",
+      cronExpression: null,
+      message: "ping",
+      mode: "notify",
+      nextRunAt: Date.now() - 1000,
+    });
+
+    // Call 1 is the claim-site gate (claimDueSchedules): no lease yet.
+    // Call 2 is the per-job re-check: the lease has landed.
+    quiesceAnswers = [false, true];
+    const result = await runDueSchedulesOnce();
+
+    expect(result.claimed).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.completed).toBe(0);
+    // Nothing executed and nothing was lost: no notification fired, and the
+    // one-shot is back in the queue with a near-future retry time.
+    expect(mockEmitNotificationSignal).not.toHaveBeenCalled();
+    const row = rawDb()
+      .query("SELECT status, next_run_at FROM cron_jobs WHERE id = ?")
+      .get(oneShot.id) as { status: string; next_run_at: number };
+    expect(row.status).toBe("active");
+    expect(row.next_run_at).toBeGreaterThan(Date.now());
   });
 
   test("records an error run and schedules a retry when a script fails", async () => {

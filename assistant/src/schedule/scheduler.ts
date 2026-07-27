@@ -435,12 +435,8 @@ export async function runScheduleDueWorkOnce(
     return result;
   }
 
-  // Drain guard: while a quiesce lease is active, start no new watcher or
-  // sequence work so in-flight turns can drain before a stop.
-  if (isLifecycleQuiesced()) {
-    log.debug("Schedule tick skipped — quiesce lease active");
-    return result;
-  }
+  // The drain quiesce gates live inside claimDueWatchers and
+  // claimDueEnrollments, immediately before their claim writes.
 
   // ── Watchers (event-driven polling) ────────────────────────────────
   try {
@@ -471,6 +467,9 @@ export async function runScheduleDueWorkOnce(
  * (`worker.ts`). Claims are atomic in the schedule store, so overlapping ticks
  * cannot double-run a job another claim already took.
  */
+/** How far a claimed-but-quiesced schedule is pushed back into the queue. */
+const QUIESCE_DEFER_MS = 30_000;
+
 export async function runDueSchedulesOnce(
   now: number = Date.now(),
 ): Promise<SchedulerDueWorkResult> {
@@ -503,6 +502,24 @@ export async function runDueSchedulesOnce(
   const jobs = await claimDueSchedules(now);
   result.claimed = jobs.length;
   for (const job of jobs) {
+    // Lease re-check per claimed job: a lease armed between the batch claim
+    // and this job's start returns the job to the queue untouched (nextRunAt
+    // pulled to the deferral time; a one-shot's `firing` reverts to `active`)
+    // instead of starting work the drain snapshot cannot see — notify mode
+    // especially, which emits before any run row exists.
+    if (isLifecycleQuiesced()) {
+      try {
+        await scheduleRetry(job.id, Date.now() + QUIESCE_DEFER_MS);
+      } catch (err) {
+        log.warn(
+          { err, jobId: job.id },
+          "Failed to defer claimed schedule under quiesce",
+        );
+      }
+      result.skipped += 1;
+      continue;
+    }
+
     const isOneShot = job.expression == null;
 
     // ── Notify mode (one-shot or recurring) ─────────────────────────
