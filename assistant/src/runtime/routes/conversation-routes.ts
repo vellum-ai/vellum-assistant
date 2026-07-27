@@ -142,7 +142,6 @@ import {
   getWorkspaceDir,
   getWorkspacePromptPath,
 } from "../../util/platform.js";
-import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { getCurrentSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -1978,10 +1977,7 @@ export async function handleSendMessage(
         recordConversationPersistedSeq(conversationId, getCurrentSeq());
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.setProcessing(false);
-        silentlyWithLog(
-          conversation.drainQueue(),
-          "canned-greeting queue drain",
-        );
+        void conversation.kickDrainQueue("loop_complete", "canned_greeting");
 
         conversation.warmPromptCache();
       }, 0);
@@ -1995,7 +1991,7 @@ export async function handleSendMessage(
     } finally {
       if (!cleanupDeferred && conversation.isProcessing()) {
         conversation.setProcessing(false);
-        silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
+        void conversation.kickDrainQueue("loop_complete", "send_error_path");
       }
     }
   }
@@ -2307,7 +2303,7 @@ export async function handleSendMessage(
         recordConversationPersistedSeq(conversationId, getCurrentSeq());
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.setProcessing(false);
-        silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
+        void conversation.kickDrainQueue("loop_complete", "slash_command");
       }, 0);
 
       cleanupDeferred = true;
@@ -2317,7 +2313,7 @@ export async function handleSendMessage(
       // setTimeout above), but still needed for error paths.
       if (!cleanupDeferred && conversation.isProcessing()) {
         conversation.setProcessing(false);
-        silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
+        void conversation.kickDrainQueue("loop_complete", "send_error_path");
       }
     }
   }
@@ -2344,12 +2340,12 @@ export async function handleSendMessage(
       // throw from this initial persist never reaches it — reset here so the
       // conversation isn't stranded in queued mode.
       conversation.setProcessing(false);
-      silentlyWithLog(conversation.drainQueue(), "compact-command queue drain");
+      void conversation.kickDrainQueue("loop_complete", "compact_command");
       throw err;
     }
     if (persisted.deduplicated) {
       conversation.setProcessing(false);
-      silentlyWithLog(conversation.drainQueue(), "compact-dedup queue drain");
+      void conversation.kickDrainQueue("loop_complete", "compact_dedup");
       return {
         accepted: true,
         messageId: persisted.id,
@@ -2399,10 +2395,7 @@ export async function handleSendMessage(
         });
       } finally {
         conversation.setProcessing(false);
-        silentlyWithLog(
-          conversation.drainQueue(),
-          "compact-command queue drain",
-        );
+        void conversation.kickDrainQueue("loop_complete", "compact_command");
       }
     })();
 
@@ -2480,7 +2473,7 @@ export async function handleSendMessage(
       };
     } finally {
       conversation.setProcessing(false);
-      silentlyWithLog(conversation.drainQueue(), "clean-command queue drain");
+      void conversation.kickDrainQueue("loop_complete", "clean_command");
     }
   }
 

@@ -57,9 +57,7 @@ import {
 } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
 import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
-import type {
-  UserMessageAttachment,
-} from "./message-protocol.js";
+import type { UserMessageAttachment } from "./message-protocol.js";
 import { buildTransportHints } from "./transport-hints.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
@@ -511,6 +509,65 @@ export async function drainQueue(
     return drainSingleMessage(conversation, batch[0], reason);
   }
   return drainBatch(conversation, batch, reason);
+}
+
+/**
+ * Fire-and-forget entry point for drain triggers that sit outside the drain
+ * promise chain (the agent loop's `finally`, route handlers releasing the
+ * processing lock). `drainQueue` is async — batch building awaits slash
+ * resolution and can throw — and nothing re-triggers a drain whose promise
+ * rejects: the queued messages would sit stranded until an unrelated later
+ * turn completes. This wrapper never rejects. A failed drain is retried
+ * once; if the retry also fails, every queued sender is notified so the
+ * stall is visible to the user instead of silent, and the messages remain
+ * queued for the next drain trigger.
+ *
+ * `origin` names the triggering site for log correlation.
+ */
+export async function kickQueueDrain(
+  conversation: Conversation,
+  reason: QueueDrainReason = "loop_complete",
+  origin?: string,
+): Promise<void> {
+  try {
+    await drainQueue(conversation, reason);
+    return;
+  } catch (err) {
+    log.error(
+      {
+        err,
+        conversationId: conversation.conversationId,
+        reason,
+        origin,
+        queueDepth: conversation.queue.length,
+      },
+      "drainQueue rejected; retrying once",
+    );
+  }
+  try {
+    await drainQueue(conversation, reason);
+  } catch (err) {
+    log.error(
+      {
+        err,
+        conversationId: conversation.conversationId,
+        reason,
+        origin,
+        queueDepth: conversation.queue.length,
+      },
+      "drainQueue retry rejected; queued messages remain stranded until the next drain trigger",
+    );
+    for (const queued of conversation.queue.snapshot()) {
+      queued.onEvent({
+        type: "error",
+        conversationId: conversation.conversationId,
+        requestId: queued.requestId,
+        message:
+          "The assistant couldn't start your queued message due to an internal error. The message is still queued and will be retried after the next reply; you can also cancel and resend it.",
+        category: "queue_drain_failed",
+      });
+    }
+  }
 }
 
 async function drainSingleMessage(

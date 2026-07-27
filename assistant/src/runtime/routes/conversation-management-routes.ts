@@ -71,7 +71,6 @@ import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { safeParseRecord } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
-import { silentlyWithLog } from "../../util/silently.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
@@ -337,10 +336,7 @@ async function handleSummarizeConversation({ body = {} }: RouteHandlerArgs) {
         conversation.abortController = null;
       }
       conversation.setProcessing(false);
-      silentlyWithLog(
-        conversation.drainQueue(),
-        "summarize-command queue drain",
-      );
+      void conversation.kickDrainQueue("loop_complete", "summarize_command");
     }
   })();
 
