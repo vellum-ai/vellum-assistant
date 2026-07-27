@@ -623,15 +623,59 @@ describe("LiveVoiceSession minimize-room marker", () => {
     return { ...harness, getCallbacks, ttsTexts };
   }
 
-  test("strips [-1] from deltas and TTS and emits minimize_room after tts_done", async () => {
-    const { frames, session, getCallbacks, ttsTexts } = createMarkerHarness();
+  /**
+   * Marker-command harness for the leg that can actually put something on
+   * screen: routing fronts every turn with the fast leg, so the front-door
+   * call is scripted to escalate ("[1] Working on it.") and the returned
+   * callbacks drive the ESCALATED leg — the only leg whose completion may
+   * latch `minimizeRequested`.
+   */
+  function createEscalatedMarkerHarness() {
+    let escalatedCallbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      if (options.routingLeg === "front-door") {
+        queueMicrotask(() => {
+          options.callbacks?.assistant_text_delta?.({
+            type: "assistant_text_delta",
+            text: "[1] Working on it.",
+            conversationId: "conversation-123",
+          });
+          options.callbacks?.message_complete?.({
+            type: "message_complete",
+            conversationId: "conversation-123",
+            messageId: "front-door-message",
+          });
+        });
+        return { turnId: "bridge-turn-fd", abort: mock() };
+      }
+      escalatedCallbacks = options.callbacks;
+      return { turnId: "bridge-turn-esc", abort: mock() };
+    });
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const harness = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      frontModelConfig: { ackFirstDeltaTimeoutMs: 10_000 },
+    });
+    return {
+      ...harness,
+      getCallbacks: () => escalatedCallbacks,
+      ttsTexts,
+    };
+  }
+
+  test("strips a terminal [-1] from deltas and TTS and emits minimize_room after tts_done", async () => {
+    const { frames, session, getCallbacks, ttsTexts } =
+      createEscalatedMarkerHarness();
 
     await startReleasedTurn(session, getCallbacks);
-    emitTextDelta(getCallbacks, "hello [-1] world.");
+    emitTextDelta(getCallbacks, "hello world. [-1]");
     emitMessageComplete(getCallbacks);
     await waitFor(() => frames.some((frame) => frame.type === "minimize_room"));
 
-    expect(assistantDeltaTexts(frames).join("")).toBe("hello  world.");
+    const joined = assistantDeltaTexts(frames).join("");
+    expect(joined).toContain("hello world. ");
+    expect(joined).not.toContain("[-1]");
     expect(ttsTexts.join(" ")).not.toContain("[-1]");
     const ttsDoneIndex = frames.findIndex((frame) => frame.type === "tts_done");
     const minimizeIndex = frames.findIndex(
@@ -649,25 +693,39 @@ describe("LiveVoiceSession minimize-room marker", () => {
   });
 
   test("holds a marker split across deltas, never leaks the partial, and still emits", async () => {
-    const { frames, session, getCallbacks, ttsTexts } = createMarkerHarness();
+    const { frames, session, getCallbacks, ttsTexts } =
+      createEscalatedMarkerHarness();
 
     await startReleasedTurn(session, getCallbacks);
-    emitTextDelta(getCallbacks, "One sec. [-");
+    emitTextDelta(getCallbacks, "One sec, done. [-");
     await flushAsyncCallbacks();
-    expect(assistantDeltaTexts(frames).join("")).toBe("One sec. ");
+    expect(assistantDeltaTexts(frames).join("")).toContain("One sec, done. ");
 
-    emitTextDelta(getCallbacks, "1] done.");
+    emitTextDelta(getCallbacks, "1]");
     emitMessageComplete(getCallbacks);
     await waitFor(() => frames.some((frame) => frame.type === "minimize_room"));
 
     const joined = assistantDeltaTexts(frames).join("");
-    expect(joined).toBe("One sec.  done.");
     expect(joined).not.toContain("[-");
     expect(ttsTexts.join(" ")).not.toContain("[-");
   });
 
-  test("does not emit minimize_room when the turn is interrupted before drain", async () => {
+  test("a mid-reply [-1] (content, not command) is stripped from speech but never minimizes", async () => {
     const { frames, session, getCallbacks } = createMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(getCallbacks, "The array [-1] sorts first, then the rest.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(assistantDeltaTexts(frames).join("")).toBe(
+      "The array  sorts first, then the rest.",
+    );
+    expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
+  });
+
+  test("does not emit minimize_room when the turn is interrupted before drain", async () => {
+    const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
 
     await startReleasedTurn(session, getCallbacks);
     emitTextDelta(getCallbacks, "Minimizing now. [-1]");
@@ -706,14 +764,14 @@ describe("LiveVoiceSession minimize-room marker", () => {
   });
 
   test("a held marker-like tail that never completes is emitted at completion", async () => {
-    const { frames, session, getCallbacks } = createMarkerHarness();
+    const { frames, session, getCallbacks } = createEscalatedMarkerHarness();
 
     await startReleasedTurn(session, getCallbacks);
     emitTextDelta(getCallbacks, "Score was [-");
     emitMessageComplete(getCallbacks);
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
 
-    expect(assistantDeltaTexts(frames).join("")).toBe("Score was [-");
+    expect(assistantDeltaTexts(frames).join("")).toContain("Score was [-");
     expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
   });
 

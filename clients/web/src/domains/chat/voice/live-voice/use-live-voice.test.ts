@@ -52,8 +52,7 @@ const {
   getLiveVoicePlaybackProgress,
   minimizeVoiceRoom,
   restoreVoiceRoom,
-} =
-  await import("@/domains/chat/voice/live-voice/live-voice-store");
+} = await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 
 // ---------------------------------------------------------------------------
@@ -886,17 +885,19 @@ describe("hands-free mode", () => {
 // ---------------------------------------------------------------------------
 
 describe("minimize_room", () => {
-  test("emitting minimizeRoom sets roomMinimized on the store", async () => {
+  test("emitting minimizeRoom sets roomMinimized once local playback is idle", async () => {
     const h = renderController();
     await startListening(h, { handsFree: true });
     expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
 
-    act(() => {
+    // Nothing is playing, so the drain wait resolves on a microtask.
+    await act(async () => {
       h.client.emit("minimizeRoom", {
         type: "minimize_room",
         seq: 2,
         turnId: "t1",
       });
+      await Promise.resolve();
     });
 
     expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
@@ -905,11 +906,46 @@ describe("minimize_room", () => {
     expect(h.client.closed).toBe(false);
   });
 
+  test("minimize defers until buffered TTS audio finishes playing", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // Buffered audio is still audibly playing when the daemon's tts_done +
+    // minimize_room arrive (synthesis outruns real-time playback).
+    act(() => {
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 2,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.player.isPlaying).toBe(true);
+
+    await act(async () => {
+      h.client.emit("minimizeRoom", {
+        type: "minimize_room",
+        seq: 3,
+        turnId: "t1",
+      });
+      await Promise.resolve();
+    });
+    // The room must stay up while the assistant is still audibly speaking.
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+
+    await act(async () => {
+      h.player.finishPlayback();
+      await Promise.resolve();
+    });
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+  });
+
   test("a repeat frame while already minimized stays minimized, and restore still works", async () => {
     const h = renderController();
     await startListening(h, { handsFree: true });
 
-    act(() => {
+    await act(async () => {
       h.client.emit("minimizeRoom", {
         type: "minimize_room",
         seq: 2,
@@ -920,6 +956,7 @@ describe("minimize_room", () => {
         seq: 3,
         turnId: "t2",
       });
+      await Promise.resolve();
     });
     expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
 

@@ -1257,7 +1257,13 @@ export async function startVoiceTurn(
             }
           }
         } else if (
-          joinedTextOfBlocks(row.content).includes(MINIMIZE_ROOM_MARKER)
+          // Terminal position only — mirrors the live latch in
+          // createControlMarkerHoldback: a reply whose CONTENT contains
+          // "[-1]" mid-text never minimized the room, so its transcript
+          // keeps that content untouched too.
+          joinedTextOfBlocks(row.content)
+            .trimEnd()
+            .endsWith(MINIMIZE_ROOM_MARKER)
         ) {
           const cleaned = trimOuterTextEdges(
             stripMarkersFromBlocks(row.content),

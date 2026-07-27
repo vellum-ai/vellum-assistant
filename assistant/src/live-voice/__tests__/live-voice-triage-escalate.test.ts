@@ -191,7 +191,6 @@ describe("live-voice triage-and-escalate routing", () => {
   });
 
   test("the [-1] teaching reaches the escalated leg's prompt but never the front-door leg's", async () => {
-    enableVoiceMode();
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["[1] ", "Let me think about that."],
       escalated: ["The detailed answer is 42."],

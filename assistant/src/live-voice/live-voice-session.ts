@@ -537,9 +537,13 @@ interface ActiveAssistantTurn {
  * runs forward from the emitted boundary — not from the last "[" — so
  * brackets INSIDE a streaming marker body (a JSON array or "]"-bearing string
  * in ASK_GUARDIAN_APPROVAL) can neither mask the marker's start nor pass as
- * its terminator. As a side effect the flush latches the turn's
- * `minimizeRequested` once the raw stream contains MINIMIZE_ROOM_MARKER —
- * the marker itself is stripped, so the latch is the only observable.
+ * its terminator. As a side effect the force flush latches the turn's
+ * `minimizeRequested` when the completed stream ENDS with
+ * MINIMIZE_ROOM_MARKER — terminal position only, matching the prompt's
+ * "end the reply with it" contract, so a reply whose CONTENT happens to
+ * contain "[-1]" (an array literal, a temperature) never minimizes the
+ * room. The marker itself is stripped wherever it appears (the shared
+ * marker-strip convention), so the latch is the only observable.
  */
 function createControlMarkerHoldback(
   turn: ActiveAssistantTurn,
@@ -547,7 +551,11 @@ function createControlMarkerHoldback(
 ): (raw: string, opts?: { force?: boolean }) => void {
   let emitted = 0;
   return (raw, opts) => {
-    if (!turn.minimizeRequested && raw.includes(MINIMIZE_ROOM_MARKER)) {
+    if (
+      opts?.force === true &&
+      !turn.minimizeRequested &&
+      raw.trimEnd().endsWith(MINIMIZE_ROOM_MARKER)
+    ) {
       turn.minimizeRequested = true;
     }
     let safeEnd = raw.length;

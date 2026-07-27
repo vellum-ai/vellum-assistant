@@ -253,13 +253,14 @@ describe("LiveVoiceSession archive and metrics events", () => {
       assistantMessageChannel: "vellum",
       userMessageInterface: "macos",
       assistantMessageInterface: "macos",
-      // Pins the full production control prompt: the no-UI rule (voice turns
-      // are non-interactive — everything is conveyed in speech), the [-1]
-      // room-minimize marker teaching, and the shared no-setup-flows rule
-      // (no OAuth/browser flows mid-call).
+      // Pins the full production control prompt for the FRONT-DOOR leg (the
+      // first leg of every routed turn): the no-UI rule (voice turns are
+      // non-interactive — everything is conveyed in speech) and the shared
+      // no-setup-flows rule (no OAuth/browser flows mid-call). The [-1]
+      // room-minimize teaching is deliberately absent — only the escalated
+      // leg learns it (see live-voice-triage-escalate.test.ts).
       voiceControlPrompt:
         "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. " +
-        "The call renders as a full-screen overlay covering the app. If this reply created or changed something on screen worth looking at (an app, a page, a document), you may end the reply with the marker [-1]: after you finish speaking, the overlay minimizes so the user can see the screen while the call continues. Use it at most once per reply, only when there is genuinely something new to show, never speak the marker aloud or mention it, and never emit any other bracketed marker. " +
         VOICE_NO_SETUP_FLOWS_RULE,
     });
     callbacks?.assistant_text_delta?.(makeTextDelta("Hello there."));

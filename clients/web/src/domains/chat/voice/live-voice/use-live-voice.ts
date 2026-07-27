@@ -834,10 +834,20 @@ export function useLiveVoice(
         }),
         client.on("minimizeRoom", () => {
           if (!live()) return;
-          // Assistant asked to reveal the screen behind the room. Advisory: if
-          // the room isn't up (already minimized, pop-out, other route) this is
-          // a no-op — minimizeVoiceRoom() is an idempotent store write.
-          minimizeVoiceRoom();
+          // Assistant asked to reveal the screen behind the room — but only
+          // once the user has actually HEARD the reply: the daemon sends this
+          // right after tts_done (synthesis delivered), while local playback
+          // usually lags real time, so an immediate minimize would drop the
+          // room mid-sentence. Defer behind the same local drain the
+          // response-finish path waits on; `live()` re-checks after the wait
+          // so a torn-down or reconnected session never minimizes late.
+          void session.player.waitUntilDrained().then(() => {
+            if (!live()) return;
+            // Advisory: if the room isn't up (already minimized, pop-out,
+            // other route) this is a no-op — minimizeVoiceRoom() is an
+            // idempotent store write.
+            minimizeVoiceRoom();
+          });
         }),
         client.on("turnCancelled", () => {
           if (!live() || !session.handsFree) return;

@@ -1446,6 +1446,19 @@ describe("transcript hygiene (teardown pass)", () => {
     expect(events).toContain("loadFromDb");
   });
 
+  test("a mid-text [-1] (content, not command) leaves the row untouched", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () =>
+      makeRow("The array [-1] sorts first, then the rest.");
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toHaveLength(0);
+    expect(crudLog.deletes).toHaveLength(0);
+    expect(events).not.toContain("loadFromDb");
+  });
+
   test("a marker-only main-leg row is deleted, not persisted as an empty bubble", async () => {
     const { events } = makeReservedRowConversation();
     getMessageByIdImpl = () => makeRow("[-1]");
