@@ -10,8 +10,8 @@ import AppIntents
 /// one is the natural Siri target ("talk to Vellum" should rejoin a call in
 /// progress); the other is the natural Action Button target.
 ///
-/// No `AppShortcutsProvider` accompanies these yet, so they surface in the
-/// Shortcuts app but not in Siri, Spotlight, or the Action Button picker.
+/// `VoiceAppShortcuts` carries both intents into Siri, Spotlight, and the
+/// Action Button picker; add any new phrase there rather than here.
 struct StartVoiceModeIntent: AppIntent {
     static var title: LocalizedStringResource = "Start voice mode"
     static var description = IntentDescription(

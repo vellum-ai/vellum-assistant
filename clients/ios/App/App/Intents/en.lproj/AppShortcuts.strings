@@ -1,0 +1,18 @@
+/* Siri phrases for the App Shortcuts declared in VoiceAppShortcuts.swift.
+
+   Keys are the English phrases exactly as written there, with the Swift
+   interpolation `\(.applicationName)` spelled `${applicationName}` — the token
+   App Intents substitutes in a strings file. Every phrase in every locale must
+   keep it; see VoiceAppShortcuts.swift for what happens otherwise.
+
+   A translation should be what someone would actually say, not a literal
+   rendering, and a locale may carry more or fewer phrases than English. */
+
+/* Rejoins a voice conversation already in progress, or starts one. */
+"Talk to ${applicationName}" = "Talk to ${applicationName}";
+"Start voice mode in ${applicationName}" = "Start voice mode in ${applicationName}";
+"Voice mode in ${applicationName}" = "Voice mode in ${applicationName}";
+
+/* Always starts a fresh voice conversation. */
+"New voice conversation in ${applicationName}" = "New voice conversation in ${applicationName}";
+"Start a new voice chat in ${applicationName}" = "Start a new voice chat in ${applicationName}";
