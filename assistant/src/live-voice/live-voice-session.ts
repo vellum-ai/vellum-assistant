@@ -569,8 +569,17 @@ function createControlMarkerHoldback(
 // barge-in, the interruption merge note is appended to it (see
 // buildInterruptionMergeNote) so the model reconciles the interrupted request
 // with the new utterance.
+//
+// The MINIMIZE_ROOM_MARKER teaching deliberately keeps the no-interactive-UI
+// rule intact (live-voice turns are non-interactive, JARVIS-1291): the marker
+// does not render UI — it asks the client to reveal the screen the call
+// overlay covers. The gate in createControlMarkerHoldback strips it from
+// speech, and completeTtsForTurn sends the minimize_room frame only after the
+// reply's TTS drains, so "end your reply with it" is the whole contract the
+// model needs.
 const LIVE_VOICE_CONTROL_PROMPT =
   "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. " +
+  "The call renders as a full-screen overlay covering the app. If this reply created or changed something on screen worth looking at (an app, a page, a document), you may end the reply with the marker [-1]: after you finish speaking, the overlay minimizes so the user can see the screen while the call continues. Use it at most once per reply, only when there is genuinely something new to show, never speak the marker aloud or mention it, and never emit any other bracketed marker. " +
   VOICE_NO_SETUP_FLOWS_RULE;
 
 // System-level guidance appended to a barge-in turn's control prompt so the
