@@ -42,10 +42,11 @@ import Foundation
 /// ## No stranded islands
 ///
 /// An island outlives its process unless something ends it, so teardown is
-/// belt-and-braces: ``load()`` ends anything left over by a previous launch
-/// (the crash case, where neither hook below runs), `applicationWillTerminate`
-/// ends the running activity when the user force-quits a backgrounded voice
-/// session, and `deinit` covers bridge teardown.
+/// belt-and-braces: ``load()`` ends anything left over by a previous launch —
+/// the only *guarantee*, since it is the one hook that cannot be cut short by
+/// the process going away — while `applicationWillTerminate` makes a
+/// best-effort end when the user force-quits a backgrounded voice session and
+/// `deinit` covers bridge teardown.
 ///
 /// References:
 /// - https://developer.apple.com/documentation/activitykit/activity
@@ -65,11 +66,34 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     /// branch on it without matching against a localized message.
     private static let failureCode = "LIVE_ACTIVITY_FAILED"
 
-    /// How long `applicationWillTerminate` may block the main thread waiting for
-    /// the activity to actually end. iOS allows roughly five seconds before it
-    /// kills the process; ending is asynchronous, so without a bounded wait the
-    /// app can die first and strand the island.
-    private static let terminationEndTimeout: DispatchTimeInterval = .milliseconds(1500)
+    /// How long a pushed content state stays trustworthy before ActivityKit
+    /// marks it stale.
+    ///
+    /// Every update comes from the web layer's JS main thread, which WebKit
+    /// throttles and eventually suspends in a backgrounded app — so a session
+    /// whose socket and mic are gone can leave a confident "Listening…" on the
+    /// Lock Screen indefinitely. Past this horizon the system flips the
+    /// activity to `ActivityState.stale` and sets `context.isStale`, which
+    /// `VoiceSessionLiveActivity` renders as "no longer current" instead of a
+    /// live phase.
+    ///
+    /// Two minutes is the shortest horizon that does not accuse a *healthy*
+    /// session of being wedged: a real conversation changes phase every few
+    /// seconds, and the only silence longer than this is a session nobody is
+    /// talking to — which the island may as well show as idle. Shorter would
+    /// flag long pauses; much longer and the wedged case, the one this exists
+    /// for, keeps lying past the point the user would act on it.
+    private static let contentStaleAfter: TimeInterval = 120
+
+    /// Wrap a content state with the staleness horizon every push shares.
+    private static func content(
+        _ state: VoiceSessionAttributes.ContentState
+    ) -> ActivityContent<VoiceSessionAttributes.ContentState> {
+        ActivityContent(
+            state: state,
+            staleDate: Date().addingTimeInterval(contentStaleAfter)
+        )
+    }
 
     /// The live plugin instance, so `AppDelegate.applicationWillTerminate` can
     /// reach it. Weak: the bridge owns the plugin's lifetime, not this.
@@ -129,7 +153,7 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
             if let running = self.activity {
-                await running.update(ActivityContent(state: state, staleDate: nil))
+                await running.update(Self.content(state))
                 call.resolve(["started": true])
                 return
             }
@@ -140,7 +164,7 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             do {
                 self.activity = try Activity.request(
                     attributes: VoiceSessionAttributes(assistantName: assistantName),
-                    content: ActivityContent(state: state, staleDate: nil)
+                    content: Self.content(state)
                 )
                 call.resolve(["started": true])
             } catch {
@@ -170,7 +194,7 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.resolve()
                 return
             }
-            await running.update(ActivityContent(state: state, staleDate: nil))
+            await running.update(Self.content(state))
             call.resolve()
         }
     }
@@ -200,21 +224,28 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     /// `AppDelegate.applicationWillTerminate`, which is what a user swiping away
     /// a backgrounded voice session triggers.
     ///
-    /// Blocks the main thread for at most ``terminationEndTimeout``: the process
-    /// is about to go away, so fire-and-forget would lose the race and leave the
-    /// island on screen with no owner. A launch-time sweep (``load()``) is the
-    /// backstop for the paths this cannot cover, such as a crash.
+    /// Best-effort and non-blocking. Waiting for the end to complete is the
+    /// obvious thing to want here and is the wrong thing to do:
+    /// `applicationWillTerminate` runs on the main thread inside iOS's ~5s
+    /// termination budget, `Activity.end` is free to hop to the main actor
+    /// internally, and a main-thread semaphore wait cannot let that
+    /// continuation run — so the wait deadlocks until its own timeout, burns
+    /// the budget, and strands the island anyway. Returning immediately at
+    /// least lets the end task run before the process is torn down.
+    ///
+    /// The real guarantee is the launch-time sweep in ``load()``: anything that
+    /// outlives this process is ended the next time the plugin loads. An island
+    /// cleaned up on next launch beats a hung termination.
     static func endRunningActivityBeforeTermination() {
         guard let activity = registered?.activity else { return }
         // Cleared so the `deinit` that follows during teardown does not fire a
         // second end at an activity already on its way out.
         registered?.activity = nil
-        let ended = DispatchSemaphore(value: 0)
-        Task {
+        // Detached so the end runs on the global executor rather than behind
+        // whatever the terminating main thread is still doing.
+        Task.detached(priority: .userInitiated) {
             await activity.end(nil, dismissalPolicy: .immediate)
-            ended.signal()
         }
-        _ = ended.wait(timeout: .now() + terminationEndTimeout)
     }
 
     /// Dismiss any voice activity still on screen from a previous process. A

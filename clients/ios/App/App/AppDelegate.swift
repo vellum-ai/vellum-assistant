@@ -8,22 +8,29 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // A QR scan that launches the terminated app delivers the connect URL
-        // here, not through `application(_:open:)` (which only covers warm
-        // opens). Persist the origin now so the bridge boots to it.
+        // here as well as through `application(_:open:)`. Persist the origin
+        // now, synchronously, so the bridge boots straight to it — by the time
+        // the `open:` call lands, `instanceDescriptor()` may already have run.
         if let url = launchOptions?[.url] as? URL, !handleConnectDeepLink(url) {
             // Every *other* custom-scheme launch URL — a `voice` link from an
-            // App Intent, the Live Activity, or Safari — would otherwise be
-            // dropped on the floor. Unlike the warm-open `application(_:open:)`
-            // path, this one never reaches `ApplicationDelegateProxy`, and the
-            // bridge web view does not exist yet, so there is nothing to
-            // forward to. Stash it and replay it once the web view is live.
+            // App Intent, the Live Activity, or Safari — is stashed as a
+            // *backstop*, not as the delivery. See `launchURL` for why it is
+            // both kept and deduped.
+            launchURL = url
             pendingVoiceCommandURL = url
         }
         return true
     }
 
     func applicationWillResignActive(_ application: UIApplication) {}
-    func applicationDidEnterBackground(_ application: UIApplication) {}
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        // Launch-URL dedupe is scoped to the launch. Re-opening the identical
+        // URL later requires leaving this app first, so anything arriving after
+        // a background transition is a genuinely new open, never the launch
+        // URL arriving twice.
+        launchURL = nil
+        launchURLWasReplayed = false
+    }
     func applicationWillEnterForeground(_ application: UIApplication) {}
     func applicationDidBecomeActive(_ application: UIApplication) {}
     /// A backgrounded voice session keeps the app alive (the `audio` background
@@ -36,6 +43,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
         if handleConnectDeepLink(url) {
+            return true
+        }
+        if swallowIfLaunchURLAlreadyDelivered(url) {
             return true
         }
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
@@ -172,6 +182,71 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     /// superseded command is stale by definition.
     private var pendingVoiceCommandURL: URL?
 
+    /// The URL this process was launched with (`launchOptions[.url]`), while it
+    /// is still eligible to arrive a second time through
+    /// `application(_:open:)`.
+    ///
+    /// UIKit delivers a cold-launch URL through **both** routes on a non-scene
+    /// app: `launchOptions[.url]` here, *and* `application(_:open:options:)`,
+    /// which "is not called if your implementations return false from both the
+    /// `application(_:willFinishLaunchingWithOptions:)` and
+    /// `application(_:didFinishLaunchingWithOptions:)` methods"
+    /// (https://developer.apple.com/documentation/uikit/uiapplicationdelegate/application(_:open:options:)).
+    /// This delegate implements only the latter and returns `true`
+    /// unconditionally, so the `open:` call always comes — which is why a stock
+    /// Capacitor app, whose delegate handles URLs only in `application(_:open:)`,
+    /// receives `appUrlOpen` from a terminated state at all.
+    ///
+    /// The launch stash is kept anyway, because the `open:` route has a race of
+    /// its own: `ApplicationDelegateProxy` delivers by posting
+    /// `.capacitorOpenURL`, and `AppPlugin` only subscribes in its `load()`, so
+    /// a URL that arrives before the bridge finishes registering plugins has no
+    /// observer and is dropped. Nothing in the web layer calls
+    /// `App.getLaunchUrl()`, Capacitor's usual escape hatch for exactly that.
+    ///
+    /// So: `open:` is the delivery, the stash is the backstop, and this holds
+    /// the identity that lets whichever one loses the race stay silent.
+    private var launchURL: URL?
+
+    /// Whether the backstop replayed ``launchURL`` before `application(_:open:)`
+    /// got to it, so the `open:` call that follows is recognized as the same
+    /// delivery rather than a second one.
+    private var launchURLWasReplayed = false
+
+    /// Reconcile an `application(_:open:)` call against the launch URL,
+    /// answering whether it is a second delivery of something the web layer
+    /// already has and should be dropped here.
+    ///
+    /// Three cases, and only the launch URL reaches any of them:
+    ///
+    /// 1. The backstop already replayed it — swallow, the web layer has it.
+    /// 2. The bridge is up, so this forward will be observed. Drop the backstop
+    ///    and deliver here.
+    /// 3. The bridge is not up yet: `ApplicationDelegateProxy` posts
+    ///    `.capacitorOpenURL` to an `AppPlugin` that has not subscribed, so this
+    ///    forward goes nowhere. Keep the backstop — it is the only delivery
+    ///    left. The forward still happens, harmlessly, and sets the proxy's
+    ///    `lastURL` for `App.getLaunchUrl()`.
+    ///
+    /// The bridge check is `webView != nil`, which is exactly what the replay
+    /// waits for: `CAPBridgeViewController` builds the web view and registers
+    /// plugins in one synchronous `viewDidLoad`, so from the outside the two are
+    /// the same fact.
+    private func swallowIfLaunchURLAlreadyDelivered(_ url: URL) -> Bool {
+        guard url == launchURL else { return false }
+        if launchURLWasReplayed {
+            launchURL = nil
+            launchURLWasReplayed = false
+            return true
+        }
+        guard currentBridgeViewController()?.webView != nil else {
+            return false
+        }
+        launchURL = nil
+        pendingVoiceCommandURL = nil
+        return false
+    }
+
     /// Hand a voice command to the web layer, deferring until the bridge web
     /// view exists.
     ///
@@ -194,6 +269,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     /// code. `AppPlugin` posts that event with `retainUntilConsumed: true`, so a
     /// command delivered before the SPA has registered its listener is replayed
     /// rather than lost.
+    ///
+    /// Exactly one delivery of a launch URL, whichever route wins the race —
+    /// see ``launchURL``.
     func deliverPendingVoiceCommand() {
         guard let url = pendingVoiceCommandURL,
               currentBridgeViewController()?.webView != nil
@@ -201,6 +279,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             return
         }
         pendingVoiceCommandURL = nil
+        if url == launchURL {
+            launchURLWasReplayed = true
+        }
         _ = ApplicationDelegateProxy.shared.application(
             UIApplication.shared,
             open: url,
