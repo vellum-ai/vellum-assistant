@@ -8,8 +8,10 @@ import {
   isExecutableWorkspaceWrite,
   isOutOfWorkspaceFileInvocation,
   isPathWithinWorkspaceRoot,
+  isPromptSurfaceWrite,
   isWorkspaceScopedInvocation,
 } from "../permissions/workspace-policy.js";
+import { BUNDLED_SYSTEM_SECTIONS } from "../prompts/templates/system-sections.js";
 
 // ---------------------------------------------------------------------------
 // Temp directory scaffold for symlink / path-containment tests
@@ -509,5 +511,104 @@ describe("isExecutableWorkspaceWrite", () => {
         wsRoot,
       ),
     ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isPromptSurfaceWrite
+// ---------------------------------------------------------------------------
+
+describe("isPromptSurfaceWrite", () => {
+  const wsRoot = process.env.VELLUM_WORKSPACE_DIR!;
+
+  test.each([
+    "IDENTITY.md",
+    "SOUL.md",
+    "VOICE.md",
+    "BOOTSTRAP.md",
+    "users/alice.md",
+    "users/default.md",
+    "channels/general.md",
+    "HEARTBEAT.md",
+  ])("blocks a write to %s", (path) => {
+    expect(isPromptSurfaceWrite("file_write", { path }, wsRoot)).toBe(true);
+  });
+
+  // The path is lexically ordinary; only canonicalization sees where it
+  // lands — same symlink dodge as the executable sinks.
+  test("blocks a write through a symlink onto a prompt surface", () => {
+    symlinkSync(join(wsRoot, "SOUL.md"), join(wsRoot, "innocent-notes.md"));
+    try {
+      expect(
+        isPromptSurfaceWrite(
+          "file_write",
+          { path: "innocent-notes.md" },
+          wsRoot,
+        ),
+      ).toBe(true);
+    } finally {
+      rmSync(join(wsRoot, "innocent-notes.md"), { force: true });
+    }
+  });
+
+  test("blocks the container /workspace form and dot-dot traversal", () => {
+    expect(
+      isPromptSurfaceWrite(
+        "file_write",
+        { path: "/workspace/SOUL.md" },
+        wsRoot,
+      ),
+    ).toBe(true);
+    expect(
+      isPromptSurfaceWrite(
+        "file_write",
+        { path: "notes-real/../SOUL.md" },
+        wsRoot,
+      ),
+    ).toBe(true);
+  });
+
+  test("ordinary writes and reads stay clear", () => {
+    expect(
+      isPromptSurfaceWrite(
+        "file_write",
+        { path: "notes-real/todo.md" },
+        wsRoot,
+      ),
+    ).toBe(false);
+    // A file merely named like a surface, in a subdirectory, is not one.
+    expect(
+      isPromptSurfaceWrite(
+        "file_write",
+        { path: "notes-real/SOUL.md" },
+        wsRoot,
+      ),
+    ).toBe(false);
+    expect(isPromptSurfaceWrite("file_read", { path: "SOUL.md" }, wsRoot)).toBe(
+      false,
+    );
+  });
+
+  // Drift guard: every workspace path the prompt renderer reads must be
+  // covered by the predicate, so adding a section cannot silently open a
+  // writable prompt surface.
+  test("covers every workspacePath the system sections declare", () => {
+    const paths = BUNDLED_SYSTEM_SECTIONS.flatMap((section) => {
+      const wp = (section as { workspacePath?: string | string[] })
+        .workspacePath;
+      if (!wp) {
+        return [];
+      }
+      return Array.isArray(wp) ? wp : [wp];
+    }).map((path) =>
+      path
+        .replace("{{userSlug}}", "someone")
+        .replace("{{channelSlug}}", "general"),
+    );
+
+    expect(paths.length).toBeGreaterThan(0);
+    for (const path of paths) {
+      expect(isPromptSurfaceWrite("file_write", { path }, wsRoot)).toBe(true);
+    }
   });
 });

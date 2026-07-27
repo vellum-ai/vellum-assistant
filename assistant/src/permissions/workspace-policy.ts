@@ -225,6 +225,56 @@ export function isExecutableWorkspaceWrite(
 }
 
 /**
+ * Workspace-root files and directories the prompt renderer reads into the
+ * system prompt at render time (`prompts/templates/system-sections.ts`
+ * `workspacePath` entries — a drift-guard test walks the real section list
+ * against this predicate). A write to any of them rewrites the assistant's
+ * standing instructions, per-user context, or per-channel context.
+ */
+const PROMPT_SURFACE_FILES = new Set([
+  "IDENTITY.md",
+  "SOUL.md",
+  "VOICE.md",
+  "BOOTSTRAP.md",
+  // Read by the heartbeat service as its checklist — instructions executed
+  // unattended (`runtime/routes/heartbeat-routes.ts`).
+  "HEARTBEAT.md",
+]);
+const PROMPT_SURFACE_DIRS = ["users", "channels"];
+
+/**
+ * Whether a sandbox file-tool invocation writes a workspace prompt surface.
+ * These files are instructions the daemon obeys, the same way the
+ * {@link isExecutableWorkspaceWrite} directories are code it executes —
+ * approving the write approves everything the rewritten instructions cause
+ * later. Canonicalized on both sides for the same symlink reason.
+ */
+export function isPromptSurfaceWrite(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  workspaceRoot: string,
+): boolean {
+  if (!isWorkspaceWriteTool(toolName)) {
+    return false;
+  }
+  const filePath = resolvePathScopedTarget(toolInput, workspaceRoot);
+  if (filePath === "") {
+    return false;
+  }
+  const target = canonicalize(filePath);
+  const root = canonicalize(workspaceRoot);
+  for (const file of PROMPT_SURFACE_FILES) {
+    if (target === `${root}/${file}`) {
+      return true;
+    }
+  }
+  return PROMPT_SURFACE_DIRS.some((dir) => {
+    const prefix = `${root}/${dir}/`;
+    return target === `${root}/${dir}` || target.startsWith(prefix);
+  });
+}
+
+/**
  * Determine whether a tool invocation only affects resources within the
  * workspace root. This is a conservative classification — unknown tools
  * default to NOT workspace-scoped.

@@ -949,6 +949,17 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
       await expectFloored("file_write", { path, content: "x" });
     });
 
+    // Prompt surfaces are instructions the daemon obeys — rewriting them is
+    // the same delegation as planting code, one layer up.
+    test.each([
+      ["the assistant's own instructions", "SOUL.md"],
+      ["its identity", "IDENTITY.md"],
+      ["a per-user context file", "users/someone.md"],
+      ["a per-channel context file", "channels/general.md"],
+    ])("a write to %s — %s", async (_label, path) => {
+      await expectFloored("file_write", { path, content: "x" });
+    });
+
     // Nothing reviewed an unvetted manifest, so the risk it claims about
     // itself must not be what decides whether a room may run it unattended.
     test("an unvetted skill shadowing a core side-effect tool", async () => {

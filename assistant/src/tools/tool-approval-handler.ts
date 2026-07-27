@@ -23,6 +23,7 @@ import {
 import {
   isExecutableWorkspaceWrite,
   isOutOfWorkspaceFileInvocation,
+  isPromptSurfaceWrite,
   isWorkspaceWriteTool,
 } from "../permissions/workspace-policy.js";
 import {
@@ -496,12 +497,15 @@ function isChannelLiftable(
     return false;
   }
   // A write is liftable only when its target can be resolved and resolves
-  // outside the executable sinks — with no workingDir there is no way to
-  // see where the write lands, so the sink check fails closed rather than
-  // being skipped.
+  // outside the executable sinks and the prompt surfaces — code the daemon
+  // executes and instructions it obeys are the same delegation, one layer
+  // apart. With no workingDir there is no way to see where the write lands,
+  // so both checks fail closed rather than being skipped.
   if (
     isWorkspaceWriteTool(toolName) &&
-    (!workingDir || isExecutableWorkspaceWrite(toolName, input, workingDir))
+    (!workingDir ||
+      isExecutableWorkspaceWrite(toolName, input, workingDir) ||
+      isPromptSurfaceWrite(toolName, input, workingDir))
   ) {
     return false;
   }

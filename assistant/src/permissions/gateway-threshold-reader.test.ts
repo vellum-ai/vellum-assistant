@@ -309,28 +309,31 @@ describe("channel-permission cell layer", () => {
     expect(countCalls("resolve_channel_permission_threshold")).toBe(0);
   });
 
-  test("a cell transport failure falls through to global on the cached read", async () => {
+  // An unreadable cell may be a Strict cell, so a contact's read fails
+  // closed rather than consuming the raw global.
+  test("a cell transport failure resolves Strict for a contact on the cached read", async () => {
     ipcHandlers.set("get_conversation_threshold", () => null);
     // No resolve handler registered → ipcCall returns undefined.
     setGlobals("medium");
 
     expect(
       await getAutoApproveThreshold("conv-c5", "conversation", CELL_QUERY),
-    ).toBe("medium");
+    ).toBe("none");
   });
 
   test("a bare-null cell response is a transport failure, not a null-deref or a cached negative", async () => {
     // The route contract always wraps the resolution ({ resolved: … }); a
     // bare null is malformed. It must behave exactly like a transport
-    // failure: hot path falls to global, refresh keeps its prompt, nothing
-    // is cached so a real cell is seen as soon as the response is healthy.
+    // failure: a contact's hot path resolves Strict, refresh keeps its
+    // prompt, nothing is cached so a real cell is seen as soon as the
+    // response is healthy.
     ipcHandlers.set("get_conversation_threshold", () => null);
     ipcHandlers.set("resolve_channel_permission_threshold", () => null);
     setGlobals("high");
 
     expect(
       await getAutoApproveThreshold("conv-c12", "conversation", CELL_QUERY),
-    ).toBe("high");
+    ).toBe("none");
     expect(
       await refreshAutoApproveThreshold("conv-c12", "conversation", CELL_QUERY),
     ).toBeNull();
@@ -392,19 +395,20 @@ describe("channel-permission cell layer", () => {
     ipcHandlers.set("get_conversation_threshold", () => null);
     setGlobals("high");
 
-    // First read: cell lookup fails, falls through to global.
-    expect(
-      await getAutoApproveThreshold("conv-c8", "conversation", CELL_QUERY),
-    ).toBe("high");
-
-    // The IPC recovers — the next read must see the strict cell instead of
-    // a cached failure.
-    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
-      resolved: { threshold: "none", scope: "channel" },
-    }));
+    // First read: cell lookup fails — the contact resolves Strict.
     expect(
       await getAutoApproveThreshold("conv-c8", "conversation", CELL_QUERY),
     ).toBe("none");
+
+    // The IPC recovers — the next read must see the real cell instead of a
+    // cached failure. The cell's threshold is distinguishable from the
+    // fail-closed value, so this passes only if the retry truly re-reads.
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "low", scope: "channel" },
+    }));
+    expect(
+      await getAutoApproveThreshold("conv-c8", "conversation", CELL_QUERY),
+    ).toBe("low");
   });
 
   test("refresh bypasses a stale cell cache and returns the fresh cell", async () => {
@@ -566,5 +570,66 @@ describe("channel cell two-level collapse", () => {
     expect(second).toBe("low");
     // One IPC round-trip: the second read came from the cell cache.
     expect(countCalls("resolve_channel_permission_threshold")).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Contact fail-closed on cell-read failure; refresh default bypasses caches
+// ---------------------------------------------------------------------------
+
+describe("contact cell layer failure semantics", () => {
+  beforeEach(() => {
+    _clearGlobalCacheForTesting();
+    _resetFailureCoalesceForTesting();
+    ipcHandlers.clear();
+    ipcCallLog.length = 0;
+  });
+
+  // An unreadable cell may be a Strict cell — a transient IPC failure must
+  // not hand a contact the raw global instead.
+  test("a failed cell read resolves Strict for a contact, not the global", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    // No resolve handler registered → transport failure.
+    setGlobals("high");
+
+    expect(
+      await getAutoApproveThreshold("conv-fc1", "conversation", CELL_QUERY),
+    ).toBe("none");
+  });
+
+  test("a failed cell read falls through to global for a guardian query", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    setGlobals("high");
+
+    expect(
+      await getAutoApproveThreshold("conv-fc2", "conversation", {
+        ...CELL_QUERY,
+        contactType: "guardian",
+      }),
+    ).toBe("high");
+  });
+
+  // The refresh exists to see writes the caches hide — the no-cell default
+  // must read the globals fresh, not the 30s cache.
+  test("refresh derives the no-cell default from fresh globals", async () => {
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: null,
+    }));
+    // Prime the global cache at Strict.
+    setGlobals("none");
+    expect(
+      await getAutoApproveThreshold("conv-fc3", "conversation", CELL_QUERY),
+    ).toBe("none");
+
+    // The owner loosens the global; the cached read still sees Strict, the
+    // refresh must not.
+    setGlobals("medium");
+    expect(
+      await getAutoApproveThreshold("conv-fc3", "conversation", CELL_QUERY),
+    ).toBe("none");
+    expect(
+      await refreshAutoApproveThreshold("conv-fc3", "conversation", CELL_QUERY),
+    ).toBe("low");
   });
 });
