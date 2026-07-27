@@ -386,7 +386,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 });
 
 describe("SubagentManager abortAllForParent", () => {
-  test("aborts all active children of a parent", () => {
+  test("aborts active children but keeps every child's state readable", () => {
     clearCaptured();
     const manager = new SubagentManager();
     injectFakeSubagent(manager, "sub-1", makeState("sub-1"));
@@ -402,16 +402,44 @@ describe("SubagentManager abortAllForParent", () => {
     expect(count).toBe(2); // sub-1 and sub-2, not sub-3 (already completed)
     expect(capturedNotifications).toHaveLength(2);
 
-    // All children should be disposed — parent is going away.
-    expect(manager.getState("sub-1")).toBeUndefined();
-    expect(manager.getState("sub-2")).toBeUndefined();
-    expect(manager.getState("sub-3")).toBeUndefined();
-    expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(0);
+    // The parent conversation lives on (stop/eviction/rebuild), so every
+    // child stays tracked: aborted ones as terminal metadata, and the
+    // completed one still readable via subagent_read.
+    expect(manager.getState("sub-1")?.status).toBe("aborted");
+    expect(manager.getState("sub-2")?.status).toBe("aborted");
+    expect(manager.getState("sub-3")?.status).toBe("completed");
+    expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(3);
   });
 
   test("returns 0 for unknown parent", () => {
     const manager = new SubagentManager();
     const count = manager.abortAllForParent("nonexistent");
+    expect(count).toBe(0);
+  });
+});
+
+describe("SubagentManager disposeAllForParent", () => {
+  test("aborts and removes all children — parent data is going away", () => {
+    clearCaptured();
+    const manager = new SubagentManager();
+    injectFakeSubagent(manager, "sub-1", makeState("sub-1"));
+    injectFakeSubagent(
+      manager,
+      "sub-2",
+      makeState("sub-2", { status: "completed" }),
+    );
+
+    const count = manager.disposeAllForParent("parent-sess-1", () => {});
+
+    expect(count).toBe(1); // only sub-1 was still in flight
+    expect(manager.getState("sub-1")).toBeUndefined();
+    expect(manager.getState("sub-2")).toBeUndefined();
+    expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(0);
+  });
+
+  test("returns 0 for unknown parent", () => {
+    const manager = new SubagentManager();
+    const count = manager.disposeAllForParent("nonexistent");
     expect(count).toBe(0);
   });
 });

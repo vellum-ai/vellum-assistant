@@ -118,6 +118,9 @@ export async function getOrCreateConversation(
     (conversation.isStale() && !conversation.isProcessing())
   ) {
     if (conversation) {
+      // Stale rebuild: the conversation id lives on, so abort in-flight
+      // children but keep terminal subagent results readable for the
+      // retention window.
       getSubagentManager().abortAllForParent(conversationId);
       conversation.dispose();
     }
@@ -252,7 +255,7 @@ export function destroyActiveConversation(conversationId: string): void {
     return;
   }
   removeFromEvictor(conversationId);
-  getSubagentManager().abortAllForParent(conversationId);
+  getSubagentManager().disposeAllForParent(conversationId);
   conversation.dispose();
   deleteConversation(conversationId);
   deleteConversationOptions(conversationId);
@@ -280,7 +283,7 @@ export function clearAllActiveConversations(): number {
   const subagentManager = getSubagentManager();
   for (const id of conversationIds()) {
     removeFromEvictor(id);
-    subagentManager.abortAllForParent(id);
+    subagentManager.disposeAllForParent(id);
   }
   for (const conversation of allConversations()) {
     conversation.dispose();
