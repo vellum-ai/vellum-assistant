@@ -24,9 +24,39 @@ import {
   type RiskThreshold,
 } from "@/utils/threshold-presets";
 
-/** Picker/legend order: the global presets' own order (Strict → Full access). */
+/** Every level the threshold vocabulary defines, in preset order. */
 export const CAPABILITY_TIER_VALUES: readonly RiskThreshold[] =
   THRESHOLD_PRESETS.map((preset) => preset.riskThreshold);
+
+/**
+ * The levels a channel actually offers, in preset order.
+ *
+ * Cells stay four-valued in the schema, and `medium`/`high` cells keep
+ * resolving; they simply behave as `low`, because everything a channel cell
+ * can delegate today classifies low-risk. The delegable set is narrow by
+ * design — a room's level never lets the assistant run code, plant code the
+ * daemon executes, reach the guardian's machine or accounts, or use unvetted
+ * skills — so `low` already covers all of it and the higher levels would be a
+ * distinction the runtime does not make.
+ *
+ * Restore the full list here when the delegable set grows past low-risk work;
+ * nothing else needs to change for the levels to come back.
+ */
+export const CHANNEL_TIER_VALUES: readonly RiskThreshold[] = ["none", "low"];
+
+/**
+ * The level a stored cell behaves as. A `medium` or `high` cell predates the
+ * two-level channel picker (or was written by another client); it delegates
+ * exactly what `low` delegates, so that is what the picker shows.
+ */
+export function channelTierBehavesAs(
+  tier: RiskThreshold | undefined,
+): RiskThreshold | undefined {
+  if (tier === undefined) {
+    return undefined;
+  }
+  return tier === "none" ? "none" : "low";
+}
 
 interface CapabilityTierMeta {
   /** Preset name, straight from the matching global Assistant Access preset. */
