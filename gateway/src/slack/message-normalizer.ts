@@ -76,8 +76,21 @@ function buildNormalizedSlackMessage(
     ? {
         entities: rawAppContext.entities.map((entity) => ({
           type: entity.type,
-          value: entity.value,
+          value:
+            typeof entity.value === "string"
+              ? entity.value
+              : {
+                  ...(entity.value.message_ts
+                    ? { messageTs: entity.value.message_ts }
+                    : {}),
+                  ...(entity.value.channel_id
+                    ? { channelId: entity.value.channel_id }
+                    : {}),
+                },
           ...(entity.team_id ? { teamId: entity.team_id } : {}),
+          ...(entity.enterprise_id
+            ? { enterpriseId: entity.enterprise_id }
+            : {}),
         })),
       }
     : undefined;

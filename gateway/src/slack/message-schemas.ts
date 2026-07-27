@@ -211,13 +211,25 @@ type _SlackMessageEventApiCrossCheck = [
 ];
 
 /**
- * A single entity the user has open, e.g.
- * `{ type: "slack#/types/channel_id", value: "C0123", team_id: "T0123" }`.
+ * A single entity the user has open.
+ *
+ * `value` is polymorphic across entity types: an id string for
+ * `channel_id` / `canvas_id` / `list_id`, but an object for
+ * `message_context` (`{ message_ts, channel_id }`) — the case that identifies
+ * a specific message or thread. Modelling it as a plain string silently
+ * collapses that variant, so the union is load-bearing.
  */
 const slackAppContextEntitySchema = z.object({
   type: requiredString(),
-  value: requiredString(),
+  value: z.union([
+    z.string(),
+    z.object({
+      message_ts: optionalString(),
+      channel_id: optionalString(),
+    }),
+  ]),
   team_id: optionalString(),
+  enterprise_id: optionalString(),
 });
 
 /**

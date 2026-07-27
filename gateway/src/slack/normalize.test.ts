@@ -862,7 +862,9 @@ function makeSlackFile(overrides?: Partial<SlackFile>): SlackFile {
 }
 
 function makeDmEvent(
-  overrides?: Partial<SlackDirectMessageEvent>,
+  // Slack sends fields the cross-checked schema deliberately does not model
+  // (e.g. `app_context`), so overrides accept keys beyond the typed event.
+  overrides?: Partial<SlackDirectMessageEvent> & Record<string, unknown>,
 ): SlackDirectMessageEvent {
   return {
     type: "message",
@@ -2292,6 +2294,47 @@ describe("DM app_context", () => {
     expect(result).not.toBeNull();
     expect(result!.event.message.content).toBeTruthy();
     expect(result!.event.source.appContext).toBeUndefined();
+  });
+
+  it("carries a message_context entity, whose value is an object not an id", () => {
+    const config = makeConfig();
+    // The thread/message case — the one that resolves "summarise this". Its
+    // `value` is an object, so a string-only schema silently drops it.
+    const event = makeDmEvent({
+      app_context: {
+        entities: [
+          {
+            type: "slack#/types/message_context",
+            value: {
+              message_ts: "1700000000.000100",
+              channel_id: "C0INCIDENTS",
+            },
+            team_id: "T0TEAM",
+          },
+        ],
+      },
+    });
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-7", config);
+
+    expect(result!.event.source.appContext?.entities[0]).toEqual({
+      type: "slack#/types/message_context",
+      value: { messageTs: "1700000000.000100", channelId: "C0INCIDENTS" },
+      teamId: "T0TEAM",
+    });
+  });
+
+  it("carries enterprise_id when Slack sends one", () => {
+    const config = makeConfig();
+    const event = makeDmEvent({
+      app_context: {
+        entities: [{ ...CHANNEL_ENTITY, enterprise_id: "E0GRID" }],
+      },
+    });
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-8", config);
+
+    expect(result!.event.source.appContext?.entities[0]).toMatchObject({
+      enterpriseId: "E0GRID",
+    });
   });
 
   it("keeps the raw context verbatim on the event", () => {

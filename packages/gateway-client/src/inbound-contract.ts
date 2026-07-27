@@ -90,8 +90,20 @@ export const SourceMetadataSchema = z
         entities: z.array(
           z.object({
             type: z.string(),
-            value: z.string(),
+            /**
+             * An id string for channel / canvas / list entities; an object for
+             * `slack#/types/message_context`, which points at a specific
+             * message or thread.
+             */
+            value: z.union([
+              z.string(),
+              z.object({
+                messageTs: z.string().optional(),
+                channelId: z.string().optional(),
+              }),
+            ]),
             teamId: z.string().optional(),
+            enterpriseId: z.string().optional(),
           }),
         ),
       })

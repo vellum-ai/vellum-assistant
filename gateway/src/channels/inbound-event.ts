@@ -61,6 +61,20 @@ interface InboundEventBase<C extends InboundChannelId> {
      */
     threadId?: string;
     channelName?: string;
+    /**
+     * Slack-specific: what the sender had open when they messaged the app,
+     * ordered by relevance. `value` is an id string for channel / canvas /
+     * list entities, and an object for `slack#/types/message_context`, which
+     * points at a specific message or thread.
+     */
+    appContext?: {
+      entities: Array<{
+        type: string;
+        value: string | { messageTs?: string; channelId?: string };
+        teamId?: string;
+        enterpriseId?: string;
+      }>;
+    };
   };
   raw: Record<string, unknown>;
 }

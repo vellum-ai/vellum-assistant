@@ -4146,6 +4146,34 @@ paths:
                       type: string
                     actorTeamId:
                       type: string
+                    appContext:
+                      type: object
+                      properties:
+                        entities:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              type:
+                                type: string
+                              value:
+                                anyOf:
+                                  - type: string
+                                  - type: object
+                                    properties:
+                                      messageTs:
+                                        type: string
+                                      channelId:
+                                        type: string
+                              teamId:
+                                type: string
+                              enterpriseId:
+                                type: string
+                            required:
+                              - type
+                              - value
+                      required:
+                        - entities
                     admissionPolicy:
                       type: string
                       enum:
