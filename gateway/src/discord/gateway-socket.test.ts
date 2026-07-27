@@ -489,3 +489,42 @@ describe("shutdown", () => {
     expect(h.sockets).toHaveLength(1);
   });
 });
+
+describe("HELLO deadline", () => {
+  const HELLO_DEADLINE = 30_000;
+
+  test("a socket that never speaks is killed and recovery proceeds", async () => {
+    const h = harness();
+    await h.client.start();
+    const ws = h.sockets[0];
+
+    // No HELLO, no close event — the one state with no other watchdog.
+    h.scheduler.run(HELLO_DEADLINE);
+    expect(ws.closed?.code).toBe(RESUMABLE_CLOSE_CODE);
+
+    // No session yet, so recovery identifies on the base URL.
+    h.scheduler.run(FIRST_BACKOFF_DELAY);
+    const retryWs = h.sockets[1];
+    expect(retryWs.url).toBe("wss://gateway.test/?v=10&encoding=json");
+    hello(retryWs);
+    expect(retryWs.sentPayloads()[0]?.op).toBe(2);
+  });
+
+  test("HELLO disarms the deadline", async () => {
+    const h = harness();
+    await h.client.start();
+    hello(h.sockets[0]);
+    expect(h.scheduler.pendingDelays()).not.toContain(HELLO_DEADLINE);
+  });
+
+  test("a close before HELLO disarms the deadline for the dead socket", async () => {
+    const h = harness();
+    await h.client.start();
+    h.sockets[0].serverClose(1006);
+    expect(h.scheduler.pendingDelays()).not.toContain(HELLO_DEADLINE);
+    // The reconnect arms a fresh deadline for the new socket.
+    h.scheduler.run(FIRST_BACKOFF_DELAY);
+    expect(h.sockets).toHaveLength(2);
+    expect(h.scheduler.pendingDelays()).toContain(HELLO_DEADLINE);
+  });
+});

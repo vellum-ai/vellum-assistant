@@ -60,6 +60,16 @@ const DISCORD_API_BASE_URL = "https://discord.com/api/v10";
 const SESSION_START_REMAINING_WARN_FLOOR = 100;
 
 /**
+ * How long a fresh socket may sit without delivering op 10 HELLO before it is
+ * treated as dead. Discord sends HELLO immediately on connect, so this only
+ * trips on a transport that connected but went silent (half-open after a
+ * sleep or NAT rebind) — the one state with no close event to recover from
+ * and, before HELLO, no heartbeat watchdog armed. The kill closes with the
+ * resumable code, so a false positive costs one resume.
+ */
+const HELLO_DEADLINE_MS = 30_000;
+
+/**
  * Extra delay before re-IDENTIFYing after op 9 `d: false`: 1–5 s, uniform.
  * No longer in the official docs but universal library behavior — it paces
  * identify bursts when Discord invalidates many sessions at once, and costs
@@ -142,6 +152,7 @@ export class DiscordGatewayClient {
   private latched = false;
 
   private cancelHeartbeatTimer: CancelTimer | null = null;
+  private cancelHelloTimer: CancelTimer | null = null;
   private cancelReconnectTimer: CancelTimer | null = null;
   private cancelStabilityTimer: CancelTimer | null = null;
 
@@ -307,6 +318,19 @@ export class DiscordGatewayClient {
     ws.addEventListener("error", (event) => {
       log.warn({ error: String(event) }, "Discord Gateway WebSocket error");
     });
+
+    // Until HELLO arrives no heartbeat watchdog exists, so a socket that
+    // connects but never speaks would otherwise hang the client forever.
+    this.cancelHelloTimer = this.schedule(() => {
+      this.cancelHelloTimer = null;
+      if (this.ws === ws) {
+        log.warn(
+          "Discord Gateway socket delivered no HELLO within the deadline — " +
+            "treating the connection as dead",
+        );
+        this.killAndRecover(ws, "no HELLO before deadline");
+      }
+    }, HELLO_DEADLINE_MS);
   }
 
   private handleFrame(ws: GatewaySocketLike, raw: string): void {
@@ -354,6 +378,8 @@ export class DiscordGatewayClient {
   }
 
   private handleHello(ws: GatewaySocketLike, data: unknown): void {
+    this.cancelHelloTimer?.();
+    this.cancelHelloTimer = null;
     const hello = DiscordHelloSchema.safeParse(data);
     const intervalMs = hello.success
       ? hello.data.heartbeat_interval
@@ -474,6 +500,8 @@ export class DiscordGatewayClient {
     }
     this.cancelHeartbeatTimer?.();
     this.cancelHeartbeatTimer = null;
+    this.cancelHelloTimer?.();
+    this.cancelHelloTimer = null;
     this.cancelStabilityTimer?.();
     this.cancelStabilityTimer = null;
     try {
@@ -488,6 +516,8 @@ export class DiscordGatewayClient {
   private handleClose(code: number | undefined): void {
     this.cancelHeartbeatTimer?.();
     this.cancelHeartbeatTimer = null;
+    this.cancelHelloTimer?.();
+    this.cancelHelloTimer = null;
     this.cancelStabilityTimer?.();
     this.cancelStabilityTimer = null;
     if (!this.running) {
@@ -673,6 +703,8 @@ export class DiscordGatewayClient {
   private cancelTimers(): void {
     this.cancelHeartbeatTimer?.();
     this.cancelHeartbeatTimer = null;
+    this.cancelHelloTimer?.();
+    this.cancelHelloTimer = null;
     this.cancelReconnectTimer?.();
     this.cancelReconnectTimer = null;
     this.cancelStabilityTimer?.();

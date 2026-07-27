@@ -2426,6 +2426,14 @@ async function main() {
   // `discord_channel:bot_token` credential does. There is no feature flag —
   // `discord` stays out of BASE_AVAILABLE_CHANNELS, and removing the
   // credential tears the connection down on the next watcher tick.
+  //
+  // Startup is the credential watcher's initial poll: it diffs against an
+  // empty baseline, so a token already stored at boot surfaces as
+  // `changed.has("discord_channel")` and starts the client — the same path
+  // the Slack socket boots through. This requires `discord_channel` to be
+  // registered in ALL_CREDENTIAL_SPECS (credential-reader.ts); the watcher
+  // only reads services listed there, and the registration is pinned by
+  // credential-reader.test.ts.
   let discordGatewayClient: DiscordGatewayClient | null = null;
 
   async function startDiscordGateway(): Promise<void> {
