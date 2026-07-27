@@ -180,8 +180,8 @@ export function getEffectiveEnabledPluginSet(conv: {
 // ── read-only pass classification ────────────────────────────────────
 
 /**
- * The ONLY tools allowed in a read-only subagent pass (the live-voice background
- * continuation, `subagentDenySideEffects`). This is a strict fail-safe allowlist
+ * The ONLY tools allowed in a read-only subagent pass
+ * (`subagentDenySideEffects`). This is a strict fail-safe allowlist
  * of tools known to be read-only. Everything else is refused, because:
  * - A side-effect denylist is inherently incomplete — low-risk core mutators
  *   (`remember`, `notify_parent`, `computer_use_*`, `delete_memory_page`, …) are

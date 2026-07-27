@@ -54,6 +54,7 @@ import type {
   SttStreamServerEvent,
 } from "../stt/types.js";
 import { getSubagentManager } from "../subagent/index.js";
+import { isSideEffectTool } from "../tools/side-effects.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -651,7 +652,7 @@ function buildVoiceControlPrompt(
 // the forked history.
 function buildDuplexContinuationObjective(interruptedRequest: string): string {
   const base =
-    "You were in the middle of responding to the user's most recent request when they interrupted you. Finish that response now. Do not repeat any tool calls whose results are already present in the conversation. You are running unattended in the background with a read-only toolset: you cannot send, write, delete, purchase, or otherwise change anything, and most tools (including memory writes and any that take an action) are unavailable here. Do the read-only work you can. If finishing the request needs an action or a tool you do not have, do not attempt it; instead say plainly what you would do, so the user can approve it on their next turn.";
+    "You were in the middle of responding to the user's most recent request when they interrupted you. Finish that response now. Do not repeat any tool calls whose results are already present in the conversation. You are running unattended in the background: permission policy may auto-deny higher-risk actions with no one to approve them. If an action you need is denied, do not retry it; finish what you can and say plainly what remains, so the user can trigger it on their next turn.";
   return interruptedRequest.length > 0
     ? `${base} Their request was: "${interruptedRequest}".`
     : base;
@@ -1550,8 +1551,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // settle before forking, so its partial — including any completed tool calls —
   // is already in the conversation the subagent forks from and a side-effecting
   // continuation cannot repeat a call the interrupted turn already ran.
-  // Resurfacing the subagent's result is a follow-up; for now it runs silently
-  // and a later stop/interrupt aborts it.
+  // The continuation runs with full subagent abilities under the standard
+  // non-interactive permission policy; if a foreground turn starts its own
+  // side-effecting tool, the foreground-wins abort in the tool_use_start
+  // handler kills the continuation before the two can race on the workspace.
+  // The run stays silent (never spoken unprompted) and a later stop/interrupt
+  // aborts it.
   private detachInterruptedTurn(
     turn: ActiveAssistantTurn,
     stopGeneration: number,
@@ -1656,7 +1661,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Abort every background continuation this session started and drop its
   // handle. A client interrupt or session close is a hard stop for detached
   // work; the continuation's own `.finally` removes it from the set too.
-  private abortDetachedRuns(): void {
+  // `keepPendingResult` is the foreground-wins variant: the foreground turn is
+  // claiming the workspace, so running continuations must die (and pending
+  // detaches must be skipped), but an already-completed continuation's stashed
+  // answer stays — it cannot race anything, and the next turn's "use only if
+  // relevant" framing makes a stale one harmless.
+  private abortDetachedRuns(opts?: { keepPendingResult?: boolean }): void {
     // Bump the generation so a barge-in whose async teardown is still in flight
     // (its detach not yet spawned) sees the stop and skips the continuation.
     this.detachStopGeneration += 1;
@@ -1666,7 +1676,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.detachControllers.clear();
     // A hard stop also drops any completed continuation's result still waiting
     // to fold into the next turn, so it can't surface after the user reset.
-    this.pendingContinuationResult = null;
+    if (!opts?.keepPendingResult) {
+      this.pendingContinuationResult = null;
+    }
   }
 
   // VAD closed the utterance — the analog of ptt_release: emit
@@ -2906,6 +2918,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               return;
             }
             current.toolUseStarted = true;
+            // Foreground wins the workspace: the continuation runs with full
+            // subagent abilities (it can write files, run commands), so the
+            // moment a live turn starts a side-effecting tool the two could
+            // race on the same workspace. Kill running continuations and skip
+            // pending detaches; a continuation only survives while foreground
+            // turns stay read-only (the topic-change case it exists for). An
+            // already-completed continuation's stashed answer is kept — it
+            // cannot race anything.
+            if (isSideEffectTool(toolName)) {
+              this.abortDetachedRuns({ keepPendingResult: true });
+            }
             // The op counts toward the narration threshold on start (not
             // completion) so a burst of slow tools still trips the ops
             // trigger while they run.
@@ -4460,12 +4483,16 @@ async function defaultSpawnBackgroundContinuation(args: {
       objective: args.objective,
       fork: true,
       sendResultToUser: false,
-      // Read-only: the continuation runs unattended while the user talks to the
-      // live session, so it must never take an unapproved side effect. Any
-      // side-effecting tool is refused; the continuation surfaces the intended
-      // action for the user to approve on their next turn (via the resurface
-      // context) instead.
-      denySideEffectTools: true,
+      // Full subagent abilities: the continuation runs like any other
+      // background subagent, so it can genuinely finish build-shaped work
+      // (JARVIS-1354). Side effects are governed by the standard
+      // non-interactive permission path via the inherited trust context —
+      // auto-approved up to the background risk threshold, auto-denied above
+      // it — the same policy the foreground voice turn it continues ran
+      // under. Workspace write races with the user's next foreground turn
+      // are prevented by the session's foreground-wins abort (a
+      // side-effecting tool start on a live turn aborts running
+      // continuations; see the tool_use_start handler).
       parentMessages: [...parentConversation.messages],
       parentSystemPrompt: parentConversation.getCurrentSystemPrompt(),
     },
