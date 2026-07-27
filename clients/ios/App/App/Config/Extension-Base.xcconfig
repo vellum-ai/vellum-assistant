@@ -57,6 +57,20 @@ IPHONEOS_DEPLOYMENT_TARGET = 17.0
 // the value is keyed off CODE_SIGN_STYLE.
 PROVISIONING_PROFILE_SPECIFIER = $(PROVISIONING_PROFILE_SPECIFIER_$(CODE_SIGN_STYLE))
 
+// Turns extension-unsafe API — `UIApplication.shared` above all — into a
+// compile error rather than an App Store validation rejection ("linked
+// against non-extension-safe API"). That error is the backstop the
+// `#if VOICE_ACTIVITY_EXTENSION` guard in `App/Shared/VoiceModeDeepLink.swift`
+// relies on, and `clients/ios/docs/NATIVE_VOICE.md` asserts as an invariant.
+//
+// Redundant on Xcode 26.6, which already derives YES from PRODUCT_TYPE =
+// app-extension — and stated anyway, because nothing else in the repo
+// does. XcodeGen's `app-extension` preset contributes only
+// LD_RUNPATH_SEARCH_PATHS and the generated pbxproj carries no value, so
+// without this line an invariant the docs promise would be owned
+// entirely by an Xcode default. Same reasoning as SKIP_INSTALL below.
+APPLICATION_EXTENSION_API_ONLY = YES
+
 // Required for an embedded extension: the appex is copied into the app
 // bundle by the embed phase, and must not also be installed at the
 // archive root.

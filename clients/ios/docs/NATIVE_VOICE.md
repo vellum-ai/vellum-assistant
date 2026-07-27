@@ -265,12 +265,18 @@ assertionFailure("Voice intents are performed in the app process, not the appex"
 #endif
 ```
 
-Two things make the body impossible to compile into the appex:
+Two things make the body impossible to compile into the appex. Delete the guard
+and build `VoiceActivity Dev` to see both:
 
 - **`UIApplication.shared` is unavailable under
-  `APPLICATION_EXTENSION_API_ONLY`**, which Xcode sets for app extensions. It is
-  a hard compile error, not a warning.
-- **`AppDelegate` links Capacitor**, which the appex does not — and must not.
+  `APPLICATION_EXTENSION_API_ONLY`** — `error: 'shared' is unavailable in
+  application extensions for iOS`. A hard compile error, not a warning. The
+  setting is pinned in
+  [`App/Config/Extension-Base.xcconfig`](../App/App/Config/Extension-Base.xcconfig)
+  so the guarantee is the repo's rather than an Xcode default's.
+- **`AppDelegate` links Capacitor**, which the appex does not — and must not. It
+  is not even compiled into the extension, whose sources are `VoiceActivity/`
+  plus `App/Shared/`: `error: cannot find type 'AppDelegate' in scope`.
 
 The signature stays, so callers compile on both sides. That matters because
 `StartNewVoiceConversationIntent` lives in `Shared/`: `StartVoiceControl` builds
@@ -428,7 +434,9 @@ Capacitor SPM graph (`IONFilesystemLib`), which is environmental and pre-existin
 — unrelated to anything here. **CI is the app-build gate**: `pr-ios.yaml` builds
 the `App Dev` scheme unsigned on every PR touching `clients/ios/**`, and the
 extension is embedded, so it builds too. Do not treat a green extension-only
-build as a green app build.
+build as a green app build. `ci-main-ios.yaml` runs the same build on pushes to
+`main`, because both workflows are path-filtered: two PRs that pass
+independently can still merge into a broken `main`.
 
 ### Device-only
 
