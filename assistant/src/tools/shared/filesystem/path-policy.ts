@@ -96,12 +96,15 @@ interface SandboxTarget {
  * destination. `realpathSync` throws on a link whose destination does not
  * exist, which makes canonicalization fall back to the benign link path —
  * but a write through the link creates the destination, so containment
- * checks must see it. Bounded well above the kernel's own symlink-depth
- * limit; a deeper chain fails the eventual filesystem operation itself.
+ * checks must see it. The bound sits above every supported platform's own
+ * traversal limit (Linux follows at most 40 links per resolution, macOS
+ * 32), so any chain this loop cannot exhaust is one the filesystem itself
+ * refuses to follow (ELOOP) — the eventual operation fails rather than
+ * writing through an unchecked destination.
  */
 function resolveTrailingLinkTarget(path: string): string {
   let current = path;
-  for (let depth = 0; depth < 32; depth++) {
+  for (let depth = 0; depth < 64; depth++) {
     let linkTarget: string;
     try {
       if (!lstatSync(current).isSymbolicLink()) {

@@ -376,6 +376,30 @@ describe("sandboxPolicyWithHostFallback", () => {
     }
   });
 
+  test("denies a long dangling symlink chain into the gateway security dir", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    const securityDir = makeTempDir();
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+
+    // A 33-link chain exceeds macOS's own 32-link traversal limit but stays
+    // within Linux's 40 — the policy must resolve past it either way.
+    let target = join(securityDir, "new-signing-key");
+    for (let i = 32; i >= 0; i--) {
+      const link = join(outside, `link-${i}`);
+      symlinkSync(target, link);
+      target = link;
+    }
+
+    const result = sandboxPolicyWithHostFallback(target, boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
   test("denies a symlink that resolves into the gateway security dir", () => {
     const boundary = makeTempDir();
     const outside = makeTempDir();
