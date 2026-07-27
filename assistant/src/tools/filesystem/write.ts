@@ -7,7 +7,7 @@ import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatWriteSummary } from "../shared/filesystem/format-diff.js";
-import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
+import { sandboxPolicyWithHostFallback } from "../shared/filesystem/path-policy.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -116,7 +116,7 @@ export const fileWriteTool = {
     }
 
     const ops = new FileSystemOps((path, opts) =>
-      sandboxPolicy(path, context.workingDir, opts),
+      sandboxPolicyWithHostFallback(path, context.workingDir, opts),
     );
 
     const result = ops.writeFileSafe({ path: rawPath, content: fileContent });
@@ -137,7 +137,11 @@ export const fileWriteTool = {
           isError: true,
         };
       }
-      return { content: `Error: ${error.message}`, isError: true };
+      const hint =
+        error.code === "PATH_OUT_OF_BOUNDS"
+          ? ". To write files outside the workspace, use the host_file_write tool instead."
+          : "";
+      return { content: `Error: ${error.message}${hint}`, isError: true };
     }
 
     const { filePath, oldContent, newContent, isNewFile } = result.value;

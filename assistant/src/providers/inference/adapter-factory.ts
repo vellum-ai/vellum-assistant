@@ -29,6 +29,7 @@ import { OllamaProvider } from "../ollama/client.js";
 import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 import { OpenAIResponsesProvider } from "../openai/responses-provider.js";
 import { OpenRouterProvider } from "../openrouter/client.js";
+import { PoolsideProvider } from "../poolside/client.js";
 import { RetryProvider } from "../retry.js";
 import { TogetherProvider } from "../together/client.js";
 import type { Provider } from "../types.js";
@@ -148,6 +149,11 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     }),
   baseten: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new BasetenProvider(apiKey, model, {
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
+  poolside: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new PoolsideProvider(apiKey, model, {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),

@@ -12,10 +12,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import type {
-  AssistantEvent as AssistantEventMessage,
-  AssistantEventEnvelope,
-} from "../api/index.js";
+import type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
 
 // -- Generic base --------------------------------------------------------------
 
@@ -42,24 +39,6 @@ interface BaseAssistantEvent<TMessage = unknown> {
   emittedAt: string;
   /** Outbound message payload. */
   message: TMessage;
-}
-
-/**
- * Construct a `BaseAssistantEvent` envelope around a message payload.
- *
- * @param message         The outbound message payload.
- * @param conversationId  Optional conversation id -- pass when known.
- */
-function baseBuildAssistantEvent<TMessage>(
-  message: TMessage,
-  conversationId?: string,
-): BaseAssistantEvent<TMessage> {
-  return {
-    id: randomUUID(),
-    conversationId,
-    emittedAt: new Date().toISOString(),
-    message,
-  };
 }
 
 // -- SSE framing ---------------------------------------------------------------
@@ -97,20 +76,18 @@ export function formatSseHeartbeat(): string {
 
 // -- Daemon-side specialization ------------------------------------------------
 
-// Re-export the canonical envelope so daemon callers import it alongside the
-// builder below.
-export type { AssistantEventEnvelope };
-
 /**
  * Build a daemon event envelope (`AssistantEventEnvelope`) around an
  * `AssistantEvent` message payload.
  */
 export function buildAssistantEvent(
-  message: AssistantEventMessage,
+  message: AssistantEvent,
   conversationId?: string,
 ): AssistantEventEnvelope {
-  return baseBuildAssistantEvent<AssistantEventMessage>(
-    message,
+  return {
+    id: randomUUID(),
     conversationId,
-  );
+    emittedAt: new Date().toISOString(),
+    message,
+  };
 }

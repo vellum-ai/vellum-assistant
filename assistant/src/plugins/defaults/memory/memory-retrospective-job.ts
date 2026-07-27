@@ -97,6 +97,7 @@ import {
   getRetrospectiveState,
   upsertRetrospectiveState,
 } from "./memory-retrospective-state.js";
+import { effectiveSweepLookbackMs } from "./memory-retrospective-sweep.js";
 
 const log = getLogger("memory-retrospective-job");
 
@@ -124,6 +125,7 @@ const MEMORY_RETROSPECTIVE_RUN_CHECK_NAME = "memory_retrospective_run";
 export type MemoryRetrospectiveOutcome =
   | { kind: "disabled" }
   | { kind: "no_new_messages" }
+  | { kind: "source_dormant" }
   | { kind: "source_processing" }
   | { kind: "wake_failed"; reason?: string; conversationId?: string }
   | {
@@ -170,7 +172,9 @@ export async function memoryRetrospectiveJob(
 
   let outcome: MemoryRetrospectiveOutcome;
   try {
-    outcome = await runForkBasedRetrospective(sourceConversationId, config);
+    outcome = await runForkBasedRetrospective(sourceConversationId, config, {
+      enforceSweepLookback: true,
+    });
   } catch (err) {
     emitRunOutcome("error", err instanceof Error ? err.message : String(err));
     throw err;
@@ -196,6 +200,16 @@ export async function memoryRetrospectiveJob(
 export async function runForkBasedRetrospective(
   sourceConversationId: string,
   config: AssistantConfig,
+  opts?: {
+    /**
+     * Skip the run when the source's last message is older than
+     * `memory.retrospective.sweepLookbackMs`. The queue handler passes this so
+     * a stale pending backlog is completed as no-ops instead of run; the CLI's
+     * manual command omits it — an operator's explicit request overrides the
+     * window.
+     */
+    enforceSweepLookback?: boolean;
+  },
 ): Promise<MemoryRetrospectiveOutcome> {
   // Start stamp for the retrospective's end-to-end wall time, surfaced as
   // `durationMs` on the "invoked" log (start → invoked).
@@ -207,6 +221,29 @@ export async function runForkBasedRetrospective(
       "memory-retrospective (fork): source conversation not found; skipping",
     );
     return { kind: "no_new_messages" };
+  }
+
+  // Execution-time twin of the sweep's lookback window (see
+  // memory-retrospective-sweep.ts). Event triggers enqueue in response to a
+  // just-persisted message, so a legitimately-enqueued job's source sits
+  // inside the window when the job runs; a numeric stamp older than the
+  // window means the row is stale backlog, and running it would burn an
+  // inference pass on a conversation the sweep no longer considers stalled.
+  // A missing stamp is NOT dormancy here — the enqueue itself evidences
+  // activity, unlike the sweep's scan where the stamp is the only signal.
+  // Both state pointers stay untouched.
+  if (opts?.enforceSweepLookback === true) {
+    const lastMessageAt = sourceConversation.lastMessageAt;
+    if (
+      typeof lastMessageAt === "number" &&
+      startedAtMs - lastMessageAt > effectiveSweepLookbackMs(config)
+    ) {
+      log.info(
+        { sourceConversationId, lastMessageAt },
+        "memory-retrospective (fork): source dormant beyond the sweep lookback; skipping",
+      );
+      return { kind: "source_dormant" };
+    }
   }
 
   // Forking mid-turn would capture a half-finished display turn — incremental

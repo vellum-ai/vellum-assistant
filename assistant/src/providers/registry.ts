@@ -35,8 +35,32 @@ const providers = new Map<string, Provider>();
 const routingSources = new Map<string, "user-key" | "managed-proxy">();
 const NATIVE_WEB_SEARCH_PROVIDER_IDS = new Set(["anthropic", "openai"]);
 
+/**
+ * A cached per-connection provider and the wall-clock time it goes stale.
+ *
+ * The credential store is the source of truth for a connection's API key; a
+ * resolved provider bakes that key into its auth headers and is only a cache of
+ * it. `expiresAt` bounds how long a cached provider is trusted before the key
+ * is re-read from the store, so a credential rotated out-of-band (e.g. the
+ * platform reprovisioning the assistant API key) is picked up on its own — in
+ * every process that holds this cache, with no cross-process invalidation.
+ */
+interface CachedConnectionProvider {
+  provider: Provider;
+  expiresAt: number;
+}
+
+/**
+ * How long a resolved per-connection provider is served from cache before it is
+ * re-resolved from the credential store. Bounds credential staleness in any
+ * process holding the cache (the daemon and each sidecar worker) to this
+ * window. Kept short enough that a rotated key self-heals quickly, long enough
+ * that repeated resolutions within a burst still reuse one adapter.
+ */
+const CONNECTION_PROVIDER_CACHE_TTL_MS = 60_000;
+
 /** Per-connection provider cache, keyed by connection name, effective provider, and model. */
-const connectionProviders = new Map<string, Provider>();
+const connectionProviders = new Map<string, CachedConnectionProvider>();
 
 function getConnectionProviderCacheKey(
   connection: ProviderConnection,
@@ -256,9 +280,12 @@ export async function initializeProviders(
 /**
  * Resolve a provider instance for a named `provider_connection`.
  *
- * Results are cached in `connectionProviders` for the lifetime of the
- * current `initializeProviders` invocation (cleared on next boot). This
- * prevents redundant vault reads for repeated calls to the same connection.
+ * Results are cached in `connectionProviders` to avoid redundant vault reads
+ * for repeated calls to the same connection. A cached provider bakes in the
+ * credential it resolved, so each entry carries a TTL
+ * ({@link CONNECTION_PROVIDER_CACHE_TTL_MS}): once it expires the credential is
+ * re-read from the store, bounding how long an out-of-band key rotation stays
+ * stale. Entries are also cleared eagerly on connection mutations and boot.
  *
  * Returns null when:
  *   - The connection doesn't exist in the DB
@@ -291,9 +318,12 @@ export async function resolveProviderFromConnection(
     effectiveProvider,
   );
   const cached = connectionProviders.get(cacheKey);
-  if (cached) {
-    return cached;
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.provider;
   }
+  // A stale entry is a miss: fall through to re-resolve. The credential is
+  // re-read from the store below, so a key rotated since the entry was cached
+  // is picked up here rather than served stale forever.
 
   const authResult = await resolveAuth(connection.auth, effectiveProvider, {
     baseUrl: connection.baseUrl,
@@ -340,7 +370,10 @@ export async function resolveProviderFromConnection(
   );
 
   if (provider) {
-    connectionProviders.set(cacheKey, provider);
+    connectionProviders.set(cacheKey, {
+      provider,
+      expiresAt: Date.now() + CONNECTION_PROVIDER_CACHE_TTL_MS,
+    });
   }
 
   return provider;

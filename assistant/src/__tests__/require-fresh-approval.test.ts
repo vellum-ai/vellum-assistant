@@ -168,6 +168,7 @@ mock.module("../workflows/run-manager.js", () => ({
 
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   sandboxPolicy: () => ({ ok: false }),
+  sandboxPolicyWithHostFallback: () => ({ ok: false }),
   hostPolicy: () => ({ ok: false }),
 }));
 

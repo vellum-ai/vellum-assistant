@@ -2,15 +2,23 @@ import { realpathSync } from "node:fs";
 import { basename, dirname, normalize, resolve } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
+import { resolveTrailingLinkTarget } from "../util/fs-symlinks.js";
 
 /**
- * Resolve a path to its canonical form. When the target itself doesn't
- * exist (e.g. a new file being written), walk up to the nearest existing
- * ancestor and append the remaining segments so that symlinks in parent
- * directories (like macOS `/var` -> `/private/var`) are still resolved.
+ * Resolve a path to its canonical form. A trailing (possibly dangling)
+ * symlink chain is followed first so a link whose destination does not
+ * exist yet still canonicalizes to that destination — a write through the
+ * link creates it. When the target itself doesn't exist (e.g. a new file
+ * being written), walk up to the nearest existing ancestor and append the
+ * remaining segments so that symlinks in parent directories (like macOS
+ * `/var` -> `/private/var`) are still resolved.
  */
 function canonicalize(p: string): string {
-  const abs = resolve(p);
+  const abs = resolveTrailingLinkTarget(resolve(p));
+  return canonicalizeExisting(abs);
+}
+
+function canonicalizeExisting(abs: string): string {
   try {
     return realpathSync(abs);
   } catch {
@@ -21,7 +29,7 @@ function canonicalize(p: string): string {
       // Reached filesystem root — nothing left to resolve.
       return normalize(abs);
     }
-    return `${canonicalize(parent)}/${name}`;
+    return `${canonicalizeExisting(parent)}/${name}`;
   }
 }
 
@@ -34,7 +42,9 @@ export function isPathWithinWorkspaceRoot(
   filePath: string,
   workspaceRoot: string,
 ): boolean {
-  if (!filePath || !workspaceRoot) return false;
+  if (!filePath || !workspaceRoot) {
+    return false;
+  }
 
   const canonicalPath = canonicalize(filePath);
   const canonicalRoot = canonicalize(workspaceRoot);
@@ -76,6 +86,79 @@ const ALWAYS_SCOPED_TOOLS = new Set([
   "ui_dismiss",
 ]);
 
+// The Docker sandbox mounts the workspace at /workspace, and the model emits
+// container-scoped paths (e.g. "/workspace/tools/evil.ts") even on local
+// turns. The execution-time path policy and the gateway classifier both
+// apply this remap, so every workspace-containment decision here must too.
+const CONTAINER_WORKSPACE_PREFIX = "/workspace/";
+const CONTAINER_WORKSPACE_EXACT = "/workspace";
+
+/**
+ * Resolve a sandbox file path to its lexical base the same way the
+ * execution-time `sandboxPolicy` and the gateway classifier do: remap a
+ * container-scoped `/workspace/...` path onto `workingDir`, then resolve
+ * (relative paths resolve against `workingDir`, not process.cwd()).
+ */
+export function resolveSandboxBase(
+  rawPath: string,
+  workingDir: string,
+): string {
+  let effectivePath = rawPath;
+  if (!rawPath.startsWith(workingDir + "/") && rawPath !== workingDir) {
+    if (rawPath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
+      effectivePath = rawPath.slice(CONTAINER_WORKSPACE_PREFIX.length);
+    } else if (rawPath === CONTAINER_WORKSPACE_EXACT) {
+      effectivePath = ".";
+    }
+  }
+  return resolve(workingDir, effectivePath);
+}
+
+/**
+ * Extract a path-scoped tool's target path from its input. `path` takes
+ * priority over `file_path` — the file tools execute `input.path` and the
+ * risk classifier reads the fields in the same order, so containment
+ * decisions must be derived from the field that actually executes (an input
+ * carrying both fields is not runtime-stripped). Returns `""` when the
+ * input carries no usable path.
+ */
+function resolvePathScopedTarget(
+  toolInput: Record<string, unknown>,
+  workspaceRoot: string,
+): string {
+  const rawPath =
+    typeof toolInput.path === "string"
+      ? toolInput.path
+      : typeof toolInput.file_path === "string"
+        ? toolInput.file_path
+        : "";
+  if (rawPath === "") {
+    return "";
+  }
+  return resolveSandboxBase(rawPath, workspaceRoot);
+}
+
+/**
+ * Whether a sandbox file-tool invocation targets a path outside the
+ * workspace root. Always false in containerized mode — the execution-time
+ * boundary is hard there, so an escaping path never executes. Non-path
+ * tools are never classified by this predicate.
+ */
+export function isOutOfWorkspaceFileInvocation(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  workspaceRoot: string,
+): boolean {
+  if (getIsContainerized()) {
+    return false;
+  }
+  if (!PATH_SCOPED_TOOLS.has(toolName)) {
+    return false;
+  }
+  const filePath = resolvePathScopedTarget(toolInput, workspaceRoot);
+  return filePath !== "" && !isPathWithinWorkspaceRoot(filePath, workspaceRoot);
+}
+
 /**
  * Determine whether a tool invocation only affects resources within the
  * workspace root. This is a conservative classification — unknown tools
@@ -86,22 +169,18 @@ export function isWorkspaceScopedInvocation(
   toolInput: Record<string, unknown>,
   workspaceRoot: string,
 ): boolean {
-  if (ALWAYS_SCOPED_TOOLS.has(toolName)) return true;
-  if (NETWORK_TOOLS.has(toolName)) return false;
-  if (HOST_TOOLS.has(toolName)) return false;
+  if (ALWAYS_SCOPED_TOOLS.has(toolName)) {
+    return true;
+  }
+  if (NETWORK_TOOLS.has(toolName)) {
+    return false;
+  }
+  if (HOST_TOOLS.has(toolName)) {
+    return false;
+  }
 
   if (PATH_SCOPED_TOOLS.has(toolName)) {
-    const rawPath =
-      typeof toolInput.file_path === "string"
-        ? toolInput.file_path
-        : typeof toolInput.path === "string"
-          ? toolInput.path
-          : "";
-    // Resolve relative paths against workspaceRoot (not process.cwd())
-    const filePath =
-      rawPath !== "" && !rawPath.startsWith("/")
-        ? resolve(workspaceRoot, rawPath)
-        : rawPath;
+    const filePath = resolvePathScopedTarget(toolInput, workspaceRoot);
     return (
       filePath !== "" && isPathWithinWorkspaceRoot(filePath, workspaceRoot)
     );
@@ -112,7 +191,9 @@ export function isWorkspaceScopedInvocation(
   // bash is NOT workspace-scoped here — path resolution for allowlisted commands is
   // handled upstream in the checker's hasSandboxAutoApprove computation, which validates
   // all path arguments against the workspace root for non-containerized environments.
-  if (toolName === "bash") return getIsContainerized();
+  if (toolName === "bash") {
+    return getIsContainerized();
+  }
 
   // Unknown tool — conservative default.
   return false;

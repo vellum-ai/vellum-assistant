@@ -731,7 +731,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-24T21:02:01.000Z"
+      "updatedAt": "2026-07-27T13:35:46.000Z"
     },
     {
       "id": "public-ingress",
@@ -1107,7 +1107,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-25T16:23:54.000Z"
+      "updatedAt": "2026-07-25T19:01:25.000Z"
     },
     {
       "id": "vellum-oauth-integrations",

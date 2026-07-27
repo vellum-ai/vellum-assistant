@@ -128,6 +128,7 @@ mock.module("../tools/registry.js", () => ({
 
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   sandboxPolicy: () => ({ ok: false }),
+  sandboxPolicyWithHostFallback: () => ({ ok: false }),
   hostPolicy: () => ({ ok: false }),
 }));
 

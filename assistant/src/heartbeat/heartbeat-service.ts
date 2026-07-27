@@ -11,6 +11,7 @@ import {
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import {
   GUARDIAN_PERSONA_TEMPLATE,
   resolveGuardianPersona,
@@ -483,6 +484,20 @@ export class HeartbeatService {
         skipHeartbeatRun(runId, "disabled");
       }
       refreshBackgroundWakeIntentSoon("heartbeat-disabled");
+      return false;
+    }
+
+    // Drain guard: while a quiesce lease is active (a client is waiting for
+    // background work to finish before stopping the assistant), do not start
+    // new beats. Recorded as a skipped run so run history explains the gap.
+    if (!force && isLifecycleQuiesced()) {
+      log.info("Heartbeat skipped — quiesce lease active");
+      if (runId) {
+        skipHeartbeatRun(runId, "quiesced");
+      }
+      if (!this.cronMode) {
+        this.scheduleNextRun(config.intervalMs);
+      }
       return false;
     }
 

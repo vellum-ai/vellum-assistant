@@ -3,6 +3,7 @@ import { and, asc, desc, eq, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
+import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { rawChanges } from "../persistence/raw-query.js";
 import { scheduleJobs, scheduleRuns } from "../persistence/schema/index.js";
 import { publishSchedulesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -465,6 +466,15 @@ export async function deleteSchedule(id: string): Promise<boolean> {
  * next_run_at <= now and enabled = true and cron_expression IS NULL.
  */
 export async function claimDueSchedules(now: number): Promise<ScheduleJob[]> {
+  // Drain gate: while a quiesce lease is active, claim nothing so in-flight
+  // runs can drain before a stop. The check lives here — immediately before
+  // the claim writes — rather than at the tick boundary, to shrink the window
+  // in which a lease armed mid-tick could miss a claim that already passed an
+  // earlier check. Fail-open via the lease read.
+  if (isLifecycleQuiesced()) {
+    return [];
+  }
+
   const db = getDb();
   const claimed: ScheduleJob[] = [];
 
@@ -748,6 +758,27 @@ export async function createScheduleRun(
     { op: "createScheduleRun", context: { scheduleId: jobId, runId: id } },
   );
   return id;
+}
+
+/** Currently-running schedule runs with their job names, oldest first. */
+export function listRunningScheduleRuns(): Array<{
+  runId: string;
+  scheduleName: string | null;
+  startedAt: number;
+}> {
+  const db = getDb();
+  return db
+    .select({
+      runId: scheduleRuns.id,
+      scheduleName: scheduleJobs.name,
+      startedAt: scheduleRuns.startedAt,
+    })
+    .from(scheduleRuns)
+    .leftJoin(scheduleJobs, eq(scheduleRuns.jobId, scheduleJobs.id))
+    .where(eq(scheduleRuns.status, "running"))
+    .orderBy(asc(scheduleRuns.startedAt))
+    .limit(20)
+    .all();
 }
 
 export async function setScheduleRunConversationId(
@@ -1080,6 +1111,45 @@ export function describeCronExpression(expr: string | null): string {
   } catch {
     return expr;
   }
+}
+
+/**
+ * Return a claimed-but-not-started schedule to the queue (drain deferral).
+ *
+ * Restores everything the claim mutated before any execution began:
+ * `nextRunAt` is pulled to `nextRetryAt`, a one-shot's `firing` reverts to
+ * `active`, and `enabled` is restored — a bounded recurring schedule's final
+ * occurrence is claimed by exhausting the job (`enabled = false`,
+ * `nextRunAt = 0`), so without the restore that deferred final occurrence
+ * would never fire.
+ */
+export async function deferClaimedSchedule(
+  id: string,
+  nextRetryAt: number,
+): Promise<void> {
+  const db = getDb();
+  const now = Date.now();
+  await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({ nextRunAt: nextRetryAt, enabled: true, updatedAt: now })
+        .where(eq(scheduleJobs.id, id))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "deferClaimedSchedule.requeue", context: { scheduleId: id } },
+  );
+  await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({ status: "active", updatedAt: now })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "deferClaimedSchedule.status", context: { scheduleId: id } },
+  );
+  notifySchedulesChanged();
 }
 
 /**

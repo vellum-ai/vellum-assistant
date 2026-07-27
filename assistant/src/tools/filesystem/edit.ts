@@ -1,7 +1,7 @@
 import { RiskLevel } from "../../permissions/types.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatEditDiff } from "../shared/filesystem/format-diff.js";
-import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
+import { sandboxPolicyWithHostFallback } from "../shared/filesystem/path-policy.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -88,7 +88,7 @@ export const fileEditTool = {
     const replaceAll = input.replace_all === true;
 
     const ops = new FileSystemOps((path, opts) =>
-      sandboxPolicy(path, context.workingDir, opts),
+      sandboxPolicyWithHostFallback(path, context.workingDir, opts),
     );
 
     const result = ops.editFileSafe({
@@ -116,8 +116,13 @@ export const fileEditTool = {
             content: `Error editing file: ${error.message}`,
             isError: true,
           };
-        default:
-          return { content: `Error: ${error.message}`, isError: true };
+        default: {
+          const hint =
+            error.code === "PATH_OUT_OF_BOUNDS"
+              ? ". To edit files outside the workspace, use the host_file_edit tool instead."
+              : "";
+          return { content: `Error: ${error.message}${hint}`, isError: true };
+        }
       }
     }
 

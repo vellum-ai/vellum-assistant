@@ -48,6 +48,7 @@ import { isMemoryEnabled } from "../config/memory-v3-gate.js";
 import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { isPersonalMemoryAllowed } from "../daemon/trust-context.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import { isOutOfWorkspaceFileInvocation } from "../permissions/workspace-policy.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import {
@@ -140,10 +141,14 @@ async function injectPersonaMemory(
   opts: RunLeafOptions,
   messages: Message[],
 ): Promise<Message[]> {
-  if (!isPersonalMemoryAllowed(opts.trustContext)) {return messages;}
+  if (!isPersonalMemoryAllowed(opts.trustContext)) {
+    return messages;
+  }
 
   const config = getConfig();
-  if (!isMemoryEnabled(config)) {return messages;}
+  if (!isMemoryEnabled(config)) {
+    return messages;
+  }
 
   const ephemeralConversationId = `workflow-leaf:${randomUUID()}`;
   const graphMemory = new ConversationGraphMemory(ephemeralConversationId);
@@ -532,6 +537,17 @@ async function executeLeafTool(
     };
   }
 
+  // Leaf tool calls bypass the ToolExecutor's permission lane, so the file
+  // tools' out-of-workspace host fallback must not be reachable from here:
+  // the manifest consent covers workspace-scoped operation only, and leaves
+  // reject host tools outright. Keep the leaf workspace-bound.
+  if (isOutOfWorkspaceFileInvocation(name, input, ctx.workingDir)) {
+    return {
+      content: `Tool "${name}" may only access paths inside the workspace when invoked from a workflow leaf.`,
+      isError: true,
+    };
+  }
+
   const toolContext: ToolContext = {
     conversationId: ctx.ephemeralConversationId,
     workingDir: ctx.workingDir,
@@ -559,7 +575,9 @@ async function executeLeafTool(
 function finalAssistantText(history: Message[]): string {
   for (let i = history.length - 1; i >= 0; i--) {
     const msg = history[i];
-    if (msg.role !== "assistant") {continue;}
+    if (msg.role !== "assistant") {
+      continue;
+    }
     const text = msg.content
       .filter(
         (b): b is Extract<typeof b, { type: "text" }> => b.type === "text",

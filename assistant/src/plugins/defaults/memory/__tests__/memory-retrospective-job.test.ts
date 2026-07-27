@@ -78,6 +78,7 @@ type ConversationStub = {
   inferenceProfileExpiresAt?: number | null;
   originChannel?: string | null;
   originInterface?: string | null;
+  lastMessageAt?: number | null;
 };
 let conversationOverrides: Record<string, ConversationStub> = {};
 
@@ -345,6 +346,8 @@ function makeConfig(
         keepSupersededRuns: overrides.keepSupersededRuns ?? false,
         matchConversationProfile: overrides.matchConversationProfile ?? false,
         promptPath: overrides.promptPath ?? null,
+        sweepIntervalMs: 8 * 60 * 60 * 1000,
+        sweepLookbackMs: 7 * 24 * 60 * 60 * 1000,
       },
     },
     ui: {
@@ -449,6 +452,34 @@ describe("memoryRetrospectiveJob", () => {
     // findMostRecentRetrospectiveFor.
     expect(forkCalls).toHaveLength(1);
     expect(forkCalls[0]!.conversationId).toBe("src-conv-1");
+  });
+
+  test("dormant source beyond the sweep lookback: completed as a no-op, both pointers untouched", async () => {
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      lastMessageAt: Date.now() - 8 * 24 * 60 * 60 * 1000,
+    };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("source_dormant");
+    expect(stateUpserts).toHaveLength(0);
+    expect(lastRunAtBumps).toHaveLength(0);
+    expect(wakeCalls).toHaveLength(0);
+    expect(forkCalls).toHaveLength(0);
+  });
+
+  test("recent source inside the sweep lookback runs normally", async () => {
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      lastMessageAt: Date.now() - 60_000,
+    };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
   });
 
   test("no-new-messages early return: neither field changes, no wake, no fork", async () => {

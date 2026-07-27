@@ -144,16 +144,35 @@ describe("file_write tool (sandbox)", () => {
     expect(readFileSync(filePath, "utf-8")).toBe("deep content");
   });
 
-  test("blocks path traversal escape", async () => {
+  test("writes outside the workspace boundary (non-containerized)", async () => {
     const dir = makeTempDir();
+    const outside = makeTempDir();
+    const target = join(outside, "escape.txt");
 
     const result = await fileWriteTool.execute(
-      { path: "../../escape.txt", content: "escaped" },
+      { path: target, content: "escaped" },
       makeContext(dir),
     );
 
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("outside the working directory");
+    expect(result.isError).toBe(false);
+    expect(readFileSync(target, "utf-8")).toBe("escaped");
+  });
+
+  test("blocks path traversal escape when containerized", async () => {
+    const dir = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+    try {
+      const result = await fileWriteTool.execute(
+        { path: "../../escape.txt", content: "escaped" },
+        makeContext(dir),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("outside the working directory");
+      expect(result.content).toContain("host_file_write");
+    } finally {
+      delete process.env.IS_CONTAINERIZED;
+    }
   });
 
   test("blocks oversize content", async () => {

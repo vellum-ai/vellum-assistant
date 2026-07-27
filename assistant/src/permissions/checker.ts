@@ -53,6 +53,7 @@ import {
 import {
   isPathWithinWorkspaceRoot,
   isWorkspaceScopedInvocation,
+  resolveSandboxBase,
 } from "./workspace-policy.js";
 
 // ── Risk classification cache ────────────────────────────────────────────────
@@ -155,7 +156,7 @@ function fileToolFsStateKey(
     return undefined;
   }
   const resolved = resolveFileToolPaths(toolName, input, workingDir);
-  return `${resolved.resolvedPath ?? ""}\0${resolved.resolvedTransferDestPath ?? ""}`;
+  return `${resolved.resolvedPath ?? ""}\0${resolved.resolvedTransferDestPath ?? ""}\0${resolved.resolvedWorkingDir ?? ""}`;
 }
 
 /** Clear the risk classification cache. Called when trust rules change. Exported for test setup. */
@@ -389,25 +390,6 @@ function buildFileContext(): FileContext {
  * filesystem this process cannot see (e.g. host_file paths proxied to a remote
  * client), so this never regresses below today's lexical behavior.
  */
-// The Docker sandbox mounts the workspace at /workspace, and the model emits
-// container-scoped paths (e.g. "/workspace/tools/evil.ts") even on local turns.
-// Mirror the gateway's resolveSandboxPath remap so the symlink-resolved path we
-// forward lines up with the gateway's lexical fallback and the protected dirs.
-const CONTAINER_WORKSPACE_PREFIX = "/workspace/";
-const CONTAINER_WORKSPACE_EXACT = "/workspace";
-
-function resolveSandboxBase(rawPath: string, workingDir: string): string {
-  let effectivePath = rawPath;
-  if (!rawPath.startsWith(workingDir + "/") && rawPath !== workingDir) {
-    if (rawPath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
-      effectivePath = rawPath.slice(CONTAINER_WORKSPACE_PREFIX.length);
-    } else if (rawPath === CONTAINER_WORKSPACE_EXACT) {
-      effectivePath = ".";
-    }
-  }
-  return resolve(workingDir, effectivePath);
-}
-
 function resolveClassificationPath(
   filePath: string,
   workingDir: string,
@@ -441,6 +423,13 @@ interface FileToolResolution {
   effectiveWorkingDir: string;
   isHostTool: boolean;
   resolvedPath?: string;
+  /**
+   * Symlink-canonicalized working dir for sandbox file tools, paired with
+   * `resolvedPath` so the gateway's workspace-boundary check compares
+   * canonical against canonical (a symlinked workspace prefix, e.g. macOS
+   * /var → /private/var, must not read as an escape). Unset for host tools.
+   */
+  resolvedWorkingDir?: string;
   transferSandboxDestPath?: string;
   transferSandboxWorkingDir?: string;
   resolvedTransferDestPath?: string;
@@ -490,6 +479,9 @@ function resolveFileToolPaths(
       effectiveWorkingDir,
       isHostTool,
     ),
+    resolvedWorkingDir: isHostTool
+      ? undefined
+      : resolveRealPath(effectiveWorkingDir),
     transferSandboxDestPath,
     transferSandboxWorkingDir,
     // The to_sandbox destination is a workspace write — symlink-resolve it too
@@ -573,7 +565,9 @@ function buildClassifyRiskParams(
       tool: toolName,
       path: resolved.filePath,
       resolvedPath: resolved.resolvedPath,
+      resolvedWorkingDir: resolved.resolvedWorkingDir,
       workingDir: resolved.effectiveWorkingDir,
+      isContainerized: getIsContainerized(),
       fileContext: buildFileContext(),
       transferSandboxDestPath: resolved.transferSandboxDestPath,
       transferSandboxWorkingDir: resolved.transferSandboxWorkingDir,

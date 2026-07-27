@@ -153,8 +153,9 @@ export interface PendingInteractionsSnapshot {
 }
 
 /**
- * Raw values the UI uses to decide avatar ring + thinking dots visibility.
- * No derived wrappers — these are the exact booleans the render path reads.
+ * Raw values the UI uses to decide thinking-dots visibility and the
+ * character-avatar busy morph. No derived wrappers — these are the exact
+ * booleans the render path reads.
  */
 export interface ChatDebugStreamingRing {
   isAssistantBusy: boolean;
@@ -311,7 +312,8 @@ export interface ChatDebugApi {
    */
   thinkingIndicator(): ChatDebugThinkingIndicator;
   /**
-   * Raw values the UI uses to decide avatar ring + thinking dots visibility.
+   * Raw values the UI uses to decide thinking-dots visibility and the
+   * character-avatar busy morph.
    * Returns `isAssistantBusy`, `shouldShowThinkingIndicator`, and
    * `activeConversationIsProcessing` directly — no derived wrappers.
    *
@@ -815,7 +817,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
-      "  .streamingRing()           raw values for avatar ring + thinking dots — .isAssistantBusy / .shouldShowThinkingIndicator / .activeConversationIsProcessing",
+      "  .streamingRing()           raw values for thinking dots + avatar busy morph — .isAssistantBusy / .shouldShowThinkingIndicator / .activeConversationIsProcessing",
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
       "  .serverMessages()          [experimental] fetch /v1/history and return the server snapshot response (messages + seq)",
       "                              (diff against getClientMessages() manually in the console)",

@@ -60,6 +60,10 @@ function resetAuditCalls(): void {
   auditCalls.prompted.length = 0;
 }
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import {
   mintGrantFromDecision,
   type MintGrantParams,
@@ -554,6 +558,70 @@ describe("isSensitiveTool", () => {
     ).toBe(false);
     // Without input, skill_load falls back to the name/target rule.
     expect(isSensitiveTool("skill_load", "sandbox")).toBe(false);
+  });
+
+  test("an out-of-workspace file_read is sensitive; an in-workspace one is not", () => {
+    const workingDir = mkdtempSync(join(tmpdir(), "sensitive-tool-test-"));
+    try {
+      // Out-of-workspace file access is host-equivalent: the host-fallback
+      // path policy executes the escape, so it carries the host capability
+      // floor even for the read-only sandbox tool.
+      expect(
+        isSensitiveTool(
+          "file_read",
+          "sandbox",
+          { path: "/etc/hosts" },
+          workingDir,
+        ),
+      ).toBe(true);
+      expect(
+        isSensitiveTool(
+          "file_read",
+          "sandbox",
+          { path: "notes.txt" },
+          workingDir,
+        ),
+      ).toBe(false);
+      // `path` is the executed field — a benign `file_path` must not mask it.
+      expect(
+        isSensitiveTool(
+          "file_read",
+          "sandbox",
+          { path: "/etc/hosts", file_path: "notes.txt" },
+          workingDir,
+        ),
+      ).toBe(true);
+      // Container-style /workspace paths remap to the workspace.
+      expect(
+        isSensitiveTool(
+          "file_read",
+          "sandbox",
+          { path: "/workspace/notes.txt" },
+          workingDir,
+        ),
+      ).toBe(false);
+      // Without a workingDir the boundary is unknown — name/target rule only.
+      expect(
+        isSensitiveTool("file_read", "sandbox", { path: "/etc/hosts" }),
+      ).toBe(false);
+      // Containerized installs keep the hard execution boundary, so the
+      // escape never executes and does not need the floor.
+      process.env.IS_CONTAINERIZED = "true";
+      try {
+        expect(
+          isSensitiveTool(
+            "file_read",
+            "sandbox",
+            { path: "/etc/hosts" },
+            workingDir,
+          ),
+        ).toBe(false);
+      } finally {
+        delete process.env.IS_CONTAINERIZED;
+      }
+    } finally {
+      rmSync(workingDir, { recursive: true, force: true });
+    }
   });
 });
 
