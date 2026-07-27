@@ -20,63 +20,62 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { resolveScheduleBindingUpdate } from "../../schedule/skill-binding.js";
-import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
-import { VALID_MODES, VALID_ROUTING_INTENTS } from "./create.js";
+
+const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
+const VALID_ROUTING_INTENTS: RoutingIntent[] = [
+  "single_channel",
+  "multi_channel",
+  "all_channels",
+];
 
 /**
- * Model-input schema. Every field except `job_id` is a delta — present means
- * "apply this change" — so the schema validates types and enum membership
- * only, and the executor keeps its presence-driven update logic on the parsed
- * values. Fields where `null` means "clear the override" (`timezone`,
- * `script`, `skill_id`, `workflow_name`, `timeout_ms`, `inference_profile`)
- * are nullable; `fire_at` is presence-only (the executor never reads its
- * value, only rejects a one-shot/recurring conversion). `activity` is
- * status-only and never read here, so a malformed value degrades instead of
- * failing the call.
+ * Model-input schema, `safeParse`d at the top of {@link executeScheduleUpdate}.
+ * Same in-tool pattern and drift guard as {@link scheduleCreateInputSchema}
+ * in `create.ts` — see that schema's doc comment for the framework.
+ *
+ * Update-specific tolerance notes:
+ *
+ * - Presence semantics matter here (`input.x !== undefined` gates every
+ *   update), so fields are plain `.optional()` — no null-to-omitted
+ *   preprocessing that would silently turn an explicit update into a no-op.
+ * - `timezone` and `script` are nullable at runtime though advertised as
+ *   plain strings: `updateSchedule` persists null as "clear this field".
+ * - `timeout_ms` / `inference_profile` advertise null (it reverts to the
+ *   default); the executor's bespoke handling stays.
+ * - `mode`, `routing_intent`, `then_execute`, `skill_id`, `workflow_name`,
+ *   and `workflow_args` are deliberately UNDECLARED (loose passthrough):
+ *   the first two keep bespoke `VALID_*` errors; the binding fields
+ *   (`then_execute`, `skill_id`) and `workflow_name` have bespoke coercion
+ *   semantics (`=== true`, typeof-guarded null fallbacks, empty-string
+ *   unbind) inside `resolveScheduleBindingUpdate` and the workflow-name
+ *   resolution below; `workflow_args` accepts any JSON value.
  */
 export const scheduleUpdateInputSchema = z.looseObject({
-  job_id: z
-    .string({ message: "job_id is required" })
-    .min(1, { message: "job_id is required" }),
+  job_id: nullAsOmitted(z.string()),
   name: z.string().optional(),
   description: z.string().optional(),
-  syntax: z.enum(["cron", "rrule"]).nullish(),
+  syntax: z.enum(["cron", "rrule"]).optional(),
   expression: z.string().optional(),
-  fire_at: z.unknown(),
   timezone: z.string().nullable().optional(),
   message: z.string().optional(),
   script: z.string().nullable().optional(),
-  then_execute: z.boolean().optional(),
-  skill_id: z.string().nullable().optional(),
   enabled: z.boolean().optional(),
-  mode: z
-    .enum(VALID_MODES, {
-      message: `mode must be one of: ${VALID_MODES.join(", ")}`,
-    })
-    .optional(),
-  workflow_name: z.string().nullable().optional(),
-  workflow_args: z.unknown(),
-  routing_intent: z
-    .enum(VALID_ROUTING_INTENTS, {
-      message: `routing_intent must be one of: ${VALID_ROUTING_INTENTS.join(", ")}`,
-    })
-    .optional(),
-  routing_hints: z.record(z.string(), z.unknown()).nullish(),
+  routing_hints: z.looseObject({}).nullable().optional(),
   quiet: z.boolean().optional(),
   reuse_conversation: z.boolean().optional(),
-  max_retries: z.number().optional(),
-  retry_backoff_ms: z.number().optional(),
-  timeout_ms: z.number().nullable().optional(),
-  inference_profile: z
-    .string({ message: "inference_profile must be a string or null" })
-    .nullable()
-    .optional(),
-  activity: z.string().optional().catch(undefined),
+  max_retries: z.int().optional(),
+  retry_backoff_ms: z.int().optional(),
+  timeout_ms: z.int().nullable().optional(),
+  inference_profile: z.string().nullable().optional(),
 });
 
 export async function executeScheduleUpdate(
-  rawInput: Record<string, unknown>,
+  input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   if (!resolveCapabilities(context.trustClass).canManageSchedules) {
@@ -86,21 +85,26 @@ export async function executeScheduleUpdate(
       isError: true,
     };
   }
-  const parsed = scheduleUpdateInputSchema.safeParse(rawInput);
-  if (!parsed.success) {
-    return invalidToolInputResult("schedule_update", parsed.error);
+  const parsedInput = scheduleUpdateInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("schedule_update", parsedInput.error);
   }
-  const input = parsed.data;
-  const jobId = input.job_id;
+  const parsed = parsedInput.data;
 
-  // Prevent changing a one-shot to recurring or vice versa
-  if (input.expression !== undefined || input.fire_at !== undefined) {
+  const jobId = parsed.job_id;
+  if (!jobId) {
+    return { content: "Error: job_id is required", isError: true };
+  }
+
+  // Prevent changing a one-shot to recurring or vice versa. (`fire_at` is
+  // not an advertised update field, so it stays a raw-input read.)
+  if (parsed.expression !== undefined || input.fire_at !== undefined) {
     const existing = getSchedule(jobId);
     if (!existing) {
       return { content: `Error: Schedule not found: ${jobId}`, isError: true };
     }
     const isExistingOneShot = existing.expression == null;
-    if (isExistingOneShot && input.expression !== undefined) {
+    if (isExistingOneShot && parsed.expression !== undefined) {
       return {
         content:
           "Error: Cannot change a one-shot schedule to recurring. Delete and recreate instead.",
@@ -116,34 +120,12 @@ export async function executeScheduleUpdate(
     }
   }
 
-  const updates: {
-    name?: string;
-    description?: string;
-    cronExpression?: string;
-    timezone?: string | null;
-    message?: string;
-    script?: string | null;
-    thenExecute?: boolean;
-    skillId?: string | null;
-    skillVersionHash?: string | null;
-    enabled?: boolean;
-    syntax?: ScheduleSyntax;
-    expression?: string;
-    mode?: ScheduleMode;
-    routingIntent?: RoutingIntent;
-    routingHints?: Record<string, unknown>;
-    quiet?: boolean;
-    reuseConversation?: boolean;
-    maxRetries?: number;
-    retryBackoffMs?: number;
-    timeoutMs?: number | null;
-    workflowName?: string | null;
-    workflowArgs?: unknown;
-    inferenceProfile?: string | null;
-  } = {};
-  if (input.name !== undefined) updates.name = input.name;
-  if (input.description !== undefined) {
-    const description = input.description;
+  const updates: Record<string, unknown> = {};
+  if (parsed.name !== undefined) {
+    updates.name = parsed.name;
+  }
+  if (parsed.description !== undefined) {
+    const description = parsed.description;
     if (description.trim().length === 0) {
       return {
         content: "Error: description must be a non-empty string when provided",
@@ -152,10 +134,18 @@ export async function executeScheduleUpdate(
     }
     updates.description = description;
   }
-  if (input.timezone !== undefined) updates.timezone = input.timezone;
-  if (input.message !== undefined) updates.message = input.message;
-  if (input.script !== undefined) updates.script = input.script;
-  if (input.enabled !== undefined) updates.enabled = input.enabled;
+  if (parsed.timezone !== undefined) {
+    updates.timezone = parsed.timezone;
+  }
+  if (parsed.message !== undefined) {
+    updates.message = parsed.message;
+  }
+  if (parsed.script !== undefined) {
+    updates.script = parsed.script;
+  }
+  if (parsed.enabled !== undefined) {
+    updates.enabled = parsed.enabled;
+  }
 
   // Validate the handoff whenever the toggle or the action prompt moves.
   // `message` matters because it becomes the handoff's trusted postamble:
@@ -164,7 +154,7 @@ export async function executeScheduleUpdate(
   if (
     input.then_execute !== undefined ||
     input.skill_id !== undefined ||
-    input.message !== undefined
+    parsed.message !== undefined
   ) {
     const existing = getSchedule(jobId);
     if (!existing) {
@@ -176,8 +166,12 @@ export async function executeScheduleUpdate(
       ...(input.then_execute !== undefined
         ? { thenExecute: input.then_execute === true }
         : {}),
-      ...(input.skill_id !== undefined ? { skillId: input.skill_id } : {}),
-      ...(input.message !== undefined ? { message: input.message } : {}),
+      ...(input.skill_id !== undefined
+        ? {
+            skillId: typeof input.skill_id === "string" ? input.skill_id : null,
+          }
+        : {}),
+      ...(parsed.message !== undefined ? { message: parsed.message } : {}),
     });
     if (!binding.ok) {
       return { content: `Error: ${binding.error}`, isError: true };
@@ -185,94 +179,113 @@ export async function executeScheduleUpdate(
     Object.assign(updates, binding.updates);
   }
 
-  // Mode pass-through (enum membership enforced by the schema)
+  // Mode validation and pass-through
   if (input.mode !== undefined) {
-    updates.mode = input.mode;
+    const mode = input.mode as ScheduleMode;
+    if (!VALID_MODES.includes(mode)) {
+      return {
+        content: `Error: mode must be one of: ${VALID_MODES.join(", ")}`,
+        isError: true,
+      };
+    }
+    updates.mode = mode;
   }
 
   // Workflow fields pass-through (validated against the resulting mode below)
   if (input.workflow_name !== undefined) {
-    updates.workflowName = input.workflow_name?.trim() ?? null;
+    updates.workflowName =
+      typeof input.workflow_name === "string"
+        ? input.workflow_name.trim()
+        : null;
   }
   if (input.workflow_args !== undefined) {
     updates.workflowArgs = input.workflow_args;
   }
 
-  // Routing intent pass-through (enum membership enforced by the schema)
+  // Routing intent validation and pass-through
   if (input.routing_intent !== undefined) {
-    updates.routingIntent = input.routing_intent;
+    const routingIntent = input.routing_intent as RoutingIntent;
+    if (!VALID_ROUTING_INTENTS.includes(routingIntent)) {
+      return {
+        content: `Error: routing_intent must be one of: ${VALID_ROUTING_INTENTS.join(", ")}`,
+        isError: true,
+      };
+    }
+    updates.routingIntent = routingIntent;
   }
 
   // Routing hints pass-through
-  if (input.routing_hints != null) {
-    updates.routingHints = input.routing_hints;
+  if (parsed.routing_hints !== undefined) {
+    updates.routingHints = parsed.routing_hints;
   }
 
   // Quiet mode
-  if (input.quiet !== undefined) {
-    updates.quiet = input.quiet;
+  if (parsed.quiet !== undefined) {
+    updates.quiet = parsed.quiet;
   }
 
   // Conversation reuse
-  if (input.reuse_conversation !== undefined) {
-    updates.reuseConversation = input.reuse_conversation;
+  if (parsed.reuse_conversation !== undefined) {
+    updates.reuseConversation = parsed.reuse_conversation;
   }
 
   // Retry policy
-  if (input.max_retries !== undefined) {
-    updates.maxRetries = input.max_retries;
+  if (parsed.max_retries !== undefined) {
+    updates.maxRetries = parsed.max_retries;
   }
-  if (input.retry_backoff_ms !== undefined) {
-    updates.retryBackoffMs = input.retry_backoff_ms;
+  if (parsed.retry_backoff_ms !== undefined) {
+    updates.retryBackoffMs = parsed.retry_backoff_ms;
   }
 
   // Inference profile override (null clears it, reverting to the default
   // main-agent model selection)
-  if (input.inference_profile !== undefined) {
-    if (input.inference_profile === null) {
+  if (parsed.inference_profile !== undefined) {
+    if (parsed.inference_profile === null) {
       updates.inferenceProfile = null;
     } else {
       const profileError = validateScheduleInferenceProfile(
-        input.inference_profile,
+        parsed.inference_profile,
       );
       if (profileError) {
         return { content: `Error: ${profileError}`, isError: true };
       }
-      updates.inferenceProfile = input.inference_profile;
+      updates.inferenceProfile = parsed.inference_profile;
     }
   }
 
   // Script execution timeout override (null clears it, reverting to default)
-  if (input.timeout_ms !== undefined) {
-    if (input.timeout_ms === null) {
+  if (parsed.timeout_ms !== undefined) {
+    if (parsed.timeout_ms === null) {
       updates.timeoutMs = null;
     } else {
-      const timeoutError = validateScriptTimeoutMs(input.timeout_ms);
+      const timeoutError = validateScriptTimeoutMs(parsed.timeout_ms);
       if (timeoutError) {
         return { content: `Error: ${timeoutError}`, isError: true };
       }
-      updates.timeoutMs = input.timeout_ms;
+      updates.timeoutMs = parsed.timeout_ms;
     }
   }
 
   // Auto-detect syntax when expression changes without explicit syntax
-  if (input.expression !== undefined || input.syntax !== undefined) {
+  if (parsed.expression !== undefined || parsed.syntax !== undefined) {
     const resolved = normalizeScheduleSyntax({
-      syntax: input.syntax ?? undefined,
-      expression: input.expression,
+      syntax: parsed.syntax,
+      expression: parsed.expression,
     });
     if (resolved) {
       updates.syntax = resolved.syntax;
       updates.expression = resolved.expression;
-    } else if (input.expression !== undefined) {
-      updates.expression = input.expression;
-      const detected = detectScheduleSyntax(input.expression);
-      if (detected) updates.syntax = detected;
+    } else if (parsed.expression !== undefined) {
+      updates.expression = parsed.expression;
+      const detected = detectScheduleSyntax(parsed.expression);
+      if (detected) {
+        updates.syntax = detected;
+      }
     }
     // When only syntax is provided (no expression), normalizeScheduleSyntax returns null
     // but we still need to persist the explicit syntax value.
-    if (input.syntax != null && updates.syntax === undefined) {
-      updates.syntax = input.syntax;
+    if (parsed.syntax !== undefined && updates.syntax === undefined) {
+      updates.syntax = parsed.syntax;
     }
   }
 
@@ -294,11 +307,11 @@ export async function executeScheduleUpdate(
     const existing = getSchedule(jobId);
     if (existing) {
       const resultingMode =
-        updates.mode !== undefined ? updates.mode : existing.mode;
+        updates.mode !== undefined ? (updates.mode as string) : existing.mode;
       if (resultingMode === "workflow") {
         const resultingWorkflowName =
           updates.workflowName !== undefined
-            ? (updates.workflowName ?? "")
+            ? ((updates.workflowName as string | null) ?? "")
             : (existing.workflowName ?? "");
         if (!resultingWorkflowName) {
           return {
@@ -312,10 +325,13 @@ export async function executeScheduleUpdate(
   }
 
   // Set-aware pre-validation for RRULE expressions
-  const effectiveSyntax = updates.syntax;
-  const effectiveExpr = updates.expression ?? updates.cronExpression;
+  const effectiveSyntax = updates.syntax as string | undefined;
+  const effectiveExpr =
+    (updates.expression as string | undefined) ??
+    (updates.cronExpression as string | undefined);
   if (
     effectiveExpr &&
+    typeof effectiveExpr === "string" &&
     (effectiveSyntax === "rrule" || /^(DTSTART|RRULE:)/m.test(effectiveExpr))
   ) {
     const setError = validateRruleSetLines(effectiveExpr);
@@ -328,7 +344,34 @@ export async function executeScheduleUpdate(
   }
 
   try {
-    const job = await updateSchedule(jobId, updates);
+    const job = await updateSchedule(
+      jobId,
+      updates as {
+        name?: string;
+        description?: string;
+        cronExpression?: string;
+        timezone?: string | null;
+        message?: string;
+        script?: string | null;
+        thenExecute?: boolean;
+        skillId?: string | null;
+        skillVersionHash?: string | null;
+        enabled?: boolean;
+        syntax?: ScheduleSyntax;
+        expression?: string;
+        mode?: ScheduleMode;
+        routingIntent?: RoutingIntent;
+        routingHints?: Record<string, unknown>;
+        quiet?: boolean;
+        reuseConversation?: boolean;
+        maxRetries?: number;
+        retryBackoffMs?: number;
+        timeoutMs?: number | null;
+        workflowName?: string | null;
+        workflowArgs?: unknown;
+        inferenceProfile?: string | null;
+      },
+    );
 
     if (!job) {
       return { content: `Error: Schedule not found: ${jobId}`, isError: true };

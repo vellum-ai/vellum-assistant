@@ -48,6 +48,17 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => ASSISTANT_ID,
 }));
 
+// Platform-id resolution is effect-driven and never settles under
+// renderToStaticMarkup; resolve it synchronously so the managed form
+// (and the entitlement gate under test) renders.
+mock.module("@/hooks/use-platform-assistant-id", () => ({
+  usePlatformAssistantId: () => ({
+    platformAssistantId: ASSISTANT_ID,
+    isLoading: false,
+    error: null,
+  }),
+}));
+
 const { EmailServiceCard } = await import("@/domains/settings/ai/email-service-card");
 
 const ASSISTANT_HANDLE = "my-assistant";

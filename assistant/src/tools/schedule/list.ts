@@ -8,26 +8,20 @@ import {
   getScheduleRuns,
   listSchedules,
 } from "../../schedule/schedule-store.js";
-import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
-
-/**
- * Model-input schema — both fields optional: `job_id` switches to detail
- * mode, `enabled_only` filters the list. `activity` is status-only and never
- * read here, so a malformed value degrades instead of failing the call.
- */
-export const scheduleListInputSchema = z.looseObject({
-  job_id: z.string().nullish(),
-  enabled_only: z.boolean().nullish(),
-  activity: z.string().optional().catch(undefined),
-});
 
 function describeSchedule(job: {
   syntax: string;
   expression: string | null;
   cronExpression: string | null;
 }): string {
-  if (job.expression == null) return "One-time";
+  if (job.expression == null) {
+    return "One-time";
+  }
   if (job.syntax === "rrule") {
     const label = hasSetConstructs(job.expression) ? "[RRULE set] " : "";
     return `${label}${job.expression}`;
@@ -43,16 +37,26 @@ function describeAuthoredPurpose(job: { description: string }): string {
   return job.description || "(none)";
 }
 
+/**
+ * Model-input schema, `safeParse`d at the top of {@link executeScheduleList}.
+ * Same in-tool pattern and drift guard as {@link scheduleCreateInputSchema}
+ * in `create.ts` — see that schema's doc comment for the framework.
+ */
+export const scheduleListInputSchema = z.looseObject({
+  enabled_only: nullAsOmitted(z.boolean()),
+  job_id: nullAsOmitted(z.string()),
+});
+
 export async function executeScheduleList(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const parsed = scheduleListInputSchema.safeParse(input);
-  if (!parsed.success) {
-    return invalidToolInputResult("schedule_list", parsed.error);
+  const parsedInput = scheduleListInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("schedule_list", parsedInput.error);
   }
-  const jobId = parsed.data.job_id;
-  const enabledOnly = parsed.data.enabled_only ?? false;
+  const jobId = parsedInput.data.job_id;
+  const enabledOnly = parsedInput.data.enabled_only ?? false;
 
   // Detail mode for a specific job
   if (jobId) {

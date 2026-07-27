@@ -38,18 +38,14 @@ describe("recoveryActionForCloseCode", () => {
     }
   });
 
-  test("treats a normal close as session-invalidating", () => {
-    // Discord's rule names 1000: closing with it tells Discord the client is
-    // finished with the session, so a resume after one cannot succeed.
-    expect(recoveryActionForCloseCode(1000)).toBe("identify");
-  });
-
-  test("resumes after 1001 Going Away", () => {
+  test("resumes after a received 1000 or 1001", () => {
     // Discord's invalidation rule governs closes the client *sends*, not ones
-    // it receives, so a received 1001 leaves the session intact — typically an
-    // intermediary or a draining node. Resuming is the documented behaviour
-    // here, not a heuristic, and a resume against a session that did die still
+    // it receives, so a received 1000/1001 leaves the session intact —
+    // typically an intermediary or a draining node. The client's own
+    // deliberate 1000 never reaches this taxonomy (shutdown tears the client
+    // down directly), and a resume against a session that did die still
     // degrades safely through op 9 to IDENTIFY.
+    expect(recoveryActionForCloseCode(1000)).toBe("resume");
     expect(recoveryActionForCloseCode(1001)).toBe("resume");
   });
 

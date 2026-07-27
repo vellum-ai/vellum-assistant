@@ -2024,86 +2024,192 @@ describe("script handoff validation", () => {
   });
 });
 
-// ── Input schema validation (LUM-2797) ──────────────────────────────
+// ── model-input schema validation (LUM-2853) ────────────────────────
 
-describe("schedule tools input schema validation", () => {
+describe("schedule tools — model-input schema validation", () => {
   beforeEach(() => {
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
 
-  test("valid create input with junk in the status-only activity field still parses", async () => {
+  test("schedule_create rejects a mistyped field instead of persisting it", async () => {
     const result = await executeScheduleCreate(
       {
-        name: "Activity junk",
+        name: "Bad timezone",
         expression: "0 9 * * *",
-        message: "test",
-        activity: null,
+        message: "hi",
+        timezone: 42,
       },
       ctx,
     );
-    expect(result.isError).toBe(false);
-  });
 
-  test("create rejects a malformed enabled flag with a retryable error", async () => {
-    const result = await executeScheduleCreate(
-      {
-        name: "Bad enabled",
-        expression: "0 9 * * *",
-        message: "test",
-        enabled: "yes",
-      },
-      ctx,
-    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain(
       'Invalid input for tool "schedule_create"',
     );
-    expect(result.content).toContain("enabled");
-    expect(result.content).toContain("retry");
+    expect(result.content).toContain("timezone");
+    const count = getRawDb()
+      .query("SELECT COUNT(*) as n FROM cron_jobs")
+      .get() as { n: number };
+    expect(count.n).toBe(0);
   });
 
-  test("create rejects a non-numeric max_retries with a retryable error", async () => {
+  test("schedule_create rejects a non-integer retry policy", async () => {
     const result = await executeScheduleCreate(
       {
         name: "Bad retries",
         expression: "0 9 * * *",
-        message: "test",
-        max_retries: "three",
+        message: "hi",
+        max_retries: "five",
       },
       ctx,
     );
+
     expect(result.isError).toBe(true);
     expect(result.content).toContain("max_retries");
   });
 
-  test("update rejects a non-string job_id with a retryable error", async () => {
-    const result = await executeScheduleUpdate({ job_id: 42 }, ctx);
+  test("schedule_create rejects an unknown syntax value instead of persisting it", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Bad syntax",
+        expression: "0 9 * * *",
+        syntax: "daily",
+        message: "hi",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("syntax");
+  });
+
+  test("schedule_create treats explicit null as an omitted optional", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Null tolerance",
+        expression: "0 9 * * *",
+        message: "hi",
+        timezone: null,
+        enabled: null,
+        quiet: null,
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain("Enabled: true");
+  });
+
+  test("schedule_create still silently ignores a malformed skill_id", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Ignored skill_id",
+        expression: "0 9 * * *",
+        message: "hi",
+        skill_id: 42,
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBeFalsy();
+  });
+
+  test("schedule_create keeps the bespoke error for a non-string mode", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Bad mode",
+        expression: "0 9 * * *",
+        message: "hi",
+        mode: 42,
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("mode must be one of");
+  });
+
+  test("schedule_create passes unknown keys through (loose schema)", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Loose keys",
+        expression: "0 9 * * *",
+        message: "hi",
+        activity: "creating a schedule",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBeFalsy();
+  });
+
+  test("schedule_update rejects a mistyped field", async () => {
+    const create = await executeScheduleCreate(
+      { name: "To update", expression: "0 9 * * *", message: "hi" },
+      ctx,
+    );
+    expect(create.isError).toBeFalsy();
+    const jobId = (
+      getRawDb().query("SELECT id FROM cron_jobs").get() as { id: string }
+    ).id;
+
+    const result = await executeScheduleUpdate(
+      { job_id: jobId, max_retries: 2.5 },
+      ctx,
+    );
+
     expect(result.isError).toBe(true);
     expect(result.content).toContain(
       'Invalid input for tool "schedule_update"',
     );
-    expect(result.content).toContain("job_id is required");
+    expect(result.content).toContain("max_retries");
   });
 
-  test("delete rejects a non-string job_id with a retryable error", async () => {
+  test("schedule_update still clears timezone with an explicit null", async () => {
+    const create = await executeScheduleCreate(
+      {
+        name: "Tz clear",
+        expression: "0 9 * * *",
+        message: "hi",
+        timezone: "America/Los_Angeles",
+      },
+      ctx,
+    );
+    expect(create.isError).toBeFalsy();
+    const jobId = (
+      getRawDb().query("SELECT id FROM cron_jobs").get() as { id: string }
+    ).id;
+
+    const result = await executeScheduleUpdate(
+      { job_id: jobId, timezone: null },
+      ctx,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const row = getRawDb()
+      .query("SELECT timezone FROM cron_jobs WHERE id = ?")
+      .get(jobId) as { timezone: string | null };
+    expect(row.timezone).toBeNull();
+  });
+
+  test("schedule_list rejects a mistyped enabled_only and tolerates null", async () => {
+    const bad = await executeScheduleList({ enabled_only: "yes" }, ctx);
+    expect(bad.isError).toBe(true);
+    expect(bad.content).toContain('Invalid input for tool "schedule_list"');
+
+    const ok = await executeScheduleList(
+      { enabled_only: null, job_id: null },
+      ctx,
+    );
+    expect(ok.isError).toBeFalsy();
+  });
+
+  test("schedule_delete rejects a mistyped job_id", async () => {
     const result = await executeScheduleDelete({ job_id: 42 }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain(
       'Invalid input for tool "schedule_delete"',
     );
-    expect(result.content).toContain("job_id is required");
-  });
-
-  test("list rejects a malformed enabled_only with a retryable error", async () => {
-    const result = await executeScheduleList({ enabled_only: "yes" }, ctx);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('Invalid input for tool "schedule_list"');
-    expect(result.content).toContain("enabled_only");
-  });
-
-  test("list with junk in the status-only activity field still parses", async () => {
-    const result = await executeScheduleList({ activity: 7 }, ctx);
-    expect(result.isError).toBe(false);
   });
 });

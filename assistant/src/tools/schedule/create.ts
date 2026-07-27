@@ -21,63 +21,61 @@ import {
   CapabilityManifestSchema,
   resolveCapabilities as resolveWorkflowCapabilities,
 } from "../../workflows/capabilities.js";
-import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-export const VALID_MODES = [
-  "notify",
-  "execute",
-  "script",
-  "workflow",
-] as const satisfies readonly ScheduleMode[];
-export const VALID_ROUTING_INTENTS = [
+const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
+const VALID_ROUTING_INTENTS: RoutingIntent[] = [
   "single_channel",
   "multi_channel",
   "all_channels",
-] as const satisfies readonly RoutingIntent[];
+];
 
 /**
- * Model-input schema. Validates field types and enum membership only; the
- * cross-field rules (mode-specific requirements, expression vs fire_at,
- * cron/RRULE syntax) stay in the executor body, which reads the parsed
- * values instead of casting raw input. `activity` is status-only and never
- * read here, so a malformed value degrades instead of failing the call.
+ * Model-input schema, `safeParse`d at the top of {@link executeScheduleCreate}.
+ * Skill-owned tools are skipped by the central `TOOL_INPUT_SCHEMAS` gate, so
+ * validation lives in the executor (`ask_question` pre-registry precedent);
+ * the advertised `input_schema` stays hand-written in the schedule skill's
+ * `TOOLS.json`, and `schedule-tool-input-schemas.test.ts` guards the two
+ * against structural drift.
+ *
+ * Tolerance matches the executor's own reads — this schema only rejects
+ * values the executor would otherwise pass into the store unchecked:
+ *
+ * - `nullAsOmitted` on optionals read via `?? fallback`, where null and
+ *   absent are equivalent.
+ * - `.catch(undefined)` on `skill_id` / `workflow_name`, which the executor
+ *   silently coerces to null when malformed.
+ * - `mode`, `routing_intent`, `capabilities`, and `workflow_args` are
+ *   deliberately UNDECLARED (loose passthrough): the first two keep their
+ *   bespoke `VALID_*` error messages, `capabilities` must reach
+ *   `CapabilityManifestSchema` (and the `requireFreshApproval` promotion in
+ *   `executor.ts`) unaltered, and `workflow_args` accepts any JSON value the
+ *   workflow runtime accepts.
  */
 export const scheduleCreateInputSchema = z.looseObject({
-  name: z.string().nullish(),
-  description: z.string().nullish(),
-  syntax: z.enum(["cron", "rrule"]).nullish(),
-  expression: z.string().nullish(),
-  fire_at: z.string().nullish(),
-  timezone: z.string().nullish(),
-  message: z.string().nullish(),
-  script: z.string().nullish(),
-  then_execute: z.boolean().nullish(),
-  skill_id: z.string().nullish(),
-  enabled: z.boolean().nullish(),
-  mode: z
-    .enum(VALID_MODES, {
-      message: `mode must be one of: ${VALID_MODES.join(", ")}`,
-    })
-    .nullish(),
-  workflow_name: z.string().nullish(),
-  workflow_args: z.unknown(),
-  capabilities: z.unknown(),
-  routing_intent: z
-    .enum(VALID_ROUTING_INTENTS, {
-      message: `routing_intent must be one of: ${VALID_ROUTING_INTENTS.join(", ")}`,
-    })
-    .optional(),
-  routing_hints: z.record(z.string(), z.unknown()).nullish(),
-  quiet: z.boolean().nullish(),
-  reuse_conversation: z.boolean().nullish(),
-  max_retries: z.number().nullish(),
-  retry_backoff_ms: z.number().nullish(),
-  timeout_ms: z.number().nullish(),
-  inference_profile: z
-    .string({ message: "inference_profile must be a string" })
-    .optional(),
-  activity: z.string().optional().catch(undefined),
+  name: nullAsOmitted(z.string()),
+  description: nullAsOmitted(z.string()),
+  syntax: nullAsOmitted(z.enum(["cron", "rrule"])),
+  expression: nullAsOmitted(z.string()),
+  fire_at: nullAsOmitted(z.string()),
+  timezone: nullAsOmitted(z.string()),
+  message: nullAsOmitted(z.string()),
+  script: nullAsOmitted(z.string()),
+  then_execute: nullAsOmitted(z.boolean()),
+  skill_id: z.string().optional().catch(undefined),
+  enabled: nullAsOmitted(z.boolean()),
+  workflow_name: z.string().optional().catch(undefined),
+  routing_hints: nullAsOmitted(z.looseObject({})),
+  quiet: nullAsOmitted(z.boolean()),
+  reuse_conversation: nullAsOmitted(z.boolean()),
+  max_retries: nullAsOmitted(z.int()),
+  retry_backoff_ms: nullAsOmitted(z.int()),
+  timeout_ms: z.int().optional(),
+  inference_profile: z.string().optional(),
 });
 
 export async function executeScheduleCreate(
@@ -91,36 +89,34 @@ export async function executeScheduleCreate(
       isError: true,
     };
   }
-  const parsed = scheduleCreateInputSchema.safeParse(input);
-  if (!parsed.success) {
-    return invalidToolInputResult("schedule_create", parsed.error);
+  const parsedInput = scheduleCreateInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("schedule_create", parsedInput.error);
   }
-  const name = parsed.data.name;
-  const description = parsed.data.description;
-  const timezone = parsed.data.timezone ?? null;
-  const message = parsed.data.message ?? "";
-  const script = parsed.data.script ?? null;
-  const enabled = parsed.data.enabled ?? true;
-  const fireAt = parsed.data.fire_at;
-  const mode = parsed.data.mode ?? "execute";
-  const routingIntent = parsed.data.routing_intent;
-  const routingHints = parsed.data.routing_hints ?? undefined;
-  const quiet = parsed.data.quiet ?? false;
-  const reuseConversation = parsed.data.reuse_conversation ?? undefined;
-  const maxRetries = parsed.data.max_retries ?? undefined;
-  const retryBackoffMs = parsed.data.retry_backoff_ms ?? undefined;
-  const timeoutMs = parsed.data.timeout_ms ?? undefined;
-  const workflowName =
-    typeof parsed.data.workflow_name === "string"
-      ? parsed.data.workflow_name.trim()
-      : null;
-  const workflowArgs = parsed.data.workflow_args;
-  const inferenceProfile = parsed.data.inference_profile;
-  const thenExecute = parsed.data.then_execute ?? false;
-  const skillId =
-    typeof parsed.data.skill_id === "string"
-      ? parsed.data.skill_id.trim()
-      : null;
+  const parsed = parsedInput.data;
+
+  const name = parsed.name;
+  const description = parsed.description;
+  const timezone = parsed.timezone ?? null;
+  const message = parsed.message ?? "";
+  const script = parsed.script ?? null;
+  const enabled = parsed.enabled ?? true;
+  const fireAt = parsed.fire_at;
+  // mode / routing_intent / workflow_args (and capabilities, read below) stay
+  // raw-input reads: they are undeclared in the schema (see its doc comment).
+  const mode = (input.mode as ScheduleMode | undefined) ?? "execute";
+  const routingIntent = input.routing_intent as string | undefined;
+  const routingHints = parsed.routing_hints;
+  const quiet = parsed.quiet ?? false;
+  const reuseConversation = parsed.reuse_conversation;
+  const maxRetries = parsed.max_retries;
+  const retryBackoffMs = parsed.retry_backoff_ms;
+  const timeoutMs = parsed.timeout_ms;
+  const workflowName = parsed.workflow_name?.trim() ?? null;
+  const workflowArgs = input.workflow_args;
+  const inferenceProfile = parsed.inference_profile;
+  const thenExecute = parsed.then_execute ?? false;
+  const skillId = parsed.skill_id?.trim() ?? null;
 
   // Validated workflow capability manifest, resolved only for workflow mode.
   // Left null for non-workflow modes so `createSchedule` persists no manifest.
@@ -163,6 +159,14 @@ export async function executeScheduleCreate(
     };
   }
 
+  // Validate mode
+  if (!VALID_MODES.includes(mode)) {
+    return {
+      content: `Error: mode must be one of: ${VALID_MODES.join(", ")}`,
+      isError: true,
+    };
+  }
+
   // Mode-specific field validation
   if (mode === "script") {
     if (!script) {
@@ -198,11 +202,9 @@ export async function executeScheduleCreate(
     // declared shape, then run the same forbidden/unknown/host-tool checks
     // resolveCapabilities applies at launch. A side-effecting manifest forces a
     // fresh approval at CREATION (see executor.ts).
-    if (parsed.data.capabilities !== undefined) {
+    if (input.capabilities !== undefined) {
       try {
-        const manifest = CapabilityManifestSchema.parse(
-          parsed.data.capabilities,
-        );
+        const manifest = CapabilityManifestSchema.parse(input.capabilities);
         resolveWorkflowCapabilities(manifest);
         capabilities = manifest;
       } catch (err) {
@@ -214,12 +216,23 @@ export async function executeScheduleCreate(
       }
     }
   } else {
-    if (!message) {
+    if (!message || typeof message !== "string") {
       return {
         content: "Error: message is required and must be a string",
         isError: true,
       };
     }
+  }
+
+  // Validate routing_intent
+  if (
+    routingIntent !== undefined &&
+    !VALID_ROUTING_INTENTS.includes(routingIntent as RoutingIntent)
+  ) {
+    return {
+      content: `Error: routing_intent must be one of: ${VALID_ROUTING_INTENTS.join(", ")}`,
+      isError: true,
+    };
   }
 
   // ── One-shot schedule (fire_at) ──────────────────────────────────
@@ -261,7 +274,7 @@ export async function executeScheduleCreate(
         expression: null,
         nextRunAt: fireAtMs,
         mode,
-        routingIntent,
+        routingIntent: routingIntent as RoutingIntent | undefined,
         routingHints,
         quiet,
         reuseConversation,
@@ -305,8 +318,8 @@ export async function executeScheduleCreate(
 
   // ── Recurring schedule (expression) ──────────────────────────────
   const resolved = normalizeScheduleSyntax({
-    syntax: parsed.data.syntax ?? undefined,
-    expression: parsed.data.expression ?? undefined,
+    syntax: parsed.syntax,
+    expression: parsed.expression,
   });
 
   if (!resolved) {
@@ -353,7 +366,7 @@ export async function executeScheduleCreate(
       syntax: resolved.syntax,
       expression: resolved.expression,
       mode,
-      routingIntent,
+      routingIntent: routingIntent as RoutingIntent | undefined,
       routingHints,
       quiet,
       reuseConversation,

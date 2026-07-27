@@ -47,25 +47,20 @@ const FATAL = new Set([4004, 4010, 4011, 4012, 4013, 4014]);
 const CLIENT_FAULT = new Set([4001, 4002, 4005]);
 
 /**
- * Discord's session-invalidation rule is scoped to closes the *client* sends:
- * closing with 1000 or 1001 invalidates the session, which is why deliberate
- * closes that intend to resume use {@link RESUMABLE_CLOSE_CODE} instead. Zombie
- * kills and clock-jump recovery depend on that.
- *
- * A *received* close carries no such meaning, so 1001 (`Going Away`) is not
- * listed here — it is typically an intermediary or a draining node, and the
- * taxonomy resumes it like any other non-fatal received code.
- *
- * 1000 is retained as the conservative case: it is this client's own shutdown
- * code, so seeing it back generally means a deliberate teardown rather than a
- * recoverable drop.
- */
-const INVALIDATES_SESSION = new Set([1000]);
-
-/**
  * The code this client closes with when it wants the session preserved.
  * 4000 is Discord's "unknown error" — resumable, and outside the 1000/1001
  * range that tells Discord the client is done with the session.
+ *
+ * Discord's session-invalidation rule is scoped to closes the *client* sends:
+ * closing with 1000 or 1001 invalidates the session, which is why deliberate
+ * closes that intend to resume use this code instead. Zombie kills and
+ * clock-jump recovery depend on that.
+ *
+ * A *received* 1000 or 1001 carries no invalidation semantics — it is
+ * typically an intermediary or a draining node — so this taxonomy resumes
+ * both like any other non-fatal received code. The one deliberate outbound
+ * 1000 this client sends is its own shutdown, and that path tears the client
+ * down without ever consulting the taxonomy.
  */
 export const RESUMABLE_CLOSE_CODE = 4000;
 
@@ -89,9 +84,6 @@ export function recoveryActionForCloseCode(
     return "fatal";
   }
   if (REQUIRES_FRESH_IDENTIFY.has(code)) {
-    return "identify";
-  }
-  if (INVALIDATES_SESSION.has(code)) {
     return "identify";
   }
   if (RESUMABLE.has(code)) {

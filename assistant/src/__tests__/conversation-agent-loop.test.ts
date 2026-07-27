@@ -804,7 +804,16 @@ function makeCtx(
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
-    drainQueue: () => {},
+    drainQueue: (_reason?: string) => {},
+    // Forwards to drainQueue so tests that spy the drain observe the agent
+    // loop's post-turn kick through the guarded entry point.
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => ({
       userMessageChannel: "vellum" as const,
