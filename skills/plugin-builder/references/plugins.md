@@ -110,7 +110,8 @@ Values, not just types, that a plugin consumes at module-load or init time. A bo
 | Export                       | Kind  | Purpose                                                                                                |
 | ---------------------------- | ----- | ------------------------------------------------------------------------------------------------------ |
 | `assistantEventHub`          | value | The assistant's pub/sub hub for runtime events. Subscribe to react to activity outside the hook chain. |
-| `AssistantEventEnvelope`     | type  | Envelope a hub subscriber receives (`AssistantEvent` is a deprecated alias).                           |
+| `AssistantEvent`             | type  | A hub event message payload — the discriminated union of event types.                                  |
+| `AssistantEventEnvelope`     | type  | Envelope wrapping an `AssistantEvent` that a hub subscriber receives.                                  |
 | `AssistantEventHub`          | type  | Interface of the event hub itself.                                                                     |
 | `AssistantEventCallback`     | type  | Subscriber callback invoked for each matching event.                                                   |
 | `AssistantEventFilter`       | type  | Filter narrowing which events a subscription receives.                                                 |

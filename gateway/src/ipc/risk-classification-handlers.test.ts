@@ -245,6 +245,40 @@ describe("file classification", () => {
     expect(result.risk).toBe("low");
   });
 
+  test("file_write outside the working dir is medium risk", async () => {
+    const result = await classify({
+      tool: "file_write",
+      path: "/home/user/notes.txt",
+      workingDir: "/tmp",
+      resolvedPath: "/home/user/notes.txt",
+      resolvedWorkingDir: "/tmp",
+    });
+    expect(result.risk).toBe("medium");
+    expect(result.reason).toBe("File write outside the workspace");
+  });
+
+  test("file_write outside the working dir stays low when containerized", async () => {
+    const result = await classify({
+      tool: "file_write",
+      path: "/home/user/notes.txt",
+      workingDir: "/tmp",
+      resolvedPath: "/home/user/notes.txt",
+      resolvedWorkingDir: "/tmp",
+      isContainerized: true,
+    });
+    expect(result.risk).toBe("low");
+  });
+
+  test("file_read outside the working dir is medium via the lexical fallback", async () => {
+    const result = await classify({
+      tool: "file_read",
+      path: "/home/user/notes.txt",
+      workingDir: "/tmp",
+    });
+    expect(result.risk).toBe("medium");
+    expect(result.reason).toBe("File read outside the workspace");
+  });
+
   test("host_file_read defaults to medium risk", async () => {
     const result = await classify({
       tool: "host_file_read",

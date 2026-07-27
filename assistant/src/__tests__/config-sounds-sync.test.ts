@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   publishConfigChanged,

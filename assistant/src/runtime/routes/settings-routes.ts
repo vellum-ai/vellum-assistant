@@ -69,8 +69,7 @@ import { generateAvatarImage } from "../../tools/system/avatar-generator.js";
 import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getAvatarImagePath, getWorkspaceDir } from "../../util/platform.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishAvatarChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
@@ -250,22 +249,13 @@ async function handleOAuthConnectStart({ body = {} }: RouteHandlerArgs) {
           // DB not ready — use orchestrator value
         }
 
-        assistantEventHub
-          .publish(
-            buildAssistantEvent({
-              type: "oauth_connect_result",
-              success: deferredResult.success,
-              service: deferredResult.service,
-              accountInfo,
-              error: deferredResult.error,
-            }),
-          )
-          .catch((err) => {
-            log.warn(
-              { err, service: deferredResult.service },
-              "Failed to publish oauth_connect_result event",
-            );
-          });
+        broadcastMessage({
+          type: "oauth_connect_result",
+          success: deferredResult.success,
+          service: deferredResult.service,
+          accountInfo,
+          error: deferredResult.error,
+        });
 
         if (!deferredResult.success) {
           log.warn(

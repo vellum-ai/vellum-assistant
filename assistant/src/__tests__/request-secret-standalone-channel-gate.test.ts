@@ -177,11 +177,11 @@ describe("requestSecretStandalone channel gate", () => {
   });
 
   test("falls back to a plain unsupported_channel when minting is refused", async () => {
-    // GIVEN the gateway refuses to mint (flag off / no public URL)
+    // GIVEN the gateway refuses to mint (no public URL)
     registeredConversation = {
       channelCapabilities: { supportsDynamicUi: false },
     };
-    gatewayMintResult = { ok: false, error: "flag_disabled" };
+    gatewayMintResult = { ok: false, error: "no_public_base_url" };
 
     // WHEN a standalone prompt is scoped to that conversation
     const result = await requestSecretStandalone({

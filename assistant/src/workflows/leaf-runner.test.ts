@@ -472,6 +472,105 @@ describe("runLeaf — tool path", () => {
     expect(countConversations()).toBe(before);
   });
 
+  test("rejects out-of-workspace paths for sandbox file tools", async () => {
+    // Leaf tool calls bypass the ToolExecutor permission lane, so the file
+    // tools' out-of-workspace host fallback must be unreachable from a leaf.
+    const calls: Array<Record<string, unknown>> = [];
+    const fileRead: Tool = {
+      name: "file_read",
+      description: "Tool file_read",
+      category: "filesystem",
+      defaultRiskLevel: "low" as never,
+      executionTarget: "sandbox",
+      input_schema: { type: "object", properties: {}, required: [] },
+      async execute(
+        input: Record<string, unknown>,
+      ): Promise<ToolExecutionResult> {
+        calls.push(input);
+        return { content: "read ok", isError: false };
+      },
+    };
+
+    responseQueue = [
+      {
+        content: [
+          {
+            type: "tool_use",
+            name: "file_read",
+            id: "tu-1",
+            input: { path: "/etc/hosts" },
+          },
+        ],
+        model: "test",
+        usage: { inputTokens: 5, outputTokens: 2 },
+        stopReason: "tool_use",
+      },
+      {
+        content: [{ type: "text", text: "done" }],
+        model: "test",
+        usage: { inputTokens: 2, outputTokens: 1 },
+        stopReason: "end_turn",
+      },
+    ];
+
+    const result = await runLeaf({
+      prompt: "read the file",
+      tools: [fileRead],
+      trustContext,
+    });
+    expect(result.output).toBe("done");
+    // The workspace-bound guard fired before execute — the tool never ran.
+    expect(calls).toEqual([]);
+  });
+
+  test("in-workspace file tool paths still execute from a leaf", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const fileRead: Tool = {
+      name: "file_read",
+      description: "Tool file_read",
+      category: "filesystem",
+      defaultRiskLevel: "low" as never,
+      executionTarget: "sandbox",
+      input_schema: { type: "object", properties: {}, required: [] },
+      async execute(
+        input: Record<string, unknown>,
+      ): Promise<ToolExecutionResult> {
+        calls.push(input);
+        return { content: "read ok", isError: false };
+      },
+    };
+
+    responseQueue = [
+      {
+        content: [
+          {
+            type: "tool_use",
+            name: "file_read",
+            id: "tu-1",
+            input: { path: "notes.txt" },
+          },
+        ],
+        model: "test",
+        usage: { inputTokens: 5, outputTokens: 2 },
+        stopReason: "tool_use",
+      },
+      {
+        content: [{ type: "text", text: "done" }],
+        model: "test",
+        usage: { inputTokens: 2, outputTokens: 1 },
+        stopReason: "end_turn",
+      },
+    ];
+
+    const result = await runLeaf({
+      prompt: "read the file",
+      tools: [fileRead],
+      trustContext,
+    });
+    expect(result.output).toBe("done");
+    expect(calls).toEqual([{ path: "notes.txt" }]);
+  });
+
   test("a leaf with no schema and an empty tool set runs the tool path (no throw)", async () => {
     // An empty resolved tool set with no schema must NOT fall through to the
     // schema path (where schemaToInputSchema(undefined) throws) — it runs the
@@ -702,8 +801,11 @@ describe("runLeaf — persona path", () => {
       }>;
       expect(messages[0]?.content[0]?.text).not.toBe(MEMORY_BLOCK_TEXT);
     } finally {
-      if (savedAuth === undefined) delete process.env.DISABLE_HTTP_AUTH;
-      else process.env.DISABLE_HTTP_AUTH = savedAuth;
+      if (savedAuth === undefined) {
+        delete process.env.DISABLE_HTTP_AUTH;
+      } else {
+        process.env.DISABLE_HTTP_AUTH = savedAuth;
+      }
     }
   });
 });

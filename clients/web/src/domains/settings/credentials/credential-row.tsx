@@ -58,8 +58,6 @@ interface CredentialRowProps {
   credential: StoredCredential;
   /** Assistant whose vault owns this credential — scopes the reveal request. */
   assistantId: string;
-  /** Whether one-time credential-request links are enabled for this assistant. */
-  canGenerateLink: boolean;
   /** A link is currently being minted for this row. */
   generatingLink: boolean;
   /** This row is currently being deleted. */
@@ -77,13 +75,12 @@ interface CredentialRowProps {
  * `CredentialValue`).
  *
  * The Configure menu offers:
- *   - "Generate link": mints a one-time credential-request link (feature-gated).
+ *   - "Generate link": mints a one-time credential-request link.
  *   - "Delete":        removes the credential (with confirmation upstream).
  */
 export function CredentialRow({
   credential,
   assistantId,
-  canGenerateLink,
   generatingLink,
   deleting,
   onGenerateLink,
@@ -128,7 +125,6 @@ export function CredentialRow({
             name={name}
             open={menuOpen}
             onOpenChange={setMenuOpen}
-            canGenerateLink={canGenerateLink}
             generatingLink={generatingLink}
             deleting={deleting}
             onGenerateLink={() => {
@@ -332,7 +328,6 @@ export interface CredentialConfigureMenuProps {
   /** Whether the Configure menu is open (controlled). */
   open: boolean;
   onOpenChange: (next: boolean) => void;
-  canGenerateLink: boolean;
   generatingLink: boolean;
   deleting: boolean;
   onGenerateLink: () => void;
@@ -343,7 +338,6 @@ export function CredentialConfigureMenu({
   name,
   open,
   onOpenChange,
-  canGenerateLink,
   generatingLink,
   deleting,
   onGenerateLink,
@@ -378,18 +372,17 @@ export function CredentialConfigureMenu({
             <BottomSheet.Title>{name}</BottomSheet.Title>
           </BottomSheet.Header>
           <BottomSheet.Body>
-            {canGenerateLink && (
-              <PanelItem
-                icon={generatingLink ? Loader2 : Link2}
-                label="Generate link"
-                onSelect={() => {
-                  if (busy) {
-                    return;
-                  }
-                  onGenerateLink();
-                }}
-              />
-            )}
+            <PanelItem
+              icon={generatingLink ? Loader2 : Link2}
+              label="Generate link"
+              onSelect={() => {
+                if (busy) {
+                  return;
+                }
+                onGenerateLink();
+              }}
+            />
+
             <PanelItem
               icon={deleting ? Loader2 : Trash2}
               label="Delete"
@@ -415,25 +408,23 @@ export function CredentialConfigureMenu({
         role="menu"
         className="w-56 overflow-hidden p-0"
       >
-        {canGenerateLink && (
-          <Button
-            type="button"
-            role="menuitem"
-            variant="ghost"
-            onClick={onGenerateLink}
-            disabled={busy}
-            className="w-full justify-start rounded-none"
-            leftIcon={
-              generatingLink ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : (
-                <Link2 aria-hidden />
-              )
-            }
-          >
-            Generate link
-          </Button>
-        )}
+        <Button
+          type="button"
+          role="menuitem"
+          variant="ghost"
+          onClick={onGenerateLink}
+          disabled={busy}
+          className="w-full justify-start rounded-none"
+          leftIcon={
+            generatingLink ? (
+              <Loader2 className="animate-spin" aria-hidden />
+            ) : (
+              <Link2 aria-hidden />
+            )
+          }
+        >
+          Generate link
+        </Button>
         <Button
           type="button"
           role="menuitem"

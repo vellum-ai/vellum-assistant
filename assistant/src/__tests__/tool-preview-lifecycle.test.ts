@@ -48,9 +48,13 @@ mock.module("../persistence/conversation-crud.js", () => ({
   provenanceFromTrustContext: () => ({}),
   reserveMessage: reserveMessageMock,
   recordConversationPersistedSeq: (id: string, seq: number) => {
-    if (!Number.isFinite(seq) || seq <= 0) {return;}
+    if (!Number.isFinite(seq) || seq <= 0) {
+      return;
+    }
     const prev = persistedSeqByConversation.get(id);
-    if (prev == null || prev < seq) {persistedSeqByConversation.set(id, seq);}
+    if (prev == null || prev < seq) {
+      persistedSeqByConversation.set(id, seq);
+    }
   },
   getConversationPersistedSeq: (id: string) =>
     persistedSeqByConversation.get(id) ?? null,
@@ -78,6 +82,7 @@ mock.module(
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEventEnvelope } from "../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -93,7 +98,6 @@ import {
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getConversationPersistedSeq } from "../persistence/conversation-crud.js";
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   getCurrentSeq,

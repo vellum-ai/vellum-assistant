@@ -8,6 +8,7 @@ import type { ChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { AutoApproveThreshold } from "../permissions/approval-policy.js";
 import { isDynamicSkillLoadInvocation } from "../permissions/checker.js";
+import { isOutOfWorkspaceFileInvocation } from "../permissions/workspace-policy.js";
 import {
   isUnparseableToolArgs,
   unparseableToolArgsMessage,
@@ -250,6 +251,7 @@ export function isSensitiveTool(
   toolName: string,
   executionTarget: ExecutionTarget,
   input?: Record<string, unknown>,
+  workingDir?: string,
 ): boolean {
   // UI surface tools are passive, user-visible operations (cards, forms,
   // tables). User input is voluntary and user-controlled — they are not
@@ -270,6 +272,21 @@ export function isSensitiveTool(
     toolName === "skill_load" &&
     input &&
     isDynamicSkillLoadInvocation(toolName, input)
+  ) {
+    return true;
+  }
+
+  // A sandbox file tool targeting a path outside the workspace reaches the
+  // host filesystem on non-containerized installs (the host-fallback path
+  // policy executes the escape once the permission lane approves). That is
+  // host-equivalent access — a read-only escape can leak local secrets — so
+  // it carries the same capability floor as executionTarget === "host":
+  // non-guardian actors escalate to the guardian, and no risk threshold or
+  // trust rule lifts it.
+  if (
+    input &&
+    workingDir &&
+    isOutOfWorkspaceFileInvocation(toolName, input, workingDir)
   ) {
     return true;
   }
@@ -506,7 +523,12 @@ export class ToolApprovalHandler {
       | Parameters<typeof consumeGrantForInvocation>[0]
       | null = null;
 
-    const sensitive = isSensitiveTool(name, executionTarget, input);
+    const sensitive = isSensitiveTool(
+      name,
+      executionTarget,
+      input,
+      context.workingDir,
+    );
     const { sensitiveToolApproval } = resolveCapabilities(context.trustClass);
     // cellThreshold stays unresolved: the decision does not consult it
     // (the floor is deterministic), and resolving a live threshold here

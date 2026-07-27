@@ -118,7 +118,6 @@ export class OpenRouterResponsesProvider extends OpenAIResponsesProvider {
 
 export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
   private readonly openRouterApiKey: string;
-  private readonly defaultModel: string;
   private readonly resolvedBaseURL: string;
   private readonly providerStreamTimeoutMs: number | undefined;
   private readonly useNativeWebSearch: boolean;
@@ -141,7 +140,6 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
       backfillEmptyAssistantContent: true,
     });
     this.openRouterApiKey = apiKey;
-    this.defaultModel = model;
     this.resolvedBaseURL = baseURL;
     this.providerStreamTimeoutMs = options.streamTimeoutMs;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;

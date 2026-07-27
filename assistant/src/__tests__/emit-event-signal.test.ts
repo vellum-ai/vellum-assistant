@@ -10,8 +10,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import type { AssistantEvent } from "../daemon/message-protocol.js";
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
 import { getSignalsDir } from "../util/platform.js";

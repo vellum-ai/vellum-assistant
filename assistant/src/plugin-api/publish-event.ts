@@ -14,7 +14,7 @@
  * `sync_changed`) so subscribed clients re-fetch the data that changed.
  */
 
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../api/index.js";
 import {
   pluginAssistantEventHub,
   type PluginEventHub,

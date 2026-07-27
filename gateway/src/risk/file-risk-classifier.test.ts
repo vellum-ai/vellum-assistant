@@ -60,6 +60,8 @@ function classifyInput(
       workingDir: input.workingDir ?? WORKING_DIR,
       toolName: input.toolName,
       resolvedPath: input.resolvedPath,
+      resolvedWorkingDir: input.resolvedWorkingDir,
+      isContainerized: input.isContainerized,
       transferSandboxDestPath: input.transferSandboxDestPath,
       transferSandboxWorkingDir: input.transferSandboxWorkingDir,
       resolvedTransferDestPath: input.resolvedTransferDestPath,
@@ -1071,6 +1073,135 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to plugins directory");
+    });
+  });
+
+  // -- Out-of-workspace boundary escalation -----------------------------------
+
+  describe("out-of-workspace boundary escalation", () => {
+    test("file_write outside the working dir is medium", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "/tmp/outside.txt",
+        resolvedPath: "/tmp/outside.txt",
+        resolvedWorkingDir: WORKING_DIR,
+      });
+      expect(result.riskLevel).toBe("medium");
+      expect(result.reason).toBe("File write outside the workspace");
+      expect(result.matchType).toBe("registry");
+    });
+
+    test("file_edit outside the working dir is medium", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_edit",
+        filePath: "/tmp/outside.txt",
+        resolvedPath: "/tmp/outside.txt",
+        resolvedWorkingDir: WORKING_DIR,
+      });
+      expect(result.riskLevel).toBe("medium");
+      expect(result.reason).toBe("File edit outside the workspace");
+    });
+
+    test("file_read outside the working dir is medium", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_read",
+        filePath: "/tmp/outside.txt",
+        resolvedPath: "/tmp/outside.txt",
+        resolvedWorkingDir: WORKING_DIR,
+      });
+      expect(result.riskLevel).toBe("medium");
+      expect(result.reason).toBe("File read outside the workspace");
+    });
+
+    test("containerized suppresses the escalation", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "/tmp/outside.txt",
+        resolvedPath: "/tmp/outside.txt",
+        resolvedWorkingDir: WORKING_DIR,
+        isContainerized: true,
+      });
+      expect(result.riskLevel).toBe("low");
+      expect(result.reason).toBe("File write (default)");
+    });
+
+    test("code-injection sink outside the working dir stays high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: join(MOCK_PLUGINS_DIR, "evil", "register.ts"),
+        resolvedPath: join(MOCK_PLUGINS_DIR, "evil", "register.ts"),
+        resolvedWorkingDir: WORKING_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to plugins directory");
+    });
+
+    test("in-workspace symlink whose real target escapes is medium", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "notes/link.txt",
+        resolvedPath: "/tmp/real-target.txt",
+        resolvedWorkingDir: WORKING_DIR,
+      });
+      expect(result.riskLevel).toBe("medium");
+      expect(result.reason).toBe("File write outside the workspace");
+    });
+
+    test("outside symlink whose real target lands in the workspace is low", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "/tmp/link-into-workspace.txt",
+        resolvedPath: join(WORKING_DIR, "notes", "real.txt"),
+        resolvedWorkingDir: WORKING_DIR,
+      });
+      expect(result.riskLevel).toBe("low");
+      expect(result.reason).toBe("File write (default)");
+    });
+
+    test("falls back to a lexical comparison when canonical fields are absent", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "../outside.txt",
+      });
+      expect(result.riskLevel).toBe("medium");
+      expect(result.reason).toBe("File write outside the workspace");
+    });
+
+    test("lexical fallback keeps in-workspace relative paths low", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "notes/inside.txt",
+      });
+      expect(result.riskLevel).toBe("low");
+    });
+
+    test("container /workspace remap stays in-bounds under the lexical fallback", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "/workspace/notes/inside.txt",
+      });
+      expect(result.riskLevel).toBe("low");
+    });
+
+    test("host_file_write is unaffected by the boundary check", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_write",
+        filePath: "/tmp/outside.txt",
+        resolvedPath: "/tmp/outside.txt",
+      });
+      expect(result.riskLevel).toBe("medium");
+      expect(result.reason).toBe("Host file write (default)");
     });
   });
 

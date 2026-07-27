@@ -97,10 +97,10 @@ mock.module(
   () => gatewayGuardianRequestsStoreBridge,
 );
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { __resetGuardianDeliveryCacheForTest } from "../contacts/guardian-delivery-reader.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import type { ApprovalConversationGenerator } from "../runtime/http-types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";

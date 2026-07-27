@@ -71,6 +71,12 @@ mock.module("../../../../../util/logger.js", () => ({
 const realDense = { ...(await import("../dense.js")) };
 let denseMockActive = false;
 let denseHits: Array<{ article: Slug; section: number; score?: number }> = [];
+// Per-query hit override for tests that need the full-message and span-chunk
+// dense calls to return DIFFERENT results; falls back to `denseHits`.
+let denseHitsByQuery = new Map<
+  string,
+  Array<{ article: Slug; section: number; score?: number }>
+>();
 let denseCalls: Array<{ query: string; k: number }> = [];
 mock.module("../dense.js", () => ({
   ...realDense,
@@ -79,7 +85,7 @@ mock.module("../dense.js", () => ({
       return realDense.denseLane(...args);
     }
     denseCalls.push({ query: args[1], k: args[2] });
-    return args[2] <= 0 ? [] : denseHits;
+    return args[2] <= 0 ? [] : (denseHitsByQuery.get(args[1]) ?? denseHits);
   },
   // Orchestrate now calls the SCORED variant; the mock must intercept it too
   // (else the `...realDense` spread resolves the real lane and hits Qdrant).
@@ -94,7 +100,10 @@ mock.module("../dense.js", () => ({
     denseCalls.push({ query: args[1], k: args[2] });
     return args[2] <= 0
       ? []
-      : denseHits.map((h) => ({ ...h, score: h.score ?? 1 }));
+      : (denseHitsByQuery.get(args[1]) ?? denseHits).map((h) => ({
+          ...h,
+          score: h.score ?? 1,
+        }));
   },
 }));
 
@@ -330,6 +339,7 @@ beforeEach(() => {
   watchdogMockActive = true;
   providerStub = null;
   denseHits = [];
+  denseHitsByQuery = new Map();
   denseCalls = [];
   recordedGateEvents = [];
   recordedSelectionEvents = [];
@@ -1751,5 +1761,173 @@ describe("latency sub-spans", () => {
     } finally {
       nowSpy.mockRestore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Span-query pass: the dense lane re-run over the current message's clause
+// chunks as separate queries at `spanQueryK`, union-additive into the pool.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate — span-query pass", () => {
+  const TWO_CHUNK_MESSAGE =
+    "apple appears in the first sentence here. elderberry shows up in the second sentence.";
+  const CHUNK_1 = "apple appears in the first sentence here.";
+  const CHUNK_2 = "elderberry shows up in the second sentence.";
+
+  test("spanQueryK omitted (default) runs no span dense calls", async () => {
+    const lanes = await buildLanes();
+
+    await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 100, selectorEnabled: false }),
+    );
+
+    expect(denseCalls).toEqual([{ query: TWO_CHUNK_MESSAGE, k: 100 }]);
+  });
+
+  test("span pass is inert when denseK=0", async () => {
+    const lanes = await buildLanes();
+
+    await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 0, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(denseCalls).toEqual([]);
+  });
+
+  test("single-chunk message skips the span pass", async () => {
+    const lanes = await buildLanes();
+
+    await orchestrate(
+      makeTurn(1, "apple in one single sentence."),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(denseCalls).toEqual([
+      { query: "apple in one single sentence.", k: 100 },
+    ]);
+  });
+
+  test("multi-chunk message adds span-lane candidates additively", async () => {
+    const lanes = await buildLanes();
+    // Full-message dense (and any chunk without an override) returns topic-b;
+    // chunk 1 re-surfaces topic-a (already a needle hit — attribution must
+    // stay "needle"); chunk 2 surfaces topic-d, which no other lane reaches
+    // ("grape" is not in the message, and the topic-a → topic-d curated edge
+    // must not re-surface an already-seen slug).
+    denseHits = [{ article: "topic-b", section: 0 }];
+    denseHitsByQuery.set(CHUNK_1, [{ article: "topic-a", section: 1 }]);
+    denseHitsByQuery.set(CHUNK_2, [{ article: "topic-d", section: 0 }]);
+
+    const result = await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(denseCalls).toEqual([
+      { query: TWO_CHUNK_MESSAGE, k: 100 },
+      { query: CHUNK_1, k: 7 },
+      { query: CHUNK_2, k: 7 },
+    ]);
+    const laneOf = new Map(
+      result.lanes.finder.map((c) => [c.slug, c.lane] as const),
+    );
+    // "apple"/"elderberry" needle hits keep their lanes; the full-message
+    // dense hit keeps "dense"; only the genuinely span-surfaced page tags
+    // "span".
+    expect(laneOf.get("topic-a")).toBe("needle");
+    expect(laneOf.get("topic-c")).toBe("needle");
+    expect(laneOf.get("topic-b")).toBe("dense");
+    expect(laneOf.get("topic-d")).toBe("span");
+    expect(result.lanes.finder.filter((c) => c.slug === "topic-a").length).toBe(
+      1,
+    );
+    // The span hit's matched section is recorded for injection/spotlight.
+    expect(result.matchedSections.get("topic-d")?.article).toBe("topic-d");
+    expect(result.matchedSections.get("topic-d")?.text).toContain(
+      "lead for topic d",
+    );
+    // Additive: the span-only page joins the passthrough selections alongside
+    // every other lane's candidates.
+    expect(new Set(result.selections.map((s) => s.slug))).toEqual(
+      new Set(["topic-a", "topic-b", "topic-c", "topic-d"]),
+    );
+  });
+
+  test("an article hit by several chunks records its highest-scoring section", async () => {
+    const lanes = await buildLanes();
+    // Both chunks surface topic-d; the EARLIER chunk's hit is the weaker one.
+    // Chunk order must not decide the recorded section — the strong match
+    // (ordinal 1, `## Notes`) wins over the lead (ordinal 0).
+    denseHits = [];
+    denseHitsByQuery.set(CHUNK_1, [
+      { article: "topic-d", section: 0, score: 0.2 },
+    ]);
+    denseHitsByQuery.set(CHUNK_2, [
+      { article: "topic-d", section: 1, score: 0.9 },
+    ]);
+
+    const result = await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(result.matchedSections.get("topic-d")?.ordinal).toBe(1);
+    expect(result.matchedSections.get("topic-d")?.text).toContain("grape");
+    expect(
+      result.lanes.finder.filter((c) => c.slug === "topic-d"),
+    ).toHaveLength(1);
+  });
+
+  test("a strictly stronger span cosine upgrades a dense-recorded section, keeping the lane", async () => {
+    const lanes = await buildLanes();
+    // Full-message dense records topic-b's lead (ordinal 0) at cosine 0.4;
+    // chunk 2 finds `## More` (ordinal 1) at 0.9 — same encoder and
+    // collection, strictly stronger, so the recorded section and finder
+    // descriptor upgrade while the lane attribution stays "dense".
+    denseHits = [{ article: "topic-b", section: 0, score: 0.4 }];
+    denseHitsByQuery.set(CHUNK_2, [
+      { article: "topic-b", section: 1, score: 0.9 },
+    ]);
+
+    const result = await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(result.matchedSections.get("topic-b")?.ordinal).toBe(1);
+    expect(result.matchedSections.get("topic-b")?.text).toContain(
+      "cherry date",
+    );
+    const entry = result.lanes.finder.find((c) => c.slug === "topic-b");
+    expect(entry?.lane).toBe("dense");
+    expect(entry?.descriptor).toContain("cherry date");
+  });
+
+  test("weaker span hits and needle-recorded sections are not overridden", async () => {
+    const lanes = await buildLanes();
+    // topic-b: span cosine 0.3 < full-message 0.4 — the lead stays recorded.
+    // topic-a: needle recorded the `## Details` match; span scores are not
+    // comparable to BM25, so the span hit must not touch it.
+    denseHits = [{ article: "topic-b", section: 0, score: 0.4 }];
+    denseHitsByQuery.set(CHUNK_1, [
+      { article: "topic-a", section: 0, score: 0.99 },
+    ]);
+    denseHitsByQuery.set(CHUNK_2, [
+      { article: "topic-b", section: 1, score: 0.3 },
+    ]);
+
+    const result = await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(result.matchedSections.get("topic-b")?.ordinal).toBe(0);
+    expect(result.matchedSections.get("topic-a")?.text).toContain("apple");
+    expect(result.lanes.finder.find((c) => c.slug === "topic-a")?.lane).toBe(
+      "needle",
+    );
   });
 });

@@ -1,20 +1,24 @@
 #!/usr/bin/env bun
-// Builds a Slack app manifest creation URL.
+// Builds a Slack app manifest.
 //
 // Usage (preferred — robust to any character in the inputs):
 //   echo '{"name":"My Bot","desc":"Assistant for X"}' \
-//     | bun run skills/slack-app-setup/scripts/build-manifest-url.ts
+//     | bun run skills/slack-app-setup/scripts/build-manifest.ts
 //
 // Usage (fallback):
 //   BOT_NAME="My Bot" BOT_DESC="Optional description" \
-//     bun run skills/slack-app-setup/scripts/build-manifest-url.ts
+//     bun run skills/slack-app-setup/scripts/build-manifest.ts
 //
 // stdin-JSON is preferred because it pairs with a quoted shell heredoc
 // (e.g. `<<'END'`) so apostrophes, quotes, backticks, $variables, etc.
 // in the bot name or description cannot break shell quoting or URL encoding.
 //
-// Output: JSON `{ "ok": true, "data": { "url": "..." } }` on success,
+// Output: JSON `{ "ok": true, "data": { "manifest": {...} } }` on success,
 //         JSON `{ "ok": false, "error": "..." }` on failure.
+//
+// Slack's create-app modal takes a manifest under "From a manifest" and
+// ignores the `manifest_json` query parameter, so the JSON reaches Slack by
+// hand — through the clipboard in the wizard — rather than through a link.
 
 type Input = { name?: string; desc?: string };
 
@@ -53,7 +57,8 @@ const safeName = name.trim().slice(0, 35) || "My Assistant";
 const manifest = {
   display_information: {
     name: safeName,
-    ...(desc ? { description: desc } : {}),
+    // Slack caps `description` at 140 characters.
+    ...(desc ? { description: desc.slice(0, 140) } : {}),
     background_color: "#1a1a2e",
   },
   features: {
@@ -66,12 +71,21 @@ const manifest = {
       display_name: safeName,
       always_online: true,
     },
-    assistant_view: {
-      assistant_description: desc || safeName,
+    // `agent_view` drives the Agent messaging experience. It declares
+    // `additionalProperties: false` and names its description
+    // `agent_description`, so an `assistant_description` key is rejected.
+    // Slack treats the switch away from `assistant_view` as one-way.
+    agent_view: {
+      // Slack caps `agent_description` at 300 characters.
+      agent_description: (desc || safeName).slice(0, 300),
       suggested_prompts: [],
     },
   },
   oauth_config: {
+    // `bot`/`user` carry the complete request; `bot_optional`/`user_optional`
+    // mark the subset a workspace may decline on the consent screen. An
+    // optional entry must also appear in its parent list — a scope named only
+    // in the optional array is never requested.
     scopes: {
       bot: [
         "app_mentions:read",
@@ -93,6 +107,13 @@ const manifest = {
         "reactions:write",
         "users:read",
       ],
+      bot_optional: [
+        "channels:join",
+        "files:read",
+        "files:write",
+        "reactions:read",
+        "reactions:write",
+      ],
       user: [
         "channels:history",
         "channels:read",
@@ -102,16 +123,19 @@ const manifest = {
         "im:read",
         "mpim:history",
         "mpim:read",
-        "users:read",
-        "search:read",
         "reactions:read",
+        "search:read",
+        "users:read",
       ],
+      user_optional: ["reactions:read", "search:read"],
     },
   },
   settings: {
     event_subscriptions: {
       bot_events: [
         "app_mention",
+        // Requires `agent_view`; carries the user's active Slack context.
+        "app_context_changed",
         "message.channels",
         "message.groups",
         "message.im",
@@ -126,8 +150,4 @@ const manifest = {
   },
 };
 
-const url =
-  "https://api.slack.com/apps?new_app=1&manifest_json=" +
-  encodeURIComponent(JSON.stringify(manifest));
-
-console.log(JSON.stringify({ ok: true, data: { url } }));
+console.log(JSON.stringify({ ok: true, data: { manifest } }));

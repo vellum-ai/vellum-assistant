@@ -8,6 +8,11 @@
 
 import { v7 as uuidv7 } from "uuid";
 
+import type {
+  AssistantTextDeltaEvent,
+  GenerationCancelledEvent,
+  MessageCompleteEvent,
+} from "../api/index.js";
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import type {
   ChannelId,
@@ -216,15 +221,8 @@ export interface VoiceToolResultEvent {
  * standard channel path.
  */
 export interface VoiceRunEventSink {
-  onTextDelta(
-    msg: Extract<AssistantEvent, { type: "assistant_text_delta" }>,
-  ): void;
-  onMessageComplete(
-    msg: Extract<
-      AssistantEvent,
-      { type: "message_complete" } | { type: "generation_cancelled" }
-    >,
-  ): void;
+  onTextDelta(msg: AssistantTextDeltaEvent): void;
+  onMessageComplete(msg: MessageCompleteEvent | GenerationCancelledEvent): void;
   onError(message: string): void;
   onToolUse(
     toolName: string,
@@ -235,14 +233,9 @@ export interface VoiceRunEventSink {
 }
 
 export interface VoiceTurnCallbacks {
-  assistant_text_delta?: (
-    msg: Extract<AssistantEvent, { type: "assistant_text_delta" }>,
-  ) => void;
+  assistant_text_delta?: (msg: AssistantTextDeltaEvent) => void;
   message_complete?: (
-    msg: Extract<
-      AssistantEvent,
-      { type: "message_complete" } | { type: "generation_cancelled" }
-    >,
+    msg: MessageCompleteEvent | GenerationCancelledEvent,
   ) => void;
   persisted_user_message_id?: (messageId: string) => void;
   persisted_assistant_message_id?: (messageId: string) => void;

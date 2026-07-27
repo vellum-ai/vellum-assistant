@@ -17,9 +17,9 @@
 // regardless of how the thresholds are tuned.
 //
 // This module is intentionally PURE — no async, no I/O, no logging, and no
-// imports beyond the two scored-hit types. `config.enabled` is the resolved
-// effective enable (feature flag AND `memory.v3.gate.enabled`) supplied by the
-// caller, which also feeds in the finder-lane hits.
+// imports beyond the two scored-hit types. `config.enabled` is the
+// `memory.v3.gate.enabled` kill-switch supplied by the caller, which also
+// feeds in the finder-lane hits.
 
 import type { DenseHitScored } from "./dense.js";
 import type { SectionNeedleScoredHit } from "./section-needle.js";
@@ -37,7 +37,7 @@ export type V3GateReason =
   | "disabled";
 
 export interface V3GateConfig {
-  enabled: boolean; // effective enable — flag AND config kill-switch, resolved in observeTurn
+  enabled: boolean; // the `memory.v3.gate.enabled` kill-switch, threaded through by observeTurn
   denseThreshold: number;
   sparseThreshold: number;
   sparseOnlyThreshold: number;
