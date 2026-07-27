@@ -27,7 +27,8 @@ describe("packageSwitchCopy", () => {
     expect(packageSwitchCopy("switch", "Ultra", "ultra")).toEqual({
       title: "Switch to Ultra",
       subtitle: PLAN_TIER_COPY.ultra.tagline,
-      priceCaption: "Billed monthly · prorated difference settled today",
+      priceCaption:
+        "Billed monthly · prorated difference charged today or credited next invoice",
       note: "",
       confirmLabel: "Continue",
       destructive: false,
@@ -43,6 +44,15 @@ describe("packageSwitchCopy", () => {
       confirmLabel: "Downgrade to Mighty",
       destructive: true,
     });
+  });
+
+  test("the neutral switch caption keeps the next-invoice credit path", () => {
+    // A Custom sub can be net cheaper, so the caption must not claim the
+    // difference settles today.
+    const { priceCaption } = packageSwitchCopy("switch", "Custom", null);
+    expect(priceCaption).toContain("charged today");
+    expect(priceCaption).toContain("credited next invoice");
+    expect(priceCaption).not.toContain("settled today");
   });
 
   test("only a downgrade is destructive", () => {

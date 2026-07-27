@@ -32,7 +32,10 @@ export interface PackageSwitchCopy {
 // nets a prorated credit against the next invoice — storage stays, no cash
 // refund. The copy must not imply the higher tier is kept until month end.
 const UPGRADE_CAPTION = "Billed monthly · prorated difference charged today";
-const SWITCH_CAPTION = "Billed monthly · prorated difference settled today";
+// A Custom sub's direction is unknown, so the neutral caption must name both
+// outcomes — a net-cheaper switch credits the next invoice, it is not settled today.
+const SWITCH_CAPTION =
+  "Billed monthly · prorated difference charged today or credited next invoice";
 const DOWNGRADE_CAPTION =
   "Billed monthly · prorated credit on your next invoice";
 const DOWNGRADE_NOTE =
