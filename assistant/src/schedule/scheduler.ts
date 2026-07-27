@@ -1047,7 +1047,11 @@ async function runScheduleAgentTurn(args: {
       groupId: "system:scheduled",
       conversationType: "scheduled",
       scheduleJobId: job.id,
-      suppressFailureNotifications: job.quiet === true,
+      // The no-retry (handoff) branch below emits its own failure signal, and
+      // it is the only one that fires on the conversation-reuse path too. Let
+      // it own the notification so a handoff failure surfaces once with one
+      // message, instead of the runner and the branch both reporting it.
+      suppressFailureNotifications: job.quiet === true || !retryOnFailure,
       onConversationCreated: async (newConversationId) => {
         runConversationId = newConversationId;
         await setScheduleRunConversationId(runId, newConversationId);

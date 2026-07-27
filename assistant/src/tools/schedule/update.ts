@@ -17,10 +17,7 @@ import {
   getSchedule,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
-import {
-  resolveScheduleSkill,
-  validateHandoffMessage,
-} from "../../schedule/skill-binding.js";
+import { resolveScheduleBindingUpdate } from "../../schedule/skill-binding.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
@@ -100,41 +97,22 @@ export async function executeScheduleUpdate(
       return { content: `Error: Schedule not found: ${jobId}`, isError: true };
     }
 
-    const nextThenExecute =
-      input.then_execute === undefined
-        ? existing.thenExecute
-        : input.then_execute === true;
-    const nextMessage =
-      typeof input.message === "string" ? input.message : existing.message;
-
-    const messageError = validateHandoffMessage(nextThenExecute, nextMessage);
-    if (messageError) {
-      return { content: `Error: ${messageError}`, isError: true };
+    const binding = resolveScheduleBindingUpdate({
+      existing,
+      ...(input.then_execute !== undefined
+        ? { thenExecute: input.then_execute === true }
+        : {}),
+      ...(input.skill_id !== undefined
+        ? {
+            skillId: typeof input.skill_id === "string" ? input.skill_id : null,
+          }
+        : {}),
+      ...(typeof input.message === "string" ? { message: input.message } : {}),
+    });
+    if (!binding.ok) {
+      return { content: `Error: ${binding.error}`, isError: true };
     }
-    if (input.then_execute !== undefined) {
-      updates.thenExecute = nextThenExecute;
-    }
-
-    // Re-pin ONLY on an explicit `skill_id`. Editing the message or toggling
-    // the handoff must never re-record a changed skill's hash as a side
-    // effect — that would silently re-approve content the guardian has not
-    // seen, which is exactly what the pin exists to prevent. Re-issuing
-    // `skill_id` is the deliberate re-approval action.
-    if (input.skill_id !== undefined) {
-      const skillId =
-        typeof input.skill_id === "string" ? input.skill_id.trim() : "";
-      if (!skillId) {
-        updates.skillId = null;
-        updates.skillVersionHash = null;
-      } else {
-        const resolved = resolveScheduleSkill(skillId);
-        if (!resolved.ok) {
-          return { content: `Error: ${resolved.error}`, isError: true };
-        }
-        updates.skillId = skillId;
-        updates.skillVersionHash = resolved.skill.versionHash;
-      }
-    }
+    Object.assign(updates, binding.updates);
   }
 
   // Mode validation and pass-through

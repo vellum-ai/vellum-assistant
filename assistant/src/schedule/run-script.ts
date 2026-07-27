@@ -172,7 +172,13 @@ export async function runScheduleScript(
     ...(skillDir ? { skillDir } : {}),
   });
 
-  if (result.exitCode === 0 && job.skillId && skillDir) {
+  // Stamped on any completed execution, not just a clean exit. The schedule
+  // invoking the skill is what "used" it; a non-zero exit usually reports the
+  // outside world (an API down, a rate limit), not that the skill went unused.
+  // Gating on exit code would let a skill whose upstream is having a bad week
+  // look stale and be pruned out from under an actively firing schedule. A
+  // version-refused or missing skill returns above and never reaches here.
+  if (job.skillId && skillDir) {
     stampScheduleSkillUsage(job.skillId, skillDir);
   }
 

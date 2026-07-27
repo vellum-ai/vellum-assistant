@@ -24850,6 +24850,17 @@ paths:
                 script:
                   type: string
                   description: Shell command run on each fire (required for script mode)
+                thenExecute:
+                  type: boolean
+                  description:
+                    "Script mode: hand a successful run's non-empty stdout to an assistant turn whose action prompt is
+                    `message` (which then becomes required). Empty stdout skips the turn."
+                skillId:
+                  type: string
+                  description:
+                    "Script mode: bind the schedule to an installed managed skill. The command can reference the skill folder
+                    as $__SKILL_DIR, and the skill's current content is pinned so the schedule stops firing if it is
+                    later modified or uninstalled."
                 timeoutMs:
                   anyOf:
                     - type: number
@@ -25403,6 +25414,19 @@ paths:
                     - type: string
                     - type: "null"
                   description: Shell command for script mode
+                thenExecute:
+                  type: boolean
+                  description:
+                    "Script mode: turn the stdout-to-assistant handoff on or off. Requires the schedule to have a non-empty
+                    `message` (the action prompt)."
+                skillId:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description:
+                    "Script mode: bind (or rebind) the schedule to a managed skill, re-pinning that skill's current content.
+                    This is how a schedule that stopped firing because its skill changed gets re-approved. Empty string
+                    or null unbinds. Editing other fields never re-pins."
                 mode:
                   type: string
                   description: notify, execute, script, wake, or workflow

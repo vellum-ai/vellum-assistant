@@ -40,7 +40,10 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
-import { prepareScheduleSkillBinding } from "../../schedule/skill-binding.js";
+import {
+  prepareScheduleSkillBinding,
+  resolveScheduleBindingUpdate,
+} from "../../schedule/skill-binding.js";
 import { initializeTools } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { normalizeCapabilityManifest } from "../../workflows/capabilities.js";
@@ -552,6 +555,27 @@ async function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     if (timeoutError) throw new BadRequestError(timeoutError);
   }
 
+  // Handoff + skill binding. Shares `resolveScheduleBindingUpdate` with the
+  // `schedule_update` tool so both surfaces apply the same re-approval rule:
+  // only an explicit `skillId` re-pins the skill's content hash.
+  if (
+    existing &&
+    ("thenExecute" in body || "skillId" in body || "message" in body)
+  ) {
+    const binding = resolveScheduleBindingUpdate({
+      existing,
+      ...("thenExecute" in body
+        ? { thenExecute: body.thenExecute === true }
+        : {}),
+      ...("skillId" in body
+        ? { skillId: typeof body.skillId === "string" ? body.skillId : null }
+        : {}),
+      ...(typeof body.message === "string" ? { message: body.message } : {}),
+    });
+    if (!binding.ok) throw new BadRequestError(binding.error);
+    Object.assign(updates, binding.updates);
+  }
+
   // Inference profile: null clears the override (back to the default
   // main-agent model selection); a string must name a configured profile.
   if ("inferenceProfile" in body) {
@@ -793,6 +817,18 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .describe("Shell command run on each fire (required for script mode)")
         .optional(),
+      thenExecute: z
+        .boolean()
+        .describe(
+          "Script mode: hand a successful run's non-empty stdout to an assistant turn whose action prompt is `message` (which then becomes required). Empty stdout skips the turn.",
+        )
+        .optional(),
+      skillId: z
+        .string()
+        .describe(
+          "Script mode: bind the schedule to an installed managed skill. The command can reference the skill folder as $__SKILL_DIR, and the skill's current content is pinned so the schedule stops firing if it is later modified or uninstalled.",
+        )
+        .optional(),
       timeoutMs: z
         .number()
         .nullable()
@@ -888,6 +924,19 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .nullable()
         .describe("Shell command for script mode")
+        .optional(),
+      thenExecute: z
+        .boolean()
+        .describe(
+          "Script mode: turn the stdout-to-assistant handoff on or off. Requires the schedule to have a non-empty `message` (the action prompt).",
+        )
+        .optional(),
+      skillId: z
+        .string()
+        .nullable()
+        .describe(
+          "Script mode: bind (or rebind) the schedule to a managed skill, re-pinning that skill's current content. This is how a schedule that stopped firing because its skill changed gets re-approved. Empty string or null unbinds. Editing other fields never re-pins.",
+        )
         .optional(),
       mode: z
         .string()

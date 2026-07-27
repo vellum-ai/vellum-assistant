@@ -22,13 +22,18 @@ mock.module("../daemon/disk-pressure-background-gate.js", () => ({
   shouldLogDiskPressureBackgroundSkip: () => false,
 }));
 
+let emittedSignals: Array<Record<string, unknown>> = [];
 mock.module("../notifications/emit-signal.js", () => ({
-  emitNotificationSignal: () => Promise.resolve(),
+  emitNotificationSignal: (payload: Record<string, unknown>) => {
+    emittedSignals.push(payload);
+    return Promise.resolve();
+  },
 }));
 
 interface CapturedJob {
   prompt: string;
   assistantSandwich?: { preamble: string; content: string; postamble: string };
+  suppressFailureNotifications?: boolean;
 }
 let capturedJobs: CapturedJob[] = [];
 /** When set, the next runBackgroundJob call reports a failed turn. */
@@ -94,6 +99,7 @@ function makeDue() {
 
 beforeEach(() => {
   capturedJobs = [];
+  emittedSignals = [];
   failNextTurn = false;
   const db = getDb();
   db.run("DELETE FROM cron_runs");
@@ -221,6 +227,30 @@ describe("then_execute handoff", () => {
     const runs = runsFor(job.id);
     expect(runs).toHaveLength(1);
     expect(runs[0].status).toBe("error");
+  });
+
+  test("a non-quiet handoff failure surfaces exactly one notification", async () => {
+    await createSchedule({
+      name: "Noisy handoff",
+      cronExpression: "* * * * *",
+      message: "Report findings.",
+      mode: "script",
+      script: "echo something happened",
+      thenExecute: true,
+    });
+    failNextTurn = true;
+    makeDue();
+
+    await runDueSchedulesOnce();
+
+    // The runner's own failure notification is suppressed so the no-retry
+    // branch owns it — otherwise one provider error produces two feed items,
+    // and the reuse path (where the runner never runs) would report only one.
+    expect(capturedJobs[0]?.suppressFailureNotifications).toBe(true);
+    const failures = emittedSignals.filter(
+      (s) => s.sourceChannel === "scheduler",
+    );
+    expect(failures).toHaveLength(1);
   });
 
   test("a one-shot whose handoff fails ends terminally rather than retrying", async () => {
@@ -404,5 +434,53 @@ describe("skill binding", () => {
       await Bun.file(join(dir, "install-meta.json")).text(),
     ) as { lastUsedAt?: string };
     expect(meta.lastUsedAt).toBeTruthy();
+  });
+
+  test("stamps lastUsedAt even when the command exits non-zero", async () => {
+    // A failing upstream (API down, rate limited) says nothing about whether
+    // the skill is in use. Gating the stamp on exit code would let memory
+    // maintenance prune a skill an active schedule keeps invoking.
+    const { dir, hash } = installSkill("inventory", "echo hi\n");
+    await createSchedule({
+      name: "Bound script",
+      cronExpression: "* * * * *",
+      message: "Report.",
+      mode: "script",
+      script: "echo upstream down >&2; exit 1",
+      skillId: "inventory",
+      skillVersionHash: hash,
+      quiet: true,
+    });
+    makeDue();
+
+    await runDueSchedulesOnce();
+
+    const meta = JSON.parse(
+      await Bun.file(join(dir, "install-meta.json")).text(),
+    ) as { lastUsedAt?: string };
+    expect(meta.lastUsedAt).toBeTruthy();
+  });
+
+  test("does not stamp when the firing is refused for a changed skill", async () => {
+    const { dir, hash } = installSkill("inventory", "echo hi\n");
+    await createSchedule({
+      name: "Bound script",
+      cronExpression: "* * * * *",
+      message: "Report.",
+      mode: "script",
+      script: "true",
+      skillId: "inventory",
+      skillVersionHash: hash,
+      quiet: true,
+    });
+    writeFileSync(join(dir, "scripts", "run.sh"), "echo rewritten\n");
+    makeDue();
+
+    await runDueSchedulesOnce();
+
+    const meta = JSON.parse(
+      await Bun.file(join(dir, "install-meta.json")).text(),
+    ) as { lastUsedAt?: string };
+    expect(meta.lastUsedAt).toBeUndefined();
   });
 });

@@ -145,6 +145,54 @@ export function prepareScheduleSkillBinding(args: {
 }
 
 /**
+ * Resolve the binding columns an update should write, given what the caller
+ * supplied and what the schedule already holds. Shared by `schedule_update`
+ * and the PATCH route so the two cannot drift on the re-approval rules.
+ *
+ * `undefined` means "not supplied"; only supplied fields produce writes.
+ */
+export function resolveScheduleBindingUpdate(args: {
+  existing: { thenExecute: boolean; message: string };
+  thenExecute?: boolean | undefined;
+  skillId?: string | null | undefined;
+  message?: string | undefined;
+}):
+  | { ok: true; updates: Record<string, unknown> }
+  | { ok: false; error: string } {
+  const updates: Record<string, unknown> = {};
+
+  const nextThenExecute = args.thenExecute ?? args.existing.thenExecute;
+  const nextMessage = args.message ?? args.existing.message;
+
+  const messageError = validateHandoffMessage(nextThenExecute, nextMessage);
+  if (messageError) return { ok: false, error: messageError };
+
+  if (args.thenExecute !== undefined) {
+    updates.thenExecute = args.thenExecute;
+  }
+
+  // Re-pin ONLY on an explicit skill id. Editing the message or toggling the
+  // handoff must never re-record a changed skill's hash as a side effect —
+  // that would silently approve content the guardian has not seen, which is
+  // exactly what the pin exists to prevent. Re-issuing `skill_id` is the
+  // deliberate re-approval action.
+  if (args.skillId !== undefined) {
+    const skillId = (args.skillId ?? "").trim();
+    if (!skillId) {
+      updates.skillId = null;
+      updates.skillVersionHash = null;
+    } else {
+      const resolved = resolveScheduleSkill(skillId);
+      if (!resolved.ok) return { ok: false, error: resolved.error };
+      updates.skillId = skillId;
+      updates.skillVersionHash = resolved.skill.versionHash;
+    }
+  }
+
+  return { ok: true, updates };
+}
+
+/**
  * Stamp `lastUsedAt` on a bound skill's install metadata (day-debounced).
  *
  * Firing a schedule is real usage, but it never goes through the LLM
