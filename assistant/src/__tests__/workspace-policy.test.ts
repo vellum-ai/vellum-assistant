@@ -536,6 +536,71 @@ describe("isControlPlaneWorkspaceWrite / prompt surfaces", () => {
     );
   });
 
+  // A surface that is itself a symlink is read through the link by the
+  // renderer, so a write to either name rewrites the prompt — the baselines
+  // canonicalize like the targets do.
+  test("blocks both names when the surface itself is a symlink", () => {
+    mkdirSync(join(wsRoot, "personas"), { recursive: true });
+    symlinkSync(
+      join(wsRoot, "personas", "current.md"),
+      join(wsRoot, "SOUL.md"),
+    );
+    try {
+      // Addressed through the link: the target canonicalizes past it.
+      expect(
+        isControlPlaneWorkspaceWrite("file_write", { path: "SOUL.md" }, wsRoot),
+      ).toBe(true);
+      // Addressed at the link's destination directly.
+      expect(
+        isControlPlaneWorkspaceWrite(
+          "file_write",
+          { path: "personas/current.md" },
+          wsRoot,
+        ),
+      ).toBe(true);
+      // A sibling in the same directory is still an ordinary write.
+      expect(
+        isControlPlaneWorkspaceWrite(
+          "file_write",
+          { path: "personas/other.md" },
+          wsRoot,
+        ),
+      ).toBe(false);
+    } finally {
+      rmSync(join(wsRoot, "SOUL.md"), { force: true });
+      rmSync(join(wsRoot, "personas"), { recursive: true, force: true });
+    }
+  });
+
+  // Same shape for a surface directory: users/ itself is a symlink to
+  // another in-workspace directory, and the renderer reads through it — so a
+  // write under either name rewrites per-user context.
+  test("blocks both names when a surface directory is a symlink", () => {
+    mkdirSync(join(wsRoot, "people-real"), { recursive: true });
+    symlinkSync(join(wsRoot, "people-real"), join(wsRoot, "users"));
+    try {
+      // Addressed through the linked surface name.
+      expect(
+        isControlPlaneWorkspaceWrite(
+          "file_write",
+          { path: "users/someone.md" },
+          wsRoot,
+        ),
+      ).toBe(true);
+      // Addressed at the link's destination directly.
+      expect(
+        isControlPlaneWorkspaceWrite(
+          "file_write",
+          { path: "people-real/someone.md" },
+          wsRoot,
+        ),
+      ).toBe(true);
+    } finally {
+      rmSync(join(wsRoot, "users"), { force: true });
+      rmSync(join(wsRoot, "people-real"), { recursive: true, force: true });
+    }
+  });
+
   // The path is lexically ordinary; only canonicalization sees where it
   // lands — same symlink dodge as the executable sinks.
   test("blocks a write through a symlink onto a prompt surface", () => {

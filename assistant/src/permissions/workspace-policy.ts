@@ -262,13 +262,20 @@ export function isControlPlaneWorkspaceWrite(
   }
   const target = canonicalize(filePath);
   const root = canonicalize(workspaceRoot);
+  // The baselines are canonicalized too, not just the target: a prompt
+  // surface may itself be a symlink (SOUL.md → personas/current.md), and the
+  // renderer reads through it — so a write to either name must match. A
+  // lexical baseline would miss both the through-link write (target
+  // canonicalizes past it) and the direct write to the link's destination.
   return (
     executableSinkDirs().some((dir) =>
       isAtOrUnderCanonicalDir(target, canonicalize(dir)),
     ) ||
-    PROMPT_SURFACE_FILES.some((file) => target === `${root}/${file}`) ||
+    PROMPT_SURFACE_FILES.some(
+      (file) => target === canonicalize(`${root}/${file}`),
+    ) ||
     PROMPT_SURFACE_DIRS.some((dir) =>
-      isAtOrUnderCanonicalDir(target, `${root}/${dir}`),
+      isAtOrUnderCanonicalDir(target, canonicalize(`${root}/${dir}`)),
     )
   );
 }
