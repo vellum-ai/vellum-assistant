@@ -163,6 +163,15 @@ mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
   preflightLiveVoice: preflightSpy,
 }));
 
+// Backwards-compat version gate for the voice entry point. Mocked (rather
+// than driving the identity store) so these tests stay about composer
+// behavior; the gate's own semver truth-table lives in
+// `use-supports-live-voice.test.ts`.
+let mockSupportsLiveVoice = true;
+mock.module("@/lib/backwards-compat/use-supports-live-voice", () => ({
+  useSupportsLiveVoice: () => mockSupportsLiveVoice,
+}));
+
 // `useNavigate` — the composer deep-links to voice settings from the
 // "configure voice" prompt. Mock the whole module (the composer's only
 // react-router import is `useNavigate`) so the not-tree-mounted composer can
@@ -182,6 +191,7 @@ async function flushPreflight() {
 }
 
 function resetLiveVoiceMocks() {
+  mockSupportsLiveVoice = true;
   mockIsElectron = false;
   mockIsNativeIOS = false;
   mockVoicePhase = "idle";
@@ -866,6 +876,25 @@ function renderVoiceComposer(
 }
 
 describe("ChatComposer — live-voice integration", () => {
+  test("assistant too old for live voice: no voice button, dictation mic stays enabled", () => {
+    // GIVEN an assistant below the live-voice version gate
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockSupportsLiveVoice = false;
+
+    // WHEN the voice-enabled composer renders
+    const { queryByLabelText } = renderVoiceComposer();
+
+    // THEN the live-voice control is absent — a click could otherwise sail
+    // past the (404ing, fail-open) preflight into a raw WebSocket failure —
+    // and dictation is unaffected.
+    expect(queryByLabelText("Start voice mode")).toBeNull();
+    const dictation = queryByLabelText(
+      "Start voice input",
+    ) as HTMLButtonElement | null;
+    expect(dictation).not.toBeNull();
+    expect(dictation?.disabled).toBe(false);
+  });
+
   test("idle + empty: the voice-mode button owns the send slot, dictation available, no voice bar", () => {
     // GIVEN no active session and an empty composer
     useTurnStore.setState(INITIAL_TURN_STATE);
@@ -1269,6 +1298,31 @@ describe("ChatComposer — live-voice integration", () => {
 
     // THEN no dismissible notice is mounted
     expect(queryByLabelText("Dismiss")).toBeNull();
+  });
+
+  test("voice bar persists when the version gate drops mid-session (no stranded session)", () => {
+    // GIVEN an active owned session whose assistant has since fallen below
+    // the gate (a version re-fetch mid-session) while the layout-owned
+    // controller keeps the session live
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockSupportsLiveVoice = false;
+    seedLiveVoiceSession("listening");
+
+    // WHEN the composer renders
+    const { getByRole, getByLabelText, queryByLabelText } =
+      renderVoiceComposer();
+
+    // THEN the active-UI swap follows the session state, not eligibility:
+    // the bar (and its ✕ stop control) stays until teardown completes...
+    expect(getByRole("group", { name: "Voice session" })).toBeTruthy();
+    const end = getByLabelText("End voice session") as HTMLButtonElement;
+    expect(end.disabled).toBe(false);
+    // ...while the entry-point button stays gated off
+    expect(queryByLabelText("Start voice mode")).toBeNull();
+
+    // AND the ✕ still ends the live session
+    fireEvent.click(end);
+    expect(liveControls.stop).toHaveBeenCalledTimes(1);
   });
 
   test("voice bar persists when assistantId is transiently cleared mid-session", () => {
