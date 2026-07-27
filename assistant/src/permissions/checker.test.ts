@@ -32,10 +32,19 @@ mock.module("../config/memory-v3-gate.js", () => ({
     (memory?.v3?.live === true || memory?.v2?.enabled === true),
 }));
 
-// Mock skill resolution — return null by default (no skill found).
+// Mock skill resolution — return null by default (no skill found). The
+// `skill_load` predicate tests drive both slots to model a locally installed
+// skill with or without inline command expansions.
+type MockSkill = {
+  id: string;
+  directoryPath: string;
+  inlineCommandExpansions?: string[];
+};
+let mockSkillCatalog: MockSkill[] = [];
+let mockResolvedSkill: MockSkill | null = null;
 mock.module("../config/skills.js", () => ({
-  loadSkillCatalog: () => [],
-  resolveSkillSelector: () => ({ skill: null }),
+  loadSkillCatalog: () => mockSkillCatalog,
+  resolveSkillSelector: () => ({ skill: mockResolvedSkill }),
 }));
 
 // Mock skills helpers used for file context building.
@@ -182,6 +191,7 @@ import {
   generateAllowlistOptions,
   generateScopeOptions,
   getCachedAssessment,
+  isInstalledStaticSkillLoad,
 } from "./checker.js";
 import { RiskLevel } from "./types.js";
 
@@ -196,6 +206,8 @@ describe("Permission Checker (gateway IPC)", () => {
     mockRefreshedThreshold = null;
     mockV3TierActive = true;
     thresholdCallLog.length = 0;
+    mockSkillCatalog = [];
+    mockResolvedSkill = null;
   });
 
   // ── classifyRisk ──────────────────────────────────────────────────────────
@@ -1336,6 +1348,61 @@ describe("Permission Checker (gateway IPC)", () => {
     test("returns empty for non-scope-aware tools", () => {
       const options = generateScopeOptions("/home/user/project", "web_fetch");
       expect(options).toEqual([]);
+    });
+  });
+
+  // ── isInstalledStaticSkillLoad ────────────────────────────────────────────
+
+  describe("isInstalledStaticSkillLoad", () => {
+    function installSkill(inlineCommandExpansions?: string[]): void {
+      const skill: MockSkill = {
+        id: "note-taker",
+        directoryPath: "/mock/skills/bundled/note-taker",
+        inlineCommandExpansions,
+      };
+      mockResolvedSkill = skill;
+      mockSkillCatalog = [skill];
+    }
+
+    test("returns false for a tool other than skill_load", () => {
+      installSkill();
+      expect(isInstalledStaticSkillLoad("bash", { skill: "note-taker" })).toBe(
+        false,
+      );
+    });
+
+    test("returns false when the selector is missing", () => {
+      installSkill();
+      expect(isInstalledStaticSkillLoad("skill_load", {})).toBe(false);
+    });
+
+    test("returns false when the selector is blank", () => {
+      installSkill();
+      expect(isInstalledStaticSkillLoad("skill_load", { skill: "   " })).toBe(
+        false,
+      );
+    });
+
+    test("returns false when the skill is not installed locally", () => {
+      mockResolvedSkill = null;
+      mockSkillCatalog = [];
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when the resolved skill has inline expansions", () => {
+      installSkill(["git status"]);
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns true for an installed skill with no inline expansions", () => {
+      installSkill();
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(true);
     });
   });
 });

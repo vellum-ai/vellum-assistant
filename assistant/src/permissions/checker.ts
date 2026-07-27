@@ -237,6 +237,25 @@ function hasInlineExpansions(skillId: string): boolean {
 }
 
 /**
+ * The id of the skill a `skill_load` invocation targets, or `null` for any
+ * other tool, a blank selector, or a selector that names no skill in the
+ * local catalog.
+ */
+function resolveSkillLoadTargetId(
+  toolName: string,
+  input: Record<string, unknown>,
+): string | null {
+  if (toolName !== "skill_load") {
+    return null;
+  }
+  const selector = getStringField(input, "skill").trim();
+  if (!selector) {
+    return null;
+  }
+  return resolveSkillIdAndHash(selector)?.id ?? null;
+}
+
+/**
  * Whether this invocation is an inline-command ("dynamic") skill load: a
  * `skill_load` whose resolved skill carries inline command expansions,
  * which execute shell commands at load time via child_process.spawn.
@@ -250,15 +269,24 @@ export function isDynamicSkillLoadInvocation(
   toolName: string,
   input: Record<string, unknown>,
 ): boolean {
-  if (toolName !== "skill_load") {
-    return false;
-  }
-  const selector = getStringField(input, "skill").trim();
-  if (!selector) {
-    return false;
-  }
-  const resolved = resolveSkillIdAndHash(selector);
-  return resolved !== null && hasInlineExpansions(resolved.id);
+  const skillId = resolveSkillLoadTargetId(toolName, input);
+  return skillId !== null && hasInlineExpansions(skillId);
+}
+
+/**
+ * Whether a `skill_load` invocation resolves to a skill that is already
+ * installed locally and carries no inline command expansions. Only such a
+ * load is a pure read: it neither auto-installs from the remote catalog
+ * (see tools/skills/load.ts `autoInstallFromCatalog`) nor executes embedded
+ * shell at load time. Exported for gates that must fail closed on anything
+ * that can write local state.
+ */
+export function isInstalledStaticSkillLoad(
+  toolName: string,
+  input: Record<string, unknown>,
+): boolean {
+  const skillId = resolveSkillLoadTargetId(toolName, input);
+  return skillId !== null && !hasInlineExpansions(skillId);
 }
 
 /**
