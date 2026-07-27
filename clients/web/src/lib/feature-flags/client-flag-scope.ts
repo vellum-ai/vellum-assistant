@@ -13,8 +13,9 @@
  * The watcher runs outside React rather than from a layout effect. The store
  * writes that move the scope (session settle, login, org resolution) happen in
  * plain callbacks, so a subscription resets the flag store before React
- * re-renders — child route effects (which run ahead of any layout's) can no
- * longer read the previous identity's values as settled.
+ * re-renders. A layout effect would lose the race: a child route's own redirect
+ * effect runs ahead of its parent layout's, and would read the previous
+ * identity's values as settled.
  */
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";

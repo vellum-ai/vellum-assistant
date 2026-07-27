@@ -67,12 +67,14 @@ function stringFlagsWithoutServerValues(): Record<string, string> {
 interface ClientFeatureFlagMeta {
   stringFlags: Record<string, string>;
   /**
-   * False until the first server flag response has been applied via
-   * `setFlags`. Routes that redirect on a default-off flag must wait for this
-   * before bouncing — otherwise a cold load races the async LD fetch and
-   * redirects away before the real value (possibly `true`) arrives. Stays
-   * meaningful regardless of local/env overrides, which are applied
-   * synchronously at store init and win over the server value anyway.
+   * Whether the values in hand are a real answer for {@link scopeKey} — set by
+   * `setFlags` when this scope's server response lands, or by
+   * `settleWithoutServerValues` when none is coming, and cleared by
+   * `beginScope` when the identity moves. Routes that redirect on a default-off
+   * flag must wait for this before bouncing — otherwise a cold load races the
+   * async LD fetch and redirects away before the real value (possibly `true`)
+   * arrives. Stays meaningful regardless of local/env overrides, which are
+   * applied synchronously at store init and win over the server value anyway.
    */
   hydrated: boolean;
   /**
