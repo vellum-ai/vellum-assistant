@@ -3,12 +3,15 @@ import { cleanup, renderHook, act } from "@testing-library/react";
 
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { __resetForTesting, publish } from "@/lib/event-bus";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
   __resetPendingDeepLinkForTesting,
   usePendingDeepLinkStore,
 } from "@/stores/pending-deep-link-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 
 const navigateMock = mock((_to: string) => undefined);
@@ -32,12 +35,27 @@ mock.module("@sentry/react", () => ({
 
 const { useGlobalDeepLinkConsumer } =
   await import("./use-global-deep-link-consumer");
+const { drainPendingVoiceStartDeepLink } =
+  await import("@/domains/chat/voice/live-voice/start-voice-deep-link");
 
 const resetStores = () => {
   useViewerStore.setState({ mainView: "chat" });
   useSubagentStore.getState().reset();
   useWorkflowStore.getState().reset();
   useConversationStore.getState().reset();
+  useLiveVoiceStore.getState().reset();
+  useLiveVoiceStore.getState().setStarter(null);
+  useAssistantIdentityStore.setState({ assistantId: null, version: null });
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
+};
+
+/**
+ * Make the live-voice eligibility gate pass: an assistant new enough to serve
+ * live voice, with the identity version scoped to that same assistant.
+ */
+const seedEligibleAssistant = (version = "0.10.12") => {
+  useAssistantIdentityStore.setState({ assistantId: "assistant-1", version });
+  useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
 };
 
 beforeEach(() => {
@@ -173,6 +191,109 @@ describe("deeplink.billingCheckoutComplete", () => {
   });
 });
 
+describe("deeplink.startVoice", () => {
+  /** The drain awaits `whenAssistantVersionKnown`, so let microtasks settle. */
+  const flush = async () => {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+
+  test("mode=new starts a session on the draft composer — no conversation, so the server assigns one", async () => {
+    seedEligibleAssistant();
+    const starter = mock((_a: string, _c: string | null) => undefined);
+    useLiveVoiceStore.getState().setStarter(starter);
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.startVoice", { mode: "new" });
+    });
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith("/assistant");
+    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("parks the request when no controller is mounted, and the drain starts it once a starter registers (cold launch)", async () => {
+    seedEligibleAssistant();
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.startVoice", { mode: "new" });
+    });
+    await flush();
+
+    // No starter yet — the request survives rather than being dropped.
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStart).toBe(true);
+    expect(navigateMock).toHaveBeenCalledWith("/assistant");
+
+    // What `useLiveVoiceSessionController` does when it mounts.
+    const starter = mock((_a: string, _c: string | null) => undefined);
+    useLiveVoiceStore.getState().setStarter(starter);
+    await act(async () => {
+      await drainPendingVoiceStartDeepLink();
+    });
+
+    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStart).toBe(false);
+  });
+
+  test("navigates but does not start when the assistant can't serve live voice", async () => {
+    // Below `useSupportsLiveVoice`'s MIN_VERSION — the gate that replaced the
+    // retired `voice-mode` flag, and the same one that hides the composer's
+    // voice button.
+    seedEligibleAssistant("0.10.11");
+    const starter = mock((_a: string, _c: string | null) => undefined);
+    useLiveVoiceStore.getState().setStarter(starter);
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.startVoice", { mode: "new" });
+    });
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith("/assistant");
+    expect(starter).not.toHaveBeenCalled();
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStart).toBe(false);
+  });
+
+  test("mode=resume returns to the running session's conversation instead of starting a second one", async () => {
+    seedEligibleAssistant();
+    const starter = mock((_a: string, _c: string | null) => undefined);
+    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setState("listening");
+    useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-9");
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.startVoice", { mode: "resume" });
+    });
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/conversations/conv-9",
+    );
+    expect(starter).not.toHaveBeenCalled();
+  });
+
+  test("mode=resume with nothing running falls through to a new session", async () => {
+    seedEligibleAssistant();
+    const starter = mock((_a: string, _c: string | null) => undefined);
+    useLiveVoiceStore.getState().setStarter(starter);
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.startVoice", { mode: "resume" });
+    });
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith("/assistant");
+    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+  });
+});
+
 describe("deeplink.unknown", () => {
   test("Sentry breadcrumb only — no navigation or window activation", () => {
     renderHook(() => useGlobalDeepLinkConsumer());
@@ -200,6 +321,7 @@ describe("subscription lifecycle", () => {
     act(() => {
       publish("deeplink.send", { message: "post-unmount" });
       publish("deeplink.openThread", { threadId: "z" });
+      publish("deeplink.startVoice", { mode: "new" });
       publish("deeplink.unknown", { url: "x" });
     });
 
@@ -208,5 +330,6 @@ describe("subscription lifecycle", () => {
     expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
       null,
     );
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStart).toBe(false);
   });
 });

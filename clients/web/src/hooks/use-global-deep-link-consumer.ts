@@ -3,6 +3,11 @@ import * as Sentry from "@sentry/react";
 import { useNavigate } from "react-router";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import {
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
+import { requestVoiceStartFromDeepLink } from "@/domains/chat/voice/live-voice/start-voice-deep-link";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { useConversationStore } from "@/stores/conversation-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
@@ -27,6 +32,10 @@ import { routes } from "@/utils/routes";
  *   + navigate to billing carrying the Stripe `session_id` (which
  *   opens the Pro onboarding wizard), or to the upgrade-cancel page
  *   on `status: "cancel"` — the same landing the web flow uses.
+ * - `deeplink.startVoice` → `ensureMainWindowVisible()` + navigate,
+ *   then hand the request to the live-voice starter (parked for the
+ *   cold-launch case — see `start-voice-deep-link.ts`). `mode: "resume"`
+ *   just navigates back to a running session's conversation.
  * - `deeplink.unknown` → Sentry breadcrumb.
  *
  * The composer pre-fill itself stays in the chat domain
@@ -48,8 +57,7 @@ export function useGlobalDeepLinkConsumer(): void {
     navigateRef.current(routes.assistant);
   });
 
-  useBusSubscription("deeplink.openThread", ({ threadId }) => {
-    void ensureMainWindowVisible();
+  const openThread = (threadId: string) => {
     // Same thread: skip store resets — the id doesn't change, so re-seed effects wouldn't re-run and live cards would vanish.
     if (threadId === useConversationStore.getState().activeConversationId) {
       useViewerStore.getState().setMainView("chat");
@@ -57,6 +65,34 @@ export function useGlobalDeepLinkConsumer(): void {
       return;
     }
     navigateToConversation(navigateRef.current, threadId);
+  };
+
+  useBusSubscription("deeplink.openThread", ({ threadId }) => {
+    void ensureMainWindowVisible();
+    openThread(threadId);
+  });
+
+  useBusSubscription("deeplink.startVoice", ({ mode }) => {
+    void ensureMainWindowVisible();
+    const session = useLiveVoiceStore.getState();
+    // `resume` is the Live Activity's tap-to-return: put the running session
+    // back on screen, don't start a second one. The room renders itself off
+    // `useIsVoiceRoomVisible` once the owning composer is on screen, so landing
+    // on the right conversation is the whole job. With nothing running, resume
+    // degrades to `new`.
+    if (mode === "resume" && isLiveVoiceSessionActive(session.state)) {
+      if (session.conversationId !== null) {
+        openThread(session.conversationId);
+      } else {
+        // Pre-`ready` draft session — the draft composer owns it.
+        navigateRef.current(routes.assistant);
+      }
+      return;
+    }
+    // The draft composer (no conversation): the session starts without one and
+    // the server assigns it on `ready`.
+    navigateRef.current(routes.assistant);
+    requestVoiceStartFromDeepLink();
   });
 
   useBusSubscription(

@@ -103,6 +103,52 @@ export function parseBillingCheckoutCompleteDeepLink(
   return null;
 }
 
+export const START_VOICE_DEEP_LINK_HOST = "voice";
+
+/**
+ * What a `<scheme>://voice` deep link asks the app to do.
+ *
+ * - `new` — start a fresh live-voice session (default).
+ * - `resume` — bring an already-running session back on screen; falls back to
+ *   `new` when nothing is running.
+ */
+export type StartVoiceDeepLinkPayload = { mode: "new" | "resume" };
+
+/**
+ * Parse a `vellum-assistant://voice?mode=new|resume` deep link — the single
+ * native→SPA channel for "start talking".
+ *
+ * Every native producer targets this one URL shape: App Intents (Siri and the
+ * Action Button), the Dynamic Island Live Activity's `widgetURL`, and manual
+ * test links opened from Safari. Future parameters (e.g. a spoken `prompt`)
+ * extend this parser rather than adding a second mechanism.
+ *
+ * Strict like the sibling parsers: the scheme must be an exact match against
+ * {@link NATIVE_URL_SCHEME_BY_HOST}'s values — a `startsWith` check would let
+ * `vellum-assistant-evil://voice` through — and the host must be exactly
+ * `voice`. A missing or unrecognized `mode` degrades to `"new"`, the safe
+ * interpretation of "the user asked for voice".
+ */
+export function parseStartVoiceDeepLink(
+  rawUrl: string,
+): StartVoiceDeepLinkPayload | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  if (!ALLOWED_NATIVE_URL_PROTOCOLS.has(url.protocol)) {
+    return null;
+  }
+  if (url.host !== START_VOICE_DEEP_LINK_HOST) {
+    return null;
+  }
+
+  return { mode: url.searchParams.get("mode") === "resume" ? "resume" : "new" };
+}
+
 export function buildOAuthCompleteDeepLink(
   scheme: string,
   payload: OAuthCompleteDeepLinkPayload,
