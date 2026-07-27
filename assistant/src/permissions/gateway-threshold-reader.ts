@@ -18,6 +18,10 @@ import type {
   AutoApproveThreshold,
   ExecutionContext,
 } from "./approval-policy.js";
+import {
+  collapseChannelThresholdForContact,
+  effectiveChannelCellThreshold,
+} from "./channel-permission-query.js";
 
 const log = getLogger("gateway-threshold-reader");
 
@@ -221,35 +225,12 @@ export type ChannelPermissionCellResult =
   | { ok: false };
 
 /**
- * Collapse a non-guardian channel cell to the two-level contract the channel
- * picker offers: `none` and `low` are themselves; `medium` and `high` are
- * accepted from the schema and from other writers, and behave as `low`. The
- * runtime and the picker (web `channelTierBehavesAs`) apply the same
- * collapse, so a stored cell can never authorize more than the level the
- * picker displays for it. Guardian-contact-type cells are exempt — the
- * channel setting governs other people in the room; the guardian's own lane
- * is out of its scope.
- */
-function collapseChannelCellThreshold(
-  resolved: ResolvedChannelPermission | null,
-  contactType: ResolveChannelPermissionRequest["contactType"],
-): ResolvedChannelPermission | null {
-  if (!resolved || contactType === "guardian") {
-    return resolved;
-  }
-  if (resolved.threshold === "none" || resolved.threshold === "low") {
-    return resolved;
-  }
-  return { ...resolved, threshold: "low" };
-}
-
-/**
  * Resolve the permission-matrix cell for a channel/actor coordinate via the
- * gateway (`resolve_channel_permission_threshold` IPC): the winning cell
+ * gateway (`resolve_channel_permission_threshold` IPC): the raw winning cell
  * threshold + scope, or a null resolution when no cascade level has a cell.
- * Non-guardian thresholds are collapsed to the picker's two-level contract
- * ({@link collapseChannelCellThreshold}) before either consumer — the
- * sensitive-tool gate or the threshold cascade — sees them.
+ * What a resolution authorizes for the actor — the two-level collapse and
+ * the room default — is `effectiveChannelCellThreshold`'s single rule;
+ * consumers go through it rather than reading the threshold directly.
  *
  * Transport failures are not cached, so a transient IPC failure cannot
  * suppress a real cell for the TTL window.
@@ -262,13 +243,7 @@ export async function resolveChannelPermissionCell(
   if (!options?.bypassCache) {
     const cached = channelPermissionCellCache.get(key);
     if (cached && Date.now() - cached.timestamp < CELL_CACHE_TTL_MS) {
-      return {
-        ok: true,
-        resolved: collapseChannelCellThreshold(
-          cached.resolved,
-          query.contactType,
-        ),
-      };
+      return { ok: true, resolved: cached.resolved };
     }
   }
 
@@ -297,13 +272,31 @@ export async function resolveChannelPermissionCell(
     result.resolved && isValidThreshold(result.resolved.threshold)
       ? result.resolved
       : null;
-  // The cache stores the raw resolution — the collapse is a read-side view,
-  // so cache entries stay valid if the contract ever changes.
   channelPermissionCellCache.set(key, { resolved, timestamp: Date.now() });
-  return {
-    ok: true,
-    resolved: collapseChannelCellThreshold(resolved, query.contactType),
-  };
+  return { ok: true, resolved };
+}
+
+/**
+ * The room default a cell-less coordinate inherits for non-guardian contact
+ * types: the owner's global interactive threshold, collapsed to the two
+ * levels a channel distinguishes. This is the level the picker's "· default"
+ * marker and the legend advertise, so resolving it here is what keeps the
+ * displayed default and the enforced one the same value. Returns `undefined`
+ * when the global thresholds cannot be read — callers fail safe, and the
+ * shared fetch's own failure accounting covers the logging.
+ */
+export async function resolveContactRoomDefaultThreshold(): Promise<
+  AutoApproveThreshold | undefined
+> {
+  try {
+    const global = await fetchGlobalThresholds();
+    if (!isValidThreshold(global.interactive)) {
+      return undefined;
+    }
+    return collapseChannelThresholdForContact(global.interactive);
+  } catch {
+    return undefined;
+  }
 }
 
 // ── Main export ──────────────────────────────────────────────────────────────
@@ -376,13 +369,26 @@ export async function getAutoApproveThreshold(
   }
 
   // Channel-permission matrix cell: sits between the conversation override
-  // (most specific) and the global defaults in the threshold cascade. A
-  // transport failure falls through to global — same direction as a failed
-  // conversation-override read.
+  // (most specific) and the global defaults in the threshold cascade. For
+  // non-guardian actors the cell layer is total — a successful walk that
+  // finds no cell resolves the room default (the collapsed global), so a
+  // contact's turn never consumes a raw global threshold. Guardian queries
+  // and transport failures fall through to the global block below — the
+  // latter is the same fail-safe direction as a failed conversation-override
+  // read.
   if (cellQuery) {
     const cell = await resolveChannelPermissionCell(cellQuery);
-    if (cell.ok && cell.resolved) {
-      return cell.resolved.threshold;
+    const noCellDefault =
+      cell.ok && !cell.resolved && cellQuery.contactType !== "guardian"
+        ? await resolveContactRoomDefaultThreshold()
+        : undefined;
+    const effective = effectiveChannelCellThreshold(
+      cell,
+      cellQuery.contactType,
+      noCellDefault,
+    );
+    if (effective !== undefined) {
+      return effective;
     }
   }
 
@@ -516,8 +522,17 @@ export async function refreshAutoApproveThreshold(
     if (!cell.ok) {
       return null;
     }
-    if (cell.resolved) {
-      return cell.resolved.threshold;
+    const noCellDefault =
+      !cell.resolved && cellQuery.contactType !== "guardian"
+        ? await resolveContactRoomDefaultThreshold()
+        : undefined;
+    const effective = effectiveChannelCellThreshold(
+      cell,
+      cellQuery.contactType,
+      noCellDefault,
+    );
+    if (effective !== undefined) {
+      return effective;
     }
   }
 

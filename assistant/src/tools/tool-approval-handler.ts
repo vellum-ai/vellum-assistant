@@ -8,15 +8,22 @@ import type { ChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryEnabled } from "../config/memory-v3-gate.js";
 import type { AutoApproveThreshold } from "../permissions/approval-policy.js";
-import { buildChannelPermissionCellQuery } from "../permissions/channel-permission-query.js";
+import {
+  buildChannelPermissionCellQuery,
+  effectiveChannelCellThreshold,
+} from "../permissions/channel-permission-query.js";
 import {
   isDynamicSkillLoadInvocation,
   isToolOwnerSkillBundled,
 } from "../permissions/checker.js";
-import { resolveChannelPermissionCell } from "../permissions/gateway-threshold-reader.js";
+import {
+  resolveChannelPermissionCell,
+  resolveContactRoomDefaultThreshold,
+} from "../permissions/gateway-threshold-reader.js";
 import {
   isExecutableWorkspaceWrite,
   isOutOfWorkspaceFileInvocation,
+  isWorkspaceWriteTool,
 } from "../permissions/workspace-policy.js";
 import {
   isUnparseableToolArgs,
@@ -487,7 +494,14 @@ function isChannelLiftable(
   if (CODE_EXECUTION_TOOLS.has(toolName)) {
     return false;
   }
-  if (workingDir && isExecutableWorkspaceWrite(toolName, input, workingDir)) {
+  // A write is liftable only when its target can be resolved and resolves
+  // outside the executable sinks — with no workingDir there is no way to
+  // see where the write lands, so the sink check fails closed rather than
+  // being skipped.
+  if (
+    isWorkspaceWriteTool(toolName) &&
+    (!workingDir || isExecutableWorkspaceWrite(toolName, input, workingDir))
+  ) {
     return false;
   }
   if (isUnvettedExtensionTool(toolName)) {
@@ -511,9 +525,12 @@ function isChannelLiftable(
  * The permission checker reads this same cell later in the turn, within the
  * reader's cache window, so the lift costs at most one lookup per turn.
  *
- * Returns `undefined` when the turn has no channel coordinates, when no
- * cascade level has a cell, or when the lookup fails. All three mean the same
- * thing to the caller: nothing lifts the floor.
+ * Returns `undefined` when the turn has no channel coordinates or a lookup
+ * fails — nothing lifts the floor then. A successful walk that finds no cell
+ * resolves the room's default — the owner's global setting collapsed to the
+ * channel's two levels — so an unconfigured room behaves exactly as the
+ * picker's "· default" marker and the legend present it
+ * ({@link effectiveChannelCellThreshold}).
  */
 async function resolveApprovalCellThreshold(
   reach: "none" | "sandbox" | "host",
@@ -535,7 +552,13 @@ async function resolveApprovalCellThreshold(
     return undefined;
   }
   const cell = await resolveChannelPermissionCell(query);
-  return cell.ok && cell.resolved ? cell.resolved.threshold : undefined;
+  // Only a successful no-cell walk pays the global read: the room default is
+  // the collapsed global, and an unreadable global lifts nothing.
+  const noCellDefault =
+    cell.ok && !cell.resolved
+      ? await resolveContactRoomDefaultThreshold()
+      : undefined;
+  return effectiveChannelCellThreshold(cell, query.contactType, noCellDefault);
 }
 
 /**

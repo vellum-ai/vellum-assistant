@@ -845,20 +845,6 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
     expect(result.result.content).toContain("requires guardian approval");
   });
 
-  test("no cell at any cascade level — the floor stands", async () => {
-    thresholdReaderMock.cell = { ok: true, resolved: null };
-
-    const result = await handler.checkPreExecutionGates(
-      toolName,
-      input,
-      channelContext(),
-      "low",
-      Date.now(),
-    );
-
-    expect(result.allowed).toBe(false);
-  });
-
   // Fail closed: an unreadable cell is indistinguishable from a strict one, so
   // a gateway outage must never widen what a channel actor may do.
   test("a failed cell lookup does not lift the floor", async () => {
@@ -999,6 +985,73 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
     );
 
     expect(result.allowed).toBe(true);
+  });
+
+  // A successful cascade walk that finds no cell resolves the room's
+  // default — Conservative — so an unconfigured room behaves exactly as the
+  // picker and legend present it. (The mock's reset state IS the successful
+  // no-cell resolution.)
+  test("an unconfigured room lifts at the Conservative default", async () => {
+    const result = await handler.checkPreExecutionGates(
+      "file_write",
+      { path: "notes/todo.md", content: "x" },
+      channelContext(),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(true);
+    expect(thresholdReaderMock.cellLookups).toBe(1);
+  });
+
+  // The room default is the owner's global setting collapsed — a Strict
+  // global yields Strict rooms, so nothing lifts.
+  test("a Strict global keeps unconfigured rooms on the floor", async () => {
+    thresholdReaderMock.roomDefault = "none";
+
+    const result = await handler.checkPreExecutionGates(
+      "file_write",
+      { path: "notes/todo.md", content: "x" },
+      channelContext(),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(false);
+  });
+
+  // An unreadable global lifts nothing — the default derives from it, so
+  // without it the floor stands.
+  test("an unreadable global keeps unconfigured rooms on the floor", async () => {
+    thresholdReaderMock.roomDefault = undefined;
+
+    const result = await handler.checkPreExecutionGates(
+      "file_write",
+      { path: "notes/todo.md", content: "x" },
+      channelContext(),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(false);
+  });
+
+  // A write whose target cannot be resolved is never liftable — without a
+  // workingDir the sink check cannot see where the write lands, and it must
+  // fail closed rather than be skipped.
+  test("a write with no workingDir stays floored at any cell", async () => {
+    thresholdReaderMock.cell = cell("high");
+
+    const result = await handler.checkPreExecutionGates(
+      "file_write",
+      { path: "hooks/evil.ts", content: "x" },
+      channelContext({ workingDir: undefined }),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(false);
+    expect(thresholdReaderMock.cellLookups).toBe(0);
   });
 
   // The exclusions are about provenance and reach, not about naming: an

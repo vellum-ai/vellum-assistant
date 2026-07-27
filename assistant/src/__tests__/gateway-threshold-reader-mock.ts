@@ -27,6 +27,8 @@ export interface ThresholdReaderMockState {
   refreshed: string | null;
   /** Resolved by `resolveChannelPermissionCell`. */
   cell: MockCellResult;
+  /** Resolved by `resolveContactRoomDefaultThreshold` (collapsed global). */
+  roomDefault: string | undefined;
   /** Every `getAutoApproveThreshold` call, in order. */
   thresholdReads: Array<{
     conversationId?: string;
@@ -41,15 +43,20 @@ export const thresholdReaderMock: ThresholdReaderMockState = {
   threshold: undefined,
   refreshed: null,
   cell: { ok: true, resolved: null },
+  roomDefault: "low",
   thresholdReads: [],
   cellLookups: 0,
 };
 
-/** Restore the defaults: no cell anywhere, failed refresh, no recorded calls. */
+/**
+ * Restore the defaults: no cell anywhere, a Conservative room default,
+ * failed refresh, no recorded calls.
+ */
 export function resetThresholdReaderMock(): void {
   thresholdReaderMock.threshold = undefined;
   thresholdReaderMock.refreshed = null;
   thresholdReaderMock.cell = { ok: true, resolved: null };
+  thresholdReaderMock.roomDefault = "low";
   thresholdReaderMock.thresholdReads.length = 0;
   thresholdReaderMock.cellLookups = 0;
 }
@@ -78,6 +85,8 @@ export function installThresholdReaderMock(): void {
       thresholdReaderMock.cellLookups += 1;
       return thresholdReaderMock.cell;
     },
+    resolveContactRoomDefaultThreshold: async () =>
+      thresholdReaderMock.roomDefault,
     _clearGlobalCacheForTesting: () => {},
   }));
 }

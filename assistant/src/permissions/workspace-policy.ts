@@ -74,6 +74,14 @@ export function isPathWithinWorkspaceRoot(
 /** File-path tools whose workspace-scoped-ness depends on the file_path input. */
 const PATH_SCOPED_TOOLS = new Set(["file_read", "file_write", "file_edit"]);
 
+/** Sandbox file tools that write. Reads never plant code. */
+const WORKSPACE_WRITE_TOOLS = new Set(["file_write", "file_edit"]);
+
+/** Whether a tool is a sandbox file tool that writes. */
+export function isWorkspaceWriteTool(toolName: string): boolean {
+  return WORKSPACE_WRITE_TOOLS.has(toolName);
+}
+
 /** Network-accessing tools — never workspace-scoped. */
 const NETWORK_TOOLS = new Set(["web_search", "web_fetch", "network_request"]);
 
@@ -185,15 +193,13 @@ export function isOutOfWorkspaceFileInvocation(
  * {@link isPathWithinWorkspaceRoot} canonicalizes: a symlink inside the
  * workspace pointing at one of these directories is a write into it, and a
  * lexical prefix check does not see that.
- *
- * Reads are excluded; only writes plant code.
  */
 export function isExecutableWorkspaceWrite(
   toolName: string,
   toolInput: Record<string, unknown>,
   workspaceRoot: string,
 ): boolean {
-  if (toolName !== "file_write" && toolName !== "file_edit") {
+  if (!isWorkspaceWriteTool(toolName)) {
     return false;
   }
   const filePath = resolvePathScopedTarget(toolInput, workspaceRoot);

@@ -48,11 +48,13 @@ let checkDecision = "prompt";
 // silently stripping the channel coordinates their contexts supply. Captured
 // by value first — `mock.module` swaps the module's exports in place, so
 // reading it through the namespace inside the factory would recurse.
-const realBuildCellQuery = (
-  await import("../permissions/channel-permission-query.js")
-).buildChannelPermissionCellQuery;
+const realCellQueryModule =
+  await import("../permissions/channel-permission-query.js");
 mock.module("../permissions/channel-permission-query.js", () => ({
-  buildChannelPermissionCellQuery: realBuildCellQuery,
+  buildChannelPermissionCellQuery:
+    realCellQueryModule.buildChannelPermissionCellQuery,
+  effectiveChannelCellThreshold:
+    realCellQueryModule.effectiveChannelCellThreshold,
 }));
 
 // The scenario under test is "no trust rule covers this load" (a covering rule
