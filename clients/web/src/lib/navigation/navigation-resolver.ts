@@ -145,6 +145,18 @@ function isPostCheckoutReturn(
 }
 
 /**
+ * The hatching-screen query param naming a hatch that is the return leg of a
+ * completed Stripe Checkout. Only {@link MANAGED_PROVISIONING_DESTINATION} sets
+ * it, and only for a billing landing carrying Stripe's `session_id`.
+ *
+ * Deliberately separate from `hosting=vellum-cloud`, which says only that the
+ * hatch is managed — a hosting choice a free user can make too. The hatching
+ * screen holds for a lagging subscription webhook on this param alone, so
+ * conflating the two would park every free managed hatch on a spinner.
+ */
+export const POST_CHECKOUT_HATCH_PARAM = "post_checkout";
+
+/**
  * The provisioning funnel entry for a purchase with no managed assistant to
  * apply to.
  *
@@ -152,8 +164,12 @@ function isPostCheckoutReturn(
  * `adopt-existing-assistant`): it names a managed hatch even in a local-mode
  * build, where the hatching screen would otherwise let the local gateway answer
  * for the assistant and skip the purchased-provisioning wait.
+ *
+ * {@link POST_CHECKOUT_HATCH_PARAM} adds the narrower fact that money has
+ * already changed hands, which is what lets the hatching screen treat a
+ * still-base subscription read as a pending webhook rather than a free org.
  */
-const MANAGED_PROVISIONING_DESTINATION = `${routes.onboarding.hatching}?hosting=vellum-cloud`;
+const MANAGED_PROVISIONING_DESTINATION = `${routes.onboarding.hatching}?hosting=vellum-cloud&${POST_CHECKOUT_HATCH_PARAM}=1`;
 
 function extractPathname(destination: string): string {
   if (

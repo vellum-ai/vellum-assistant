@@ -306,7 +306,7 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
   // The funnel entry carries the managed-hatch marker so a local-mode client
   // provisions on the platform rather than letting its own gateway answer for
   // the assistant.
-  const managedFunnel = `${routes.onboarding.hatching}?hosting=vellum-cloud`;
+  const managedFunnel = `${routes.onboarding.hatching}?hosting=vellum-cloud&post_checkout=1`;
 
   function makePaidPlatformReturn(): void {
     isLocalModeMock.mockImplementation(() => false);
@@ -408,7 +408,7 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
 
 describe("authMiddleware — local-mode post-checkout platform probe", () => {
   const postCheckoutBilling = `${routes.settings.root}/billing?session_id=cs_test_123`;
-  const managedFunnel = `${routes.onboarding.hatching}?hosting=vellum-cloud`;
+  const managedFunnel = `${routes.onboarding.hatching}?hosting=vellum-cloud&post_checkout=1`;
 
   // A checkout return on a local-mode client whose lockfile already holds a
   // self-hosted assistant. `hasAssistants()` is true, so the cold-boot probe

@@ -586,10 +586,12 @@ describe("resolveNavigation", () => {
 
     // The funnel entry carries the managed-hatch marker, so a local-mode
     // client provisions on the platform instead of letting its own gateway
-    // answer for the assistant and skipping the purchased-provisioning wait.
+    // answer for the assistant and skipping the purchased-provisioning wait,
+    // plus the post-checkout marker that tells the hatching screen a
+    // still-base subscription read is a lagging webhook, not a free org.
     const MANAGED_FUNNEL: NavigationDecision = {
       action: "redirect",
-      to: "/assistant/onboarding/hatching?hosting=vellum-cloud",
+      to: "/assistant/onboarding/hatching?hosting=vellum-cloud&post_checkout=1",
     };
 
     // A brand-new org: nothing resolved at all.
@@ -800,7 +802,7 @@ describe("resolveNavigation", () => {
       expect(
         guard(
           s({ ...EMPTY_ORG, tosAccepted: false, privacyConsent: false }),
-          "/assistant/onboarding/hatching?hosting=vellum-cloud",
+          "/assistant/onboarding/hatching?hosting=vellum-cloud&post_checkout=1",
         ),
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
     });

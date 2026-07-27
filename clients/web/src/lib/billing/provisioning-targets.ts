@@ -8,6 +8,7 @@
  */
 
 import type {
+  EnsureProvisionedResponse,
   MachineSizeEnum,
   OperationalStatus,
 } from "@/generated/api/types.gen";
@@ -62,4 +63,19 @@ export function isResizeOperationInFlight(
   }
   const operation = status.active_operation?.operation;
   return typeof operation === "string" && operation.startsWith("resize");
+}
+
+/**
+ * Whether an ensure-provisioned reply is the entitlement race rather than an
+ * answer: the subscription has flipped to Pro but the platform cannot see the
+ * entitlement yet, so nothing was queued and no target is known. Callers must
+ * re-ask instead of adopting it — treating it as a verdict strands them on an
+ * unprovisioned assistant.
+ */
+export function isEntitlementRaceVerdict(
+  response: Pick<EnsureProvisionedResponse, "state" | "reason">,
+): boolean {
+  return (
+    response.state === "not_applicable" && response.reason === "no_active_pro"
+  );
 }

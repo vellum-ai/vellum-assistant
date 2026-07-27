@@ -41,7 +41,10 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
-import { isResizeOperationInFlight } from "@/lib/billing/provisioning-targets";
+import {
+  isEntitlementRaceVerdict,
+  isResizeOperationInFlight,
+} from "@/lib/billing/provisioning-targets";
 import { useOrganizationStore } from "@/stores/organization-store";
 
 import {
@@ -301,15 +304,11 @@ export function useProProvisioning({
               return;
             }
             setEnsureError(null);
-            // `not_applicable` + `no_active_pro` is the subscription-flipped-
-            // but-entitlement-not-yet-visible race, not an answer: adopting it
-            // would park the wizard in a terminal state with an unprovisioned
-            // assistant. Leave the verdict null (pure inference keeps running)
-            // and re-ask once — the race resolves in a beat.
-            if (
-              data.state === "not_applicable" &&
-              data.reason === "no_active_pro"
-            ) {
+            // The entitlement race is not an answer: adopting it would park the
+            // wizard in a terminal state with an unprovisioned assistant. Leave
+            // the verdict null (pure inference keeps running) and re-ask once —
+            // the race resolves in a beat.
+            if (isEntitlementRaceVerdict(data)) {
               if (!ensureRaceRetriedRef.current) {
                 ensureRaceRetriedRef.current = true;
                 setRaceRetryScheduled(true);
