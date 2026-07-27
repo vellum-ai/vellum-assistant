@@ -569,18 +569,25 @@ function createControlMarkerHoldback(
 // barge-in, the interruption merge note is appended to it (see
 // buildInterruptionMergeNote) so the model reconciles the interrupted request
 // with the new utterance.
+const LIVE_VOICE_CONTROL_PROMPT_BASE =
+  "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. ";
+
+// MINIMIZE_ROOM_MARKER teaching, appended for the legs that can actually put
+// something on screen — the main leg and the escalated leg. The front-door
+// (fast) leg never receives it: that leg is toolless, so it has nothing to
+// show, and its decision rule promises that apart from a leading verdict
+// token every character is spoken verbatim — teaching it the marker would
+// contradict that rule and could only produce spurious minimizes.
 //
-// The MINIMIZE_ROOM_MARKER teaching deliberately keeps the no-interactive-UI
-// rule intact (live-voice turns are non-interactive, JARVIS-1291): the marker
-// does not render UI — it asks the client to reveal the screen the call
-// overlay covers. The gate in createControlMarkerHoldback strips it from
-// speech, and completeTtsForTurn sends the minimize_room frame only after the
-// reply's TTS drains, so "end your reply with it" is the whole contract the
-// model needs.
-const LIVE_VOICE_CONTROL_PROMPT =
-  "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. " +
-  "The call renders as a full-screen overlay covering the app. If this reply created or changed something on screen worth looking at (an app, a page, a document), you may end the reply with the marker [-1]: after you finish speaking, the overlay minimizes so the user can see the screen while the call continues. Use it at most once per reply, only when there is genuinely something new to show, never speak the marker aloud or mention it, and never emit any other bracketed marker. " +
-  VOICE_NO_SETUP_FLOWS_RULE;
+// The teaching deliberately keeps the no-interactive-UI rule intact
+// (live-voice turns are non-interactive, JARVIS-1291): the marker does not
+// render UI — it asks the client to reveal the screen the call overlay
+// covers. The gate in createControlMarkerHoldback strips it from speech, and
+// completeTtsForTurn sends the minimize_room frame only after the reply's
+// TTS drains, so "end your reply with it" is the whole contract the model
+// needs.
+const LIVE_VOICE_MINIMIZE_MARKER_TEACHING =
+  "The call renders as a full-screen overlay covering the app. If this reply created or changed something on screen worth looking at (an app, a page, a document), you may end the reply with the marker [-1]: after you finish speaking, the overlay minimizes so the user can see the screen while the call continues. Use it at most once per reply, only when there is genuinely something new to show, never speak the marker aloud or mention it, and never emit any other bracketed marker. ";
 
 // System-level guidance appended to a barge-in turn's control prompt so the
 // model treats the new utterance as a continuation of the request it was cut
@@ -600,12 +607,20 @@ function buildResurfaceContextNote(continuationResult: string): string {
   return `Earlier the user interrupted you, and in the background you finished the reply they cut off. What you worked out was: "${continuationResult}". If their current message relates to it, use it to answer; otherwise you may briefly offer it or leave it aside, and do not repeat it verbatim if it no longer fits.`;
 }
 
-// Assemble a turn's model-facing control prompt: the base live-voice rules plus
+// Assemble a leg's model-facing control prompt: the base live-voice rules,
+// the [-1] minimize teaching (withheld from the front-door leg — see
+// LIVE_VOICE_MINIMIZE_MARKER_TEACHING), the shared no-setup-flows rule, plus
 // any pending barge-in merge context and/or completed-continuation context. A
-// turn can carry both (a barge-in follow-up that also has a continuation result
-// waiting); the notes are model-only and never render as user bubbles.
-function buildVoiceControlPrompt(turn: ActiveAssistantTurn): string {
-  let prompt = LIVE_VOICE_CONTROL_PROMPT;
+// turn can carry both (a barge-in follow-up that also has a continuation
+// result waiting); the notes are model-only and never render as user bubbles.
+function buildVoiceControlPrompt(
+  turn: ActiveAssistantTurn,
+  leg: { frontDoor?: boolean },
+): string {
+  let prompt =
+    LIVE_VOICE_CONTROL_PROMPT_BASE +
+    (leg.frontDoor === true ? "" : LIVE_VOICE_MINIMIZE_MARKER_TEACHING) +
+    VOICE_NO_SETUP_FLOWS_RULE;
   if (turn.interruptedRequest) {
     prompt = `${prompt}\n\n${buildInterruptionMergeNote(turn.interruptedRequest)}`;
   }
@@ -2825,7 +2840,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         assistantMessageChannel: "vellum",
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
-        voiceControlPrompt: buildVoiceControlPrompt(activeTurn),
+        voiceControlPrompt: buildVoiceControlPrompt(activeTurn, {
+          ...(leg.frontDoor !== undefined ? { frontDoor: leg.frontDoor } : {}),
+        }),
         content: leg.content,
         isInbound: true,
         launchedAtMs: activeTurn.launchedAtMs,
