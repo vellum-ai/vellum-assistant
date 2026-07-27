@@ -1,0 +1,6 @@
+// Extension-Dev.xcconfig — dev VoiceActivity extension overrides.
+// The bundle ID must stay prefixed by App-Dev.xcconfig's.
+
+#include "Extension-Base.xcconfig"
+
+PRODUCT_BUNDLE_IDENTIFIER = ai.vocify-inc.vellum-assistant-ios.dev.VoiceActivity
