@@ -665,14 +665,24 @@ function buildDuplexContinuationObjective(interruptedRequest: string): string {
 // re-enters the skill the interrupted turn was using, so counting it as
 // consequential would kill nearly every continuation doing skill-based work
 // at the moment it matters most.
+// `web_fetch` sits on the core SIDE_EFFECT_TOOLS list because an UNATTENDED
+// run firing off external requests is a permission concern — a different
+// question from this gate's, which is only "can these two writers corrupt the
+// same local state?". A network read cannot, so it does not contend.
 const FOREGROUND_NON_CONTENDING_TOOLS: ReadonlySet<string> = new Set([
   "skill_load",
+  "web_fetch",
 ]);
 
 // Foreground-wins classification: does this foreground tool start force the
-// running continuations to be aborted? Fail closed — anything that is not a
-// provably read-only or non-contending BUILT-IN contends. `skill_execute`
-// always contends: it is a dispatcher whose resolved inner tool can mutate.
+// running continuations to be aborted? The question is LOCAL-STATE
+// CONTENTION ("could these two writers corrupt the same workspace, host, or
+// extension state?"), NOT permission — this gate never affects what a tool is
+// allowed to do. Fail closed anyway: anything that is not a provably
+// non-contending BUILT-IN contends, because skill/plugin/MCP/workspace tools
+// carry no "writes local state" metadata and some of them (app_*, document_*)
+// very much do. `skill_execute` always contends: it is a dispatcher whose
+// resolved inner tool can mutate.
 function foregroundToolContendsWithContinuation(toolName: string): boolean {
   if (toolName === "skill_execute") {
     return true;
@@ -1012,7 +1022,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.turnDetector?.dispose();
     this.clearEndpointExtensionTimer();
     this.stopSessionTranscriber();
-    this.abortDetachedRuns();
+    this.abortDetachedRuns({ reason: "session_closed" });
     await this.cancelAssistantTurn("session_closed");
     if (shouldEmitSessionEndMetrics) {
       await this.emitSessionEndMetrics();
@@ -1543,7 +1553,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // the superseded run is not awaited. The replacement's detach still waits
     // out the interrupted TURN's teardown before forking, which bounds the
     // overlap to that one abandoned call.
-    this.abortDetachedRuns();
+    this.abortDetachedRuns({ reason: "superseded_by_new_barge_in" });
     // Order this barge-in among concurrent detaches SYNCHRONOUSLY, in barge
     // order — the actual detach runs after an async teardown chain, and those
     // chains can interleave, so bumping there could assign sequences out of
@@ -1569,6 +1579,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Snapshot the stop generation before the async teardown: a stop that lands
     // during it must cancel the pending detach (checked in detachInterruptedTurn).
     const stopGeneration = this.detachStopGeneration;
+    log.info(
+      {
+        turnId: turn.turnId,
+        detachSeq,
+        // The two facts that decide whether a continuation is even eligible.
+        assistantCompleted: turn.assistantCompleted,
+        hasTeardownWait: teardownWait !== undefined,
+      },
+      "Voice barge-in cancelled a turn",
+    );
     void (async () => {
       await this.finishMetricsTurn(
         turn.utterance,
@@ -1604,18 +1624,41 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     detachSeq: number,
   ): void {
     const spawn = this.spawnBackgroundContinuation;
-    if (
-      !spawn ||
-      this.isClosed ||
-      // The model already finished generating (barge-in during TTS playback of a
-      // complete reply): there is nothing to continue, so a continuation would
-      // just re-do a finished answer.
-      turn.assistantCompleted ||
-      // A stop (interrupt/close) landed during the barge-in teardown: honor it
-      // and do not start the continuation.
-      this.detachStopGeneration !== stopGeneration ||
-      !isAssistantFeatureFlagEnabled("voice-duplex-handoff", getConfig())
-    ) {
+    // Every skip is logged with its reason — the handoff is silent by design,
+    // so without this a dropped continuation is indistinguishable from a
+    // never-attempted one (tail with: grep -i "voice duplex").
+    const skipReason = !spawn
+      ? "no_spawner"
+      : this.isClosed
+        ? "session_closed"
+        : // The model already finished generating (barge-in during TTS playback
+          // of a complete reply): there is nothing to continue, so a
+          // continuation would just re-do a finished answer.
+          turn.assistantCompleted
+          ? "assistant_already_completed"
+          : // A stop (interrupt/close) or a superseding invalidation landed
+            // during the barge-in teardown: honor it.
+            this.detachStopGeneration !== stopGeneration
+            ? "invalidated_during_barge_teardown"
+            : !isAssistantFeatureFlagEnabled(
+                  "voice-duplex-handoff",
+                  getConfig(),
+                )
+              ? "flag_disabled"
+              : null;
+    if (skipReason !== null || !spawn) {
+      // debug for the always-off configurations, info for the dynamic skips.
+      if (skipReason === "flag_disabled" || skipReason === "no_spawner") {
+        log.debug(
+          { turnId: turn.turnId, skipReason },
+          "Voice duplex continuation skipped",
+        );
+      } else {
+        log.info(
+          { turnId: turn.turnId, skipReason },
+          "Voice duplex continuation skipped",
+        );
+      }
       return;
     }
     // Embed the interrupted request in the objective so the continuation knows
@@ -1629,6 +1672,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // controller.abort(), which the spawn's signal wiring honors).
     const controller = new AbortController();
     this.detachControllers.add(controller);
+    const detachStartedAtMs = Date.now();
     void (async () => {
       try {
         // Wait for the interrupted turn's teardown to settle its partial into
@@ -1656,12 +1700,41 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           // The continuation is best-effort, so a rare dropped one is the safe
           // trade.
           if (!settled) {
+            log.info(
+              {
+                turnId: turn.turnId,
+                skipReason: controller.signal.aborted
+                  ? "invalidated_during_teardown_wait"
+                  : "teardown_settle_timeout",
+                waitedMs: Date.now() - detachStartedAtMs,
+                timeoutMs: this.detachTeardownSettleTimeoutMs,
+              },
+              "Voice duplex continuation skipped",
+            );
             return;
           }
         }
         if (controller.signal.aborted || this.isClosed) {
+          log.info(
+            {
+              turnId: turn.turnId,
+              skipReason: this.isClosed
+                ? "session_closed"
+                : "invalidated_before_spawn",
+              waitedMs: Date.now() - detachStartedAtMs,
+            },
+            "Voice duplex continuation skipped",
+          );
           return;
         }
+        log.info(
+          {
+            turnId: turn.turnId,
+            teardownWaitMs: Date.now() - detachStartedAtMs,
+            interruptedRequest,
+          },
+          "Voice duplex continuation starting",
+        );
         const resultText = await spawn({
           parentConversationId: this.conversationId,
           objective: buildDuplexContinuationObjective(interruptedRequest),
@@ -1675,20 +1748,37 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // barge-in has started, an older continuation completing (before or
         // after it, empty or not) can't surface a stale answer. Only non-empty
         // text is actually surfaced.
-        if (
+        const stillCurrent =
           !controller.signal.aborted &&
           !this.isClosed &&
           this.detachStopGeneration === stopGeneration &&
-          detachSeq === this.detachSequence
-        ) {
+          detachSeq === this.detachSequence;
+        if (stillCurrent) {
           const answer = resultText.trim();
           this.pendingContinuationResult = answer.length > 0 ? answer : null;
         }
+        log.info(
+          {
+            turnId: turn.turnId,
+            ranMs: Date.now() - detachStartedAtMs,
+            resultChars: resultText.trim().length,
+            // false = it finished, but a stop/interrupt or a newer barge-in
+            // landed while it ran, so its answer is dropped rather than
+            // folded into the next turn.
+            resultStashed: stillCurrent && resultText.trim().length > 0,
+          },
+          "Voice duplex continuation finished",
+        );
       } catch (err) {
         // A stop/interrupt aborts via the signal; that rejection is expected.
-        if (!controller.signal.aborted) {
+        if (controller.signal.aborted) {
+          log.info(
+            { turnId: turn.turnId, ranMs: Date.now() - detachStartedAtMs },
+            "Voice duplex continuation aborted mid-run",
+          );
+        } else {
           log.warn(
-            { err, turnId: turn.turnId },
+            { err, turnId: turn.turnId, ranMs: Date.now() - detachStartedAtMs },
             "Voice duplex handoff continuation failed",
           );
         }
@@ -1707,7 +1797,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // detaches must be skipped), but an already-completed continuation's stashed
   // answer stays — it cannot race anything, and the next turn's "use only if
   // relevant" framing makes a stale one harmless.
-  private abortDetachedRuns(opts?: { keepPendingResult?: boolean }): void {
+  private abortDetachedRuns(opts?: {
+    keepPendingResult?: boolean;
+    // Why the runs are being invalidated, for the log line below. Every
+    // caller passes one: an unexplained dead continuation is the single
+    // hardest thing to debug about this feature.
+    reason?: string;
+    // The foreground tool whose start tripped the contention gate, if any.
+    toolName?: string;
+  }): void {
+    const aborted = this.detachControllers.size;
+    const hadPendingResult = this.pendingContinuationResult !== null;
+    if (aborted > 0 || hadPendingResult) {
+      log.info(
+        {
+          conversationId: this.conversationId,
+          reason: opts?.reason ?? "unspecified",
+          ...(opts?.toolName ? { toolName: opts.toolName } : {}),
+          abortedRuns: aborted,
+          droppedPendingResult: hadPendingResult && !opts?.keepPendingResult,
+        },
+        "Voice duplex continuations invalidated",
+      );
+    }
     // Bump the generation so a barge-in whose async teardown is still in flight
     // (its detach not yet spawned) sees the stop and skips the continuation.
     this.detachStopGeneration += 1;
@@ -2439,7 +2551,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // without ever reaching finalizePendingUtterance).
     this.pendingInterruptedRequest = null;
     // ...and it hard-stops any detached background continuations.
-    this.abortDetachedRuns();
+    this.abortDetachedRuns({ reason: "client_interrupt" });
     const utterance = this.currentUtterance;
     this.stopSessionTranscriber();
     if (utterance) {
@@ -2985,7 +3097,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // This gate already makes voice stricter than that baseline; the
             // residual is bounded to one in-flight call at barge-over time.
             if (foregroundToolContendsWithContinuation(toolName)) {
-              this.abortDetachedRuns({ keepPendingResult: true });
+              this.abortDetachedRuns({
+                keepPendingResult: true,
+                reason: "foreground_tool_contends",
+                toolName,
+              });
             }
             // The op counts toward the narration threshold on start (not
             // completion) so a burst of slow tools still trips the ops

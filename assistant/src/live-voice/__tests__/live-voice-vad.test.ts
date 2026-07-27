@@ -1541,10 +1541,20 @@ describe("LiveVoiceSession server VAD", () => {
     });
     expect(signal?.aborted).toBe(false);
 
-    // A tool the registry does not know (e.g. an MCP or plugin tool) is not
-    // provably read-only: fail closed and abort.
-    followUp?.callbacks?.tool_use_start?.("calendar_lookup", {
+    // web_fetch is a network read: it cannot corrupt local state, so it does
+    // not contend even though it is on the core SIDE_EFFECT_TOOLS list (which
+    // exists for a permission question, not a contention one). This is the
+    // canonical topic-change case — "what's the weather?" over a running
+    // build — and it is exactly what the handoff exists to keep alive.
+    followUp?.callbacks?.tool_use_start?.("web_fetch", {
       toolUseId: "tool-3",
+    });
+    expect(signal?.aborted).toBe(false);
+
+    // A tool the registry does not know (e.g. an MCP or plugin tool) is not
+    // provably non-contending: fail closed and abort.
+    followUp?.callbacks?.tool_use_start?.("calendar_lookup", {
+      toolUseId: "tool-4",
     });
     expect(signal?.aborted).toBe(true);
   });
