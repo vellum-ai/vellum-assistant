@@ -14,10 +14,10 @@ import type { ToolContext, ToolExecutionResult } from "../types.js";
  * Model-input schema, `safeParse`d at the top of {@link executeCallStart}.
  * Same in-tool pattern and TOOLS.json drift guard as the other bundled-skill
  * tools — see the schema block in `tools/document/document-tool.ts` for the
- * framework. This executor had no input validation of its own (a missing or
- * mistyped `phone_number`/`task` flowed straight into `startCall`), so the
- * advertised-required fields are simply required here. `skip_disclosure`
- * (deliberate `=== true` coercion) is UNDECLARED — loose passthrough.
+ * framework. The advertised-required fields are required here — schema
+ * rejection is the only guard between a mistyped `phone_number`/`task` and
+ * `startCall`. `skip_disclosure` (deliberate `=== true` coercion) is
+ * UNDECLARED — loose passthrough.
  */
 export const callStartInputSchema = z.looseObject({
   phone_number: z.string(),

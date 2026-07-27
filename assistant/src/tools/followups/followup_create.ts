@@ -16,7 +16,7 @@ import type { ToolContext, ToolExecutionResult } from "../types.js";
  * framework. The bespoke non-empty (trim) checks keep their current error
  * semantics; `expected_response_hours` is deliberately UNDECLARED (loose
  * passthrough) so its bespoke positive-number check owns the error message
- * for every malformed shape, exactly as before.
+ * for every malformed shape.
  */
 export const followupCreateInputSchema = z.looseObject({
   channel: nullAsOmitted(z.string()),
