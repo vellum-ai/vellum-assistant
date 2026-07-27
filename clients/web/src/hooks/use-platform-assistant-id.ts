@@ -2,17 +2,25 @@ import { useEffect, useState } from "react";
 
 import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 
-type ManagedOAuthPlatformAssistantIdState = {
+type PlatformAssistantIdState = {
   platformAssistantId: string | null;
   isLoading: boolean;
   error: Error | null;
 };
 
-export function useManagedOAuthPlatformAssistantId(
+/**
+ * Resolve the active assistant's **platform** id for platform-API path
+ * params. Local-mode lockfile ids are slugs (e.g. `vellum-dark-cub`),
+ * but every platform assistant route uses a `<uuid:assistant_id>` path
+ * converter — a slug id falls off Django's URL table and surfaces as a
+ * bare "Not found". Platform-hosted ids (already UUIDs) resolve to
+ * themselves without any network round-trip.
+ */
+export function usePlatformAssistantId(
   assistantId: string | null | undefined,
   enabled: boolean,
-): ManagedOAuthPlatformAssistantIdState {
-  const [state, setState] = useState<ManagedOAuthPlatformAssistantIdState>({
+): PlatformAssistantIdState {
+  const [state, setState] = useState<PlatformAssistantIdState>({
     platformAssistantId: null,
     isLoading: false,
     error: null,
