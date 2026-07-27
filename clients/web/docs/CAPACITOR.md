@@ -116,11 +116,86 @@ Native OAuth completion auto-dismisses `SFSafariViewController` by redirecting t
 - **Parse via `parseOAuthCompleteDeepLink()`.** It exact-matches the scheme against the apex allow-list, rejects look-alikes (e.g. `vellum-assistant-evil://`), requires the `oauth-complete` host, and enforces a non-empty `requestId`. Adding a new scheme means adding it to the allow-list — do not loosen the matcher to a `startsWith` check.
 - **Consume via a typed window-event listener hook** that registers for the `"vellum:oauth-complete-deeplink"` event and cleans up on unmount.
 - **Pair the deep-link listener with a `browserFinished` poll fallback** when the consumer must work on builds where the listener doesn't fire (e.g. iOS dispatch hiccups, user-cancel paths). Today's UX must remain the worst case in every failure mode.
+- **`<scheme>://voice?mode=new|resume[&prompt=…]`** is the start-voice contract (`parseStartVoiceDeepLink` → `deeplink.startVoice`). Siri, the Action Button, Control Center, the Live Activity's `widgetURL`, and a link typed into Safari all converge on it — see [`clients/ios/docs/NATIVE_VOICE.md` § The deep-link contract](../../../clients/ios/docs/NATIVE_VOICE.md#the-deep-link-contract). `prompt` is untrusted free-form text and is bounded and sanitized *in the parser*, not at the consumer.
 
 References:
 - Apple — [`SFSafariViewControllerDelegate.safariViewController(_:initialLoadDidRedirectTo:)`](https://developer.apple.com/documentation/safariservices/sfsafariviewcontrollerdelegate/safariviewcontroller(_:initialloaddidredirectto:)) — custom URL scheme dismissal is the recommended pattern.
 - Capacitor — [`App` plugin · `appUrlOpen`](https://capacitorjs.com/docs/apis/app#addlistenerappurlopen).
 - Apple HIG — [Supporting universal links and custom URL schemes](https://developer.apple.com/documentation/xcode/allowing-apps-and-websites-to-link-to-your-content).
+
+---
+
+## Native voice bridge
+
+Live voice is a web feature with native accessories. The session — mic capture, the velay socket, TTS playback, every user-facing string — lives entirely under `src/domains/chat/voice/live-voice/`. The iOS shell adds an `AVAudioSession`, a Dynamic Island / Lock Screen presence, and a set of App Intents on top of it.
+
+The shell registers **four** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) — count them there, not from prose:
+
+| Plugin | Web module | What it does |
+| --- | --- | --- |
+| `NativeAuth` | [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts) | `ASWebAuthenticationSession` OIDC flow |
+| `NativeBiometric` | [`src/runtime/native-biometric.ts`](../src/runtime/native-biometric.ts) | Face ID / Touch ID Keychain |
+| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | `.playAndRecord` / `.voiceChat` session + interruption and route-change events |
+| `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | The one ActivityKit activity mirroring a session |
+
+The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
+
+### The skew rule
+
+**A native voice call may always be absent. A missing plugin must degrade to a working voice session, never to an error.**
+
+This is a rule, not a caveat. The iOS app is a `server.url` shell: it bundles no web assets and navigates `WKWebView` straight at the deployed origin at launch (see [`clients/ios/README.md` § Web content delivery](../../../clients/ios/README.md#web-content-delivery)). So this bundle is live for every iOS user on their next app load, while the shell hosting it only changes after an App Store review cycle. At any moment an arbitrarily old shell can be running an arbitrarily new bundle. There is no build flag that tells you which.
+
+**Route every JS → native voice call through `callNativeVoice`** ([`src/runtime/native-voice.ts`](../src/runtime/native-voice.ts)). It returns the fallback off-iOS and on any bridge failure, and never throws:
+
+```ts
+export async function callNativeVoice<T>(
+  invoke: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  if (!isNativeIOS()) {
+    return fallback;
+  }
+  try {
+    return await invoke();
+  } catch (err) {
+    // `console.debug`, not `captureError`: an older App Store shell without the
+    // plugin is an expected state on every web deploy, not a fault, and
+    // reporting it would spam Sentry once per skewed install.
+    console.debug("[native-voice] bridge call unavailable:", err);
+    return fallback;
+  }
+}
+```
+
+Three things follow from the rule:
+
+- **Pick a fallback the caller can proceed with.** `activateVoiceAudioSession()` resolves `false`, `endVoiceLiveActivity()` resolves `undefined`. There is no error branch to write, and no call site may treat a `false` as a reason not to start a session.
+- **Fire and forget at the call site.** Use `fireAndForgetNativeVoice()` from the same module. `callNativeVoice` already swallows failures, so this is belt-and-braces — but it keeps "a hung or failed bridge call must never delay a voice session" a property each call site owns locally, and it makes the call site testable against a bridge that rejects outright.
+- **Destructure the plugin inline inside `invoke`.** The lazy-import rule at the top of this document applies verbatim: only the *result* may cross the `async` boundary, never the plugin Proxy.
+
+A capability probe is not a substitute. `VoiceLiveActivity.isAvailable()` exists (it also reports whether the user has disabled Live Activities in Settings), but the mirror does not consult it — `start` resolving `false` already covers every case, and a probe that can itself be absent just moves the problem. `VoiceAudioSessionPlugin` has an `isAvailable` method too, and the web module deliberately does not expose it: `activateVoiceAudioSession()` resolving `false` *is* the probe, and it is the only answer a caller can act on.
+
+### The background-audio contract
+
+`UIBackgroundModes: audio` in `clients/ios/App/App/Info.plist`, plus an active `.playAndRecord` / `.voiceChat` session, buys:
+
+- audio keeps playing while the app is backgrounded or the screen is locked;
+- the mic route survives backgrounding;
+- output goes to the loudspeaker rather than the earpiece (`.defaultToSpeaker`);
+- hardware echo cancellation, AGC, and AirPods/Bluetooth-HFP routing (`.voiceChat`);
+- other apps' audio resumes on `deactivate` (`.notifyOthersOnDeactivation`).
+
+It does **not** buy a running web layer. WebKit throttles and eventually suspends JS timers and main-thread work in a backgrounded web process. The AudioWorklet runs on the audio render thread, but the socket send happens on the main JS thread — so "audio is allowed in the background" and "this voice session keeps working in the background" are different claims.
+
+**The second claim is unverified.** The device spike that was meant to measure whether a WKWebView voice session survives lock — does `getUserMedia` keep producing PCM, does the velay socket keep pumping, and for how long — was never run, and there is no findings document. The background/foreground hardening that was planned on top of it (`AudioContext.resume()` on `app.resume`, a socket-liveness probe, a bounded background grace period) was never implemented. **Do not assume coverage that does not exist**: if you are about to rely on a session surviving a lock, measure it on a physical device first.
+
+For the native side of all of this — the enum-parity rule, the deep-link contract, the App Intents availability duplication, the extension compilation condition, and the v1 scope decisions — see [`clients/ios/docs/NATIVE_VOICE.md`](../../../clients/ios/docs/NATIVE_VOICE.md).
+
+References:
+- Apple — [Playing audio in the background](https://developer.apple.com/documentation/avfaudio/audio_session/enabling_background_audio).
+- Apple — [`AVAudioSession.Mode.voiceChat`](https://developer.apple.com/documentation/avfaudio/avaudiosession/mode/voicechat).
+- Apple — [ActivityKit](https://developer.apple.com/documentation/activitykit).
 
 ---
 
@@ -194,3 +269,4 @@ References:
 - [`STATE_MANAGEMENT.md`](./STATE_MANAGEMENT.md) — Zustand stores, atomic selectors, TanStack Query.
 - [`STYLE_GUIDE.md`](./STYLE_GUIDE.md) — naming, imports, TypeScript, component authoring.
 - [`clients/ios/README.md`](../../../clients/ios/README.md) — Capacitor iOS shell setup, Xcode targets, release pipeline.
+- [`clients/ios/docs/NATIVE_VOICE.md`](../../../clients/ios/docs/NATIVE_VOICE.md) — the native voice surfaces: Live Activity, App Intents, the deep-link contract, and the v1 scope decisions.
