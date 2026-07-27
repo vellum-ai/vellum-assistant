@@ -891,6 +891,106 @@ export function stampThinkingTiming(
   });
 }
 
+/**
+ * Recover streamed assistant text that is missing from the finalized provider
+ * content.
+ *
+ * The provider SDK's accumulated final snapshot can silently drop a text block
+ * that streamed between two thinking blocks (`thinking → text → thinking →
+ * tool_use`): the deltas reach the client live, but `finalMessage()` returns
+ * only `[thinking, thinking, tool_use]`. Persisting that snapshot verbatim
+ * rewrites the row without the reply the user watched stream — the transcript
+ * body vanishes at the turn-end reseed, and directive extraction (vellum://
+ * attachment links) runs on text-less content (LUM-2847 / JARVIS-1324).
+ *
+ * The streamed mirror (`state.currentMessageContent`) holds exactly what was
+ * emitted as deltas this call, so it is the recovery source: when the mirror
+ * carries non-empty text and the finalized content carries none, the mirror's
+ * text blocks are re-inserted — each after the same number of thinking blocks
+ * that preceded it in the stream, or before the first tool call when the
+ * mirror has no thinking blocks to anchor on (thinking streaming disabled).
+ * The persisted record must never be a subset of what the user watched stream.
+ *
+ * Returns `null` when the finalized content already has visible text (it is
+ * authoritative — a post-model-call hook may have rewritten it) or the mirror
+ * has nothing to recover.
+ */
+export function recoverStreamedTextMissingFromFinal(
+  finalContent: readonly ContentBlock[],
+  streamedContent: readonly ContentBlock[],
+): { content: ContentBlock[]; recoveredChars: number } | null {
+  const finalHasText = finalContent.some(
+    (block) => block.type === "text" && block.text.trim().length > 0,
+  );
+  if (finalHasText) {
+    return null;
+  }
+
+  const streamedThinkingTotal = streamedContent.filter(
+    (block) => block.type === "thinking",
+  ).length;
+
+  const pending: {
+    afterThinking: number;
+    block: Extract<ContentBlock, { type: "text" }>;
+  }[] = [];
+  let thinkingBefore = 0;
+  for (const block of streamedContent) {
+    if (block.type === "thinking") {
+      thinkingBefore++;
+      continue;
+    }
+    if (block.type === "text" && block.text.trim().length > 0) {
+      pending.push({
+        afterThinking:
+          streamedThinkingTotal === 0
+            ? Number.POSITIVE_INFINITY
+            : thinkingBefore,
+        block: { type: "text", text: block.text },
+      });
+    }
+  }
+  if (pending.length === 0) {
+    return null;
+  }
+
+  const recovered: ContentBlock[] = [];
+  let thinkingSeen = 0;
+  let next = 0;
+  for (const block of finalContent) {
+    if (block.type === "thinking" || block.type === "redacted_thinking") {
+      while (
+        next < pending.length &&
+        pending[next]!.afterThinking <= thinkingSeen
+      ) {
+        recovered.push(pending[next]!.block);
+        next++;
+      }
+      recovered.push(block);
+      thinkingSeen++;
+      continue;
+    }
+    if (block.type === "tool_use" || block.type === "server_tool_use") {
+      // Reply text always precedes the call that ends the turn — flush any
+      // remaining streamed text before the first tool block.
+      while (next < pending.length) {
+        recovered.push(pending[next]!.block);
+        next++;
+      }
+    }
+    recovered.push(block);
+  }
+  while (next < pending.length) {
+    recovered.push(pending[next]!.block);
+    next++;
+  }
+
+  return {
+    content: recovered,
+    recoveredChars: pending.reduce((n, p) => n + p.block.text.length, 0),
+  };
+}
+
 /** Append a streamed text chunk to `state.currentMessageContent`, fusing into tail text block. */
 function appendTextToCurrentMessage(
   state: EventHandlerState,
@@ -2732,11 +2832,39 @@ export async function handleMessageComplete(
     // reconnecting client applying `seq > snapshot.seq` would append the
     // tail a second time.
     state.lastStreamedContentSeq = getCurrentSeq();
+    // Mirror the raw tail like the text-delta path mirrors consumed bytes, so
+    // the streamed mirror holds the complete streamed text — the recovery
+    // comparison below must see everything that reached the client.
+    appendTextToCurrentMessage(state, trailingLiveText);
     if (deps.shouldGenerateTitle) {
       state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
     }
     state.pendingDirectiveDisplayBuffer = "";
     state.pendingSentinelGuardBuffer = "";
+  }
+
+  // The finalized snapshot can arrive without the text that streamed live
+  // this call (interleaved-thinking snapshot drop — see
+  // {@link recoverStreamedTextMissingFromFinal}). Recover the mirrored
+  // streamed text before directive extraction and persistence, so the durable
+  // row — and the vellum:// directives inside the text — match what the user
+  // watched stream.
+  let finalContentBlocks = event.message.content as ContentBlock[];
+  const textRecovery = recoverStreamedTextMissingFromFinal(
+    finalContentBlocks,
+    state.currentMessageContent,
+  );
+  if (textRecovery) {
+    deps.rlog.error(
+      {
+        conversationId: deps.ctx.conversationId,
+        messageId: state.lastAssistantMessageId,
+        recoveredChars: textRecovery.recoveredChars,
+        finalBlockTypes: finalContentBlocks.map((block) => block.type),
+      },
+      "Finalized assistant content is missing text that streamed live; recovering it from the streamed mirror (LUM-2847 / JARVIS-1324)",
+    );
+    finalContentBlocks = textRecovery.content;
   }
 
   // Finalize the grouped tool-result row. Each result was persisted into this
@@ -2757,7 +2885,7 @@ export async function handleMessageComplete(
   // side-effects local to this handler while letting the shared helper
   // own the persisted-content shape.
   const { directives: msgDirectives, warnings: msgWarnings } =
-    cleanAssistantContent(event.message.content);
+    cleanAssistantContent(finalContentBlocks);
   state.accumulatedDirectives.push(...msgDirectives);
   state.directiveWarnings.push(...msgWarnings);
   if (msgDirectives.length > 0) {
@@ -2786,7 +2914,7 @@ export async function handleMessageComplete(
   const finalRevealCandidates = await chatRevealCandidates(state);
   const contentForPersistence = stampThinkingTiming(
     buildPersistedAssistantContent(
-      event.message.content as ContentBlock[],
+      finalContentBlocks,
       deps.ctx.currentTurnSurfaces,
       state.toolActivityMetadata,
       finalRevealCandidates,
