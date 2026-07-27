@@ -3,6 +3,14 @@ import { basename, dirname, normalize, resolve } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { resolveTrailingLinkTarget } from "../util/fs-symlinks.js";
+import {
+  getWorkspaceHooksDir,
+  getWorkspacePluginsDir,
+  getWorkspaceRoutesDir,
+  getWorkspaceSkillsDir,
+  getWorkspaceToolsDir,
+  getWorkspaceWorkflowsDir,
+} from "../util/platform.js";
 
 /**
  * Resolve a path to its canonical form. A trailing (possibly dangling)
@@ -157,6 +165,45 @@ export function isOutOfWorkspaceFileInvocation(
   }
   const filePath = resolvePathScopedTarget(toolInput, workspaceRoot);
   return filePath !== "" && !isPathWithinWorkspaceRoot(filePath, workspaceRoot);
+}
+
+/**
+ * Whether a sandbox file-tool invocation writes into one of the workspace
+ * directories the daemon imports and executes — hooks, plugins, skills,
+ * tools, routes, workflows. A write there is not data, it is code that runs
+ * later with the daemon's own reach, so approving the write approves the
+ * execution.
+ *
+ * Unlike {@link isOutOfWorkspaceFileInvocation} this holds in containerized
+ * mode too: the workspace boundary is what contains an escaping *path*, and
+ * these paths do not escape — the daemon executes them from inside.
+ *
+ * Reads are excluded; only writes plant code.
+ */
+export function isExecutableWorkspaceWrite(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  workspaceRoot: string,
+): boolean {
+  if (toolName !== "file_write" && toolName !== "file_edit") {
+    return false;
+  }
+  const filePath = resolvePathScopedTarget(toolInput, workspaceRoot);
+  if (filePath === "") {
+    return false;
+  }
+  const target = normalize(filePath);
+  return [
+    getWorkspaceHooksDir(),
+    getWorkspacePluginsDir(),
+    getWorkspaceSkillsDir(),
+    getWorkspaceToolsDir(),
+    getWorkspaceRoutesDir(),
+    getWorkspaceWorkflowsDir(),
+  ].some((dir) => {
+    const withSep = normalize(dir).replace(/\/?$/, "/");
+    return target === normalize(dir) || target.startsWith(withSep);
+  });
 }
 
 /**

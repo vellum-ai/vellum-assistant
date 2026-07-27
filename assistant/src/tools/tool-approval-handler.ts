@@ -8,9 +8,15 @@ import type { ChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { AutoApproveThreshold } from "../permissions/approval-policy.js";
 import { buildChannelPermissionCellQuery } from "../permissions/channel-permission-query.js";
-import { isDynamicSkillLoadInvocation } from "../permissions/checker.js";
+import {
+  isDynamicSkillLoadInvocation,
+  isToolOwnerSkillBundled,
+} from "../permissions/checker.js";
 import { resolveChannelPermissionCell } from "../permissions/gateway-threshold-reader.js";
-import { isOutOfWorkspaceFileInvocation } from "../permissions/workspace-policy.js";
+import {
+  isExecutableWorkspaceWrite,
+  isOutOfWorkspaceFileInvocation,
+} from "../permissions/workspace-policy.js";
 import {
   isUnparseableToolArgs,
   unparseableToolArgsMessage,
@@ -395,12 +401,61 @@ export function resolveSensitiveToolDecision(input: {
 }
 
 /**
+ * Whether a channel's approval cell may lift the floor for this invocation.
+ *
+ * The cell delegates ordinary work in the assistant's own workspace. Three
+ * sandbox side effects are not ordinary, because each is a way back out of
+ * the sandbox — and excluding only some of them would be a false safeguard,
+ * since any one reaches the others:
+ *
+ * - `bash` runs code. A room that can run code in the workspace can write
+ *   anything into it, including the executable directories below, so lifting
+ *   bash would lift those by the back door.
+ * - Writes into the workspace directories the daemon imports and executes are
+ *   code, not data ({@link isExecutableWorkspaceWrite}). Approving the write
+ *   approves the later execution.
+ * - Extension-owned tools that are not first-party bundled are third-party
+ *   code. `skill-script-runner` forces them to sandbox execution, which is the
+ *   only reason they look liftable; their manifests are not vetted.
+ *
+ * Each stays on the capability floor, so a channel actor escalates to the
+ * guardian for them at every level. None of this touches the guardian's own
+ * lane — it decides what a *cell* may delegate, not how risk is classified.
+ */
+function isChannelLiftable(
+  reach: "none" | "sandbox" | "host",
+  toolName: string,
+  input: Record<string, unknown>,
+  tool: Tool | undefined,
+  workingDir: string | undefined,
+): boolean {
+  if (reach !== "sandbox") {
+    return false;
+  }
+  if (toolName === "bash") {
+    return false;
+  }
+  if (workingDir && isExecutableWorkspaceWrite(toolName, input, workingDir)) {
+    return false;
+  }
+  const ownerKind = getToolOwner(toolName)?.kind;
+  if (
+    (ownerKind === "skill" || ownerKind === "plugin") &&
+    !isToolOwnerSkillBundled(tool)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Threshold of the approval-matrix cell governing this invocation, read only
- * when it can change the outcome: a sandbox-reach sensitive tool whose actor
- * sits on the escalate floor. Guardians, non-sensitive tools, host reach, and
- * identity-less actors return early, so the gateway lookup never lands on the
- * paths where it could only add latency — grant consumption for an
- * already-approved call, and voice abort handling.
+ * when it can change the outcome: a channel-liftable invocation whose actor
+ * sits on the escalate floor. Guardians, non-sensitive tools, host reach,
+ * everything {@link isChannelLiftable} excludes, and identity-less actors
+ * return early, so the gateway lookup never lands on the paths where it could
+ * only add latency — grant consumption for an already-approved call, and voice
+ * abort handling.
  *
  * The permission checker reads this same cell later in the turn, within the
  * reader's cache window, so the lift costs at most one lookup per turn.
@@ -411,10 +466,16 @@ export function resolveSensitiveToolDecision(input: {
  */
 async function resolveApprovalCellThreshold(
   reach: "none" | "sandbox" | "host",
+  toolName: string,
+  input: Record<string, unknown>,
+  tool: Tool | undefined,
   sensitiveToolApproval: SensitiveToolApproval,
   context: ToolContext,
 ): Promise<ApprovalCellThreshold | undefined> {
-  if (reach !== "sandbox" || sensitiveToolApproval !== "escalate-and-wait") {
+  if (
+    sensitiveToolApproval !== "escalate-and-wait" ||
+    !isChannelLiftable(reach, toolName, input, tool, context.workingDir)
+  ) {
     return undefined;
   }
   const query = buildChannelPermissionCellQuery(
@@ -612,6 +673,9 @@ export class ToolApprovalHandler {
       reach,
       cellThreshold: await resolveApprovalCellThreshold(
         reach,
+        name,
+        input,
+        tool,
         sensitiveToolApproval,
         context,
       ),

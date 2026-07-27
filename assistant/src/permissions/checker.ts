@@ -211,7 +211,7 @@ function resolveSkillIdAndHash(
  * registry (`getToolOwner(name)`) rather than read from the `Tool` object,
  * since ownership lives on the registry, not on the tool itself.
  */
-function isToolOwnerSkillBundled(tool: Tool | undefined): boolean {
+export function isToolOwnerSkillBundled(tool: Tool | undefined): boolean {
   if (!tool) {
     return false;
   }

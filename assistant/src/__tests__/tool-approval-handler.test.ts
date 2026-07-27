@@ -35,25 +35,48 @@ const fakeHostTool = {
   executionTarget: "host" as const,
 };
 
+/**
+ * A skill shadowing a core side-effect name. A novel third-party tool name is
+ * not a side-effect tool at all, so it never reaches the floor — shadowing is
+ * the case where an unvetted manifest lands on a liftable invocation.
+ */
+const fakeSkillTool = {
+  ...fakeTool,
+  name: "document_create",
+  category: "documents",
+};
+
 const fakeTools: Record<string, typeof fakeTool> = {
   bash: fakeTool,
   host_bash: fakeHostTool,
+  document_create: fakeSkillTool,
+  file_write: { ...fakeTool, name: "file_write", category: "filesystem" },
+};
+
+/** Registry ownership per tool — drives the extension-owned gate checks. */
+const toolOwners: Record<string, { kind: string; id: string }> = {
+  document_create: { kind: "skill", id: "some-skill" },
 };
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => fakeTools[name],
   resolveTool: (name: string) => fakeTools[name],
   getAllTools: () => Object.values(fakeTools),
+  getToolOwner: (name: string) => toolOwners[name],
 }));
 
 // Mock the dynamic-skill predicate so isSensitiveTool's skill_load branch is
 // exercised without a real skill catalog: "dynamic-skill" is an inline-command
 // load, anything else is plain.
+/** Whether the owning skill of the tool under test reports as first-party. */
+let skillOwnerBundled = false;
+
 mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: (
     _name: string,
     input: Record<string, unknown>,
   ) => input?.skill === "dynamic-skill",
+  isToolOwnerSkillBundled: () => skillOwnerBundled,
 }));
 
 // The channel permission-matrix cell is a gateway IPC call; the shared mock
@@ -747,8 +770,9 @@ describe("resolveSensitiveToolDecision / CapabilitySet floor × approval cell", 
 
 describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", () => {
   const handler = new ToolApprovalHandler();
-  const toolName = "bash";
-  const input = { command: "ls -la" };
+  /** An ordinary workspace write: sandbox reach, and nothing excludes it. */
+  const toolName = "file_write";
+  const input = { path: "notes/todo.md", content: "x" };
 
   /**
    * A contact in a room, with no `requesterExternalUserId` — escalation needs
@@ -773,6 +797,7 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
     clearTables();
     resetAuditCalls();
     resetThresholdReaderMock();
+    skillOwnerBundled = false;
   });
 
   test.each(["low", "medium", "high"])(
@@ -889,6 +914,93 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
     expect(result.result.content).toContain("requires guardian approval");
     // Host reach is decided before the cell matters, so nothing is looked up.
     expect(thresholdReaderMock.cellLookups).toBe(0);
+  });
+
+  // Each of these is a way back out of the sandbox, so a cell that lifted any
+  // one of them would lift the others by the back door. Excluding only some
+  // would read as safe while leaving the path open.
+  describe("what no cell lifts, even at Full access", () => {
+    beforeEach(() => {
+      thresholdReaderMock.cell = cell("high");
+    });
+
+    async function expectFloored(
+      toolName: string,
+      toolInput: Record<string, unknown>,
+    ) {
+      const result = await handler.checkPreExecutionGates(
+        toolName,
+        toolInput,
+        channelContext(),
+        "low",
+        Date.now(),
+      );
+      expect(result.allowed).toBe(false);
+      if (result.allowed) {
+        return;
+      }
+      expect(result.result.content).toContain("requires guardian approval");
+      // Excluded before the cell matters, so nothing is looked up.
+      expect(thresholdReaderMock.cellLookups).toBe(0);
+    }
+
+    // Running code in the workspace is how you write everything else in it.
+    test("sandbox bash", async () => {
+      await expectFloored("bash", { command: "ls" });
+    });
+
+    test.each([
+      ["hooks", "hooks/on-message.ts"],
+      ["plugins", "plugins/acme/register.ts"],
+      ["skills", "skills/acme/SKILL.md"],
+      ["tools", "tools/acme.ts"],
+      ["routes", "routes/acme.ts"],
+      ["workflows", "workflows/acme.ts"],
+    ])("a write into %s/ — code the daemon runs later", async (_dir, path) => {
+      await expectFloored("file_write", { path, content: "x" });
+    });
+
+    // The manifest of a non-bundled skill is not vetted, and shadowing a core
+    // side-effect name is how one lands on an otherwise liftable invocation.
+    test("an unvetted skill shadowing a core side-effect tool", async () => {
+      skillOwnerBundled = false;
+      await expectFloored("document_create", { title: "x" });
+    });
+  });
+
+  // The exclusions are about provenance and reach, not about naming: an
+  // ordinary workspace write is still delegable.
+  test("an ordinary workspace file write is still lifted", async () => {
+    thresholdReaderMock.cell = cell("high");
+
+    const result = await handler.checkPreExecutionGates(
+      "file_write",
+      { path: "notes/todo.md", content: "x" },
+      channelContext(),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(true);
+    if (!result.allowed) {
+      return;
+    }
+    expect(result.grantConsumed).toBeFalsy();
+  });
+
+  test("a bundled skill's side-effect tool is still lifted", async () => {
+    thresholdReaderMock.cell = cell("high");
+    skillOwnerBundled = true;
+
+    const result = await handler.checkPreExecutionGates(
+      "document_create",
+      { title: "x" },
+      channelContext(),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(true);
   });
 
   test("a guardian never pays for the cell lookup", async () => {
