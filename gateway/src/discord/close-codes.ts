@@ -47,11 +47,19 @@ const FATAL = new Set([4004, 4010, 4011, 4012, 4013, 4014]);
 const CLIENT_FAULT = new Set([4001, 4002, 4005]);
 
 /**
- * A normal WebSocket close invalidates the session, so a deliberate close that
- * intends to resume must not use one. Zombie kills and clock-jump recoveries
- * close with {@link RESUMABLE_CLOSE_CODE} for exactly this reason.
+ * Discord invalidates the session when the *client* closes with 1000, so a
+ * deliberate close that intends to resume must not use one — zombie kills and
+ * clock-jump recoveries close with {@link RESUMABLE_CLOSE_CODE} for exactly
+ * this reason.
+ *
+ * 1001 (`Going Away`) is deliberately absent. Discord's rule names 1000, and a
+ * received 1001 is usually an intermediary or a node draining rather than a
+ * session teardown — so the session often survives. The costs are asymmetric:
+ * resuming a dead session falls through op 9 to IDENTIFY at the cost of one
+ * round trip, while identifying against a live session spends an identify and
+ * loses the replay unconditionally. Resume is the cheaper wrong answer.
  */
-const INVALIDATES_SESSION = new Set([1000, 1001]);
+const INVALIDATES_SESSION = new Set([1000]);
 
 /**
  * The code this client closes with when it wants the session preserved.
@@ -73,11 +81,21 @@ export const RESUMABLE_CLOSE_CODE = 4000;
 export function recoveryActionForCloseCode(
   code: number | undefined,
 ): RecoveryAction {
-  if (code === undefined || code === 1006) return "resume";
-  if (FATAL.has(code)) return "fatal";
-  if (REQUIRES_FRESH_IDENTIFY.has(code)) return "identify";
-  if (INVALIDATES_SESSION.has(code)) return "identify";
-  if (RESUMABLE.has(code)) return "resume";
+  if (code === undefined || code === 1006) {
+    return "resume";
+  }
+  if (FATAL.has(code)) {
+    return "fatal";
+  }
+  if (REQUIRES_FRESH_IDENTIFY.has(code)) {
+    return "identify";
+  }
+  if (INVALIDATES_SESSION.has(code)) {
+    return "identify";
+  }
+  if (RESUMABLE.has(code)) {
+    return "resume";
+  }
   return "resume";
 }
 

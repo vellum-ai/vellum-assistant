@@ -3,8 +3,13 @@ import { describe, expect, test } from "bun:test";
 import { DiscordSessionState } from "./session-state.js";
 import "../__tests__/test-preload.js";
 
-const BASE_URL = "wss://gateway.discord.gg/?v=10&encoding=json";
-const RESUME_URL = "wss://us-east1-b.gateway.discord.gg/?v=10&encoding=json";
+// Bare, exactly as Discord returns them: `GET /gateway/bot` gives the base URL
+// and READY gives `resume_gateway_url`, neither carrying query params. Pinning
+// the fixtures to that shape is what makes the decoration observable — a
+// pre-decorated fixture would pass whether or not the code added anything.
+const BASE_URL = "wss://gateway.discord.gg";
+const RESUME_URL = "wss://us-east1-b.gateway.discord.gg";
+const PARAMS = "?v=10&encoding=json";
 const SESSION = "8a3b1c9d4e5f";
 
 function ready(): DiscordSessionState {
@@ -19,7 +24,7 @@ describe("DiscordSessionState", () => {
     const state = new DiscordSessionState(BASE_URL);
     expect(state.canResume).toBe(false);
     expect(state.nextConnection()).toEqual({
-      url: BASE_URL,
+      url: `${BASE_URL}/${PARAMS}`,
       action: "identify",
     });
     expect(state.resumePayload()).toBeUndefined();
@@ -30,10 +35,18 @@ describe("DiscordSessionState", () => {
     // rate, so the URL choice is part of the decision, not a detail.
     const state = ready();
     expect(state.nextConnection()).toEqual({
-      url: RESUME_URL,
+      url: `${RESUME_URL}/${PARAMS}`,
       action: "resume",
     });
     expect(state.resumePayload()).toEqual({ session_id: SESSION, seq: 42 });
+  });
+
+  test("does not double the params on an already-decorated URL", () => {
+    // Discord returns these bare today, but a URL that arrives carrying them
+    // must not come back with two copies — a malformed query is a connection
+    // that fails for a reason nothing in the logs would explain.
+    const state = new DiscordSessionState(`${BASE_URL}/${PARAMS}`);
+    expect(state.nextConnection().url).toBe(`${BASE_URL}/${PARAMS}`);
   });
 
   test("cannot resume on READY alone — a sequence is required", () => {
@@ -60,7 +73,7 @@ describe("DiscordSessionState", () => {
     state.invalidate();
     expect(state.canResume).toBe(false);
     expect(state.nextConnection()).toEqual({
-      url: BASE_URL,
+      url: `${BASE_URL}/${PARAMS}`,
       action: "identify",
     });
   });

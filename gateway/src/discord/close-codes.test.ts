@@ -39,10 +39,18 @@ describe("recoveryActionForCloseCode", () => {
   });
 
   test("treats a normal close as session-invalidating", () => {
-    // 1000/1001 tell Discord the client is finished with the session, so a
-    // resume after one cannot succeed.
+    // Discord's rule names 1000: closing with it tells Discord the client is
+    // finished with the session, so a resume after one cannot succeed.
     expect(recoveryActionForCloseCode(1000)).toBe("identify");
-    expect(recoveryActionForCloseCode(1001)).toBe("identify");
+  });
+
+  test("resumes after 1001 Going Away", () => {
+    // Not covered by the 1000 rule, and a received 1001 is usually an
+    // intermediary or a draining node rather than a session teardown. The
+    // costs are asymmetric: resuming a dead session falls through op 9 to
+    // IDENTIFY for one round trip, while identifying against a live session
+    // spends an identify and loses the replay unconditionally.
+    expect(recoveryActionForCloseCode(1001)).toBe("resume");
   });
 
   test("resumes on unknown codes rather than identifying", () => {

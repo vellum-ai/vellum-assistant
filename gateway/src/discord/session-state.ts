@@ -16,6 +16,31 @@
  * https://docs.discord.com/developers/events/gateway
  */
 
+/** Gateway API version this client speaks. */
+export const GATEWAY_VERSION = "10";
+
+/** Payload encoding. `json` avoids the optional erlpack/zlib dependencies. */
+export const GATEWAY_ENCODING = "json";
+
+/**
+ * Stamp the version and encoding Discord requires onto a Gateway URL.
+ *
+ * Both URLs arrive bare — `GET /gateway/bot` returns `wss://gateway.discord.gg`
+ * and READY's `resume_gateway_url` is the same shape — and a socket opened
+ * without these params is rejected. Applying it here rather than at each call
+ * site is what keeps a resume and an identify from ever disagreeing about the
+ * version they speak, which Discord treats as a resume failure.
+ *
+ * Existing params are preserved and the required two are overwritten, so a URL
+ * that already carries them is idempotent rather than doubled.
+ */
+function withGatewayParams(url: string): string {
+  const parsed = new URL(url);
+  parsed.searchParams.set("v", GATEWAY_VERSION);
+  parsed.searchParams.set("encoding", GATEWAY_ENCODING);
+  return parsed.toString();
+}
+
 /** Where to connect next, and what to send once the socket opens. */
 export interface ConnectionPlan {
   url: string;
@@ -96,9 +121,12 @@ export class DiscordSessionState {
   nextConnection(): ConnectionPlan {
     if (this.canResume) {
       // Non-null: `canResume` is exactly the check that these are set.
-      return { url: this.resumeGatewayUrl as string, action: "resume" };
+      return {
+        url: withGatewayParams(this.resumeGatewayUrl as string),
+        action: "resume",
+      };
     }
-    return { url: this.baseGatewayUrl, action: "identify" };
+    return { url: withGatewayParams(this.baseGatewayUrl), action: "identify" };
   }
 
   /** The op 6 payload, or undefined when there is no session to resume. */
