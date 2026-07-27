@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import { homedir, userInfo } from "node:os";
 import {
   basename,
   dirname,
@@ -178,6 +179,59 @@ function deniedFailure(target: SandboxTarget): PathResult | null {
   return null;
 }
 
+function safeUserInfoHomedir(): string {
+  try {
+    return userInfo().homedir;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Gateway-owned security directory (trust material, token signing keys).
+ * The daemon must never read from or write to it — gateway-owned data flows
+ * through the gateway's APIs instead (root AGENTS.md). Mirrors the
+ * resolution in gateway/src/paths.ts `getGatewaySecurityDir()`, since the
+ * cross-package import boundary bars importing it directly:
+ * GATEWAY_SECURITY_DIR when set, else `<home>/.vellum/protected`.
+ */
+function getGatewaySecurityDirMirror(): string {
+  const override = process.env.GATEWAY_SECURITY_DIR?.trim();
+  if (override) return resolve(override);
+  return join(
+    process.env.HOME || safeUserInfoHomedir() || homedir(),
+    ".vellum",
+    "protected",
+  );
+}
+
+function isWithinDir(path: string, dir: string): boolean {
+  return path === dir || path.startsWith(dir + "/");
+}
+
+/**
+ * Deny an out-of-workspace target that lands in the gateway security
+ * directory. Both the lexical and symlink-resolved target are checked
+ * against both the lexical and symlink-resolved directory, so neither a
+ * symlinked target nor a symlinked directory prefix can mask the hit.
+ */
+function gatewaySecurityDenial(target: SandboxTarget): PathResult | null {
+  const securityDir = getGatewaySecurityDirMirror();
+  const realSecurityDir = resolveRealPath(securityDir);
+  const hit = [target.resolved, target.realResolved].some(
+    (path) =>
+      isWithinDir(path, securityDir) || isWithinDir(path, realSecurityDir),
+  );
+  if (!hit) {
+    return null;
+  }
+  return {
+    ok: false,
+    reason: "denied",
+    error: "Access to the gateway security directory is denied",
+  };
+}
+
 function evaluateSandboxPolicy(
   rawPath: string,
   boundaryDir: string,
@@ -190,8 +244,14 @@ function evaluateSandboxPolicy(
     options?.mustExist ?? true,
   );
 
-  if (!allowOutOfBounds && isOutOfBounds(target)) {
-    return outOfBoundsFailure(rawPath, target);
+  if (isOutOfBounds(target)) {
+    if (!allowOutOfBounds) {
+      return outOfBoundsFailure(rawPath, target);
+    }
+    const securityDenied = gatewaySecurityDenial(target);
+    if (securityDenied) {
+      return securityDenied;
+    }
   }
 
   const denied = deniedFailure(target);
@@ -228,8 +288,9 @@ export function sandboxPolicy(
  * installs.
  *
  * Identical to {@link sandboxPolicy} for in-bounds targets. A target that
- * escapes the boundary is allowed with host-style validation (the basename
- * denylist still applies to both the logical and symlink-resolved paths).
+ * escapes the boundary is allowed with host-style validation: the basename
+ * denylist still applies to both the logical and symlink-resolved paths, and
+ * the gateway security directory stays denied outright.
  * The permission lane runs before tool execution and classifies
  * out-of-workspace file operations as elevated risk (see the gateway
  * FileRiskClassifier), so an escape reaching this policy has already been

@@ -199,6 +199,7 @@ describe("sandboxPolicy", () => {
 describe("sandboxPolicyWithHostFallback", () => {
   afterEach(() => {
     delete process.env.IS_CONTAINERIZED;
+    delete process.env.GATEWAY_SECURITY_DIR;
   });
 
   test("matches sandboxPolicy for in-bounds paths", () => {
@@ -258,6 +259,63 @@ describe("sandboxPolicyWithHostFallback", () => {
       join(outside, "backup.key"),
       boundary,
       { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies paths inside the gateway security dir (env override)", () => {
+    const boundary = makeTempDir();
+    const securityDir = makeTempDir();
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+
+    const result = sandboxPolicyWithHostFallback(
+      join(securityDir, "trust.json"),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+      expect(result.error).toContain("gateway security directory");
+    }
+  });
+
+  test("denies the default gateway security dir when the env is unset", () => {
+    const boundary = makeTempDir();
+
+    const result = sandboxPolicyWithHostFallback(
+      join(
+        process.env.HOME!,
+        ".vellum",
+        "protected",
+        "actor-token-signing-key",
+      ),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("denies a symlink that resolves into the gateway security dir", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    const securityDir = makeTempDir();
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+    writeFileSync(join(securityDir, "trust.json"), "{}");
+    symlinkSync(
+      join(securityDir, "trust.json"),
+      join(outside, "innocent.json"),
+    );
+
+    const result = sandboxPolicyWithHostFallback(
+      join(outside, "innocent.json"),
+      boundary,
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {

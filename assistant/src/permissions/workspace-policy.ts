@@ -77,6 +77,44 @@ const ALWAYS_SCOPED_TOOLS = new Set([
 ]);
 
 /**
+ * Extract a path-scoped tool's target path from its input, resolving
+ * relative paths against the workspace root (not process.cwd()). Returns
+ * `""` when the input carries no usable path.
+ */
+function resolvePathScopedTarget(
+  toolInput: Record<string, unknown>,
+  workspaceRoot: string,
+): string {
+  const rawPath =
+    typeof toolInput.file_path === "string"
+      ? toolInput.file_path
+      : typeof toolInput.path === "string"
+        ? toolInput.path
+        : "";
+  if (rawPath === "" || rawPath.startsWith("/")) {
+    return rawPath;
+  }
+  return resolve(workspaceRoot, rawPath);
+}
+
+/**
+ * Whether a sandbox file-tool invocation targets a path outside the
+ * workspace root. Always false in containerized mode — the execution-time
+ * boundary is hard there, so an escaping path never executes. Non-path
+ * tools are never classified by this predicate.
+ */
+export function isOutOfWorkspaceFileInvocation(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  workspaceRoot: string,
+): boolean {
+  if (getIsContainerized()) return false;
+  if (!PATH_SCOPED_TOOLS.has(toolName)) return false;
+  const filePath = resolvePathScopedTarget(toolInput, workspaceRoot);
+  return filePath !== "" && !isPathWithinWorkspaceRoot(filePath, workspaceRoot);
+}
+
+/**
  * Determine whether a tool invocation only affects resources within the
  * workspace root. This is a conservative classification — unknown tools
  * default to NOT workspace-scoped.
@@ -91,17 +129,7 @@ export function isWorkspaceScopedInvocation(
   if (HOST_TOOLS.has(toolName)) return false;
 
   if (PATH_SCOPED_TOOLS.has(toolName)) {
-    const rawPath =
-      typeof toolInput.file_path === "string"
-        ? toolInput.file_path
-        : typeof toolInput.path === "string"
-          ? toolInput.path
-          : "";
-    // Resolve relative paths against workspaceRoot (not process.cwd())
-    const filePath =
-      rawPath !== "" && !rawPath.startsWith("/")
-        ? resolve(workspaceRoot, rawPath)
-        : rawPath;
+    const filePath = resolvePathScopedTarget(toolInput, workspaceRoot);
     return (
       filePath !== "" && isPathWithinWorkspaceRoot(filePath, workspaceRoot)
     );

@@ -61,6 +61,7 @@ mock.module("../permissions/gateway-threshold-reader.js", () => ({
 
 mock.module("../permissions/workspace-policy.js", () => ({
   isWorkspaceScopedInvocation: () => false,
+  isOutOfWorkspaceFileInvocation: () => false,
   isPathWithinWorkspaceRoot: () => false,
 }));
 

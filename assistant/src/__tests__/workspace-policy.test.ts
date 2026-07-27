@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 
 import * as envRegistry from "../config/env-registry.js";
 import {
+  isOutOfWorkspaceFileInvocation,
   isPathWithinWorkspaceRoot,
   isWorkspaceScopedInvocation,
 } from "../permissions/workspace-policy.js";
@@ -280,5 +281,72 @@ describe("isWorkspaceScopedInvocation", () => {
         isWorkspaceScopedInvocation("mystery_tool", {}, workspaceRoot),
       ).toBe(false);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isOutOfWorkspaceFileInvocation
+// ---------------------------------------------------------------------------
+
+describe("isOutOfWorkspaceFileInvocation", () => {
+  test("returns true for a file tool targeting an outside path", () => {
+    expect(
+      isOutOfWorkspaceFileInvocation(
+        "file_read",
+        { path: join(outsideDir, "notes.txt") },
+        workspaceRoot,
+      ),
+    ).toBe(true);
+  });
+
+  test("returns true for an in-workspace symlink that resolves outside", () => {
+    expect(
+      isOutOfWorkspaceFileInvocation(
+        "file_write",
+        { path: symlinkToOutside },
+        workspaceRoot,
+      ),
+    ).toBe(true);
+  });
+
+  test("returns false for an in-workspace relative path", () => {
+    expect(
+      isOutOfWorkspaceFileInvocation(
+        "file_write",
+        { path: "src/index.ts" },
+        workspaceRoot,
+      ),
+    ).toBe(false);
+  });
+
+  test("returns false for non-path tools", () => {
+    expect(
+      isOutOfWorkspaceFileInvocation(
+        "bash",
+        { command: "cat /etc/hosts" },
+        workspaceRoot,
+      ),
+    ).toBe(false);
+  });
+
+  test("returns false when the input carries no path", () => {
+    expect(isOutOfWorkspaceFileInvocation("file_read", {}, workspaceRoot)).toBe(
+      false,
+    );
+  });
+
+  test("returns false when containerized", () => {
+    const spy = spyOn(envRegistry, "getIsContainerized").mockReturnValue(true);
+    try {
+      expect(
+        isOutOfWorkspaceFileInvocation(
+          "file_read",
+          { path: join(outsideDir, "notes.txt") },
+          workspaceRoot,
+        ),
+      ).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

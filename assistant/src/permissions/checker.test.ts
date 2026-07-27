@@ -119,6 +119,7 @@ mock.module("./trust-store.js", () => ({
 let mockIsPathWithinWorkspaceRoot = true;
 mock.module("./workspace-policy.js", () => ({
   isWorkspaceScopedInvocation: () => false,
+  isOutOfWorkspaceFileInvocation: () => false,
   isPathWithinWorkspaceRoot: () => mockIsPathWithinWorkspaceRoot,
 }));
 
