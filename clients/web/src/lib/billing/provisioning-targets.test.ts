@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import type { OperationalStatus } from "@/generated/api/types.gen";
 
-import { isResizeOperationInFlight, targetsMet } from "./provisioning-targets";
+import {
+  isEntitlementRaceVerdict,
+  isResizeOperationInFlight,
+  targetsMet,
+} from "./provisioning-targets";
 
 function opStatus(
   overrides: Partial<OperationalStatus>,
@@ -180,6 +184,56 @@ describe("isResizeOperationInFlight", () => {
           },
         }),
       ),
+    ).toBe(false);
+  });
+});
+
+describe("isEntitlementRaceVerdict", () => {
+  test("no_active_pro is a race — the entitlement isn't visible yet", () => {
+    expect(
+      isEntitlementRaceVerdict({
+        state: "not_applicable",
+        reason: "no_active_pro",
+      }),
+    ).toBe(true);
+  });
+
+  test("no_provisionable_assistants is a race — no settled assistant yet", () => {
+    expect(
+      isEntitlementRaceVerdict({
+        state: "not_applicable",
+        reason: "no_provisionable_assistants",
+      }),
+    ).toBe(true);
+  });
+
+  test("no_targets is an answer, not a race", () => {
+    expect(
+      isEntitlementRaceVerdict({
+        state: "not_applicable",
+        reason: "no_targets",
+      }),
+    ).toBe(false);
+  });
+
+  test("a not_applicable with no reason is not a race", () => {
+    expect(
+      isEntitlementRaceVerdict({ state: "not_applicable", reason: null }),
+    ).toBe(false);
+  });
+
+  test("a race reason on a non-not_applicable state is not a race", () => {
+    expect(
+      isEntitlementRaceVerdict({
+        state: "started",
+        reason: "no_provisionable_assistants",
+      }),
+    ).toBe(false);
+  });
+
+  test("a terminal already_done verdict is not a race", () => {
+    expect(
+      isEntitlementRaceVerdict({ state: "already_done", reason: null }),
     ).toBe(false);
   });
 });

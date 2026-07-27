@@ -309,9 +309,9 @@ export function useProProvisioning({
               return;
             }
             setEnsureError(null);
-            // The entitlement race is not an answer: adopting it would park the
-            // wizard in a terminal state with an unprovisioned assistant. Leave
-            // the verdict null (pure inference keeps running) and re-ask once —
+            // A race reply is not an answer: adopting it would park the wizard
+            // in a terminal state with an unprovisioned assistant. Leave the
+            // verdict null (pure inference keeps running) and re-ask once —
             // the race resolves in a beat.
             if (isEntitlementRaceVerdict(data)) {
               if (!ensureRaceRetriedRef.current) {
@@ -327,8 +327,9 @@ export function useProProvisioning({
                 // the stall clock here would drop the user out of STALLED with
                 // no resize running and nothing said. Hold the state and
                 // explain, regardless of source, so a repeat dead end surfaces
-                // why.
-                setEnsureError({ error: "no_active_pro" });
+                // why — carrying the server's own reason so the snag copy
+                // names the right one.
+                setEnsureError({ error: data.reason ?? "no_active_pro" });
               }
             } else {
               setServerVerdict(data.state);

@@ -143,10 +143,11 @@ const hatchAssistantMock = mock(async () => ({
 // queued" / network blip under throwOnError:false — before one succeeds. 0 =
 // always succeed. Infinity = never succeeds.
 let ensureProvisionedFailFirstN = 0;
-// How many leading reconcile calls answer with the `no_active_pro` entitlement
-// race: a 200 body that queues nothing because the platform cannot see the
-// entitlement yet.
+// How many leading reconcile calls answer with a race body: a 200 that queues
+// nothing because the platform cannot see the entitlement yet, or has no
+// settled assistant to provision.
 let ensureProvisionedRaceFirstN = 0;
+let ensureProvisionedRaceReason = "no_active_pro";
 let ensureProvisionedCallCount = 0;
 
 const ensureProvisionedMock = mock(async () => {
@@ -156,7 +157,11 @@ const ensureProvisionedMock = mock(async () => {
   }
   if (ensureProvisionedCallCount <= ensureProvisionedRaceFirstN) {
     return {
-      data: { state: "not_applicable", reason: "no_active_pro", targets: {} },
+      data: {
+        state: "not_applicable",
+        reason: ensureProvisionedRaceReason,
+        targets: {},
+      },
     };
   }
   return { data: { state: "started", reason: null, targets: {} } };
@@ -432,6 +437,7 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     subscriptionPollClockStepMs = 0;
     ensureProvisionedFailFirstN = 0;
     ensureProvisionedRaceFirstN = 0;
+    ensureProvisionedRaceReason = "no_active_pro";
     ensureProvisionedCallCount = 0;
     healthzCallCount = 0;
     healthzUnhealthyFromCall = Number.POSITIVE_INFINITY;
@@ -1146,6 +1152,40 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
       );
 
       // The entitlement becomes visible and provisioning converges.
+      onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
+
+      await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+        timeout: 15000,
+      });
+    },
+    20000,
+  );
+
+  test(
+    "a no_provisionable_assistants reconcile is re-fired instead of consuming the fire-once guard",
+    async () => {
+      // The reason a hatch hits most: the org holds the entitlement but its
+      // assistant hasn't settled yet, so the reconcile queues nothing. Spending
+      // the guard here would lose the nudge for the whole hatch — exactly the
+      // window where the assistant is about to become provisionable.
+      subscriptionPlanId = "pro";
+      onboardingData = null;
+      ensureProvisionedRaceFirstN = 1;
+      ensureProvisionedRaceReason = "no_provisionable_assistants";
+      currentAssistant.machine_size = "extra_large";
+      currentAssistant.provisioned_storage_gib = 50;
+
+      render(<HatchingScreen />);
+
+      await waitFor(
+        () =>
+          expect(
+            ensureProvisionedMock.mock.calls.length,
+          ).toBeGreaterThanOrEqual(2),
+        { timeout: 15000 },
+      );
+
+      // The assistant settles and provisioning converges.
       onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
 
       await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {

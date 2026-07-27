@@ -555,11 +555,10 @@ export function HatchingScreen() {
       // Fire the idempotent grow-only reconcile — the same resize the subscribe
       // webhook triggers — covering a webhook that never fired or whose resize
       // was lost. It is marked done only when it RECONCILES: a 503 ("nothing
-      // queued"), a network error, a pre-org-hydration mount, or the
-      // entitlement race leaves the guard unset so a later poll iteration
-      // re-fires the nudge. It never blocks completion (which keys off targets
-      // + op-status); the re-fires stay bounded by the RESIZE_WAIT_MAX_MS cap
-      // below.
+      // queued"), a network error, a pre-org-hydration mount, or a race reply
+      // leaves the guard unset so a later poll iteration re-fires the nudge. It
+      // never blocks completion (which keys off targets + op-status); the
+      // re-fires stay bounded by the RESIZE_WAIT_MAX_MS cap below.
       const fireProvisioningReconcile = (): void => {
         if (provisioningReconcileFiredRef.current) {
           return;
@@ -569,9 +568,11 @@ export function HatchingScreen() {
         })
           .then((result) => {
             // Success carries a body; a 503/5xx resolves with no data under
-            // throwOnError:false. A `no_active_pro` body is the entitlement
-            // race, not an answer — nothing was queued, so it must not consume
-            // the guard or the nudge is lost for the whole hatch.
+            // throwOnError:false. A race body — the entitlement not yet
+            // visible, or no settled assistant to provision, which is the
+            // common case this early in a hatch — is not an answer: nothing was
+            // queued, so it must not consume the guard or the nudge is lost for
+            // the whole hatch.
             if (
               result.data != null &&
               !isEntitlementRaceVerdict(result.data)
