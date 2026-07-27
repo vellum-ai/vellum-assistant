@@ -178,6 +178,11 @@ export function isOutOfWorkspaceFileInvocation(
  * mode too: the workspace boundary is what contains an escaping *path*, and
  * these paths do not escape — the daemon executes them from inside.
  *
+ * Both sides are canonicalized before comparing, for the same reason
+ * {@link isPathWithinWorkspaceRoot} canonicalizes: a symlink inside the
+ * workspace pointing at one of these directories is a write into it, and a
+ * lexical prefix check does not see that.
+ *
  * Reads are excluded; only writes plant code.
  */
 export function isExecutableWorkspaceWrite(
@@ -192,7 +197,7 @@ export function isExecutableWorkspaceWrite(
   if (filePath === "") {
     return false;
   }
-  const target = normalize(filePath);
+  const target = canonicalize(filePath);
   return [
     getWorkspaceHooksDir(),
     getWorkspacePluginsDir(),
@@ -201,8 +206,11 @@ export function isExecutableWorkspaceWrite(
     getWorkspaceRoutesDir(),
     getWorkspaceWorkflowsDir(),
   ].some((dir) => {
-    const withSep = normalize(dir).replace(/\/?$/, "/");
-    return target === normalize(dir) || target.startsWith(withSep);
+    const canonicalDir = canonicalize(dir);
+    const withSep = canonicalDir.endsWith("/")
+      ? canonicalDir
+      : `${canonicalDir}/`;
+    return target === canonicalDir || target.startsWith(withSep);
   });
 }
 

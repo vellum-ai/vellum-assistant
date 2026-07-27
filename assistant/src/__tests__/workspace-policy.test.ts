@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 
 import * as envRegistry from "../config/env-registry.js";
 import {
+  isExecutableWorkspaceWrite,
   isOutOfWorkspaceFileInvocation,
   isPathWithinWorkspaceRoot,
   isWorkspaceScopedInvocation,
@@ -416,5 +417,84 @@ describe("isOutOfWorkspaceFileInvocation", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isExecutableWorkspaceWrite
+// ---------------------------------------------------------------------------
+
+// The sink directories come from the workspace getters (getWorkspaceHooksDir
+// et al.), which resolve against the configured workspace — so these tests run
+// against the per-process workspace override, not this file's scaffold root.
+// Using the scaffold would let the probe root and the getters diverge, and the
+// tests would pass without exercising the real comparison.
+describe("isExecutableWorkspaceWrite", () => {
+  const wsRoot = process.env.VELLUM_WORKSPACE_DIR!;
+
+  beforeAll(() => {
+    mkdirSync(join(wsRoot, "hooks"), { recursive: true });
+    mkdirSync(join(wsRoot, "notes-real"), { recursive: true });
+    // A benign-looking symlink inside the workspace pointing at hooks/.
+    symlinkSync(join(wsRoot, "hooks"), join(wsRoot, "notes-link"));
+  });
+
+  afterAll(() => {
+    rmSync(join(wsRoot, "notes-link"), { force: true });
+  });
+
+  test.each([
+    ["relative", "hooks/evil.ts"],
+    ["absolute", () => join(wsRoot, "hooks", "evil.ts")],
+    ["container /workspace form", "/workspace/hooks/evil.ts"],
+    ["dot-dot traversal", "notes-real/../hooks/evil.ts"],
+  ])("blocks a write into hooks/ via %s path", (_label, path) => {
+    const resolved = typeof path === "function" ? path() : path;
+    expect(
+      isExecutableWorkspaceWrite("file_write", { path: resolved }, wsRoot),
+    ).toBe(true);
+  });
+
+  // The path is lexically ordinary; only canonicalization sees where it lands.
+  // The sibling predicates above canonicalize for exactly this reason.
+  test("blocks a write through a symlink into hooks/", () => {
+    expect(
+      isExecutableWorkspaceWrite(
+        "file_write",
+        { path: "notes-link/evil.ts" },
+        wsRoot,
+      ),
+    ).toBe(true);
+  });
+
+  // A write through a link that will land inside a sink dir once created.
+  test("blocks a write through a DANGLING symlink into hooks/", () => {
+    const dangling = join(wsRoot, "dangling-into-hooks");
+    symlinkSync(join(wsRoot, "hooks", "not-yet.ts"), dangling);
+    try {
+      expect(
+        isExecutableWorkspaceWrite("file_write", { path: dangling }, wsRoot),
+      ).toBe(true);
+    } finally {
+      rmSync(dangling, { force: true });
+    }
+  });
+
+  test("ordinary workspace writes and reads stay clear", () => {
+    expect(
+      isExecutableWorkspaceWrite(
+        "file_write",
+        { path: "notes-real/todo.md" },
+        wsRoot,
+      ),
+    ).toBe(false);
+    // Reads never plant code, even into a sink dir.
+    expect(
+      isExecutableWorkspaceWrite(
+        "file_read",
+        { path: "hooks/on-message.ts" },
+        wsRoot,
+      ),
+    ).toBe(false);
   });
 });
