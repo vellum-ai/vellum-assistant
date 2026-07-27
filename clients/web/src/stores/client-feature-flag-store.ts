@@ -46,6 +46,23 @@ const localOverrides = readOverrides();
 const localStringOverrides = readStringOverrides();
 const envOverrides = getEnvFlagOverridesForScope("client");
 
+/**
+ * The values to hold when no server response stands behind them: registry
+ * defaults, with local and env overrides layered back on top. Overrides are
+ * the developer's answer for every identity, so they survive a scope change.
+ */
+function flagsWithoutServerValues(): Record<string, boolean> {
+  return { ...CLIENT_FLAG_DEFAULTS, ...readOverrides(), ...envOverrides.bool };
+}
+
+function stringFlagsWithoutServerValues(): Record<string, string> {
+  return {
+    ...CLIENT_STRING_FLAG_DEFAULTS,
+    ...readStringOverrides(),
+    ...envOverrides.str,
+  };
+}
+
 interface ClientFeatureFlagMeta {
   stringFlags: Record<string, string>;
   /**
@@ -57,10 +74,18 @@ interface ClientFeatureFlagMeta {
    * synchronously at store init and win over the server value anyway.
    */
   hydrated: boolean;
+  /**
+   * The identity the current server values were evaluated against — the same
+   * `requestScopeKey` the request-scoped query cache is keyed by — or `null`
+   * before any scope has been claimed. Flags are evaluated per (user, org),
+   * so a value is only an answer for the scope it was fetched in.
+   */
+  scopeKey: string | null;
 }
 
 interface ClientFeatureFlagActions {
   setFlags: (flags: Record<string, boolean>) => void;
+  beginScope: (scopeKey: string) => void;
   setFlag: (key: string, value: boolean) => void;
   clearOverride: (key: string) => void;
   setStringFlags: (flags: Record<string, string>) => void;
@@ -72,13 +97,22 @@ type ClientFeatureFlagStore = Record<string, boolean> &
   ClientFeatureFlagMeta &
   ClientFeatureFlagActions;
 
-// See assistant-feature-flag-store.ts for why setStr() is needed.
+/**
+ * A partial the store accepts but `Partial<ClientFeatureFlagStore>` rejects:
+ * the `Record<string, boolean>` index signature makes every non-boolean meta
+ * field (`stringFlags`, `scopeKey`) incompatible. See
+ * assistant-feature-flag-store.ts for the same workaround.
+ */
+type ClientFeatureFlagPartial = Partial<ClientFeatureFlagMeta> & {
+  [key: string]: boolean | string | null | Record<string, string> | undefined;
+};
+
 const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
   (set) => {
-    const setStr = set as unknown as (
+    const setMeta = set as unknown as (
       partial:
-        | { stringFlags: Record<string, string> }
-        | ((state: ClientFeatureFlagStore) => { stringFlags: Record<string, string> } | ClientFeatureFlagStore),
+        | ClientFeatureFlagPartial
+        | ((state: ClientFeatureFlagStore) => ClientFeatureFlagPartial | ClientFeatureFlagStore),
     ) => void;
 
     return ({
@@ -87,6 +121,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
       ...envOverrides.bool,
       stringFlags: { ...CLIENT_STRING_FLAG_DEFAULTS, ...localStringOverrides, ...envOverrides.str },
       hydrated: false,
+      scopeKey: null,
 
       setFlags: (flags: Record<string, boolean>) =>
         set((prev) => {
@@ -102,6 +137,29 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
             return prev.hydrated ? prev : { hydrated: true };
           }
           return { ...merged, hydrated: true };
+        }),
+
+      /**
+       * Claim `scopeKey` as the identity the next server values belong to.
+       *
+       * A different identity means the values in hand answer a question nobody
+       * asked: an anonymous evaluation says nothing about the signed-in one, in
+       * either direction. So a scope change drops the previous identity's
+       * server values and re-opens the pre-hydration window, leaving surfaces
+       * that gate on `hydrated` waiting for the new identity's response rather
+       * than acting on the old one's.
+       */
+      beginScope: (scopeKey: string) =>
+        setMeta((prev) => {
+          if (prev.scopeKey === scopeKey) {
+            return prev;
+          }
+          return {
+            ...flagsWithoutServerValues(),
+            stringFlags: stringFlagsWithoutServerValues(),
+            hydrated: false,
+            scopeKey,
+          };
         }),
 
       setFlag: (key: string, value: boolean) => {
@@ -126,7 +184,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
       },
 
       setStringFlags: (flags: Record<string, string>) =>
-        setStr((prev) => {
+        setMeta((prev) => {
           const overrides = readStringOverrides();
           const merged = { ...flags, ...overrides, ...envOverrides.str };
           const prevStr = prev.stringFlags;
@@ -142,7 +200,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
         } catch {
           // localStorage unavailable
         }
-        setStr((prev) => ({
+        setMeta((prev) => ({
           stringFlags: { ...prev.stringFlags, [key]: envOverrides.str[key] ?? value },
         }));
       },
@@ -154,7 +212,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
           // localStorage unavailable
         }
         const defaultValue = envOverrides.str[key] ?? CLIENT_STRING_FLAG_DEFAULTS[key];
-        setStr((prev) => ({
+        setMeta((prev) => ({
           stringFlags: {
             ...prev.stringFlags,
             [key]: defaultValue ?? "",

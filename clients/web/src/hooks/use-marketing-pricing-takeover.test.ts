@@ -5,24 +5,20 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 
 import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
+const initialState = useClientFeatureFlagStore.getState();
+
 beforeEach(() => {
-  useClientFeatureFlagStore.setState({
-    marketingPricingTakeover: false,
-    hydrated: false,
-  });
+  useClientFeatureFlagStore.setState(initialState, true);
 });
 
 afterEach(() => {
   cleanup();
-  useClientFeatureFlagStore.setState({
-    marketingPricingTakeover: false,
-    hydrated: false,
-  });
+  useClientFeatureFlagStore.setState(initialState, true);
 });
 
 describe("useMarketingPricingTakeover", () => {
@@ -44,6 +40,30 @@ describe("useMarketingPricingTakeover", () => {
       marketingPricingTakeover: true,
     });
     const { result } = renderHook(() => useMarketingPricingTakeover());
+    expect(result.current).toBe("enabled");
+  });
+
+  test("a signed-out `false` does not read as disabled once the visitor signs in", () => {
+    // The marketing page evaluates this flag for an anonymous visitor and the
+    // app evaluates it for the signed-in user + org, so the two answers
+    // legitimately differ. Reading the pre-auth answer as settled would bounce
+    // a checkout deep link the signed-in user is entitled to.
+    const store = useClientFeatureFlagStore.getState();
+    store.beginScope("anonymous:org:none");
+    store.setFlags({ marketingPricingTakeover: false });
+
+    useClientFeatureFlagStore
+      .getState()
+      .beginScope("user:user-123:org:org-abc");
+
+    const { result } = renderHook(() => useMarketingPricingTakeover());
+    expect(result.current).toBe("pending");
+
+    act(() => {
+      useClientFeatureFlagStore
+        .getState()
+        .setFlags({ marketingPricingTakeover: true });
+    });
     expect(result.current).toBe("enabled");
   });
 

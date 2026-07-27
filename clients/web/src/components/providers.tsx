@@ -29,6 +29,7 @@ import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { queryRetryDelay, shouldRetryQuery } from "@/utils/query-retry";
+import { requestScopeKey } from "@/utils/request-scope-key";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -76,9 +77,11 @@ function ScopeKeyedQueryClientProvider({
   const user = useAuthStore.use.user();
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
-  const scopeKey = `${
-    isAuthenticated ? `user:${user?.id ?? "unknown"}` : "anonymous"
-  }:org:${currentOrganizationId ?? "none"}`;
+  const scopeKey = requestScopeKey({
+    isAuthenticated,
+    userId: user?.id,
+    organizationId: currentOrganizationId,
+  });
 
   return (
     <RequestScopedQueryClientProvider key={scopeKey}>
