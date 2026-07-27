@@ -144,6 +144,29 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  test("rejects a heartbeat ceiling shorter than the idle tick interval", () => {
+    // The heartbeat is only checked on the idle tick, so a shorter ceiling
+    // could be overshot by a full interval.
+    const result = LiveVoiceFrontModelConfigSchema.safeParse({
+      progress: { idleIntervalMs: 60_000, maxSilenceMs: 10_000 },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((issue) => issue.message);
+      expect(
+        msgs.some((msg) =>
+          msg.includes("liveVoice.frontModel.progress.maxSilenceMs"),
+        ),
+      ).toBe(true);
+    }
+    // The floor itself is allowed: the tick is exactly on the ceiling.
+    expect(
+      LiveVoiceFrontModelConfigSchema.safeParse({
+        progress: { idleIntervalMs: 60_000, maxSilenceMs: 60_000 },
+      }).success,
+    ).toBe(true);
+  });
+
   test("rejects a non-boolean progress.enabled", () => {
     const result = LiveVoiceFrontModelConfigSchema.safeParse({
       progress: { enabled: "yes" },

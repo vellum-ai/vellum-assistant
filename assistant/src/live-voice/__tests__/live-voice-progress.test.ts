@@ -141,16 +141,17 @@ function makeProgressDecider(
 function progressConfig(
   overrides: Partial<LiveVoiceProgressConfig> = {},
 ): Partial<LiveVoiceFrontModelConfig> {
+  const idleIntervalMs = overrides.idleIntervalMs ?? 60_000;
   return {
     ackFirstDeltaTimeoutMs: GENEROUS_ACK_TIMEOUT_MS,
     progress: {
       enabled: true,
       opsThreshold: 3,
-      idleIntervalMs: 60_000,
-      // Below every tick interval these tests use, so a dead-air tick is
-      // heartbeat-eligible by default; tests that assert the new-activity gate
-      // raise it out of reach.
-      maxSilenceMs: 30,
+      idleIntervalMs,
+      // The schema floors the heartbeat at the tick interval; sitting exactly
+      // on that floor makes every dead-air tick heartbeat-eligible, and tests
+      // that assert the new-activity gate raise it out of reach.
+      maxSilenceMs: idleIntervalMs,
       longOpMs: 15_000,
       minGapMs: 10,
       generationTimeoutMs: 1_500,

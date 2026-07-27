@@ -91,7 +91,7 @@ export const LiveVoiceProgressConfigSchema = z
       )
       .default(35_000)
       .describe(
-        "Heartbeat ceiling (ms): narrate after this much unbroken silence even when nothing new has happened",
+        "Heartbeat ceiling (ms): narrate after this much unbroken silence even when nothing new has happened. Evaluated on the idle tick, so its resolution is idleIntervalMs and it must be at least that long",
       ),
     longOpMs: z
       .number({
@@ -132,6 +132,14 @@ export const LiveVoiceProgressConfigSchema = z
       .describe(
         "Budget (ms) for LLM-generated progress text — not latency-critical: it speaks into dead air",
       ),
+  })
+  // The heartbeat is checked when the idle tick finds the turn silent, so a
+  // ceiling shorter than the tick interval would be missed by up to a full
+  // interval — a promise the cadence cannot keep. Rejecting the combination
+  // beats silently overshooting it.
+  .refine((progress) => progress.maxSilenceMs >= progress.idleIntervalMs, {
+    error:
+      "liveVoice.frontModel.progress.maxSilenceMs must be at least idleIntervalMs — the heartbeat is evaluated on the idle tick",
   })
   .describe(
     "Progress-narration tuning for live voice sessions (spoken updates during long-running turns)",
