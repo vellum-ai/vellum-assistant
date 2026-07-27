@@ -20354,6 +20354,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "499":
+          description:
+            The client disconnected while the archive was being built. No body is returned and the staged archive is
+            discarded.
   /v1/migrations/export-to-gcs:
     post:
       operationId: migrations_exporttogcs_post

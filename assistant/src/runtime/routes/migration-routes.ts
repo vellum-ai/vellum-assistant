@@ -362,12 +362,36 @@ export async function handleMigrationValidate({
  *
  * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
  */
-export async function handleMigrationExport(
-  _args: RouteHandlerArgs,
-): Promise<RouteResponse> {
+/** The client hung up; there is no one left to send a body to. */
+function clientGoneResponse(): RouteResponse {
+  log.info("Export client disconnected before the archive was served");
+  return new RouteResponse(null, {}, 499);
+}
+
+export async function handleMigrationExport({
+  abortSignal,
+}: RouteHandlerArgs): Promise<RouteResponse> {
   // The legacy `description` field is no longer carried on the v1
   // manifest. Older clients still POST it; we silently ignore it.
   let cleanup: (() => Promise<void>) | undefined;
+
+  /**
+   * Evict the staged archive, at most once however many triggers fire. Safe to
+   * run while the runtime is still streaming it: on POSIX the unlink drops the
+   * directory entry and the open descriptor keeps the remaining bytes
+   * readable.
+   */
+  const evictTempFile = async (): Promise<void> => {
+    const run = cleanup;
+    cleanup = undefined;
+    await run?.();
+  };
+
+  // Building the archive costs an hour and tens of gigabytes on a large
+  // workspace. If the client is already gone there is nothing to build for.
+  if (abortSignal?.aborted) {
+    return clientGoneResponse();
+  }
 
   try {
     const manifestInputs = await buildExportManifestInputs();
@@ -423,14 +447,33 @@ export async function handleMigrationExport(
     cleanup = result.cleanup;
     const { tempPath, size, manifest } = result;
 
+    // Nothing between here and the listeners below awaits, so a disconnect is
+    // caught by exactly one of them.
+    if (abortSignal?.aborted) {
+      await evictTempFile();
+      return clientGoneResponse();
+    }
+
     const timestamp = manifest.created_at.replace(/[:.]/g, "-");
     const filename = `export-${timestamp}.vbundle`;
 
     const fileStream = createReadStream(tempPath);
+    // Fires once the body has been read to the end, or when the stream is
+    // destroyed — the successful-transfer case.
     fileStream.on("close", () => {
-      cleanup?.();
-      cleanup = undefined;
+      void evictTempFile();
     });
+    // A client that disconnects mid-transfer does not reliably tear the read
+    // stream down, which is how a leaked archive outlived the export. The
+    // adapters already hand the connection's signal to the handler, so bind
+    // it as the second trigger; the eviction itself runs at most once.
+    abortSignal?.addEventListener(
+      "abort",
+      () => {
+        void evictTempFile();
+      },
+      { once: true },
+    );
 
     const streamBody = Readable.toWeb(fileStream) as unknown as ReadableStream;
 
@@ -447,7 +490,7 @@ export async function handleMigrationExport(
       "X-Vbundle-Credentials-Included": String(credentials.length),
     });
   } catch (err) {
-    await cleanup?.();
+    await evictTempFile();
     log.error({ err }, "Failed to build export bundle");
     throw new InternalError(
       err instanceof Error ? err.message : "Unexpected export error",
@@ -2114,6 +2157,12 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       description: z.string().describe("Human-readable export description"),
     }),
+    additionalResponses: {
+      "499": {
+        description:
+          "The client disconnected while the archive was being built. No body is returned and the staged archive is discarded.",
+      },
+    },
     handler: handleMigrationExport,
   },
   {
