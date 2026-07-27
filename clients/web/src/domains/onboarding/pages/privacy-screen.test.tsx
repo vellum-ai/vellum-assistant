@@ -34,8 +34,16 @@ mock.module("@/lib/consent/consent-persistence", () => ({
 // (see navigation-resolver post-auth). Mutable so individual tests can pre-seed
 // it or leave it absent.
 let checkoutIntentValue: unknown = null;
+const clearCheckoutIntentMock = mock(() => {});
 mock.module("@/lib/billing/checkout-intent", () => ({
   readCheckoutIntent: () => checkoutIntentValue,
+  clearCheckoutIntent: clearCheckoutIntentMock,
+}));
+
+// `marketing-pricing-takeover` state — the pricing funnel kill switch.
+let takeoverValue = "enabled";
+mock.module("@/hooks/use-marketing-pricing-takeover", () => ({
+  useMarketingPricingTakeover: () => takeoverValue,
 }));
 
 const emitFunnelStepCompletedMock = mock((..._args: unknown[]) => {});
@@ -109,15 +117,18 @@ describe("PrivacyScreen — Start navigation", () => {
     navigateMock.mockClear();
     saveConsentMock.mockClear();
     emitFunnelStepCompletedMock.mockClear();
+    clearCheckoutIntentMock.mockClear();
     nativePlatform = false;
     localMode = false;
     checkoutIntentValue = null;
+    takeoverValue = "enabled";
   });
   afterEach(() => {
     cleanup();
     nativePlatform = false;
     localMode = false;
     checkoutIntentValue = null;
+    takeoverValue = "enabled";
   });
 
   test("preview mode no-ops on Start without persisting consent", () => {
@@ -201,6 +212,51 @@ describe("PrivacyScreen — Start navigation", () => {
     // Consent is still recorded before checkout resumes — payment after consent.
     expect(saveConsentMock).toHaveBeenCalledTimes(1);
     expect(navigateMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith(
+      `${routes.checkout}?package=super`,
+    );
+  });
+
+  test("drops the carried package and proceeds when the pricing funnel is off", () => {
+    // Kill switch flipped between the pricing CTA and this click. Handing off
+    // would land on a checkout route that bounces to plans, dropping the user
+    // out of onboarding before research runs.
+    takeoverValue = "disabled";
+    checkoutIntentValue = {
+      kind: "package",
+      packageKey: "super",
+      savedAt: Date.now(),
+      resumeAfterOnboarding: true,
+    };
+    searchParamsValue = new URLSearchParams("hosting=managed");
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(clearCheckoutIntentMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(routes.onboarding.research)).toBe(true);
+    expect(target).not.toContain(routes.checkout);
+  });
+
+  test("still resumes while the funnel flag is unresolved", () => {
+    // The flag defaults off; dropping the package before its real value lands
+    // would strand every legitimate pricing signup. The checkout route's own
+    // gate catches a genuinely-off funnel.
+    takeoverValue = "pending";
+    checkoutIntentValue = {
+      kind: "package",
+      packageKey: "super",
+      savedAt: Date.now(),
+      resumeAfterOnboarding: true,
+    };
+    searchParamsValue = new URLSearchParams("hosting=managed");
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(clearCheckoutIntentMock).not.toHaveBeenCalled();
     expect(navigateMock).toHaveBeenCalledWith(
       `${routes.checkout}?package=super`,
     );

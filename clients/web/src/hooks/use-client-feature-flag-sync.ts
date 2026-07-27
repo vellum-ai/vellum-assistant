@@ -47,7 +47,7 @@ function mapFlags(
 export function useClientFeatureFlagSync(enabled: boolean) {
   const freshness = useFlagQueryFreshness();
   const shouldFetch = enabled && !isRemoteGatewayMode();
-  const { data } = useQuery({
+  const { data, isError } = useQuery({
     queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
     queryFn: fetchClientFlagValues,
     enabled: shouldFetch,
@@ -63,6 +63,14 @@ export function useClientFeatureFlagSync(enabled: boolean) {
       if (Object.keys(stringFlags).length > 0) {
         store.setStringFlags(stringFlags);
       }
+      return;
     }
-  }, [data]);
+    // No server values are coming: the fetch is off for this mode, or it
+    // failed. Settle the store on the registry defaults so surfaces that wait
+    // for `hydrated` before acting on a default-off flag stop waiting instead
+    // of hanging. Passing no values leaves every flag where it is.
+    if (enabled && (!shouldFetch || isError)) {
+      useClientFeatureFlagStore.getState().setFlags({});
+    }
+  }, [data, enabled, isError, shouldFetch]);
 }

@@ -14,7 +14,11 @@ import {
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
-import { readCheckoutIntent } from "@/lib/billing/checkout-intent";
+import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
+import {
+    clearCheckoutIntent,
+    readCheckoutIntent,
+} from "@/lib/billing/checkout-intent";
 import { isLocalMode } from "@/lib/local-mode";
 import {
     usePrivacyConsent,
@@ -42,6 +46,7 @@ export function PrivacyScreen() {
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
   const hasPlatformSession = useHasPlatformSession();
+  const takeover = useMarketingPricingTakeover();
 
   useEffect(() => {
     if (!isNative) {
@@ -83,16 +88,24 @@ export function PrivacyScreen() {
     // re-stashing on a Stripe redirect, clearing it on an already-Pro no_op — so
     // this screen just hands off. Resuming only from this explicit Start click —
     // never a render effect — keeps consent and checkout from looping.
+    // A positively-off `marketing-pricing-takeover` drops the dead package and
+    // continues onboarding: handing off would bounce through a gated checkout
+    // route and out of the funnel before research runs. An unresolved flag
+    // still resumes — that route's own gate catches it.
     const checkoutIntent = readCheckoutIntent();
     if (
       checkoutIntent?.kind === "package" &&
       checkoutIntent.resumeAfterOnboarding === true
     ) {
-      const params = new URLSearchParams({
-        package: checkoutIntent.packageKey,
-      });
-      void navigate(`${routes.checkout}?${params.toString()}`);
-      return;
+      if (takeover === "disabled") {
+        clearCheckoutIntent();
+      } else {
+        const params = new URLSearchParams({
+          package: checkoutIntent.packageKey,
+        });
+        void navigate(`${routes.checkout}?${params.toString()}`);
+        return;
+      }
     }
 
     const hostingParam = searchParams.get("hosting");
@@ -122,6 +135,7 @@ export function PrivacyScreen() {
     navigate,
     searchParams,
     shareDiagnosticsChecked,
+    takeover,
     tosAccepted,
     userId,
   ]);

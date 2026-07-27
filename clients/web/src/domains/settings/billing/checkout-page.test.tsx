@@ -18,6 +18,8 @@ import * as browserRuntime from "@/runtime/browser";
 import * as orgReadyMod from "@/hooks/use-is-org-ready";
 import * as platformGateMod from "@/hooks/use-platform-gate";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
+import * as takeoverMod from "@/hooks/use-marketing-pricing-takeover";
+import type { MarketingPricingTakeoverState } from "@/hooks/use-marketing-pricing-takeover";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
 const INTENT_KEY = "vellum.pro-checkout-intent";
@@ -29,6 +31,8 @@ let openedUrl: string | null = null;
 let gateValue: PlatformGateState = "full";
 // Org-readiness the mocked `useIsOrgReady` returns (default: hydrated/ready).
 let orgReadyValue = true;
+// `marketing-pricing-takeover` state (default: funnel on).
+let takeoverValue: MarketingPricingTakeoverState = "enabled";
 // When true the upgrade rejects — drives the error path. Otherwise it resolves
 // with `upgradeData`.
 let upgradeRejects = false;
@@ -67,6 +71,11 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReadyValue,
 }));
 
+mock.module("@/hooks/use-marketing-pricing-takeover", () => ({
+  ...takeoverMod,
+  useMarketingPricingTakeover: () => takeoverValue,
+}));
+
 const { CheckoutPage } = await import("./checkout-page");
 
 function LocationProbe() {
@@ -93,6 +102,7 @@ beforeEach(() => {
   openedUrl = null;
   gateValue = "full";
   orgReadyValue = true;
+  takeoverValue = "enabled";
   upgradeRejects = false;
   upgradeData = { status: "redirect", checkout_url: CHECKOUT_URL, message: "" };
   sessionStorage.removeItem(INTENT_KEY);
@@ -205,5 +215,46 @@ describe("CheckoutPage", () => {
       expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
     );
     expect(upgradeCalls.length).toBe(0);
+  });
+
+  test("the pricing funnel switched off redirects to plans without charging", async () => {
+    takeoverValue = "disabled";
+    const { getByTestId } = renderCheckout("/assistant/checkout?package=super");
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
+    );
+    // A link cached from while the funnel was on must not start a purchase.
+    expect(upgradeCalls.length).toBe(0);
+    expect(openedUrl).toBeNull();
+    expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+  });
+
+  test("holds while the funnel flag is unresolved, then fires once it lands", async () => {
+    takeoverValue = "pending";
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const makeTree = () => (
+      <MemoryRouter initialEntries={["/assistant/checkout?package=super"]}>
+        <QueryClientProvider client={client}>
+          <CheckoutPage />
+        </QueryClientProvider>
+        <LocationProbe />
+      </MemoryRouter>
+    );
+    const { getByLabelText, getByTestId, rerender } = render(makeTree());
+
+    // The flag defaults off, so an unresolved value must neither fire checkout
+    // nor bounce — bouncing here would strand every cold-loaded deep link.
+    getByLabelText("Preparing checkout");
+    expect(upgradeCalls.length).toBe(0);
+    expect(getByTestId("loc").textContent).toBe(
+      "/assistant/checkout?package=super",
+    );
+
+    takeoverValue = "enabled";
+    rerender(makeTree());
+    await waitFor(() => expect(upgradeCalls.length).toBe(1));
   });
 });

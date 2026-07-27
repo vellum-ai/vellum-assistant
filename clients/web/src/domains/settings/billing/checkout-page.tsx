@@ -6,6 +6,7 @@ import { useMutation } from "@tanstack/react-query";
 
 import { organizationsBillingSubscriptionUpgradeCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import {
   clearCheckoutIntent,
@@ -28,6 +29,9 @@ import { Button } from "@vellumai/design-library/components/button";
  *   - Missing `package` → back to the plans takeover.
  *   - Gate `"disabled"`/`"gated"` → back to plans (its own gating owns the
  *     messaging).
+ *   - `marketing-pricing-takeover` off → back to plans. The flag is the kill
+ *     switch over the whole pricing funnel; a marketing link cached from while
+ *     it was on still lands somewhere useful.
  *   - Gate `"full"` → fire the upgrade once and either redirect to Stripe
  *     (`redirect`), fall back to plans (`no_op`, already Pro), or surface a
  *     retryable error. It never dead-ends.
@@ -43,6 +47,10 @@ export function CheckoutPage() {
   // which hydrates asynchronously after auth. On a cold deep link the platform
   // session can settle before the org id lands, so gate the fire on this too.
   const isOrgReady = useIsOrgReady();
+  // Kill switch over the pricing funnel. `"pending"` until the real flag value
+  // lands — the flag defaults off, so redirecting on the cold-load default
+  // would bounce every legitimate deep link.
+  const takeover = useMarketingPricingTakeover();
 
   const { mutateAsync } = useMutation(
     organizationsBillingSubscriptionUpgradeCreateMutation(),
@@ -80,21 +88,32 @@ export function CheckoutPage() {
   }, [mutateAsync, navigate, packageKey]);
 
   useEffect(() => {
-    // No package to check out, or a session that can't reach checkout: fall
-    // back to the plans takeover, which owns its own gating and messaging.
-    if (!packageKey || gate === "disabled" || gate === "gated") {
+    // No package to check out, a session that can't reach checkout, or the
+    // pricing funnel switched off: fall back to the plans takeover, which owns
+    // its own gating and messaging.
+    if (
+      !packageKey ||
+      gate === "disabled" ||
+      gate === "gated" ||
+      takeover === "disabled"
+    ) {
       navigate(routes.plans, { replace: true });
       return;
     }
-    // Hold until the platform gate is full AND the org store is ready. Firing
-    // before the org id hydrates sends a header-less request that fails; the
-    // "Preparing checkout…" spinner keeps showing meanwhile.
-    if (gate !== "full" || !isOrgReady || startedRef.current) {
+    // Hold until the funnel flag resolves, the platform gate is full, AND the
+    // org store is ready. Firing before the org id hydrates sends a header-less
+    // request that fails; the "Preparing checkout…" spinner keeps showing meanwhile.
+    if (
+      takeover !== "enabled" ||
+      gate !== "full" ||
+      !isOrgReady ||
+      startedRef.current
+    ) {
       return;
     }
     startedRef.current = true;
     void runCheckout();
-  }, [gate, isOrgReady, navigate, packageKey, runCheckout]);
+  }, [gate, isOrgReady, navigate, packageKey, runCheckout, takeover]);
 
   if (failed) {
     return (
