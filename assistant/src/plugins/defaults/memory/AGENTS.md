@@ -708,10 +708,17 @@ not deleted**. Today the test-only hits are:
    it against `memory.enabled`.
 6. Drop the `memory.v2` schema subtree and the `orV2` fallback in
    `substrate/tuning.ts`, giving `memory.substrate` **real defaults** (the
-   values currently in `config/schemas/memory-v2.ts`). Workspace migration 135
-   has already copied user overrides, so no data migration is needed here.
-   Fold the parent `MemoryConfigSchema.superRefine`'s mixed-case weight check
-   back into the substrate schema's own refinement.
+   values currently in `config/schemas/memory-v2.ts`). Migration 135 copied
+   user overrides, but it deliberately skips values equal to a shipped default
+   — including `bm25_b: 0.75`, the pre-migration-075 default. On a workspace
+   still persisting `0.75`, that value reaches the runtime **only** through the
+   `orV2` fallback, so dropping the fallback silently retunes it to `0.4`.
+   **Land a sweep migration first**: for every substrate tunable, copy the
+   resolved effective value into `memory.substrate` wherever it is absent there
+   and present under `memory.v2`, this time regardless of whether it matches a
+   shipped default. Only then remove the fallback. Fold the parent
+   `MemoryConfigSchema.superRefine`'s mixed-case weight check back into the
+   substrate schema's own refinement.
 7. Drop tables `memory_v2_activation_logs`, `memory_v2_injection_events`, and
    `activation_state` via a normal `persistence/migrations/` step (append-only —
    never edit an existing migration). Keep the `conversation-memory-purge.ts`
