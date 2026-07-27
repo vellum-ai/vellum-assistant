@@ -214,13 +214,13 @@ assistant config set memory.v3.live true                             # v3 become
 # Re-read memory.substrate first if the assistant was upgraded mid-migration —
 # an upgrade can copy memory.v2 overrides into it, and those must survive.
 assistant config set memory.substrate '<the object recorded in Step 1>'
-# Verify the EFFECTIVE values, not the shadowed ones:
-assistant config get memory.v2.consolidation_max_buffer_lines        # expect YOUR value, no "Shadowed:" line
-assistant config get memory.v2.consolidation_interval_hours          # expect YOUR value, no "Shadowed:" line
+# Verify each trigger's EFFECTIVE value against what Step 1 recorded:
+assistant config get memory.v2.consolidation_max_buffer_lines
+assistant config get memory.v2.consolidation_interval_hours
 assistant config get memory.v3.live                                  # expect: true
 ```
 
-`memory.v3.live` is plain workspace config the assistant owns — no feature flag, no operator hand-off. **Order matters:** set `memory.v3.live true` _before_ restoring the triggers, so the next consolidation is v3-shape, not v2. (`memory.v2.enabled` stayed `true` throughout — retrieval was never interrupted; only the triggers were paused.) A `Shadowed:` line on either verify read means a `memory.substrate` twin is still set and consolidation is still frozen — the restore did not take; fix the substrate object before you call the cutover done. Keep `.mv3/backup-concepts.*` and `.mv3/snapshot/` until the user confirms the live wiki is good. **Rollback:** `rsync -a --delete` from the backup over `memory/concepts/`, then `assistant config set memory.v3.live false` (the restored triggers then run v2-shape consolidation on the restored corpus).
+`memory.v3.live` is plain workspace config the assistant owns — no feature flag, no operator hand-off. **Order matters:** set `memory.v3.live true` _before_ restoring the triggers, so the next consolidation is v3-shape, not v2. (`memory.v2.enabled` stayed `true` throughout — retrieval was never interrupted; only the triggers were paused.) Read each verify line against the object Step 1 recorded, because a `Shadowed:` line is only a failure signal when the recorded object did **not** carry that key. If Step 1 recorded no twin for a trigger, expect your `memory.v2` value and no `Shadowed:` line. If Step 1 recorded one — the workspace was already tuned in the substrate namespace — expect a `Shadowed:` line reporting exactly that recorded value; that is a correct restore. The restore has failed only when the effective value is neither: a `Shadowed:` line still showing the Step 1 freeze values (`null` / `876000`), or a trigger missing a twin you recorded. Fix the substrate object only in that case, and only by restoring recorded keys — never by deleting them, which discards the workspace's pre-migration tuning. Keep `.mv3/backup-concepts.*` and `.mv3/snapshot/` until the user confirms the live wiki is good. **Rollback:** `rsync -a --delete` from the backup over `memory/concepts/`, then `assistant config set memory.v3.live false` (the restored triggers then run v2-shape consolidation on the restored corpus).
 
 ```
 git add -A && git commit -m "memory-v3-migration: complete (wiki deployed, sections backfilled)" --allow-empty
