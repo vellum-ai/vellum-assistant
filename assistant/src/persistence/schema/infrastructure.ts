@@ -35,11 +35,6 @@ export const cronJobs = sqliteTable("cron_jobs", {
     .notNull()
     .default(false), // reuse the same conversation across runs
   script: text("script"), // shell command for script mode (nullable, only used when mode = 'script')
-  thenExecute: integer("then_execute", { mode: "boolean" })
-    .notNull()
-    .default(false), // script mode: hand stdout to an agent turn instead of just recording it
-  skillId: text("skill_id"), // managed skill the script belongs to (nullable); exposed to the script as $__SKILL_DIR
-  skillVersionHash: text("skill_version_hash"), // skill content hash pinned at creation; re-checked before each firing
   wakeConversationId: text("wake_conversation_id"), // target conversation for wake mode (nullable)
   workflowName: text("workflow_name"), // saved workflow to trigger (nullable, only used when mode = 'workflow')
   workflowArgsJson: text("workflow_args_json"), // JSON-encoded args passed to the workflow run (nullable)

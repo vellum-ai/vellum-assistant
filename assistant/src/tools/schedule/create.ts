@@ -16,7 +16,6 @@ import {
   formatLocalDate,
   isValidCronExpression,
 } from "../../schedule/schedule-store.js";
-import { prepareScheduleSkillBinding } from "../../schedule/skill-binding.js";
 import {
   CapabilityManifestSchema,
   resolveCapabilities as resolveWorkflowCapabilities,
@@ -47,7 +46,7 @@ const VALID_ROUTING_INTENTS: RoutingIntent[] = [
  *
  * - `nullAsOmitted` on optionals read via `?? fallback`, where null and
  *   absent are equivalent.
- * - `.catch(undefined)` on `skill_id` / `workflow_name`, which the executor
+ * - `.catch(undefined)` on `workflow_name`, which the executor
  *   silently coerces to null when malformed.
  * - `mode`, `routing_intent`, `capabilities`, and `workflow_args` are
  *   deliberately UNDECLARED (loose passthrough): the first two keep their
@@ -65,8 +64,6 @@ export const scheduleCreateInputSchema = z.looseObject({
   timezone: nullAsOmitted(z.string()),
   message: nullAsOmitted(z.string()),
   script: nullAsOmitted(z.string()),
-  then_execute: nullAsOmitted(z.boolean()),
-  skill_id: z.string().optional().catch(undefined),
   enabled: nullAsOmitted(z.boolean()),
   workflow_name: z.string().optional().catch(undefined),
   routing_hints: nullAsOmitted(z.looseObject({})),
@@ -115,21 +112,10 @@ export async function executeScheduleCreate(
   const workflowName = parsed.workflow_name?.trim() ?? null;
   const workflowArgs = input.workflow_args;
   const inferenceProfile = parsed.inference_profile;
-  const thenExecute = parsed.then_execute ?? false;
-  const skillId = parsed.skill_id?.trim() ?? null;
 
   // Validated workflow capability manifest, resolved only for workflow mode.
   // Left null for non-workflow modes so `createSchedule` persists no manifest.
   let capabilities: unknown = null;
-
-  // Handoff + skill-binding fields, resolved only for script mode. The skill's
-  // current content hash is pinned here so a later rewrite cannot keep firing
-  // under this approval.
-  let skillBinding: {
-    thenExecute: boolean;
-    skillId: string | null;
-    skillVersionHash: string | null;
-  } = { thenExecute: false, skillId: null, skillVersionHash: null };
 
   if (timeoutMs !== undefined) {
     const timeoutError = validateScriptTimeoutMs(timeoutMs);
@@ -176,15 +162,6 @@ export async function executeScheduleCreate(
         isError: true,
       };
     }
-    const binding = prepareScheduleSkillBinding({
-      skillId,
-      thenExecute,
-      message,
-    });
-    if (!binding.ok) {
-      return { content: `Error: ${binding.error}`, isError: true };
-    }
-    skillBinding = binding.binding;
   } else if (mode === "workflow") {
     // Workflow mode requires a saved workflow name — mirrors the HTTP route's
     // create-side validation so the assistant-facing path and the settings route
@@ -268,7 +245,6 @@ export async function executeScheduleCreate(
         timezone,
         message,
         script,
-        ...skillBinding,
         enabled,
         syntax: "cron",
         expression: null,
@@ -361,7 +337,6 @@ export async function executeScheduleCreate(
       timezone,
       message,
       script,
-      ...skillBinding,
       enabled,
       syntax: resolved.syntax,
       expression: resolved.expression,

@@ -95,37 +95,18 @@ The `mode` parameter controls what happens when a schedule fires:
 
 - **execute** (default) - sends the schedule's message to a background assistant conversation for autonomous handling. The assistant processes the message as if the user sent it.
 - **notify** - sends a notification to the user via the notification pipeline. No assistant processing occurs.
-- **script** - runs the `script` field as a shell command directly. No LLM invoked and no conversation created unless `then_execute` is set, in which case a successful run's stdout is handed to an assistant turn (see "Authoring a Script Schedule"). stdout/stderr are captured in the schedule run record. Exit code 0 = success, non-zero = error. Commands run in the workspace directory with a 60-second timeout by default. Override the timeout per schedule with `timeout_ms` (range 1000–1800000 ms) when a script needs more or less time; pass `timeout_ms: null` on update to revert to the default. The guardian can also adjust this from the /assistant/settings/schedules page.
+- **script** - runs the `script` field as a shell command directly. No LLM invoked, no conversation created. stdout/stderr are captured in the schedule run record. Exit code 0 = success, non-zero = error. Commands run in the workspace directory with a 60-second timeout by default. Override the timeout per schedule with `timeout_ms` (range 1000–1800000 ms) when a script needs more or less time; pass `timeout_ms: null` on update to revert to the default. The guardian can also adjust this from the /assistant/settings/schedules page.
 - **workflow** - runs a saved workflow (by `workflow_name`) at trigger time, optionally with `workflow_args`. Requires the `workflows` feature flag; `workflow_name` is required. Use this to run a previously saved multi-agent workflow on a schedule (e.g. "run my inbox-triage workflow every morning at 8am"). Optionally pass `capabilities` (the run's single consent point) to grant the scheduled run's leaves side-effecting tools or host functions beyond the read-only baseline; declaring any prompts the guardian for approval once at creation.
 
 Use `notify` for simple reminders ("remind me to take medicine at 9am"), `execute` for tasks that need assistant action ("check my calendar at 8am and send me a digest"), `script` for lightweight shell automations that don't need LLM involvement ("refresh a cache", "poll an API", "rotate logs"), and `workflow` to run a saved workflow on a schedule.
 
 ## Authoring a Script Schedule
 
-Script commands run with the workspace root as the working directory. The assistant injects `__SCHEDULE_ID` (stable across runs of one schedule) and `__SCHEDULE_RUN_ID` (unique per firing) into the environment; `VELLUM_WORKSPACE_DIR` is also set, and `__SKILL_DIR` when the schedule is bound to a skill. There is no schedule-name variable — the id is how a command finds anything keyed to its schedule.
+Script commands run with the workspace root as the working directory. The assistant injects `__SCHEDULE_ID` (stable across runs of one schedule) and `__SCHEDULE_RUN_ID` (unique per firing) into the environment; `VELLUM_WORKSPACE_DIR` is also set. There is no schedule-name variable — the id is how a command finds anything keyed to its schedule.
 
 **Files on disk.** A self-contained command can live directly in the `script` field. A schedule that needs files on disk — a script too large to inline, or state that carries across runs — has a conventional home at `$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID/`. The assistant does not create or manage this directory. Because it is keyed by the schedule id, create the schedule first, read the id from the result, then create and populate `schedules/<id>/`: script files at the top level, run-managed state under `state/`, and a `.gitignore` covering `state/`. At runtime the command may reference the directory by absolute path or `cd` into it — either works. Deleting a schedule does not remove its directory; clean it up separately.
 
-**Running a managed skill's script.** Set `skill_id` to bind the schedule to an installed managed skill. The command then references the skill folder as `$__SKILL_DIR` (resolved fresh on every firing, so the binding survives a reinstall or a workspace move) rather than hardcoding an absolute path:
-
-```sh
-python3 "$__SKILL_DIR/scripts/export-report.py"
-```
-
-Binding also makes each firing count as usage of that skill, so a skill used only from a schedule is not treated as stale by memory maintenance. And it pins the skill's content: if the skill is later modified or uninstalled, the schedule stops firing and records the reason instead of running the changed script under the original approval. Re-approve by passing the same `skill_id` to `schedule_update` after reviewing what changed.
-
-**Handing the output to the assistant.** Set `then_execute: true` and the firing does not end at the run record: a successful script's stdout is handed to an assistant turn, with the schedule's `message` as the action prompt. The output is passed as data, not as instructions, so a script that fetches third-party content cannot have that content redirect the turn.
-
-```
-script:  bun run "$__SKILL_DIR/scripts/check-inventory.ts"
-message: Post a summary of any items below their reorder threshold to #ops.
-```
-
-**Print nothing when there is nothing to report.** Empty stdout skips the assistant turn entirely — no conversation, no LLM cost. That is what makes a frequently-firing script schedule affordable, so gate the script's output on whether it actually found something. A schedule that prints "no changes" every five minutes wakes the assistant every five minutes.
-
-`then_execute` respects the usual execute-mode settings: `reuse_conversation`, `inference_profile`, and `quiet` all apply to the turn it starts. Triggering a script schedule manually from settings ("run now") always reports the raw script output and never starts a turn.
-
-**Handing off from inside the script.** Where a script needs to decide *which* conversation to wake, or to wake one mid-run rather than at exit, it can call the agent directly instead of using `then_execute`:
+**Handing off to the agent loop.** A script can wake the assistant when it finds something worth acting on:
 
 ```sh
 id=$(assistant conversations new "Digest ready" --json | jq -r .id)

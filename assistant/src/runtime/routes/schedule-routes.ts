@@ -22,7 +22,7 @@ import {
 } from "../../schedule/recurrence-engine.js";
 import { normalizeScheduleSyntax } from "../../schedule/recurrence-types.js";
 import {
-  runScheduleScript,
+  runScript,
   validateScriptTimeoutMs,
 } from "../../schedule/run-script.js";
 import {
@@ -40,10 +40,6 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
-import {
-  prepareScheduleSkillBinding,
-  resolveScheduleBindingUpdate,
-} from "../../schedule/skill-binding.js";
 import { initializeTools } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { normalizeCapabilityManifest } from "../../workflows/capabilities.js";
@@ -76,9 +72,6 @@ const scheduleSchema = z.object({
   timezone: z.string().nullable(),
   message: z.string(),
   script: z.string().nullable(),
-  thenExecute: z.boolean(),
-  skillId: z.string().nullable(),
-  skillVersionHash: z.string().nullable(),
   nextRunAt: z.number(),
   lastRunAt: z.number().nullable(),
   lastStatus: z.string().nullable(),
@@ -210,9 +203,6 @@ function serializeSchedule(
     timezone: j.timezone,
     message: j.message,
     script: j.script,
-    thenExecute: j.thenExecute,
-    skillId: j.skillId,
-    skillVersionHash: j.skillVersionHash,
     nextRunAt: j.nextRunAt,
     lastRunAt: j.lastRunAt,
     lastStatus: j.lastStatus,
@@ -359,12 +349,6 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
       const timeoutError = validateScriptTimeoutMs(timeoutMs);
       if (timeoutError) throw new BadRequestError(timeoutError);
     }
-    const binding = prepareScheduleSkillBinding({
-      skillId: typeof body.skillId === "string" ? body.skillId : null,
-      thenExecute: body.thenExecute === true,
-      message,
-    });
-    if (!binding.ok) throw new BadRequestError(binding.error);
     try {
       const job = await createSchedule({
         name,
@@ -377,7 +361,6 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
         expression: normalized.expression,
         syntax: normalized.syntax,
         timeoutMs,
-        ...binding.binding,
       });
       log.info({ id: job.id, name: job.name }, "Script schedule created");
       return { schedule: serializeSchedule(job, new Map()) };
@@ -553,27 +536,6 @@ async function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     }
     const timeoutError = validateScriptTimeoutMs(updates.timeoutMs);
     if (timeoutError) throw new BadRequestError(timeoutError);
-  }
-
-  // Handoff + skill binding. Shares `resolveScheduleBindingUpdate` with the
-  // `schedule_update` tool so both surfaces apply the same re-approval rule:
-  // only an explicit `skillId` re-pins the skill's content hash.
-  if (
-    existing &&
-    ("thenExecute" in body || "skillId" in body || "message" in body)
-  ) {
-    const binding = resolveScheduleBindingUpdate({
-      existing,
-      ...("thenExecute" in body
-        ? { thenExecute: body.thenExecute === true }
-        : {}),
-      ...("skillId" in body
-        ? { skillId: typeof body.skillId === "string" ? body.skillId : null }
-        : {}),
-      ...(typeof body.message === "string" ? { message: body.message } : {}),
-    });
-    if (!binding.ok) throw new BadRequestError(binding.error);
-    Object.assign(updates, binding.updates);
   }
 
   // Inference profile: null clears the override (back to the default
@@ -817,18 +779,6 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .describe("Shell command run on each fire (required for script mode)")
         .optional(),
-      thenExecute: z
-        .boolean()
-        .describe(
-          "Script mode: hand a successful run's non-empty stdout to an assistant turn whose action prompt is `message` (which then becomes required). Empty stdout skips the turn.",
-        )
-        .optional(),
-      skillId: z
-        .string()
-        .describe(
-          "Script mode: bind the schedule to an installed managed skill. The command can reference the skill folder as $__SKILL_DIR, and the skill's current content is pinned so the schedule stops firing if it is later modified or uninstalled.",
-        )
-        .optional(),
       timeoutMs: z
         .number()
         .nullable()
@@ -924,19 +874,6 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .nullable()
         .describe("Shell command for script mode")
-        .optional(),
-      thenExecute: z
-        .boolean()
-        .describe(
-          "Script mode: turn the stdout-to-assistant handoff on or off. Requires the schedule to have a non-empty `message` (the action prompt).",
-        )
-        .optional(),
-      skillId: z
-        .string()
-        .nullable()
-        .describe(
-          "Script mode: bind (or rebind) the schedule to a managed skill, re-pinning that skill's current content. This is how a schedule that stopped firing because its skill changed gets re-approved. Empty string or null unbinds. Editing other fields never re-pins.",
-        )
         .optional(),
       mode: z
         .string()
@@ -1034,23 +971,11 @@ async function handleRunScheduleNow(id: string) {
         { jobId: schedule.id, name: schedule.name },
         "Executing script schedule manually (run now)",
       );
-      // Shares the scheduler's bound-script path so a manual trigger cannot
-      // run a skill-bound schedule whose skill has changed since approval.
-      // Unlike a real firing this never hands off to an agent turn even when
-      // `thenExecute` is set — "run now" reports the script's raw output so a
-      // UI button can't silently start a billed LLM turn.
-      const outcome = await runScheduleScript(
-        { ...schedule, script: schedule.script },
-        runId,
-      );
-      if (!outcome.ok) {
-        await completeScheduleRun(runId, {
-          status: "error",
-          error: outcome.error,
-        });
-        return handleListSchedules({});
-      }
-      const { result } = outcome;
+      const result = await runScript(schedule.script, {
+        timeoutMs: schedule.timeoutMs ?? undefined,
+        scheduleRunId: runId,
+        scheduleId: schedule.id,
+      });
       await completeScheduleRun(runId, {
         status: result.exitCode === 0 ? "ok" : "error",
         output: result.stdout || undefined,

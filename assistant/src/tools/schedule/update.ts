@@ -19,7 +19,6 @@ import {
   getSchedule,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
-import { resolveScheduleBindingUpdate } from "../../schedule/skill-binding.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -47,12 +46,9 @@ const VALID_ROUTING_INTENTS: RoutingIntent[] = [
  *   plain strings: `updateSchedule` persists null as "clear this field".
  * - `timeout_ms` / `inference_profile` advertise null (it reverts to the
  *   default); the executor's bespoke handling stays.
- * - `mode`, `routing_intent`, `then_execute`, `skill_id`, `workflow_name`,
- *   and `workflow_args` are deliberately UNDECLARED (loose passthrough):
- *   the first two keep bespoke `VALID_*` errors; the binding fields
- *   (`then_execute`, `skill_id`) and `workflow_name` have bespoke coercion
- *   semantics (`=== true`, typeof-guarded null fallbacks, empty-string
- *   unbind) inside `resolveScheduleBindingUpdate` and the workflow-name
+ * - `mode`, `routing_intent`, `workflow_name`, and `workflow_args` are
+ *   deliberately UNDECLARED (loose passthrough): the first two keep bespoke
+ *   `VALID_*` errors; `workflow_name` has bespoke coercion semantics in the
  *   resolution below; `workflow_args` accepts any JSON value.
  */
 export const scheduleUpdateInputSchema = z.looseObject({
@@ -145,38 +141,6 @@ export async function executeScheduleUpdate(
   }
   if (parsed.enabled !== undefined) {
     updates.enabled = parsed.enabled;
-  }
-
-  // Validate the handoff whenever the toggle or the action prompt moves.
-  // `message` matters because it becomes the handoff's trusted postamble:
-  // clearing it on an existing `then_execute` schedule would leave the turn
-  // with untrusted stdout and no instruction after it.
-  if (
-    input.then_execute !== undefined ||
-    input.skill_id !== undefined ||
-    parsed.message !== undefined
-  ) {
-    const existing = getSchedule(jobId);
-    if (!existing) {
-      return { content: `Error: Schedule not found: ${jobId}`, isError: true };
-    }
-
-    const binding = resolveScheduleBindingUpdate({
-      existing,
-      ...(input.then_execute !== undefined
-        ? { thenExecute: input.then_execute === true }
-        : {}),
-      ...(input.skill_id !== undefined
-        ? {
-            skillId: typeof input.skill_id === "string" ? input.skill_id : null,
-          }
-        : {}),
-      ...(parsed.message !== undefined ? { message: parsed.message } : {}),
-    });
-    if (!binding.ok) {
-      return { content: `Error: ${binding.error}`, isError: true };
-    }
-    Object.assign(updates, binding.updates);
   }
 
   // Mode validation and pass-through
@@ -353,9 +317,6 @@ export async function executeScheduleUpdate(
         timezone?: string | null;
         message?: string;
         script?: string | null;
-        thenExecute?: boolean;
-        skillId?: string | null;
-        skillVersionHash?: string | null;
         enabled?: boolean;
         syntax?: ScheduleSyntax;
         expression?: string;

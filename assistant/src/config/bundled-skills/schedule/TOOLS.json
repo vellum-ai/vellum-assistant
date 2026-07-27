@@ -42,14 +42,6 @@
             "type": "string",
             "description": "The shell command to run when the schedule triggers. Required for script mode. Runs in the workspace directory with a sanitized environment."
           },
-          "then_execute": {
-            "type": "boolean",
-            "description": "Script mode only. When true, a successful run with non-empty stdout hands the output to an assistant turn whose action prompt is this schedule's `message` (which then becomes required). Empty stdout skips the turn entirely, so write the script to print nothing when there is nothing to report. Defaults to false."
-          },
-          "skill_id": {
-            "type": "string",
-            "description": "Script mode only. Binds the schedule to an installed managed skill: the command can reference the skill folder as $__SKILL_DIR, firing counts as skill usage, and the skill's current content is pinned so the schedule stops firing if the skill is later modified or uninstalled."
-          },
           "enabled": {
             "type": "boolean",
             "description": "Whether the job is enabled immediately. Defaults to true."
@@ -188,14 +180,6 @@
           "script": {
             "type": "string",
             "description": "New shell command to run when triggered (for script mode)"
-          },
-          "then_execute": {
-            "type": "boolean",
-            "description": "Script mode only. Turn the stdout-to-assistant handoff on or off. Requires the schedule to have a `message` (the action prompt)."
-          },
-          "skill_id": {
-            "type": "string",
-            "description": "Script mode only. Bind (or rebind) the schedule to a managed skill, re-pinning that skill's current content. This is how a schedule that stopped firing because its skill changed gets re-approved — pass the same skill_id again after reviewing the new content. Pass an empty string to unbind."
           },
           "enabled": {
             "type": "boolean",

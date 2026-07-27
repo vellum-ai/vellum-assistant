@@ -30,12 +30,9 @@ import {
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { AttentionHints } from "../notifications/signal.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
+import { addMessage } from "../persistence/conversation-crud.js";
 import type { TitleOrigin } from "../persistence/conversation-title-service.js";
 import { getLogger } from "../util/logger.js";
-import {
-  type AssistantSandwich,
-  seedAssistantSandwich,
-} from "./assistant-sandwich.js";
 import { hasReceivedUserMessage } from "./pre-first-message-gate.js";
 
 const log = getLogger("background-job-runner");
@@ -186,12 +183,11 @@ export interface RunBackgroundJobOptions {
    * (often empty or a short kicker) since the conversation already carries
    * the seed.
    *
-   * Used by the watcher engine to ingest external provider events safely
-   * (a malicious Linear title or Gmail subject reaches the model only in the
-   * `assistant` role and cannot override the action prompt), and by script
-   * schedules that hand their stdout to an agent turn.
+   * Used by the watcher engine to ingest external provider events safely:
+   * a malicious Linear title or Gmail subject reaches the model only in
+   * the `assistant` role and cannot override the action prompt.
    */
-  assistantSandwich?: AssistantSandwich;
+  assistantSandwich?: { preamble: string; content: string; postamble: string };
   /**
    * Buffer in-band `notifications send` calls and only flush them after the
    * run completes successfully. See `notifications/deferred-emit.ts`.
@@ -331,7 +327,24 @@ export async function runBackgroundJob(
     // output, not as user instructions, so a malicious payload (e.g. a
     // crafted Linear title) cannot override the postamble's action prompt.
     if (opts.assistantSandwich) {
-      await seedAssistantSandwich(conversation.id, opts.assistantSandwich);
+      await addMessage(
+        conversation.id,
+        "user",
+        opts.assistantSandwich.preamble,
+        { skipIndexing: true },
+      );
+      await addMessage(
+        conversation.id,
+        "assistant",
+        opts.assistantSandwich.content,
+        { skipIndexing: true },
+      );
+      await addMessage(
+        conversation.id,
+        "user",
+        opts.assistantSandwich.postamble,
+        { skipIndexing: true },
+      );
     }
 
     const work = processMessage(conversation.id, opts.prompt, {

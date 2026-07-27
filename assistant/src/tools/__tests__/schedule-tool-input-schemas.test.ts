@@ -51,9 +51,6 @@ const CASES: {
     passthrough: {
       mode: "bespoke VALID_MODES check owns the error semantics",
       routing_intent: "bespoke VALID_ROUTING_INTENTS check owns the error",
-      then_execute:
-        "resolveScheduleBindingUpdate's `=== true` coercion owns it",
-      skill_id: "typeof-guarded null fallback + empty-string unbind semantics",
       workflow_name: "typeof-guarded null fallback (non-string clears)",
       workflow_args: "workflow runtime accepts any JSON value as args",
     },
