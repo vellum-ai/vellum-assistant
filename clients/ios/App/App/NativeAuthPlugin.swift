@@ -43,8 +43,11 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// The OAuth callback scheme, read from this build's own bundle rather
     /// than hardcoded — see ``BundleURLScheme``, which the widget extension
-    /// shares.
-    private static let callbackScheme: String = BundleURLScheme.current
+    /// shares. Falls back to the production scheme when the bundle declares
+    /// none, so a misconfigured build still reaches a working callback rather
+    /// than failing sign-in; unlike a voice deep link, this is not a cross-app
+    /// launch.
+    private static let callbackScheme: String = BundleURLScheme.current ?? "vellum-assistant"
 
     /// The host this build target is allowed to authenticate against,
     /// read from the `VellumAssociatedDomain` Info.plist key (set per

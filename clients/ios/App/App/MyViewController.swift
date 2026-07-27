@@ -4,10 +4,10 @@ import WebKit
 
 /// Custom `CAPBridgeViewController` subclass that:
 ///
-/// 1. Registers `NativeAuthPlugin`, `NativeBiometricPlugin`, and
-///    `VoiceAudioSessionPlugin` as local plugin instances at bridge init
-///    time. These plugins live inside the App target (no SPM module) so the
-///    bridge won't discover them automatically.
+/// 1. Registers `NativeAuthPlugin`, `NativeBiometricPlugin`,
+///    `VoiceAudioSessionPlugin`, and `VoiceLiveActivityPlugin` as local plugin
+///    instances at bridge init time. These plugins live inside the App target
+///    (no SPM module) so the bridge won't discover them automatically.
 ///
 /// 2. Injects `WKUserScript`s at `.atDocumentEnd` to:
 ///    a) Pin focusable fields to a minimum 16px font-size, preventing the
@@ -145,6 +145,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(NativeAuthPlugin())
         bridge?.registerPluginInstance(NativeBiometricPlugin())
         bridge?.registerPluginInstance(VoiceAudioSessionPlugin())
+        bridge?.registerPluginInstance(VoiceLiveActivityPlugin())
         installNavigationDelegateProxy()
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
@@ -184,12 +185,17 @@ class MyViewController: CAPBridgeViewController {
         webView?.load(URLRequest(url: destination))
     }
 
-    /// Apply any connect deep link that arrived before the web view was ready.
-    /// A cold launch stashes the pair-page navigation in `AppDelegate` and it is
-    /// delivered here, once the bridge web view is live and on screen.
+    /// Apply any deep link that arrived before the web view was ready. A cold
+    /// launch stashes the connect pair-page navigation and any voice command in
+    /// `AppDelegate`; both are delivered here, once the bridge web view is live
+    /// and on screen. Connect goes first: it can swap the origin out from under
+    /// the web view, and the voice command survives that reload because
+    /// Capacitor retains `appUrlOpen` until a JS listener consumes it.
     override open func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        (UIApplication.shared.delegate as? AppDelegate)?.deliverPendingConnectNavigation()
+        let appDelegate = UIApplication.shared.delegate as? AppDelegate
+        appDelegate?.deliverPendingConnectNavigation()
+        appDelegate?.deliverPendingVoiceCommand()
     }
 
     /// Bind foreground change detection to the currently-configured self-hosted

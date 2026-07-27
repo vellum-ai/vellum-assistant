@@ -46,7 +46,21 @@ extension VoiceSessionAttributes.ContentState {
 enum VoiceSessionDeepLink {
     /// Built from *this* build's own scheme, so a Dev island opens the Dev app
     /// even with production installed.
-    static let resume = URL(string: "\(BundleURLScheme.current)://voice?mode=resume")
+    ///
+    /// `nil` when the appex declares no scheme — a misconfigured build. The
+    /// island then carries no tap target, which is the correct failure: a
+    /// production-scheme fallback would make a Dev island foreground the
+    /// *production* app, the exact mis-routing this indirection prevents. The
+    /// `.widgetURL(_:)` modifier already accepts an optional, so nil simply
+    /// leaves the presentation untappable.
+    static let resume: URL? = {
+        guard let scheme = BundleURLScheme.current else { return nil }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = "voice"
+        components.queryItems = [URLQueryItem(name: "mode", value: "resume")]
+        return components.url
+    }()
 }
 
 /// The accent-tinted state indicator: a waveform, tinted with the avatar

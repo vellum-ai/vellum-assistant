@@ -20,28 +20,34 @@ import Foundation
 ///   type — so it carries the scheme as the plain ``infoPlistKey`` string,
 ///   populated from the very same `$(BUNDLE_URL_SCHEME)` variable. It only
 ///   needs to *build* a link, never to receive one.
+///
+/// ``current`` is deliberately optional: there is no safe universal fallback.
+/// Substituting the production scheme on a misconfigured Dev or Staging build
+/// is precisely the cross-environment mis-routing this type exists to prevent,
+/// so each caller must decide explicitly.
+///
+/// - **Auth** (`NativeAuthPlugin`) falls back to the production scheme: the
+///   OAuth callback is not a cross-app launch, and a sign-in that reaches a
+///   working callback beats one that fails outright.
+/// - **Voice deep links** (`VoiceModeDeepLink`, ``VoiceSessionDeepLink``) do
+///   *not* fall back. Emitting no link is strictly better than launching voice
+///   mode in the wrong app.
 enum BundleURLScheme {
     /// Info.plist key carrying the scheme where `CFBundleURLTypes` is absent.
     static let infoPlistKey = "VellumURLScheme"
 
-    /// Used when the plist entry is missing or left un-substituted, which is
-    /// only reachable via a misconfigured build.
-    static let fallback = "vellum-assistant"
+    /// The scheme for the currently running bundle, or `nil` when the bundle
+    /// declares none. See the type docs for why there is no default.
+    static let current: String? = resolve(in: .main)
 
-    /// The scheme for the currently running bundle.
-    static let current: String = resolve(in: .main)
-
-    static func resolve(in bundle: Bundle) -> String {
+    static func resolve(in bundle: Bundle) -> String? {
         let info = bundle.infoDictionary
         if let urlTypes = info?["CFBundleURLTypes"] as? [[String: Any]],
            let schemes = urlTypes.first?["CFBundleURLSchemes"] as? [String],
            let scheme = schemes.first.flatMap(substituted) {
             return scheme
         }
-        if let scheme = (info?[infoPlistKey] as? String).flatMap(substituted) {
-            return scheme
-        }
-        return fallback
+        return (info?[infoPlistKey] as? String).flatMap(substituted)
     }
 
     /// Rejects an empty value and one Xcode never expanded (`$(BUNDLE_URL_SCHEME)`),
