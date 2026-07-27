@@ -28,10 +28,22 @@ const fakeTool = {
   execute: async () => ({ content: "ok", isError: false }),
 };
 
+/** Same tool class as `fakeTool`, but reaching the guardian's own machine. */
+const fakeHostTool = {
+  ...fakeTool,
+  name: "host_bash",
+  executionTarget: "host" as const,
+};
+
+const fakeTools: Record<string, typeof fakeTool> = {
+  bash: fakeTool,
+  host_bash: fakeHostTool,
+};
+
 mock.module("../tools/registry.js", () => ({
-  getTool: (name: string) => (name === "bash" ? fakeTool : undefined),
-  resolveTool: (name: string) => (name === "bash" ? fakeTool : undefined),
-  getAllTools: () => [fakeTool],
+  getTool: (name: string) => fakeTools[name],
+  resolveTool: (name: string) => fakeTools[name],
+  getAllTools: () => Object.values(fakeTools),
 }));
 
 // Mock the dynamic-skill predicate so isSensitiveTool's skill_load branch is
@@ -650,7 +662,7 @@ describe("resolveSensitiveToolDecision / CapabilitySet floor × approval cell", 
     for (const cellThreshold of [undefined, "none"] as const) {
       expect(
         resolveSensitiveToolDecision({
-          sensitive: true,
+          reach: "sandbox",
           cellThreshold,
           sensitiveToolApproval: "escalate-and-wait",
         }),
@@ -662,11 +674,26 @@ describe("resolveSensitiveToolDecision / CapabilitySet floor × approval cell", 
     for (const cellThreshold of liftingThresholds) {
       expect(
         resolveSensitiveToolDecision({
-          sensitive: true,
+          reach: "sandbox",
           cellThreshold,
           sensitiveToolApproval: "escalate-and-wait",
         }),
       ).toBe("proceed");
+    }
+  });
+
+  // A room-level posture says what the assistant may do in that room. It is
+  // never a grant of the owner's own machine or accounts, so no cell at any
+  // cascade level reaches past the sandbox.
+  test("host reach is never lifted, at any cell threshold", () => {
+    for (const cellThreshold of cellThresholds) {
+      expect(
+        resolveSensitiveToolDecision({
+          reach: "host",
+          cellThreshold,
+          sensitiveToolApproval: "escalate-and-wait",
+        }),
+      ).toBe("escalate-and-wait");
     }
   });
 
@@ -675,25 +702,29 @@ describe("resolveSensitiveToolDecision / CapabilitySet floor × approval cell", 
   // any cascade level may turn that into permission to act.
   test("deny is absolute — no cell threshold lifts it", () => {
     for (const cellThreshold of cellThresholds) {
-      expect(
-        resolveSensitiveToolDecision({
-          sensitive: true,
-          cellThreshold,
-          sensitiveToolApproval: "deny",
-        }),
-      ).toBe("deny");
+      for (const reach of ["sandbox", "host"] as const) {
+        expect(
+          resolveSensitiveToolDecision({
+            reach,
+            cellThreshold,
+            sensitiveToolApproval: "deny",
+          }),
+        ).toBe("deny");
+      }
     }
   });
 
   test("self capability proceeds for sensitive tools (lane-B policy governs downstream)", () => {
     for (const cellThreshold of cellThresholds) {
-      expect(
-        resolveSensitiveToolDecision({
-          sensitive: true,
-          cellThreshold,
-          sensitiveToolApproval: "self",
-        }),
-      ).toBe("proceed");
+      for (const reach of ["sandbox", "host"] as const) {
+        expect(
+          resolveSensitiveToolDecision({
+            reach,
+            cellThreshold,
+            sensitiveToolApproval: "self",
+          }),
+        ).toBe("proceed");
+      }
     }
   });
 
@@ -705,7 +736,7 @@ describe("resolveSensitiveToolDecision / CapabilitySet floor × approval cell", 
     ] as const) {
       expect(
         resolveSensitiveToolDecision({
-          sensitive: false,
+          reach: "none",
           cellThreshold: undefined,
           sensitiveToolApproval,
         }),
@@ -714,9 +745,6 @@ describe("resolveSensitiveToolDecision / CapabilitySet floor × approval cell", 
   });
 });
 
-// The gate decides only whether a scoped grant is the mechanism. Everything a
-// lifted cell lets through still faces the risk/threshold policy downstream,
-// which reads the same cell — so these assert the gate's handoff, not approval.
 describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", () => {
   const handler = new ToolApprovalHandler();
   const toolName = "bash";
@@ -837,6 +865,29 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
     }
     expect(result.result.content).toContain("verified channel identity");
     // Nothing to resolve: no cell can lift an absolute deny.
+    expect(thresholdReaderMock.cellLookups).toBe(0);
+  });
+
+  // The cell says what the assistant may do in a room, not what a contact may
+  // do to the owner's machine. `host_bash` is the same tool class as `bash`
+  // and the same Full-access cell — only the reach differs.
+  test("a full-access cell does not lift a host-reach tool", async () => {
+    thresholdReaderMock.cell = cell("high");
+
+    const result = await handler.checkPreExecutionGates(
+      "host_bash",
+      { command: "ls" },
+      channelContext(),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(false);
+    if (result.allowed) {
+      return;
+    }
+    expect(result.result.content).toContain("requires guardian approval");
+    // Host reach is decided before the cell matters, so nothing is looked up.
     expect(thresholdReaderMock.cellLookups).toBe(0);
   });
 

@@ -256,12 +256,36 @@ export function isSensitiveTool(
   input?: Record<string, unknown>,
   workingDir?: string,
 ): boolean {
+  return (
+    sensitiveToolReach(toolName, executionTarget, input, workingDir) !== "none"
+  );
+}
+
+/**
+ * How far a sensitive invocation reaches — the axis that decides whether a
+ * channel's approval cell may lift its floor.
+ *
+ * - `"none"`: not sensitive.
+ * - `"sandbox"`: side effects confined to the assistant's own workspace. An
+ *   owner can delegate these per room, so a cell may lift the floor.
+ * - `"host"`: reaches the guardian's own machine and accounts — host
+ *   execution, and sandbox file tools escaping the workspace, which the
+ *   host-fallback path policy turns into real host access. No cell lifts
+ *   this: a room-level posture is about what the assistant may do in that
+ *   room, never a grant of the owner's own machine.
+ */
+export function sensitiveToolReach(
+  toolName: string,
+  executionTarget: ExecutionTarget,
+  input?: Record<string, unknown>,
+  workingDir?: string,
+): "none" | "sandbox" | "host" {
   // UI surface tools are passive, user-visible operations (cards, forms,
   // tables). User input is voluntary and user-controlled — they are not
   // sensitive, so they work during fresh onboarding before trust is
   // established.
   if (UI_SURFACE_TOOLS.has(toolName)) {
-    return false;
+    return "none";
   }
 
   // An inline-command ("dynamic") skill_load executes embedded shell at load
@@ -276,7 +300,7 @@ export function isSensitiveTool(
     input &&
     isDynamicSkillLoadInvocation(toolName, input)
   ) {
-    return true;
+    return "host";
   }
 
   // A sandbox file tool targeting a path outside the workspace reaches the
@@ -291,12 +315,18 @@ export function isSensitiveTool(
     workingDir &&
     isOutOfWorkspaceFileInvocation(toolName, input, workingDir)
   ) {
-    return true;
+    return "host";
   }
 
-  // Side-effect tools are sensitive. Read-only host execution is too,
-  // because it can leak sensitive local information (e.g. shell/file reads).
-  return isSideEffectTool(toolName) || executionTarget === "host";
+  // Read-only host execution is sensitive too, because it can leak sensitive
+  // local information (e.g. shell/file reads).
+  if (executionTarget === "host") {
+    return "host";
+  }
+
+  // Side-effect tools are sensitive, and what is left here acts only on the
+  // assistant's own workspace.
+  return isSideEffectTool(toolName) ? "sandbox" : "none";
 }
 
 /**
@@ -326,7 +356,10 @@ export type SensitiveToolDecision = "proceed" | "escalate-and-wait" | "deny";
  * this contact type a non-`none` level in this room has said the assistant
  * may act there without minting a per-call grant.
  *
- * Two things no cell lifts:
+ * Three things no cell lifts:
+ * - `host` reach. A room-level posture says what the assistant may do in that
+ *   room; it is never a grant of the owner's own machine or accounts, so host
+ *   execution and workspace escapes stay floored at every level.
  * - `deny` — an actor with no established identity has no cell to stand on.
  * - A `none` cell authorizes nothing, so the floor stands unchanged.
  *
@@ -339,7 +372,8 @@ export type SensitiveToolDecision = "proceed" | "escalate-and-wait" | "deny";
  * escalation path would have asked.
  */
 export function resolveSensitiveToolDecision(input: {
-  sensitive: boolean;
+  /** How far the invocation reaches; see {@link sensitiveToolReach}. */
+  reach: "none" | "sandbox" | "host";
   /**
    * Threshold of the approval-matrix cell governing this invocation.
    * `undefined` when no cell covers it — including when the cell could not be
@@ -348,11 +382,11 @@ export function resolveSensitiveToolDecision(input: {
   cellThreshold: ApprovalCellThreshold | undefined;
   sensitiveToolApproval: SensitiveToolApproval;
 }): SensitiveToolDecision {
-  if (!input.sensitive || input.sensitiveToolApproval === "self") {
+  if (input.reach === "none" || input.sensitiveToolApproval === "self") {
     return "proceed";
   }
-  if (input.sensitiveToolApproval === "deny") {
-    return "deny";
+  if (input.sensitiveToolApproval === "deny" || input.reach === "host") {
+    return input.sensitiveToolApproval;
   }
   if (input.cellThreshold === undefined || input.cellThreshold === "none") {
     return input.sensitiveToolApproval;
@@ -362,11 +396,11 @@ export function resolveSensitiveToolDecision(input: {
 
 /**
  * Threshold of the approval-matrix cell governing this invocation, read only
- * when it can change the outcome: a sensitive tool whose actor sits on the
- * escalate floor. Guardians, non-sensitive tools, and identity-less actors
- * return early, so the gateway lookup never lands on the paths where it could
- * only add latency — grant consumption for an already-approved call, and voice
- * abort handling.
+ * when it can change the outcome: a sandbox-reach sensitive tool whose actor
+ * sits on the escalate floor. Guardians, non-sensitive tools, host reach, and
+ * identity-less actors return early, so the gateway lookup never lands on the
+ * paths where it could only add latency — grant consumption for an
+ * already-approved call, and voice abort handling.
  *
  * The permission checker reads this same cell later in the turn, within the
  * reader's cache window, so the lift costs at most one lookup per turn.
@@ -376,11 +410,11 @@ export function resolveSensitiveToolDecision(input: {
  * thing to the caller: nothing lifts the floor.
  */
 async function resolveApprovalCellThreshold(
-  sensitive: boolean,
+  reach: "none" | "sandbox" | "host",
   sensitiveToolApproval: SensitiveToolApproval,
   context: ToolContext,
 ): Promise<ApprovalCellThreshold | undefined> {
-  if (!sensitive || sensitiveToolApproval !== "escalate-and-wait") {
+  if (reach !== "sandbox" || sensitiveToolApproval !== "escalate-and-wait") {
     return undefined;
   }
   const query = buildChannelPermissionCellQuery(
@@ -567,7 +601,7 @@ export class ToolApprovalHandler {
       | Parameters<typeof consumeGrantForInvocation>[0]
       | null = null;
 
-    const sensitive = isSensitiveTool(
+    const reach = sensitiveToolReach(
       name,
       executionTarget,
       input,
@@ -575,9 +609,9 @@ export class ToolApprovalHandler {
     );
     const { sensitiveToolApproval } = resolveCapabilities(context.trustClass);
     const sensitiveDecision = resolveSensitiveToolDecision({
-      sensitive,
+      reach,
       cellThreshold: await resolveApprovalCellThreshold(
-        sensitive,
+        reach,
         sensitiveToolApproval,
         context,
       ),
