@@ -94,7 +94,7 @@ export function PackageSwitchConfirmModal({
         </Modal.Header>
         {details ? (
           <Modal.Body className="flex flex-col gap-4 p-0">
-            <div>
+            <div className="flex flex-col gap-1">
               <Typography
                 as="p"
                 variant="title-large"

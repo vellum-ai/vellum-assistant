@@ -98,8 +98,8 @@ describe("PackageSwitchConfirmModal", () => {
     const { getByText, getByRole, getByTestId } = renderModal();
 
     getByRole("heading", { name: "Upgrade to Mighty" });
-    // The tagline is the dialog's description, so it also carries the
-    // `aria-describedby` the old title-only dialog never had.
+    // The tagline renders as the dialog's description, so it is what
+    // `aria-describedby` points at.
     const describedBy = getByRole("dialog").getAttribute("aria-describedby");
     expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
       "More capacity for consistent use.",
