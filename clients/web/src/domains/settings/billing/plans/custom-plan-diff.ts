@@ -7,7 +7,7 @@
 import {
   creditRowLabel,
   storageRowLabel,
-} from "@/domains/settings/billing/plan-spec";
+} from "@/domains/settings/billing/plan-row-labels";
 import { formatMonthly } from "@/domains/settings/components/tier-pricing";
 import type {
   CreditTierEnum,

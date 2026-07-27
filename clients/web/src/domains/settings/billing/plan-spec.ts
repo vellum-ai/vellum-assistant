@@ -5,7 +5,10 @@ import {
   FREE_STORAGE_GIB,
 } from "@/domains/settings/billing/plan-tier-meta";
 import type { ProPackage } from "@/domains/settings/billing/package-types";
-import { formatDollars } from "@/domains/settings/components/tier-pricing";
+import {
+  creditRowLabel,
+  storageRowLabel,
+} from "@/domains/settings/billing/plan-row-labels";
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import { SIZE_DESCRIPTION, SIZE_LABEL } from "@/lib/billing/machine-sizes";
 
@@ -49,16 +52,6 @@ export function packageSpecs(pkg: ProPackage | null): PlanSpec[] {
     { icon: Coins, label: `$${credits} credits` },
     { icon: HardDrive, label: `${storage} GB` },
   ];
-}
-
-/** Shared with the Custom Plan recap so the two surfaces cannot word storage differently. */
-export function storageRowLabel(storageGib: number): string {
-  return `${storageGib} GB storage`;
-}
-
-/** Shared with the Custom Plan recap so the two surfaces cannot format credits differently. */
-export function creditRowLabel(creditsUsd: number): string {
-  return `${formatDollars(creditsUsd * 100)} of bundled credits`;
 }
 
 /**
