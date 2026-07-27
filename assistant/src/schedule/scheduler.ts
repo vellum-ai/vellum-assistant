@@ -65,6 +65,15 @@ const log = getLogger("scheduler");
 import type { ScheduleMessageOptions } from "./scheduler-types.js";
 
 /**
+ * The scheduler gave up waiting on a turn that is **still running**.
+ *
+ * Distinct from every other dispatch error because the turn keeps its hold on
+ * the conversation: callers must not retry it (that would run the same message
+ * concurrently) and must not reclaim anything it is still consuming.
+ */
+class ScheduledTurnTimeoutError extends Error {}
+
+/**
  * Run a scheduled message through the daemon's agent pipeline, translating the
  * schedule's `trustClass` into the trust context `processMessage` expects.
  *
@@ -117,7 +126,12 @@ async function dispatchScheduleMessage(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`Scheduled turn timed out after ${timeoutMs}ms`)),
+      () =>
+        reject(
+          new ScheduledTurnTimeoutError(
+            `Scheduled turn exceeded ${timeoutMs}ms; the scheduler stopped waiting but the turn is still running`,
+          ),
+        ),
       timeoutMs,
     );
   });
@@ -1019,6 +1033,12 @@ async function runScheduleAgentTurn(args: {
   let conversationId: string;
   let ok: boolean;
   let errorMsg: string | undefined;
+  /**
+   * Set when the scheduler stopped waiting on a turn that is still running.
+   * Suppresses retry: re-firing would run the same message concurrently with
+   * the turn already in flight, duplicating its tool calls and side effects.
+   */
+  let turnStillRunning = false;
   const conversationReused = reusedConversationId != null;
   let runConversationId = reusedConversationId;
   const runId =
@@ -1078,11 +1098,18 @@ async function runScheduleAgentTurn(args: {
     } catch (err) {
       ok = false;
       errorMsg = err instanceof Error ? err.message : String(err);
-      // The turn never started (the conversation was claimed between the
-      // busy check and dispatch, or bootstrap threw), so the seed has nothing
-      // to consume it. Take it back out rather than leave untrusted content
-      // and a dangling instruction for the next turn in this conversation.
-      unseedAssistantSandwich(seededMessageIds);
+      // A timeout only ends the scheduler's *wait* — `processMessage` is still
+      // running and still owns this conversation. Everything below therefore
+      // has to leave it alone; only a dispatch that never started is safe to
+      // clean up after.
+      turnStillRunning = err instanceof ScheduledTurnTimeoutError;
+      if (!turnStillRunning) {
+        // The turn never started (the conversation was claimed between the
+        // busy check and dispatch, or bootstrap threw), so the seed has
+        // nothing to consume it. Take it back out rather than leave untrusted
+        // content and a dangling instruction for the next turn here.
+        unseedAssistantSandwich(seededMessageIds);
+      }
     }
   } else {
     // Fresh-bootstrap path: route through the shared runner so failures
@@ -1173,7 +1200,7 @@ async function runScheduleAgentTurn(args: {
     error: errorMsg,
     ...(runOutput ? { output: runOutput } : {}),
   });
-  if (retryOnFailure) {
+  if (retryOnFailure && !turnStillRunning) {
     await handleExecutionFailure({
       job,
       errorMsg: errorMsg ?? "Schedule run failed",

@@ -5,7 +5,7 @@
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
@@ -52,6 +52,31 @@ mock.module("../runtime/background-job-runner.js", () => ({
   },
 }));
 
+/** When set, the next reuse-path turn never settles. */
+let hangNextTurn = false;
+/** When set, the next reuse-path dispatch is refused before the turn starts. */
+let refuseNextDispatch = false;
+mock.module("../daemon/process-message.js", () => ({
+  processMessage: () => {
+    if (hangNextTurn) {
+      hangNextTurn = false;
+      return new Promise(() => {});
+    }
+    if (refuseNextDispatch) {
+      refuseNextDispatch = false;
+      // What `process-message.ts` throws when the conversation is mid-turn.
+      return Promise.reject(new Error("Conversation is busy"));
+    }
+    return Promise.resolve({ messageId: "msg-1" });
+  },
+}));
+
+import {
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../config/loader.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
@@ -105,6 +130,8 @@ beforeEach(() => {
   capturedJobs = [];
   emittedSignals = [];
   failNextTurn = false;
+  refuseNextDispatch = false;
+  hangNextTurn = false;
   const db = getDb();
   db.run("DELETE FROM cron_runs");
   db.run("DELETE FROM cron_jobs");
@@ -411,6 +438,8 @@ describe("busy reused conversation", () => {
     );
     const runId = await createScheduleRun(job.id, "conv-race");
     await completeScheduleRun(runId, { status: "ok" });
+    // Idle at the reuse check, claimed by the time dispatch runs.
+    refuseNextDispatch = true;
     makeDue();
 
     await runDueSchedulesOnce();
@@ -423,6 +452,103 @@ describe("busy reused conversation", () => {
         m.content.includes("Post a summary to #ops."),
     );
     expect(leftovers).toHaveLength(0);
+  });
+});
+
+describe("a reused turn that outlives the scheduler's wait", () => {
+  beforeEach(() => {
+    // Drive the real bound rather than simulating the rejection, so the test
+    // exercises the same code path production takes.
+    const raw = loadRawConfig();
+    setNestedValue(raw, "timeouts.scheduleTurnTimeoutSec", 1);
+    saveRawConfig(raw);
+    invalidateConfigCache();
+  });
+
+  afterEach(() => {
+    const raw = loadRawConfig();
+    setNestedValue(raw, "timeouts.scheduleTurnTimeoutSec", 1800);
+    saveRawConfig(raw);
+    invalidateConfigCache();
+    hangNextTurn = false;
+  });
+
+  /** Rows currently in the reusable conversation, oldest first. */
+  function messagesIn(conversationId: string): Array<{ content: string }> {
+    return rawDb()
+      .query(
+        "SELECT content FROM messages WHERE conversation_id = ? ORDER BY created_at",
+      )
+      .all(conversationId) as Array<{ content: string }>;
+  }
+
+  async function runTimedOutHandoff(conversationId: string) {
+    const job = await createSchedule({
+      name: "Slow reuse",
+      cronExpression: "* * * * *",
+      message: "Post a summary to #ops.",
+      mode: "script",
+      script: "echo widget shortage",
+      thenExecute: true,
+      reuseConversation: true,
+      quiet: true,
+    });
+    rawDb().run(
+      "INSERT INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)",
+      [conversationId, Date.now(), Date.now()],
+    );
+    const runId = await createScheduleRun(job.id, conversationId);
+    await completeScheduleRun(runId, { status: "ok" });
+    // A turn that never settles, so the scheduler's bound is what ends the wait.
+    hangNextTurn = true;
+    makeDue();
+    await runDueSchedulesOnce();
+    return job;
+  }
+
+  test("keeps the sandwich, because the turn is still consuming it", async () => {
+    await runTimedOutHandoff("conv-slow");
+
+    // Deleting the seed here would pull the script output and the action
+    // prompt out from under a turn that is still iterating on them.
+    const seeded = messagesIn("conv-slow").filter(
+      (m) =>
+        m.content.includes("widget shortage") ||
+        m.content.includes("Post a summary to #ops."),
+    );
+    expect(seeded.length).toBeGreaterThan(0);
+  });
+
+  test("does not retry, because the original turn still holds the conversation", async () => {
+    // Execute mode, not a handoff: handoffs already never retry, so this is
+    // where the timeout-then-retry hazard actually lives.
+    const job = await createSchedule({
+      name: "Slow execute reuse",
+      cronExpression: "* * * * *",
+      message: "Do the recurring thing.",
+      mode: "execute",
+      reuseConversation: true,
+      quiet: true,
+    });
+    rawDb().run(
+      "INSERT INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)",
+      ["conv-slow-2", Date.now(), Date.now()],
+    );
+    const runId = await createScheduleRun(job.id, "conv-slow-2");
+    await completeScheduleRun(runId, { status: "ok" });
+    hangNextTurn = true;
+    makeDue();
+
+    await runDueSchedulesOnce();
+
+    // Retrying would run the same message concurrently with the turn already
+    // in flight, duplicating its tool calls and external side effects.
+    // `completeScheduleRun` bumps retry_count on any error row, so a retry
+    // being armed would leave it at 1; the no-retry path resets it.
+    const row = rawDb()
+      .query("SELECT retry_count FROM cron_jobs WHERE id = ?")
+      .get(job.id) as { retry_count: number };
+    expect(row.retry_count).toBe(0);
   });
 });
 
