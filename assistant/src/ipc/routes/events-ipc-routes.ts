@@ -25,6 +25,7 @@ import { z } from "zod";
 import { AssistantEventEnvelopeSchema } from "../../api/index.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { AssistantEventPublishOptionsSchema } from "../../runtime/assistant-event-publish-options.js";
+import { stampAndBuffer } from "../../runtime/assistant-stream-state.js";
 import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
 import { EVENTS_PUBLISH_IPC_METHOD } from "../events-publish-client.js";
 
@@ -37,6 +38,12 @@ export async function handleEventsPublish({
   body = {},
 }: RouteHandlerArgs): Promise<{ ok: true }> {
   const { event, options } = EventsPublishParamsSchema.parse(body);
+  // A forwarded event comes from a process where seq stamping is disabled
+  // (a worker), so it arrives with no `seq` and was never buffered for SSE
+  // replay. The daemon is the seq authority, so stamp + buffer here — at the
+  // transport boundary, before fanout — exactly as `broadcastMessage` does on
+  // the in-daemon path, so reconnecting clients replay it in order.
+  stampAndBuffer(event, { targeting: options });
   await assistantEventHub.publish(event, options);
   return { ok: true };
 }
