@@ -197,13 +197,22 @@ async function performBackup(
 
   // Call the daemon's export endpoint to get a plaintext vbundle.
   //
-  // The deadline has to cover the body, not just the handshake: `fetch`
-  // resolves as soon as the response headers land, and the bundle streams in
-  // afterwards. Clearing the timer on that resolution leaves the download
-  // undeadlined, so a body that stalls mid-transfer hangs `performBackup`
-  // forever — and with it the `snapshotInProgress` mutex, which only releases
-  // in this function's caller. Every subsequent tick then logs "snapshot
-  // already in progress" until the gateway restarts.
+  // Two separate deadlines have to be right here.
+  //
+  // `timeout: false` disables the runtime's own 300-second default. The daemon
+  // builds the whole archive before it can write a single response header, and
+  // on a large workspace that build runs for many minutes — so the default
+  // fires before any header arrives and the export fails with `TimeoutError`.
+  // Supplying `signal` is not enough: the runtime's default is not extended by
+  // a caller's abort signal, so without this the 60-minute budget below is
+  // silently capped at five.
+  //
+  // The abort deadline then has to cover the body, not just the handshake:
+  // `fetch` resolves as soon as the response headers land, and the bundle
+  // streams in afterwards. Clearing the timer on that resolution would leave
+  // the download undeadlined, so a body stalling mid-transfer would hang
+  // `performBackup` forever — and with it the `snapshotInProgress` mutex,
+  // which only releases in this function's caller.
   const serviceToken = mintServiceToken();
   const controller = new AbortController();
   const timeoutId = setTimeout(
@@ -224,6 +233,7 @@ async function performBackup(
         },
         body: JSON.stringify({ description: "Gateway backup worker" }),
         signal: controller.signal,
+        timeout: false,
       },
     );
 

@@ -37,6 +37,12 @@ function withDeadline<T>(work: Promise<T>, label: string): Promise<T> {
   ]);
 }
 
+/**
+ * Records the init the worker passed to fetch, so a test can assert on the
+ * deadline options rather than waiting one out.
+ */
+let lastInit: (RequestInit & { timeout?: boolean | number }) | undefined;
+
 /** A response that sends headers immediately and then never sends a chunk. */
 function stalledBodyResponse(): Response {
   const body = new ReadableStream<Uint8Array>({
@@ -70,7 +76,11 @@ beforeEach(async () => {
   }));
 
   mock.module("../fetch.js", () => ({
-    fetchImpl: async (_input: string | URL | Request, init?: RequestInit) => {
+    fetchImpl: async (
+      _input: string | URL | Request,
+      init?: RequestInit & { timeout?: boolean | number },
+    ) => {
+      lastInit = init;
       init?.signal?.throwIfAborted();
       return stalledBodyResponse();
     },
@@ -125,5 +135,30 @@ describe("backup export deadline", () => {
 
     expect(secondFailure).not.toBeNull();
     expect(secondFailure).not.toContain("already in progress");
+  }, 30_000);
+});
+
+describe("backup export request options", () => {
+  test("opts out of the runtime's default request timeout", async () => {
+    // The daemon builds the entire archive before it can write a response
+    // header, so on a large workspace no header arrives for many minutes. The
+    // runtime's 300-second default would kill that request — and it is NOT
+    // extended by the abort signal below, so the explicit budget alone does
+    // not save it. This is the option that makes the budget real.
+    const { createSnapshotNow } = await import("../backup/backup-worker.js");
+
+    await expect(
+      withDeadline(
+        createSnapshotNow({
+          assistantRuntimeBaseUrl: "http://127.0.0.1:7821",
+          exportTimeoutMs: 300,
+        }),
+        "stalled export",
+      ),
+    ).rejects.toThrow();
+
+    expect(lastInit?.timeout).toBe(false);
+    // The caller's own deadline is still what governs.
+    expect(lastInit?.signal).toBeInstanceOf(AbortSignal);
   }, 30_000);
 });
