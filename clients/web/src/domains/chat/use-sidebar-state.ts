@@ -17,9 +17,6 @@ import { useCallback, useEffect, useMemo, useState, startTransition } from "reac
 
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 import { groupConversations, type CustomGroup } from "@/domains/chat/utils/group-conversations";
-import { groupBackgroundConversationsBySource } from "@/domains/chat/utils/background-sub-groups";
-import { groupScheduledConversationsByJobId } from "@/domains/chat/utils/scheduled-sub-groups";
-import type { SubGroup } from "@/domains/chat/utils/sub-group";
 import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
 import {
   channelSectionKey,
@@ -104,13 +101,6 @@ function buildPaginatedSection(
 
 export interface SidebarState {
   pinned: Conversation[];
-
-  scheduled: Conversation[];
-  scheduledSubGroups: SubGroup[];
-
-  background: Conversation[];
-  backgroundSubGroups: SubGroup[];
-
   channelSections: ChannelSectionState[];
   recents: PaginatedSection;
 
@@ -128,22 +118,6 @@ export interface SidebarState {
   effectiveOpenCustomGroups: string[];
   onOpenCustomGroupsChange: (next: string[]) => void;
 
-  /**
-   * Reveal the Background section, enabling its lazy fetch. Wired to the
-   * collapsed rail's flyout trigger, which opens without going through
-   * `onOpenSectionsChange`.
-   */
-  activateBackground: () => void;
-  /** True once the Background section is revealed but its fetch is still in flight. */
-  backgroundLoading: boolean;
-  /**
-   * Reveal the Scheduled section, enabling its lazy fetch. Independent of
-   * `activateBackground` so opening Scheduled never fetches the background
-   * backlog.
-   */
-  activateScheduled: () => void;
-  /** True once the Scheduled section is revealed but its fetch is still in flight. */
-  scheduledLoading: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -183,8 +157,6 @@ export function useSidebarState({
   const setOpenCategories = useSidebarCollapseStore.use.setOpenCategories();
   const setOpenCustomGroups = useSidebarCollapseStore.use.setOpenCustomGroups();
   const setOpenPrimary = useSidebarCollapseStore.use.setOpenPrimary();
-  const activateBackground = useSidebarCollapseStore.use.activateBackground();
-  const activateScheduled = useSidebarCollapseStore.use.activateScheduled();
   const backgroundActivated = useSidebarCollapseStore.use.backgroundActivated();
   const scheduledActivated = useSidebarCollapseStore.use.scheduledActivated();
   const collapseAssistantId = useSidebarCollapseStore.use.assistantId();
@@ -201,22 +173,16 @@ export function useSidebarState({
   const collapseSynced = collapseAssistantId === assistantId;
   const backgroundReady = backgroundActivated && collapseSynced;
   const scheduledReady = scheduledActivated && collapseSynced;
-  const {
-    conversations: backgroundConversations,
-    isPending: backgroundPending,
-  } = useBackgroundConversationListQuery(
-    assistantId,
-    isAssistantActive && backgroundReady,
-  );
-  const backgroundLoading = backgroundReady && backgroundPending;
-  const {
-    conversations: scheduledConversations,
-    isPending: scheduledPending,
-  } = useScheduledConversationListQuery(
-    assistantId,
-    isAssistantActive && scheduledReady,
-  );
-  const scheduledLoading = scheduledReady && scheduledPending;
+  const { conversations: backgroundConversations } =
+    useBackgroundConversationListQuery(
+      assistantId,
+      isAssistantActive && backgroundReady,
+    );
+  const { conversations: scheduledConversations } =
+    useScheduledConversationListQuery(
+      assistantId,
+      isAssistantActive && scheduledReady,
+    );
 
   const allConversations = useMemo(
     () =>
@@ -236,16 +202,6 @@ export function useSidebarState({
         groups: conversationGroups,
       }),
     [allConversations, conversationGroups],
-  );
-
-  const scheduledSubGroups = useMemo(
-    () => groupScheduledConversationsByJobId(grouped.scheduled),
-    [grouped.scheduled],
-  );
-
-  const backgroundSubGroups = useMemo(
-    () => groupBackgroundConversationsBySource(grouped.background),
-    [grouped.background],
   );
 
   // --- Pagination ("show more") ---
@@ -397,10 +353,6 @@ export function useSidebarState({
 
   return {
     pinned: grouped.pinned,
-    scheduled: grouped.scheduled,
-    scheduledSubGroups,
-    background: grouped.background,
-    backgroundSubGroups,
     channelSections,
     recents: recentsSection,
     customGroups: grouped.customGroups,
@@ -408,9 +360,5 @@ export function useSidebarState({
     onOpenSectionsChange,
     effectiveOpenCustomGroups,
     onOpenCustomGroupsChange: setOpenCustomGroups,
-    activateBackground,
-    backgroundLoading,
-    activateScheduled,
-    scheduledLoading,
   };
 }

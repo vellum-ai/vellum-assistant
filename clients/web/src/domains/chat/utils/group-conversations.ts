@@ -19,8 +19,7 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
  *   `groupId === "system:scheduled"`.
  * - `background` — all background threads
  *   (`conversationType === "background"` or `groupId === "system:background"`),
- *   including auto-analysis (reflections). Sub-grouping by `source` is
- *   handled downstream by `backgroundSubGroups.ts`.
+ *   including auto-analysis (reflections).
  * - `recents` — everything else (foreground, non-pinned), sorted by
  *   `lastMessageAt` descending. Background/scheduled conversations with a
  *   non-null `surfacedAt` (explicitly promoted via the daemon's surface API)
