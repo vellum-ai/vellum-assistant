@@ -211,6 +211,47 @@ type _SlackMessageEventApiCrossCheck = [
 ];
 
 /**
+ * A single entity the user has open, e.g.
+ * `{ type: "slack#/types/channel_id", value: "C0123", team_id: "T0123" }`.
+ */
+const slackAppContextEntitySchema = z.object({
+  type: requiredString(),
+  value: requiredString(),
+  team_id: optionalString(),
+});
+
+/**
+ * `app_context` on an inbound message — the entities the user was viewing when
+ * they messaged the app, ordered by relevance. Slack attaches it to
+ * `message.im` and `app_home_opened` once the app subscribes to
+ * `app_context_changed`, which requires `agent_view`.
+ *
+ * Deliberately NOT a field on {@link slackMessageEventSchema}: that schema is
+ * cross-checked with `ModeledKeysAreOfficial` against `@slack/types`, which
+ * does not model `app_context` yet. Folding it in would fail the build, and
+ * loosening the cross-check would give up the typo protection it exists for.
+ * Parsing the raw payload separately keeps both guarantees.
+ */
+export const slackAppContextSchema = z.object({
+  entities: z.array(slackAppContextEntitySchema).optional().catch(undefined),
+});
+
+export type SlackAppContext = z.infer<typeof slackAppContextSchema>;
+
+/**
+ * Pull `app_context` off a raw Slack event. Returns undefined when absent or
+ * unusable — an empty context (`"context": {}`) is normal and carries nothing,
+ * so it collapses to undefined rather than travelling as an empty object.
+ */
+export function parseSlackAppContext(
+  rawEvent: Record<string, unknown>,
+): SlackAppContext | undefined {
+  const parsed = slackAppContextSchema.safeParse(rawEvent.app_context);
+  if (!parsed.success) return undefined;
+  return parsed.data.entities?.length ? parsed.data : undefined;
+}
+
+/**
  * Slack `block_actions` interactive payload (subset relevant to normalization),
  * delivered when a user clicks a Block Kit element (button, menu, …).
  *

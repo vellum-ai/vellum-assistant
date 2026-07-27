@@ -2217,3 +2217,90 @@ describe("enrichNormalizedActor", () => {
     });
   });
 });
+
+/**
+ * Slack attaches `app_context` to `message.im` once the app subscribes to
+ * `app_context_changed` (which requires `agent_view`). It names what the sender
+ * had open — the channel, thread, or canvas a DM like "summarise this" refers
+ * to. It cannot live on the cross-checked message schema, so these cover the
+ * separate raw-payload parse.
+ */
+describe("DM app_context", () => {
+  const CHANNEL_ENTITY = {
+    type: "slack#/types/channel_id",
+    value: "C0INCIDENTS",
+    team_id: "T0TEAM",
+  };
+
+  it("carries the entities the sender had open", () => {
+    const config = makeConfig();
+    const event = makeDmEvent({ app_context: { entities: [CHANNEL_ENTITY] } });
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-1", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.source.appContext).toEqual({
+      entities: [
+        {
+          type: "slack#/types/channel_id",
+          value: "C0INCIDENTS",
+          teamId: "T0TEAM",
+        },
+      ],
+    });
+  });
+
+  it("preserves entity order, which Slack sends by relevance", () => {
+    const config = makeConfig();
+    const second = { type: "slack#/types/channel_id", value: "C0SECOND" };
+    const event = makeDmEvent({
+      app_context: { entities: [CHANNEL_ENTITY, second] },
+    });
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-2", config);
+
+    expect(
+      result!.event.source.appContext?.entities.map((e) => e.value),
+    ).toEqual(["C0INCIDENTS", "C0SECOND"]);
+  });
+
+  it("omits appContext when the sender had nothing open", () => {
+    const config = makeConfig();
+    // Slack sends an empty context object rather than dropping the field.
+    const event = makeDmEvent({ app_context: {} });
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-3", config);
+
+    expect(result!.event.source.appContext).toBeUndefined();
+  });
+
+  it("omits appContext when Slack sends no context at all", () => {
+    const config = makeConfig();
+    const result = normalizeSlackDirectMessage(
+      makeDmEvent(),
+      "evt-ctx-4",
+      config,
+    );
+
+    expect(result!.event.source.appContext).toBeUndefined();
+  });
+
+  it("drops a malformed context rather than failing the message", () => {
+    const config = makeConfig();
+    // A DM whose context is garbage must still deliver — the message is the
+    // payload, the context is an enrichment.
+    const event = makeDmEvent({ app_context: { entities: "not-an-array" } });
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-5", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBeTruthy();
+    expect(result!.event.source.appContext).toBeUndefined();
+  });
+
+  it("keeps the raw context verbatim on the event", () => {
+    const config = makeConfig();
+    const event = makeDmEvent({ app_context: { entities: [CHANNEL_ENTITY] } });
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-6", config);
+
+    expect((result!.event.raw as Record<string, unknown>).app_context).toEqual({
+      entities: [CHANNEL_ENTITY],
+    });
+  });
+});
