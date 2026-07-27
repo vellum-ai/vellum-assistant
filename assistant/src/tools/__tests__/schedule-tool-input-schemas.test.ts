@@ -28,7 +28,7 @@ import { toToolInputSchema } from "../shared/zod-tool-schema.js";
  *   asserts they exist in TOOLS.json, so a rename breaks this test.
  * - NULLABLE_AT_RUNTIME fields — declared `.nullable()` in the Zod schema
  *   though advertised non-null, because `updateSchedule` treats null as
- *   "clear this field" and always has. The guard compares them with the
+ *   "clear this field". The guard compares them with the
  *   null branch stripped.
  */
 

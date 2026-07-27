@@ -81,10 +81,10 @@ function stripPermissiveAdditionalProperties(node: unknown): void {
 /**
  * Wrap an optional field's schema so an explicit `null` parses as "omitted"
  * (`undefined`). Models routinely send `null` for optional fields they mean
- * to skip, and executors that read fields with `input.x ?? fallback` have
- * always treated null exactly like absent — validation must not start
- * rejecting that. The derived JSON Schema is the inner schema's (the
- * null-tolerance is runtime slack, not advertised contract).
+ * to skip, and executors read such fields via `input.x ?? fallback`, where
+ * null and absent are equivalent — validation must not reject null there.
+ * The derived JSON Schema is the inner schema's (the null-tolerance is
+ * runtime slack, not advertised contract).
  */
 export function nullAsOmitted<T extends z.ZodType>(schema: T) {
   return z.preprocess((value) => value ?? undefined, schema.optional());

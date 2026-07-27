@@ -44,8 +44,7 @@ const VALID_ROUTING_INTENTS: RoutingIntent[] = [
  *   update), so fields are plain `.optional()` — no null-to-omitted
  *   preprocessing that would silently turn an explicit update into a no-op.
  * - `timezone` and `script` are nullable at runtime though advertised as
- *   plain strings: `updateSchedule` persists null as "clear this field" and
- *   that has always worked.
+ *   plain strings: `updateSchedule` persists null as "clear this field".
  * - `timeout_ms` / `inference_profile` advertise null (it reverts to the
  *   default); the executor's bespoke handling stays.
  * - `mode`, `routing_intent`, `then_execute`, `skill_id`, `workflow_name`,

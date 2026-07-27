@@ -42,11 +42,11 @@ const VALID_ROUTING_INTENTS: RoutingIntent[] = [
  * `TOOLS.json`, and `schedule-tool-input-schemas.test.ts` guards the two
  * against structural drift.
  *
- * Tolerance mirrors what the executor always accepted — this schema only
- * rejects values that previously flowed into the store as corruption:
+ * Tolerance matches the executor's own reads — this schema only rejects
+ * values the executor would otherwise pass into the store unchecked:
  *
- * - `nullAsOmitted` on optionals read via `?? fallback`, where null always
- *   behaved as absent.
+ * - `nullAsOmitted` on optionals read via `?? fallback`, where null and
+ *   absent are equivalent.
  * - `.catch(undefined)` on `skill_id` / `workflow_name`, which the executor
  *   silently coerces to null when malformed.
  * - `mode`, `routing_intent`, `capabilities`, and `workflow_args` are
