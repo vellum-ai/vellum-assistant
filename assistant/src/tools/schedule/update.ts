@@ -17,7 +17,10 @@ import {
   getSchedule,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
-import { prepareScheduleSkillBinding } from "../../schedule/skill-binding.js";
+import {
+  resolveScheduleSkill,
+  validateHandoffMessage,
+} from "../../schedule/skill-binding.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
@@ -83,34 +86,55 @@ export async function executeScheduleUpdate(
   if (input.script !== undefined) updates.script = input.script;
   if (input.enabled !== undefined) updates.enabled = input.enabled;
 
-  // Re-pin the skill binding whenever the handoff or the bound skill is
-  // touched. This is also the re-approval path for a schedule the scheduler
-  // refused because its skill changed: re-issuing `skill_id` records the
-  // skill's current hash, which is an explicit guardian action rather than a
-  // silent trust-on-first-firing.
-  if (input.then_execute !== undefined || input.skill_id !== undefined) {
+  // Validate the handoff whenever the toggle or the action prompt moves.
+  // `message` matters because it becomes the handoff's trusted postamble:
+  // clearing it on an existing `then_execute` schedule would leave the turn
+  // with untrusted stdout and no instruction after it.
+  if (
+    input.then_execute !== undefined ||
+    input.skill_id !== undefined ||
+    input.message !== undefined
+  ) {
     const existing = getSchedule(jobId);
     if (!existing) {
       return { content: `Error: Schedule not found: ${jobId}`, isError: true };
     }
-    const binding = prepareScheduleSkillBinding({
-      skillId:
-        input.skill_id === undefined
-          ? existing.skillId
-          : typeof input.skill_id === "string"
-            ? input.skill_id.trim()
-            : null,
-      thenExecute:
-        input.then_execute === undefined
-          ? existing.thenExecute
-          : input.then_execute === true,
-      message:
-        typeof input.message === "string" ? input.message : existing.message,
-    });
-    if (!binding.ok) {
-      return { content: `Error: ${binding.error}`, isError: true };
+
+    const nextThenExecute =
+      input.then_execute === undefined
+        ? existing.thenExecute
+        : input.then_execute === true;
+    const nextMessage =
+      typeof input.message === "string" ? input.message : existing.message;
+
+    const messageError = validateHandoffMessage(nextThenExecute, nextMessage);
+    if (messageError) {
+      return { content: `Error: ${messageError}`, isError: true };
     }
-    Object.assign(updates, binding.binding);
+    if (input.then_execute !== undefined) {
+      updates.thenExecute = nextThenExecute;
+    }
+
+    // Re-pin ONLY on an explicit `skill_id`. Editing the message or toggling
+    // the handoff must never re-record a changed skill's hash as a side
+    // effect — that would silently re-approve content the guardian has not
+    // seen, which is exactly what the pin exists to prevent. Re-issuing
+    // `skill_id` is the deliberate re-approval action.
+    if (input.skill_id !== undefined) {
+      const skillId =
+        typeof input.skill_id === "string" ? input.skill_id.trim() : "";
+      if (!skillId) {
+        updates.skillId = null;
+        updates.skillVersionHash = null;
+      } else {
+        const resolved = resolveScheduleSkill(skillId);
+        if (!resolved.ok) {
+          return { content: `Error: ${resolved.error}`, isError: true };
+        }
+        updates.skillId = skillId;
+        updates.skillVersionHash = resolved.skill.versionHash;
+      }
+    }
   }
 
   // Mode validation and pass-through

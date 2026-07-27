@@ -31,9 +31,18 @@ interface CapturedJob {
   assistantSandwich?: { preamble: string; content: string; postamble: string };
 }
 let capturedJobs: CapturedJob[] = [];
+/** When set, the next runBackgroundJob call reports a failed turn. */
+let failNextTurn = false;
 mock.module("../runtime/background-job-runner.js", () => ({
   runBackgroundJob: (opts: CapturedJob) => {
     capturedJobs.push(opts);
+    if (failNextTurn) {
+      return Promise.resolve({
+        ok: false,
+        conversationId: "conv-handoff",
+        error: new Error("provider timeout"),
+      });
+    }
     return Promise.resolve({ ok: true, conversationId: "conv-handoff" });
   },
 }));
@@ -85,6 +94,7 @@ function makeDue() {
 
 beforeEach(() => {
   capturedJobs = [];
+  failNextTurn = false;
   const db = getDb();
   db.run("DELETE FROM cron_runs");
   db.run("DELETE FROM cron_jobs");
@@ -178,6 +188,65 @@ describe("then_execute handoff", () => {
     expect(runsFor(job.id)[0].status).toBe("error");
   });
 
+  test("a failed handoff turn does not reschedule the script", async () => {
+    // The script's side effects already landed. Rescheduling the firing to
+    // re-attempt the turn would re-run the command, duplicating them.
+    const job = await createSchedule({
+      name: "Handoff failure",
+      cronExpression: "* * * * *",
+      message: "Report findings.",
+      mode: "script",
+      script: "echo something happened",
+      thenExecute: true,
+      quiet: true,
+    });
+    failNextTurn = true;
+    makeDue();
+
+    const result = await runDueSchedulesOnce();
+
+    expect(result.failed).toBe(1);
+    expect(capturedJobs).toHaveLength(1);
+
+    const row = rawDb()
+      .query("SELECT retry_count FROM cron_jobs WHERE id = ?")
+      .get(job.id) as { retry_count: number };
+    // `completeScheduleRun` bumps retry_count on any error row; arming a retry
+    // would leave it there, and the schedule would re-run the script after the
+    // backoff. The no-retry path resets it, so zero means the firing was
+    // abandoned rather than rescheduled.
+    expect(row.retry_count).toBe(0);
+
+    // The failure is still recorded for the guardian.
+    const runs = runsFor(job.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].status).toBe("error");
+  });
+
+  test("a one-shot whose handoff fails ends terminally rather than retrying", async () => {
+    const job = await createSchedule({
+      name: "One-shot handoff",
+      cronExpression: null,
+      message: "Report findings.",
+      mode: "script",
+      script: "echo something happened",
+      thenExecute: true,
+      quiet: true,
+      nextRunAt: Date.now() - 1000,
+    });
+    failNextTurn = true;
+
+    await runDueSchedulesOnce();
+
+    const row = rawDb()
+      .query("SELECT status, enabled FROM cron_jobs WHERE id = ?")
+      .get(job.id) as { status: string; enabled: number };
+    // Arming a retry would revert a one-shot from "firing" back to "active" so
+    // it fires again; "cancelled" means it ended here.
+    expect(row.status).toBe("cancelled");
+    expect(row.enabled).toBe(0);
+  });
+
   test("a script schedule without then_execute stays LLM-free", async () => {
     await createSchedule({
       name: "Plain script",
@@ -190,6 +259,57 @@ describe("then_execute handoff", () => {
 
     await runDueSchedulesOnce();
 
+    expect(capturedJobs).toHaveLength(0);
+  });
+});
+
+describe("conversation reuse across quiet firings", () => {
+  test("an empty-output run does not mask the reusable conversation", async () => {
+    // A script-only run parks a synthetic `script:<jobId>` marker in the run
+    // row's conversation column. Left unfiltered it is the newest non-null
+    // value, so the lookup would return it, fail to resolve it, and start a
+    // fresh conversation on the next firing that had something to say.
+    const job = await createSchedule({
+      name: "Chatty then quiet",
+      cronExpression: "* * * * *",
+      message: "Report findings.",
+      mode: "script",
+      script: "echo first",
+      thenExecute: true,
+      reuseConversation: true,
+    });
+
+    // Firing 1 hands off and records a real conversation on its run row.
+    makeDue();
+    await runDueSchedulesOnce();
+    rawDb().run(
+      "INSERT INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)",
+      ["conv-handoff", Date.now(), Date.now()],
+    );
+    rawDb().run("UPDATE cron_runs SET conversation_id = ? WHERE job_id = ?", [
+      "conv-handoff",
+      job.id,
+    ]);
+
+    // Firing 2 produces nothing, leaving only the synthetic marker.
+    rawDb().run("UPDATE cron_jobs SET script = ? WHERE id = ?", [
+      "true",
+      job.id,
+    ]);
+    makeDue();
+    await runDueSchedulesOnce();
+
+    // Firing 3 has output again and must continue the original conversation.
+    capturedJobs = [];
+    rawDb().run("UPDATE cron_jobs SET script = ? WHERE id = ?", [
+      "echo third",
+      job.id,
+    ]);
+    makeDue();
+    await runDueSchedulesOnce();
+
+    // Reuse dispatches into the existing conversation rather than routing
+    // through runBackgroundJob's fresh bootstrap.
     expect(capturedJobs).toHaveLength(0);
   });
 });

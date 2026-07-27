@@ -663,6 +663,7 @@ export async function runDueSchedulesOnce(
             existingRunId: runId,
             runOutput: result.stdout,
             sandwich: buildScriptHandoffSandwich(job, result.stdout),
+            retryOnFailure: false,
           });
           mark(status);
           continue;
@@ -919,8 +920,22 @@ async function runScheduleAgentTurn(args: {
    * passing the action prompt again would double-inject it.
    */
   sandwich?: AssistantSandwich;
+  /**
+   * Whether a failed turn should go through the retry policy. False for a
+   * script handoff: the script already ran, so rescheduling the firing would
+   * re-execute its side effects because the *turn* failed. See the failure
+   * branch below.
+   */
+  retryOnFailure?: boolean;
 }): Promise<"completed" | "failed"> {
-  const { job, isOneShot, existingRunId, runOutput, sandwich } = args;
+  const {
+    job,
+    isOneShot,
+    existingRunId,
+    runOutput,
+    sandwich,
+    retryOnFailure = true,
+  } = args;
 
   // Reuse the conversation from the last successful run when the flag is set
   // and a prior conversation still exists; otherwise route through the
@@ -1090,11 +1105,38 @@ async function runScheduleAgentTurn(args: {
     error: errorMsg,
     ...(runOutput ? { output: runOutput } : {}),
   });
-  await handleExecutionFailure({
-    job,
-    errorMsg: errorMsg ?? "Schedule run failed",
-    isOneShot,
-  });
+  if (retryOnFailure) {
+    await handleExecutionFailure({
+      job,
+      errorMsg: errorMsg ?? "Schedule run failed",
+      isOneShot,
+    });
+  } else {
+    // The script stage already succeeded and its side effects have landed
+    // (files written, APIs called, items marked processed). Retrying the
+    // firing would re-run the command to re-attempt a turn that failed after
+    // it, so a transient provider error would duplicate real-world effects up
+    // to `maxRetries`. Report the failure and stop instead: a recurring
+    // schedule simply runs again on its next tick, a one-shot ends terminally.
+    // Mirrors the retry-exhausted branch in `retry-policy.ts`.
+    if (isOneShot) {
+      await failOneShotPermanently(job.id);
+    } else {
+      await resetRetryCount(job.id);
+    }
+    if (!job.quiet) {
+      emitScheduleActivityFailed({
+        jobId: job.id,
+        jobName: job.name,
+        errorMessage: errorMsg ?? "Schedule handoff failed",
+        dedupKey: `schedule-handoff-failed:${job.id}:${Date.now()}`,
+      });
+    }
+    log.warn(
+      { jobId: job.id, name: job.name, isOneShot },
+      "Script handoff turn failed; not retrying (the script already ran)",
+    );
+  }
 
   // Only skip invalidation when the conversation was *actually* reused,
   // i.e. it contains prior successful context worth preserving. When

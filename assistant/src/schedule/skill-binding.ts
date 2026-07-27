@@ -90,6 +90,16 @@ export function checkPinnedSkillVersion(args: {
  * Returns an error message instead of throwing — callers map it onto their
  * own error type.
  */
+export function validateHandoffMessage(
+  thenExecute: boolean,
+  message: string,
+): string | null {
+  if (thenExecute && !message.trim()) {
+    return "message is required when then_execute is set — it is the action prompt the agent turn receives alongside the script's output";
+  }
+  return null;
+}
+
 export function prepareScheduleSkillBinding(args: {
   skillId?: string | null;
   thenExecute?: boolean;
@@ -107,12 +117,9 @@ export function prepareScheduleSkillBinding(args: {
   | { ok: false; error: string } {
   const thenExecute = args.thenExecute ?? false;
 
-  if (thenExecute && !args.message.trim()) {
-    return {
-      ok: false,
-      error:
-        "message is required when then_execute is set — it is the action prompt the agent turn receives alongside the script's output",
-    };
+  const messageError = validateHandoffMessage(thenExecute, args.message);
+  if (messageError) {
+    return { ok: false, error: messageError };
   }
 
   if (args.skillId == null || args.skillId === "") {

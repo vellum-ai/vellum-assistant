@@ -5,7 +5,11 @@ import { v4 as uuid } from "uuid";
 import { getDb } from "../persistence/db-connection.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { rawChanges } from "../persistence/raw-query.js";
-import { scheduleJobs, scheduleRuns } from "../persistence/schema/index.js";
+import {
+  conversations,
+  scheduleJobs,
+  scheduleRuns,
+} from "../persistence/schema/index.js";
 import { publishSchedulesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
@@ -906,16 +910,23 @@ export async function completeScheduleRun(
  */
 export function getLastScheduleConversationId(jobId: string): string | null {
   const db = getDb();
+  // Only rows pointing at a conversation that still exists are candidates.
+  // Several firing paths park a synthetic marker in this column instead of a
+  // real id (`script:<jobId>`, `notify-ok:<jobId>`, `workflow:<jobId>`,
+  // `recovery:<jobId>`, …) so the runs UI can recognize them. Those markers are
+  // non-null, so without this join the newest one wins and hides the older run
+  // that does carry a reusable conversation — a script schedule whose firing
+  // produced no output would silently break `reuse_conversation` for the next
+  // firing that did. Testing existence rather than matching marker prefixes
+  // also keeps this correct when a new marker is introduced.
   const row = db
     .select({ conversationId: scheduleRuns.conversationId })
     .from(scheduleRuns)
-    .where(
-      and(
-        eq(scheduleRuns.jobId, jobId),
-        eq(scheduleRuns.status, "ok"),
-        sql`${scheduleRuns.conversationId} IS NOT NULL`,
-      ),
+    .innerJoin(
+      conversations,
+      eq(conversations.id, sql`${scheduleRuns.conversationId}`),
     )
+    .where(and(eq(scheduleRuns.jobId, jobId), eq(scheduleRuns.status, "ok")))
     .orderBy(desc(scheduleRuns.createdAt))
     .limit(1)
     .get();
