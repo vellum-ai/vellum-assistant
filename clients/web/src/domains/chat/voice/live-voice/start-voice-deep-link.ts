@@ -19,8 +19,22 @@
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
 import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+
+/**
+ * How long a parked start-voice request stays live.
+ *
+ * The park exists for one race — a deep link that lands before `ChatLayout`
+ * mounts — which resolves in seconds or not at all. Without a bound it never
+ * expires: a link whose `navigate(routes.assistant)` is bounced by a route
+ * guard (unauthenticated, mid-onboarding) leaves the request sitting there
+ * until some unrelated `ChatLayout` mount drains it and a full-screen voice
+ * session opens out of nowhere. A minute is far longer than any legitimate
+ * cold launch and far shorter than "later".
+ */
+export const PENDING_VOICE_START_TTL_MS = 60_000;
 
 /**
  * Ask for a live-voice session on behalf of a start-voice deep link.
@@ -39,14 +53,23 @@ export function requestVoiceStartFromDeepLink(): void {
  * Called by {@link useLiveVoiceSessionController} right after it registers its
  * starter, and by {@link requestVoiceStartFromDeepLink} for the warm path.
  * A no-op when nothing is parked, so the repeat calls are free.
+ *
+ * **The park is consumed last.** Everything before the consume is a *precondition
+ * that can still become true* — no starter yet, an identity fetch that has not
+ * landed, a controller that unmounted across the await — and on each of those
+ * the request stays parked for the next drain rather than being thrown away
+ * with nothing to show for it. Consuming up front would drop the command
+ * outright on exactly the slowest path there is: a cold Siri / Action-Button
+ * launch against a hibernating assistant, where the version resolution can hit
+ * its timeout with `version` still `null`.
  */
 export async function drainPendingVoiceStartDeepLink(): Promise<void> {
-  // No controller mounted yet — leave the request parked for the one that
-  // eventually mounts. Checked before consuming so the intent is never dropped.
-  if (useLiveVoiceStore.getState().starter === null) {
+  if (usePendingDeepLinkStore.getState().pendingVoiceStartAt === null) {
     return;
   }
-  if (!usePendingDeepLinkStore.getState().consumePendingVoiceStart()) {
+  // No controller mounted yet — leave the request parked for the one that
+  // eventually mounts.
+  if (useLiveVoiceStore.getState().starter === null) {
     return;
   }
   // `supportsLiveVoice` reads `false` until the identity fetch lands, and a
@@ -55,7 +78,29 @@ export async function drainPendingVoiceStartDeepLink(): Promise<void> {
   // "gated write" case `whenAssistantVersionKnown` documents). Store
   // subscription, not a poll.
   await whenAssistantVersionKnown();
+  // Resolved by timing out, not by hydrating. The gate below would read the
+  // conservative `false` and discard a request the user really made, so leave
+  // it parked instead.
+  if (useAssistantIdentityStore.getState().version === null) {
+    return;
+  }
+  // Re-read: the controller may have unmounted across the await, leaving no
+  // starter to hand this to. The next mount will drain it.
+  const starter = useLiveVoiceStore.getState().starter;
+  if (starter === null) {
+    return;
+  }
   const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
+  // Every remaining branch is a decision rather than a race, so the request is
+  // spent from here — and nothing below awaits, so it cannot be lost between
+  // the consume and the start.
+  if (
+    !usePendingDeepLinkStore
+      .getState()
+      .consumePendingVoiceStart(PENDING_VOICE_START_TTL_MS)
+  ) {
+    return;
+  }
   // Same eligibility as the composer's entry point: on an assistant too old to
   // serve live voice the link navigates and stops there, exactly as the
   // composer renders no voice button.
@@ -64,6 +109,5 @@ export async function drainPendingVoiceStartDeepLink(): Promise<void> {
   }
   // `null` conversation is the supported "new conversation" start: the server
   // assigns one and echoes it on the `ready` frame (`LiveVoiceState.conversationId`).
-  // Re-read the starter — the controller may have unmounted across the await.
-  useLiveVoiceStore.getState().starter?.(assistantId, null);
+  starter(assistantId, null);
 }

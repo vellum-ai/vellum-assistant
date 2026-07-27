@@ -6,12 +6,17 @@
  * (rather than by faking `isNativeIOS`) so the mirror's own lifecycle and
  * throttling are asserted directly; the bridge's off-iOS and older-shell
  * behavior — every export resolving its fallback *without touching the
- * plugin* — is pinned by `runtime/native-live-activity.test.ts`, and the
- * mirror reaches native only through those exports.
+ * plugin*, and never rejecting — is pinned by
+ * `runtime/native-live-activity.test.ts`, and the mirror reaches native only
+ * through those exports.
  *
  * The avatar accent is *not* stubbed: the harness mounts the real
  * `useAvatarAccentVar` publisher (as `RootLayout` does), so these tests pin
  * that the island's accent is the same derivation the voice room renders.
+ *
+ * Every store write here is `await`ed because the mirror observes *settled*
+ * state — it coalesces each synchronous burst of `set()` calls into one
+ * microtask — so a push lands a microtask after the write.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -34,7 +39,6 @@ const updateVoiceLiveActivity = mock(
 const endVoiceLiveActivity = mock(async (): Promise<void> => undefined);
 
 mock.module("@/runtime/native-live-activity", () => ({
-  isVoiceLiveActivityAvailable: mock(async () => true),
   startVoiceLiveActivity,
   updateVoiceLiveActivity,
   endVoiceLiveActivity,
@@ -90,11 +94,16 @@ function renderMirror(avatar: Avatar = ORANGE_AVATAR) {
   );
 }
 
-/** Drive the store the way a session does, without any session machinery. */
-function setPhase(state: LiveVoiceSessionState): void {
-  act(() => {
-    useLiveVoiceStore.getState().setState(state);
+/** Run a synchronous store burst, then let the mirror's coalescing microtask run. */
+async function settled(mutate: () => void = () => undefined): Promise<void> {
+  await act(async () => {
+    mutate();
   });
+}
+
+/** Drive the store the way a session does, without any session machinery. */
+async function setPhase(state: LiveVoiceSessionState): Promise<void> {
+  await settled(() => useLiveVoiceStore.getState().setState(state));
 }
 
 function lastStartPayload() {
@@ -130,18 +139,19 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("starting the activity", () => {
-  test("mounting with no session requests nothing", () => {
+  test("mounting with no session requests nothing", async () => {
     renderMirror();
+    await settled();
 
     expect(startVoiceLiveActivity).not.toHaveBeenCalled();
     expect(updateVoiceLiveActivity).not.toHaveBeenCalled();
     expect(endVoiceLiveActivity).not.toHaveBeenCalled();
   });
 
-  test("starts exactly one activity when a session becomes active", () => {
+  test("starts exactly one activity when a session becomes active", async () => {
     renderMirror();
 
-    setPhase("connecting");
+    await setPhase("connecting");
 
     expect(startVoiceLiveActivity).toHaveBeenCalledTimes(1);
     expect(lastStartPayload()).toEqual({
@@ -154,10 +164,8 @@ describe("starting the activity", () => {
     expect(updateVoiceLiveActivity).not.toHaveBeenCalled();
   });
 
-  test("a session already running at mount is picked up (controller remount)", () => {
-    act(() => {
-      useLiveVoiceStore.getState().setState("listening");
-    });
+  test("a session already running at mount is picked up (controller remount)", async () => {
+    await settled(() => useLiveVoiceStore.getState().setState("listening"));
 
     renderMirror();
 
@@ -168,7 +176,7 @@ describe("starting the activity", () => {
     });
   });
 
-  test("falls back to the shared display name when the identity hasn't hydrated", () => {
+  test("falls back to the shared display name when the identity hasn't hydrated", async () => {
     useAssistantIdentityStore.setState({
       name: null,
       version: null,
@@ -176,26 +184,28 @@ describe("starting the activity", () => {
     });
     renderMirror();
 
-    setPhase("connecting");
+    await setPhase("connecting");
 
     // Never empty — the native side rejects an empty `assistantName`.
     expect(lastStartPayload()?.assistantName).toBe("your assistant");
   });
 
-  test("an avatar with no color to match sends an empty accent for the native neutral", () => {
+  test("an avatar with no color to match sends an empty accent for the native neutral", async () => {
     renderMirror({ components: null, traits: null });
 
-    setPhase("connecting");
+    await setPhase("connecting");
 
     expect(lastStartPayload()?.accentHex).toBe("");
   });
 
-  test("a default (traits-less) avatar sends the color it actually renders", () => {
+  test("a default (traits-less) avatar sends the color it actually renders", async () => {
     renderMirror({ components: BUNDLED_COMPONENTS, traits: null });
 
-    setPhase("connecting");
+    await setPhase("connecting");
 
-    expect(lastStartPayload()?.accentHex).toBe(BUNDLED_COMPONENTS.colors[0]!.hex);
+    expect(lastStartPayload()?.accentHex).toBe(
+      BUNDLED_COMPONENTS.colors[0]!.hex,
+    );
   });
 });
 
@@ -204,14 +214,14 @@ describe("starting the activity", () => {
 // ---------------------------------------------------------------------------
 
 describe("updating the activity", () => {
-  test("pushes one update per phase change and none for a repeated phase", () => {
+  test("pushes one update per phase change and none for a repeated phase", async () => {
     renderMirror();
-    setPhase("connecting");
+    await setPhase("connecting");
 
-    setPhase("listening");
-    setPhase("thinking");
-    setPhase("speaking");
-    setPhase("listening");
+    await setPhase("listening");
+    await setPhase("thinking");
+    await setPhase("speaking");
+    await setPhase("listening");
 
     expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(4);
     expect(lastUpdatePayload()).toEqual({
@@ -222,60 +232,53 @@ describe("updating the activity", () => {
     });
 
     // Re-publishing the same phase changes no `ContentState` field.
-    setPhase("listening");
+    await setPhase("listening");
     expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(4);
   });
 
-  test("relabels to Reconnecting… exactly when the room does", () => {
+  test("relabels to Reconnecting… exactly when the room does", async () => {
     renderMirror();
-    setPhase("connecting");
+    await setPhase("connecting");
 
-    act(() => {
-      useLiveVoiceStore.getState().setReconnecting(true);
-    });
+    await settled(() => useLiveVoiceStore.getState().setReconnecting(true));
     expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(1);
     expect(lastUpdatePayload()?.label).toBe("Reconnecting…");
 
     // `reconnecting` is orthogonal to every other phase, so it must not
     // relabel one — and therefore must not spend an update either.
-    setPhase("listening");
+    await setPhase("listening");
     expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(2);
     expect(lastUpdatePayload()?.label).toBe("Listening…");
 
-    act(() => {
-      useLiveVoiceStore.getState().setReconnecting(false);
-    });
+    await settled(() => useLiveVoiceStore.getState().setReconnecting(false));
     expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(2);
   });
 
-  test("pushes muting and unmuting", () => {
+  test("pushes muting and unmuting", async () => {
     renderMirror();
-    setPhase("listening");
+    await setPhase("listening");
 
-    act(() => {
-      useLiveVoiceStore.getState().setMuted(true);
-    });
+    await settled(() => useLiveVoiceStore.getState().setMuted(true));
     expect(lastUpdatePayload()?.muted).toBe(true);
 
-    act(() => {
-      useLiveVoiceStore.getState().setMuted(true);
-    });
+    await settled(() => useLiveVoiceStore.getState().setMuted(true));
     expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(1);
 
-    act(() => {
-      useLiveVoiceStore.getState().setMuted(false);
-    });
+    await settled(() => useLiveVoiceStore.getState().setMuted(false));
     expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(2);
     expect(lastUpdatePayload()?.muted).toBe(false);
   });
 
-  test("amplitude and transcript churn pushes nothing", () => {
+  test("amplitude and transcript churn pushes nothing", async () => {
     renderMirror();
-    setPhase("listening");
+    await setPhase("listening");
 
     // What a single second of a live session emits. ActivityKit's update
     // budget would be gone instantly if any of it reached the bridge.
-    act(() => {
+    // `assistantAudioActive` is an input to the label, but only for the
+    // `speaking` phase (see below); while listening it is as inert as the
+    // amplitude.
+    await settled(() => {
       const store = useLiveVoiceStore.getState();
       for (let i = 0; i < 60; i += 1) {
         store.setInputAmplitude(i / 60);
@@ -289,6 +292,87 @@ describe("updating the activity", () => {
     expect(updateVoiceLiveActivity).not.toHaveBeenCalled();
     expect(startVoiceLiveActivity).toHaveBeenCalledTimes(1);
   });
+
+  // The label is the room's label, and the room does not say "Speaking…" while
+  // nothing is audible: `speaking` stays set across a mid-turn tool run, so the
+  // ack-then-silence window reads as "Thinking…" (JARVIS-1279). An island that
+  // disagreed with the room the user taps through to would be a bug.
+  test("a silent mid-turn speaking reads as Thinking…, exactly as the room does", async () => {
+    renderMirror();
+    await setPhase("listening");
+
+    await setPhase("speaking");
+    expect(lastUpdatePayload()).toMatchObject({
+      phase: "speaking",
+      label: "Thinking…",
+    });
+
+    // TTS audio actually starts.
+    await settled(() =>
+      useLiveVoiceStore.getState().setAssistantAudioActive(true),
+    );
+    expect(lastUpdatePayload()).toMatchObject({
+      phase: "speaking",
+      label: "Speaking…",
+    });
+
+    // …and drains while the phase is still `speaking` (a tool now running).
+    await settled(() =>
+      useLiveVoiceStore.getState().setAssistantAudioActive(false),
+    );
+    expect(lastUpdatePayload()?.label).toBe("Thinking…");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reconnects — the store passes through idle, the island must not
+// ---------------------------------------------------------------------------
+
+describe("a hands-free reconnect", () => {
+  /**
+   * What `connectSession` does when the backoff timer re-enters it: a full
+   * `reset()` (which lands on `idle`) immediately superseded by the rebuilt
+   * `connecting` session, all in one synchronous burst.
+   */
+  function reconnectBurst(): void {
+    const store = useLiveVoiceStore.getState();
+    store.reset();
+    store.setState("connecting");
+    store.setReconnecting(true);
+    store.setSessionContext("assistant-1", "conv-1");
+    store.setMuted(true);
+  }
+
+  test("reset() immediately superseded by connecting never reaches the bridge", async () => {
+    renderMirror();
+    await setPhase("listening");
+    updateVoiceLiveActivity.mockClear();
+
+    await settled(reconnectBurst);
+
+    // The island must not disappear and reappear on every retry: no `end`, and
+    // no second `start` requesting a fresh activity.
+    expect(endVoiceLiveActivity).not.toHaveBeenCalled();
+    expect(startVoiceLiveActivity).toHaveBeenCalledTimes(1);
+  });
+
+  test("the whole burst costs exactly one update, at the settled content", async () => {
+    renderMirror();
+    await setPhase("listening");
+    updateVoiceLiveActivity.mockClear();
+
+    await settled(reconnectBurst);
+
+    // One push, not one per `set()` — and it carries the muted flag the
+    // reconnect re-applied, so the mute glyph never flickers off and back on.
+    expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(1);
+    expect(lastUpdatePayload()).toEqual({
+      phase: "connecting",
+      label: "Reconnecting…",
+      accentHex: ORANGE,
+      muted: true,
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -296,36 +380,32 @@ describe("updating the activity", () => {
 // ---------------------------------------------------------------------------
 
 describe("ending the activity", () => {
-  test("ends when the session goes idle", () => {
+  test("ends when the session goes idle", async () => {
     renderMirror();
-    setPhase("listening");
+    await setPhase("listening");
 
-    act(() => {
-      useLiveVoiceStore.getState().reset();
-    });
+    await settled(() => useLiveVoiceStore.getState().reset());
 
     expect(useLiveVoiceStore.getState().state).toBe("idle");
     expect(endVoiceLiveActivity).toHaveBeenCalledTimes(1);
   });
 
-  test("ends when the session fails rather than showing a dead island", () => {
+  test("ends when the session fails rather than showing a dead island", async () => {
     renderMirror();
-    setPhase("listening");
+    await setPhase("listening");
 
-    act(() => {
-      useLiveVoiceStore.getState().fail("velay unreachable");
-    });
+    await settled(() => useLiveVoiceStore.getState().fail("velay unreachable"));
 
     expect(endVoiceLiveActivity).toHaveBeenCalledTimes(1);
     expect(updateVoiceLiveActivity).not.toHaveBeenCalled();
   });
 
-  test("ends only once, however the session settles", () => {
+  test("ends only once, however the session settles", async () => {
     renderMirror();
-    setPhase("listening");
-    setPhase("ending");
+    await setPhase("listening");
+    await setPhase("ending");
 
-    act(() => {
+    await settled(() => {
       useLiveVoiceStore.getState().reset();
       useLiveVoiceStore.getState().setState("idle");
     });
@@ -333,9 +413,9 @@ describe("ending the activity", () => {
     expect(endVoiceLiveActivity).toHaveBeenCalledTimes(1);
   });
 
-  test("ends on unmount so no island outlives its mirror", () => {
+  test("ends on unmount so no island outlives its mirror", async () => {
     const view = renderMirror();
-    setPhase("listening");
+    await setPhase("listening");
 
     act(() => {
       view.unmount();
@@ -344,54 +424,68 @@ describe("ending the activity", () => {
     expect(endVoiceLiveActivity).toHaveBeenCalledTimes(1);
   });
 
-  test("unmounting without an activity ends nothing", () => {
+  test("unmounting without an activity ends nothing", async () => {
     const view = renderMirror();
 
     act(() => {
       view.unmount();
     });
+    await settled();
 
     expect(endVoiceLiveActivity).not.toHaveBeenCalled();
   });
 
-  test("a second session after the first ends starts a fresh activity", () => {
+  test("a second session after the first ends starts a fresh activity", async () => {
     renderMirror();
-    setPhase("listening");
-    act(() => {
-      useLiveVoiceStore.getState().reset();
-    });
+    await setPhase("listening");
+    await settled(() => useLiveVoiceStore.getState().reset());
 
-    setPhase("connecting");
+    await setPhase("connecting");
 
     expect(startVoiceLiveActivity).toHaveBeenCalledTimes(2);
     expect(endVoiceLiveActivity).toHaveBeenCalledTimes(1);
   });
+
+  test("an unmount in the same tick as a store write wins", async () => {
+    const view = renderMirror();
+    await setPhase("listening");
+
+    await act(async () => {
+      // The mirror's own teardown is authoritative: the coalesced read must
+      // not fire after it and leave an island nothing is driving.
+      useLiveVoiceStore.getState().setState("thinking");
+      view.unmount();
+    });
+
+    expect(endVoiceLiveActivity).toHaveBeenCalledTimes(1);
+    expect(startVoiceLiveActivity).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
-// Skew — an older App Store shell, or a bridge that simply fails
+// Skew — an older App Store shell, where there is no plugin behind the bridge
 // ---------------------------------------------------------------------------
 
-describe("a failing bridge", () => {
-  test("never reaches the session", () => {
-    const rejection = () => {
-      throw new Error("VoiceLiveActivity does not have web implementation.");
-    };
-    startVoiceLiveActivity.mockImplementation(async () => rejection());
-    updateVoiceLiveActivity.mockImplementation(async () => rejection());
-    endVoiceLiveActivity.mockImplementation(async () => rejection());
+describe("a bridge with nothing behind it", () => {
+  test("never reaches the session", async () => {
+    // What the real module resolves on an older shell (and off iOS): its
+    // fallback, never a rejection — `callNativeVoice` swallows the "no web
+    // implementation" error, which `runtime/native-live-activity.test.ts` pins
+    // directly.
+    startVoiceLiveActivity.mockImplementation(async () => false);
 
     const view = renderMirror();
-    setPhase("connecting");
-    setPhase("listening");
+    await setPhase("connecting");
+    await setPhase("listening");
     expect(useLiveVoiceStore.getState().state).toBe("listening");
 
-    act(() => {
+    await act(async () => {
       useLiveVoiceStore.getState().reset();
       view.unmount();
     });
 
-    // The session ran to completion, and every rejection was swallowed.
+    // The session ran to completion, and the mirror kept sequencing off its
+    // own intent rather than the bridge's answer.
     expect(startVoiceLiveActivity).toHaveBeenCalledTimes(1);
     expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(1);
     expect(endVoiceLiveActivity).toHaveBeenCalledTimes(1);

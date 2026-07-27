@@ -50,8 +50,13 @@ extension UIColor {
         guard getRed(&r, green: &g, blue: &b, alpha: &a) else { return .white }
         // WCAG relative luminance; the 0.179 threshold is where contrast
         // against black and against white are equal.
+        //
+        // `contrastForeground` in `clients/web/src/utils/avatar-tone.ts` is the
+        // source of truth for this derivation — the island is meant to match
+        // what the voice room renders — so the linearization cutoff is its
+        // 0.04045, not the 0.03928 the older WCAG 2.0 text quotes.
         let channels = [r, g, b].map { channel -> CGFloat in
-            channel <= 0.03928 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
+            channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
         }
         let luminance = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
         return luminance > 0.179 ? .black : .white

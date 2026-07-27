@@ -113,11 +113,8 @@ describe("with the plugin present", () => {
       expect.any(Function),
     );
 
-    handlers[0]?.({ type: "began", shouldResume: false });
-    expect(handler).toHaveBeenCalledWith({
-      type: "began",
-      shouldResume: false,
-    });
+    handlers[0]?.({ type: "began" });
+    expect(handler).toHaveBeenCalledWith({ type: "began" });
 
     // Let the registration settle so the handle is held, then release it.
     await Promise.resolve();

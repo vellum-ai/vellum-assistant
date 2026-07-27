@@ -64,8 +64,10 @@ export function resolveRenderedAvatarAccentHex(
  * re-renders the layout. `RootLayout` already holds the avatar for the active
  * assistant, so it publishes here once and those readers just look.
  *
- * Single-publisher by construction: {@link useAvatarAccentVar} is mounted in
- * exactly one place.
+ * {@link useAvatarAccentVar} is mounted in exactly one place, so in practice
+ * there is one publisher — but nothing enforces that, so it only ever *writes*
+ * this, never clears it. A second or transient mount can therefore not null out
+ * what the surviving publisher published.
  */
 let renderedAvatarAccentHex: string | null = null;
 
@@ -110,10 +112,14 @@ export function useAvatarAccentVar(
   }, [hex]);
 
   const renderedHex = resolveRenderedAvatarAccentHex(components, traits);
+  // Publish-only, with no cleanup. "One publisher" is a convention, not
+  // something the module can enforce, and clearing on unmount makes a second or
+  // transient mount wipe the surviving publisher's value on the way out — which
+  // the survivor never re-publishes, because its own dep did not change. A
+  // stale accent beats a null one: the next publish overwrites it, whereas null
+  // silently downgrades the island to the native neutral gray. Nothing here is
+  // per-mount state, so there is nothing to leak.
   useEffect(() => {
     renderedAvatarAccentHex = renderedHex;
-    return () => {
-      renderedAvatarAccentHex = null;
-    };
   }, [renderedHex]);
 }

@@ -30,7 +30,7 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
 // faking `isNativeIOS`) so the controller's lifecycle wiring is asserted
 // directly; the bridge's own off-native/skew behavior is pinned by
 // `runtime/native-audio-session.test.ts`.
-type InterruptionEvent = { type: "began" | "ended"; shouldResume: boolean };
+type InterruptionEvent = { type: "began" | "ended" };
 const activateVoiceAudioSession = mock(async () => true);
 const deactivateVoiceAudioSession = mock(async () => undefined);
 const unsubscribeInterruptions = mock(() => undefined);
@@ -236,7 +236,7 @@ describe("starter registration", () => {
       conversationId: undefined,
       turnDetection: "server_vad",
     });
-    expect(usePendingDeepLinkStore.getState().pendingVoiceStart).toBe(false);
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
   });
 
   test("mounting with nothing parked starts no session", async () => {
@@ -358,11 +358,33 @@ describe("native audio session", () => {
     const h = renderPersistentController();
     await startListeningViaStarter(h);
 
-    act(() => {
+    await act(async () => {
       useLiveVoiceStore.getState().fail("velay unreachable");
     });
 
     expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
+  });
+
+  // The reconnect path re-enters `connectSession`, which resets the store (to
+  // `idle`) and immediately sets `connecting` again. Acting on that phantom
+  // `idle` would run `setActive(false, .notifyOthersOnDeactivation)` →
+  // `setActive(true)` mid-session — possibly while backgrounded or locked,
+  // which is exactly the state the `audio` background mode exists to hold open.
+  test("a reconnect that passes through idle does not churn the audio session", async () => {
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      const store = useLiveVoiceStore.getState();
+      store.reset();
+      store.setState("connecting");
+      store.setReconnecting(true);
+      store.setSessionContext("assistant-1", "conv-1");
+    });
+
+    expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
   });
 
   test("deactivates on unmount and drops the interruption listener", async () => {
@@ -395,7 +417,7 @@ describe("native audio session", () => {
     await startListeningViaStarter(h);
 
     await act(async () => {
-      emitInterruption({ type: "began", shouldResume: true });
+      emitInterruption({ type: "began" });
       await Promise.resolve();
     });
 
@@ -411,7 +433,7 @@ describe("native audio session", () => {
     await startListeningViaStarter(h);
 
     await act(async () => {
-      emitInterruption({ type: "ended", shouldResume: true });
+      emitInterruption({ type: "ended" });
       await Promise.resolve();
     });
 
@@ -424,7 +446,7 @@ describe("native audio session", () => {
     const h = renderPersistentController();
 
     await act(async () => {
-      emitInterruption({ type: "began", shouldResume: false });
+      emitInterruption({ type: "began" });
       await Promise.resolve();
     });
 
@@ -433,14 +455,12 @@ describe("native audio session", () => {
   });
 
   // The skew case: an App Store shell older than the `VoiceAudioSession`
-  // plugin. Voice must behave exactly as it does today.
-  test("a failing bridge neither blocks nor breaks a session", async () => {
-    activateVoiceAudioSession.mockImplementation(async () => {
-      throw new Error("VoiceAudioSession does not have web implementation.");
-    });
-    deactivateVoiceAudioSession.mockImplementation(async () => {
-      throw new Error("VoiceAudioSession does not have web implementation.");
-    });
+  // plugin. Voice must behave exactly as it does today. The bridge resolves its
+  // fallback rather than rejecting — `callNativeVoice` swallows the "no web
+  // implementation" error, which `runtime/native-audio-session.test.ts` pins
+  // directly.
+  test("a bridge with no plugin behind it neither blocks nor breaks a session", async () => {
+    activateVoiceAudioSession.mockImplementation(async () => false);
 
     const h = renderPersistentController();
     await startListeningViaStarter(h);

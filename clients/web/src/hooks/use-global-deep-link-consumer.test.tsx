@@ -256,7 +256,7 @@ describe("deeplink.startVoice", () => {
     await flush();
 
     // No starter yet — the request survives rather than being dropped.
-    expect(usePendingDeepLinkStore.getState().pendingVoiceStart).toBe(true);
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).not.toBeNull();
     expect(navigateMock).toHaveBeenCalledWith("/assistant");
 
     // What `useLiveVoiceSessionController` does when it mounts.
@@ -267,7 +267,7 @@ describe("deeplink.startVoice", () => {
     });
 
     expect(starter).toHaveBeenCalledWith("assistant-1", null);
-    expect(usePendingDeepLinkStore.getState().pendingVoiceStart).toBe(false);
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
   });
 
   test("navigates but does not start when the assistant can't serve live voice", async () => {
@@ -286,7 +286,7 @@ describe("deeplink.startVoice", () => {
 
     expect(navigateMock).toHaveBeenCalledWith("/assistant");
     expect(starter).not.toHaveBeenCalled();
-    expect(usePendingDeepLinkStore.getState().pendingVoiceStart).toBe(false);
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
   });
 
   test("mode=resume returns to the running session's conversation instead of starting a second one", async () => {
@@ -552,6 +552,6 @@ describe("subscription lifecycle", () => {
     expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
       null,
     );
-    expect(usePendingDeepLinkStore.getState().pendingVoiceStart).toBe(false);
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
   });
 });
