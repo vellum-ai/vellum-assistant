@@ -529,6 +529,7 @@ describe("isControlPlaneWorkspaceWrite / prompt surfaces", () => {
     "users/default.md",
     "channels/general.md",
     "HEARTBEAT.md",
+    "NOW.md",
   ])("blocks a write to %s", (path) => {
     expect(isControlPlaneWorkspaceWrite("file_write", { path }, wsRoot)).toBe(
       true,

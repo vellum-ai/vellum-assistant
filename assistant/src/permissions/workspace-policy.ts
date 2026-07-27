@@ -216,8 +216,21 @@ const PROMPT_SURFACE_FILES = [
   // Read by the heartbeat service as its checklist — instructions executed
   // unattended (`runtime/routes/heartbeat-routes.ts`).
   "HEARTBEAT.md",
+  // The scratchpad the heartbeat checklist reads its to-dos from, injected
+  // into every full-mode guardian turn by the `now-md` injector
+  // (`plugins/defaults/workspace/injectors.ts`). Injector-fed rather than a
+  // system section, so the drift guard cannot see it — this entry is the
+  // coverage.
+  "NOW.md",
 ];
 const PROMPT_SURFACE_DIRS = ["users", "channels"];
+
+// `memory/**` is deliberately data-plane, not control-plane: memory pages
+// inject into guardian sessions as past-record rather than standing
+// instructions, consolidation owns and rewrites those files, and the gated
+// write path is `remember()` (provenance-checked in the indexer). If direct
+// file writes to memory pages ever become a delegation surface, they join
+// this list.
 
 /**
  * Whether a sandbox file-tool invocation writes a workspace control-plane
