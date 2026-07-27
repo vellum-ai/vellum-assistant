@@ -693,9 +693,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // synchronously before its spawn, so interrupt()/close() abort a continuation
   // even if a stop lands while it is still spawning.
   private readonly detachControllers = new Set<AbortController>();
-  // Bumped whenever a stop (interrupt/close) fires. A barge-in captures this
-  // before its async teardown; if it has changed by the time the detach would
-  // spawn, a stop landed during the gap and the continuation is not started.
+  // Bumped whenever detached runs are invalidated: a stop (interrupt/close),
+  // a newer barge-in superseding them, or a foreground-wins abort. A barge-in
+  // captures this (after its own bump) before its async teardown; if it has
+  // changed by the time the detach would spawn, an invalidation landed during
+  // the gap and the continuation is not started.
   private detachStopGeneration = 0;
   // Bumped SYNCHRONOUSLY at each barge-in (in barge order), before the async
   // detach runs. Only the latest-started detach (detachSeq === detachSequence)
@@ -1500,11 +1502,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       .trim();
     this.pendingInterruptedRequest =
       interruptedRequest.length > 0 ? interruptedRequest : null;
-    // A fresh interruption supersedes any already-stashed continuation result:
-    // drop it synchronously here so the barge-in follow-up (or any later) turn
-    // can't consume an older answer before this barge-in's own continuation
-    // completes. Cleared even when no continuation ultimately detaches.
-    this.pendingContinuationResult = null;
+    // A fresh interruption supersedes every earlier detached run, not just its
+    // stashed result: abort still-running continuations (and skip pending
+    // detaches) before this barge-in's own continuation can launch, so two
+    // full-ability background writers never share the workspace. The stashed
+    // result is dropped with them so the barge-in follow-up (or any later)
+    // turn can't consume an older answer before this barge-in's own
+    // continuation completes. This barge-in's detach snapshots the stop
+    // generation AFTER this bump (below), so it is unaffected.
+    this.abortDetachedRuns();
     // Order this barge-in among concurrent detaches SYNCHRONOUSLY, in barge
     // order — the actual detach runs after an async teardown chain, and those
     // chains can interleave, so bumping there could assign sequences out of
@@ -1660,8 +1666,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   // Abort every background continuation this session started and drop its
-  // handle. A client interrupt or session close is a hard stop for detached
-  // work; the continuation's own `.finally` removes it from the set too.
+  // handle. Called on a hard stop (client interrupt / session close), when a
+  // newer barge-in supersedes the detached runs, and on a foreground-wins
+  // abort; the continuation's own `.finally` removes it from the set too.
   // `keepPendingResult` is the foreground-wins variant: the foreground turn is
   // claiming the workspace, so running continuations must die (and pending
   // detaches must be skipped), but an already-completed continuation's stashed

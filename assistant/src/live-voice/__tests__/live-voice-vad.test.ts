@@ -1328,8 +1328,13 @@ describe("LiveVoiceSession server VAD", () => {
     await waitFor(() => calls.some((c) => c.content === "second question"));
     // Barge #2 is a rapid second interruption: it bumps the sequence
     // synchronously, so A is invalidated even before barge #2's own async detach
-    // runs.
+    // runs — and A's run itself is ABORTED, so a still-writing older
+    // continuation can never overlap the newer full-ability one.
     await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(
+      () =>
+        spawnBackgroundContinuation.mock.calls[0]?.[0]?.signal.aborted === true,
+    );
     // A finishes AFTER barge #2 and must be rejected. The newer continuation is
     // left pending so it can't mask the bug by superseding A itself.
     resolvers[0]?.("OLDER_RESULT");
@@ -1345,8 +1350,12 @@ describe("LiveVoiceSession server VAD", () => {
       "background you finished",
     );
 
-    // Cleanup the still-pending newer continuation.
+    // The newer continuation was not collateral damage of superseding A.
     await waitFor(() => resolvers.length === 2);
+    expect(spawnBackgroundContinuation.mock.calls[1]?.[0]?.signal.aborted).toBe(
+      false,
+    );
+    // Cleanup the still-pending newer continuation.
     resolvers[1]?.("");
   });
 
