@@ -2009,6 +2009,14 @@ Some tool outputs contain values that must reach the user's final reply but shou
 
 Key files: `src/tools/sensitive-output-placeholders.ts`, `src/tools/executor.ts` (extraction hook), `src/agent/loop.ts` (substitution), `src/config/bundled-skills/contacts/SKILL.md` (invite flow adoption).
 
+### Assistant-Row Finalize: Streamed-Text Recovery
+
+<!-- LUM-2847 / JARVIS-1324 -->
+
+Each LLM call's assistant row is reserved empty at `llm_call_started`, mirrored incrementally from streamed deltas (`state.currentMessageContent`, flushed to an in-flight delta file on a debounce), and finalized at `message_complete` with the provider's accumulated final snapshot. The finalized snapshot is normally authoritative — but a provider/SDK stream-accumulation fault can return a snapshot missing a text block that streamed to the client (observed for `thinking → text → thinking → tool_use` content), which would persist a transcript that is a subset of what the user watched stream.
+
+The finalize seam therefore enforces a recovery invariant (`recoverStreamedTextMissingFromFinal` in `src/daemon/conversation-agent-loop-handlers.ts`): when the streamed mirror carries visible text and the finalized snapshot carries none, the mirror's text blocks are re-inserted into the persisted content — positioned by the number of thinking blocks that preceded them in the stream, or ahead of the first tool call when thinking was not streamed — and an error-level log records the occurrence. A finalized snapshot with any visible text of its own is always taken as-is (a `post-model-call` hook may have rewritten the reply deliberately). Recovered text re-enters the standard persist pipeline (`buildPersistedAssistantContent`), so credential redaction and sentinel minting apply to it exactly as to streamed text. Downstream consumers of the persisted row — the `/messages` projection, directive/attachment extraction, the JSONL disk view — all see the recovered content.
+
 ### Notifications
 
 For full notification developer guidance and lifecycle details, see [`assistant/src/notifications/README.md`](src/notifications/README.md).

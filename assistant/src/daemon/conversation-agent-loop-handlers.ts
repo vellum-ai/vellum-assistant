@@ -2957,9 +2957,9 @@ export async function handleMessageComplete(
     state.inflightWriters.delete(assistantMessageId);
   }
   state.assistantRowAwaitingFinalization = false;
-  // The assistant row now holds the authoritative content (text + thinking +
-  // tool_use blocks from `event.message`), and any drained tool-result rows
-  // are durable. `lastStreamedContentSeq` is the last streamed text/thinking
+  // The assistant row now holds the authoritative content (the finalized
+  // blocks, plus any streamed text the recovery above re-inserted), and any
+  // drained tool-result rows are durable. `lastStreamedContentSeq` is the last streamed text/thinking
   // delta's seq -- the highest stamped content event this row reflects -- so
   // recording it is honest. A drained tool result was stamped earlier in the
   // turn, so this seq already covers it; a call that streams no content (a

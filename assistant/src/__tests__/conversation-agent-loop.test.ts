@@ -1650,6 +1650,75 @@ describe("session-agent-loop", () => {
       expect(finalizeCall).toBeDefined();
       expect(finalizeCall?.[2]).toEqual({ model: "gpt-4.1-2026-03-01" });
     });
+
+    test("persists streamed text the finalized snapshot lost, ahead of the turn-ending tool call (LUM-2847)", async () => {
+      const events: AssistantEvent[] = [];
+
+      // The provider streams the reply live, but its accumulated final
+      // snapshot dropped the text block between the two thinking blocks
+      // (the interleaved-thinking loss shape) — and the turn ends on a
+      // yieldToUser tool call, so no later call restates the reply.
+      const provider: Provider = {
+        name: "mock",
+        async sendMessage(_messages, options) {
+          options?.onEvent?.({
+            type: "text_delta",
+            text: "the reply the user watched",
+          });
+          return {
+            content: [
+              { type: "thinking", thinking: "plan", signature: "s1" },
+              { type: "thinking", thinking: "wrap up", signature: "s2" },
+              {
+                type: "tool_use",
+                id: "tu-remember",
+                name: "remember",
+                input: { content: "note", finish_turn: true },
+              },
+            ],
+            model: "mock",
+            usage: { inputTokens: 1, outputTokens: 1 },
+            stopReason: "tool_use",
+          };
+        },
+      };
+
+      const ctx = makeCtx({
+        loopProvider: provider,
+        loopTools: [
+          {
+            name: "remember",
+            description: "Persist a memory",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        toolExecutor: async () => ({
+          content: "ok",
+          isError: false,
+          yieldToUser: true,
+        }),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      // The finalize write carries the recovered text block, ordered before
+      // the tool_use block, with both thinking blocks intact.
+      const finalizeCall = finalizeMessageContentMock.mock
+        .calls[0] as unknown[];
+      expect(finalizeCall).toBeDefined();
+      const persisted = JSON.parse(finalizeCall[1] as string) as Array<{
+        type: string;
+        text?: string;
+      }>;
+      const textIdx = persisted.findIndex((block) => block.type === "text");
+      const toolIdx = persisted.findIndex((block) => block.type === "tool_use");
+      expect(textIdx).toBeGreaterThanOrEqual(0);
+      expect(persisted[textIdx]?.text).toBe("the reply the user watched");
+      expect(toolIdx).toBeGreaterThan(textIdx);
+      expect(
+        persisted.filter((block) => block.type === "thinking"),
+      ).toHaveLength(2);
+    });
   });
 
   describe("checkpoint handoff (infinite loop prevention)", () => {
