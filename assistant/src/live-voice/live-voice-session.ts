@@ -599,8 +599,13 @@ const LIVE_VOICE_CONTROL_PROMPT_BASE =
 // completeTtsForTurn sends the minimize_room frame only after the reply's
 // TTS drains, so "end your reply with it" is the whole contract the model
 // needs.
+//
+// The narration guidance is load-bearing: without it, the base prompt's
+// convey-everything-in-speech rule reads to the model as "the user can never
+// see the screen", and it minimizes the room while telling the user it has
+// no way to show them anything ("check it from the app later").
 const LIVE_VOICE_MINIMIZE_MARKER_TEACHING =
-  "The call renders as a full-screen overlay covering the app. If this reply created or changed something on screen worth looking at (an app, a page, a document), you may end the reply with the marker [-1]: after you finish speaking, the overlay minimizes so the user can see the screen while the call continues. Use it at most once per reply, only when there is genuinely something new to show, never speak the marker aloud or mention it, and never emit any other bracketed marker. ";
+  "The call renders as a full-screen overlay covering the app. If this reply created or changed something on screen worth looking at (an app, a page, a document), you may end the reply with the marker [-1]: after you finish speaking, the overlay minimizes so the user can see the screen while the call continues. The user is in the app and sees what you made the moment the overlay minimizes, so when you end with the marker, speak as if you are showing it to them right now (for example, close with something like: take a look) — never say you cannot show it, that you cannot display it because this is a voice call, or that they should check it later. Use it at most once per reply, only when there is genuinely something new to show, never speak the marker aloud or mention it, and never emit any other bracketed marker. ";
 
 // System-level guidance appended to a barge-in turn's control prompt so the
 // model treats the new utterance as a continuation of the request it was cut
