@@ -158,8 +158,8 @@ export function CheckoutPage() {
       // The attempt is over. Settling it makes an in-flight upgrade's result a
       // no-op, so a response landing after this can't open Stripe. The stash
       // goes with it whatever ended the attempt: nothing was bought, and a
-      // package left readable for its TTL is one a later provisioning surface
-      // can name as purchased.
+      // signup-marked intent left readable for its TTL is one the privacy
+      // screen resumes checkout from.
       phaseRef.current = "settled";
       clearCheckoutIntent();
       navigate(bailTarget, { replace: true });
@@ -196,10 +196,9 @@ export function CheckoutPage() {
         <div className="flex items-center gap-4">
           <Button onClick={() => void runCheckout()}>Try again</Button>
           {/*
-           * Taking the escape ends the attempt, so the stash goes with it. A
-           * marked signup intent left behind stays readable for its TTL by the
-           * provisioning takeover, which ignores the marker — it would render
-           * the package as purchased when nothing was bought.
+           * Taking the escape ends the attempt, so the stash goes with it.
+           * Nothing was bought, and a signup-marked intent left behind is one
+           * the privacy screen resumes checkout from for the rest of its TTL.
            */}
           <Link
             to={bailTarget}

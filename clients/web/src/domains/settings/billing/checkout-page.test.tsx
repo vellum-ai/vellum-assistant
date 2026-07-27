@@ -258,7 +258,7 @@ describe("CheckoutPage", () => {
   test("the error escape resumes the carried onboarding step", async () => {
     upgradeRejects = true;
     // The signup carry's marked stash survives into the failure. Walking away
-    // must not leave it readable by a later provisioning takeover.
+    // must not leave it for the privacy screen to resume checkout from.
     saveCheckoutIntent({
       kind: "package",
       packageKey: "super",
