@@ -23,5 +23,12 @@
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.widgetkit-extension</string>
 	</dict>
+	<!-- The containing app's URL scheme, so the Live Activity's widgetURL
+	     deep-links back into the app this appex is embedded in. Deliberately
+	     NOT CFBundleURLTypes: an appex must not register a URL type (it can
+	     never be the target of one) — this only lets the extension *build* a
+	     link. Read via BundleURLScheme. -->
+	<key>VellumURLScheme</key>
+	<string>$(BUNDLE_URL_SCHEME)</string>
 </dict>
 </plist>

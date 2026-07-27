@@ -7,13 +7,21 @@
 //
 // This deliberately does NOT #include Base.xcconfig. That file carries
 // app-only settings — CODE_SIGN_ENTITLEMENTS, the app's INFOPLIST_FILE,
-// BUNDLE_URL_SCHEME, ASSOCIATED_DOMAIN — that are wrong or actively
-// harmful on an appex. The cost is that the handful of genuinely shared
-// values below are restated: keep DEVELOPMENT_TEAM, SWIFT_VERSION,
+// ASSOCIATED_DOMAIN — that are wrong or actively harmful on an appex.
+// The cost is that the handful of genuinely shared values below are
+// restated: keep DEVELOPMENT_TEAM, SWIFT_VERSION,
 // TARGETED_DEVICE_FAMILY and especially IPHONEOS_DEPLOYMENT_TARGET in
 // sync with Base.xcconfig. An extension whose deployment target is
 // higher than its host app's fails to install on the OS versions the
 // app still claims to support.
+//
+// BUNDLE_URL_SCHEME is the one app-target variable each per-environment
+// extension xcconfig does restate. The Live Activity's widgetURL has to
+// deep-link into its *own* containing app, so the value must be copied
+// verbatim from the matching App*.xcconfig — a mismatch sends a Dev
+// build's island tap into the production app. It reaches Swift as the
+// VellumURLScheme Info.plist key, never as CFBundleURLTypes: an appex
+// must not register a URL type.
 //
 // The extension ships no entitlements file at all: no App Group
 // (ContentState carries only primitives across the ActivityKit

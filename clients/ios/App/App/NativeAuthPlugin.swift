@@ -41,22 +41,10 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     /// on the plugin instance for the duration of the flow.
     private var authSession: ASWebAuthenticationSession?
 
-    /// Read the URL scheme from the bundle's CFBundleURLTypes rather than
-    /// hardcoding it. Each build target (App, App Dev, App Staging) sets
-    /// BUNDLE_URL_SCHEME in its xcconfig, which is baked into Info.plist's
-    /// CFBundleURLSchemes at build time. Falls back to "vellum-assistant"
-    /// if the plist entry is missing or un-substituted.
-    private static let callbackScheme: String = {
-        guard let urlTypes = Bundle.main.infoDictionary?["CFBundleURLTypes"] as? [[String: Any]],
-              let schemes = urlTypes.first?["CFBundleURLSchemes"] as? [String],
-              let scheme = schemes.first,
-              !scheme.isEmpty,
-              !scheme.contains("$")
-        else {
-            return "vellum-assistant"
-        }
-        return scheme
-    }()
+    /// The OAuth callback scheme, read from this build's own bundle rather
+    /// than hardcoded — see ``BundleURLScheme``, which the widget extension
+    /// shares.
+    private static let callbackScheme: String = BundleURLScheme.current
 
     /// The host this build target is allowed to authenticate against,
     /// read from the `VellumAssociatedDomain` Info.plist key (set per

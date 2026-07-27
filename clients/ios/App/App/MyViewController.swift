@@ -577,36 +577,3 @@ private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
         delegate?.userContentController(userContentController, didReceive: message)
     }
 }
-
-// MARK: - CSS hex color parsing
-
-extension UIColor {
-    /// Parse a CSS hex color string (`#RGB`, `#RRGGBB`, or `#RRGGBBAA`) as
-    /// reported by `getComputedStyle().getPropertyValue()` for the web theme's
-    /// `--surface-overlay` token. Returns `nil` for any unrecognised format so
-    /// the caller can fall back to the asset-catalog color.
-    convenience init?(cssHex: String) {
-        var s = cssHex.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard s.hasPrefix("#") else { return nil }
-        s.removeFirst()
-        if s.count == 3 {
-            s = s.map { "\($0)\($0)" }.joined()
-        }
-        guard s.count == 6 || s.count == 8,
-              let value = UInt64(s, radix: 16)
-        else { return nil }
-        let r, g, b, a: CGFloat
-        if s.count == 8 {
-            r = CGFloat((value & 0xFF00_0000) >> 24) / 255
-            g = CGFloat((value & 0x00FF_0000) >> 16) / 255
-            b = CGFloat((value & 0x0000_FF00) >> 8) / 255
-            a = CGFloat(value & 0x0000_00FF) / 255
-        } else {
-            r = CGFloat((value & 0xFF0000) >> 16) / 255
-            g = CGFloat((value & 0x00FF00) >> 8) / 255
-            b = CGFloat(value & 0x0000FF) / 255
-            a = 1
-        }
-        self.init(red: r, green: g, blue: b, alpha: a)
-    }
-}
