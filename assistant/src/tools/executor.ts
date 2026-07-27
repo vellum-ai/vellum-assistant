@@ -23,7 +23,7 @@ import { PermissionChecker } from "./permission-checker.js";
 import { getToolOwner } from "./registry.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
 import { applyEdit } from "./shared/filesystem/edit-engine.js";
-import { sandboxPolicyWithHostFallback } from "./shared/filesystem/path-policy.js";
+import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
 import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
 import { ToolApprovalHandler } from "./tool-approval-handler.js";
 import { resolveToolInvocationAlias } from "./tool-name-aliases.js";
@@ -469,6 +469,11 @@ export function computePerToolTimeoutMs(
 /**
  * Compute a preview diff for file tools so the confirmation prompt can show
  * what will change. Returns undefined for non-file tools or on any error.
+ * Out-of-workspace targets deliberately produce no preview (strict
+ * sandboxPolicy): the preview runs before the user answers the prompt, and
+ * external file content must not be read — let alone shipped in the
+ * confirmation payload — ahead of approval. Host file tools have no preview
+ * for the same reason.
  */
 function computePreviewDiff(
   toolName: string,
@@ -489,7 +494,7 @@ function computePreviewDiff(
       if (!rawPath || typeof content !== "string") {
         return undefined;
       }
-      const pathCheck = sandboxPolicyWithHostFallback(rawPath, workingDir, {
+      const pathCheck = sandboxPolicy(rawPath, workingDir, {
         mustExist: false,
       });
       if (!pathCheck.ok) {
@@ -519,7 +524,7 @@ function computePreviewDiff(
       ) {
         return undefined;
       }
-      const pathCheck = sandboxPolicyWithHostFallback(rawPath, workingDir);
+      const pathCheck = sandboxPolicy(rawPath, workingDir);
       if (!pathCheck.ok) {
         return undefined;
       }

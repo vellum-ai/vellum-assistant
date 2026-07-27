@@ -208,6 +208,11 @@ function safeUserInfoHomedir(): string {
  * service's cwd, which this process cannot know — the daemon-cwd-resolved
  * form is denied as a best effort alongside the always-denied default.
  */
+const SECURITY_DIR_ENV_VARS = [
+  "GATEWAY_SECURITY_DIR",
+  "CREDENTIAL_SECURITY_DIR",
+] as const;
+
 function getServiceSecurityDirs(): string[] {
   const dirs = new Set<string>();
   dirs.add(
@@ -217,13 +222,26 @@ function getServiceSecurityDirs(): string[] {
       "protected",
     ),
   );
-  for (const name of ["GATEWAY_SECURITY_DIR", "CREDENTIAL_SECURITY_DIR"]) {
+  for (const name of SECURITY_DIR_ENV_VARS) {
     const override = process.env[name]?.trim();
-    if (override) {
+    if (override && isAbsolute(override)) {
       dirs.add(resolve(override));
     }
   }
   return [...dirs];
+}
+
+/**
+ * Whether the security-dir deny set can be mirrored faithfully. A relative
+ * override resolves against the owning service's cwd, which this process
+ * cannot know — the true directory would be absent from the deny set, so
+ * the host fallback fails closed to the hard boundary instead.
+ */
+function securityDirConfigMirrorable(): boolean {
+  return SECURITY_DIR_ENV_VARS.every((name) => {
+    const override = process.env[name]?.trim();
+    return !override || isAbsolute(override);
+  });
 }
 
 function isWithinDir(path: string, dir: string): boolean {
@@ -332,7 +350,7 @@ export function sandboxPolicyWithHostFallback(
     rawPath,
     boundaryDir,
     options,
-    !getIsContainerized(),
+    !getIsContainerized() && securityDirConfigMirrorable(),
   );
 }
 

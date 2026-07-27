@@ -430,6 +430,25 @@ describe("sandboxPolicyWithHostFallback", () => {
     }
   });
 
+  test("fails closed to the hard boundary when a security-dir override is relative", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    // A relative override resolves against the owning service's cwd, which
+    // the daemon cannot know — the deny set is unmirrorable, so no escape
+    // is permitted at all.
+    process.env.GATEWAY_SECURITY_DIR = "relative/security-dir";
+
+    const result = sandboxPolicyWithHostFallback(
+      join(outside, "file.txt"),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("out_of_bounds");
+    }
+  });
+
   test("keeps the hard boundary when containerized", () => {
     const boundary = makeTempDir();
     const outside = makeTempDir();
