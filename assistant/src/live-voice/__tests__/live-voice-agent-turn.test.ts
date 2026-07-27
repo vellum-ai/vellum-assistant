@@ -144,10 +144,78 @@ async function waitFor(
   message = "Timed out waiting for live voice assistant turn condition",
 ): Promise<void> {
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(message);
+}
+
+function createCapturingTurnStarter(): {
+  startVoiceTurn: LiveVoiceTurnStarter;
+  getCallbacks: () => VoiceTurnCallbacks | undefined;
+} {
+  let callbacks: VoiceTurnCallbacks | undefined;
+  const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+    callbacks = options.callbacks;
+    return { turnId: "bridge-turn-1", abort: mock() };
+  });
+  return { startVoiceTurn, getCallbacks: () => callbacks };
+}
+
+function createRecordingTtsStreamer(): {
+  streamTtsAudio: LiveVoiceTtsStreamer;
+  ttsTexts: string[];
+} {
+  const ttsTexts: string[] = [];
+  const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+    ttsTexts.push(options.text);
+    return {
+      provider: "fish-audio" as const,
+      contentType: "audio/pcm",
+      sampleRate: 24_000,
+      chunks: 1,
+      bytes: Buffer.byteLength(options.text),
+    };
+  });
+  return { streamTtsAudio, ttsTexts };
+}
+
+function emitTextDelta(
+  getCallbacks: () => VoiceTurnCallbacks | undefined,
+  text: string,
+): void {
+  getCallbacks()?.assistant_text_delta?.({
+    type: "assistant_text_delta",
+    text,
+    conversationId: "conversation-123",
+  });
+}
+
+function emitMessageComplete(
+  getCallbacks: () => VoiceTurnCallbacks | undefined,
+): void {
+  getCallbacks()?.message_complete?.({
+    type: "message_complete",
+    conversationId: "conversation-123",
+    messageId: "assistant-message-123",
+  });
+}
+
+async function startReleasedTurn(
+  session: LiveVoiceSession,
+  getCallbacks: () => VoiceTurnCallbacks | undefined,
+): Promise<void> {
+  await session.start();
+  await session.handleClientFrame({ type: "ptt_release" });
+  await waitFor(() => getCallbacks() !== undefined);
+}
+
+function assistantDeltaTexts(frames: LiveVoiceServerFrame[]): string[] {
+  return frames.flatMap((frame) =>
+    frame.type === "assistant_text_delta" ? [frame.text] : [],
+  );
 }
 
 describe("LiveVoiceSession assistant turn", () => {
@@ -464,57 +532,6 @@ describe("LiveVoiceSession tool-use spoken ack", () => {
     pickAckPhrase("first_delta", 0),
   ).trim();
 
-  function createCapturingTurnStarter(): {
-    startVoiceTurn: LiveVoiceTurnStarter;
-    getCallbacks: () => VoiceTurnCallbacks | undefined;
-  } {
-    let callbacks: VoiceTurnCallbacks | undefined;
-    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
-      callbacks = options.callbacks;
-      return { turnId: "bridge-turn-1", abort: mock() };
-    });
-    return { startVoiceTurn, getCallbacks: () => callbacks };
-  }
-
-  function createRecordingTtsStreamer(): {
-    streamTtsAudio: LiveVoiceTtsStreamer;
-    ttsTexts: string[];
-  } {
-    const ttsTexts: string[] = [];
-    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
-      ttsTexts.push(options.text);
-      return {
-        provider: "fish-audio" as const,
-        contentType: "audio/pcm",
-        sampleRate: 24_000,
-        chunks: 1,
-        bytes: Buffer.byteLength(options.text),
-      };
-    });
-    return { streamTtsAudio, ttsTexts };
-  }
-
-  function emitTextDelta(
-    getCallbacks: () => VoiceTurnCallbacks | undefined,
-    text: string,
-  ): void {
-    getCallbacks()?.assistant_text_delta?.({
-      type: "assistant_text_delta",
-      text,
-      conversationId: "conversation-123",
-    });
-  }
-
-  function emitMessageComplete(
-    getCallbacks: () => VoiceTurnCallbacks | undefined,
-  ): void {
-    getCallbacks()?.message_complete?.({
-      type: "message_complete",
-      conversationId: "conversation-123",
-      messageId: "assistant-message-123",
-    });
-  }
-
   function createAckHarness() {
     const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
     const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
@@ -524,15 +541,6 @@ describe("LiveVoiceSession tool-use spoken ack", () => {
       frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
     });
     return { ...harness, getCallbacks, ttsTexts };
-  }
-
-  async function startReleasedTurn(
-    session: LiveVoiceSession,
-    getCallbacks: () => VoiceTurnCallbacks | undefined,
-  ): Promise<void> {
-    await session.start();
-    await session.handleClientFrame({ type: "ptt_release" });
-    await waitFor(() => getCallbacks() !== undefined);
   }
 
   test("tool_use_start before any delta speaks an immediate tool ack and cancels the timer", async () => {
@@ -588,5 +596,137 @@ describe("LiveVoiceSession tool-use spoken ack", () => {
     emitMessageComplete(getCallbacks);
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
     expect(ttsTexts).toEqual([EXPECTED_FIRST_DELTA_ACK, "Hello there."]);
+  });
+});
+
+describe("LiveVoiceSession minimize-room marker", () => {
+  function createMarkerHarness() {
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const harness = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      // Deltas are emitted immediately in these runs; a long ack budget keeps
+      // filler phrases out of the recorded TTS text.
+      frontModelConfig: { ackFirstDeltaTimeoutMs: 10_000 },
+    });
+    return { ...harness, getCallbacks, ttsTexts };
+  }
+
+  test("strips [-1] from deltas and TTS and emits minimize_room after tts_done", async () => {
+    const { frames, session, getCallbacks, ttsTexts } = createMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(getCallbacks, "hello [-1] world.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "minimize_room"));
+
+    expect(assistantDeltaTexts(frames).join("")).toBe("hello  world.");
+    expect(ttsTexts.join(" ")).not.toContain("[-1]");
+    const ttsDoneIndex = frames.findIndex((frame) => frame.type === "tts_done");
+    const minimizeIndex = frames.findIndex(
+      (frame) => frame.type === "minimize_room",
+    );
+    expect(ttsDoneIndex).toBeGreaterThanOrEqual(0);
+    expect(minimizeIndex).toBeGreaterThan(ttsDoneIndex);
+    expect(frames[minimizeIndex]).toMatchObject({
+      type: "minimize_room",
+      turnId: "live-turn-1",
+    });
+    expect(
+      frames.filter((frame) => frame.type === "minimize_room"),
+    ).toHaveLength(1);
+  });
+
+  test("holds a marker split across deltas, never leaks the partial, and still emits", async () => {
+    const { frames, session, getCallbacks, ttsTexts } = createMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(getCallbacks, "One sec. [-");
+    await flushAsyncCallbacks();
+    expect(assistantDeltaTexts(frames).join("")).toBe("One sec. ");
+
+    emitTextDelta(getCallbacks, "1] done.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "minimize_room"));
+
+    const joined = assistantDeltaTexts(frames).join("");
+    expect(joined).toBe("One sec.  done.");
+    expect(joined).not.toContain("[-");
+    expect(ttsTexts.join(" ")).not.toContain("[-");
+  });
+
+  test("does not emit minimize_room when the turn is interrupted before drain", async () => {
+    const { frames, session, getCallbacks } = createMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(getCallbacks, "Minimizing now. [-1]");
+    await flushAsyncCallbacks();
+
+    await session.handleClientFrame({ type: "interrupt" });
+    emitMessageComplete(getCallbacks);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
+  });
+
+  test("a turn without the marker emits no minimize_room frame", async () => {
+    const { frames, session, getCallbacks } = createMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(getCallbacks, "Hello there.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(assistantDeltaTexts(frames).join("")).toBe("Hello there.");
+    expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
+  });
+
+  test("strips a stray [END_CALL] from main-leg deltas and TTS", async () => {
+    const { frames, session, getCallbacks, ttsTexts } = createMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(getCallbacks, "Bye now. [END_CALL]");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(assistantDeltaTexts(frames).join("")).toBe("Bye now. ");
+    expect(ttsTexts.join(" ")).not.toContain("[END_CALL]");
+    expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
+  });
+
+  test("a held marker-like tail that never completes is emitted at completion", async () => {
+    const { frames, session, getCallbacks } = createMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(getCallbacks, "Score was [-");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(assistantDeltaTexts(frames).join("")).toBe("Score was [-");
+    expect(frames.some((frame) => frame.type === "minimize_room")).toBe(false);
+  });
+
+  test("holds a guardian-approval marker whose JSON body contains brackets, then strips it whole", async () => {
+    const { frames, session, getCallbacks, ttsTexts } = createMarkerHarness();
+
+    await startReleasedTurn(session, getCallbacks);
+    // The JSON body carries both a "]" inside a string value and a nested
+    // array — neither may terminate the hold or mask the marker's start.
+    emitTextDelta(
+      getCallbacks,
+      'Hold on. [ASK_GUARDIAN_APPROVAL: {"question": "ok]?", "options": ["a", "b"',
+    );
+    await flushAsyncCallbacks();
+    expect(assistantDeltaTexts(frames).join("")).toBe("Hold on. ");
+
+    emitTextDelta(getCallbacks, "]}] Anything else?");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    const joined = assistantDeltaTexts(frames).join("");
+    expect(joined).not.toContain("ASK_GUARDIAN_APPROVAL");
+    expect(joined).toContain("Anything else?");
+    expect(ttsTexts.join(" ")).not.toContain("ASK_GUARDIAN_APPROVAL");
   });
 });
