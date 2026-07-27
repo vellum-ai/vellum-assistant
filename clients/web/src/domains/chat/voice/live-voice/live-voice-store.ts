@@ -354,8 +354,14 @@ export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
 // Predicates
 // ---------------------------------------------------------------------------
 
-/** Whether `state` is a live session phase (anything but idle/failed). */
-export function isLiveVoiceSessionActive(state: LiveVoiceSessionState): boolean {
+/**
+ * Whether `state` is a live session phase (anything but idle/failed). Narrows,
+ * so callers that only handle a running session — e.g. mapping the phase onto
+ * a surface's own narrower union — get that for free.
+ */
+export function isLiveVoiceSessionActive(
+  state: LiveVoiceSessionState,
+): state is Exclude<LiveVoiceSessionState, "idle" | "failed"> {
   return state !== "idle" && state !== "failed";
 }
 

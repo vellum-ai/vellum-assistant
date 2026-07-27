@@ -1,13 +1,21 @@
 import Foundation
+#if !VOICE_ACTIVITY_EXTENSION
 import UIKit
+#endif
 
 /// The `<scheme>://voice?mode=…` command an App Intent hands to the web layer.
 ///
 /// This is deliberately the *same* URL contract the SPA already parses
 /// (`parseStartVoiceDeepLink` in `clients/web/src/runtime/native-deep-link.ts`,
 /// routed by `runtime/event-sources/capacitor-deep-links.ts`), so the intents
-/// add no second command channel: Siri, the Action Button, the Live Activity's
-/// `widgetURL`, and a link typed into Safari all converge on one parser.
+/// add no second command channel: Siri, the Action Button, the Control Center
+/// control, the Live Activity's `widgetURL`, and a link typed into Safari all
+/// converge on one parser.
+///
+/// Lives in `Shared/` because the VoiceActivity extension needs it too. The
+/// Live Activity's `widgetURL` builds ``resume``'s URL, and the Control Center
+/// control needs `StartNewVoiceConversationIntent` — defined in terms of this
+/// type — to compile. ``route()`` is the one app-only piece; see its docs.
 enum VoiceModeDeepLink: String {
     /// Start a fresh live-voice session.
     case new
@@ -63,12 +71,25 @@ enum VoiceModeDeepLink: String {
     /// Hand this command to the shell. Returns immediately — App Intents run
     /// under a short execution budget, so `perform()` must hand off rather than
     /// wait for a session to actually start.
+    ///
+    /// The body is compiled out of the VoiceActivity extension, which defines
+    /// `VOICE_ACTIVITY_EXTENSION`. Both callers declare `openAppWhenRun` /
+    /// `.foreground(.immediate)`, so the system performs them in the *app*
+    /// process even when the tap came from the extension's Control Center
+    /// control — the appex needs the intent type to exist, never to run it.
+    /// Compiling the body out keeps `UIApplication.shared` (unavailable to app
+    /// extensions) and `AppDelegate` (which links Capacitor, which the appex
+    /// does not) out of the appex binary.
     @MainActor
     func route(prompt: String? = nil) {
+        #if VOICE_ACTIVITY_EXTENSION
+        assertionFailure("Voice intents are performed in the app process, not the appex")
+        #else
         guard let url = url(prompt: prompt) else {
             NSLog("[voice] No bundle URL scheme; dropping voice command")
             return
         }
         (UIApplication.shared.delegate as? AppDelegate)?.deliverVoiceCommand(url)
+        #endif
     }
 }
