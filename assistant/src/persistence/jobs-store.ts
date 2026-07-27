@@ -13,6 +13,7 @@ import {
   isQdrantBreakerOpen,
   shouldAllowQdrantProbe,
 } from "./embeddings/qdrant-circuit-breaker.js";
+import { isLifecycleQuiesced } from "./lifecycle-quiesce.js";
 import { rawMemoryAll, rawMemoryChanges } from "./raw-query.js";
 import { memoryJobs } from "./schema/index.js";
 
@@ -642,6 +643,13 @@ export function claimMemoryJobs(
   restrictToTypes?: readonly MemoryJobType[],
 ): MemoryJob[] {
   if (limits.slowLlm <= 0 && limits.fast <= 0 && limits.embed <= 0) {
+    return [];
+  }
+
+  // Drain gate: while a quiesce lease is active, claim nothing so in-flight
+  // jobs finish and the queue drains to a stop. Enqueues are unaffected;
+  // claims resume when the lease expires. Fail-open via the lease read.
+  if (isLifecycleQuiesced()) {
     return [];
   }
 
