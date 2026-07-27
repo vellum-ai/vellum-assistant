@@ -15,7 +15,11 @@ import {
 export interface PackageSwitchCopy {
   /** Header line, e.g. "Upgrade to Mighty". Statement, not a question. */
   title: string;
-  /** Tier tagline under the title; empty when the catalog key has no copy. */
+  /**
+   * Tier tagline under the title. Empty on a downgrade, and whenever the
+   * catalog key has no copy — the modal then falls back to the package's own
+   * factual blurb.
+   */
   subtitle: string;
   /** Caption under the price — where the money actually lands. */
   priceCaption: string;
@@ -33,14 +37,18 @@ export interface PackageSwitchCopy {
 // charges the prorated difference now; a downgrade resizes the machine now and
 // nets a prorated credit against the next invoice — storage stays, no cash
 // refund. The copy must not imply the higher tier is kept until month end.
-const UPGRADE_CAPTION = "Billed monthly · prorated difference charged today";
+// Exported so the modal's and the two page suites' assertions read the copy
+// from here rather than re-typing it — a wording edit then fails loudly in one
+// place instead of silently breaking three suites.
+export const UPGRADE_CAPTION =
+  "Billed monthly · prorated difference charged today";
 // A Custom sub's direction is unknown, so the neutral caption must name both
 // outcomes — a net-cheaper switch credits the next invoice, it is not settled today.
-const SWITCH_CAPTION =
+export const SWITCH_CAPTION =
   "Billed monthly · prorated difference charged today or credited next invoice";
-const DOWNGRADE_CAPTION =
+export const DOWNGRADE_CAPTION =
   "Billed monthly · prorated credit on your next invoice";
-const DOWNGRADE_NOTE =
+export const DOWNGRADE_NOTE =
   "Your machine downsizes now and your storage stays. No refund.";
 const CONTINUE_LABEL = "Continue";
 const CHECKLIST_HEADING = "The plan includes";
@@ -60,8 +68,13 @@ export function packageSwitchCopy(
   switch (relation) {
     case "downgrade":
       return {
-        title: `Downgrade to ${packageName}`,
-        subtitle,
+        // Same helper as the confirm CTA, so the heading and the button it
+        // arms cannot name different packages.
+        title: downgradeLabel(packageName),
+        // The tagline sells the tier — quoting it under "Downgrade to X" pitches
+        // a plan the user is stepping down from. Empty hands the modal its
+        // factual catalog blurb instead.
+        subtitle: "",
         priceCaption: DOWNGRADE_CAPTION,
         checklistHeading: DOWNGRADE_CHECKLIST_HEADING,
         note: DOWNGRADE_NOTE,

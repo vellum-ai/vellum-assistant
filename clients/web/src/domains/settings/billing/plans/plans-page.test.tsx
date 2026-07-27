@@ -40,11 +40,13 @@ import {
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import type { ProPackage } from "@/domains/settings/billing/package-types";
+import { SWITCH_CAPTION } from "@/domains/settings/billing/plans/package-switch-copy";
+import { makeProPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import type {
   OnboardingStateResponse,
   PackageChangeResponse,
   PlanListResponse,
-  ProPackage,
   ProPlan,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
@@ -210,31 +212,15 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 const { PlansPage } = await import("./plans-page");
 const { getPlanTierCopy } = await import("./plans-copy");
 
-/** A fully-typed Pro package with Mighty defaults; override per tier. */
-function makePackage(overrides: Partial<ProPackage>): ProPackage {
-  return {
-    key: "mighty",
-    name: "Mighty",
-    description: "",
-    version: 1,
-    machine_tier: null,
-    storage_tier: "xs",
-    credit_tier: "credits_25",
-    machine_size: null,
-    storage_gib: 10,
-    credits_usd: 25,
-    include_platform_fee: false,
-    base_price_cents: 0,
-    machine_price_cents: 0,
-    storage_price_cents: 0,
-    credit_price_cents: 0,
-    total_price_cents: 3000,
-    ...overrides,
-  };
-}
-
-const MIGHTY = makePackage({});
-const SUPER = makePackage({
+// This page's assertions key off the storage/credit/price rows, so the three
+// tiers pin those explicitly; the fixture's remaining defaults (component
+// prices, platform fee) are read by nothing under test.
+const MIGHTY = makeProPackage({
+  storage_tier: "xs",
+  storage_gib: 10,
+  total_price_cents: 3000,
+});
+const SUPER = makeProPackage({
   key: "super",
   name: "Super",
   machine_size: "medium",
@@ -242,7 +228,7 @@ const SUPER = makePackage({
   credits_usd: 50,
   total_price_cents: 10000,
 });
-const ULTRA = makePackage({
+const ULTRA = makeProPackage({
   key: "ultra",
   name: "Ultra",
   machine_size: "large",
@@ -853,9 +839,7 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
 
     // The direction-neutral switch confirm appears (not upgrade/downgrade copy).
     await findByText("Switch to Mighty");
-    await findByText(
-      "Billed monthly · prorated difference charged today or credited next invoice",
-    );
+    await findByText(SWITCH_CAPTION);
 
     fireEvent.click(await findByTestId("confirm-package-switch-button"));
 
