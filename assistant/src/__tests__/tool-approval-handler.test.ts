@@ -52,6 +52,7 @@ const fakeTools: Record<string, typeof fakeTool> = {
   document_create: fakeSkillTool,
   acme_send: { ...fakeTool, name: "acme_send", category: "messaging" },
   ws_deploy: { ...fakeTool, name: "ws_deploy", category: "workspace" },
+  mcp_lookup: { ...fakeTool, name: "mcp_lookup", category: "mcp" },
   file_write: { ...fakeTool, name: "file_write", category: "filesystem" },
   web_fetch: { ...fakeTool, name: "web_fetch", category: "network" },
 };
@@ -61,13 +62,21 @@ const toolOwners: Record<string, { kind: string; id: string }> = {
   document_create: { kind: "skill", id: "some-skill" },
   acme_send: { kind: "skill", id: "some-skill" },
   ws_deploy: { kind: "workspace", id: "tools/ws-deploy.ts" },
+  mcp_lookup: { kind: "mcp", id: "some-server" },
 };
+
+/**
+ * Per-test owner override for `file_write`, for the workspace-override-of-a-
+ * core-name case. `undefined` = unowned built-in, the lift tests' baseline.
+ */
+let fileWriteOwner: { kind: string; id: string } | undefined;
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => fakeTools[name],
   resolveTool: (name: string) => fakeTools[name],
   getAllTools: () => Object.values(fakeTools),
-  getToolOwner: (name: string) => toolOwners[name],
+  getToolOwner: (name: string) =>
+    name === "file_write" && fileWriteOwner ? fileWriteOwner : toolOwners[name],
 }));
 
 // Mock the dynamic-skill predicate so isSensitiveTool's skill_load branch is
@@ -803,6 +812,7 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
     resetAuditCalls();
     resetThresholdReaderMock();
     skillOwnerBundled = false;
+    fileWriteOwner = undefined;
   });
 
   test.each(["low", "medium", "high"])(
@@ -978,9 +988,26 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
 
     // Workspace-owned tools are dynamic-imported on-disk code with no
     // bundled tier — unvetted by definition, whatever the bundled flag says.
-    test("a workspace-owned tool", async () => {
+    test("a workspace-owned tool with a name of its own", async () => {
       skillOwnerBundled = true;
       await expectFloored("ws_deploy", { target: "prod" });
+    });
+
+    // A workspace tool registered over a delegable core name must not
+    // inherit that name's liftability — the owner decides, not the name.
+    test("a workspace override of a delegable core tool", async () => {
+      fileWriteOwner = { kind: "workspace", id: "tools/file-write.ts" };
+      await expectFloored("file_write", {
+        path: "notes/todo.md",
+        content: "x",
+      });
+    });
+
+    // MCP tools are floored as host reach; this pins that the unvetted
+    // allowlist catches them independently, so the floor does not hinge on
+    // the host stamp alone.
+    test("an MCP-owned tool, even without the host target", async () => {
+      await expectFloored("mcp_lookup", { query: "q" });
     });
 
     // The private network is the guardian's machine: the daemon's own HTTP

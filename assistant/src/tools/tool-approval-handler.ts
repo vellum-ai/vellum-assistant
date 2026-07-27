@@ -344,21 +344,28 @@ export function sensitiveToolReach(
 }
 
 /**
- * Whether a tool comes from an extension that is not first-party bundled —
- * a third-party or workspace skill, any plugin, or a workspace-owned tool.
- * Bundled skills ship in-repo and are reviewed; nothing else is.
+ * Whether a tool comes from code nobody in-repo reviewed. Vetted is an
+ * allowlist — the built-in default set and first-party bundled skills —
+ * and every other owner is unvetted: third-party and workspace skills,
+ * plugins, workspace tools (arbitrary on-disk code imported into the
+ * daemon), MCP servers, and owner kinds that do not exist yet. An
+ * allowlist fails closed when the owner vocabulary grows, the same reason
+ * the read-only subagent gate (`conversation-tool-setup.ts`) allowlists
+ * names and verifies `ownerKind === "default"` rather than naming the
+ * kinds it distrusts.
+ *
+ * An absent owner record is the built-in registration path, so it reads
+ * as `default`; a tool that is not registered at all cannot execute.
  */
 function isUnvettedExtensionTool(toolName: string): boolean {
   const kind = getToolOwner(toolName)?.kind;
-  // Workspace-owned tools are dynamic-imported from the workspace tools
-  // directory — arbitrary on-disk code with no bundled/vetted tier at all.
-  if (kind === "workspace") {
-    return true;
-  }
-  if (kind !== "skill" && kind !== "plugin") {
+  if (kind === undefined || kind === "default") {
     return false;
   }
-  return !isToolOwnerSkillBundled(getTool(toolName));
+  if (kind === "skill") {
+    return !isToolOwnerSkillBundled(getTool(toolName));
+  }
+  return true;
 }
 
 /**
