@@ -2,11 +2,12 @@
  * Discord Gateway intents — the bitmask sent in the IDENTIFY payload.
  *
  * An intent is a subscription: Discord only delivers event families whose
- * intent bit is set. Two of them are *privileged* — they require a toggle in
- * the developer portal, and past a size threshold Discord must approve the
- * app before the toggle stays on.
+ * intent bit is set. Three of them are *privileged* — they require a toggle in
+ * the developer portal, and past a size threshold Discord must approve the app
+ * before the toggle stays on. {@link PRIVILEGED_DISCORD_INTENTS} is that set,
+ * and a test pins it against this table so the two cannot drift.
  *
- * https://discord.com/developers/docs/events/gateway#gateway-intents
+ * https://docs.discord.com/developers/events/gateway#gateway-intents
  */
 
 export const DISCORD_INTENTS = {
