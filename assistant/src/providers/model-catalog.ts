@@ -52,6 +52,13 @@ export interface CatalogModel {
   adaptiveThinkingOnly?: boolean;
   supportsCaching?: boolean;
   supportsVision?: boolean;
+  /**
+   * The model's serving surface accepts OpenAI chat-completions `input_audio`
+   * content parts (base64 wav/mp3), so eligible audio attachments are sent
+   * inline instead of as a text placeholder. Daemon-only: not projected into
+   * the client catalog (see scripts/sync-llm-catalog.ts).
+   */
+  supportsAudioInput?: boolean;
   supportsToolUse?: boolean;
   pricing?: CatalogModelPricing;
   /**
@@ -2082,6 +2089,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
+        // Inkling ingests audio natively (dMel tokens); Baseten's serving
+        // surface accepts `input_audio` parts for it.
+        supportsAudioInput: true,
         supportsToolUse: true,
         // Baseten's reasoning_effort for Inkling tops out at "xhigh" (no
         // "max"), matching the chat-completions client's default ceiling.
@@ -2168,5 +2178,17 @@ export function getCatalogProviderForModel(
 export function isAdaptiveThinkingOnlyModel(modelId: string): boolean {
   return PROVIDER_CATALOG.some((p) =>
     p.models.some((m) => m.id === modelId && m.adaptiveThinkingOnly === true),
+  );
+}
+
+/**
+ * Whether a model's serving surface accepts OpenAI chat-completions
+ * `input_audio` content parts, driven by the `supportsAudioInput` capability
+ * in the catalog. Matches the model ID across every provider (same pattern as
+ * {@link isAdaptiveThinkingOnlyModel}).
+ */
+export function modelSupportsAudioInput(modelId: string): boolean {
+  return PROVIDER_CATALOG.some((p) =>
+    p.models.some((m) => m.id === modelId && m.supportsAudioInput === true),
   );
 }
