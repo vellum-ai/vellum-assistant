@@ -58,13 +58,14 @@ import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-co
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useSupportsNoninteractiveVoiceTurns } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
-import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+import {
+  AVATAR_ACCENT_CSS_VAR,
+  resolveRenderedAvatarAccentHex,
+} from "@/hooks/use-avatar-accent-var";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
 import { useActiveConnectSurface } from "./use-active-connect-surface";
-
-import { resolveWaveAccentHex } from "./wave-accent";
 
 import {
   SAFE_AREA_BOTTOM,
@@ -170,12 +171,13 @@ function VoiceRoomOverlay() {
   // Resolve the assistant's look: color-with-eyes for character avatars, the
   // ambient void otherwise. The accent var is still published for the
   // fallback look's listening waves (null for custom-image / "none" /
-  // still-loading avatars, where the waves keep their aurora fallback).
+  // still-loading avatars, where the waves keep their aurora fallback) — the
+  // same derivation the iOS Live Activity mirrors, so island and room agree.
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
   const look = resolveVoiceRoomLook(components, traits, customImageUrl);
   const tone = look ? toneForBg(look.bgHex) : null;
-  const accentHex = resolveWaveAccentHex(components, traits);
+  const accentHex = resolveRenderedAvatarAccentHex(components, traits);
 
   // Control-chrome colors for the active look, consumed by the shared control
   // classes. The fallbacks are the void look's white-on-dark values.

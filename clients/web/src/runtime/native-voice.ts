@@ -57,3 +57,16 @@ export async function callNativeVoice<T>(
     return fallback;
   }
 }
+
+/**
+ * Start a native voice bridge call and drop its result on the floor.
+ *
+ * {@link callNativeVoice} already swallows bridge failures, so in production
+ * this catch never fires — but it keeps "a hung or failed bridge call must
+ * never delay or break a voice session" a property each call site owns
+ * locally, rather than one inherited from a distant module. Call sites can
+ * then be tested against a bridge that rejects outright.
+ */
+export function fireAndForgetNativeVoice(call: Promise<unknown>): void {
+  void call.catch(() => undefined);
+}

@@ -25,8 +25,10 @@
  *   {@link useLiveVoice} itself.
  * - `state`/`error`/transcripts/amplitude — observable session state.
  *
- * It is also where the iOS native audio session is bound to the session
- * lifecycle — see {@link useNativeAudioSessionLifecycle}.
+ * It is also where the iOS-native mirrors of the session are bound to its
+ * lifecycle — the audio session ({@link useNativeAudioSessionLifecycle}) and
+ * the Live Activity ({@link useLiveActivityMirror}). Both are inert off the
+ * iOS shell.
  */
 
 import { useEffect } from "react";
@@ -42,28 +44,19 @@ import {
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { drainPendingVoiceStartDeepLink } from "@/domains/chat/voice/live-voice/start-voice-deep-link";
+import { useLiveActivityMirror } from "@/domains/chat/voice/live-voice/use-live-activity-mirror";
 import {
   activateVoiceAudioSession,
   deactivateVoiceAudioSession,
   subscribeVoiceAudioInterruptions,
 } from "@/runtime/native-audio-session";
+import { fireAndForgetNativeVoice } from "@/runtime/native-voice";
 
 /** Injectable primitive factories, for tests. */
 export type UseLiveVoiceSessionControllerOptions = Pick<
   UseLiveVoiceOptions,
   "createClient" | "createCapture" | "createPlayer"
 >;
-
-/**
- * Fire-and-forget a native bridge call. The bridge already swallows its own
- * failures (`callNativeVoice`), but keeping the catch here makes "a hung or
- * failed bridge call must never delay or block a voice session" a local,
- * testable property of this hook rather than one inherited from a distant
- * module.
- */
-function fireAndForget(call: Promise<unknown>): void {
-  void call.catch(() => undefined);
-}
 
 /**
  * Hold the native iOS audio session open for exactly as long as a live-voice
@@ -96,7 +89,7 @@ function useNativeAudioSessionLifecycle(): void {
         return;
       }
       holdingAudioSession = active;
-      fireAndForget(
+      fireAndForgetNativeVoice(
         active ? activateVoiceAudioSession() : deactivateVoiceAudioSession(),
       );
     };
@@ -130,7 +123,7 @@ function useNativeAudioSessionLifecycle(): void {
       // orders where it has not.
       if (holdingAudioSession) {
         holdingAudioSession = false;
-        fireAndForget(deactivateVoiceAudioSession());
+        fireAndForgetNativeVoice(deactivateVoiceAudioSession());
       }
     };
   }, []);
@@ -167,4 +160,5 @@ export function useLiveVoiceSessionController(
   }, [start]);
 
   useNativeAudioSessionLifecycle();
+  useLiveActivityMirror();
 }
