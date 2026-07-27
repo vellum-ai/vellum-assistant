@@ -489,6 +489,25 @@ describe("RecentRunsCard", () => {
     expect(document.body.textContent).toContain("Missed");
     expect(document.body.textContent).not.toContain("$0.00");
   });
+
+  test("empty page with more history keeps the Load more control reachable", () => {
+    const onLoadMore = mock(() => {});
+    render(
+      createElement(RecentRunsCard, {
+        // A page can filter down to nothing (bookkeeping-only rows from an
+        // older daemon) while real runs sit on older pages.
+        runs: [],
+        isLoading: false,
+        hasMore: true,
+        onLoadMore,
+      }),
+    );
+
+    expect(document.body.textContent).toContain("No runs yet.");
+    const loadMore = screen.getByRole("button", { name: "Load more" });
+    fireEvent.click(loadMore);
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("summarizeRunsForUsage", () => {

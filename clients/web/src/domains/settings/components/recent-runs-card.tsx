@@ -40,6 +40,28 @@ export function RecentRunsCard({
   const navigate = useNavigate();
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
+  // Rendered in the empty state too: a page can filter down to nothing
+  // (e.g. bookkeeping-only pages from daemons that still send them) while
+  // older pages hold real runs, so pagination must stay reachable.
+  const loadMoreControl =
+    hasMore && onLoadMore ? (
+      <div className="flex justify-center pt-3">
+        <Button
+          variant="outlined"
+          size="compact"
+          onClick={onLoadMore}
+          disabled={isLoadingMore}
+          leftIcon={
+            isLoadingMore ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : undefined
+          }
+        >
+          {isLoadingMore ? "Loading…" : "Load more"}
+        </Button>
+      </div>
+    ) : null;
+
   return (
     <DetailCard title="Recent runs">
       {isLoading ? (
@@ -47,9 +69,12 @@ export function RecentRunsCard({
           <Loader2 className="h-5 w-5 animate-spin text-stone-400" />
         </div>
       ) : !runs || runs.length === 0 ? (
-        <p className="py-4 text-center text-body-medium-lighter text-[var(--content-tertiary)] italic">
-          {emptyMessage}
-        </p>
+        <>
+          <p className="py-4 text-center text-body-medium-lighter text-[var(--content-tertiary)] italic">
+            {emptyMessage}
+          </p>
+          {loadMoreControl}
+        </>
       ) : (
         <div className="divide-y divide-[var(--border-base)]">
           {runs.map((run, index) => {
@@ -157,23 +182,7 @@ export function RecentRunsCard({
               </div>
             );
           })}
-          {hasMore && onLoadMore ? (
-            <div className="flex justify-center pt-3">
-              <Button
-                variant="outlined"
-                size="compact"
-                onClick={onLoadMore}
-                disabled={isLoadingMore}
-                leftIcon={
-                  isLoadingMore ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : undefined
-                }
-              >
-                {isLoadingMore ? "Loading…" : "Load more"}
-              </Button>
-            </div>
-          ) : null}
+          {loadMoreControl}
         </div>
       )}
     </DetailCard>
