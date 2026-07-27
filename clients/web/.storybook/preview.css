@@ -1,7 +1,10 @@
 @import "tailwindcss";
 @import "@vellumai/design-library/tokens.css";
-@source "../src/**/*.tsx";
-@source "../node_modules/@vellumai/design-library/src/**/*.tsx";
+/* Mirrors `src/index.css` — `.ts` too, so shared class strings that live in
+   plain modules (e.g. the design library's `utils/menu-styles.ts`) are
+   scanned. */
+@source "../src/**/*.{ts,tsx}";
+@source "../node_modules/@vellumai/design-library/src/**/*.{ts,tsx}";
 
 body {
   background: var(--surface-base);

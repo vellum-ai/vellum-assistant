@@ -1,6 +1,11 @@
 @import "tailwindcss";
 @import "@vellumai/design-library/tokens.css";
-@source "../node_modules/@vellumai/design-library/src/**/*.tsx";
+/* `.ts` as well as `.tsx`: the design library keeps shared class strings in
+   plain modules (`utils/menu-styles.ts`), and a `.tsx`-only glob silently
+   dropped every utility that appeared nowhere else — including the
+   `data-[disabled]:` variants, so disabled menu items rendered identically to
+   enabled ones. */
+@source "../node_modules/@vellumai/design-library/src/**/*.{ts,tsx}";
 
 /* Base element styles — theme-aware defaults inherited by all descendants. */
 body {
