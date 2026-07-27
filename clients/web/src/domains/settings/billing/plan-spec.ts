@@ -7,6 +7,7 @@ import {
 import type { ProPackage } from "@/domains/settings/billing/package-types";
 import {
   creditRowLabel,
+  formatDollars,
   storageRowLabel,
 } from "@/domains/settings/components/tier-pricing";
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
@@ -44,7 +45,9 @@ export function packageSpecs(pkg: ProPackage | null): PlanSpec[] {
   const storage = pkg?.storage_gib ?? FREE_STORAGE_GIB;
   return [
     { icon: Computer, label: `${machineLabel(pkg)} Machine` },
-    { icon: Coins, label: `$${credits} credits` },
+    // Cents-aware like every other price on these surfaces, so a sub-dollar
+    // bundle reads "$0.50 credits" rather than "$0.5 credits".
+    { icon: Coins, label: `${formatDollars(credits * 100)} credits` },
     { icon: HardDrive, label: `${storage} GB` },
   ];
 }

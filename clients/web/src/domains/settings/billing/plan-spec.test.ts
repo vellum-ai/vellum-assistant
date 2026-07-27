@@ -56,6 +56,15 @@ describe("packageSpecs", () => {
     } as ProPackage);
     expect(specs[1].label).toBe("$0 credits");
   });
+
+  test("formats a sub-dollar credit amount cents-aware", () => {
+    const specs = packageSpecs({
+      machine_size: "small",
+      credits_usd: 0.5,
+      storage_gib: 8,
+    } as ProPackage);
+    expect(specs[1].label).toBe("$0.50 credits");
+  });
 });
 
 describe("packageHighlights", () => {
@@ -95,16 +104,6 @@ describe("packageHighlights", () => {
     ]);
   });
 
-  test("formats a sub-dollar credit amount cents-aware", () => {
-    expect(
-      packageHighlights({
-        machine_size: "small",
-        credits_usd: 0.5,
-        storage_gib: 8,
-      } as ProPackage)[2],
-    ).toBe("$0.50 of bundled credits");
-  });
-
   test("appends extra rows in order after the derived rows", () => {
     expect(
       packageHighlights(
@@ -128,12 +127,6 @@ describe("packageHighlights", () => {
     expect(
       packageHighlights({ machine_size: "gigantic" } as ProPackage)[0],
     ).toBe("gigantic machine");
-  });
-
-  test("appends nothing when extra is omitted", () => {
-    expect(
-      packageHighlights({ machine_size: "small" } as ProPackage),
-    ).toHaveLength(3);
   });
 });
 

@@ -17,8 +17,8 @@ export interface PackageSwitchCopy {
   title: string;
   /**
    * Tier tagline under the title. Empty on a downgrade, and whenever the
-   * catalog key has no copy — the modal then falls back to the package's own
-   * factual blurb.
+   * catalog key has no copy — the modal then renders a title-only header and
+   * lets the checklist state the specs.
    */
   subtitle: string;
   /** Caption under the price — where the money actually lands. */
@@ -50,12 +50,12 @@ export const DOWNGRADE_CAPTION =
   "Billed monthly · prorated credit on your next invoice";
 export const DOWNGRADE_NOTE =
   "Your machine downsizes now and your storage stays. No refund.";
-const CONTINUE_LABEL = "Continue";
-const CHECKLIST_HEADING = "The plan includes";
+export const CONTINUE_LABEL = "Continue";
+export const CHECKLIST_HEADING = "The plan includes";
 // The rows enumerate the *lower* package on a downgrade, so a present-tense
 // "The plan includes" reads as a list of gains. Future tense keeps it a
 // statement of what is left, not what is won.
-const DOWNGRADE_CHECKLIST_HEADING = "Your plan will include";
+export const DOWNGRADE_CHECKLIST_HEADING = "Your plan will include";
 
 /** Every string the confirm modal renders for one target package. */
 export function packageSwitchCopy(
@@ -72,8 +72,8 @@ export function packageSwitchCopy(
         // arms cannot name different packages.
         title: downgradeLabel(packageName),
         // The tagline sells the tier — quoting it under "Downgrade to X" pitches
-        // a plan the user is stepping down from. Empty hands the modal its
-        // factual catalog blurb instead.
+        // a plan the user is stepping down from. Empty leaves the header to the
+        // title, with the checklist below stating what the plan will include.
         subtitle: "",
         priceCaption: DOWNGRADE_CAPTION,
         checklistHeading: DOWNGRADE_CHECKLIST_HEADING,
