@@ -47,7 +47,12 @@ import {
 // static import graph.
 const { useLiveVoice } =
   await import("@/domains/chat/voice/live-voice/use-live-voice");
-const { useLiveVoiceStore, getLiveVoicePlaybackProgress, restoreVoiceRoom } =
+const {
+  useLiveVoiceStore,
+  getLiveVoicePlaybackProgress,
+  minimizeVoiceRoom,
+  restoreVoiceRoom,
+} =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 
@@ -1148,6 +1153,37 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
     });
     expect(h.view.result.current.state).toBe("listening");
     expect(useLiveVoiceStore.getState().muted).toBe(true);
+  });
+
+  test("a minimized room stays minimized across a retryable reconnect", async () => {
+    const h = renderController({ reconnectBackoffMs: [10] });
+    await startListening(h, { handsFree: true });
+    act(() => minimizeVoiceRoom());
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+
+    await act(async () => {
+      h.client.emit("closed", {
+        code: 1013,
+        reason: "assistant tunnel disconnected",
+      });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    // The same logical session is continuing — the room must not remount
+    // over whatever the user minimized it to look at.
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
   });
 
   test("publishes handsFree to the store, downgraded on the version-skew fallback", async () => {

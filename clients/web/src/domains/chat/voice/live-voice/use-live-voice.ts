@@ -560,6 +560,11 @@ export function useLiveVoice(
       // composer just before start) also lives in the session state the reset
       // below clears — carry it across so the room's entrance grows from it.
       const entryOrigin = store.entryOrigin;
+      // A minimized room must stay minimized across a transient reconnect —
+      // the same logical session is continuing, and remounting the full-screen
+      // room would cover whatever the user minimized it to look at. A fresh
+      // start (attempt 0) always reopens in the room.
+      const wasRoomMinimized = store.roomMinimized;
       store.reset();
       store.setState("connecting");
       // A retry re-enters here via the backoff timer with `reconnectAttemptRef`
@@ -571,6 +576,7 @@ export function useLiveVoice(
       store.setSessionContext(assistantId, conversationId ?? null);
       store.setEntryOrigin(entryOrigin);
       if (isReconnect && wasMuted) store.setMuted(true);
+      if (isReconnect && wasRoomMinimized) store.setRoomMinimized(true);
       store.setHandsFree(startOptions.handsFree === true);
       // Registered here (not on `ready`) so a globally mounted surface can
       // drive the session from the moment it exists; cleared by the store
