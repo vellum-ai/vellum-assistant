@@ -161,7 +161,7 @@ otherwise arrive as a `prompt` of `Ben ` plus a stray parameter.
 | Live Activity `widgetURL` (island / Lock Screen tap) | `resume` | `App/VoiceActivity/VoiceSessionLiveActivity.swift` |
 | Safari, a note, another app, a test link | either | — |
 
-### Delivery paths, and the one that used to drop
+### Delivery paths, and why a cold launch delivers exactly once
 
 Intents run **in the app process** and never pass through
 `application(_:open:)`, so `VoiceModeDeepLink.route()` hands the URL directly to
@@ -172,18 +172,61 @@ and needs no new web code. `AppPlugin` posts that event with
 `retainUntilConsumed: true`, so a command delivered before the SPA registers its
 listener is replayed rather than lost.
 
-A **terminated** launch is the case that needs care.
-`didFinishLaunchingWithOptions` receives the URL in `launchOptions[.url]` and
-does *not* forward to `ApplicationDelegateProxy`; before this feature it only
-tried `handleConnectDeepLink`, which returns `false` for any host that is not
-`connect` and takes no other action — so a `voice` URL from Siri, the Action
-Button, or Safari was silently discarded before the web view existed. It now
-stashes any non-`connect` launch URL as `pendingVoiceCommandURL` and delivers it
-from `MyViewController.viewDidAppear`.
+A **terminated** launch is the case that needs care, and the reason is the
+opposite of the obvious one: the launch URL arrives **twice**, not zero times.
+
+This app declares no `UIApplicationSceneManifest`, so it is a non-scene app and
+`launchOptions[.url]` is populated ("If the app supports scenes, this is `nil`" —
+[`application(_:didFinishLaunchingWithOptions:)`](https://developer.apple.com/documentation/uikit/uiapplicationdelegate/application(_:didfinishlaunchingwithoptions:))).
+`application(_:open:options:)` is then called for that same URL as well:
+
+> This method is not called if your implementations return `false` from both the
+> `application(_:willFinishLaunchingWithOptions:)` and
+> `application(_:didFinishLaunchingWithOptions:)` methods.
+>
+> — [`application(_:open:options:)`](https://developer.apple.com/documentation/uikit/uiapplicationdelegate/application(_:open:options:))
+
+`AppDelegate` implements only `didFinishLaunchingWithOptions` and returns `true`
+unconditionally, so the `open:` call always comes. That is also why a stock
+Capacitor app — whose delegate handles URLs *only* in `application(_:open:)` —
+receives `appUrlOpen` from a terminated state at all.
+
+So `application(_:open:)` is the delivery. The launch stash is kept as a
+**backstop**, because the `open:` route has a race of its own:
+`ApplicationDelegateProxy` delivers by posting `.capacitorOpenURL`, and
+`AppPlugin` only subscribes in its `load()` — a URL that arrives before the
+bridge finishes registering plugins has no observer and is dropped, and nothing
+in the web layer calls `App.getLaunchUrl()`, Capacitor's usual escape hatch for
+exactly that. See [capacitor#5584](https://github.com/ionic-team/capacitor/issues/5584).
+
+The two are deduped on the launch URL's identity, so the command reaches the web
+layer exactly once whichever route wins:
+
+- `AppDelegate.launchURL` holds the URL while it is still eligible to arrive a
+  second time, and is cleared on the first background transition (re-opening the
+  same URL requires leaving the app, so anything after that is genuinely new).
+- If the `viewDidAppear` replay gets there first, it records
+  `launchURLWasReplayed` and the `open:` call that follows is swallowed.
+- If `application(_:open:)` gets there first **and the bridge web view exists**,
+  the forward will be observed, so the backstop is dropped.
+- If it gets there first with **no** web view yet, the forward goes nowhere and
+  the backstop is deliberately kept — that is the case it was added for.
+  `webView != nil` is the test because `CAPBridgeViewController` builds the web
+  view and registers plugins in one synchronous `viewDidLoad`.
+
+**No `connect` URL ever reaches any of this.** `handleConnectDeepLink` returns
+`true` for *every* URL whose host is `connect`, malformed ones included (it logs
+and returns `true`), and it is the guard on both the stash in
+`didFinishLaunchingWithOptions` and the early return in `application(_:open:)`.
+A cold-launch connect URL is therefore handled twice by `handleConnectDeepLink`
+itself, which is harmless: it re-persists the same base and re-stashes the same
+pair URL, and `deliverPendingConnectNavigation` clears
+`pendingConnectPairURL` before loading, so the pair page loads once.
 
 There are **two** independent cold-launch races and both fixes are required:
 
-- **Native**: the URL never reaches the web layer (fixed above).
+- **Native**: the URL reaches the web layer once — never twice, never zero times
+  (above).
 - **Web**: the URL arrives before `ChatLayout` registers the live-voice
   `starter`. `start-voice-deep-link.ts` parks the request and
   `use-live-voice-session-controller.ts` drains it when the starter registers.
@@ -336,6 +379,13 @@ the platform half is not. Worth doing only if the session needs to update while
 the app is suspended — which is not the case today, because the web layer that
 drives the phase is suspended at the same time.
 
+That symmetry is also the hazard: a suspended web layer stops pushing, and an
+island frozen on "Listening…" is a claim about a live socket and a live mic that
+nothing is checking. Every push therefore carries a `staleDate`
+(`VoiceLiveActivityPlugin.contentStaleAfter`, two minutes), and the views drop
+the phase label once `context.isStale` goes true. It does not make the island
+correct — only honest about not knowing.
+
 ### 2. No App Group
 
 `ContentState` carries only primitives: `phase`, `label`, `accentHex`, `muted`,
@@ -445,7 +495,8 @@ The Simulator does not faithfully reproduce any of these.
 | `.notifyOthersOnDeactivation` | Start music, run a voice session, end it, confirm the music resumes |
 | Interruption handling | Take a real phone call mid-session; the session should end, not keep "listening" into a dead mic |
 | Bluetooth / AirPods routing | `.voiceChat` HFP routing needs real hardware |
-| No stranded island | Force-quit mid-session and confirm the island disappears; then crash-and-relaunch and confirm `load()`'s sweep clears anything left over |
+| No stranded island | Force-quit mid-session; the `applicationWillTerminate` end is fire-and-forget, so it may or may not win the race — relaunch and confirm `load()`'s sweep clears whatever survived. Same check after a crash |
+| Stale island | Background a session and leave it long enough for iOS to suspend the web view; past the two-minute `staleDate` the island must stop showing a phase label rather than keep claiming "Listening…" |
 
 ## Shipping prerequisites
 

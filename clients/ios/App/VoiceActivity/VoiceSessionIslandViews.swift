@@ -36,6 +36,20 @@ extension VoiceSessionAttributes.ContentState {
             ?? Color(cssHex: Self.neutralAccentHex)
             ?? .secondary
     }
+
+    /// The phase label to render, or nothing once ActivityKit has marked the
+    /// content stale.
+    ///
+    /// Staleness means the app stopped pushing updates before this state's
+    /// `staleDate` (`VoiceLiveActivityPlugin.contentStaleAfter`). For a session
+    /// driven entirely by a web view that iOS may have suspended, that is far
+    /// more likely to mean "wedged" than "still genuinely listening" — and the
+    /// phase wording is the one thing on the island that can be *wrong*, so it
+    /// is what drops. The assistant name and accent stay: a session with this
+    /// assistant does exist, and tapping through still returns to it.
+    func displayLabel(isStale: Bool) -> String {
+        isStale ? "" : label
+    }
 }
 
 /// The accent-tinted state indicator: a waveform, tinted with the avatar
@@ -117,13 +131,16 @@ struct VoiceSessionText: View {
 struct VoiceSessionLockScreenView: View {
     let assistantName: String
     let state: VoiceSessionAttributes.ContentState
+    /// Whether ActivityKit considers this content out of date; drops the phase
+    /// label. See `ContentState.displayLabel(isStale:)`.
+    let isStale: Bool
 
     var body: some View {
         HStack(spacing: 12) {
             VoiceAccentBadge(accent: state.accentColor)
             VStack(alignment: .leading, spacing: 2) {
                 VoiceSessionText(text: assistantName, font: .headline)
-                VoiceSessionText(text: state.label, color: .secondary)
+                VoiceSessionText(text: state.displayLabel(isStale: isStale), color: .secondary)
             }
             Spacer(minLength: 0)
             if state.muted {

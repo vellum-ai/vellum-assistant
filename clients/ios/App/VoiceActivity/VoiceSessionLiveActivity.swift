@@ -29,11 +29,13 @@ struct VoiceSessionLiveActivity: Widget {
         ActivityConfiguration(for: VoiceSessionAttributes.self) { context in
             VoiceSessionLockScreenView(
                 assistantName: context.attributes.assistantName,
-                state: context.state
+                state: context.state,
+                isStale: context.isStale
             )
             .widgetURL(VoiceModeDeepLink.resume.url())
         } dynamicIsland: { context in
             let state = context.state
+            let label = state.displayLabel(isStale: context.isStale)
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     VoiceAccentBadge(accent: state.accentColor)
@@ -46,7 +48,7 @@ struct VoiceSessionLiveActivity: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    VoiceSessionText(text: state.label, font: .headline)
+                    VoiceSessionText(text: label, font: .headline)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VoiceSessionText(
@@ -60,7 +62,7 @@ struct VoiceSessionLiveActivity: Widget {
                 // The tightest slot there is. It still shows the passed label,
                 // truncated — substituting a shorter native string here is
                 // precisely the fossilization this design avoids.
-                VoiceSessionText(text: state.label, font: .caption2, color: .secondary)
+                VoiceSessionText(text: label, font: .caption2, color: .secondary)
             } minimal: {
                 VoiceAccentGlyph(accent: state.accentColor, scale: .small)
             }
