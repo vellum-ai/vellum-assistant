@@ -113,8 +113,18 @@ export function useGlobalDeepLinkConsumer(): void {
     // on the right conversation is the whole job. With nothing running, resume
     // degrades to `new`.
     if (mode === "resume" && isLiveVoiceSessionActive(session.state)) {
-      if (session.conversationId !== null) {
-        openThread(session.conversationId);
+      // `startedConversationId` first — ownership is a *composer binding*, not
+      // wire identity, and this is the id the owning composer is bound to. A
+      // composer that started the session on a client-side draft id keeps that
+      // id here while `conversationId` becomes the server's, so landing on the
+      // latter would navigate away from the composer that owns the session.
+      // (`use-live-voice`'s reconnect paths take the opposite precedence: they
+      // need the conversation the *transport* reattaches to.) `conversationId`
+      // is the fallback for a session started without one, where `ready`
+      // assigns it and `startedConversationId` stays `null`.
+      const target = session.startedConversationId ?? session.conversationId;
+      if (target !== null) {
+        openThread(target);
       } else {
         // Pre-`ready` draft session — the draft composer owns it.
         navigateRef.current(routes.assistant);
