@@ -3,23 +3,13 @@
  * every tier (the `list_memory` surface reads capability nodes regardless of
  * tier), but `embed_graph_node` rows target the v1 Qdrant collection and
  * dispatch discards them while concept-page memory is active — so the seeder
- * writes those rows only when v1 is the active tier. On the v1 path the
- * seeder also reconciles unchanged nodes whose current content has no
- * embedding under the current backend, so a capability seeded (or edited)
- * while a higher tier was active still gets its v1 point. A node counts as
- * embedded only when a `memory_embeddings` row matches its id, the backend's
- * (provider, model) identity, and the content hash of the text the embed job
- * would send — anything else re-enqueues. Enqueues coalesce with a pending
- * `embed_graph_node` row for the same node, so back-to-back seed passes queue
- * at most one job per node.
+ * writes those rows only when v1 is the active tier.
  *
- * The second block covers the invariant that reconcile leans on:
- * `embedAndUpsert` writes its `memory_embeddings` row only once the Qdrant
- * upsert has succeeded, so a cache row never claims a point that is not
- * there. It lives here because `embedAndUpsert` has no dedicated test file
- * and the capability reconcile is what the honesty of that row protects.
+ * The second block covers a general embedding invariant: `embedAndUpsert`
+ * writes its `memory_embeddings` row only once the Qdrant upsert has
+ * succeeded, so a cache row never claims a point that is not there. It lives
+ * here because `embedAndUpsert` has no dedicated test file.
  */
-import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,21 +36,13 @@ const TEST_PROVIDER = "local";
 const TEST_MODEL = "test-model";
 
 // ── Embedding backend stub ─────────────────────────────────────────
-// The reconcile lookup keys on the backend's (provider, model) identity, and
-// `embedAndUpsert` embeds through the same module. Both are stubbed so the
-// tests run without a backend; the remaining exports stay real so unrelated
+// `embedAndUpsert` embeds through this module, so it is stubbed to run the
+// tests without a backend; the remaining exports stay real so unrelated
 // importers keep working.
 const realEmbeddingBackend =
   await import("../../../../persistence/embeddings/embedding-backend.js");
 mock.module("../../../../persistence/embeddings/embedding-backend.js", () => ({
   ...realEmbeddingBackend,
-  getMemoryBackendStatus: async () => ({
-    enabled: true,
-    degraded: false,
-    provider: TEST_PROVIDER,
-    model: TEST_MODEL,
-    reason: null,
-  }),
   embedWithBackend: async (_config: unknown, inputs: unknown[]) => ({
     provider: TEST_PROVIDER,
     model: TEST_MODEL,
@@ -95,16 +77,12 @@ const { getConfig } = await import("../../../../config/loader.js");
 const { getDb, getMemoryDb } =
   await import("../../../../persistence/db-connection.js");
 const { initializeDb } = await import("../../../../persistence/db-init.js");
-const { embeddingInputContentHash } =
-  await import("../../../../persistence/embeddings/embedding-types.js");
 const { _resetQdrantBreaker: resetQdrantBreaker } =
   await import("../../../../persistence/embeddings/qdrant-circuit-breaker.js");
 const { embedAndUpsert } = await import("../../../../persistence/job-utils.js");
 const { memoryEmbeddings, memoryGraphNodes, memoryJobs } =
   await import("../../../../persistence/schema/index.js");
 const { seedCliGraphNodes } = await import("../graph/capability-seed.js");
-const { formatNodeForEmbedding } = await import("../graph/graph-search.js");
-const { rowToNode } = await import("../graph/store.js");
 
 function countEmbedGraphNodeJobs(): number {
   return getMemoryDb()!
@@ -114,16 +92,12 @@ function countEmbedGraphNodeJobs(): number {
     .all().length;
 }
 
-function capabilityNodeRows(): Array<typeof memoryGraphNodes.$inferSelect> {
+function countCapabilityNodes(): number {
   return getMemoryDb()!
     .select()
     .from(memoryGraphNodes)
     .where(eq(memoryGraphNodes.type, "procedural"))
-    .all();
-}
-
-function countCapabilityNodes(): number {
-  return capabilityNodeRows().length;
+    .all().length;
 }
 
 function countEmbeddingRows(targetId: string): number {
@@ -137,42 +111,6 @@ function countEmbeddingRows(targetId: string): number {
       ),
     )
     .all().length;
-}
-
-/**
- * Insert a `memory_embeddings` row for every capability node, simulating
- * completed `embed_graph_node` jobs. Defaults match what the embed job would
- * write — the stub backend's identity and the hash of the text
- * `embedGraphNodeDirect` embeds — so overriding one facet isolates it.
- */
-function insertEmbeddingRowsForAllCapabilityNodes(
-  overrides: {
-    provider?: string;
-    model?: string;
-    contentHash?: string;
-  } = {},
-): void {
-  const now = Date.now();
-  for (const row of capabilityNodeRows()) {
-    getDb()
-      .insert(memoryEmbeddings)
-      .values({
-        id: randomUUID(),
-        targetType: "graph_node",
-        targetId: row.id,
-        provider: overrides.provider ?? TEST_PROVIDER,
-        model: overrides.model ?? TEST_MODEL,
-        dimensions: 4,
-        vectorJson: JSON.stringify([0, 0, 0, 0]),
-        vectorBlob: null,
-        contentHash:
-          overrides.contentHash ??
-          embeddingInputContentHash(formatNodeForEmbedding(rowToNode(row))),
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-  }
 }
 
 beforeAll(async () => {
@@ -207,88 +145,6 @@ describe("capability seeding embed_graph_node gate", () => {
 
   test("v1 config: newly created capability nodes enqueue embed_graph_node rows", async () => {
     setConfig("memory", { v2: { enabled: false }, v3: { live: false } });
-
-    await seedCliGraphNodes();
-
-    const nodes = countCapabilityNodes();
-    expect(nodes).toBeGreaterThan(0);
-    expect(countEmbedGraphNodeJobs()).toBe(nodes);
-  });
-
-  test("v1 after v3-live seeding: unchanged nodes with no embedding row re-enqueue embed_graph_node", async () => {
-    setConfig("memory", { v3: { live: true } });
-    await seedCliGraphNodes();
-    expect(countEmbedGraphNodeJobs()).toBe(0);
-
-    setConfig("memory", { v2: { enabled: false }, v3: { live: false } });
-    await seedCliGraphNodes();
-
-    const nodes = countCapabilityNodes();
-    expect(nodes).toBeGreaterThan(0);
-    expect(countEmbedGraphNodeJobs()).toBe(nodes);
-  });
-
-  test("v1 double-seed with no embedding rows: exactly one pending embed job per node", async () => {
-    setConfig("memory", { v2: { enabled: false }, v3: { live: false } });
-
-    await seedCliGraphNodes();
-    await seedCliGraphNodes();
-
-    const nodes = countCapabilityNodes();
-    expect(nodes).toBeGreaterThan(0);
-    expect(countEmbedGraphNodeJobs()).toBe(nodes);
-  });
-
-  test("v1 with current embedding rows present: unchanged nodes do not enqueue duplicates", async () => {
-    setConfig("memory", { v2: { enabled: false }, v3: { live: false } });
-    await seedCliGraphNodes();
-    expect(countCapabilityNodes()).toBeGreaterThan(0);
-
-    insertEmbeddingRowsForAllCapabilityNodes();
-    getMemoryDb()!.run("DELETE FROM memory_jobs");
-
-    await seedCliGraphNodes();
-
-    expect(countEmbedGraphNodeJobs()).toBe(0);
-  });
-
-  test("v1 with a stale content hash: unchanged nodes re-enqueue embed_graph_node", async () => {
-    setConfig("memory", { v2: { enabled: false }, v3: { live: false } });
-    await seedCliGraphNodes();
-
-    // The hash a capability's previous description would have left behind.
-    insertEmbeddingRowsForAllCapabilityNodes({
-      contentHash: "hash-of-the-previous-description",
-    });
-    getMemoryDb()!.run("DELETE FROM memory_jobs");
-
-    await seedCliGraphNodes();
-
-    const nodes = countCapabilityNodes();
-    expect(nodes).toBeGreaterThan(0);
-    expect(countEmbedGraphNodeJobs()).toBe(nodes);
-  });
-
-  test("v1 with rows from another embedding provider: unchanged nodes re-enqueue", async () => {
-    setConfig("memory", { v2: { enabled: false }, v3: { live: false } });
-    await seedCliGraphNodes();
-
-    insertEmbeddingRowsForAllCapabilityNodes({ provider: "other-provider" });
-    getMemoryDb()!.run("DELETE FROM memory_jobs");
-
-    await seedCliGraphNodes();
-
-    const nodes = countCapabilityNodes();
-    expect(nodes).toBeGreaterThan(0);
-    expect(countEmbedGraphNodeJobs()).toBe(nodes);
-  });
-
-  test("v1 with rows from another embedding model: unchanged nodes re-enqueue", async () => {
-    setConfig("memory", { v2: { enabled: false }, v3: { live: false } });
-    await seedCliGraphNodes();
-
-    insertEmbeddingRowsForAllCapabilityNodes({ model: "other-model" });
-    getMemoryDb()!.run("DELETE FROM memory_jobs");
 
     await seedCliGraphNodes();
 

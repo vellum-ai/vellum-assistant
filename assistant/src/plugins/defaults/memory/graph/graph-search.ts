@@ -34,10 +34,8 @@ const log = getLogger("graph-search");
 /**
  * Format a graph node's content for embedding. Prepends type metadata
  * so the embedding captures structural information alongside content.
- * Callers that need the content hash of a node's stored embedding hash this
- * exact string, so the format has a single definition.
  */
-export function formatNodeForEmbedding(node: MemoryNode): string {
+function formatNodeForEmbedding(node: MemoryNode): string {
   const parts = [`[${node.type}]`];
   if (node.emotionalCharge.intensity > 0.3) {
     const valenceLabel =

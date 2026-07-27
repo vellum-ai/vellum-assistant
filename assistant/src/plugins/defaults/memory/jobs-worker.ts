@@ -15,7 +15,6 @@ import {
   shouldLogDiskPressureBackgroundSkip,
 } from "../../../daemon/disk-pressure-background-gate.js";
 import {
-  deleteMemoryCheckpoint,
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../../persistence/checkpoints.js";
@@ -62,10 +61,6 @@ import {
 } from "../../../persistence/jobs-store.js";
 import type { JobHandler } from "../../types.js";
 import { sweepOrphanConversationMemoryTables } from "./conversation-memory-orphan-sweep.js";
-import {
-  seedCliGraphNodes,
-  seedSkillGraphNodes,
-} from "./graph/capability-seed.js";
 import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { getWorkspaceDir } from "./paths.js";
@@ -76,9 +71,7 @@ import {
   readConsolidationFailureState,
 } from "./substrate/consolidation-job.js";
 import { resolveSubstrateTuning } from "./substrate/tuning.js";
-// V1 — delete with v1. Feeds `enqueueV1MaintenanceJobs` and the one-shot
-// v1-entry reconcile.
-import { maybeEnqueueGraphBootstrap } from "./v1/graph/bootstrap.js";
+// V1 — delete with v1. Feeds `enqueueV1MaintenanceJobs`.
 import { hasPkbBufferContent } from "./v1/pkb-schedule.js";
 import { spawnMemoryWorkerProcess } from "./worker-control.js";
 
@@ -861,12 +854,6 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   memoryV3Maintain: "memory_v3_maintain_last_run",
   pkbFiling: "pkb_filing_last_run",
   pkbCompaction: "pkb_compaction_last_run",
-  // One-shot done-marker (epoch-ms), not a cadence checkpoint like the
-  // entries above: present while the assistant stays on v1, cleared by every
-  // tick that is off v1 (substrate active or memory disabled) so the next
-  // return to v1 reconciles again. Daemon startup claims it directly on a v1
-  // boot. See `maybeRunV1EntryReconcile` and `rearmV1EntryReconcile`.
-  v1EntryReconcile: "v1_entry_reconcile_done",
 } as const;
 
 /**
@@ -1032,94 +1019,6 @@ export function consolidationBackoffRemainingMs(
 }
 
 /**
- * Run the one-time v1-entry reconcile unless it already ran for the current
- * stay on the v1 tier: the graph bootstrap check (populates an empty graph
- * from historical segments; self-guarded by tier/populated/has-history/
- * active-job gates) plus both capability seeders (their unchanged-content
- * path backfills v1 embeddings missing for nodes seeded under another tier).
- * The checkpoint is written even when individual steps fail — this is a
- * transition-edge trigger, not a retry loop; a failed step gets another
- * chance on the next transition or restart.
- *
- * This covers the HOT transition onto v1 only. A v1 boot is claimed by
- * `runMemoryStartup` before the worker process is spawned (it runs the same
- * three steps in the daemon), so a marker present here on the worker's first
- * tick means boot already reconciled and this returns without a second,
- * concurrent pass over the same `memory_graph_nodes` rows.
- */
-function maybeRunV1EntryReconcile(nowMs: number): void {
-  try {
-    const done = getMemoryCheckpoint(
-      GRAPH_MAINTENANCE_CHECKPOINTS.v1EntryReconcile,
-    );
-    if (done !== null) {
-      return;
-    }
-  } catch (err) {
-    // A failed read skips this tick instead of running unmarked — running
-    // without the durable marker is exactly what makes a per-tick re-enqueue
-    // loop possible.
-    log.warn({ err }, "Reading the v1-entry reconcile checkpoint failed");
-    return;
-  }
-
-  try {
-    maybeEnqueueGraphBootstrap();
-  } catch (err) {
-    log.warn({ err }, "V1-entry graph bootstrap check failed");
-  }
-  try {
-    seedSkillGraphNodes();
-  } catch (err) {
-    log.warn({ err }, "V1-entry skill capability seeding failed");
-  }
-  try {
-    void seedCliGraphNodes().catch((err) => {
-      log.warn({ err }, "V1-entry CLI capability seeding failed");
-    });
-  } catch (err) {
-    log.warn({ err }, "V1-entry CLI capability seeding failed");
-  }
-
-  try {
-    setMemoryCheckpoint(
-      GRAPH_MAINTENANCE_CHECKPOINTS.v1EntryReconcile,
-      String(nowMs),
-    );
-  } catch (err) {
-    log.warn({ err }, "Writing the v1-entry reconcile checkpoint failed");
-  }
-}
-
-/**
- * Re-arm the one-shot v1-entry reconcile by clearing its done-marker, so the
- * next tick that lands on v1 reconciles again. Called from every tick that is
- * off the v1 tier — both the substrate branch and the memory-disabled branch.
- * Memory being off counts as leaving v1 for the same reason the substrate does:
- * capability nodes keep being written (`refreshSkillCapabilityMemories` is
- * all-tier) while no `embed_graph_node` rows are enqueued, so those nodes are
- * absent from v1 semantic retrieval until a reconcile backfills them.
- *
- * Reads before deleting. The marker is absent on essentially every tick of a
- * non-v1 assistant (it is only ever written on v1), so the read keeps the
- * steady state one indexed lookup instead of a WAL-dirtying DELETE on every
- * poll of a 1.5s–30s loop.
- */
-function rearmV1EntryReconcile(): void {
-  try {
-    const done = getMemoryCheckpoint(
-      GRAPH_MAINTENANCE_CHECKPOINTS.v1EntryReconcile,
-    );
-    if (done === null) {
-      return;
-    }
-    deleteMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.v1EntryReconcile);
-  } catch (err) {
-    log.warn({ err }, "Clearing the v1-entry reconcile checkpoint failed");
-  }
-}
-
-/**
  * Enqueue periodic graph maintenance jobs.
  *
  * Mutually exclusive between v1 and concept-page memory:
@@ -1147,23 +1046,11 @@ function rearmV1EntryReconcile(): void {
  * `memory_v3_maintain` backstop is scheduled when a v3 path is active so the
  * topic tree self-heals even if the primary post-consolidation follow-up
  * enqueue is missed ({@link enqueueV3BackstopJobs}).
- *
- * Every tick that is off v1 — including the memory-disabled one, which returns
- * before scheduling anything — re-arms the one-shot v1-entry reconcile
- * ({@link rearmV1EntryReconcile}).
  */
 export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
 ): void {
-  // Off the v1 tier — memory disabled or the concept-page substrate active —
-  // the only work this tick owes v1 is re-arming the one-shot entry reconcile.
-  // It runs ahead of the memory-disabled return so both non-v1 states re-arm,
-  // not just the substrate one.
-  if (!isMemoryV1Active(config)) {
-    rearmV1EntryReconcile();
-  }
-
   if (!isMemoryEnabled(config)) {
     return;
   }
@@ -1312,30 +1199,14 @@ function maybeEnqueueScheduledConsolidation(
 
 /**
  * v1-only maintenance entries; scheduled only when the legacy graph engine is
- * the live memory tier. Covers the one-shot v1-entry reconcile, the four v1
- * graph lifecycle jobs (decay, consolidate, pattern_scan, narrative), and the
- * PKB filing/compaction schedule.
+ * the live memory tier. Covers the four v1 graph lifecycle jobs (decay,
+ * consolidate, pattern_scan, narrative) and the PKB filing/compaction
+ * schedule.
  */
 function enqueueV1MaintenanceJobs(
   config: AssistantConfig,
   nowMs: number,
 ): void {
-  // One-shot v1-entry reconcile, covering the config hot-reload that flips
-  // concept-page memory off (or memory back on) and lands the assistant on v1
-  // without a restart — leaving capability nodes without v1 embeddings and the
-  // graph possibly empty despite existing history. A fresh v1 boot is covered
-  // by `startup.ts`, which runs the same steps in the daemon and claims the
-  // checkpoint before spawning this worker, so this call returns immediately on
-  // the worker's first tick after a v1 boot. The durable checkpoint marks the
-  // reconcile done for the current stay on v1, so it runs exactly once per
-  // transition regardless of the bootstrap's outcome — an unconditional
-  // per-tick bootstrap check would tight-loop when extraction yields no
-  // non-procedural nodes (the emptiness test stays true while the processed
-  // job zeroes the next poll delay). Any tick off v1 clears the checkpoint so a
-  // later return to v1 reconciles again. Best-effort: every step logs on
-  // failure and never blocks the maintenance enqueues below.
-  maybeRunV1EntryReconcile(nowMs);
-
   const schedule: Array<{
     key: string;
     intervalMs: number;

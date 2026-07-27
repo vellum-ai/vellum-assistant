@@ -22,11 +22,12 @@ lower tier (see the runbooks below), not to maintain it.
 
 Two consequences worth stating plainly:
 
-- Anything in the tree today whose only purpose is a return-to-v1 path
-  (the `v1_entry_reconcile_done` checkpoint and its re-arm in `jobs-worker.ts`,
-  the boot claim in `startup.ts`, `reconcileCapabilityEmbeddings` in
-  `graph/capability-seed.ts`) is vestigial. It is cheap and harmless, and it is
-  deleted wholesale with v1 — the v1 runbook lists the sites. Do not extend it.
+- The return-to-v1 path has been **removed**, not merely left vestigial: the
+  `v1_entry_reconcile_done` checkpoint, its re-arm in `jobs-worker.ts`, the boot
+  claim in `startup.ts`, and `reconcileCapabilityEmbeddings` in
+  `graph/capability-seed.ts` are all gone. Do not reintroduce them. (A stale
+  `v1_entry_reconcile_done` row may still sit in `memory_checkpoints` on an
+  upgraded install; nothing reads it, so it is inert and needs no migration.)
 - Gaps that only manifest after a downgrade are **not bugs**. Record them here
   if they are non-obvious; do not build machinery to close them.
 
@@ -103,7 +104,7 @@ Two conventions keep that grep honest, and both are load-bearing:
 - **The banner phrase is exact.** `startup.ts` labels its sections
   `// ---- <tier> ... ----` rather than `// V1 …`, so its v1 labels spell out
   `— delete with v1` too (`// ---- v1 (legacy engine) — delete with v1 ----`);
-  otherwise its four v1 blocks would be invisible to the grep.
+  otherwise its three v1 blocks would be invisible to the grep.
 - **Dispatch call sites are banner-marked, not just function bodies.** A v1
   helper is typically an `else` arm calling a banner-marked function
   (`jobs-worker.ts`'s `enqueueV1MaintenanceJobs`, `indexer.ts`'s
@@ -307,7 +308,6 @@ failure record and the section re-embed high-water:
   absent the maintain job re-embeds EVERY page, so losing or renaming it forces
   a full rebuild. Distinct from the `memory_v3_maintain_last_run` cadence key
   despite the shared prefix
-- `v1_entry_reconcile_done` — the one-shot v1-entry reconcile marker
 - v1: `graph_maintenance:{decay,consolidate,pattern_scan,narrative}:last_run`,
   `pkb_filing_last_run`, `pkb_compaction_last_run`,
   `graph_bootstrap:*`, `memory:backfill:*`
@@ -399,8 +399,8 @@ opportunistically with it.
 
 ### Prerequisites that BLOCK deletion
 
-Do not start until all three are resolved. Each is a live all-tier dependency
-on v1-era machinery.
+Do not start until both are resolved. Each is a live all-tier dependency on
+v1-era machinery.
 
 1. **The graph node surface is all-tier.** `graph/store.ts`,
    `graph/capability-seed.ts`, and `graph/tool-handlers.ts` write and read
@@ -415,17 +415,6 @@ on v1-era machinery.
    `everInjected` state (`onCompacted`), and it defines the injected-block strip
    identity that `daemon/conversation-runtime-assembly.ts` matches on. Those
    move to a tier-neutral home first.
-3. **The v1-entry reconcile goes with v1.** `maybeRunV1EntryReconcile` in
-   `jobs-worker.ts` and its `v1_entry_reconcile_done` checkpoint exist only to
-   re-run bootstrap + capability seeders when an assistant enters v1. Three
-   sites carry it and all go in the same change: the reconcile itself,
-   `rearmV1EntryReconcile` (clears the marker on every tick that is off v1), and
-   the boot-time claim in `startup.ts` that keeps the daemon's own seeding pass
-   from racing the worker's. Delete `reconcileCapabilityEmbeddings` in
-   `graph/capability-seed.ts` with them — entering v1 is the only path that
-   reaches it. This is a prerequisite only in the bookkeeping sense: tier
-   movement is one-way (see the top of this file), so none of it serves a
-   supported scenario and it is a straight delete, not a port.
 
 ### External consumers to repoint or retire
 
@@ -542,9 +531,9 @@ not deleted**. Today the test-only hits are:
    list — it covers `startup.ts`'s `---- v1 (legacy engine) ----` section labels
    (which spell out the banner phrase for exactly this reason) and the dispatch
    call sites, not only the function bodies:
-   `startup.ts` (**four** blocks — the v1 Qdrant ensure and the PKB reconcile,
-   both covered by step 8; the v1-entry reconcile claim; and the graph-bootstrap
-   tail), `jobs-worker.ts` (`enqueueV1MaintenanceJobs` **and** the `else` arm
+   `startup.ts` (**three** blocks — the v1 Qdrant ensure and the PKB reconcile,
+   both covered by step 8, and the graph-bootstrap tail),
+   `jobs-worker.ts` (`enqueueV1MaintenanceJobs` **and** the `else` arm
    that calls it), `job-handlers.ts`, `indexer.ts` (`enqueueV1IndexTriggers`
    **and** its call site), `injectors.ts` (the PKB injector pair). The same grep
    also returns `graph/conversation-graph-memory.ts` and

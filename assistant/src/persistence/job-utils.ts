@@ -259,11 +259,10 @@ export async function embedAndUpsert(
 
   // Persist the embedding in SQLite for the cross-restart cache, after the
   // point is live in Qdrant. Consumers read a row as "this target is indexed"
-  // — the graph-node orphan sweep and the capability-seed reconcile both do —
-  // so a row written ahead of the upsert would mark a missing point as
-  // embedded and suppress the re-embed that would restore it. Best-effort in
-  // the other direction: a write failure logs and leaves the point in place,
-  // and the next run re-embeds.
+  // — the graph-node orphan sweep does — so a row written ahead of the upsert
+  // would mark a missing point as embedded and suppress the re-embed that
+  // would restore it. Best-effort in the other direction: a write failure logs
+  // and leaves the point in place, and the next run re-embeds.
   try {
     const blobValue = vectorToBlob(vector);
     db.insert(memoryEmbeddings)
