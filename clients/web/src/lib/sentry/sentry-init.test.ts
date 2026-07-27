@@ -117,6 +117,41 @@ describe("initSentry commit-pressure enrichment", () => {
     expect(pressure?.sources["smooth-stream"]).toBe(2);
   });
 
+  test("attaches to the MINIFIED form the production bundle actually throws", () => {
+    // `react-dom-client.production.js` contains no occurrence of the expanded
+    // sentence — it throws `formatProdErrorMessage(185)`. Sentry expands it
+    // server-side, so an events-page reading of the message is misleading:
+    // `beforeSend` sees this string. Matching only the dev text meant the
+    // enrichment never ran in the builds it was written for.
+    recordUpdate("smooth-stream");
+
+    const sent = sendEvent(
+      "Minified React error #185; visit https://react.dev/errors/185 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
+    );
+
+    expect(sent?.contexts?.commit_pressure).toBeDefined();
+  });
+
+  test("does not match a different minified React error", () => {
+    recordUpdate("smooth-stream");
+
+    const sent = sendEvent(
+      "Minified React error #186; visit https://react.dev/errors/186 for the full message.",
+    );
+
+    expect(sent?.contexts?.commit_pressure).toBeUndefined();
+  });
+
+  test("does not match a longer code that merely starts with 185", () => {
+    recordUpdate("smooth-stream");
+
+    const sent = sendEvent(
+      "Minified React error #1850; visit https://react.dev/errors/1850 for the full message.",
+    );
+
+    expect(sent?.contexts?.commit_pressure).toBeUndefined();
+  });
+
   test("leaves unrelated errors untouched", () => {
     recordUpdate("smooth-stream");
 

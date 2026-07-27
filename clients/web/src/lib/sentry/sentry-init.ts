@@ -20,6 +20,26 @@ import { detectClientOs } from "@/runtime/platform-detection";
  *
  * The Electron check comes first since the renderer also runs the web bundle.
  */
+/**
+ * Recognize React's nested-update-limit error in every form it ships as.
+ *
+ * The expanded sentence only exists in the development bundle:
+ * `react-dom-client.production.js` throws `formatProdErrorMessage(185)`, which
+ * reads "Minified React error #185; visit https://react.dev/errors/185 …".
+ * Sentry expands it server-side for display, so the stored events read like
+ * the development text while the value reaching `beforeSend` — client-side,
+ * pre-transmit — is the minified one. Matching only the sentence would mean
+ * the enrichment never ran anywhere it matters.
+ *
+ * The digit guards keep `#185` from also matching a future `#1850`.
+ */
+const REACT_ERROR_185 =
+  /Maximum update depth exceeded|Minified React error #185(?!\d)|react\.dev\/errors\/185(?!\d)/;
+
+function isReactError185(message: string): boolean {
+  return REACT_ERROR_185.test(message);
+}
+
 function resolveDsn(): string | undefined {
   if (isElectron()) return import.meta.env.VITE_SENTRY_DSN_MACOS;
   if (isNativePlatform()) return import.meta.env.VITE_SENTRY_DSN_IOS;
@@ -79,8 +99,8 @@ const options: BrowserOptions = {
     // occurrence so far has blamed a different frame. Attach the update
     // traffic that was actually in flight so the next one names the cause.
     // See `lib/commit-pressure.ts`.
-    const raisedMaxUpdateDepth = event.exception?.values?.some((value) =>
-      value.value?.includes("Maximum update depth exceeded"),
+    const raisedMaxUpdateDepth = event.exception?.values?.some(
+      (value) => value.value != null && isReactError185(value.value),
     );
     if (!raisedMaxUpdateDepth) return event;
     const pressure = snapshotCommitPressure();
