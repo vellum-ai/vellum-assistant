@@ -50,10 +50,14 @@ const BOOT_RETRY_INTERVAL_MS = 60_000;
  * The event also carries the on-disk corpus size. That probe is best-effort
  * and isolated: if it fails the event still goes out with the tier alone,
  * because the tier heartbeat is what the fleet-mix dashboards depend on and a
- * sizing failure must not create a gap in that series.
+ * sizing failure must not create a gap in that series. It is also skipped
+ * outright on a confirmed opt-out — the event is dropped one layer down, so
+ * walking the workspace for it would be pure cost on the assistants that
+ * asked us not to collect.
  */
 export function recordMemoryTierOnce(): void {
-  if (getRawShareAnalytics() === "unknown") {
+  const consent = getRawShareAnalytics();
+  if (consent === "unknown") {
     return;
   }
   try {
@@ -62,10 +66,12 @@ export function recordMemoryTierOnce(): void {
     const tier = memoryTier(getConfigReadOnly());
 
     let corpus: Record<string, number> = {};
-    try {
-      corpus = { ...measureMemoryCorpusSize() };
-    } catch (err) {
-      log.warn({ err }, "memory corpus sizing failed (emitting tier only)");
+    if (consent !== false) {
+      try {
+        corpus = { ...measureMemoryCorpusSize() };
+      } catch (err) {
+        log.warn({ err }, "memory corpus sizing failed (emitting tier only)");
+      }
     }
 
     recordWatchdogEvent({

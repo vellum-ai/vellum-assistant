@@ -13,6 +13,15 @@ import { getWorkspaceDir } from "../util/platform.js";
  * accumulated before being switched off. Reporting both unconditionally keeps
  * the numbers legible across a migration instead of blinking to zero the
  * moment a tier flips.
+ *
+ * KNOWN GAP: this measures on-disk Markdown only. It does NOT count
+ * `memory_graph_nodes`, which is a real part of a v1 assistant's learned state
+ * — `v2/migration.ts` gathers graph nodes alongside PKB Markdown when it
+ * migrates v1 — so a v1 assistant rich in graph nodes but holding only the
+ * seeded PKB files reads as near-empty here. Counting them means opening the
+ * memory SQLite DB from the resource-monitor process, which this probe
+ * deliberately does not do. Treat `pkb_files` as a lower bound on v1 corpus
+ * size and confirm v1 assistants directly before sizing a migration off it.
  */
 export interface MemoryCorpusSize {
   /** `.md` files under `memory/concepts/` — the v2/v3 concept-page count. */
@@ -33,13 +42,20 @@ export interface MemoryCorpusSize {
 }
 
 /**
- * Ceiling on files visited per tree. The largest corpus observed in the fleet
- * is in the low hundreds of pages, so this never binds in practice; it exists
- * so a pathological workspace cannot turn a telemetry probe into a long walk.
- * A tree that hits the cap reports the cap, making the count a floor rather
- * than an error.
+ * Ceiling on directory entries examined per tree. The largest corpus observed
+ * in the fleet is in the low hundreds of pages, so this never binds in
+ * practice; it exists so a pathological workspace cannot turn a telemetry
+ * probe into a long walk.
+ *
+ * It counts every dirent seen — directories and non-Markdown files included —
+ * not just the Markdown matches. A cap on matches alone would not bound the
+ * walk at all: a tree of a million empty directories contains zero Markdown
+ * files and would still be traversed in full by this synchronous probe.
+ *
+ * A tree that hits the cap returns what it counted so far, making the result
+ * a floor rather than an error.
  */
-const MAX_FILES_PER_TREE = 20_000;
+const MAX_ENTRIES_PER_TREE = 20_000;
 
 interface TreeSize {
   files: number;
@@ -62,10 +78,17 @@ const EMPTY_TREE: TreeSize = { files: 0, bytes: 0 };
  * `withFileTypes` dirents carry lstat semantics, so a symlinked directory
  * reports as a symlink rather than a directory and is skipped — the walk
  * cannot follow a link into a cycle, and needs no visited-inode bookkeeping.
+ *
+ * `maxEntries` is a parameter only so the ceiling is testable without
+ * materializing twenty thousand files; production callers take the default.
  */
-function measureMarkdownTree(dir: string): TreeSize {
+export function measureMarkdownTree(
+  dir: string,
+  maxEntries: number = MAX_ENTRIES_PER_TREE,
+): TreeSize {
   let files = 0;
   let bytes = 0;
+  let visited = 0;
   const pending: string[] = [dir];
 
   while (pending.length > 0) {
@@ -84,6 +107,10 @@ function measureMarkdownTree(dir: string): TreeSize {
     }
 
     for (const entry of entries) {
+      visited += 1;
+      if (visited > maxEntries) {
+        return { files, bytes };
+      }
       if (entry.isDirectory()) {
         pending.push(join(current, entry.name));
         continue;
@@ -97,9 +124,6 @@ function measureMarkdownTree(dir: string): TreeSize {
       } catch {
         // Counted in `files` but contributes no bytes — a file that vanished
         // between the readdir and the stat is a race, not a failure.
-      }
-      if (files >= MAX_FILES_PER_TREE) {
-        return { files, bytes };
       }
     }
   }

@@ -168,6 +168,20 @@ describe("memory-tier-reporter", () => {
     expect(recorded).toHaveLength(1);
   });
 
+  test("a confirmed opt-out skips the corpus probe entirely", () => {
+    // The event is dropped one layer down, so walking the workspace for it
+    // would be pure cost on an assistant that asked us not to collect. The
+    // throwing stub asserts the probe is never reached.
+    consent = false;
+    currentConfig = makeConfig(true, true);
+    corpusError = new Error("probe must not run");
+
+    recordMemoryTierOnce();
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.detail).toEqual({ tier: "v2" });
+  });
+
   test("startMemoryTierReporter is a no-op under VELLUM_DEV=1", () => {
     process.env.VELLUM_DEV = "1";
     consent = true; // consent known → a non-dev start would emit immediately

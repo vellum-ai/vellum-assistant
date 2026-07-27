@@ -15,7 +15,10 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceDir: () => workspaceDir,
 }));
 
-import { measureMemoryCorpusSize } from "./memory-corpus-size.js";
+import {
+  measureMarkdownTree,
+  measureMemoryCorpusSize,
+} from "./memory-corpus-size.js";
 
 function write(relativePath: string, contents: string): void {
   const full = join(workspaceDir, relativePath);
@@ -83,6 +86,27 @@ describe("measureMemoryCorpusSize", () => {
     write("memory/concepts/alice.md", "12345");
 
     expect(measureMemoryCorpusSize().buffer_lines).toBe(0);
+  });
+
+  test("the traversal ceiling counts every entry, not just markdown", () => {
+    // The regression this guards: a ceiling that only counted `.md` matches
+    // would not bound this walk at all, because nothing in the root is
+    // Markdown.
+    //
+    // The page sits one level down so the assertion does not depend on
+    // readdir order. The root holds 11 entries (10 noise files + the subdir),
+    // so a limit of 5 is exhausted while still scanning the root and the walk
+    // returns before it ever descends — whichever order those 11 come back in.
+    const dir = join(workspaceDir, "noise");
+    mkdirSync(join(dir, "sub"), { recursive: true });
+    for (let i = 0; i < 10; i++) {
+      writeFileSync(join(dir, `placeholder-${i}.txt`), "x", "utf8");
+    }
+    writeFileSync(join(dir, "sub", "page.md"), "12345", "utf8");
+
+    expect(measureMarkdownTree(dir, 5)).toEqual({ files: 0, bytes: 0 });
+    // Unbounded, the same tree yields the one page it contains.
+    expect(measureMarkdownTree(dir)).toEqual({ files: 1, bytes: 5 });
   });
 
   test("does not follow symlinked directories", () => {
