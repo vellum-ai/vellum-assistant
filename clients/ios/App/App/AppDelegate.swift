@@ -20,7 +20,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func applicationDidEnterBackground(_ application: UIApplication) {}
     func applicationWillEnterForeground(_ application: UIApplication) {}
     func applicationDidBecomeActive(_ application: UIApplication) {}
-    func applicationWillTerminate(_ application: UIApplication) {}
+    /// A backgrounded voice session keeps the app alive (the `audio` background
+    /// mode), so swiping it away in the app switcher terminates a *running*
+    /// process and lands here. Its Live Activity outlives the process unless it
+    /// is ended, which would strand an island the user cannot dismiss.
+    func applicationWillTerminate(_ application: UIApplication) {
+        VoiceLiveActivityPlugin.endRunningActivityBeforeTermination()
+    }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
         if handleConnectDeepLink(url) {

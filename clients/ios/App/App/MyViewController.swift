@@ -4,10 +4,10 @@ import WebKit
 
 /// Custom `CAPBridgeViewController` subclass that:
 ///
-/// 1. Registers `NativeAuthPlugin`, `NativeBiometricPlugin`, and
-///    `VoiceAudioSessionPlugin` as local plugin instances at bridge init
-///    time. These plugins live inside the App target (no SPM module) so the
-///    bridge won't discover them automatically.
+/// 1. Registers `NativeAuthPlugin`, `NativeBiometricPlugin`,
+///    `VoiceAudioSessionPlugin`, and `VoiceLiveActivityPlugin` as local plugin
+///    instances at bridge init time. These plugins live inside the App target
+///    (no SPM module) so the bridge won't discover them automatically.
 ///
 /// 2. Injects `WKUserScript`s at `.atDocumentEnd` to:
 ///    a) Pin focusable fields to a minimum 16px font-size, preventing the
@@ -145,6 +145,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(NativeAuthPlugin())
         bridge?.registerPluginInstance(NativeBiometricPlugin())
         bridge?.registerPluginInstance(VoiceAudioSessionPlugin())
+        bridge?.registerPluginInstance(VoiceLiveActivityPlugin())
         installNavigationDelegateProxy()
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
