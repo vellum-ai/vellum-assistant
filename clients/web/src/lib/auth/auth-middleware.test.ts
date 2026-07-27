@@ -64,6 +64,13 @@ mock.module("@/utils/when-store-state", () => ({
     })) as typeof whenStoreStateReal,
 }));
 
+// The guard re-runs itself through the router when a timed-out probe reports
+// late; stub the route tree so the assertion is on the re-run, not on routing.
+const revalidateMock = mock(() => Promise.resolve());
+mock.module("@/routes", () => ({
+  router: { revalidate: revalidateMock },
+}));
+
 import { authMiddleware } from "./auth-middleware";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
@@ -135,12 +142,17 @@ beforeEach(() => {
   mockSelectedAssistant = undefined;
   mockGatewayTokenPresent = false;
   mockGatewayAuthMode = false;
+  revalidateMock.mockClear();
   useAuthStore.setState(initialAuthState, true);
   useResolvedAssistantsStore.setState({ assistants: [], activeAssistantId: null });
   useAssistantLifecycleStore.setState({ assistantState: { kind: "error", message: "no assistant" } });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Settle the probe so a re-run armed by a timed-out wait fires and detaches
+  // here instead of in the next test, then drain its lazy router import.
+  useAuthStore.setState({ platformSession: "absent" });
+  await tick();
   useAuthStore.setState(initialAuthState, true);
 });
 
@@ -469,6 +481,45 @@ describe("authMiddleware — local-mode post-checkout platform probe", () => {
     // billing, whose login notice carries `session_id` through sign-in.
     const outcome = await runMiddlewareOutcome(postCheckoutBilling);
     expect(outcome.admitted).toBe(true);
+  });
+
+  test("a probe that succeeds after the timeout re-runs the guard", async () => {
+    makeSelfHostedLocalReturn();
+
+    // The probe outruns the (clamped) wait, so the guard decides on the forced
+    // "absent" and admits the return to billing.
+    const outcome = await runMiddlewareOutcome(postCheckoutBilling);
+    expect(outcome.admitted).toBe(true);
+    expect(revalidateMock).not.toHaveBeenCalled();
+
+    // The probe lands "present" afterwards. Nothing else re-runs route
+    // middleware on a store change, so without this the paid return is stranded
+    // on billing with no managed assistant to apply the purchase to.
+    useAuthStore.setState({ platformSession: "present" });
+    await tick();
+    expect(revalidateMock).toHaveBeenCalledTimes(1);
+
+    // The re-run reads the settled session and funnels the return.
+    const redirected = await runMiddleware(postCheckoutBilling);
+    expect(redirected.status).toBe(302);
+    expect(redirected.headers.get("Location")).toBe(managedFunnel);
+  });
+
+  test("the re-run is armed once and fires once", async () => {
+    makeSelfHostedLocalReturn();
+
+    await runMiddlewareOutcome(postCheckoutBilling);
+    await runMiddlewareOutcome(postCheckoutBilling);
+
+    useAuthStore.setState({ platformSession: "present" });
+    await tick();
+    expect(revalidateMock).toHaveBeenCalledTimes(1);
+
+    // A settled probe never reopens "unknown", so no later change re-triggers
+    // the re-run — the correction cannot loop.
+    useAuthStore.setState({ platformSession: "absent" });
+    await tick();
+    expect(revalidateMock).toHaveBeenCalledTimes(1);
   });
 });
 
