@@ -93,6 +93,11 @@ type HatchPhase =
   | "resizing"
   | "ready";
 
+// How the purchased-provisioning wait ended. `health_timeout` means the
+// assistant never answered healthz within MAX_HATCH_WAIT_MS after the resize,
+// so the hatch must be failed rather than completed onto an unreachable pod.
+type HatchProvisioningOutcome = "ready" | "health_timeout";
+
 const PHASE_TARGET: Record<HatchPhase, number> = {
   initializing: 0,
   provisioning: 0.33,
@@ -535,16 +540,17 @@ export function HatchingScreen() {
     // pod). The reconcile is idempotent and fire-and-forget; a genuinely free
     // org, and the RESIZE_WAIT_MAX_MS cap, fall through to completion at
     // baseline, so a Pro hatch emerges at the right size without ever trapping
-    // the user.
+    // the user. Every wait that entered the provisioning phase leaves through
+    // the healthz probe, and the caller must honour a `health_timeout` outcome.
     const awaitPurchasedProvisioning = async (
       assistantId: string,
-    ): Promise<void> => {
+    ): Promise<HatchProvisioningOutcome> => {
       // Purchased specs live on the platform, so only a managed hatch reads
       // them. A local-mode run without the managed marker can reach here off a
       // preflight that resolved the lockfile assistant, which has no billing
       // surface — short-circuit there.
       if (isLocalMode() && !managedHatch) {
-        return;
+        return "ready";
       }
       // Fire the idempotent grow-only reconcile — the same resize the subscribe
       // webhook triggers — covering a webhook that never fired or whose resize
@@ -578,6 +584,33 @@ export function HatchingScreen() {
           });
       };
 
+      // A reconciled resize restarts the pod, so every exit from the waits below
+      // ends here before the hatch completes — otherwise the screen navigates
+      // onto a mid-restart daemon. Bounded by MAX_HATCH_WAIT_MS measured from
+      // the poll start, past which the assistant is not coming back and the
+      // hatch is a failure.
+      const waitForPostResizeHealth =
+        async (): Promise<HatchProvisioningOutcome> => {
+          while (!cancelled) {
+            try {
+              const health = await getAssistantHealthz(assistantId);
+              if (health.ok) {
+                return "ready";
+              }
+            } catch {
+              // Daemon not reachable yet during the post-resize restart.
+            }
+            if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
+              return "health_timeout";
+            }
+            await new Promise<void>((resolve) => {
+              pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+            });
+            pollTimer = null;
+          }
+          return "ready";
+        };
+
       // The cap covers both waits below — the entitlement/targets confirmation
       // and the resize itself — so a lagging subscription can never hold the
       // user past RESIZE_WAIT_MAX_MS.
@@ -606,7 +639,7 @@ export function HatchingScreen() {
             throwOnError: false,
           });
           if (cancelled) {
-            return;
+            return "ready";
           }
           if (subscription.data) {
             subscriptionState =
@@ -622,7 +655,7 @@ export function HatchingScreen() {
               throwOnError: false,
             });
           if (cancelled) {
-            return;
+            return "ready";
           }
           const data = onboarding.data;
           if (data) {
@@ -647,7 +680,7 @@ export function HatchingScreen() {
         // still reads at its pre-checkout base. That case falls through to the
         // capped wait below.
         if (subscriptionState === "non_pro" && !postCheckoutReturn) {
-          return;
+          return "ready";
         }
         // Confirmed Pro with a purchased ceiling to wait on: hold for the resize
         // below.
@@ -660,7 +693,11 @@ export function HatchingScreen() {
         // The cap is the ultimate escape, so a subscription that never flips —
         // a persistently-erroring endpoint, a lost webhook — still completes.
         if (Date.now() >= resizeDeadline) {
-          return;
+          // Nothing was confirmed, but the reconcile has been nudged on every
+          // iteration, so a resize may already have restarted the pod. Health
+          // check before completing rather than returning straight to the
+          // caller.
+          return waitForPostResizeHealth();
         }
         await new Promise<void>((resolve) => {
           pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
@@ -668,7 +705,7 @@ export function HatchingScreen() {
         pollTimer = null;
       }
       if (cancelled) {
-        return;
+        return "ready";
       }
 
       // Hold in an in-progress phase while the resize lands.
@@ -682,7 +719,7 @@ export function HatchingScreen() {
         try {
           const actualsResult = await getAssistant(assistantId);
           if (cancelled) {
-            return;
+            return "ready";
           }
           if (actualsResult.ok) {
             actuals = {
@@ -706,7 +743,7 @@ export function HatchingScreen() {
             throwOnError: false,
           });
           if (cancelled) {
-            return;
+            return "ready";
           }
           if (opStatus.data) {
             operationInFlight = isResizeOperationInFlight(opStatus.data);
@@ -735,29 +772,12 @@ export function HatchingScreen() {
         pollTimer = null;
       }
       if (cancelled) {
-        return;
+        return "ready";
       }
 
-      // The resize restarts the pod, so re-probe healthz before completing —
-      // on both the converged and the cap-expiry exit above — to avoid landing
-      // on a mid-restart daemon.
-      while (!cancelled) {
-        try {
-          const health = await getAssistantHealthz(assistantId);
-          if (health.ok) {
-            break;
-          }
-        } catch {
-          // Daemon not reachable yet during the post-resize restart.
-        }
-        if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
-          return;
-        }
-        await new Promise<void>((resolve) => {
-          pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
-        });
-        pollTimer = null;
-      }
+      // Both the converged and the cap-expiry exit above land on a pod the
+      // resize may still be restarting.
+      return waitForPostResizeHealth();
     };
 
     // Both the preflight-active path (a reload onto an already-active assistant)
@@ -792,8 +812,21 @@ export function HatchingScreen() {
         return;
       }
 
-      await awaitPurchasedProvisioning(assistantId);
+      const outcome = await awaitPurchasedProvisioning(assistantId);
       if (cancelled) {
+        return;
+      }
+      if (outcome === "health_timeout") {
+        // The provisioning wait ran its course but the assistant never came
+        // back. Completing here would hand the user an unreachable assistant,
+        // so surface the same recoverable failure the other hatch timeouts do.
+        Sentry.captureMessage("Onboarding hatch wait exceeded timeout", {
+          level: "warning",
+          extra: { maxWaitMs: MAX_HATCH_WAIT_MS, stage: "post_resize_health" },
+        });
+        setError(
+          "Your assistant is taking longer than expected. Please try again.",
+        );
         return;
       }
 

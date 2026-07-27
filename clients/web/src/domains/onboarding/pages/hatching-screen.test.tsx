@@ -114,11 +114,24 @@ const getAssistantMock = mock(async (id?: string) => {
   return { ok: true as const, status: 200, data: { ...currentAssistant } };
 });
 
-const getAssistantHealthzMock = mock(async (_id: string) => ({
-  ok: true as const,
-  status: 200,
-  data: {},
-}));
+// Healthz is probed twice per paid hatch: once in the connecting phase, once
+// after the provisioning wait. `healthzUnhealthyFromCall` makes every probe from
+// that 1-based ordinal onward answer unhealthy, so the post-provisioning probe
+// can be failed without also stalling the connecting phase.
+let healthzCallCount = 0;
+let healthzUnhealthyFromCall = Number.POSITIVE_INFINITY;
+let healthzPollClockStepMs = 0;
+
+const getAssistantHealthzMock = mock(async (_id: string) => {
+  healthzCallCount += 1;
+  if (healthzCallCount >= healthzUnhealthyFromCall) {
+    if (healthzPollClockStepMs > 0) {
+      setSystemTime(new Date(Date.now() + healthzPollClockStepMs));
+    }
+    return { ok: false as const, status: 503, data: {} };
+  }
+  return { ok: true as const, status: 200, data: {} };
+});
 
 const hatchAssistantMock = mock(async () => ({
   ok: true as const,
@@ -420,6 +433,9 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     ensureProvisionedFailFirstN = 0;
     ensureProvisionedRaceFirstN = 0;
     ensureProvisionedCallCount = 0;
+    healthzCallCount = 0;
+    healthzUnhealthyFromCall = Number.POSITIVE_INFINITY;
+    healthzPollClockStepMs = 0;
     onboardingThrows = false;
     onboardingData = null;
     currentAssistant = {
@@ -816,6 +832,78 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     },
     20000,
   );
+
+  test(
+    "the entitlement deadline expiring health-probes before completing",
+    async () => {
+      // The subscription read never resolves an answer, so the entitlement wait
+      // can exit only on its deadline. The reconcile has been nudged on every
+      // iteration by then, so a resize may already have restarted the pod —
+      // completion must still go through a health check.
+      subscriptionThrows = true;
+      onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
+      subscriptionPollClockStepMs = 91_000;
+
+      render(<HatchingScreen />);
+
+      await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+        timeout: 15000,
+      });
+      // The resize phase was never entered — the deadline fired before a
+      // confirmed Pro read — yet healthz was probed a second time.
+      expect(screen.queryByText(RESIZE_LABEL)).toBeNull();
+      expect(
+        getAssistantHealthzMock.mock.calls.length,
+      ).toBeGreaterThanOrEqual(2);
+    },
+    20000,
+  );
+
+  test(
+    "a post-resize daemon that never recovers fails the hatch instead of completing",
+    async () => {
+      // The resize converges but the restarted daemon never answers healthz.
+      // Exhausting MAX_HATCH_WAIT_MS on that probe is a failed hatch: completing
+      // would navigate the user onto an unreachable assistant.
+      subscriptionPlanId = "pro";
+      onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
+      currentAssistant.machine_size = "extra_large";
+      currentAssistant.provisioned_storage_gib = 50;
+      // The connecting-phase probe (call 1) passes; every post-resize probe
+      // fails and jumps the clock past MAX_HATCH_WAIT_MS.
+      healthzUnhealthyFromCall = 2;
+      healthzPollClockStepMs = 301_000;
+
+      render(<HatchingScreen />);
+
+      await waitFor(
+        () =>
+          expect(
+            screen.getByText(
+              "Your assistant is taking longer than expected. Please try again.",
+            ),
+          ).toBeTruthy(),
+        { timeout: 15000 },
+      );
+      expect(navigateMock).not.toHaveBeenCalled();
+    },
+    20000,
+  );
+
+  test("a free hatch never runs the post-resize health probe", async () => {
+    // The free path returns before the resize and health phases, so the only
+    // healthz probe is the connecting one — unchanged by the failure plumbing.
+    subscriptionPlanId = "base";
+    onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
+
+    render(<HatchingScreen />);
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
+      timeout: 5000,
+    });
+    expect(getAssistantHealthzMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(RESIZE_LABEL)).toBeNull();
+  });
 
   test("local hatches never provision", async () => {
     isLocalModeValue = true;
