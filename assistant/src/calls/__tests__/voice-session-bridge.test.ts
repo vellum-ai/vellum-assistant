@@ -1325,7 +1325,7 @@ describe("cutFrontDoorContentAtVerdict", () => {
   });
 });
 
-describe("front-door transcript hygiene (teardown pass)", () => {
+describe("transcript hygiene (teardown pass)", () => {
   beforeEach(resetCrudLog);
 
   function makeRow(text: string) {
@@ -1415,16 +1415,85 @@ describe("front-door transcript hygiene (teardown pass)", () => {
     expect(events).not.toContain("loadFromDb");
   });
 
-  test("a non-routed leg never runs the hygiene pass", async () => {
-    makeReservedRowConversation();
+  test("a non-routed leg leaves verdict-token content untouched (verdict cutting is front-door-only)", async () => {
+    const { events } = makeReservedRowConversation();
     getMessageByIdImpl = () => makeRow("[1] Anything at all");
 
     await startVoiceTurn(makeTurnOptions());
     await flushMicrotasks();
 
-    expect(crudLog.reads).toHaveLength(0);
+    expect(crudLog.reads).toEqual(["assistant-row-1"]);
     expect(crudLog.updates).toHaveLength(0);
     expect(crudLog.deletes).toHaveLength(0);
+    expect(events).not.toContain("loadFromDb");
+  });
+
+  test("a main-leg row containing the minimize marker persists with the marker stripped", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("Done, take a look [-1]");
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toEqual([
+      {
+        messageId: "assistant-row-1",
+        content: JSON.stringify([{ type: "text", text: "Done, take a look" }]),
+      },
+    ]);
+    expect(crudLog.deletes).toHaveLength(0);
+    // The clean row must reach in-memory history and sync consumers.
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a marker-only main-leg row is deleted, not persisted as an empty bubble", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("[-1]");
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toHaveLength(0);
+    expect(crudLog.deletes).toEqual(["assistant-row-1"]);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a marker-only row with a surviving non-text block is rewritten, never deleted", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => ({
+      ...makeRow("[-1]"),
+      content: [
+        { type: "text", text: "[-1]" },
+        { type: "tool_use", id: "tool-1", name: "app_create", input: {} },
+      ],
+    });
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.deletes).toHaveLength(0);
+    expect(crudLog.updates).toEqual([
+      {
+        messageId: "assistant-row-1",
+        content: JSON.stringify([
+          { type: "tool_use", id: "tool-1", name: "app_create", input: {} },
+        ]),
+      },
+    ]);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a main-leg row without the minimize marker is never rewritten", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("Done, take a look.");
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.reads).toEqual(["assistant-row-1"]);
+    expect(crudLog.updates).toHaveLength(0);
+    expect(crudLog.deletes).toHaveLength(0);
+    expect(events).not.toContain("loadFromDb");
   });
 
   test("a discarded speculative leg deletes its reserved assistant row at teardown", async () => {
