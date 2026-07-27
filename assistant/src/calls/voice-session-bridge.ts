@@ -1208,10 +1208,13 @@ export async function startVoiceTurn(
    *   never the verdict token or the text streamed past the cap (issue
    *   #37850). A row with no spoken bridge (canned-fallback case — that
    *   bridge is audio-only) is deleted.
-   * - Any other leg whose row carries the `[-1]` minimize marker (swallowed
+   * - Any leg whose row ENDS with the `[-1]` minimize marker (swallowed
    *   before TTS on the live path) has its text blocks rewritten through
    *   `stripInternalSpeechMarkers` so the marker never renders in the chat
-   *   transcript. Deliberately scoped to that marker: rows without it
+   *   transcript. This covers front-door answers too: that leg is never
+   *   taught the marker, but it can parrot one from visible conversation
+   *   history, and the parroted marker is never spoken and never minimizes
+   *   the room. Deliberately scoped to that marker: rows without it
    *   persist byte-identical.
    *
    * After a rewrite, in-memory history is reloaded from the clean DB before
@@ -1240,27 +1243,29 @@ export async function startVoiceTurn(
         action = "delete_discarded";
       } else {
         const row = getMessageById(reservedAssistantRowId, opts.conversationId);
+        const cut =
+          row && opts.routingLeg === "front-door"
+            ? cutFrontDoorContentAtVerdict(row.content)
+            : null;
         if (!row) {
           action = "row_missing";
-        } else if (opts.routingLeg === "front-door") {
-          const cut = cutFrontDoorContentAtVerdict(row.content);
-          if (cut) {
-            if (cut.spokenText.length > 0) {
-              updateMessageContent(
-                reservedAssistantRowId,
-                JSON.stringify(cut.blocks),
-              );
-              action = "rewrite_spoken";
-            } else {
-              deleteMessageById(reservedAssistantRowId);
-              action = "delete_empty";
-            }
+        } else if (cut) {
+          if (cut.spokenText.length > 0) {
+            updateMessageContent(
+              reservedAssistantRowId,
+              JSON.stringify(cut.blocks),
+            );
+            action = "rewrite_spoken";
+          } else {
+            deleteMessageById(reservedAssistantRowId);
+            action = "delete_empty";
           }
         } else if (
           // Terminal position only — mirrors the live latch in
           // createControlMarkerHoldback: a reply whose CONTENT contains
           // "[-1]" mid-text never minimized the room, so its transcript
-          // keeps that content untouched too.
+          // keeps that content untouched too. Front-door answer rows (no
+          // verdict token to cut) take this branch as well.
           joinedTextOfBlocks(row.content)
             .trimEnd()
             .endsWith(MINIMIZE_ROOM_MARKER)

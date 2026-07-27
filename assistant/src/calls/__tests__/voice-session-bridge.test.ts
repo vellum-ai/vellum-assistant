@@ -1415,6 +1415,37 @@ describe("transcript hygiene (teardown pass)", () => {
     expect(events).not.toContain("loadFromDb");
   });
 
+  test("a front-door answer ending with the minimize marker has the marker stripped", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("Here we go, watch the overlay. [-1]");
+
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toEqual([
+      {
+        messageId: "assistant-row-1",
+        content: JSON.stringify([
+          { type: "text", text: "Here we go, watch the overlay." },
+        ]),
+      },
+    ]);
+    expect(crudLog.deletes).toHaveLength(0);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a marker-only front-door answer row is deleted", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("[-1]");
+
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toHaveLength(0);
+    expect(crudLog.deletes).toEqual(["assistant-row-1"]);
+    expect(events).toContain("loadFromDb");
+  });
+
   test("a non-routed leg leaves verdict-token content untouched (verdict cutting is front-door-only)", async () => {
     const { events } = makeReservedRowConversation();
     getMessageByIdImpl = () => makeRow("[1] Anything at all");
