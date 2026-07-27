@@ -25,7 +25,10 @@ import {
   PLAN_TIER_COPY,
   downgradeLabel,
 } from "@/domains/settings/billing/plans/plans-copy";
-import { makeProPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
+import {
+  makeProPackage,
+  makeSuperPackage,
+} from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /** The package's own catalog blurb — never the dialog's description. */
@@ -72,11 +75,11 @@ describe("PackageSwitchConfirmModal", () => {
     const { getByText, getByRole, getByTestId } = renderModal();
 
     getByRole("heading", { name: "Upgrade to Mighty" });
-    getByText("$50/mo");
+    getByText("$30/mo");
     getByText(UPGRADE_CAPTION);
     getByText(CHECKLIST_HEADING);
     getByText("Small machine (2 vCPU, 3 GiB)");
-    getByText("15 GB storage");
+    getByText("10 GB storage");
     getByText("$25 of bundled credits");
     expect(getByTestId("confirm-package-switch-button").textContent).toBe(
       CONTINUE_LABEL,
@@ -129,7 +132,7 @@ describe("PackageSwitchConfirmModal", () => {
     const downgrade = renderModal({ relation: "downgrade" });
     expect(downgrade.queryByText(CATALOG_BLURB)).toBeNull();
     expect(downgrade.queryByText(PLAN_TIER_COPY.mighty.tagline)).toBeNull();
-    downgrade.getByText("15 GB storage");
+    downgrade.getByText("10 GB storage");
 
     cleanup();
 
@@ -139,7 +142,7 @@ describe("PackageSwitchConfirmModal", () => {
       targetPackage: UNKNOWN_TIER_PACKAGE,
     });
     expect(unknownTier.queryByText(CATALOG_BLURB)).toBeNull();
-    unknownTier.getByText("15 GB storage");
+    unknownTier.getByText("10 GB storage");
   });
 
   test("an upgrade with tier copy is described by its tagline", () => {
@@ -260,14 +263,7 @@ describe("PackageSwitchConfirmModal", () => {
   test("tier copy with extra features appends them after the derived rows", () => {
     const { getByText, getAllByRole } = renderModal({
       packageName: "Super",
-      targetPackage: makeProPackage({
-        key: "super",
-        name: "Super",
-        machine_size: "medium",
-        storage_gib: 30,
-        credits_usd: 45,
-        total_price_cents: 10000,
-      }),
+      targetPackage: makeSuperPackage(),
     });
 
     getByText("$100/mo");
@@ -289,7 +285,7 @@ describe("PackageSwitchConfirmModal", () => {
     getByTestId("assistant-avatar-tile");
     expect(queryByText(CHECKLIST_HEADING)).toBeNull();
     expect(queryByText(UPGRADE_CAPTION)).toBeNull();
-    expect(queryByText("15 GB storage")).toBeNull();
+    expect(queryByText("10 GB storage")).toBeNull();
     getByTestId("confirm-package-switch-button");
     getByText("Cancel");
   });

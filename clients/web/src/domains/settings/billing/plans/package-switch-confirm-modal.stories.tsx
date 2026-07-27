@@ -3,7 +3,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useLayoutEffect } from "react";
 
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
-import { makeProPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
+import {
+  makeProPackage,
+  makeSuperPackage,
+  makeUltraPackage,
+} from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -23,15 +27,7 @@ for (const supportsManifest of [false, true]) {
   );
 }
 
-const SUPER_PACKAGE = makeProPackage({
-  key: "super",
-  name: "Super",
-  description: "Medium machine, 30 GB of storage, and $45 in monthly credits.",
-  machine_size: "medium",
-  storage_gib: 30,
-  credits_usd: 45,
-  total_price_cents: 12400,
-});
+const SUPER_PACKAGE = makeSuperPackage();
 
 const meta: Meta<typeof PackageSwitchConfirmModal> = {
   title: "Settings/Billing/PackageSwitchConfirmModal",
@@ -142,21 +138,23 @@ export const NoTargetPackage: Story = {
 
 /**
  * A name wider than the `size="sm"` card's title column wraps onto the second
- * line the header already allows, rather than ellipsizing.
+ * line the header already allows, rather than ellipsizing. No such package
+ * exists — it is Ultra on the 120 GB (`l`) storage tier, priced off the real
+ * tier table, so only the name is invented.
  */
 export const LongPackageName: Story = {
   args: {
     relation: "upgrade",
     packageName: "Ultra Enterprise Performance",
-    targetPackage: makeProPackage({
+    targetPackage: makeUltraPackage({
       key: "ultra-enterprise",
       name: "Ultra Enterprise Performance",
       description:
         "Large machine, 120 GB of storage, and $115 in monthly credits.",
-      machine_size: "large",
+      storage_tier: "l",
       storage_gib: 120,
-      credits_usd: 115,
-      total_price_cents: 24900,
+      storage_price_cents: 3000,
+      total_price_cents: 21500,
     }),
   },
 };
