@@ -45,11 +45,11 @@ describe("recoveryActionForCloseCode", () => {
   });
 
   test("resumes after 1001 Going Away", () => {
-    // Not covered by the 1000 rule, and a received 1001 is usually an
-    // intermediary or a draining node rather than a session teardown. The
-    // costs are asymmetric: resuming a dead session falls through op 9 to
-    // IDENTIFY for one round trip, while identifying against a live session
-    // spends an identify and loses the replay unconditionally.
+    // Discord's invalidation rule governs closes the client *sends*, not ones
+    // it receives, so a received 1001 leaves the session intact — typically an
+    // intermediary or a draining node. Resuming is the documented behaviour
+    // here, not a heuristic, and a resume against a session that did die still
+    // degrades safely through op 9 to IDENTIFY.
     expect(recoveryActionForCloseCode(1001)).toBe("resume");
   });
 

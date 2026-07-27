@@ -47,17 +47,18 @@ const FATAL = new Set([4004, 4010, 4011, 4012, 4013, 4014]);
 const CLIENT_FAULT = new Set([4001, 4002, 4005]);
 
 /**
- * Discord invalidates the session when the *client* closes with 1000, so a
- * deliberate close that intends to resume must not use one — zombie kills and
- * clock-jump recoveries close with {@link RESUMABLE_CLOSE_CODE} for exactly
- * this reason.
+ * Discord's session-invalidation rule is scoped to closes the *client* sends:
+ * closing with 1000 or 1001 invalidates the session, which is why deliberate
+ * closes that intend to resume use {@link RESUMABLE_CLOSE_CODE} instead. Zombie
+ * kills and clock-jump recovery depend on that.
  *
- * 1001 (`Going Away`) is deliberately absent. Discord's rule names 1000, and a
- * received 1001 is usually an intermediary or a node draining rather than a
- * session teardown — so the session often survives. The costs are asymmetric:
- * resuming a dead session falls through op 9 to IDENTIFY at the cost of one
- * round trip, while identifying against a live session spends an identify and
- * loses the replay unconditionally. Resume is the cheaper wrong answer.
+ * A *received* close carries no such meaning, so 1001 (`Going Away`) is not
+ * listed here — it is typically an intermediary or a draining node, and the
+ * taxonomy resumes it like any other non-fatal received code.
+ *
+ * 1000 is retained as the conservative case: it is this client's own shutdown
+ * code, so seeing it back generally means a deliberate teardown rather than a
+ * recoverable drop.
  */
 const INVALIDATES_SESSION = new Set([1000]);
 
