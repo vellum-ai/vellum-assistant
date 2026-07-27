@@ -345,11 +345,16 @@ export function sensitiveToolReach(
 
 /**
  * Whether a tool comes from an extension that is not first-party bundled —
- * a third-party or workspace skill, or any plugin. Bundled skills ship
- * in-repo and are reviewed; nothing else is.
+ * a third-party or workspace skill, any plugin, or a workspace-owned tool.
+ * Bundled skills ship in-repo and are reviewed; nothing else is.
  */
 function isUnvettedExtensionTool(toolName: string): boolean {
   const kind = getToolOwner(toolName)?.kind;
+  // Workspace-owned tools are dynamic-imported from the workspace tools
+  // directory — arbitrary on-disk code with no bundled/vetted tier at all.
+  if (kind === "workspace") {
+    return true;
+  }
   if (kind !== "skill" && kind !== "plugin") {
     return false;
   }

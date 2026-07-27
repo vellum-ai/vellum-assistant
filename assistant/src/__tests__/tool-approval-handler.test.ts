@@ -51,6 +51,7 @@ const fakeTools: Record<string, typeof fakeTool> = {
   host_bash: fakeHostTool,
   document_create: fakeSkillTool,
   acme_send: { ...fakeTool, name: "acme_send", category: "messaging" },
+  ws_deploy: { ...fakeTool, name: "ws_deploy", category: "workspace" },
   file_write: { ...fakeTool, name: "file_write", category: "filesystem" },
   web_fetch: { ...fakeTool, name: "web_fetch", category: "network" },
 };
@@ -59,6 +60,7 @@ const fakeTools: Record<string, typeof fakeTool> = {
 const toolOwners: Record<string, { kind: string; id: string }> = {
   document_create: { kind: "skill", id: "some-skill" },
   acme_send: { kind: "skill", id: "some-skill" },
+  ws_deploy: { kind: "workspace", id: "tools/ws-deploy.ts" },
 };
 
 mock.module("../tools/registry.js", () => ({
@@ -972,6 +974,13 @@ describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", (
     test("an unvetted skill tool with a name of its own", async () => {
       skillOwnerBundled = false;
       await expectFloored("acme_send", { to: "someone" });
+    });
+
+    // Workspace-owned tools are dynamic-imported on-disk code with no
+    // bundled tier — unvetted by definition, whatever the bundled flag says.
+    test("a workspace-owned tool", async () => {
+      skillOwnerBundled = true;
+      await expectFloored("ws_deploy", { target: "prod" });
     });
 
     // The private network is the guardian's machine: the daemon's own HTTP
