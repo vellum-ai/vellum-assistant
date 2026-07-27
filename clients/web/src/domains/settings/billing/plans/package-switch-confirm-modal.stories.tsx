@@ -149,3 +149,24 @@ export const NoTargetPackage: Story = {
     targetPackage: null,
   },
 };
+
+/**
+ * A name wider than the `size="sm"` card's title column wraps onto the second
+ * line the header already allows, rather than ellipsizing.
+ */
+export const LongPackageName: Story = {
+  args: {
+    relation: "upgrade",
+    packageName: "Ultra Enterprise Performance",
+    targetPackage: proPackage({
+      key: "ultra-enterprise",
+      name: "Ultra Enterprise Performance",
+      description:
+        "Large machine, 120 GB of storage, and $115 in monthly credits.",
+      machine_size: "large",
+      storage_gib: 120,
+      credits_usd: 115,
+      total_price_cents: 24900,
+    }),
+  },
+};

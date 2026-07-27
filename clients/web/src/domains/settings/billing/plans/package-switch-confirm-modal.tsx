@@ -1,4 +1,5 @@
-import { CircleCheck } from "lucide-react";
+import { AlertTriangle, CircleCheck } from "lucide-react";
+import { useRef } from "react";
 
 import { AssistantAvatarTile } from "@/domains/settings/billing/assistant-avatar-tile";
 import type {
@@ -9,6 +10,7 @@ import { packageHighlights } from "@/domains/settings/billing/plan-spec";
 import { packageSwitchCopy } from "@/domains/settings/billing/plans/package-switch-copy";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
 import { formatMonthly } from "@/domains/settings/components/tier-pricing";
+import { cn } from "@/utils/misc";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Typography } from "@vellumai/design-library/components/typography";
@@ -37,11 +39,12 @@ export interface PackageSwitchConfirmModalProps {
 
 /**
  * Reconfirm dialog for a one-click Pro package switch. A downgrade gets the
- * danger confirm plus its safeguard note; an upgrade and a direction-neutral
- * switch get a lighter primary confirm. Layout-only for the mutation — the
- * parent owns `change-package` — but it does read the assistant avatar through
- * `AssistantAvatarTile`, so both call sites get the header glyph without
- * duplicating that wiring.
+ * warning glyph, loss-framed checklist copy, neutral spec markers, the danger
+ * confirm and its safeguard note; an upgrade and a direction-neutral switch get
+ * the assistant avatar and a lighter primary confirm. Layout-only for the
+ * mutation — the parent owns `change-package` — but it does read the assistant
+ * avatar through `AssistantAvatarTile`, so both call sites get the header glyph
+ * without duplicating that wiring.
  */
 export function PackageSwitchConfirmModal({
   open,
@@ -52,11 +55,17 @@ export function PackageSwitchConfirmModal({
   onCancel,
   onConfirm,
 }: PackageSwitchConfirmModalProps) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const copy = packageSwitchCopy(
     relation,
     packageName,
     targetPackage?.key ?? null,
   );
+  // The catalog is server-driven and can ship a package this bundle has no tier
+  // copy for, so fall back to the package's own blurb — without it the
+  // description element disappears while Radix still points
+  // `aria-describedby` at its id.
+  const description = copy.subtitle || targetPackage?.description || "";
   // Everything below the header describes one concrete package, so it all
   // resolves — or doesn't — together.
   const details = targetPackage
@@ -68,6 +77,12 @@ export function PackageSwitchConfirmModal({
         ),
       }
     : null;
+  // A green check reads as a win; on a downgrade the rows describe a smaller
+  // machine, so the same glyph goes neutral. An empty marker would instead read
+  // as "not included".
+  const highlightIconColor = copy.destructive
+    ? "text-[var(--content-tertiary)]"
+    : "text-[var(--system-positive-strong)]";
 
   return (
     <Modal.Root
@@ -78,16 +93,46 @@ export function PackageSwitchConfirmModal({
         }
       }}
     >
-      <Modal.Content size="sm" hideCloseButton className="gap-6 p-4">
-        <Modal.Header className="flex-row items-center gap-3 p-0">
-          <AssistantAvatarTile />
+      <Modal.Content
+        size="sm"
+        hideCloseButton
+        className="gap-4 p-4"
+        // The confirm sits above Cancel to match the mock, which puts it first
+        // in the DOM too — and with no close button it is the first tabbable
+        // node, so Radix's mount autofocus would arm Enter on an immediate,
+        // unrefundable package change. Every relation opens on Cancel instead.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          cancelRef.current?.focus();
+        }}
+        // Radix stamps `aria-describedby` whether or not a description renders.
+        {...(description ? {} : { "aria-describedby": undefined })}
+      >
+        {/* 8px here plus the 16px content gap makes the mock's 24px under the
+            header, while that gap stays 16px between the checklist and the
+            actions. */}
+        <Modal.Header className="flex-row items-center gap-3 p-0 pb-2">
+          {copy.destructive ? (
+            <div
+              aria-hidden
+              data-testid="package-switch-warning-tile"
+              className="flex size-[52px] shrink-0 items-center justify-center rounded-xl bg-[var(--system-negative-weak)]"
+            >
+              <AlertTriangle className="size-6 text-[var(--system-negative-strong)]" />
+            </div>
+          ) : (
+            <AssistantAvatarTile />
+          )}
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <Modal.Title className="text-title-small text-[var(--content-emphasised)]">
+            {/* A catalog or custom package name can outrun the 304px of title
+                width a `size="sm"` card leaves, and the header column already
+                allows a second line. */}
+            <Modal.Title className="text-title-small text-[var(--content-emphasised)] [&>span]:whitespace-normal">
               {copy.title}
             </Modal.Title>
-            {copy.subtitle ? (
+            {description ? (
               <Modal.Description className="mt-0 text-body-medium-default text-[var(--content-tertiary)]">
-                {copy.subtitle}
+                {description}
               </Modal.Description>
             ) : null}
           </div>
@@ -117,13 +162,13 @@ export function PackageSwitchConfirmModal({
               variant="body-small-default"
               className="text-[var(--content-tertiary)]"
             >
-              The plan includes
+              {copy.checklistHeading}
             </Typography>
             <ul className="flex flex-col gap-2">
               {details.highlights.map((row) => (
-                <li key={row} className="flex items-center gap-1.5">
+                <li key={row} className="flex items-center gap-1">
                   <CircleCheck
-                    className="size-4 shrink-0 text-[var(--system-positive-strong)]"
+                    className={cn("size-4 shrink-0", highlightIconColor)}
                     aria-hidden
                   />
                   <Typography
@@ -136,18 +181,20 @@ export function PackageSwitchConfirmModal({
                 </li>
               ))}
             </ul>
-            {copy.note ? (
-              <Typography
-                as="p"
-                variant="body-medium-default"
-                className="text-[var(--content-secondary)]"
-              >
-                {copy.note}
-              </Typography>
-            ) : null}
           </Modal.Body>
         ) : null}
-        <Modal.Footer className="flex-col gap-2 p-0">
+        {/* Outside the details gate: the note comes from the relation alone, and
+            an unresolved target still offers the danger confirm. */}
+        {copy.note ? (
+          <Typography
+            as="p"
+            variant="body-medium-default"
+            className="text-[var(--content-secondary)]"
+          >
+            {copy.note}
+          </Typography>
+        ) : null}
+        <Modal.Footer className="flex-col gap-4 p-0">
           <Button
             fullWidth
             variant={copy.destructive ? "danger" : "primary"}
@@ -158,6 +205,7 @@ export function PackageSwitchConfirmModal({
             {copy.confirmLabel}
           </Button>
           <Button
+            ref={cancelRef}
             fullWidth
             variant="ghost"
             onClick={onCancel}
