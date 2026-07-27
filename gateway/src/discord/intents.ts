@@ -1,0 +1,60 @@
+/**
+ * Discord Gateway intents — the bitmask sent in the IDENTIFY payload.
+ *
+ * An intent is a subscription: Discord only delivers event families whose
+ * intent bit is set. Two of them are *privileged* — they require a toggle in
+ * the developer portal, and past a size threshold Discord must approve the
+ * app before the toggle stays on.
+ *
+ * https://discord.com/developers/docs/events/gateway#gateway-intents
+ */
+
+export const DISCORD_INTENTS = {
+  /** Guild lifecycle + the guild/channel list in READY. */
+  GUILDS: 1 << 0,
+  /** PRIVILEGED. `GUILD_MEMBER_*` events. */
+  GUILD_MEMBERS: 1 << 1,
+  /** `MESSAGE_CREATE` / `MESSAGE_UPDATE` / `MESSAGE_DELETE` in guild channels. */
+  GUILD_MESSAGES: 1 << 9,
+  /** The same message events, in DM channels. */
+  DIRECT_MESSAGES: 1 << 12,
+  /** PRIVILEGED. Populates `content` / `embeds` / `attachments` / `components`. */
+  MESSAGE_CONTENT: 1 << 15,
+} as const;
+
+export type DiscordIntentName = keyof typeof DISCORD_INTENTS;
+
+/**
+ * Intents this client identifies with.
+ *
+ * `MESSAGE_CONTENT` is deliberately absent. Without it `MESSAGE_CREATE` still
+ * arrives for every message in a subscribed channel, but `content` is empty —
+ * *except* for messages that mention the bot, messages in DMs, and the bot's
+ * own messages, which Discord exempts from the restriction. This client is
+ * mention-gated (see `admit.ts`), so every message it acts on falls inside the
+ * exemption and carries real content. Requesting the privileged intent would
+ * buy nothing and would put the app under portal approval and the annual
+ * reapplication Discord introduced in June 2026.
+ *
+ * That exemption is also a ceiling, not just a convenience: reading messages
+ * the bot is *not* mentioned in — the broader "monitor the whole community"
+ * shape — cannot be done on this bitmask. It needs `MESSAGE_CONTENT` and the
+ * approval that now comes with it.
+ *
+ * `GUILD_MEMBERS` is absent for the same reason: nothing here reads member
+ * events, and it carries the same privileged cost.
+ *
+ * `DIRECT_MESSAGES` is absent because admission is scoped to an allow-list of
+ * guild channels and a DM belongs to no channel on that list, so admitting DMs
+ * is a separate policy decision rather than a wider bitmask. Adding it later
+ * needs no privileged intent — DMs are inside the content exemption too.
+ */
+export const DISCORD_GATEWAY_INTENTS =
+  DISCORD_INTENTS.GUILDS | DISCORD_INTENTS.GUILD_MESSAGES;
+
+/** Names of the intents in a bitmask, for logging and diagnostics. */
+export function describeIntents(bitmask: number): DiscordIntentName[] {
+  return (Object.keys(DISCORD_INTENTS) as DiscordIntentName[]).filter(
+    (name) => (bitmask & DISCORD_INTENTS[name]) !== 0,
+  );
+}
