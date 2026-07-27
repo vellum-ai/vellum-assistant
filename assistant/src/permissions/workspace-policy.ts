@@ -34,7 +34,9 @@ export function isPathWithinWorkspaceRoot(
   filePath: string,
   workspaceRoot: string,
 ): boolean {
-  if (!filePath || !workspaceRoot) return false;
+  if (!filePath || !workspaceRoot) {
+    return false;
+  }
 
   const canonicalPath = canonicalize(filePath);
   const canonicalRoot = canonicalize(workspaceRoot);
@@ -108,8 +110,12 @@ export function isOutOfWorkspaceFileInvocation(
   toolInput: Record<string, unknown>,
   workspaceRoot: string,
 ): boolean {
-  if (getIsContainerized()) return false;
-  if (!PATH_SCOPED_TOOLS.has(toolName)) return false;
+  if (getIsContainerized()) {
+    return false;
+  }
+  if (!PATH_SCOPED_TOOLS.has(toolName)) {
+    return false;
+  }
   const filePath = resolvePathScopedTarget(toolInput, workspaceRoot);
   return filePath !== "" && !isPathWithinWorkspaceRoot(filePath, workspaceRoot);
 }
@@ -124,9 +130,15 @@ export function isWorkspaceScopedInvocation(
   toolInput: Record<string, unknown>,
   workspaceRoot: string,
 ): boolean {
-  if (ALWAYS_SCOPED_TOOLS.has(toolName)) return true;
-  if (NETWORK_TOOLS.has(toolName)) return false;
-  if (HOST_TOOLS.has(toolName)) return false;
+  if (ALWAYS_SCOPED_TOOLS.has(toolName)) {
+    return true;
+  }
+  if (NETWORK_TOOLS.has(toolName)) {
+    return false;
+  }
+  if (HOST_TOOLS.has(toolName)) {
+    return false;
+  }
 
   if (PATH_SCOPED_TOOLS.has(toolName)) {
     const filePath = resolvePathScopedTarget(toolInput, workspaceRoot);
@@ -140,7 +152,9 @@ export function isWorkspaceScopedInvocation(
   // bash is NOT workspace-scoped here — path resolution for allowlisted commands is
   // handled upstream in the checker's hasSandboxAutoApprove computation, which validates
   // all path arguments against the workspace root for non-containerized environments.
-  if (toolName === "bash") return getIsContainerized();
+  if (toolName === "bash") {
+    return getIsContainerized();
+  }
 
   // Unknown tool — conservative default.
   return false;

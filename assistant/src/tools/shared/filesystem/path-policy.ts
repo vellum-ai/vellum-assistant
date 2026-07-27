@@ -197,7 +197,9 @@ function safeUserInfoHomedir(): string {
  */
 function getGatewaySecurityDirMirror(): string {
   const override = process.env.GATEWAY_SECURITY_DIR?.trim();
-  if (override) return resolve(override);
+  if (override) {
+    return resolve(override);
+  }
   return join(
     process.env.HOME || safeUserInfoHomedir() || homedir(),
     ".vellum",
