@@ -136,11 +136,10 @@ export const CHANNEL_METADATA: Partial<Record<ChannelId, ChannelInfo>> = {
         "I'd like to connect with another assistant via A2A. Can you help me set that up?",
     },
   },
-  // Present so the metadata is ready for the ingress slice, but not yet listed
-  // in `BASE_AVAILABLE_CHANNELS` — `/v1/channels/available` builds from that
-  // list, so nothing surfaces Discord to clients until it is added there.
-  // `supportsVerification` stays false until a Discord verification flow
-  // exists; clients render the card display-only meanwhile.
+  // `/v1/channels/available` builds from `BASE_AVAILABLE_CHANNELS`, which
+  // omits Discord, so this metadata reaches no client. `supportsVerification`
+  // is false because there is no Discord verification flow — clients render
+  // the card display-only.
   discord: {
     id: "discord",
     label: "Discord",

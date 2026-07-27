@@ -6451,13 +6451,15 @@ paths:
           schema:
             type: string
             enum:
-              - slack
               - telegram
-              - whatsapp
-              - email
-              - a2a
-              - vellum
               - phone
+              - vellum
+              - whatsapp
+              - slack
+              - email
+              - platform
+              - a2a
+              - discord
           description:
             Filter by origin channel. When provided, only conversations with this exact origin_channel value are
             returned. Omit to include all channels.
@@ -6583,6 +6585,7 @@ paths:
                                 - email
                                 - platform
                                 - a2a
+                                - discord
                             - type: "null"
                         assistantAttention:
                           type: object
@@ -6936,6 +6939,7 @@ paths:
                               - email
                               - platform
                               - a2a
+                              - discord
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -8145,6 +8149,7 @@ paths:
                               - email
                               - platform
                               - a2a
+                              - discord
                           - type: "null"
                       assistantAttention:
                         type: object

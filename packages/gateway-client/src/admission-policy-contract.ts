@@ -80,11 +80,10 @@ export function isAdmissionPolicyExemptChannel(channelType: string): boolean {
  * `vellum` is the local desktop/web client surface; the guardian is always
  * max-rank there, so the seed default admits them regardless of the floor.
  *
- * `discord` is hidden because the channel id exists ahead of its ingress
- * implementation. Hiding keeps the floor enforced and pinned at the seed
- * default while there is nothing to configure, so the Channel Trust Floors
- * list can't offer a Discord row the user cannot yet use. Remove it from this
- * set in the slice that lands Discord ingress.
+ * `discord` has no ingress implementation, so there is nothing for a floor to
+ * gate and nothing for the user to configure. Hiding keeps it pinned at the
+ * seed default rather than offering a Channel Trust Floors row for a channel
+ * that receives nothing.
  */
 export const ADMISSION_POLICY_HIDDEN_CHANNELS: ReadonlySet<string> = new Set([
   "vellum",

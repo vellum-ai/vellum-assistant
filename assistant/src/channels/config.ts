@@ -75,9 +75,8 @@ const CHANNEL_POLICIES = {
   },
   discord: {
     notification: {
-      // Discord has no outbound transport yet — ingress-only. Enabling
-      // delivery before one exists would route notifications at a callback
-      // no transport owns. Flip to true alongside the Discord transport.
+      // Discord has no outbound transport, so enabling delivery would route
+      // notifications at a callback no transport owns.
       deliveryEnabled: false,
       conversationStrategy: "continue_existing_conversation",
     },

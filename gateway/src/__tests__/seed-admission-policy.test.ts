@@ -64,11 +64,9 @@ describe("seedAdmissionPolicyDefaults", () => {
     // Enforced — not skipped as exempt — at the universal default.
     expect(store.get("discord")).toBe("trusted_contacts");
 
-    // Hidden while the channel has no ingress: it is absent from the Channel
-    // Trust Floors list, so the seed must re-pin any row rather than leave a
-    // floor the user cannot see or reset. Drop Discord from
-    // ADMISSION_POLICY_HIDDEN_CHANNELS in the slice that lands ingress, and
-    // this expectation flips to the configurable behaviour asserted above.
+    // Hidden: Discord is absent from the Channel Trust Floors list, so the
+    // seed re-pins any row rather than leaving a floor the user cannot see or
+    // reset.
     store.set("discord", "strangers", "drifted row");
     seedAdmissionPolicyDefaults(store);
     expect(store.get("discord")).toBe("trusted_contacts");
