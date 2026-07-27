@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 import type { Command } from "commander";
 
@@ -47,11 +47,7 @@ export function registerAvatarCommand(program: Command): void {
         async (opts: { image: string }, cmd: Command) => {
           const resolvedSource = isAbsolute(opts.image)
             ? opts.image
-            : join(
-                process.env.VELLUM_WORKSPACE_DIR ||
-                  join(homedir(), ".vellum", "workspace"),
-                opts.image,
-              );
+            : resolve(process.cwd(), opts.image);
 
           if (!existsSync(resolvedSource)) {
             log.error(`Image file not found: ${resolvedSource}`);
@@ -59,9 +55,25 @@ export function registerAvatarCommand(program: Command): void {
             return;
           }
 
-          const r = await cliIpcCall<{ ok: boolean }>("avatar_set", {
-            body: { imagePath: resolvedSource },
-          });
+          const workspaceDir =
+            process.env.VELLUM_WORKSPACE_DIR ||
+            join(homedir(), ".vellum", "workspace");
+          const isInsideWorkspace =
+            resolvedSource === workspaceDir ||
+            resolvedSource.startsWith(workspaceDir + "/");
+
+          let r;
+          if (isInsideWorkspace) {
+            r = await cliIpcCall<{ ok: boolean }>("avatar_set", {
+              body: { imagePath: resolvedSource },
+            });
+          } else {
+            const content = readFileSync(resolvedSource).toString("base64");
+            r = await cliIpcCall<{ ok: boolean }>("avatar_upload_image", {
+              body: { content, encoding: "base64" },
+            });
+          }
+
           if (!r.ok)
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
