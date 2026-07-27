@@ -1509,7 +1509,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // result is dropped with them so the barge-in follow-up (or any later)
     // turn can't consume an older answer before this barge-in's own
     // continuation completes. This barge-in's detach snapshots the stop
-    // generation AFTER this bump (below), so it is unaffected.
+    // generation AFTER this bump (below), so it is unaffected. The abort is
+    // signal-level, with the same accepted residual as the foreground-wins
+    // gate (see the tool_use_start handler): a tool call already executing in
+    // the superseded run is not awaited. The replacement's detach still waits
+    // out the interrupted TURN's teardown before forking, which bounds the
+    // overlap to that one abandoned call.
     this.abortDetachedRuns();
     // Order this barge-in among concurrent detaches SYNCHRONOUSLY, in barge
     // order — the actual detach runs after an async teardown chain, and those
