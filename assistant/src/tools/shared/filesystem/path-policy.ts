@@ -8,6 +8,8 @@ import {
   resolve,
 } from "node:path";
 
+import { getIsContainerized } from "../../../config/env-registry.js";
+
 /**
  * Result type shared by both sandbox and host path policies.
  */
@@ -79,26 +81,25 @@ export function resolveRealPath(absolutePath: string): string {
 // Sandbox policy
 // ---------------------------------------------------------------------------
 
+interface SandboxTarget {
+  /** Lexically resolved absolute path (boundary-relative input resolved). */
+  resolved: string;
+  /** Symlink-canonicalized form of `resolved`. */
+  realResolved: string;
+  /** Symlink-canonicalized boundary directory. */
+  realBoundary: string;
+}
+
 /**
- * Resolve a user-supplied path against a boundary directory and verify
- * that the result stays within it.
- *
- * For existing paths, symlinks are resolved via realpathSync so a symlink
- * pointing outside the boundary is caught. For new paths (e.g. file_write),
- * pass `mustExist: false` - the nearest existing ancestor directory is
- * resolved via realpathSync to catch symlinks in parent dirs.
- *
- * Paths starting with `/workspace/` are treated as container-scoped and
- * remapped relative to the boundary directory (the Docker sandbox mounts
- * the host workspace at /workspace).
+ * Resolve a user-supplied path against the boundary directory: apply the
+ * container /workspace remap, resolve to an absolute path, and canonicalize
+ * symlinks on both the target and the boundary.
  */
-export function sandboxPolicy(
+function resolveSandboxTarget(
   rawPath: string,
   boundaryDir: string,
-  options?: { mustExist?: boolean },
-): PathResult {
-  const mustExist = options?.mustExist ?? true;
-
+  mustExist: boolean,
+): SandboxTarget {
   // Remap container-scoped /workspace paths to the host boundary dir.
   // Skip remapping if the path already starts with boundaryDir to avoid
   // double-nesting (e.g. /workspace/project/file.ts → /workspace/project/project/file.ts
@@ -137,26 +138,118 @@ export function sandboxPolicy(
     realBoundary = boundaryDir;
   }
 
-  const rel = relative(realBoundary, realResolved);
-  if (rel.startsWith("..") || resolve(realBoundary, rel) !== realResolved) {
-    return {
-      ok: false,
-      reason: "out_of_bounds",
-      error: `Path "${rawPath}" resolves to "${realResolved}" which is outside the working directory "${realBoundary}"`,
-    };
-  }
+  return { resolved, realResolved, realBoundary };
+}
 
-  // Check both the logical path and the symlink-resolved path so a symlink
-  // with a non-denied name pointing at a denied file is still caught.
-  if (isDeniedBasename(resolved) || isDeniedBasename(realResolved)) {
+/** Whether the canonicalized target escapes the canonicalized boundary. */
+function isOutOfBounds(target: SandboxTarget): boolean {
+  const rel = relative(target.realBoundary, target.realResolved);
+  return (
+    rel.startsWith("..") ||
+    resolve(target.realBoundary, rel) !== target.realResolved
+  );
+}
+
+function outOfBoundsFailure(
+  rawPath: string,
+  target: SandboxTarget,
+): PathResult {
+  return {
+    ok: false,
+    reason: "out_of_bounds",
+    error: `Path "${rawPath}" resolves to "${target.realResolved}" which is outside the working directory "${target.realBoundary}"`,
+  };
+}
+
+// The denied check covers both the logical path and the symlink-resolved
+// path so a symlink with a non-denied name pointing at a denied file is
+// still caught.
+function deniedFailure(target: SandboxTarget): PathResult | null {
+  if (
+    isDeniedBasename(target.resolved) ||
+    isDeniedBasename(target.realResolved)
+  ) {
     return {
       ok: false,
       reason: "denied",
-      error: `Access to "${basename(resolved)}" is denied`,
+      error: `Access to "${basename(target.resolved)}" is denied`,
     };
   }
+  return null;
+}
 
-  return { ok: true, resolved };
+function evaluateSandboxPolicy(
+  rawPath: string,
+  boundaryDir: string,
+  options: { mustExist?: boolean } | undefined,
+  allowOutOfBounds: boolean,
+): PathResult {
+  const target = resolveSandboxTarget(
+    rawPath,
+    boundaryDir,
+    options?.mustExist ?? true,
+  );
+
+  if (!allowOutOfBounds && isOutOfBounds(target)) {
+    return outOfBoundsFailure(rawPath, target);
+  }
+
+  const denied = deniedFailure(target);
+  if (denied) {
+    return denied;
+  }
+
+  return { ok: true, resolved: target.resolved };
+}
+
+/**
+ * Resolve a user-supplied path against a boundary directory and verify
+ * that the result stays within it.
+ *
+ * For existing paths, symlinks are resolved via realpathSync so a symlink
+ * pointing outside the boundary is caught. For new paths (e.g. file_write),
+ * pass `mustExist: false` - the nearest existing ancestor directory is
+ * resolved via realpathSync to catch symlinks in parent dirs.
+ *
+ * Paths starting with `/workspace/` are treated as container-scoped and
+ * remapped relative to the boundary directory (the Docker sandbox mounts
+ * the host workspace at /workspace).
+ */
+export function sandboxPolicy(
+  rawPath: string,
+  boundaryDir: string,
+  options?: { mustExist?: boolean },
+): PathResult {
+  return evaluateSandboxPolicy(rawPath, boundaryDir, options, false);
+}
+
+/**
+ * Sandbox policy that permits out-of-workspace targets on non-containerized
+ * installs.
+ *
+ * Identical to {@link sandboxPolicy} for in-bounds targets. A target that
+ * escapes the boundary is allowed with host-style validation (the basename
+ * denylist still applies to both the logical and symlink-resolved paths).
+ * The permission lane runs before tool execution and classifies
+ * out-of-workspace file operations as elevated risk (see the gateway
+ * FileRiskClassifier), so an escape reaching this policy has already been
+ * threshold-approved or user-approved.
+ *
+ * In containerized mode the boundary stays hard: the container filesystem is
+ * not the host, and the host_file_* proxy tools are the escape hatch for the
+ * guardian's device.
+ */
+export function sandboxPolicyWithHostFallback(
+  rawPath: string,
+  boundaryDir: string,
+  options?: { mustExist?: boolean },
+): PathResult {
+  return evaluateSandboxPolicy(
+    rawPath,
+    boundaryDir,
+    options,
+    !getIsContainerized(),
+  );
 }
 
 // ---------------------------------------------------------------------------

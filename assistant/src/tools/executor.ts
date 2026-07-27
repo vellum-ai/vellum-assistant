@@ -23,7 +23,7 @@ import { PermissionChecker } from "./permission-checker.js";
 import { getToolOwner } from "./registry.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
 import { applyEdit } from "./shared/filesystem/edit-engine.js";
-import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
+import { sandboxPolicyWithHostFallback } from "./shared/filesystem/path-policy.js";
 import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
 import { ToolApprovalHandler } from "./tool-approval-handler.js";
 import { resolveToolInvocationAlias } from "./tool-name-aliases.js";
@@ -489,7 +489,7 @@ function computePreviewDiff(
       if (!rawPath || typeof content !== "string") {
         return undefined;
       }
-      const pathCheck = sandboxPolicy(rawPath, workingDir, {
+      const pathCheck = sandboxPolicyWithHostFallback(rawPath, workingDir, {
         mustExist: false,
       });
       if (!pathCheck.ok) {
@@ -519,7 +519,7 @@ function computePreviewDiff(
       ) {
         return undefined;
       }
-      const pathCheck = sandboxPolicy(rawPath, workingDir);
+      const pathCheck = sandboxPolicyWithHostFallback(rawPath, workingDir);
       if (!pathCheck.ok) {
         return undefined;
       }

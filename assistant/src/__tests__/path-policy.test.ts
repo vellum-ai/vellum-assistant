@@ -14,6 +14,7 @@ import {
   hostPolicy,
   resolveRealPath,
   sandboxPolicy,
+  sandboxPolicyWithHostFallback,
 } from "../tools/shared/filesystem/path-policy.js";
 
 // ── Mock setup for skill path classifier ────────────────────────────────────
@@ -188,6 +189,107 @@ describe("sandboxPolicy", () => {
     if (!result.ok) {
       expect(result.reason).toBe("out_of_bounds");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sandbox policy with host fallback
+// ---------------------------------------------------------------------------
+
+describe("sandboxPolicyWithHostFallback", () => {
+  afterEach(() => {
+    delete process.env.IS_CONTAINERIZED;
+  });
+
+  test("matches sandboxPolicy for in-bounds paths", () => {
+    const boundary = makeTempDir();
+    mkdirSync(join(boundary, "sub"));
+
+    const result = sandboxPolicyWithHostFallback("sub/file.txt", boundary);
+    expect(result).toEqual(sandboxPolicy("sub/file.txt", boundary));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe(join(boundary, "sub", "file.txt"));
+    }
+  });
+
+  test("allows an absolute path outside the boundary", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    const target = join(outside, "file.txt");
+    writeFileSync(target, "x");
+
+    const result = sandboxPolicyWithHostFallback(target, boundary);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe(target);
+    }
+  });
+
+  test("allows a relative traversal escape", () => {
+    const boundary = makeTempDir();
+
+    const result = sandboxPolicyWithHostFallback("../escape.txt", boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe(join(boundary, "..", "escape.txt"));
+    }
+  });
+
+  test("allows a symlink that escapes the boundary", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    symlinkSync(outside, join(boundary, "escape-link"));
+
+    const result = sandboxPolicyWithHostFallback("escape-link", boundary);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe(join(boundary, "escape-link"));
+    }
+  });
+
+  test("denies out-of-bounds denylisted basenames", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+
+    const result = sandboxPolicyWithHostFallback(
+      join(outside, "backup.key"),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
+    }
+  });
+
+  test("keeps the hard boundary when containerized", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxPolicyWithHostFallback(
+      join(outside, "file.txt"),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("out_of_bounds");
+      expect(result.error).toContain("outside the working directory");
+    }
+  });
+
+  test("still accepts in-bounds paths when containerized", () => {
+    const boundary = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+
+    const result = sandboxPolicyWithHostFallback("file.txt", boundary, {
+      mustExist: false,
+    });
+    expect(result.ok).toBe(true);
   });
 });
 

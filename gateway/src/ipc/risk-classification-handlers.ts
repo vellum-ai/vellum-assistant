@@ -19,6 +19,7 @@ import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry/index.js";
 import { generateDirectoryScopeOptions } from "../risk/directory-scope.js";
 import {
   fileRiskClassifier,
+  isPathWithinRoot,
   type FileClassificationContext,
 } from "../risk/file-risk-classifier.js";
 import type {
@@ -46,6 +47,10 @@ const ClassifyRiskSchema = z.object({
   // Used for security escalation checks so a symlink cannot mask the real
   // target. Falls back to lexical resolution of `path` when absent.
   resolvedPath: z.string().optional(),
+  // Symlink-resolved sandbox working dir, canonicalized by the daemon. Paired
+  // with resolvedPath for the workspace-boundary check so a symlinked
+  // workspace prefix does not read as an escape.
+  resolvedWorkingDir: z.string().optional(),
   skill: z.string().optional(),
   mode: z.string().optional(),
   script: z.string().optional(),
@@ -144,18 +149,6 @@ function lookupSpec(program: string): CommandRiskSpec | undefined {
   return Object.hasOwn(DEFAULT_COMMAND_REGISTRY, name)
     ? DEFAULT_COMMAND_REGISTRY[name as keyof typeof DEFAULT_COMMAND_REGISTRY]
     : undefined;
-}
-
-// ── Path-within-workspace check ─────────────────────────────────────────────
-
-function isPathWithinRoot(filePath: string, root: string): boolean {
-  if (!filePath || !root) return false;
-  const normalizedRoot = root.endsWith("/") ? root : root + "/";
-  const normalizedPath = resolve(filePath);
-  return (
-    normalizedPath === root.replace(/\/$/, "") ||
-    normalizedPath.startsWith(normalizedRoot)
-  );
 }
 
 // ── Sandbox auto-approve ────────────────────────────────────────────────────
@@ -496,6 +489,8 @@ export async function handleClassifyRisk(
           filePath,
           workingDir,
           resolvedPath: params.resolvedPath,
+          resolvedWorkingDir: params.resolvedWorkingDir,
+          isContainerized: params.isContainerized,
           transferSandboxDestPath: params.transferSandboxDestPath,
           transferSandboxWorkingDir: params.transferSandboxWorkingDir,
           resolvedTransferDestPath: params.resolvedTransferDestPath,
