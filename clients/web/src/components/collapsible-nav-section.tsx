@@ -105,7 +105,7 @@ function CollapsibleNavSectionSection({
         <span className="relative inline-flex h-[14px] w-[20px] shrink-0 items-center justify-center">
           {Icon ? (
             <Icon
-              size={14}
+              size={12}
               aria-hidden
               className={cn(
                 "absolute inset-0 m-auto transition-opacity",
@@ -115,7 +115,7 @@ function CollapsibleNavSectionSection({
             />
           ) : null}
           <ChevronRight
-            size={14}
+            size={12}
             aria-hidden
             className={cn(
               "absolute inset-0 m-auto transition-[opacity,transform]",

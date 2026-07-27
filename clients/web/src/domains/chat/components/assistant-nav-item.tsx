@@ -256,11 +256,11 @@ export function AssistantNavItem({
         className="flex shrink-0 items-center justify-center"
         style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
       >
-        {/* 16px, not the section headers' 14px — the plus glyph carries
+        {/* 14px, not the section headers' 12px — the plus glyph carries
             less ink than the pin/chat icons, so it needs the extra 2px to
             read as the same size. */}
         <Plus
-          className="h-4 w-4"
+          className="h-3.5 w-3.5"
           style={{ color: "var(--content-secondary)" }}
         />
       </span>
