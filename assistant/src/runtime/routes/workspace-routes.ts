@@ -23,12 +23,8 @@ import { z } from "zod";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishSoundsConfigUpdated } from "../sync/resource-sync-events.js";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-  RangeNotSatisfiableError,
-} from "./errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import { fileRangeResponse } from "./file-range.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
 import {
@@ -85,7 +81,9 @@ interface DirSizeBudget {
  * directories purely to discover their type.
  */
 function computeDirSize(absPath: string, budget: DirSizeBudget): number | null {
-  if (budget.remaining <= 0) return null;
+  if (budget.remaining <= 0) {
+    return null;
+  }
 
   let total = 0;
   const stack: string[] = [absPath];
@@ -101,7 +99,9 @@ function computeDirSize(absPath: string, budget: DirSizeBudget): number | null {
     }
 
     for (const entry of dirents) {
-      if (budget.remaining <= 0) return null;
+      if (budget.remaining <= 0) {
+        return null;
+      }
       budget.remaining -= 1;
 
       if (entry.isDirectory()) {
@@ -196,7 +196,9 @@ function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
 
     const entries: TreeEntry[] = [];
     for (const entry of dirents) {
-      if (!showHidden && entry.name.startsWith(".")) continue;
+      if (!showHidden && entry.name.startsWith(".")) {
+        continue;
+      }
 
       const fullPath = join(resolved, entry.name);
 
@@ -316,62 +318,18 @@ function handleWorkspaceFileContent({
       throw new BadRequestError("Path is not a file");
     }
   } catch (err) {
-    if (err instanceof BadRequestError) throw err;
+    if (err instanceof BadRequestError) {
+      throw err;
+    }
     throw new NotFoundError("File not found");
   }
 
   const file = Bun.file(resolved);
-  const fileSize = file.size;
-  const mimeType = file.type;
-
-  const rangeHeader = headers["range"];
-
-  if (rangeHeader) {
-    let start: number;
-    let end: number;
-
-    const suffixMatch = rangeHeader.match(/bytes=-(\d+)/);
-    if (suffixMatch) {
-      const suffixLen = parseInt(suffixMatch[1]);
-      start = Math.max(0, fileSize - suffixLen);
-      end = fileSize - 1;
-    } else {
-      const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-      if (!match) {
-        // Unparseable range — return full file at 200 (not 206)
-        return new RouteResponse(
-          file,
-          {
-            "Content-Type": mimeType,
-            "Content-Length": String(fileSize),
-            "Accept-Ranges": "bytes",
-          },
-          200,
-        );
-      }
-      start = parseInt(match[1]);
-      end = match[2] ? parseInt(match[2]) : fileSize - 1;
-    }
-
-    end = Math.min(end, fileSize - 1);
-
-    if (start > end || start >= fileSize) {
-      throw new RangeNotSatisfiableError(`bytes */${fileSize}`);
-    }
-
-    const slice = file.slice(start, end + 1);
-    return new RouteResponse(slice, {
-      "Content-Type": mimeType,
-      "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-      "Accept-Ranges": "bytes",
-      "Content-Length": String(end - start + 1),
-    });
-  }
-
-  return new RouteResponse(file, {
-    "Content-Type": mimeType,
-    "Content-Length": String(fileSize),
-    "Accept-Ranges": "bytes",
+  return fileRangeResponse({
+    file,
+    sizeBytes: file.size,
+    mimeType: file.type,
+    rangeHeader: headers["range"],
   });
 }
 

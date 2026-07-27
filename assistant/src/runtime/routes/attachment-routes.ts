@@ -44,9 +44,9 @@ import {
   ConflictError,
   NotFoundError,
   PayloadTooLargeError,
-  RangeNotSatisfiableError,
   UnsupportedMediaTypeError,
 } from "./errors.js";
+import { fileRangeResponse } from "./file-range.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
 
@@ -534,56 +534,13 @@ function handleGetAttachmentContentRoute({
       throw new NotFoundError("Recording file not found on disk");
     }
 
-    const file = Bun.file(resolvedPath);
-    const rangeHeader = headers["range"];
-
-    if (rangeHeader) {
-      const fileSize = attachment.sizeBytes;
-      let start: number;
-      let end: number;
-
-      const suffixMatch = rangeHeader.match(/bytes=-(\d+)/);
-      if (suffixMatch) {
-        const suffixLen = parseInt(suffixMatch[1]);
-        start = Math.max(0, fileSize - suffixLen);
-        end = fileSize - 1;
-      } else {
-        const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-        if (!match) {
-          // Unparseable range — return full file at 200 (not 206)
-          return new RouteResponse(
-            file,
-            {
-              "Content-Type": attachment.mimeType,
-              "Content-Length": String(fileSize),
-              "Accept-Ranges": "bytes",
-            },
-            200,
-          );
-        }
-        start = parseInt(match[1]);
-        end = match[2] ? parseInt(match[2]) : fileSize - 1;
-      }
-
-      end = Math.min(end, fileSize - 1);
-
-      if (start > end || start >= fileSize) {
-        throw new RangeNotSatisfiableError(`bytes */${fileSize}`);
-      }
-
-      const slice = file.slice(start, end + 1);
-      return new RouteResponse(slice, {
-        "Content-Type": attachment.mimeType,
-        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-        "Accept-Ranges": "bytes",
-        "Content-Length": String(end - start + 1),
-      });
-    }
-
-    return new RouteResponse(file, {
-      "Content-Type": attachment.mimeType,
-      "Content-Length": String(attachment.sizeBytes),
-      "Accept-Ranges": "bytes",
+    return fileRangeResponse({
+      file: Bun.file(resolvedPath),
+      // The stored size is authoritative for an attachment; the file on disk
+      // is only its backing store.
+      sizeBytes: attachment.sizeBytes,
+      mimeType: attachment.mimeType,
+      rangeHeader: headers["range"],
     });
   }
 
@@ -633,7 +590,9 @@ function assertWithinWorkspace(filePath: string): string {
       }
       return resolved;
     } catch (err) {
-      if (err instanceof BadRequestError) throw err;
+      if (err instanceof BadRequestError) {
+        throw err;
+      }
       trailing.unshift(join(current).split(sep).pop()!);
       current = join(current, "..");
     }
@@ -670,7 +629,9 @@ function handleAttachmentRegister({ body = {} }: RouteHandlerArgs) {
     }
     sizeBytes = stat.size;
   } catch (err) {
-    if (err instanceof BadRequestError) throw err;
+    if (err instanceof BadRequestError) {
+      throw err;
+    }
     throw new NotFoundError(`File not found: ${path}`);
   }
 
