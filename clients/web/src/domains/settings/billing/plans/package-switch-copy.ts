@@ -19,6 +19,8 @@ export interface PackageSwitchCopy {
   subtitle: string;
   /** Caption under the price — where the money actually lands. */
   priceCaption: string;
+  /** Heading above the target package's spec rows. */
+  checklistHeading: string;
   /** Extra safeguard prose shown below the checklist; empty when none. */
   note: string;
   /** Full-width primary CTA label. */
@@ -41,6 +43,11 @@ const DOWNGRADE_CAPTION =
 const DOWNGRADE_NOTE =
   "Your machine downsizes now and your storage stays. No refund.";
 const CONTINUE_LABEL = "Continue";
+const CHECKLIST_HEADING = "The plan includes";
+// The rows enumerate the *lower* package on a downgrade, so a present-tense
+// "The plan includes" reads as a list of gains. Future tense keeps it a
+// statement of what is left, not what is won.
+const DOWNGRADE_CHECKLIST_HEADING = "Your plan will include";
 
 /** Every string the confirm modal renders for one target package. */
 export function packageSwitchCopy(
@@ -56,6 +63,7 @@ export function packageSwitchCopy(
         title: `Downgrade to ${packageName}`,
         subtitle,
         priceCaption: DOWNGRADE_CAPTION,
+        checklistHeading: DOWNGRADE_CHECKLIST_HEADING,
         note: DOWNGRADE_NOTE,
         confirmLabel: downgradeLabel(packageName),
         destructive: true,
@@ -65,6 +73,7 @@ export function packageSwitchCopy(
         title: `Switch to ${packageName}`,
         subtitle,
         priceCaption: SWITCH_CAPTION,
+        checklistHeading: CHECKLIST_HEADING,
         note: "",
         confirmLabel: CONTINUE_LABEL,
         destructive: false,
@@ -74,6 +83,7 @@ export function packageSwitchCopy(
         title: `Upgrade to ${packageName}`,
         subtitle,
         priceCaption: UPGRADE_CAPTION,
+        checklistHeading: CHECKLIST_HEADING,
         note: "",
         confirmLabel: CONTINUE_LABEL,
         destructive: false,

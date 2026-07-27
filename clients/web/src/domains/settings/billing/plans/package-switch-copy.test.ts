@@ -17,6 +17,7 @@ describe("packageSwitchCopy", () => {
       title: "Upgrade to Super",
       subtitle: PLAN_TIER_COPY.super.tagline,
       priceCaption: "Billed monthly · prorated difference charged today",
+      checklistHeading: "The plan includes",
       note: "",
       confirmLabel: "Continue",
       destructive: false,
@@ -29,6 +30,7 @@ describe("packageSwitchCopy", () => {
       subtitle: PLAN_TIER_COPY.ultra.tagline,
       priceCaption:
         "Billed monthly · prorated difference charged today or credited next invoice",
+      checklistHeading: "The plan includes",
       note: "",
       confirmLabel: "Continue",
       destructive: false,
@@ -40,6 +42,7 @@ describe("packageSwitchCopy", () => {
       title: "Downgrade to Mighty",
       subtitle: PLAN_TIER_COPY.mighty.tagline,
       priceCaption: "Billed monthly · prorated credit on your next invoice",
+      checklistHeading: "Your plan will include",
       note: "Your machine downsizes now and your storage stays. No refund.",
       confirmLabel: "Downgrade to Mighty",
       destructive: true,
@@ -79,6 +82,18 @@ describe("packageSwitchCopy", () => {
     );
     expect(packageSwitchCopy("upgrade", "Mighty", "mighty").note).toBe("");
     expect(packageSwitchCopy("switch", "Mighty", "mighty").note).toBe("");
+  });
+
+  test("only a downgrade frames the checklist as what is left", () => {
+    expect(
+      packageSwitchCopy("downgrade", "Mighty", "mighty").checklistHeading,
+    ).toBe("Your plan will include");
+    expect(
+      packageSwitchCopy("upgrade", "Mighty", "mighty").checklistHeading,
+    ).toBe("The plan includes");
+    expect(
+      packageSwitchCopy("switch", "Mighty", "mighty").checklistHeading,
+    ).toBe("The plan includes");
   });
 
   test("subtitle is empty for an unknown or absent tier key", () => {

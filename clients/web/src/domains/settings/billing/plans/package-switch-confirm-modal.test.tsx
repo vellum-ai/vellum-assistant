@@ -128,6 +128,76 @@ describe("PackageSwitchConfirmModal", () => {
     );
   });
 
+  test("a downgrade swaps the avatar for a warning glyph and drops the gains framing", () => {
+    const { getByTestId, queryByTestId, getByText, queryByText } = renderModal({
+      relation: "downgrade",
+    });
+
+    getByTestId("package-switch-warning-tile");
+    expect(queryByTestId("assistant-avatar-tile")).toBeNull();
+    getByText("Your plan will include");
+    expect(queryByText("The plan includes")).toBeNull();
+  });
+
+  test("an upgrade keeps the friendly avatar header", () => {
+    const { getByTestId, queryByTestId, getByText } = renderModal();
+
+    getByTestId("assistant-avatar-tile");
+    expect(queryByTestId("package-switch-warning-tile")).toBeNull();
+    getByText("The plan includes");
+  });
+
+  test("the dialog opens focused on Cancel, not on the confirm", () => {
+    const { getByRole, getByTestId } = renderModal({ relation: "downgrade" });
+
+    expect(document.activeElement).toBe(
+      getByRole("button", { name: "Cancel" }),
+    );
+    expect(document.activeElement).not.toBe(
+      getByTestId("confirm-package-switch-button"),
+    );
+
+    cleanup();
+
+    const upgrade = renderModal();
+    expect(document.activeElement).toBe(
+      upgrade.getByRole("button", { name: "Cancel" }),
+    );
+  });
+
+  test("a package with no tier copy describes itself from the catalog", () => {
+    const { getByRole, getByText } = renderModal({
+      packageName: "Mega",
+      targetPackage: proPackage({ key: "mega", name: "Mega" }),
+    });
+
+    const describedBy = getByRole("dialog").getAttribute("aria-describedby");
+    expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
+      "Small machine, 15 GB of storage, and $25 in monthly credits.",
+    );
+    getByText("Small machine, 15 GB of storage, and $25 in monthly credits.");
+  });
+
+  test("with nothing to describe the dialog carries no aria-describedby", () => {
+    const { getByRole } = renderModal({
+      packageName: "",
+      targetPackage: null,
+    });
+
+    expect(getByRole("dialog").hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  test("the downgrade safeguard note survives an unresolved target", () => {
+    const { getByText, queryByText } = renderModal({
+      relation: "downgrade",
+      packageName: "Mighty",
+      targetPackage: null,
+    });
+
+    getByText(DOWNGRADE_NOTE);
+    expect(queryByText("Your plan will include")).toBeNull();
+  });
+
   test("a direction-neutral switch names both proration outcomes", () => {
     const { getByText, getByRole, getByTestId, queryByText } = renderModal({
       relation: "switch",
