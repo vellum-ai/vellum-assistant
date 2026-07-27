@@ -4,6 +4,19 @@ Native iOS wrapper built with [Capacitor](https://capacitorjs.com/).
 This is _not_ a port of the web app — it's a thin `WKWebView` shell in
 `server.url` mode that loads the live web app directly over HTTPS.
 
+**Minimum iOS version: 17.0.** Set in `App/App/Config/Base.xcconfig`
+(`IPHONEOS_DEPLOYMENT_TARGET`) and `App/project.yml`
+(`options.deploymentTarget.iOS`) — both, because the xcconfig wins for
+targets that carry one and the `project.yml` value covers those that
+don't. Do not lower it: Live Activities need 16.1, interactive Live
+Activity content 17.0, and the Action Button 17.1. The Control Center
+control needs 18.0 and is therefore `@available`-gated rather than
+holding the whole app back.
+
+**Native voice mode** — the Live Activity, App Intents, Siri phrases, the
+Action Button, and the `<scheme>://voice` deep-link contract — is
+documented in [`docs/NATIVE_VOICE.md`](docs/NATIVE_VOICE.md).
+
 ## Web content delivery
 
 **What:** The iOS app loads the web UI live over HTTPS from the deployed
@@ -228,8 +241,10 @@ breakpoint.
 > **Web-side conventions for iOS code paths**: any change to the web app
 > that might run inside this WKWebView shell needs to follow the patterns
 > in [`clients/web/docs/CAPACITOR.md`](../web/docs/CAPACITOR.md) — Capacitor plugin
-> lazy imports, native auth, deep links, autogrowing textareas,
-> streaming watchdogs, OS permission UI, etc.
+> lazy imports, native auth, deep links, the native voice bridge,
+> autogrowing textareas, streaming watchdogs, OS permission UI, etc.
+> For the native half of voice mode, see
+> [`docs/NATIVE_VOICE.md`](docs/NATIVE_VOICE.md).
 
 ### `server.url` mode, not static export
 
@@ -252,9 +267,15 @@ experience works. Do not enable it.
 
 ### Targets and environments
 
-The Xcode project has three targets — one per environment. Each has its own
+The Xcode project has three _app_ targets — one per environment. Each has its own
 bundle ID, display name, and icon colour so they can be installed side by
-side on the same device.
+side on the same device. Each also embeds its own `VoiceActivity` widget
+extension target (`<app bundle id>.VoiceActivity`), so `xcodegen generate`
+produces six targets in total; only the three app schemes are worth
+building, since the extensions build as embedded dependencies. See
+[`docs/NATIVE_VOICE.md`](docs/NATIVE_VOICE.md) for what the extension
+contains and [Signing: two profiles per environment](#signing-two-profiles-per-environment)
+for what it costs at release time.
 
 | Target | Bundle ID | Display Name | Icon | Server |
 |--------|-----------|-------------|------|--------|
@@ -641,6 +662,8 @@ clients/
 └── ios/
     ├── .gitignore                    # Ignores Pods, DerivedData, xcuserdata,
     │                                 # generated capacitor.config.json, etc.
+    ├── docs/
+    │   └── NATIVE_VOICE.md           # Live Activity, App Intents, deep links
     ├── App/
     │   ├── App.xcodeproj/            # Open this in Xcode
     │   │   └── xcshareddata/xcschemes/  # Shared schemes for all 3 targets
@@ -657,8 +680,11 @@ clients/
     │   │   ├── NativeBiometricPlugin.swift # Face ID / Touch ID Keychain
     │   │   ├── VoiceAudioSessionPlugin.swift # AVAudioSession for live voice
     │   │   ├── VoiceLiveActivityPlugin.swift # Dynamic Island for live voice
-    │   │   ├── Shared/                   # Compiled into app + widget extension
+    │   │   ├── Intents/              # App Intents + AppShortcutsProvider
+    │   │   ├── Shared/               # Compiled into app + widget extension
     │   │   └── Info.plist
+    │   ├── VoiceActivity/            # WidgetKit extension: Live Activity
+    │   │                             # presentations + Control Center control
     │   └── CapApp-SPM/               # SPM local package: pulls in @capacitor/ios
     │                                 # and any Capacitor plugin native deps
     └── debug.xcconfig                # Sets CAPACITOR_DEBUG for Debug builds
