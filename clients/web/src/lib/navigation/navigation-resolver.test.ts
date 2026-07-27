@@ -728,15 +728,35 @@ describe("resolveNavigation", () => {
     const postAuth = (authIntent: "login" | "signup", returnTo: string | null, fallback = "/assistant") =>
       resolveNavigation(base, { kind: "post-auth", authIntent, returnTo, fallback });
 
-    test("signup always goes to privacy", () => {
+    test("signup goes to privacy for non-import returnTo", () => {
       expect(postAuth("signup", "/some-return")).toEqual({
         action: "redirect",
         to: "/assistant/onboarding/privacy",
       });
     });
 
-    test("signup ignores returnTo", () => {
+    test("signup goes to privacy without returnTo", () => {
       expect(postAuth("signup", null)).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
+      });
+    });
+
+    test("signup honors an import-funnel returnTo, query preserved", () => {
+      expect(
+        postAuth("signup", "/import?utm_source=hermes&import=hermes"),
+      ).toEqual({
+        action: "redirect",
+        to: "/import?utm_source=hermes&import=hermes",
+      });
+      expect(postAuth("signup", "/import")).toEqual({
+        action: "redirect",
+        to: "/import",
+      });
+    });
+
+    test("signup does not treat import-prefixed pages as the funnel", () => {
+      expect(postAuth("signup", "/importantly-not-the-funnel")).toEqual({
         action: "redirect",
         to: "/assistant/onboarding/privacy",
       });

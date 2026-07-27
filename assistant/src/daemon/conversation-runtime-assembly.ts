@@ -74,6 +74,7 @@ import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { channelSupportsInlineOptions } from "./channel-ui-capability.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
 import type { SurfaceShowPair } from "./conversation-surfaces.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
@@ -97,6 +98,13 @@ export interface ChannelCapabilities {
   dashboardCapable: boolean;
   /** Whether the channel supports dynamic UI surfaces (ui_show / ui_update). */
   supportsDynamicUi: boolean;
+  /**
+   * Whether the channel's adapter can render inline tappable options — approval
+   * buttons and (next) question option pickers. Distinct from `supportsDynamicUi`:
+   * a text-only channel can render inline buttons without dynamic UI. Optional;
+   * absent is treated as `false`.
+   */
+  supportsInlineOptions?: boolean;
   /** Whether the channel supports voice/microphone input. */
   supportsVoiceInput: boolean;
   /** The client OS/interface identifier (e.g. "macos", "ios", "web"). */
@@ -282,6 +290,7 @@ export function resolveChannelCapabilities(
         channel,
         dashboardCapable: supportsDesktopUi,
         supportsDynamicUi: supportsDesktopUi || iface === "web",
+        supportsInlineOptions: channelSupportsInlineOptions(channel),
         supportsVoiceInput: supportsDesktopUi,
         clientOS: iface ?? undefined,
         chatType: resolvedChatType,
@@ -296,6 +305,7 @@ export function resolveChannelCapabilities(
         channel,
         dashboardCapable: false,
         supportsDynamicUi: false,
+        supportsInlineOptions: channelSupportsInlineOptions(channel),
         supportsVoiceInput: false,
         chatType: resolvedChatType,
       };
@@ -304,6 +314,7 @@ export function resolveChannelCapabilities(
         channel,
         dashboardCapable: false,
         supportsDynamicUi: false,
+        supportsInlineOptions: channelSupportsInlineOptions(channel),
         supportsVoiceInput: false,
         chatType: resolvedChatType,
       };

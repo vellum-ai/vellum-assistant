@@ -2,6 +2,7 @@ import { getConfigReadOnly } from "../config/loader.js";
 import { memoryTier } from "../config/memory-tier.js";
 import { getRawShareAnalytics } from "../platform/consent-cache.js";
 import { getLogger } from "../util/logger.js";
+import { measureMemoryCorpusSize } from "./memory-corpus-size.js";
 import { recordWatchdogEvent } from "./watchdog-events-store.js";
 
 const log = getLogger("memory-tier-reporter");
@@ -17,7 +18,14 @@ const log = getLogger("memory-tier-reporter");
  */
 const MEMORY_TIER_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-/** Watchdog `check_name` carrying the coarse memory tier in `detail.tier`. */
+/**
+ * Watchdog `check_name` carrying the coarse memory tier in `detail.tier`,
+ * alongside the on-disk corpus size (see {@link measureMemoryCorpusSize}).
+ *
+ * The check name and the `detail.tier` bucket strings are frozen — platform
+ * dashboards group on them. The rest of `detail` is an open bag, so the
+ * corpus-size keys are additive and need no wire, serializer, or dbt change.
+ */
 const MEMORY_TIER_CHECK_NAME = "memory_tier";
 
 // The boot-time emit races the first consent refresh (fire-and-forget in the
@@ -38,18 +46,37 @@ const BOOT_RETRY_INTERVAL_MS = 60_000;
  * no-ops on a `false` share_analytics, so the call still goes through and the
  * record layer drops it. Never throws: a storage failure is logged and
  * retried on the next cycle.
+ *
+ * The event also carries the on-disk corpus size. That probe is best-effort
+ * and isolated: if it fails the event still goes out with the tier alone,
+ * because the tier heartbeat is what the fleet-mix dashboards depend on and a
+ * sizing failure must not create a gap in that series. It is also skipped
+ * outright on a confirmed opt-out — the event is dropped one layer down, so
+ * walking the workspace for it would be pure cost on the assistants that
+ * asked us not to collect.
  */
 export function recordMemoryTierOnce(): void {
-  if (getRawShareAnalytics() === "unknown") {
+  const consent = getRawShareAnalytics();
+  if (consent === "unknown") {
     return;
   }
   try {
     // `getConfigReadOnly()` re-reads config.json on change (capturing live
     // edits) and never writes to disk — safe for the monitor process.
     const tier = memoryTier(getConfigReadOnly());
+
+    let corpus: Record<string, number> = {};
+    if (consent !== false) {
+      try {
+        corpus = { ...measureMemoryCorpusSize() };
+      } catch (err) {
+        log.warn({ err }, "memory corpus sizing failed (emitting tier only)");
+      }
+    }
+
     recordWatchdogEvent({
       checkName: MEMORY_TIER_CHECK_NAME,
-      detail: { tier },
+      detail: { tier, ...corpus },
     });
   } catch (err) {
     log.warn({ err }, "memory_tier watchdog emit failed (non-fatal)");

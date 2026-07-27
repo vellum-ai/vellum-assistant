@@ -49,7 +49,7 @@ export async function run(
   );
   const { credentials, errorHint } = await resolveImageGenCredentials({
     provider,
-    mode: managed ? "managed" : "your-own",
+    managed,
   });
   if (!credentials) {
     return {

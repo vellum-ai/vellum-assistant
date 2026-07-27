@@ -32,9 +32,9 @@ export function publicBaseUrlRejectionMessage(
     case "unparseable":
       return "Enter a valid URL, e.g. https://your-assistant.ts.net.";
     case "loopback":
-      return "This is a loopback address your phone can't reach. Enter the assistant's public https URL.";
+      return "This is a loopback address other devices can't reach. Enter the assistant's public https URL.";
     case "non-https":
-      return "The URL must use https so your phone can connect securely.";
+      return "The URL must use https so your devices can connect securely.";
     case "service-website": {
       const service =
         (value && tunnelProviderWebsiteName(value)) || "the tunnel provider";

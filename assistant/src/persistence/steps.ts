@@ -9,7 +9,7 @@
 
 import { backfillAppConversationIds } from "../apps/app-store.js";
 // Forward migration + down function imports
-import { migrateToolCreatedItems } from "../plugins/defaults/memory/graph/bootstrap.js";
+import { migrateToolCreatedItems } from "../plugins/defaults/memory/v1/graph/bootstrap.js";
 import { migrateCoreTables } from "./migrations/000-core-tables.js";
 import {
   downJobDeferrals,
@@ -458,6 +458,7 @@ import { migrateDeleteStrayGreetingConversation } from "./migrations/347-delete-
 import { migrateMemorySummariesScopeUpdatedIndex } from "./migrations/348-memory-summaries-scope-updated-index.js";
 import { migrateMoveMemoryGraphTablesToMemoryDb } from "./migrations/349-move-memory-graph-tables-to-memory-db.js";
 import { migrateConversationsTotalInputTokensNullable } from "./migrations/350-conversations-total-input-tokens-nullable.js";
+import { migrateScheduleSkillScriptHandoff } from "./migrations/351-schedule-skill-script-handoff.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1473,4 +1474,5 @@ export const migrationSteps: MigrationStep[] = [
     ],
   },
   migrateConversationsTotalInputTokensNullable,
+  migrateScheduleSkillScriptHandoff,
 ];

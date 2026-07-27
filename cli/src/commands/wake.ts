@@ -426,6 +426,52 @@ export async function wake(): Promise<void> {
 }
 
 /**
+ * Retry policy for the flag probe that gates the web-ingress restore. The
+ * gateway has typically been up for milliseconds at this point and answers
+ * `503 {"status":"starting"}` (or refuses connections) until its startup
+ * completes, so a single probe races it. Mutable so tests can shrink the
+ * window.
+ */
+export const WEB_INGRESS_FLAG_RETRY = {
+  attempts: 15,
+  intervalMs: 2_000,
+};
+
+/**
+ * Probe the `web-remote-ingress` flag, riding out the gateway's startup
+ * window: transient failures retry on an interval until the attempt budget is
+ * spent, then the last error propagates to the caller's warn path.
+ */
+async function verifyWebIngressFlagWithRetry(
+  assistantId: string,
+  gatewayPort: number,
+): Promise<boolean> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= WEB_INGRESS_FLAG_RETRY.attempts; attempt++) {
+    try {
+      return await isAssistantFeatureFlagEnabled(
+        assistantId,
+        WEB_REMOTE_INGRESS_FLAG,
+        { runtimeUrl: `http://127.0.0.1:${gatewayPort}` },
+      );
+    } catch (err) {
+      lastError = err;
+      if (attempt === 1) {
+        console.log(
+          "   Waiting for the gateway before restoring the web ingress edge...",
+        );
+      }
+      if (attempt < WEB_INGRESS_FLAG_RETRY.attempts) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, WEB_INGRESS_FLAG_RETRY.intervalMs),
+        );
+      }
+    }
+  }
+  throw lastError;
+}
+
+/**
  * Bring the nginx web ingress edge back up after a wake when the workspace
  * config still wants it. Only restores when ingress is explicitly enabled with
  * a saved public URL and the `web-remote-ingress` flag is on — the edge is
@@ -460,11 +506,7 @@ async function restoreWebIngressIfEnabled(
 
   let flagEnabled: boolean;
   try {
-    flagEnabled = await isAssistantFeatureFlagEnabled(
-      assistantId,
-      WEB_REMOTE_INGRESS_FLAG,
-      { runtimeUrl: `http://127.0.0.1:${gatewayPort}` },
-    );
+    flagEnabled = await verifyWebIngressFlagWithRetry(assistantId, gatewayPort);
   } catch (err) {
     console.warn(
       `   Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` flag to restore the web ingress edge; leaving it down. Bring it up manually with \`vellum nginx-ingress up\`. ${

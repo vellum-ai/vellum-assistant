@@ -1,28 +1,5 @@
 // User/assistant messages, tool results, confirmations, secrets, errors, and generation lifecycle.
 
-import type { AssistantActivityStateEvent } from "../../api/events/assistant-activity-state.js";
-import type { AssistantTextDeltaEvent } from "../../api/events/assistant-text-delta.js";
-import type { AssistantThinkingDeltaEvent } from "../../api/events/assistant-thinking-delta.js";
-import type { AssistantTurnStartEvent } from "../../api/events/assistant-turn-start.js";
-import type { ConfirmationRequestEvent } from "../../api/events/confirmation-request.js";
-import type { ConfirmationStateChangedEvent } from "../../api/events/confirmation-state-changed.js";
-import type { ConversationInferenceProfileUpdatedEvent } from "../../api/events/conversation-inference-profile-updated.js";
-import type { ErrorEvent } from "../../api/events/error.js";
-import type { InteractionResolvedEvent } from "../../api/events/interaction-resolved.js";
-import type { MessageCompleteEvent } from "../../api/events/message-complete.js";
-import type { MessageDequeuedEvent } from "../../api/events/message-dequeued.js";
-import type { MessageQueuedEvent } from "../../api/events/message-queued.js";
-import type { MessageQueuedDeletedEvent } from "../../api/events/message-queued-deleted.js";
-import type { MessageRequestCompleteEvent } from "../../api/events/message-request-complete.js";
-import type { MessageSteeredEvent } from "../../api/events/message-steered.js";
-import type { QuestionRequestEvent } from "../../api/events/question-request.js";
-import type { SecretRequestEvent } from "../../api/events/secret-request.js";
-import type { ToolInputDeltaEvent } from "../../api/events/tool-input-delta.js";
-import type { ToolOutputChunkEvent } from "../../api/events/tool-output-chunk.js";
-import type { ToolResultEvent } from "../../api/events/tool-result.js";
-import type { ToolUsePreviewStartEvent } from "../../api/events/tool-use-preview-start.js";
-import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
-import type { UserMessageEchoEvent } from "../../api/events/user-message-echo.js";
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
 
@@ -74,28 +51,3 @@ export type _MessagesClientMessages =
   | UserMessage
   | ConfirmationResponse
   | SecretResponse;
-
-export type _MessagesServerMessages =
-  | UserMessageEchoEvent
-  | AssistantTurnStartEvent
-  | AssistantTextDeltaEvent
-  | AssistantThinkingDeltaEvent
-  | ToolUseStartEvent
-  | ToolUsePreviewStartEvent
-  | ToolOutputChunkEvent
-  | ToolInputDeltaEvent
-  | ToolResultEvent
-  | ConfirmationRequestEvent
-  | SecretRequestEvent
-  | QuestionRequestEvent
-  | MessageCompleteEvent
-  | ErrorEvent
-  | MessageQueuedEvent
-  | MessageDequeuedEvent
-  | MessageRequestCompleteEvent
-  | MessageQueuedDeletedEvent
-  | MessageSteeredEvent
-  | ConfirmationStateChangedEvent
-  | AssistantActivityStateEvent
-  | ConversationInferenceProfileUpdatedEvent
-  | InteractionResolvedEvent;

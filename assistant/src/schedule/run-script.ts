@@ -1,6 +1,11 @@
 import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import {
+  checkPinnedSkillVersion,
+  resolveScheduleSkill,
+  stampScheduleSkillUsage,
+} from "./skill-binding.js";
 
 const log = getLogger("run-script");
 
@@ -37,6 +42,13 @@ export async function runScript(
     scheduleId: string;
     timeoutMs?: number;
     cwd?: string;
+    /**
+     * Absolute directory of the managed skill this schedule is bound to,
+     * exposed to the command as `$__SKILL_DIR`. Resolved per firing rather
+     * than baked into the saved command, so the binding survives a workspace
+     * move or a reinstall that changes the skill's absolute path.
+     */
+    skillDir?: string;
   },
 ): Promise<ScriptResult> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -55,6 +67,7 @@ export async function runScript(
       // always attributable and can locate its dir.
       __SCHEDULE_RUN_ID: options.scheduleRunId,
       __SCHEDULE_ID: options.scheduleId,
+      ...(options.skillDir ? { __SKILL_DIR: options.skillDir } : {}),
     },
   });
 
@@ -114,6 +127,62 @@ export async function runScript(
   );
 
   return { exitCode, stdout, stderr };
+}
+
+export type BoundScriptOutcome =
+  | { ok: true; result: ScriptResult }
+  | { ok: false; error: string };
+
+/**
+ * Run a schedule's script with its skill binding enforced.
+ *
+ * Shared by the scheduler's firing path and the manual `run now` route so a
+ * skill-bound schedule can never execute through one of them with a stale
+ * approval. On success the bound skill's `lastUsedAt` is stamped, which is
+ * what keeps a schedule-only skill out of the memory maintenance prune.
+ */
+export async function runScheduleScript(
+  job: {
+    id: string;
+    script: string;
+    timeoutMs: number | null;
+    skillId: string | null;
+    skillVersionHash: string | null;
+  },
+  runId: string,
+): Promise<BoundScriptOutcome> {
+  let skillDir: string | undefined;
+
+  if (job.skillId) {
+    const resolved = resolveScheduleSkill(job.skillId);
+    if (!resolved.ok) return { ok: false, error: resolved.error };
+    const versionError = checkPinnedSkillVersion({
+      skillId: job.skillId,
+      pinnedHash: job.skillVersionHash,
+      currentHash: resolved.skill.versionHash,
+    });
+    if (versionError) return { ok: false, error: versionError };
+    skillDir = resolved.skill.skillDir;
+  }
+
+  const result = await runScript(job.script, {
+    timeoutMs: job.timeoutMs ?? undefined,
+    scheduleRunId: runId,
+    scheduleId: job.id,
+    ...(skillDir ? { skillDir } : {}),
+  });
+
+  // Stamped on any completed execution, not just a clean exit. The schedule
+  // invoking the skill is what "used" it; a non-zero exit usually reports the
+  // outside world (an API down, a rate limit), not that the skill went unused.
+  // Gating on exit code would let a skill whose upstream is having a bad week
+  // look stale and be pruned out from under an actively firing schedule. A
+  // version-refused or missing skill returns above and never reaches here.
+  if (job.skillId && skillDir) {
+    stampScheduleSkillUsage(job.skillId, skillDir);
+  }
+
+  return { ok: true, result };
 }
 
 function truncate(text: string): string {

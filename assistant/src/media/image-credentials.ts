@@ -23,14 +23,13 @@ import { providerForImageModelPrefix, providerForModel } from "./types.js";
  * proxies. Managed routing never falls back to a stored BYOK key, and a BYOK
  * provider never falls back to the proxy — billing follows the explicit
  * provider choice. Other providers use the caller's key, with an explicit
- * model override re-routing to the model's backend. A legacy
- * `mode: "managed"` also routes managed.
+ * model override re-routing to the model's backend.
  */
 export function resolveImageGenRouting(
-  svc: { provider: string; model: string; mode?: string },
+  svc: { provider: string; model: string },
   modelOverride?: unknown,
 ): { backendProvider: ImageGenProvider; managed: boolean } {
-  const managed = svc.provider === "vellum" || svc.mode === "managed";
+  const managed = svc.provider === "vellum";
   if (svc.provider === "vellum") {
     const model =
       typeof modelOverride === "string" && modelOverride
@@ -50,20 +49,20 @@ export function resolveImageGenRouting(
 /**
  * Resolve credentials for an image-generation request.
  *
- * - `mode === "managed"`: returns managed-proxy credentials when the
- *   platform URL and assistant API key are both configured, otherwise
- *   returns a hint telling the user to log in or switch modes.
- * - `mode === "your-own"`: returns direct credentials when the provider
- *   API key is present in secure storage (or the env-var fallback),
- *   otherwise returns a provider-aware hint pointing at Settings.
+ * - `managed`: returns managed-proxy credentials when the platform URL and
+ *   assistant API key are both configured, otherwise a hint telling the
+ *   user to log in.
+ * - otherwise: returns direct credentials when the provider API key is
+ *   present in secure storage (or the env-var fallback), otherwise a
+ *   provider-aware hint pointing at Settings.
  */
 export async function resolveImageGenCredentials(opts: {
   provider: ImageGenProvider;
-  mode: "managed" | "your-own";
+  managed: boolean;
 }): Promise<{ credentials?: ImageGenCredentials; errorHint?: string }> {
-  const { provider, mode } = opts;
+  const { provider, managed } = opts;
 
-  if (mode === "managed") {
+  if (managed) {
     // Resolve platform URL + assistant API key from a single snapshot so
     // baseUrl and assistantApiKey can't diverge if the credential is cleared
     // between lookups.
@@ -89,7 +88,6 @@ export async function resolveImageGenCredentials(opts: {
     };
   }
 
-  // mode === "your-own"
   const apiKey = await getProviderKeyAsync(provider);
   if (apiKey) {
     return { credentials: { type: "direct", apiKey } };

@@ -13,6 +13,7 @@
  */
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   addMessage,
   getConversation,
@@ -27,7 +28,6 @@ import { publishConversationMessagesChanged } from "../runtime/sync/resource-syn
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
-import type { ServerMessage } from "./message-protocol.js";
 import type {
   SubagentToolGateMode,
   WakeToolContextPin,
@@ -37,7 +37,7 @@ const log = getLogger("wake-conversation-ops");
 
 /**
  * Translate a raw {@link AgentEvent} from the agent loop into the
- * corresponding {@link ServerMessage} wire frame. The normal user-turn
+ * corresponding {@link AssistantEvent} wire frame. The normal user-turn
  * path does this via the full state-aware handler in
  * `conversation-agent-loop-handlers.ts`; the wake path has no tool
  * accounting, title generation, or activity-state tracking to worry
@@ -48,7 +48,7 @@ const log = getLogger("wake-conversation-ops");
 function translateAgentEventToServerMessage(
   event: AgentEvent,
   conversationId: string,
-): ServerMessage | null {
+): AssistantEvent | null {
   switch (event.type) {
     case "text_delta":
       return {
@@ -176,7 +176,7 @@ export function emitWakeAgentEvent(
     event,
     conversation.conversationId,
   );
-  if (!frame) return;
+  if (!frame) {return;}
   broadcastMessage(frame);
 }
 

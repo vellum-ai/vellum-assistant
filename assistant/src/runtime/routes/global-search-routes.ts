@@ -19,7 +19,7 @@ import {
   getMemoryBackendStatus,
 } from "../../persistence/embeddings/embedding-backend.js";
 import { rawMemoryAll } from "../../persistence/raw-query.js";
-import { semanticSearch } from "../../plugins/defaults/memory/search/semantic.js";
+import { semanticSearch } from "../../plugins/defaults/memory/v1/semantic-search.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";

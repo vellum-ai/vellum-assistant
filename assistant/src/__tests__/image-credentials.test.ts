@@ -40,7 +40,7 @@ describe("resolveImageGenCredentials", () => {
 
       const result = await resolveImageGenCredentials({
         provider: "gemini",
-        mode: "managed",
+        managed: true,
       });
 
       expect(result.errorHint).toBeUndefined();
@@ -57,7 +57,7 @@ describe("resolveImageGenCredentials", () => {
 
       const result = await resolveImageGenCredentials({
         provider: "gemini",
-        mode: "managed",
+        managed: true,
       });
 
       expect(result.credentials).toBeUndefined();
@@ -71,7 +71,7 @@ describe("resolveImageGenCredentials", () => {
 
       const result = await resolveImageGenCredentials({
         provider: "gemini",
-        mode: "managed",
+        managed: true,
       });
 
       expect(result.credentials).toBeUndefined();
@@ -86,7 +86,7 @@ describe("resolveImageGenCredentials", () => {
 
       const result = await resolveImageGenCredentials({
         provider: "gemini",
-        mode: "your-own",
+        managed: false,
       });
 
       expect(result.errorHint).toBeUndefined();
@@ -101,7 +101,7 @@ describe("resolveImageGenCredentials", () => {
 
       const result = await resolveImageGenCredentials({
         provider: "gemini",
-        mode: "your-own",
+        managed: false,
       });
 
       expect(result.credentials).toBeUndefined();
@@ -114,7 +114,7 @@ describe("resolveImageGenCredentials", () => {
 
       const result = await resolveImageGenCredentials({
         provider: "openai",
-        mode: "your-own",
+        managed: false,
       });
 
       expect(result.errorHint).toBeUndefined();
@@ -129,7 +129,7 @@ describe("resolveImageGenCredentials", () => {
 
       const result = await resolveImageGenCredentials({
         provider: "openai",
-        mode: "your-own",
+        managed: false,
       });
 
       expect(result.credentials).toBeUndefined();
@@ -164,24 +164,10 @@ describe("resolveImageGenRouting", () => {
     ).toEqual({ backendProvider: "openai", managed: true });
   });
 
-  test("a legacy managed mode routes managed for BYOK providers", () => {
-    expect(
-      resolveImageGenRouting({
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-        mode: "managed",
-      }),
-    ).toEqual({ backendProvider: "gemini", managed: true });
-  });
-
   test("BYOK providers keep the override re-routing without managed", () => {
     expect(
       resolveImageGenRouting(
-        {
-          provider: "gemini",
-          model: "gemini-3.1-flash-image-preview",
-          mode: "your-own",
-        },
+        { provider: "gemini", model: "gemini-3.1-flash-image-preview" },
         "gpt-image-2",
       ),
     ).toEqual({ backendProvider: "openai", managed: false });
@@ -199,7 +185,7 @@ describe("resolveImageGenRouting", () => {
     });
     const result = await resolveImageGenCredentials({
       provider: routing.backendProvider,
-      mode: routing.managed ? "managed" : "your-own",
+      managed: routing.managed,
     });
 
     expect(result.credentials).toBeUndefined();

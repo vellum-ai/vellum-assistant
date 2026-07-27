@@ -75,10 +75,6 @@ import memoryShutdown from "./memory/hooks/shutdown.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
 import { memoryInjectors } from "./memory/injectors.js";
 import memoryPkg from "./memory/package.json" with { type: "json" };
-import {
-  memoryV3Injector,
-  memoryV3SpotlightInjector,
-} from "./memory/v3/injector.js";
 import platformHostedPkg from "./platform-hosted/package.json" with { type: "json" };
 import { sessionInjectors } from "./session/injectors.js";
 import sessionPkg from "./session/package.json" with { type: "json" };
@@ -187,14 +183,14 @@ export const defaultEmptyResponsePlugin: Plugin = {
  * the initial injection, and `post-compact` re-applies the injections onto
  * the compacted history after a mid-turn compaction; a `conversation-deleted`
  * hook fails the plugin's pending background jobs when a conversation is
- * deleted. It contributes its personal-memory
- * runtime injectors (PKB context/reminder and the memory-v2 static block, plus
- * the two memory-v3 injectors) to the global injector registry via the
- * `injectors` field; the registry unions them with the domain plugins'
- * injectors and sorts by `order` into the per-turn chain, and the v3 injectors
- * self-gate on `memory.v3.live`. Registered first among the default plugins so
- * later `user-prompt-submit` hooks (history repair, title) see the fully
- * memory-injected history.
+ * deleted. Its runtime injectors (PKB context/reminder, the memory-v2 static
+ * block, and the two memory-v3 injectors) reach the global injector registry
+ * through `memory/injectors.ts` — the plugin's single injector entry point, so
+ * the host stays off the tier directories; the registry unions them with the
+ * domain plugins' injectors and sorts by `order` into the per-turn chain, and
+ * the v3 injectors self-gate on `memory.v3.live`. Registered first among the
+ * default plugins so later `user-prompt-submit` hooks (history repair, title)
+ * see the fully memory-injected history.
  */
 export const defaultMemoryPlugin: Plugin = {
   manifest: {
@@ -209,7 +205,7 @@ export const defaultMemoryPlugin: Plugin = {
     "conversation-deleted": memoryConversationDeleted,
     "conversations-cleared": memoryConversationsCleared,
   },
-  injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
+  injectors: memoryInjectors,
 };
 
 /**

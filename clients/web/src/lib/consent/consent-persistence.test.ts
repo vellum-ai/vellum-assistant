@@ -30,6 +30,7 @@ const storeState = {
   setShareDiagnostics: mock(() => {}),
   setAnalyticsConsentCurrent: mock(() => {}),
   setDiagnosticsConsentCurrent: mock(() => {}),
+  setHasConsentRecord: mock(() => {}),
   setConsentHydrated: mock(() => {}),
 };
 mock.module("@/domains/onboarding/onboarding-store", () => ({

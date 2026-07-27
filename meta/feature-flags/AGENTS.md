@@ -7,7 +7,7 @@ Feature flag keys are **simple kebab-case strings** with no prefix or suffix:
 ```
 "browser"
 "a2a-channel"
-"voice-mode"
+"conversation-starters"
 "conversation-starters"
 ```
 

@@ -51,13 +51,13 @@ interface CapabilityTierMeta {
 export const CAPABILITY_TIER_META: Record<RiskThreshold, CapabilityTierMeta> = {
   none: {
     label: presetFromThreshold("none").label,
-    sublabel: "asks before acting",
+    sublabel: "asks every time",
     tone: "negative",
     dotColor: "var(--system-negative-strong)",
   },
   low: {
     label: presetFromThreshold("low").label,
-    sublabel: "safe reads only",
+    sublabel: "safe lookups",
     tone: "warning",
     dotColor: "var(--system-mid-strong)",
   },
@@ -69,7 +69,7 @@ export const CAPABILITY_TIER_META: Record<RiskThreshold, CapabilityTierMeta> = {
   },
   high: {
     label: presetFromThreshold("high").label,
-    sublabel: "answers on its own",
+    sublabel: "any lookup",
     tone: "positive",
     dotColor: "var(--system-positive-strong)",
   },

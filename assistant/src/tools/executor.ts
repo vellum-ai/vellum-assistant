@@ -99,6 +99,13 @@ export class ToolExecutor {
     }
 
     const tool = gateResult.tool;
+    // The pre-execution gate parsed model-generated input against the tool's
+    // registered Zod schema (`TOOL_INPUT_SCHEMAS`) before any grant was
+    // consumed; substitute the parsed value (with `.catch()` recoveries
+    // applied) so validation and execution see the same input.
+    if (gateResult.parsedInput) {
+      input = gateResult.parsedInput;
+    }
 
     try {
       // A workflow run whose capability manifest grants side-effecting tools or
@@ -469,6 +476,11 @@ export function computePerToolTimeoutMs(
 /**
  * Compute a preview diff for file tools so the confirmation prompt can show
  * what will change. Returns undefined for non-file tools or on any error.
+ * Out-of-workspace targets deliberately produce no preview (strict
+ * sandboxPolicy): the preview runs before the user answers the prompt, and
+ * external file content must not be read — let alone shipped in the
+ * confirmation payload — ahead of approval. Host file tools have no preview
+ * for the same reason.
  */
 function computePreviewDiff(
   toolName: string,

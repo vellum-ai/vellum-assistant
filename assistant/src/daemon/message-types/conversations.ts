@@ -7,21 +7,6 @@
 // history, undo, usage, clear, reorder) is served by the HTTP conversation
 // routes, not by client messages.
 
-import type { AssistantStatusEvent } from "../../api/events/assistant-status.js";
-import type { CompactionCircuitClosedEvent } from "../../api/events/compaction-circuit-closed.js";
-import type { CompactionCircuitOpenEvent } from "../../api/events/compaction-circuit-open.js";
-import type { ContextCompactedEvent } from "../../api/events/context-compacted.js";
-import type { ConversationErrorEvent } from "../../api/events/conversation-error.js";
-import type { ConversationListInvalidatedEvent } from "../../api/events/conversation-list-invalidated.js";
-import type { ConversationNoticeEvent } from "../../api/events/conversation-notice.js";
-import type { ConversationTitleUpdatedEvent } from "../../api/events/conversation-title-updated.js";
-import type { GenerationCancelledEvent } from "../../api/events/generation-cancelled.js";
-import type { GenerationHandoffEvent } from "../../api/events/generation-handoff.js";
-import type { ModelInfoEvent } from "../../api/events/model-info.js";
-import type { OpenConversationEvent } from "../../api/events/open-conversation.js";
-import type { ScheduleConversationCreatedEvent } from "../../api/events/schedule-conversation-created.js";
-import type { UsageProgressEvent } from "../../api/events/usage-progress.js";
-import type { UsageUpdateEvent } from "../../api/events/usage-update.js";
 import type {
   ChannelId,
   HostProxyInterfaceId,
@@ -117,22 +102,3 @@ export function isHostProxyTransport(
 // in `../../api/events/open-conversation.ts` (imported as
 // `OpenConversationEvent`). Instructs the client to open and, by default,
 // focus a conversation — see that file for the full field docs.
-
-// --- Domain-level union alias (consumed by the barrel file) ---
-
-export type _ConversationsServerMessages =
-  | AssistantStatusEvent
-  | GenerationCancelledEvent
-  | GenerationHandoffEvent
-  | ModelInfoEvent
-  | UsageUpdateEvent
-  | UsageProgressEvent
-  | ContextCompactedEvent
-  | CompactionCircuitOpenEvent
-  | CompactionCircuitClosedEvent
-  | ConversationErrorEvent
-  | ConversationNoticeEvent
-  | ConversationTitleUpdatedEvent
-  | ConversationListInvalidatedEvent
-  | ScheduleConversationCreatedEvent
-  | OpenConversationEvent;

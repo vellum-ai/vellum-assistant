@@ -11,6 +11,7 @@ import { and, asc, eq, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
+import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { rawChanges } from "../persistence/raw-query.js";
 import { sequenceEnrollments, sequences } from "../persistence/schema/index.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -224,6 +225,13 @@ export function claimDueEnrollments(
   now: number,
   limit = 10,
 ): SequenceEnrollment[] {
+  // Drain gate: while a quiesce lease is active, claim nothing — a sequence
+  // step's outreach starts before any row the drain snapshot can see.
+  // Fail-open via the lease read.
+  if (isLifecycleQuiesced()) {
+    return [];
+  }
+
   const db = getDb();
   const candidates = db
     .select()

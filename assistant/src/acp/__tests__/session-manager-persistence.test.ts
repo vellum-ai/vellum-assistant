@@ -11,7 +11,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AcpSessionUpdateEvent } from "../../api/events/acp-session-update.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../api/index.js";
 import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import { VellumAcpClientHandler } from "../client-handler.js";
@@ -47,8 +47,8 @@ function buildSessionWithFakeProcess(opts: {
   emitUpdate: (update: AcpSessionUpdateEvent) => void;
 } {
   const manager = new AcpSessionManager(1);
-  const sent: ServerMessage[] = [];
-  const sendToVellum = (msg: ServerMessage) => sent.push(msg);
+  const sent: AssistantEvent[] = [];
+  const sendToVellum = (msg: AssistantEvent) => sent.push(msg);
 
   type PromptResolution = {
     stopReason: string;
@@ -81,7 +81,7 @@ function buildSessionWithFakeProcess(opts: {
   ).eventBuffers;
   eventBuffers.set(opts.id, []);
 
-  const wrappedSend = (msg: ServerMessage) => {
+  const wrappedSend = (msg: AssistantEvent) => {
     if (msg.type === "acp_session_update") {
       (
         manager as unknown as {
@@ -464,7 +464,7 @@ describe("AcpSessionManager — terminal persistence", () => {
 
   test("emits acp_session_usage and persists input/output tokens from PromptResponse.usage", async () => {
     const id = "session-io-usage-1";
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const handles = buildSessionWithFakeProcess({
       id,
       agentId: "agent-io",
@@ -478,11 +478,11 @@ describe("AcpSessionManager — terminal persistence", () => {
     // Capture the usage event emitted at turn end.
     const captureSend = (
       handles.manager as unknown as {
-        sessions: Map<string, { sendToVellum: (m: ServerMessage) => void }>;
+        sessions: Map<string, { sendToVellum: (m: AssistantEvent) => void }>;
       }
     ).sessions.get(id);
     const originalSend = captureSend!.sendToVellum;
-    captureSend!.sendToVellum = (msg: ServerMessage) => {
+    captureSend!.sendToVellum = (msg: AssistantEvent) => {
       sent.push(msg);
       originalSend(msg);
     };
@@ -515,7 +515,7 @@ describe("AcpSessionManager — terminal persistence", () => {
 
   test("does not emit usage or write token columns when PromptResponse carries no usage", async () => {
     const id = "session-io-no-usage-1";
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const handles = buildSessionWithFakeProcess({
       id,
       agentId: "agent-io-none",
@@ -525,11 +525,11 @@ describe("AcpSessionManager — terminal persistence", () => {
 
     const entry = (
       handles.manager as unknown as {
-        sessions: Map<string, { sendToVellum: (m: ServerMessage) => void }>;
+        sessions: Map<string, { sendToVellum: (m: AssistantEvent) => void }>;
       }
     ).sessions.get(id);
     const originalSend = entry!.sendToVellum;
-    entry!.sendToVellum = (msg: ServerMessage) => {
+    entry!.sendToVellum = (msg: AssistantEvent) => {
       sent.push(msg);
       originalSend(msg);
     };

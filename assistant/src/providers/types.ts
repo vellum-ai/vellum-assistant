@@ -338,6 +338,13 @@ export interface Provider {
    */
   tokenEstimationProvider?: string;
   /**
+   * Model id this instance dispatches when a call carries no per-call model
+   * override. Consumed by the local token estimator for model-keyed rules
+   * (e.g. audio-capable OpenAI-compatible models). Optional: providers whose
+   * estimation rules are provider-wide need not expose it.
+   */
+  defaultModel?: string;
+  /**
    * True when this provider instance was constructed to run web search
    * server-side (provider-native). The native search only activates when a
    * `web_search`-named tool is passed in the request, so callers that want to

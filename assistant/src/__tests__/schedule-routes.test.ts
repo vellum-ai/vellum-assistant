@@ -38,10 +38,12 @@ mock.module("../daemon/conversation-store.js", () => ({
   },
 }));
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import {
   insertPendingHeartbeatRun,
   startHeartbeatRun,
+  supersedePendingRun,
 } from "../heartbeat/heartbeat-run-store.js";
 import {
   archiveConversation,
@@ -51,7 +53,6 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { recordUsageEvent } from "../persistence/llm-usage-store.js";
 import { rawRun } from "../persistence/raw-query.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "../runtime/routes/heartbeat-routes.js";
@@ -61,6 +62,7 @@ import {
   completeScheduleRun,
   createSchedule,
   createScheduleRun,
+  getSchedule,
   listSchedules,
 } from "../schedule/schedule-store.js";
 
@@ -82,7 +84,9 @@ function findRoute(endpoint: string, method: string): RouteDefinition {
   const route = SCHEDULE_ROUTES.find(
     (r) => r.endpoint === endpoint && r.method === method,
   );
-  if (!route) throw new Error(`Route ${method} ${endpoint} not found`);
+  if (!route) {
+    throw new Error(`Route ${method} ${endpoint} not found`);
+  }
   return route;
 }
 
@@ -90,7 +94,9 @@ function findHeartbeatRoute(endpoint: string, method: string): RouteDefinition {
   const route = HEARTBEAT_ROUTES.find(
     (r) => r.endpoint === endpoint && r.method === method,
   );
-  if (!route) throw new Error(`Route ${method} ${endpoint} not found`);
+  if (!route) {
+    throw new Error(`Route ${method} ${endpoint} not found`);
+  }
   return route;
 }
 
@@ -152,7 +158,9 @@ function setScheduleRunWindow({
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 500;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error("Timed out waiting for schedule route event");
@@ -417,7 +425,7 @@ describe("GET /schedules — default defer exclusion", () => {
   });
 
   test("mutation routes emit schedule sync invalidation", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {
@@ -839,6 +847,38 @@ describe("schedule and heartbeat run metadata", () => {
     };
 
     expect(result.runs[0].estimatedCostUsd).toBeCloseTo(0.02);
+  });
+
+  test("heartbeat runs omit bookkeeping rows so timer resets don't render as runs", () => {
+    const now = Date.now();
+
+    // Timer resets (e.g. guardian messages) supersede the pending row and
+    // schedule a new one an interval into the future.
+    for (let i = 0; i < 3; i++) {
+      supersedePendingRun(insertPendingHeartbeatRun(now + 60 * 60 * 1000 + i));
+    }
+    // The next scheduled run, not yet fired.
+    insertPendingHeartbeatRun(now + 60 * 60 * 1000 + 10);
+
+    // The one run that actually executed.
+    const okId = insertPendingHeartbeatRun(now - 1000);
+    startHeartbeatRun(okId);
+    rawRun(
+      "test:setHeartbeatRunOk",
+      "UPDATE heartbeat_runs SET status = 'ok', finished_at = ?, duration_ms = ? WHERE id = ?",
+      now,
+      1000,
+      okId,
+    );
+
+    const route = findHeartbeatRoute("heartbeat/runs", "GET");
+    const result = route.handler({}) as {
+      runs: Array<{ id: string; status: string }>;
+    };
+
+    expect(result.runs).toHaveLength(1);
+    expect(result.runs[0].id).toBe(okId);
+    expect(result.runs[0].status).toBe("ok");
   });
 });
 
@@ -1449,5 +1489,92 @@ describe("PATCH /schedules/:id — timeout override", () => {
       }),
     ).rejects.toThrow("timeout_ms must be between");
     expect(listOne().timeoutMs).toBeNull();
+  });
+});
+
+// ── PATCH /schedules/:id — handoff + skill binding ───────────────────────
+
+describe("PATCH /schedules/:id — script handoff", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  async function createHandoffSchedule() {
+    return createSchedule({
+      name: "Handoff",
+      description: "Handoff schedule",
+      cronExpression: "0 9 * * *",
+      message: "Summarize the output.",
+      syntax: "cron",
+      mode: "script",
+      script: "echo hi",
+      thenExecute: true,
+      skillId: "inventory",
+      skillVersionHash: "v1:stale",
+    });
+  }
+
+  test("rejects clearing the message on a handoff schedule", async () => {
+    const schedule = await createHandoffSchedule();
+    const route = findRoute("schedules/:id", "PATCH");
+
+    await expect(
+      route.handler({
+        pathParams: { id: schedule.id },
+        body: { message: "   " },
+      }),
+    ).rejects.toThrow(/message is required when then_execute/);
+  });
+
+  test("editing other fields never re-pins the bound skill", async () => {
+    const schedule = await createHandoffSchedule();
+    const route = findRoute("schedules/:id", "PATCH");
+
+    await route.handler({
+      pathParams: { id: schedule.id },
+      body: { message: "A new action prompt." },
+    });
+
+    // Re-pinning here would silently approve skill content the guardian never
+    // reviewed; only an explicit skillId may do that.
+    expect(getSchedule(schedule.id)!.skillVersionHash).toBe("v1:stale");
+  });
+
+  test("rejects rebinding to a skill that is not installed", async () => {
+    const schedule = await createHandoffSchedule();
+    const route = findRoute("schedules/:id", "PATCH");
+
+    await expect(
+      route.handler({
+        pathParams: { id: schedule.id },
+        body: { skillId: "not-installed" },
+      }),
+    ).rejects.toThrow(/not installed/);
+  });
+
+  test("unbinds when skillId is cleared", async () => {
+    const schedule = await createHandoffSchedule();
+    const route = findRoute("schedules/:id", "PATCH");
+
+    await route.handler({
+      pathParams: { id: schedule.id },
+      body: { skillId: null },
+    });
+
+    const updated = getSchedule(schedule.id)!;
+    expect(updated.skillId).toBeNull();
+    expect(updated.skillVersionHash).toBeNull();
+  });
+
+  test("turning the handoff off is persisted", async () => {
+    const schedule = await createHandoffSchedule();
+    const route = findRoute("schedules/:id", "PATCH");
+
+    await route.handler({
+      pathParams: { id: schedule.id },
+      body: { thenExecute: false },
+    });
+
+    expect(getSchedule(schedule.id)!.thenExecute).toBe(false);
   });
 });

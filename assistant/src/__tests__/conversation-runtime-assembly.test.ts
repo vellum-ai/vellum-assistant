@@ -78,7 +78,7 @@ let pkbSearchResults: Array<{
   hybridScore?: number;
 }> = [];
 let pkbSearchThrows: Error | null = null;
-mock.module("../plugins/defaults/memory/pkb/pkb-search.js", () => ({
+mock.module("../plugins/defaults/memory/v1/pkb/pkb-search.js", () => ({
   searchPkbFiles: async () => {
     if (pkbSearchThrows) {
       throw pkbSearchThrows;
@@ -151,7 +151,7 @@ import { conversations, messages } from "../persistence/schema/index.js";
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import postCompact from "../plugins/defaults/memory/hooks/post-compact.js";
-import { getPkbRoot } from "../plugins/defaults/memory/pkb/types.js";
+import { getPkbRoot } from "../plugins/defaults/memory/v1/pkb/types.js";
 import {
   buildUnifiedTurnContextBlock,
   type UnifiedTurnContextOptions,
@@ -372,6 +372,33 @@ describe("resolveChannelCapabilities", () => {
     expect(caps.dashboardCapable).toBe(false);
     expect(caps.supportsDynamicUi).toBe(false);
     expect(caps.supportsVoiceInput).toBe(false);
+  });
+
+  test("supportsInlineOptions is true only for inline-button channels", () => {
+    // Drives rich approval delivery (and, next, channel-native questions).
+    // Same membership as the retired RICH_APPROVAL_CHANNELS set — a channel can
+    // render inline buttons yet have no dynamic UI.
+    expect(resolveChannelCapabilities("telegram").supportsInlineOptions).toBe(
+      true,
+    );
+    expect(resolveChannelCapabilities("whatsapp").supportsInlineOptions).toBe(
+      true,
+    );
+    expect(resolveChannelCapabilities("slack").supportsInlineOptions).toBe(
+      true,
+    );
+    expect(resolveChannelCapabilities("email").supportsInlineOptions).toBe(
+      false,
+    );
+    expect(resolveChannelCapabilities("phone").supportsInlineOptions).toBe(
+      false,
+    );
+    expect(
+      resolveChannelCapabilities(undefined, "macos").supportsInlineOptions,
+    ).toBe(false);
+    expect(
+      resolveChannelCapabilities("unknown-thing").supportsInlineOptions,
+    ).toBe(false);
   });
 
   test("propagates chatType when provided", () => {

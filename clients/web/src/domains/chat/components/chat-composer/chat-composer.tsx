@@ -29,7 +29,7 @@ import { StreamingWaveform } from "@/domains/chat/components/chat-composer/strea
 import { VoiceComposerBar } from "@/domains/chat/components/chat-composer/voice-composer-bar";
 import { VoiceLiveTranscript } from "@/domains/chat/components/chat-composer/voice-live-transcript";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useSupportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
 import {
   VoiceInputButton,
   type VoiceInputButtonHandle,
@@ -264,10 +264,9 @@ export function ChatComposer({
 
   // ---- Live voice (full-duplex conversation) ----------------------------
   // Coexists with dictation: entry is gated on eligibility — `LiveVoiceButton`
-  // self-gates on the `voice-mode` flag and only renders alongside the
-  // dictation button (`showVoiceInput` + a non-null assistant id) — so with
-  // the flag off no session can ever start and the session state below stays
-  // `idle`, keeping the composer byte-identical for users without the flag.
+  // only renders alongside the dictation button (`showVoiceInput` + a non-null
+  // assistant id new enough to serve live voice) — so where there is no entry
+  // point no session can ever start and the session state below stays `idle`.
   //
   // The session controller (`useLiveVoice`) is NOT owned here: it lives in
   // the persistent `useLiveVoiceSessionController` mount in `ChatLayout`, so
@@ -275,6 +274,11 @@ export function ChatComposer({
   // fullscreen app viewer — the navigations that unmount this composer. The
   // composer only observes the session through narrow store selectors and
   // drives it through the store-registered `starter`/`controls` seams.
+  // Version gate for the entry point (NOT for an already-live session — see
+  // the ownership note below). Replaces the retired `voice-mode` flag, whose
+  // fail-closed default kept the button hidden on assistants too old to
+  // declare it.
+  const supportsLiveVoice = useSupportsLiveVoice(assistantId);
   const liveVoiceState = useLiveVoiceStore.use.state();
   const liveVoiceError = useLiveVoiceStore.use.error();
   // Whether any session is live anywhere (this thread or another). `failed`
@@ -289,13 +293,13 @@ export function ChatComposer({
   // renders at any time; see `isLiveVoiceSessionOwnedBy`).
   //
   // Deliberately based on session state + ownership alone — NOT on the
-  // entry-point eligibility (the `voice-mode` flag / a non-null
-  // `assistantId`) — so a mid-session eligibility drop (flag flip,
-  // `assistantId` transiently cleared) can't unmount the voice bar while the
-  // session keeps the mic/socket live: the bar's ✕ stays available until
-  // teardown completes. `showVoiceInput` (static per variant) scopes the
-  // swap to the voice-enabled composer — the app-editing variant shares the
-  // global live-voice store but must never swap its row.
+  // entry-point eligibility (the version gate / a non-null `assistantId`) —
+  // so a mid-session eligibility drop (version re-fetch, `assistantId`
+  // transiently cleared) can't unmount the
+  // voice bar while the session keeps the mic/socket live: the bar's ✕ stays
+  // available until teardown completes. `showVoiceInput` (static per variant)
+  // scopes the swap to the voice-enabled composer — the app-editing variant
+  // shares the global live-voice store but must never swap its row.
   const ownsLiveVoiceSession = useIsLiveVoiceSessionOwnedBy(conversationId);
   const isLiveVoiceActive = showVoiceInput && ownsLiveVoiceSession;
   // Mic mute state (controller-published) for the voice bar's toggle.
@@ -337,9 +341,8 @@ export function ChatComposer({
   // preferences card (see `VoiceFirstRunCard`) instead of starting the
   // session, so the user chooses their transcript prefs before listening
   // begins. Every subsequent entry (`firstRunSeen === true`) starts directly
-  // — the card and the engine stay decoupled. Purely additive: with the
-  // `voice-mode` flag off this path is unreachable and the app-editing variant
-  // (no voice entry point) never renders the card.
+  // — the card and the engine stay decoupled. The app-editing variant (no
+  // voice entry point) never renders the card.
   const [firstRunCardOpen, setFirstRunCardOpen] = useState(false);
   // Where the user tapped to start — captured at click so the room's entrance
   // grows from the on-screen control, not screen-center. Stashed here because
@@ -535,14 +538,15 @@ export function ChatComposer({
     Boolean(input.trim()) || canSendAttachments || hasStagedQuotes;
   // Voice mode occupies the send slot while there is nothing to send: the
   // send arrow only earns that spot once the message has content. Eligibility
-  // mirrors `LiveVoiceButton`'s own gate (voice-enabled composer + a bound
-  // assistant + the `voice-mode` flag) so the slot falls back to the disabled
-  // send arrow — byte-identical to before — whenever voice mode is unavailable.
-  const voiceMode = useAssistantFeatureFlagStore.use.voiceMode();
+  // is a voice-enabled composer + a bound assistant new enough to serve live
+  // voice, so the slot falls back to the disabled send arrow whenever voice
+  // mode is unavailable. The version gate replaces the retired `voice-mode`
+  // flag, which used to hide the entry point on older assistants by failing
+  // closed — see `use-supports-live-voice.ts`.
   const showVoiceModeInSendSlot =
     showVoiceInput &&
     Boolean(assistantId) &&
-    voiceMode &&
+    supportsLiveVoice &&
     !canSendMessageContent;
 
   const ghostSuffix = useMemo(

@@ -25,8 +25,7 @@ import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { countConversations as countConversationsDb } from "../persistence/conversation-queries.js";
 import { resolveGuardianPersonaPath } from "../prompts/persona-resolver.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -316,16 +315,10 @@ export async function writeRelationshipState(): Promise<void> {
  * just landed on disk.
  */
 function publishRelationshipStateUpdated(updatedAt: string): void {
-  assistantEventHub
-    .publish(
-      buildAssistantEvent({
-        type: "relationship_state_updated",
-        updatedAt,
-      }),
-    )
-    .catch((err) => {
-      log.warn({ err }, "Failed to publish relationship_state_updated event");
-    });
+  broadcastMessage({
+    type: "relationship_state_updated",
+    updatedAt,
+  });
 }
 
 /**

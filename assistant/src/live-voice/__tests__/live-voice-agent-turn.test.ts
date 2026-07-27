@@ -10,7 +10,7 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import { pickAckPhrase } from "../ack-phrases.js";
+import type { VoiceFrontDecider } from "../front-decision.js";
 import {
   LiveVoiceSession,
   type LiveVoiceTtsStreamer,
@@ -97,6 +97,7 @@ function createSessionHarness(
     emitMetrics?: boolean;
     streamTtsAudio?: LiveVoiceTtsStreamer;
     frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
+    frontDecider?: VoiceFrontDecider;
   } = {},
 ) {
   const transcriber =
@@ -121,6 +122,7 @@ function createSessionHarness(
     ...(options.frontModelConfig
       ? { frontModelConfig: options.frontModelConfig }
       : {}),
+    ...(options.frontDecider ? { frontDecider: options.frontDecider } : {}),
   });
 
   return { frames, session, startVoiceTurn, transcriber };
@@ -525,12 +527,19 @@ describe("LiveVoiceSession assistant turn", () => {
 
 describe("LiveVoiceSession tool-use spoken ack", () => {
   const ACK_TIMEOUT_MS = 40;
-  // Acks pass through the same TTS sanitizer as regular segments; each fresh
-  // session's phrase counter starts at 0.
-  const EXPECTED_TOOL_ACK = sanitizeForTts(pickAckPhrase("tool_use", 0)).trim();
-  const EXPECTED_FIRST_DELTA_ACK = sanitizeForTts(
-    pickAckPhrase("first_delta", 0),
-  ).trim();
+  // Every ack is front-model-phrased; the generated text passes through the
+  // same TTS sanitizer as regular segments. The stub varies its phrasing by
+  // trigger so the two ack kinds stay distinguishable in assertions.
+  const TOOL_ACK = "Let me look that up.";
+  const FIRST_DELTA_ACK = "Sure — one moment.";
+  const EXPECTED_TOOL_ACK = sanitizeForTts(TOOL_ACK).trim();
+  const EXPECTED_FIRST_DELTA_ACK = sanitizeForTts(FIRST_DELTA_ACK).trim();
+
+  const ackDecider: VoiceFrontDecider = {
+    generateAckText: async (input) =>
+      input.toolName ? TOOL_ACK : FIRST_DELTA_ACK,
+    generateProgressText: async () => null,
+  };
 
   function createAckHarness() {
     const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
@@ -539,6 +548,7 @@ describe("LiveVoiceSession tool-use spoken ack", () => {
       startVoiceTurn,
       streamTtsAudio,
       frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
+      frontDecider: ackDecider,
     });
     return { ...harness, getCallbacks, ttsTexts };
   }

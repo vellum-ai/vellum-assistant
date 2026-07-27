@@ -17,18 +17,21 @@ import {
 const emitTipEvent = mock(() => {});
 mock.module("@/utils/tips-telemetry", () => ({ emitTipEvent }));
 
-const { useTipCard, TIPS_MIN_ACCOUNT_AGE_MS } = await import(
-  "@/hooks/use-tip-card"
-);
-const { useAssistantFeatureFlagStore } = await import(
-  "@/stores/assistant-feature-flag-store"
-);
-const { useBannerVisibilityStore } = await import(
-  "@/stores/banner-visibility-store"
-);
-const { useClientFeatureFlagStore } = await import(
-  "@/stores/client-feature-flag-store"
-);
+// Electron-only tips are the gated remainder on web; flipping this drives the
+// gate evaluation without pretending the whole desktop shell is present.
+let mockIsElectron = false;
+mock.module("@/runtime/is-electron", () => ({
+  isElectron: () => mockIsElectron,
+}));
+
+const { useTipCard, TIPS_MIN_ACCOUNT_AGE_MS } =
+  await import("@/hooks/use-tip-card");
+const { useAssistantFeatureFlagStore } =
+  await import("@/stores/assistant-feature-flag-store");
+const { useBannerVisibilityStore } =
+  await import("@/stores/banner-visibility-store");
+const { useClientFeatureFlagStore } =
+  await import("@/stores/client-feature-flag-store");
 const { TIPS_CATALOG } = await import("@/utils/tips-catalog");
 const { TIP_ROTATION_INTERVAL_MS } = await import("@/utils/tips-selection");
 const {
@@ -62,6 +65,7 @@ function openAllGates() {
 
 beforeEach(() => {
   localStorage.clear();
+  mockIsElectron = false;
   setFlag("off");
   useAssistantFeatureFlagStore.getState().resetForAssistantSwitch();
   useBannerVisibilityStore.setState({ visibleBannerCount: 0 });
@@ -193,14 +197,19 @@ describe("useTipCard selection and impressions", () => {
       recordTipDismissed(tip.id, now);
     }
 
-    const { result } = renderHook(() => useTipCard());
+    const { result, rerender } = renderHook(() => useTipCard());
     expect(result.current.tip).toBeNull();
 
-    // Turning the gating assistant flag on makes the voice tip eligible.
-    act(() => {
-      useAssistantFeatureFlagStore.getState().setFlags({ voiceMode: true });
-    });
-    expect(result.current.tip?.id).toBe("voice-mode");
+    // Inside the desktop shell the electron-gated tips become eligible.
+    mockIsElectron = true;
+    act(() => rerender());
+    const electronOnlyTip = TIPS_CATALOG.find(
+      (tip) =>
+        tip.gates?.requiresElectron === true &&
+        tip.gates.requiresClientFlag === undefined &&
+        tip.gates.requiresPluginsSurface === undefined,
+    );
+    expect(result.current.tip?.id).toBe(electronOnlyTip?.id);
   });
 });
 
@@ -318,7 +327,6 @@ describe("useTipCard actions", () => {
     expect(emitTipEvent).toHaveBeenCalledTimes(1);
     expect(emitTipEvent).toHaveBeenCalledWith(FIRST_TIP_ID, "learn_more", "on");
   });
-
 });
 
 describe("useTipCard carousel", () => {

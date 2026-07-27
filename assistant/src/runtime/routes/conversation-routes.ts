@@ -16,6 +16,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../../agent/message-types.js";
+import type { AssistantEvent } from "../../api/index.js";
 import {
   BackgroundToolCompletionSchema,
   type ConversationContentBlock,
@@ -81,7 +82,6 @@ import {
   shouldAttachHostProxyForCapability,
 } from "../../daemon/host-proxy-preactivation.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
   NonHostProxyTransportMetadata,
@@ -457,11 +457,26 @@ async function collectGuardianRequestHintIds(
 async function expireOrphanedGuardianRequests(
   conversationId: string,
 ): Promise<void> {
-  const sourceScoped = await listGuardianRequestsOrEmpty({
-    sourceConversationId: conversationId,
-    status: "pending",
-    kind: "tool_approval",
-  });
+  const [toolApprovals, pendingQuestions] = await Promise.all([
+    listGuardianRequestsOrEmpty({
+      sourceConversationId: conversationId,
+      status: "pending",
+      kind: "tool_approval",
+    }),
+    listGuardianRequestsOrEmpty({
+      sourceConversationId: conversationId,
+      status: "pending",
+      kind: "pending_question",
+    }),
+  ]);
+
+  // Voice-call questions (callSessionId present) track their lifecycle in the
+  // calls domain, not `pendingInteractions` — never treat them as orphaned
+  // here. Only ask_question rows are interaction-bound.
+  const sourceScoped = [
+    ...toolApprovals,
+    ...pendingQuestions.filter((req) => !req.callSessionId),
+  ];
 
   for (const req of sourceScoped) {
     // Skip requests that still have a live in-memory pending interaction —
@@ -494,7 +509,7 @@ async function tryConsumeGuardianReply(params: {
     filePath?: string;
   }>;
   conversation: Conversation;
-  onEvent: (msg: ServerMessage) => void;
+  onEvent: (msg: AssistantEvent) => void;
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Verified actor identity from actor-token middleware. */
   verifiedActorExternalUserId?: string;

@@ -32,7 +32,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { redactJsonStringLeaves } from "../security/redact-json.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import { redactSecrets } from "../security/secret-scanner.js";
@@ -72,7 +72,7 @@ interface TerminalState {
 
 /**
  * Vellum's ACP Client handler. Receives events from an ACP agent and
- * forwards them as ServerMessage objects to connected Vellum clients.
+ * forwards them as AssistantEvent objects to connected Vellum clients.
  */
 export class VellumAcpClientHandler implements Client {
   private terminals = new Map<string, TerminalState>();
@@ -101,7 +101,7 @@ export class VellumAcpClientHandler implements Client {
 
   constructor(
     private readonly acpSessionId: string,
-    private readonly sendToVellum: (msg: ServerMessage) => void,
+    private readonly sendToVellum: (msg: AssistantEvent) => void,
     private readonly parentConversationId: string,
   ) {}
 

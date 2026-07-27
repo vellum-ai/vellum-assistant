@@ -30,8 +30,12 @@ import {
 } from "./deliveries-store.js";
 import { resolveDestinations } from "./destination-resolver.js";
 import {
+  buildQuestionOptionActionId,
   buildToolApprovalSourceView,
+  parseGuardianQuestionPayload,
   parseInteractiveApprovalPayload,
+  QUESTION_SKIP_ACTION_ID,
+  resolveGuardianInstructionModeFromPayload,
   type ToolApprovalSourceView,
 } from "./guardian-question-mode.js";
 import { nonEmpty } from "./notification-utils.js";
@@ -94,6 +98,16 @@ function resolveApprovalContext(
   }
 
   if (signal.sourceEventName === "guardian.question") {
+    // Answer-mode question with structured options (an ask_question prompt):
+    // render the options as card actions so every channel adapter shows
+    // tappable choices. Built here — once per broadcast — so adapters stay
+    // rendering-only; the reply router recognizes the action ids as answer
+    // selections (see parseQuestionAnswerActionId).
+    const questionContext = resolveQuestionOptionsContext(payload);
+    if (questionContext) {
+      return questionContext;
+    }
+
     const parsed = parseInteractiveApprovalPayload(payload);
     if (!parsed) {
       return undefined;
@@ -135,6 +149,49 @@ function resolveApprovalContext(
   }
 
   return undefined;
+}
+
+/**
+ * Card actions for an answer-mode `pending_question` payload carrying
+ * structured options: one action per option plus Skip, ids in the
+ * answer-selection scheme. Returns `undefined` for approval-mode payloads,
+ * option-less questions (voice questions answer by free text), and anything
+ * that fails strict parsing — those fall through to the approval/plain-text
+ * paths.
+ */
+function resolveQuestionOptionsContext(
+  payload: Record<string, unknown>,
+): ResolvedApprovalContext | undefined {
+  const parsed = parseGuardianQuestionPayload(payload);
+  if (!parsed || parsed.requestKind !== "pending_question") {
+    return undefined;
+  }
+  if (resolveGuardianInstructionModeFromPayload(parsed).mode !== "answer") {
+    return undefined;
+  }
+  const options = parsed.options;
+  if (!options || options.length === 0) {
+    return undefined;
+  }
+  const requestId = nonEmpty(parsed.requestId);
+  if (!requestId) {
+    return undefined;
+  }
+
+  const code = parsed.requestCode?.toUpperCase() ?? requestId;
+  return {
+    approval: {
+      requestId,
+      actions: [
+        ...options.map((option, index) => ({
+          id: buildQuestionOptionActionId(index),
+          label: option.label,
+        })),
+        { id: QUESTION_SKIP_ACTION_ID, label: "Skip" },
+      ],
+      plainTextFallback: `Reply "${code} <your answer>".`,
+    },
+  };
 }
 
 /** Callback invoked immediately when a vellum notification conversation is created. */

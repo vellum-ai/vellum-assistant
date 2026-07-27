@@ -28,7 +28,7 @@ mock.module("./gateway-client.js", () => ({
   },
 }));
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js";
 import {
   createSlackReplySession,
@@ -39,34 +39,34 @@ const CHANNEL = "D-STREAM";
 const THREAD_TS = "1700000000.000001";
 const CALLBACK_URL = `https://example.test/deliver/slack?channel=${CHANNEL}&threadTs=${THREAD_TS}`;
 
-const textDelta = (text: string): ServerMessage =>
+const textDelta = (text: string): AssistantEvent =>
   ({
     type: "assistant_text_delta",
     text,
     conversationId: "conv-stream",
-  }) as ServerMessage;
+  }) as AssistantEvent;
 
-const toolUseStart = (toolUseId: string): ServerMessage =>
+const toolUseStart = (toolUseId: string): AssistantEvent =>
   ({
     type: "tool_use_start",
     toolName: "web_search",
     input: { query: "example" },
     conversationId: "conv-stream",
     toolUseId,
-  }) as ServerMessage;
+  }) as AssistantEvent;
 
-const messageComplete = (messageId: string): ServerMessage =>
+const messageComplete = (messageId: string): AssistantEvent =>
   ({
     type: "message_complete",
     conversationId: "conv-stream",
     messageId,
-  }) as ServerMessage;
+  }) as AssistantEvent;
 
 const taskProgressShow = (
   surfaceId: string,
   steps: Array<{ label: string; status: string; detail?: string }>,
   templateTitle?: string,
-): ServerMessage =>
+): AssistantEvent =>
   ({
     type: "ui_surface_show",
     conversationId: "conv-stream",
@@ -80,18 +80,18 @@ const taskProgressShow = (
         steps,
       },
     },
-  }) as ServerMessage;
+  }) as AssistantEvent;
 
 const taskProgressUpdate = (
   surfaceId: string,
   steps: Array<{ label: string; status: string }>,
-): ServerMessage =>
+): AssistantEvent =>
   ({
     type: "ui_surface_update",
     conversationId: "conv-stream",
     surfaceId,
     data: { templateData: { steps } },
-  }) as ServerMessage;
+  }) as AssistantEvent;
 
 const tick = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -351,7 +351,7 @@ describe("createSlackReplySession", () => {
   test("falls back when stopStream throws after streaming text", async () => {
     deliverImpl = async (_url, payload) => {
       const op = payload.slackStream as { action: string };
-      if (op.action === "stop") throw new Error("stop failed");
+      if (op.action === "stop") {throw new Error("stop failed");}
       return { ok: true, ts: "stream-ts-1" };
     };
     const session = createSlackReplySession({

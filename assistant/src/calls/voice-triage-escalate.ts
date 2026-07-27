@@ -23,8 +23,7 @@
  *
  * This module owns the routing policy in one place: the profile key, the
  * leg-specific prompt rules, the leading-token classifier, and the bridge
- * cap/fallback policy. The gate itself is the `voice-mode` flag, read by the
- * LiveVoiceSession that drives the routing.
+ * cap/fallback policy. LiveVoiceSession drives the routing.
  */
 
 import {

@@ -40,11 +40,17 @@ import {
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import type { ProPackage } from "@/domains/settings/billing/package-types";
+import { SWITCH_CAPTION } from "@/domains/settings/billing/plans/package-switch-copy";
+import {
+  makeProPackage,
+  makeSuperPackage,
+  makeUltraPackage,
+} from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import type {
   OnboardingStateResponse,
   PackageChangeResponse,
   PlanListResponse,
-  ProPackage,
   ProPlan,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
@@ -210,46 +216,12 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 const { PlansPage } = await import("./plans-page");
 const { getPlanTierCopy } = await import("./plans-copy");
 
-/** A fully-typed Pro package with Mighty defaults; override per tier. */
-function makePackage(overrides: Partial<ProPackage>): ProPackage {
-  return {
-    key: "mighty",
-    name: "Mighty",
-    description: "",
-    version: 1,
-    machine_tier: null,
-    storage_tier: "xs",
-    credit_tier: "credits_25",
-    machine_size: null,
-    storage_gib: 10,
-    credits_usd: 25,
-    include_platform_fee: false,
-    base_price_cents: 0,
-    machine_price_cents: 0,
-    storage_price_cents: 0,
-    credit_price_cents: 0,
-    total_price_cents: 3000,
-    ...overrides,
-  };
-}
-
-const MIGHTY = makePackage({});
-const SUPER = makePackage({
-  key: "super",
-  name: "Super",
-  machine_size: "medium",
-  storage_gib: 25,
-  credits_usd: 50,
-  total_price_cents: 10000,
-});
-const ULTRA = makePackage({
-  key: "ultra",
-  name: "Ultra",
-  machine_size: "large",
-  storage_gib: 50,
-  credits_usd: 100,
-  total_price_cents: 20000,
-});
+// This page's assertions key off the storage/credit/price rows, so the three
+// tiers come straight from the catalog fixtures rather than being re-specced
+// here.
+const MIGHTY = makeProPackage();
+const SUPER = makeSuperPackage();
+const ULTRA = makeUltraPackage();
 
 function plansWith(packages: ProPackage[]): PlanListResponse {
   return {
@@ -378,8 +350,8 @@ describe("PlansPage — full catalog render", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
     // Storage rows.
     expect(html).toContain("10 GB Storage");
-    expect(html).toContain("25 GB Storage");
-    expect(html).toContain("50 GB Storage");
+    expect(html).toContain("30 GB Storage");
+    expect(html).toContain("60 GB Storage");
     // Free plan's baseline storage (FREE_STORAGE_GIB).
     expect(html).toContain("4 GB Storage");
     // Credits row, formatted from credits_usd.
@@ -852,10 +824,8 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
     fireEvent.click(await findByRole("button", { name: "Power Up" }));
 
     // The direction-neutral switch confirm appears (not upgrade/downgrade copy).
-    await findByText("Switch to Mighty?");
-    await findByText(
-      "Your plan changes now. Any prorated difference is charged now or credited to your next invoice.",
-    );
+    await findByText("Switch to Mighty");
+    await findByText(SWITCH_CAPTION);
 
     fireEvent.click(await findByTestId("confirm-package-switch-button"));
 
@@ -874,7 +844,7 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
     // The customized sub's own Mighty card is not "current" — its CTA is live.
     fireEvent.click(await findByRole("button", { name: "Power Up" }));
 
-    await findByText("Switch to Mighty?");
+    await findByText("Switch to Mighty");
     fireEvent.click(await findByTestId("confirm-package-switch-button"));
 
     await waitFor(() => expect(changePackageCall).not.toBeNull());

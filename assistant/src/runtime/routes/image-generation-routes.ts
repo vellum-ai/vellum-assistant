@@ -104,7 +104,7 @@ async function handleImageGenerationGenerate(
   // Resolve credentials
   const { credentials, errorHint } = await resolveImageGenCredentials({
     provider,
-    mode: managed ? "managed" : "your-own",
+    managed,
   });
 
   if (!credentials) {

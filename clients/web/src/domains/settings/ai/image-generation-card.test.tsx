@@ -68,6 +68,17 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
+mock.module("@/domains/settings/ai/use-stored-credential-presence", () => ({
+  useStoredCredentialPresence: () => ({
+    hasStoredCredential: false,
+    isLoading: false,
+  }),
+  credentialPresenceQueryKey: (...parts: unknown[]) => [
+    "credential-presence-test",
+    ...parts,
+  ],
+}));
+
 const provisionedKeys: Array<{ provider: string; key: string }> = [];
 mock.module("@/domains/settings/ai/use-daemon-config", () => ({
   useProvisionProviderKey: () => (provider: string, key: string) => {

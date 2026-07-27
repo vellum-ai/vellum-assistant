@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "../src/tokens.css";
-@source "../src/**/*.tsx";
 
 /* ---------------------------------------------------------------------------
  * Storybook-specific defaults — not part of the shared token export.

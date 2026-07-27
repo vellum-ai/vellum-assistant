@@ -59,7 +59,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 const pendingInteractions = await import("../runtime/pending-interactions.js");
 const { HostBrowserProxy } = await import("../daemon/host-browser-proxy.js");
 
-/** Extract the ServerMessage payloads from published events. */
+/** Extract the AssistantEvent payloads from published events. */
 function getPublishedMessages(): unknown[] {
   return publishedEvents;
 }

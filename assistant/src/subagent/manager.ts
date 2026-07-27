@@ -10,6 +10,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import type { AssistantEvent } from "../api/index.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { Conversation } from "../daemon/conversation.js";
@@ -18,7 +19,6 @@ import {
   removeSubagentConversation,
   setSubagentConversation,
 } from "../daemon/conversation-registry.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import {
   deleteSubagentRecord,
@@ -95,7 +95,7 @@ function extractFinalAssistantText(messages: Message[]): string {
  * other event type. Used by the synchronous `onText` tap to forward
  * `assistant_text_delta` / `assistant_thinking_delta` chunks to the caller.
  */
-function extractDeltaText(msg: ServerMessage): string | null {
+function extractDeltaText(msg: AssistantEvent): string | null {
   if (msg.type === "assistant_text_delta") {
     return msg.text;
   }
@@ -220,7 +220,7 @@ interface ManagedSubagent {
   conversation: Conversation | null;
   state: SubagentState;
   /** Mutable reference to the parent's current sendToClient. Updated on reconnect. */
-  parentSendToClient: (msg: ServerMessage) => void;
+  parentSendToClient: (msg: AssistantEvent) => void;
   /** Epoch ms after which this terminal entry can be removed by the TTL sweep. */
   retainedUntil?: number;
   /**
@@ -308,7 +308,7 @@ export class SubagentManager {
    */
   async spawn(
     config: Omit<SubagentConfig, "id">,
-    parentSendToClient: (msg: ServerMessage) => void,
+    parentSendToClient: (msg: AssistantEvent) => void,
   ): Promise<string> {
     const { subagentId } = await this.setUpSubagent(config, parentSendToClient);
 
@@ -331,7 +331,7 @@ export class SubagentManager {
    */
   private async setUpSubagent(
     config: Omit<SubagentConfig, "id">,
-    parentSendToClient: (msg: ServerMessage) => void,
+    parentSendToClient: (msg: AssistantEvent) => void,
     opts?: { synchronous?: boolean; onText?: (chunk: string) => void },
   ): Promise<{ subagentId: string; managed: ManagedSubagent }> {
     // ── Limit checks ────────────────────────────────────────────────
@@ -478,7 +478,7 @@ export class SubagentManager {
 
     // Wrap sendToClient to envelope all events with the subagent ID.
     // Reads from managed.parentSendToClient so reconnects are picked up.
-    const wrappedSendToClient = (msg: ServerMessage): void => {
+    const wrappedSendToClient = (msg: AssistantEvent): void => {
       // Tap streaming text/thinking deltas for the synchronous caller (if any),
       // in addition to the normal envelope below. Reads from managed.onText so
       // the synchronous path can forward chunks without altering event routing.
@@ -493,7 +493,7 @@ export class SubagentManager {
         subagentId,
         conversationId: config.parentConversationId,
         event: msg,
-      } as ServerMessage);
+      } as AssistantEvent);
     };
 
     const conversation = new Conversation(
@@ -621,7 +621,7 @@ export class SubagentManager {
       objective: config.objective,
       isFork: config.fork ?? false,
       parentToolUseId: config.parentToolUseId,
-    } as ServerMessage);
+    } as AssistantEvent);
 
     log.info(
       {
@@ -649,7 +649,7 @@ export class SubagentManager {
    */
   async spawnAndAwait(
     config: Omit<SubagentConfig, "id">,
-    parentSendToClient: (msg: ServerMessage) => void,
+    parentSendToClient: (msg: AssistantEvent) => void,
     opts?: { signal?: AbortSignal; onText?: (chunk: string) => void },
   ): Promise<string> {
     const { subagentId, managed } = await this.setUpSubagent(
@@ -878,7 +878,7 @@ export class SubagentManager {
 
   abort(
     subagentId: string,
-    parentSendToClient?: (msg: ServerMessage) => void,
+    parentSendToClient?: (msg: AssistantEvent) => void,
     callerConversationId?: string,
     options?: { suppressNotification?: boolean },
   ): boolean {
@@ -960,12 +960,18 @@ export class SubagentManager {
   }
 
   /**
-   * Abort all subagents belonging to a parent conversation.
-   * Called when the parent conversation is aborted or evicted.
+   * Abort all in-flight subagents belonging to a parent conversation, keeping
+   * every child's metadata (and durable record) readable for the normal
+   * terminal-retention window. Called when the parent conversation stops or is
+   * released from memory but its id lives on — user cancel, idle eviction,
+   * config-reload rebuild — so a completed child's result stays retrievable via
+   * `subagent_read` afterwards. Aborted children release their live
+   * conversations through the run's own teardown and are swept on the TTL like
+   * any other terminal entry.
    */
   abortAllForParent(
     parentConversationId: string,
-    parentSendToClient?: (msg: ServerMessage) => void,
+    parentSendToClient?: (msg: AssistantEvent) => void,
   ): number {
     const children = this.parentToChildren.get(parentConversationId);
     if (!children) {
@@ -979,10 +985,41 @@ export class SubagentManager {
       }
     }
 
-    // Dispose all children — the parent conversation is going away so nobody
-    // will call subagent_read.  Use snapshot since dispose mutates the set.
-    for (const childId of [...children]) {
-      this.dispose(childId);
+    return count;
+  }
+
+  /**
+   * Abort and fully dispose every subagent across all parents, deleting their
+   * durable records. For clear-all: every conversation's data is going away,
+   * including retained children of parents that are no longer in the in-memory
+   * conversation store.
+   */
+  disposeAllForAllParents(): void {
+    for (const parentId of [...this.parentToChildren.keys()]) {
+      this.disposeAllForParent(parentId);
+    }
+  }
+
+  /**
+   * Abort and fully dispose all subagents belonging to a parent conversation,
+   * deleting their durable records. Only for parents whose conversation data is
+   * going away (deletion, clear-all) — nobody will call subagent_read.
+   */
+  disposeAllForParent(
+    parentConversationId: string,
+    parentSendToClient?: (msg: AssistantEvent) => void,
+  ): number {
+    const count = this.abortAllForParent(
+      parentConversationId,
+      parentSendToClient,
+    );
+
+    const children = this.parentToChildren.get(parentConversationId);
+    if (children) {
+      // Use snapshot since dispose mutates the set.
+      for (const childId of [...children]) {
+        this.dispose(childId);
+      }
     }
 
     return count;
@@ -1081,7 +1118,7 @@ export class SubagentManager {
    */
   updateParentSender(
     parentConversationId: string,
-    newSendToClient: (msg: ServerMessage) => void,
+    newSendToClient: (msg: AssistantEvent) => void,
   ): void {
     const children = this.parentToChildren.get(parentConversationId);
     if (!children) {
@@ -1104,7 +1141,7 @@ export class SubagentManager {
         status: managed.state.status,
         error: managed.state.error,
         usage: managed.state.usage,
-      } as ServerMessage);
+      } as AssistantEvent);
     }
   }
 
@@ -1383,7 +1420,7 @@ export class SubagentManager {
   private setStatus(
     subagentId: string,
     status: SubagentStatus,
-    parentSendToClient: (msg: ServerMessage) => void,
+    parentSendToClient: (msg: AssistantEvent) => void,
     error?: string,
   ): void {
     const managed = this.subagents.get(subagentId);
@@ -1410,7 +1447,7 @@ export class SubagentManager {
       status,
       error,
       usage: managed.state.usage,
-    } as ServerMessage);
+    } as AssistantEvent);
 
     // Mirror the transition to the durable record.
     this.persistState(managed.state);

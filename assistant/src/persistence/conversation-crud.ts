@@ -2722,6 +2722,42 @@ export function isConversationProcessing(id: string): boolean {
 }
 
 /**
+ * Conversations currently mid-turn, longest-running first. Throws on a read
+ * failure — drain callers must distinguish "nothing processing" from "could
+ * not read", so this does not degrade to an empty list.
+ */
+export function listProcessingConversations(limit = 20): Array<{
+  conversationId: string;
+  title: string | null;
+  originChannel: string | null;
+  originInterface: string | null;
+  processingStartedAt: number;
+}> {
+  const rows = rawAll<{
+    id: string;
+    title: string | null;
+    origin_channel: string | null;
+    origin_interface: string | null;
+    processing_started_at: number;
+  }>(
+    "conversation:listProcessing",
+    `SELECT id, title, origin_channel, origin_interface, processing_started_at
+     FROM conversations
+     WHERE processing_started_at IS NOT NULL
+     ORDER BY processing_started_at ASC
+     LIMIT ?`,
+    limit,
+  );
+  return rows.map((row) => ({
+    conversationId: row.id,
+    title: row.title,
+    originChannel: row.origin_channel,
+    originInterface: row.origin_interface,
+    processingStartedAt: row.processing_started_at,
+  }));
+}
+
+/**
  * Highest stream `seq` whose content is durably persisted to this
  * conversation's message rows, read from the `conversations.seq` column. This
  * is the snapshot↔stream alignment baseline `/messages` returns so a client
@@ -3161,6 +3197,10 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM tool_invocations");
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
+  // Subagent lifecycle records reference conversations by id without an FK
+  // cascade; wipe them explicitly so labels/objectives don't survive (or
+  // rehydrate after) a clear-all.
+  await runOrThrow("DELETE FROM subagents");
 
   // The memory feature's relocated conversation-keyed tables lost their main-DB
   // cascade. Signal the wipe through the hook rather than reaching into the

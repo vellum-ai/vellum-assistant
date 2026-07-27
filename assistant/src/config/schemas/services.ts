@@ -53,7 +53,13 @@ const BaseServiceSchema = z.object({
  */
 const InferenceServiceSchema = z.object({});
 
-const ImageGenerationServiceSchema = BaseServiceSchema.extend({
+/**
+ * Image generation carries no `mode`: `provider` is the only axis. `"vellum"`
+ * generates through the platform runtime proxy for the model-appropriate
+ * backend, billed to Vellum credits; `"gemini"`/`"openai"` use the user's
+ * key. A `mode` key sent by an older client is stripped at parse.
+ */
+const ImageGenerationServiceSchema = z.object({
   provider: z.enum(VALID_IMAGE_GEN_PROVIDERS).default("gemini"),
   model: z.string().default(DEFAULT_IMAGE_MODEL),
 });
