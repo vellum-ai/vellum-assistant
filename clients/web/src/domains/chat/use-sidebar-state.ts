@@ -21,7 +21,10 @@ import { groupBackgroundConversationsBySource } from "@/domains/chat/utils/backg
 import { groupScheduledConversationsByJobId } from "@/domains/chat/utils/scheduled-sub-groups";
 import type { SubGroup } from "@/domains/chat/utils/sub-group";
 import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
-import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
+import {
+  channelSectionKey,
+  isKnownPrimaryKey,
+} from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import {
   useBackgroundConversationListQuery,
@@ -113,12 +116,17 @@ export interface SidebarState {
 
   customGroups: CustomGroup[];
 
-  effectiveOpenCategories: string[];
+  /**
+   * Open keys for the single accordion root that holds Pinned, Chats, and
+   * every channel section — merged from the primary and category storage
+   * buckets so all of them share one root (and therefore one uniform gap).
+   */
+  effectiveOpenSections: string[];
+  /** Splits the accordion's value array back into its two storage buckets. */
+  onOpenSectionsChange: (next: string[]) => void;
+
   effectiveOpenCustomGroups: string[];
-  effectiveOpenPrimary: string[];
-  onOpenCategoriesChange: (next: string[]) => void;
   onOpenCustomGroupsChange: (next: string[]) => void;
-  onOpenPrimaryChange: (next: string[]) => void;
 
   /**
    * Reveal the Background section, enabling its lazy fetch. Wired to the
@@ -355,6 +363,24 @@ export function useSidebarState({
     return [...new Set([...openPrimary, ...extra])];
   }, [openPrimary, attentionConversationIds, grouped.pinned, grouped.recents, hasAttentionIn]);
 
+  // Pinned/Chats and the channel sections render in one accordion root, so
+  // their two storage buckets are merged into a single value array here and
+  // split apart again on change. Keeping the buckets separate preserves their
+  // different defaults (primary open, categories closed) and the activation
+  // side effects `setOpenCategories` owns.
+  const effectiveOpenSections = useMemo(
+    () => [...effectiveOpenPrimary, ...effectiveOpenCategories],
+    [effectiveOpenPrimary, effectiveOpenCategories],
+  );
+
+  const onOpenSectionsChange = useCallback(
+    (next: string[]) => {
+      setOpenPrimary(next.filter(isKnownPrimaryKey));
+      setOpenCategories(next.filter((key) => !isKnownPrimaryKey(key)));
+    },
+    [setOpenPrimary, setOpenCategories],
+  );
+
   return {
     pinned: grouped.pinned,
     scheduled: grouped.scheduled,
@@ -364,12 +390,10 @@ export function useSidebarState({
     channelSections,
     recents: recentsSection,
     customGroups: grouped.customGroups,
-    effectiveOpenCategories,
+    effectiveOpenSections,
+    onOpenSectionsChange,
     effectiveOpenCustomGroups,
-    effectiveOpenPrimary,
-    onOpenCategoriesChange: setOpenCategories,
     onOpenCustomGroupsChange: setOpenCustomGroups,
-    onOpenPrimaryChange: setOpenPrimary,
     activateBackground,
     backgroundLoading,
     activateScheduled,
