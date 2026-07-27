@@ -852,9 +852,9 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
     fireEvent.click(await findByRole("button", { name: "Power Up" }));
 
     // The direction-neutral switch confirm appears (not upgrade/downgrade copy).
-    await findByText("Switch to Mighty?");
+    await findByText("Switch to Mighty");
     await findByText(
-      "Your plan changes now. Any prorated difference is charged now or credited to your next invoice.",
+      "Billed monthly · prorated difference charged today or credited next invoice",
     );
 
     fireEvent.click(await findByTestId("confirm-package-switch-button"));
@@ -874,7 +874,7 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
     // The customized sub's own Mighty card is not "current" — its CTA is live.
     fireEvent.click(await findByRole("button", { name: "Power Up" }));
 
-    await findByText("Switch to Mighty?");
+    await findByText("Switch to Mighty");
     fireEvent.click(await findByTestId("confirm-package-switch-button"));
 
     await waitFor(() => expect(changePackageCall).not.toBeNull());
