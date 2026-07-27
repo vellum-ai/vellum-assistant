@@ -11,6 +11,14 @@ const fetchMock = mock(async () =>
   }),
 );
 
+// Org-header readiness drives whether the authenticated fetch may go out at
+// all. Mutable so tests can hold it mid-resolution and then let it land.
+let orgReadinessValue: "ready" | "resolving" | "unavailable" = "ready";
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useOrgHeaderReadiness: () => orgReadinessValue,
+  useIsOrgReady: () => orgReadinessValue === "ready",
+}));
+
 const { useClientFeatureFlagSync } = await import(
   "@/hooks/use-client-feature-flag-sync"
 );
@@ -42,12 +50,14 @@ beforeEach(() => {
   window.__VELLUM_CONFIG__ = undefined;
   fetchMock.mockClear();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
+  orgReadinessValue = "ready";
   useClientFeatureFlagStore.setState(initialFlagState, true);
 });
 
 afterEach(() => {
   cleanup();
   window.__VELLUM_CONFIG__ = undefined;
+  orgReadinessValue = "ready";
   globalThis.fetch = originalFetch;
 });
 
@@ -132,6 +142,61 @@ describe("useClientFeatureFlagSync", () => {
     const state = useClientFeatureFlagStore.getState();
     expect(state.hydrated).toBe(true);
     expect(state.marketingPricingTakeover).toBe(true);
+  });
+
+  test("stays unsettled while the org header source is still resolving", async () => {
+    // Authenticated cold load with no stored organization id: the session has
+    // settled but the org store has not. Firing now sends a header-less request
+    // the endpoint rejects, and settling on that failure would publish the
+    // default-off registry value as the answer — bouncing a valid pricing deep
+    // link to plans before the real value could ever land.
+    orgReadinessValue = "resolving";
+    const queryClient = freshQueryClient();
+    renderHook(() => useClientFeatureFlagSync(true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await Promise.resolve();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(useClientFeatureFlagStore.getState().hydrated).toBe(false);
+  });
+
+  test("fetches once the org header source lands", async () => {
+    orgReadinessValue = "resolving";
+    const queryClient = freshQueryClient();
+    const { rerender } = renderHook(() => useClientFeatureFlagSync(true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await Promise.resolve();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    orgReadinessValue = "ready";
+    rerender();
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(useClientFeatureFlagStore.getState().hydrated).toBe(true);
+    });
+  });
+
+  test("settles once org resolution concludes without an organization", async () => {
+    // The bound on the wait above: the org store lands on a terminal state for
+    // every fetch outcome, and a terminal failure means the header — and so the
+    // server value — is never arriving. Staying pending forever would leave the
+    // checkout page spinning, which is its own dead end.
+    orgReadinessValue = "unavailable";
+    const queryClient = freshQueryClient();
+    renderHook(() => useClientFeatureFlagSync(true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => {
+      expect(useClientFeatureFlagStore.getState().hydrated).toBe(true);
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("stays unsettled until the session is ready", async () => {
