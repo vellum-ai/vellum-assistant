@@ -26,7 +26,6 @@ import { applyEdit } from "./shared/filesystem/edit-engine.js";
 import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
 import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
 import { ToolApprovalHandler } from "./tool-approval-handler.js";
-import { parseToolInput } from "./tool-input-schemas.js";
 import { resolveToolInvocationAlias } from "./tool-name-aliases.js";
 import { recordToolCompletion } from "./tool-profiler.js";
 import { type ToolContext, type ToolExecutionResult } from "./types.js";
@@ -100,24 +99,15 @@ export class ToolExecutor {
     }
 
     const tool = gateResult.tool;
-    // Resolved once for the schema-validation gate below and the
-    // plugin-context binding around `execute()`.
-    const owner = getToolOwner(name);
+    // The pre-execution gate parsed model-generated input against the tool's
+    // registered Zod schema (`TOOL_INPUT_SCHEMAS`) before any grant was
+    // consumed; substitute the parsed value (with `.catch()` recoveries
+    // applied) so validation and execution see the same input.
+    if (gateResult.parsedInput) {
+      input = gateResult.parsedInput;
+    }
 
     try {
-      // Model-generated `input` is untrusted: parse it against the tool's
-      // registered Zod schema (built-in tools only — an extension or
-      // workspace override owns its own input contract) before anything
-      // downstream reads a field. A failed parse surfaces as an expected
-      // ToolError — a clean, model-correctable tool result — instead of a
-      // crash or silent corruption mid-executor.
-      if (owner?.kind === "default") {
-        const parsedInput = parseToolInput(name, input);
-        if (!parsedInput.ok) {
-          throw new ToolError(parsedInput.message, name);
-        }
-        input = parsedInput.data;
-      }
       // A workflow run whose capability manifest grants side-effecting tools or
       // host functions (beyond the read-only baseline) must prompt at LAUNCH.
       // The manifest is authored and declared by the model, and the run's
@@ -247,6 +237,7 @@ export class ToolExecutor {
       // context must be established around the `execute()` call itself so the
       // returned promise carries the binding across its awaits. Non-plugin
       // tools (default/skill/mcp/workspace) establish no context.
+      const owner = getToolOwner(name);
       const execPromise =
         owner?.kind === "plugin"
           ? runInPluginContext(owner.id, () => tool.execute(input, execContext))

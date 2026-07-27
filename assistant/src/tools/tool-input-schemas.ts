@@ -10,9 +10,12 @@ import { formatToolInputError } from "./shared/zod-tool-schema.js";
 /**
  * Per-tool Zod input schemas, keyed by tool name. Tool calls are a
  * discriminated payload — the tool name determines the shape of `input` —
- * but the model's JSON arrives untrusted, so `ToolExecutor` parses it against
- * this registry (via {@link parseToolInput}) before any executor reads a
- * field. Each schema is also the source the tool derives its advertised
+ * but the model's JSON arrives untrusted, so the pre-execution gate
+ * (`ToolApprovalHandler.checkPreExecutionGates`) parses it against this
+ * registry (via {@link parseToolInput}) before any executor reads a field —
+ * and, crucially, before any one-time grant is consumed or guardian
+ * escalation starts, so a malformed call can never interrupt the guardian.
+ * Each schema is also the source the tool derives its advertised
  * `input_schema` from (`toToolInputSchema` in `shared/zod-tool-schema.ts`),
  * so the model-facing contract and the runtime validation cannot drift.
  *
@@ -30,8 +33,9 @@ import { formatToolInputError } from "./shared/zod-tool-schema.js";
  *   `.optional().catch(undefined)` so a bad value degrades exactly as the
  *   tool always degraded, instead of failing the call.
  * - Fields the advertised schema requires only to guide the model (e.g.
- *   `activity`) stay optional here; the derivation marks them required via
- *   `advertiseRequired`.
+ *   `activity`, which is status-only and never read by the tool) stay
+ *   optional-with-`.catch(undefined)` here; the derivation marks them
+ *   required via `advertiseRequired`.
  */
 export const TOOL_INPUT_SCHEMAS: Readonly<Record<string, z.ZodType>> = {
   ask_question: askQuestionInputSchema,

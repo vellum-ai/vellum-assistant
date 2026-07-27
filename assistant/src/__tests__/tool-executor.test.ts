@@ -1493,4 +1493,23 @@ describe("ToolExecutor input-schema validation gate", () => {
     expect(result.isError).toBe(false);
     expect(probe.seenInput()).toEqual({ query: 42 });
   });
+
+  test("malformed input for a sensitive tool fails validation before any grant flow", async () => {
+    // An unknown actor invoking a sensitive built-in normally routes into the
+    // scoped-grant machinery inside checkPreExecutionGates. Malformed input
+    // must short-circuit BEFORE that point — the validation error proves the
+    // call never reached grant consumption or guardian escalation.
+    const probe = ownedTool("file_write", "default");
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_write",
+      { path: 42 },
+      makeContext({ trustClass: "unknown" }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "file_write"');
+    expect(result.content).not.toContain("guardian");
+    expect(probe.seenInput()).toBeUndefined();
+  });
 });

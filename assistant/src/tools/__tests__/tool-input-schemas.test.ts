@@ -52,6 +52,18 @@ describe("parseToolInput", () => {
     });
   });
 
+  test("a malformed status-only activity field degrades instead of failing the call", () => {
+    const result = parseToolInput("file_write", {
+      path: "notes.md",
+      content: "hello",
+      activity: null,
+    });
+    expect(result).toEqual({
+      ok: true,
+      data: { path: "notes.md", content: "hello" },
+    });
+  });
+
   test("file_read drops malformed optional fields the tool always ignored", () => {
     const result = parseToolInput("file_read", {
       path: "notes.md",

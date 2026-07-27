@@ -45,7 +45,8 @@ export const fileEditInputSchema = z.looseObject({
     .describe(
       "Brief non-technical explanation of what you are doing and why, shown as a status update.",
     )
-    .optional(),
+    .optional()
+    .catch(undefined),
 });
 
 export const fileEditTool = {

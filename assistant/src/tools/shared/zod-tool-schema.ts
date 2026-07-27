@@ -94,8 +94,8 @@ export function formatToolInputError(
 
 /**
  * Failed-parse tool result for executors that validate their own input (the
- * executor-level gate in `ToolExecutor` produces the same message, so the
- * error reads identically whichever layer catches it first).
+ * pre-execution gate in `ToolApprovalHandler` produces the same message, so
+ * the error reads identically whichever layer catches it first).
  */
 export function invalidToolInputResult(
   toolName: string,
