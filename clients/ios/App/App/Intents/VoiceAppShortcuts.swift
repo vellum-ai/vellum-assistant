@@ -39,5 +39,20 @@ struct VoiceAppShortcuts: AppShortcutsProvider {
             shortTitle: "New voice conversation",
             systemImageName: "waveform.badge.plus"
         )
+        // These phrases end at the app name rather than trailing into the
+        // question. App Shortcut phrases can interpolate a parameter only when
+        // its type is an `AppEnum` or `AppEntity`, and `AskVellumIntent.request`
+        // is free-form text — so Siri matches the phrase and then collects the
+        // question through the parameter's `requestValueDialog`.
+        AppShortcut(
+            intent: AskVellumIntent(),
+            phrases: [
+                "Ask \(.applicationName)",
+                "Ask \(.applicationName) a question",
+                "Ask \(.applicationName) something",
+            ],
+            shortTitle: "Ask a question",
+            systemImageName: "questionmark.bubble"
+        )
     }
 }

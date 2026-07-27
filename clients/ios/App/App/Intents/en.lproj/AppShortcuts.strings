@@ -16,3 +16,11 @@
 /* Always starts a fresh voice conversation. */
 "New voice conversation in ${applicationName}" = "New voice conversation in ${applicationName}";
 "Start a new voice chat in ${applicationName}" = "Start a new voice chat in ${applicationName}";
+
+/* Starts a voice conversation with a question Siri collects first. The phrases
+   stop at the app name deliberately — see VoiceAppShortcuts.swift — so a
+   translation should be a complete utterance on its own, not a fragment the
+   speaker is expected to finish. */
+"Ask ${applicationName}" = "Ask ${applicationName}";
+"Ask ${applicationName} a question" = "Ask ${applicationName} a question";
+"Ask ${applicationName} something" = "Ask ${applicationName} something";

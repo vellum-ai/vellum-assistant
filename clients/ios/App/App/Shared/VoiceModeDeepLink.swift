@@ -26,16 +26,45 @@ enum VoiceModeDeepLink: String {
     /// Host segment shared with `START_VOICE_DEEP_LINK_HOST` on the web side.
     private static let host = "voice"
 
+    /// Characters left unescaped in a query *value*.
+    ///
+    /// `URLComponents.queryItems` encodes with `urlQueryAllowed`, which permits
+    /// the sub-delimiters `&`, `=`, `+`, and `?`. That is correct for a whole
+    /// query string and wrong for a single value inside one: a spoken
+    /// "Ben & Jerry's" would arrive at the parser as a `prompt` of "Ben " plus a
+    /// stray `Jerry's` parameter. Removing those four and assigning through
+    /// `percentEncodedQueryItems` is the standard fix — the value is escaped
+    /// once, by us, with delimiters included.
+    private static let queryValueAllowed: CharacterSet = {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+?#")
+        return allowed
+    }()
+
     /// The command URL for the *running build*, or `nil` when the bundle
     /// declares no usable scheme. Unlike sign-in, there is no safe fallback
     /// here: defaulting to the production scheme would make a Dev build launch
     /// voice mode in the production app.
-    var url: URL? {
+    ///
+    /// - Parameter prompt: what the user already said, when the command came
+    ///   from `AskVellumIntent`. Omitted from the URL when `nil` or blank, so a
+    ///   plain launch intent produces the byte-identical URL it always has.
+    ///   The web parser bounds and sanitizes whatever arrives; nothing is
+    ///   trusted for being locally produced.
+    func url(prompt: String? = nil) -> URL? {
         guard let scheme = BundleURLScheme.current else { return nil }
         var components = URLComponents()
         components.scheme = scheme
         components.host = Self.host
-        components.queryItems = [URLQueryItem(name: "mode", value: rawValue)]
+        var items = [URLQueryItem(name: "mode", value: rawValue)]
+        let trimmed = prompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmed.isEmpty,
+           let encoded = trimmed.addingPercentEncoding(
+               withAllowedCharacters: Self.queryValueAllowed
+           ) {
+            items.append(URLQueryItem(name: "prompt", value: encoded))
+        }
+        components.percentEncodedQueryItems = items
         return components.url
     }
 
@@ -52,11 +81,11 @@ enum VoiceModeDeepLink: String {
     /// extensions) and `AppDelegate` (which links Capacitor, which the appex
     /// does not) out of the appex binary.
     @MainActor
-    func route() {
+    func route(prompt: String? = nil) {
         #if VOICE_ACTIVITY_EXTENSION
         assertionFailure("Voice intents are performed in the app process, not the appex")
         #else
-        guard let url else {
+        guard let url = url(prompt: prompt) else {
             NSLog("[voice] No bundle URL scheme; dropping voice command")
             return
         }
