@@ -302,6 +302,23 @@ describe("sandboxPolicyWithHostFallback", () => {
     }
   });
 
+  test("denies the gateway security dir even when it sits inside the boundary", () => {
+    const boundary = makeTempDir();
+    const securityDir = join(boundary, "protected");
+    mkdirSync(securityDir);
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+
+    for (const policy of [sandboxPolicy, sandboxPolicyWithHostFallback]) {
+      const result = policy("protected/trust.json", boundary, {
+        mustExist: false,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("denied");
+      }
+    }
+  });
+
   test("denies a symlink that resolves into the gateway security dir", () => {
     const boundary = makeTempDir();
     const outside = makeTempDir();

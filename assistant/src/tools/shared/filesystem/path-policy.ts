@@ -246,14 +246,15 @@ function evaluateSandboxPolicy(
     options?.mustExist ?? true,
   );
 
-  if (isOutOfBounds(target)) {
-    if (!allowOutOfBounds) {
-      return outOfBoundsFailure(rawPath, target);
-    }
-    const securityDenied = gatewaySecurityDenial(target);
-    if (securityDenied) {
-      return securityDenied;
-    }
+  if (!allowOutOfBounds && isOutOfBounds(target)) {
+    return outOfBoundsFailure(rawPath, target);
+  }
+
+  // Applied unconditionally — even a boundary configured to contain the
+  // gateway security dir must not expose it through the file tools.
+  const securityDenied = gatewaySecurityDenial(target);
+  if (securityDenied) {
+    return securityDenied;
   }
 
   const denied = deniedFailure(target);
