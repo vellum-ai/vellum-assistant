@@ -52,6 +52,21 @@ export interface ScheduleJob {
   timezone: string | null;
   message: string;
   script: string | null;
+  /**
+   * Script mode: hand the script's stdout to an agent turn instead of only
+   * recording it on the run row. The turn is seeded with an anti-injection
+   * sandwich whose action prompt is this schedule's `message`.
+   */
+  thenExecute: boolean;
+  /**
+   * Managed skill the script belongs to; null = unbound. Bound schedules
+   * resolve `$__SKILL_DIR` at fire time, stamp the skill's `lastUsedAt`, and
+   * are refused when the skill's content no longer matches
+   * {@link skillVersionHash}.
+   */
+  skillId: string | null;
+  /** Skill content hash pinned at creation; null = unbound schedule. */
+  skillVersionHash: string | null;
   wakeConversationId: string | null;
   /** Saved workflow to trigger; only used when mode = 'workflow'. */
   workflowName: string | null;
@@ -113,6 +128,9 @@ export async function createSchedule(params: {
   timezone?: string | null;
   message: string;
   script?: string | null;
+  thenExecute?: boolean;
+  skillId?: string | null;
+  skillVersionHash?: string | null;
   wakeConversationId?: string | null;
   workflowName?: string | null;
   workflowArgs?: unknown;
@@ -201,6 +219,9 @@ export async function createSchedule(params: {
     timezone,
     message: params.message,
     script: params.script ?? null,
+    thenExecute: params.thenExecute ?? false,
+    skillId: params.skillId ?? null,
+    skillVersionHash: params.skillVersionHash ?? null,
     wakeConversationId: params.wakeConversationId ?? null,
     workflowName: params.workflowName ?? null,
     workflowArgsJson:
@@ -309,6 +330,9 @@ export async function updateSchedule(
     timezone?: string | null;
     message?: string;
     script?: string | null;
+    thenExecute?: boolean;
+    skillId?: string | null;
+    skillVersionHash?: string | null;
     enabled?: boolean;
     syntax?: ScheduleSyntax;
     expression?: string;
@@ -378,6 +402,10 @@ export async function updateSchedule(
   if (updates.timezone !== undefined) set.timezone = updates.timezone;
   if (updates.message !== undefined) set.message = updates.message;
   if (updates.script !== undefined) set.script = updates.script;
+  if (updates.thenExecute !== undefined) set.thenExecute = updates.thenExecute;
+  if (updates.skillId !== undefined) set.skillId = updates.skillId;
+  if (updates.skillVersionHash !== undefined)
+    set.skillVersionHash = updates.skillVersionHash;
   if (updates.enabled !== undefined) set.enabled = updates.enabled;
   if (updates.mode !== undefined) set.mode = updates.mode;
   if (updates.routingIntent !== undefined)
@@ -1276,6 +1304,9 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     timezone: row.timezone,
     message: row.message,
     script: row.script ?? null,
+    thenExecute: row.thenExecute ?? false,
+    skillId: row.skillId ?? null,
+    skillVersionHash: row.skillVersionHash ?? null,
     wakeConversationId: row.wakeConversationId ?? null,
     workflowName: row.workflowName ?? null,
     workflowArgs: parseOptionalJson(row.workflowArgsJson),

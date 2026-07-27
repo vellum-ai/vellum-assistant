@@ -17,6 +17,7 @@ import {
   getSchedule,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
+import { prepareScheduleSkillBinding } from "../../schedule/skill-binding.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
@@ -81,6 +82,36 @@ export async function executeScheduleUpdate(
   if (input.message !== undefined) updates.message = input.message;
   if (input.script !== undefined) updates.script = input.script;
   if (input.enabled !== undefined) updates.enabled = input.enabled;
+
+  // Re-pin the skill binding whenever the handoff or the bound skill is
+  // touched. This is also the re-approval path for a schedule the scheduler
+  // refused because its skill changed: re-issuing `skill_id` records the
+  // skill's current hash, which is an explicit guardian action rather than a
+  // silent trust-on-first-firing.
+  if (input.then_execute !== undefined || input.skill_id !== undefined) {
+    const existing = getSchedule(jobId);
+    if (!existing) {
+      return { content: `Error: Schedule not found: ${jobId}`, isError: true };
+    }
+    const binding = prepareScheduleSkillBinding({
+      skillId:
+        input.skill_id === undefined
+          ? existing.skillId
+          : typeof input.skill_id === "string"
+            ? input.skill_id.trim()
+            : null,
+      thenExecute:
+        input.then_execute === undefined
+          ? existing.thenExecute
+          : input.then_execute === true,
+      message:
+        typeof input.message === "string" ? input.message : existing.message,
+    });
+    if (!binding.ok) {
+      return { content: `Error: ${binding.error}`, isError: true };
+    }
+    Object.assign(updates, binding.binding);
+  }
 
   // Mode validation and pass-through
   if (input.mode !== undefined) {
@@ -260,6 +291,9 @@ export async function executeScheduleUpdate(
         timezone?: string | null;
         message?: string;
         script?: string | null;
+        thenExecute?: boolean;
+        skillId?: string | null;
+        skillVersionHash?: string | null;
         enabled?: boolean;
         syntax?: ScheduleSyntax;
         expression?: string;

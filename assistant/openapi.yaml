@@ -24685,6 +24685,16 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        thenExecute:
+                          type: boolean
+                        skillId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        skillVersionHash:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         nextRunAt:
                           type: number
                         lastRunAt:
@@ -24766,6 +24776,9 @@ paths:
                         - timezone
                         - message
                         - script
+                        - thenExecute
+                        - skillId
+                        - skillVersionHash
                         - nextRunAt
                         - lastRunAt
                         - lastStatus
@@ -24892,6 +24905,16 @@ paths:
                         anyOf:
                           - type: string
                           - type: "null"
+                      thenExecute:
+                        type: boolean
+                      skillId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      skillVersionHash:
+                        anyOf:
+                          - type: string
+                          - type: "null"
                       nextRunAt:
                         type: number
                       lastRunAt:
@@ -24973,6 +24996,9 @@ paths:
                       - timezone
                       - message
                       - script
+                      - thenExecute
+                      - skillId
+                      - skillVersionHash
                       - nextRunAt
                       - lastRunAt
                       - lastStatus
@@ -25050,6 +25076,16 @@ paths:
                         message:
                           type: string
                         script:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        thenExecute:
+                          type: boolean
+                        skillId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        skillVersionHash:
                           anyOf:
                             - type: string
                             - type: "null"
@@ -25134,6 +25170,9 @@ paths:
                         - timezone
                         - message
                         - script
+                        - thenExecute
+                        - skillId
+                        - skillVersionHash
                         - nextRunAt
                         - lastRunAt
                         - lastStatus
@@ -25208,6 +25247,16 @@ paths:
                       message:
                         type: string
                       script:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      thenExecute:
+                        type: boolean
+                      skillId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      skillVersionHash:
                         anyOf:
                           - type: string
                           - type: "null"
@@ -25292,6 +25341,9 @@ paths:
                       - timezone
                       - message
                       - script
+                      - thenExecute
+                      - skillId
+                      - skillVersionHash
                       - nextRunAt
                       - lastRunAt
                       - lastStatus
@@ -25428,6 +25480,16 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        thenExecute:
+                          type: boolean
+                        skillId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        skillVersionHash:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         nextRunAt:
                           type: number
                         lastRunAt:
@@ -25509,6 +25571,9 @@ paths:
                         - timezone
                         - message
                         - script
+                        - thenExecute
+                        - skillId
+                        - skillVersionHash
                         - nextRunAt
                         - lastRunAt
                         - lastStatus
@@ -25589,6 +25654,16 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        thenExecute:
+                          type: boolean
+                        skillId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        skillVersionHash:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         nextRunAt:
                           type: number
                         lastRunAt:
@@ -25670,6 +25745,9 @@ paths:
                         - timezone
                         - message
                         - script
+                        - thenExecute
+                        - skillId
+                        - skillVersionHash
                         - nextRunAt
                         - lastRunAt
                         - lastStatus
@@ -25750,6 +25828,16 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        thenExecute:
+                          type: boolean
+                        skillId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        skillVersionHash:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         nextRunAt:
                           type: number
                         lastRunAt:
@@ -25831,6 +25919,9 @@ paths:
                         - timezone
                         - message
                         - script
+                        - thenExecute
+                        - skillId
+                        - skillVersionHash
                         - nextRunAt
                         - lastRunAt
                         - lastStatus
@@ -26048,6 +26139,16 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        thenExecute:
+                          type: boolean
+                        skillId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        skillVersionHash:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         nextRunAt:
                           type: number
                         lastRunAt:
@@ -26129,6 +26230,9 @@ paths:
                         - timezone
                         - message
                         - script
+                        - thenExecute
+                        - skillId
+                        - skillVersionHash
                         - nextRunAt
                         - lastRunAt
                         - lastStatus

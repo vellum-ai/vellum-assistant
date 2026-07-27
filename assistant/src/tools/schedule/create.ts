@@ -14,6 +14,7 @@ import {
   formatLocalDate,
   isValidCronExpression,
 } from "../../schedule/schedule-store.js";
+import { prepareScheduleSkillBinding } from "../../schedule/skill-binding.js";
 import {
   CapabilityManifestSchema,
   resolveCapabilities as resolveWorkflowCapabilities,
@@ -59,10 +60,22 @@ export async function executeScheduleCreate(
     typeof input.workflow_name === "string" ? input.workflow_name.trim() : null;
   const workflowArgs = input.workflow_args;
   const inferenceProfile = input.inference_profile as string | undefined;
+  const thenExecute = (input.then_execute as boolean) ?? false;
+  const skillId =
+    typeof input.skill_id === "string" ? input.skill_id.trim() : null;
 
   // Validated workflow capability manifest, resolved only for workflow mode.
   // Left null for non-workflow modes so `createSchedule` persists no manifest.
   let capabilities: unknown = null;
+
+  // Handoff + skill-binding fields, resolved only for script mode. The skill's
+  // current content hash is pinned here so a later rewrite cannot keep firing
+  // under this approval.
+  let skillBinding: {
+    thenExecute: boolean;
+    skillId: string | null;
+    skillVersionHash: string | null;
+  } = { thenExecute: false, skillId: null, skillVersionHash: null };
 
   if (timeoutMs !== undefined) {
     const timeoutError = validateScriptTimeoutMs(timeoutMs);
@@ -119,6 +132,15 @@ export async function executeScheduleCreate(
         isError: true,
       };
     }
+    const binding = prepareScheduleSkillBinding({
+      skillId,
+      thenExecute,
+      message,
+    });
+    if (!binding.ok) {
+      return { content: `Error: ${binding.error}`, isError: true };
+    }
+    skillBinding = binding.binding;
   } else if (mode === "workflow") {
     // Workflow mode requires a saved workflow name — mirrors the HTTP route's
     // create-side validation so the assistant-facing path and the settings route
@@ -202,6 +224,7 @@ export async function executeScheduleCreate(
         timezone,
         message,
         script,
+        ...skillBinding,
         enabled,
         syntax: "cron",
         expression: null,
@@ -294,6 +317,7 @@ export async function executeScheduleCreate(
       timezone,
       message,
       script,
+      ...skillBinding,
       enabled,
       syntax: resolved.syntax,
       expression: resolved.expression,

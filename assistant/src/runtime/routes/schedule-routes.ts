@@ -22,7 +22,7 @@ import {
 } from "../../schedule/recurrence-engine.js";
 import { normalizeScheduleSyntax } from "../../schedule/recurrence-types.js";
 import {
-  runScript,
+  runScheduleScript,
   validateScriptTimeoutMs,
 } from "../../schedule/run-script.js";
 import {
@@ -40,6 +40,7 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
+import { prepareScheduleSkillBinding } from "../../schedule/skill-binding.js";
 import { initializeTools } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { normalizeCapabilityManifest } from "../../workflows/capabilities.js";
@@ -72,6 +73,9 @@ const scheduleSchema = z.object({
   timezone: z.string().nullable(),
   message: z.string(),
   script: z.string().nullable(),
+  thenExecute: z.boolean(),
+  skillId: z.string().nullable(),
+  skillVersionHash: z.string().nullable(),
   nextRunAt: z.number(),
   lastRunAt: z.number().nullable(),
   lastStatus: z.string().nullable(),
@@ -203,6 +207,9 @@ function serializeSchedule(
     timezone: j.timezone,
     message: j.message,
     script: j.script,
+    thenExecute: j.thenExecute,
+    skillId: j.skillId,
+    skillVersionHash: j.skillVersionHash,
     nextRunAt: j.nextRunAt,
     lastRunAt: j.lastRunAt,
     lastStatus: j.lastStatus,
@@ -349,6 +356,12 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
       const timeoutError = validateScriptTimeoutMs(timeoutMs);
       if (timeoutError) throw new BadRequestError(timeoutError);
     }
+    const binding = prepareScheduleSkillBinding({
+      skillId: typeof body.skillId === "string" ? body.skillId : null,
+      thenExecute: body.thenExecute === true,
+      message,
+    });
+    if (!binding.ok) throw new BadRequestError(binding.error);
     try {
       const job = await createSchedule({
         name,
@@ -361,6 +374,7 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
         expression: normalized.expression,
         syntax: normalized.syntax,
         timeoutMs,
+        ...binding.binding,
       });
       log.info({ id: job.id, name: job.name }, "Script schedule created");
       return { schedule: serializeSchedule(job, new Map()) };
@@ -971,11 +985,23 @@ async function handleRunScheduleNow(id: string) {
         { jobId: schedule.id, name: schedule.name },
         "Executing script schedule manually (run now)",
       );
-      const result = await runScript(schedule.script, {
-        timeoutMs: schedule.timeoutMs ?? undefined,
-        scheduleRunId: runId,
-        scheduleId: schedule.id,
-      });
+      // Shares the scheduler's bound-script path so a manual trigger cannot
+      // run a skill-bound schedule whose skill has changed since approval.
+      // Unlike a real firing this never hands off to an agent turn even when
+      // `thenExecute` is set — "run now" reports the script's raw output so a
+      // UI button can't silently start a billed LLM turn.
+      const outcome = await runScheduleScript(
+        { ...schedule, script: schedule.script },
+        runId,
+      );
+      if (!outcome.ok) {
+        await completeScheduleRun(runId, {
+          status: "error",
+          error: outcome.error,
+        });
+        return handleListSchedules({});
+      }
+      const { result } = outcome;
       await completeScheduleRun(runId, {
         status: result.exitCode === 0 ? "ok" : "error",
         output: result.stdout || undefined,
