@@ -172,45 +172,6 @@ type _SlackMessageApiCrossChecks = [
 ];
 
 /**
- * Tolerant schema for the plain-message family — `app_mention`, direct
- * messages, and channel/group messages. The three differ only in discriminator
- * values (`type` / `channel_type`) and which fields the normalizer keys on, so
- * one tolerant shape backs all three; each normalizer applies its own guards.
- */
-export const slackMessageEventSchema = z.object({
-  type: optionalString(),
-  subtype: optionalString(),
-  user: optionalString(),
-  text: optionalString(),
-  ts: optionalString(),
-  channel: optionalString(),
-  channel_type: slackMessageChannelType(),
-  thread_ts: optionalString(),
-  client_msg_id: optionalString(),
-  event_ts: optionalString(),
-  files: z.array(slackFileSchema).optional().catch(undefined),
-  team: optionalString(),
-  bot_id: optionalString(),
-  bot_profile: slackBotProfileSchema.optional().catch(undefined),
-});
-export type SlackMessageEvent = z.infer<typeof slackMessageEventSchema>;
-
-/** All three plain-message events share the one tolerant shape. */
-export type SlackAppMentionEvent = SlackMessageEvent;
-export type SlackDirectMessageEvent = SlackMessageEvent;
-export type SlackChannelMessageEvent = SlackMessageEvent;
-
-// Key-integrity cross-check against the official `GenericMessageEvent` (a
-// superset of the fields all three plain-message events carry). Value-checking
-// is skipped here because `@slack/types` models `files` as DOM `File[]`, which
-// our forwarded-file subset intentionally does not match.
-type _SlackMessageEventApiCrossCheck = [
-  Expect<
-    ModeledKeysAreOfficial<SlackMessageEvent, SlackApiGenericMessageEvent>
-  >,
-];
-
-/**
  * A single entity the user has open.
  *
  * `value` is polymorphic across entity types: an id string for
@@ -233,35 +194,53 @@ const slackAppContextEntitySchema = z.object({
 });
 
 /**
- * `app_context` on an inbound message — the entities the user was viewing when
- * they messaged the app, ordered by relevance. Slack attaches it to
- * `message.im` and `app_home_opened` once the app subscribes to
+ * What the sender had open when they messaged the app, ordered by relevance.
+ * Slack attaches it to `message.im` once the app subscribes to
  * `app_context_changed`, which requires `agent_view`.
- *
- * Deliberately NOT a field on {@link slackMessageEventSchema}: that schema is
- * cross-checked with `ModeledKeysAreOfficial` against `@slack/types`, which
- * does not model `app_context` yet. Folding it in would fail the build, and
- * loosening the cross-check would give up the typo protection it exists for.
- * Parsing the raw payload separately keeps both guarantees.
  */
-export const slackAppContextSchema = z.object({
+const slackAppContextSchema = z.object({
   entities: z.array(slackAppContextEntitySchema).optional().catch(undefined),
 });
 
-export type SlackAppContext = z.infer<typeof slackAppContextSchema>;
-
 /**
- * Pull `app_context` off a raw Slack event. Returns undefined when absent or
- * unusable — an empty context (`"context": {}`) is normal and carries nothing,
- * so it collapses to undefined rather than travelling as an empty object.
+ * Tolerant schema for the plain-message family — `app_mention`, direct
+ * messages, and channel/group messages. The three differ only in discriminator
+ * values (`type` / `channel_type`) and which fields the normalizer keys on, so
+ * one tolerant shape backs all three; each normalizer applies its own guards.
  */
-export function parseSlackAppContext(
-  rawEvent: Record<string, unknown>,
-): SlackAppContext | undefined {
-  const parsed = slackAppContextSchema.safeParse(rawEvent.app_context);
-  if (!parsed.success) return undefined;
-  return parsed.data.entities?.length ? parsed.data : undefined;
-}
+export const slackMessageEventSchema = z.object({
+  type: optionalString(),
+  subtype: optionalString(),
+  user: optionalString(),
+  text: optionalString(),
+  ts: optionalString(),
+  channel: optionalString(),
+  channel_type: slackMessageChannelType(),
+  thread_ts: optionalString(),
+  client_msg_id: optionalString(),
+  event_ts: optionalString(),
+  files: z.array(slackFileSchema).optional().catch(undefined),
+  team: optionalString(),
+  bot_id: optionalString(),
+  bot_profile: slackBotProfileSchema.optional().catch(undefined),
+  app_context: slackAppContextSchema.optional().catch(undefined),
+});
+export type SlackMessageEvent = z.infer<typeof slackMessageEventSchema>;
+
+/** All three plain-message events share the one tolerant shape. */
+export type SlackAppMentionEvent = SlackMessageEvent;
+export type SlackDirectMessageEvent = SlackMessageEvent;
+export type SlackChannelMessageEvent = SlackMessageEvent;
+
+// Key-integrity cross-check against the official `GenericMessageEvent` (a
+// superset of the fields all three plain-message events carry). Value-checking
+// is skipped here because `@slack/types` models `files` as DOM `File[]`, which
+// our forwarded-file subset intentionally does not match.
+type _SlackMessageEventApiCrossCheck = [
+  Expect<
+    ModeledKeysAreOfficial<SlackMessageEvent, SlackApiGenericMessageEvent>
+  >,
+];
 
 /**
  * Slack `block_actions` interactive payload (subset relevant to normalization),

@@ -862,9 +862,7 @@ function makeSlackFile(overrides?: Partial<SlackFile>): SlackFile {
 }
 
 function makeDmEvent(
-  // Slack sends fields the cross-checked schema deliberately does not model
-  // (e.g. `app_context`), so overrides accept keys beyond the typed event.
-  overrides?: Partial<SlackDirectMessageEvent> & Record<string, unknown>,
+  overrides?: Partial<SlackDirectMessageEvent>,
 ): SlackDirectMessageEvent {
   return {
     type: "message",
@@ -2288,7 +2286,9 @@ describe("DM app_context", () => {
     const config = makeConfig();
     // A DM whose context is garbage must still deliver — the message is the
     // payload, the context is an enrichment.
-    const event = makeDmEvent({ app_context: { entities: "not-an-array" } });
+    const event = makeDmEvent({
+      app_context: { entities: "not-an-array" },
+    } as unknown as Partial<SlackDirectMessageEvent>);
     const result = normalizeSlackDirectMessage(event, "evt-ctx-5", config);
 
     expect(result).not.toBeNull();

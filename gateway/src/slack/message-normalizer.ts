@@ -1,7 +1,6 @@
 import { resolveSlackUserSync } from "./user-directory.js";
 import {
   slackMessageEventSchema,
-  parseSlackAppContext,
   type SlackMessageEvent,
   type NormalizedSlackEvent,
 } from "./message-schemas.js";
@@ -68,13 +67,12 @@ function buildNormalizedSlackMessage(
   const threadTs =
     event.thread_ts ?? (shape.fallbackThreadToTs ? event.ts : undefined);
 
-  // Read from the raw payload: `app_context` is absent from `@slack/types`, so
-  // the cross-checked event schema cannot model it. Ids are carried as-is —
-  // resolving them to names is the daemon's job, where the channel cache lives.
-  const rawAppContext = parseSlackAppContext(rawEvent);
-  const appContext = rawAppContext?.entities?.length
+  // Ids are carried as-is — resolving them to names is the daemon's job, where
+  // the channel cache lives, not a hot ingress path. An empty context (Slack
+  // sends `{}` rather than omitting the field) collapses to undefined.
+  const appContext = event.app_context?.entities?.length
     ? {
-        entities: rawAppContext.entities.map((entity) => ({
+        entities: event.app_context.entities.map((entity) => ({
           type: entity.type,
           value:
             typeof entity.value === "string"
