@@ -46,7 +46,9 @@ const UNGATED_TIPS = TIPS_CATALOG.filter((tip) => !tip.gates);
 const SECOND_UNGATED_TIP_ID = UNGATED_TIPS[1].id;
 
 function setFlag(value: "on" | "off") {
-  useClientFeatureFlagStore.getState().setStringFlags({ proactiveTips: value });
+  useClientFeatureFlagStore
+    .getState()
+    .setStringFlags({ proactiveTips: value }, null);
 }
 
 /** Stamp first-seen far enough in the past that the new-user grace has run. */

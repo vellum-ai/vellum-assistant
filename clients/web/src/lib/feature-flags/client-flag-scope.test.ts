@@ -68,7 +68,10 @@ describe("setupClientFlagScopeSync", () => {
     // evaluates off for a signed-out context and the store settles on it.
     useClientFeatureFlagStore
       .getState()
-      .setFlags({ marketingPricingTakeover: false });
+      .setFlags(
+        { marketingPricingTakeover: false },
+        currentClientFlagScopeKey(),
+      );
     expect(useClientFeatureFlagStore.getState().hydrated).toBe(true);
 
     signIn("user-123");
@@ -83,13 +86,19 @@ describe("setupClientFlagScopeSync", () => {
     teardown = setupClientFlagScopeSync();
     useClientFeatureFlagStore
       .getState()
-      .setFlags({ marketingPricingTakeover: false });
+      .setFlags(
+        { marketingPricingTakeover: false },
+        currentClientFlagScopeKey(),
+      );
 
     signIn("user-123");
     useOrganizationStore.setState({ currentOrganizationId: "org-abc" });
     useClientFeatureFlagStore
       .getState()
-      .setFlags({ marketingPricingTakeover: true });
+      .setFlags(
+        { marketingPricingTakeover: true },
+        currentClientFlagScopeKey(),
+      );
 
     const state = useClientFeatureFlagStore.getState();
     expect(state.hydrated).toBe(true);
@@ -101,7 +110,10 @@ describe("setupClientFlagScopeSync", () => {
     teardown = setupClientFlagScopeSync();
     useClientFeatureFlagStore
       .getState()
-      .setFlags({ marketingPricingTakeover: true });
+      .setFlags(
+        { marketingPricingTakeover: true },
+        currentClientFlagScopeKey(),
+      );
 
     signIn("user-123");
 
@@ -115,7 +127,10 @@ describe("setupClientFlagScopeSync", () => {
     teardown = setupClientFlagScopeSync();
     useClientFeatureFlagStore
       .getState()
-      .setFlags({ marketingPricingTakeover: true });
+      .setFlags(
+        { marketingPricingTakeover: true },
+        currentClientFlagScopeKey(),
+      );
 
     useOrganizationStore.setState({ currentOrganizationId: "org-abc" });
 
@@ -128,7 +143,10 @@ describe("setupClientFlagScopeSync", () => {
     teardown = setupClientFlagScopeSync();
     useClientFeatureFlagStore
       .getState()
-      .setFlags({ marketingPricingTakeover: true });
+      .setFlags(
+        { marketingPricingTakeover: true },
+        currentClientFlagScopeKey(),
+      );
 
     useAuthStore.setState({ platformSession: "present" });
 
@@ -142,7 +160,10 @@ describe("setupClientFlagScopeSync", () => {
     setupClientFlagScopeSync()();
     useClientFeatureFlagStore
       .getState()
-      .setFlags({ marketingPricingTakeover: false });
+      .setFlags(
+        { marketingPricingTakeover: false },
+        currentClientFlagScopeKey(),
+      );
 
     signIn("user-123");
 

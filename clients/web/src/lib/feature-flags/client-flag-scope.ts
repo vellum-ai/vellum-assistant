@@ -25,8 +25,10 @@ import { requestScopeKey } from "@/utils/request-scope-key";
 
 /**
  * The identity client flags currently evaluate against. Built from the same
- * inputs as the request-scoped query cache's key, so the store and the cache
- * can never disagree about which identity a response belongs to.
+ * inputs as the request-scoped query cache's key, so a move rotates the cache
+ * and the claimed scope together. Agreement is enforced rather than assumed:
+ * values carry the scope they were produced under, and the store drops any the
+ * scope in hand no longer answers.
  */
 export function currentClientFlagScopeKey(): string {
   const { sessionStatus, user } = useAuthStore.getState();

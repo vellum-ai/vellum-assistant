@@ -28,17 +28,17 @@ describe("useMarketingPricingTakeover", () => {
   });
 
   test("is disabled once the flags hydrate off", () => {
-    useClientFeatureFlagStore.getState().setFlags({
-      marketingPricingTakeover: false,
-    });
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags({ marketingPricingTakeover: false }, null);
     const { result } = renderHook(() => useMarketingPricingTakeover());
     expect(result.current).toBe("disabled");
   });
 
   test("is enabled once the flags hydrate on", () => {
-    useClientFeatureFlagStore.getState().setFlags({
-      marketingPricingTakeover: true,
-    });
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags({ marketingPricingTakeover: true }, null);
     const { result } = renderHook(() => useMarketingPricingTakeover());
     expect(result.current).toBe("enabled");
   });
@@ -50,7 +50,7 @@ describe("useMarketingPricingTakeover", () => {
     // a checkout deep link the signed-in user is entitled to.
     const store = useClientFeatureFlagStore.getState();
     store.beginScope("anonymous:org:none");
-    store.setFlags({ marketingPricingTakeover: false });
+    store.setFlags({ marketingPricingTakeover: false }, "anonymous:org:none");
 
     useClientFeatureFlagStore
       .getState()
@@ -62,7 +62,10 @@ describe("useMarketingPricingTakeover", () => {
     act(() => {
       useClientFeatureFlagStore
         .getState()
-        .setFlags({ marketingPricingTakeover: true });
+        .setFlags(
+          { marketingPricingTakeover: true },
+          "user:user-123:org:org-abc",
+        );
     });
     expect(result.current).toBe("enabled");
   });

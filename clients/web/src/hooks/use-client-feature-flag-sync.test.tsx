@@ -1,15 +1,32 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from "@tanstack/react-query";
+import { cleanup, render, renderHook, waitFor } from "@testing-library/react";
 
 const originalFetch = globalThis.fetch;
-const fetchMock = mock(async () =>
-  new Response(JSON.stringify({ flags: {} }), {
+
+function jsonResponse(flags: Record<string, boolean | string>): Response {
+  return new Response(JSON.stringify({ flags }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
-  }),
-);
+  });
+}
+
+/** A server evaluation of the pricing-funnel kill switch. */
+function flagResponse(marketingPricingTakeover: boolean): Response {
+  return jsonResponse({
+    "marketing-pricing-takeover": marketingPricingTakeover,
+  });
+}
+
+const fetchMock = mock(async () => jsonResponse({}));
+
+const ANONYMOUS_SCOPE = "anonymous:org:none";
+const SIGNED_IN_SCOPE = "user:user-123:org:org-abc";
 
 // Org-header readiness drives whether the authenticated fetch may go out at
 // all. Mutable so tests can hold it mid-resolution and then let it land.
@@ -49,6 +66,7 @@ function freshQueryClient(): QueryClient {
 beforeEach(() => {
   window.__VELLUM_CONFIG__ = undefined;
   fetchMock.mockClear();
+  fetchMock.mockImplementation(async () => jsonResponse({}));
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   orgReadinessValue = "ready";
   useClientFeatureFlagStore.setState(initialFlagState, true);
@@ -123,7 +141,7 @@ describe("useClientFeatureFlagSync", () => {
     // funnel off mid-session, possibly with the user already in checkout.
     useClientFeatureFlagStore
       .getState()
-      .setFlags({ marketingPricingTakeover: true });
+      .setFlags({ marketingPricingTakeover: true }, null);
     globalThis.fetch = (() =>
       Promise.resolve(
         new Response("boom", { status: 500 }),
@@ -207,5 +225,61 @@ describe("useClientFeatureFlagSync", () => {
 
     await Promise.resolve();
     expect(useClientFeatureFlagStore.getState().hydrated).toBe(false);
+  });
+
+  test("hydrates the scope the response was fetched under", async () => {
+    useClientFeatureFlagStore.getState().beginScope(ANONYMOUS_SCOPE);
+    fetchMock.mockImplementation(async () => flagResponse(true));
+    const queryClient = freshQueryClient();
+    renderHook(() => useClientFeatureFlagSync(true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => {
+      expect(useClientFeatureFlagStore.getState().hydrated).toBe(true);
+    });
+    expect(
+      useClientFeatureFlagStore.getState().marketingPricingTakeover,
+    ).toBe(true);
+  });
+
+  test("drops a response whose scope was superseded before it applied", async () => {
+    // `beginScope` runs synchronously from a store subscription, so it can land
+    // between the render that produced `data` and that render's passive effect.
+    // `ScopeMover`'s layout effect occupies that same window: React runs every
+    // layout effect in a commit before any passive effect in it.
+    useClientFeatureFlagStore.getState().beginScope(ANONYMOUS_SCOPE);
+    fetchMock.mockImplementation(async () => flagResponse(true));
+    const queryClient = freshQueryClient();
+
+    function ScopeMover() {
+      const { data } = useQuery({
+        queryKey: FLAG_QUERY_KEY,
+        queryFn: () => Promise.reject(new Error("observer never fetches")),
+        enabled: false,
+      });
+      useLayoutEffect(() => {
+        if (data) {
+          useClientFeatureFlagStore.getState().beginScope(SIGNED_IN_SCOPE);
+        }
+      }, [data]);
+      return null;
+    }
+
+    function Harness() {
+      useClientFeatureFlagSync(true);
+      return <ScopeMover />;
+    }
+
+    render(<Harness />, { wrapper: createWrapper(queryClient) });
+
+    await waitFor(() => {
+      expect(useClientFeatureFlagStore.getState().scopeKey).toBe(
+        SIGNED_IN_SCOPE,
+      );
+    });
+    const state = useClientFeatureFlagStore.getState();
+    expect(state.hydrated).toBe(false);
+    expect(state.marketingPricingTakeover).toBe(false);
   });
 });

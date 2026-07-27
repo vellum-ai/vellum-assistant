@@ -87,14 +87,37 @@ interface ClientFeatureFlagMeta {
 }
 
 interface ClientFeatureFlagActions {
-  setFlags: (flags: Record<string, boolean>) => void;
+  setFlags: (flags: Record<string, boolean>, scopeKey: string | null) => void;
   beginScope: (scopeKey: string) => void;
-  settleWithoutServerValues: () => void;
+  settleWithoutServerValues: (scopeKey: string | null) => void;
   setFlag: (key: string, value: boolean) => void;
   clearOverride: (key: string) => void;
-  setStringFlags: (flags: Record<string, string>) => void;
+  setStringFlags: (
+    flags: Record<string, string>,
+    scopeKey: string | null,
+  ) => void;
   setStringFlag: (key: string, value: string) => void;
   clearStringOverride: (key: string) => void;
+}
+
+/**
+ * Whether values produced for `scopeKey` still answer the identity the store
+ * has claimed.
+ *
+ * Flags are evaluated per (user, org), so a response — or a decision that none
+ * is coming — is only an answer for the scope it was produced under. The two
+ * can drift apart because `beginScope` runs synchronously from a store
+ * subscription while the values are applied from a passive effect that closed
+ * over an earlier render: the claim lands first, and the write that follows
+ * carries the previous identity's answer. Enforcing the match here rather than
+ * at the call site keeps "values may only hydrate the scope they were produced
+ * for" a property of the store.
+ *
+ * A `null` on either side is an unclaimed store or an unscoped write, which
+ * nothing contradicts.
+ */
+function answersScope(claimed: string | null, scopeKey: string | null): boolean {
+  return claimed === null || scopeKey === null || claimed === scopeKey;
 }
 
 type ClientFeatureFlagStore = Record<string, boolean> &
@@ -127,8 +150,11 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
       hydrated: false,
       scopeKey: null,
 
-      setFlags: (flags: Record<string, boolean>) =>
+      setFlags: (flags: Record<string, boolean>, scopeKey: string | null) =>
         set((prev) => {
+          if (!answersScope(prev.scopeKey, scopeKey)) {
+            return prev;
+          }
           const overrides = readOverrides();
           const merged = { ...flags, ...overrides, ...envOverrides.bool };
           const changed = Object.keys(merged).some(
@@ -179,9 +205,9 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
        *   off mid-session over one failed request. Hydration is already
        *   settled, so nothing needs to change.
        */
-      settleWithoutServerValues: () =>
+      settleWithoutServerValues: (scopeKey: string | null) =>
         set((prev) => {
-          if (prev.hydrated) {
+          if (prev.hydrated || !answersScope(prev.scopeKey, scopeKey)) {
             return prev;
           }
           return { ...flagsWithoutServerValues(), hydrated: true };
@@ -208,8 +234,14 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
         }
       },
 
-      setStringFlags: (flags: Record<string, string>) =>
+      setStringFlags: (
+        flags: Record<string, string>,
+        scopeKey: string | null,
+      ) =>
         setMeta((prev) => {
+          if (!answersScope(prev.scopeKey, scopeKey)) {
+            return prev;
+          }
           const overrides = readStringOverrides();
           const merged = { ...flags, ...overrides, ...envOverrides.str };
           const prevStr = prev.stringFlags;
