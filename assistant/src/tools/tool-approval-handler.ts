@@ -424,6 +424,32 @@ export function resolveSensitiveToolDecision(input: {
 }
 
 /**
+ * Sandbox tools that execute code. Running code in the workspace is how you
+ * write everything else in it — including the directories
+ * {@link isExecutableWorkspaceWrite} covers — so a cell that lifted one of
+ * these would lift those by the back door.
+ *
+ * `skill_execute` is deliberately absent rather than overlooked: it is
+ * dispatch indirection, and `conversation-tool-setup` resolves it to its inner
+ * tool name before the gate runs, so the gate already classifies the tool the
+ * skill actually calls rather than the wrapper.
+ */
+const CODE_EXECUTION_TOOLS: ReadonlySet<string> = new Set(["bash"]);
+
+/**
+ * Whether an invocation reaches the private network — localhost, which is the
+ * daemon's own HTTP surface, the gateway, and whatever else listens on the
+ * guardian's machine. Keyed on the input rather than the tool, because the
+ * same tool is delegable against a public URL.
+ */
+function reachesPrivateNetwork(
+  toolName: string,
+  input: Record<string, unknown>,
+): boolean {
+  return toolName === "web_fetch" && input.allow_private_network === true;
+}
+
+/**
  * Whether a channel's approval cell may lift the floor for this invocation.
  *
  * The cell delegates ordinary work in the assistant's own workspace. Three
@@ -458,7 +484,7 @@ function isChannelLiftable(
   if (reach !== "sandbox") {
     return false;
   }
-  if (toolName === "bash") {
+  if (CODE_EXECUTION_TOOLS.has(toolName)) {
     return false;
   }
   if (workingDir && isExecutableWorkspaceWrite(toolName, input, workingDir)) {
@@ -467,7 +493,7 @@ function isChannelLiftable(
   if (isUnvettedExtensionTool(toolName)) {
     return false;
   }
-  if (toolName === "web_fetch" && input.allow_private_network === true) {
+  if (reachesPrivateNetwork(toolName, input)) {
     return false;
   }
   return true;
