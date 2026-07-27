@@ -175,6 +175,9 @@ mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
 const navigateSpy = mock((_to: string) => {});
 mock.module("react-router", () => ({
   useNavigate: () => navigateSpy,
+  // The composer captures pop-out mode once at mount from the URL search
+  // string; a plain window (no `?popout=1`) is the default test context.
+  useLocation: () => ({ search: "" }),
 }));
 
 // Flush the microtask/timer queue so the composer's awaited preflight
