@@ -175,9 +175,22 @@ export const recoverConversationsFromDiskViewMigration: WorkspaceMigration = {
       if (existsSync(messagesPath)) {
         try {
           const raw = readFileSync(messagesPath, "utf-8");
+          // Collapse consecutive byte-identical lines. Transcripts written by
+          // older builds can carry a grouped tool-result row projected once per
+          // parallel result (same `ts` and content on adjacent lines); replaying
+          // those as-is would insert duplicate `messages` rows that then inflate
+          // model context. A run of identical lines always denotes one logical
+          // message, so keeping the first is safe.
+          let previousTrimmed: string | undefined;
           for (const line of raw.split("\n")) {
             const trimmed = line.trim();
-            if (!trimmed) continue;
+            if (!trimmed) {
+              continue;
+            }
+            if (trimmed === previousTrimmed) {
+              continue;
+            }
+            previousTrimmed = trimmed;
             try {
               messageRecords.push(JSON.parse(trimmed) as DiskMessageRecord);
             } catch {
