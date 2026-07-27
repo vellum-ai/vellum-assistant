@@ -1,8 +1,9 @@
-name: PR iOS Checks
+name: CI/CD Main iOS
 
 on:
-  pull_request:
-    types: [synchronize, opened, reopened]
+  workflow_dispatch:
+  push:
+    branches: [main]
     paths:
       - 'package.json'
       - 'bun.lock'
@@ -10,16 +11,18 @@ on:
       - 'clients/ios/**'
       - 'clients/web/capacitor.config.ts'
       - 'clients/web/package.json'
-      - '.github/workflows/pr-ios.yaml'
+      - '.github/workflows/ci-main-ios.yaml'
 
 concurrency:
-  group: pr-ios-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
     name: Build
-    # Duplicated as the post-merge gate in `ci-main-ios.yaml`; change both.
+    # Same build as `pr-ios.yaml`, re-run after merge: both are path-filtered,
+    # so two PRs that pass independently can still land a broken `main`.
+    # Change the two together.
     #
     # Runner and Xcode match `release-ios.yaml` so this check exercises the
     # same toolchain that produces TestFlight builds.
