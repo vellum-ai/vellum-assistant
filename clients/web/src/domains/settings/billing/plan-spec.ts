@@ -51,6 +51,16 @@ export function packageSpecs(pkg: ProPackage | null): PlanSpec[] {
   ];
 }
 
+/** Shared with the Custom Plan recap so the two surfaces cannot word storage differently. */
+export function storageRowLabel(storageGib: number): string {
+  return `${storageGib} GB storage`;
+}
+
+/** Shared with the Custom Plan recap so the two surfaces cannot format credits differently. */
+export function creditRowLabel(creditsUsd: number): string {
+  return `${formatDollars(creditsUsd * 100)} of bundled credits`;
+}
+
 /**
  * Sentence-case highlight rows for the package-switch confirm modal, in mock
  * order: machine → storage → credits, then any static extras from the tier
@@ -68,8 +78,8 @@ export function packageHighlights(
   const resources = SIZE_DESCRIPTION[resolvedMachineSize(pkg)];
   return [
     `${machineLabel(pkg)} machine${resources ? ` (${resources})` : ""}`,
-    `${storage} GB storage`,
-    `${formatDollars(credits * 100)} of bundled credits`,
+    storageRowLabel(storage),
+    creditRowLabel(credits),
     ...extra,
   ];
 }
