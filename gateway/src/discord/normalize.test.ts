@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { admitDiscordMessage } from "./admit.js";
 import { DiscordMessageCreateSchema } from "./message-schemas.js";
 import { normalizeDiscordMessage, toAdmissionCandidate } from "./normalize.js";
 import "../__tests__/test-preload.js";
@@ -65,14 +66,31 @@ describe("DiscordMessageCreateSchema", () => {
       messagePayload({
         guild_id: 42,
         mentions: "not-an-array",
-        author: { id: "user-1", username: 7, bot: "yes" },
+        author: { id: "user-1", username: 7 },
       }),
     );
     expect(message.guild_id).toBeUndefined();
     expect(message.mentions).toBeUndefined();
     expect(message.author?.id).toBe("user-1");
     expect(message.author?.username).toBeUndefined();
-    expect(message.author?.bot).toBeUndefined();
+  });
+
+  test("malformed bot indicators fail closed, not to human", () => {
+    // `author.bot` and `webhook_id` are the classifiers standing between the
+    // admission gate and a bot reply loop, so unlike the tolerant fields a
+    // malformed value collapses to the bot-indicating side. Absence is still
+    // `undefined` — Discord omits `bot` for humans.
+    expect(
+      parse(messagePayload({ author: { id: "user-1", bot: "yes" } })).author
+        ?.bot,
+    ).toBe(true);
+    expect(parse(messagePayload({ webhook_id: 42 })).webhook_id).toBe(
+      "malformed-webhook-id",
+    );
+    expect(parse(messagePayload()).author?.bot).toBe(false);
+    const humanShaped = parse(messagePayload({ author: { id: "user-1" } }));
+    expect(humanShaped.author?.bot).toBeUndefined();
+    expect(humanShaped.webhook_id).toBeUndefined();
   });
 
   test("collapses malformed content to empty rather than rejecting", () => {
@@ -107,6 +125,26 @@ describe("toAdmissionCandidate", () => {
       undefined,
     );
     expect(candidate?.authorIsBot).toBe(true);
+  });
+
+  test("a malformed bot indicator is dropped at the admission gate", () => {
+    // End-to-end check of the fail-closed collapse: a message whose bot flag
+    // is garbage must never pass the gate as human.
+    for (const overrides of [
+      { author: { id: "user-1", bot: "yes" } },
+      { webhook_id: 42 },
+    ]) {
+      const candidate = toAdmissionCandidate(
+        parse(messagePayload(overrides)),
+        undefined,
+      );
+      expect(candidate?.authorIsBot).toBe(true);
+      const verdict = admitDiscordMessage(candidate!, {
+        botUserId: "bot-1",
+        allowedChannelIds: new Set(["channel-1"]),
+      });
+      expect(verdict).toEqual({ admitted: false, reason: "bot_authored" });
+    }
   });
 
   test("returns null without author identity", () => {

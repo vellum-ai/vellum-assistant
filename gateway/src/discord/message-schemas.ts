@@ -23,7 +23,6 @@ import { z } from "zod";
 
 const optionalString = () => z.string().optional().catch(undefined);
 const optionalNumber = () => z.number().optional().catch(undefined);
-const optionalBoolean = () => z.boolean().optional().catch(undefined);
 /** A required id string: a missing/non-string value collapses to `""`. */
 const idString = () => z.string().catch("");
 
@@ -88,12 +87,23 @@ export const DiscordMessageCreateSchema = z.object({
       id: idString(),
       username: optionalString(),
       global_name: z.string().nullable().optional().catch(undefined),
-      bot: optionalBoolean(),
+      /**
+       * Bot indicator — fails CLOSED, unlike the tolerant fields around it.
+       * Absent stays `undefined` (Discord omits it for humans), but a
+       * present-and-malformed value collapses to `true`: this is the one
+       * classifier standing between the admission gate and a bot reply loop,
+       * and collapsing to `undefined` would read as human.
+       */
+      bot: z.boolean().optional().catch(true),
     })
     .optional()
     .catch(undefined),
-  /** Present on webhook-delivered messages, whose author is not a real user. */
-  webhook_id: optionalString(),
+  /**
+   * Present on webhook-delivered messages, whose author is not a real user.
+   * Fails closed like `author.bot`: a malformed value collapses to a sentinel
+   * rather than `undefined`, so it still reads as webhook-delivered.
+   */
+  webhook_id: z.string().optional().catch("malformed-webhook-id"),
   /**
    * Users directly mentioned. `@everyone` / `@here` and role pings never
    * appear here — they surface on `mention_everyone` / `mention_roles` — so
