@@ -1,27 +1,27 @@
 import { ArrowUp, Square } from "lucide-react";
 import {
-    type FormEvent,
-    type ReactNode,
-    type RefObject,
-    useCallback,
-    useEffect,
-    useLayoutEffect,
-    useMemo,
-    useRef,
-    useState,
+  type FormEvent,
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { useLocation, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 
 import {
-    AttachFileButton,
-    ChatAttachmentsStrip,
+  AttachFileButton,
+  ChatAttachmentsStrip,
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
 import {
-    selectPathReferencePaths,
-    selectUploadedIds,
-    selectUploadingCount,
-    useComposerStore,
+  selectPathReferencePaths,
+  selectUploadedIds,
+  selectUploadingCount,
+  useComposerStore,
 } from "@/domains/chat/composer-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
@@ -31,22 +31,22 @@ import { VoiceLiveTranscript } from "@/domains/chat/components/chat-composer/voi
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
-    VoiceInputButton,
-    type VoiceInputButtonHandle,
+  VoiceInputButton,
+  type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import {
-    dismissLiveVoiceFailure,
-    endLiveVoiceSession,
-    getLiveVoiceInputAmplitude,
-    isLiveVoiceSessionActive,
-    releaseLiveVoiceTurn,
-    restoreVoiceRoom,
-    setLiveVoiceEntryOrigin,
-    setLiveVoiceMuted,
-    stopLiveVoiceResponse,
-    useIsLiveVoiceSessionOwnedBy,
-    useLiveVoiceStore,
+  dismissLiveVoiceFailure,
+  endLiveVoiceSession,
+  getLiveVoiceInputAmplitude,
+  isLiveVoiceSessionActive,
+  releaseLiveVoiceTurn,
+  restoreVoiceRoom,
+  setLiveVoiceEntryOrigin,
+  setLiveVoiceMuted,
+  stopLiveVoiceResponse,
+  useIsLiveVoiceSessionOwnedBy,
+  useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
@@ -55,7 +55,7 @@ import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-sto
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
-import { isPopoutWindow } from "@/runtime/popout-window";
+import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { isNativeIOS } from "@/runtime/platform-detection";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -63,20 +63,25 @@ import { routes } from "@/utils/routes";
 import { Button, Notice, Popover } from "@vellumai/design-library";
 
 import {
-    computeGhostSuffix,
-    shouldSubmitOnEnter,
+  computeGhostSuffix,
+  shouldSubmitOnEnter,
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
-import { EMOJI_MIN_FILTER_LENGTH, EMOJI_TRIGGER_RE, type EmojiEntry, useEmojiSearch } from "@/domains/chat/components/chat-composer/emoji-catalog";
+import {
+  EMOJI_MIN_FILTER_LENGTH,
+  EMOJI_TRIGGER_RE,
+  type EmojiEntry,
+  useEmojiSearch,
+} from "@/domains/chat/components/chat-composer/emoji-catalog";
 import { EmojiPickerPopup } from "@/domains/chat/components/chat-composer/emoji-picker-popup";
 import {
-    applyMarkdownFormatting,
-    matchFormattingShortcut,
+  applyMarkdownFormatting,
+  matchFormattingShortcut,
 } from "@/domains/chat/components/chat-composer/markdown-formatting";
 import {
-    SLASH_PREFIX_RE,
-    type SlashCommand,
-    filteredCommands,
-    selectedInputText,
+  SLASH_PREFIX_RE,
+  type SlashCommand,
+  filteredCommands,
+  selectedInputText,
 } from "@/domains/chat/components/chat-composer/slash-command-catalog";
 import { SlashCommandPopup } from "@/domains/chat/components/chat-composer/slash-command-popup";
 import { useTextPopup } from "@/domains/chat/components/chat-composer/use-text-popup";
@@ -239,7 +244,8 @@ export function ChatComposer({
       selectPathReferencePaths(attachments).length > 0);
 
   const voicePhase = useVoiceRecordingStore.use.phase();
-  const isVoiceActive = voicePhase === "recording" || voicePhase === "processing";
+  const isVoiceActive =
+    voicePhase === "recording" || voicePhase === "processing";
   // Holds the MediaStream opened by VoiceInputButton so we can reuse it for
   // amplitude analysis rather than opening a second getUserMedia request.
   const voiceStreamRef = useRef<MediaStream | null>(null);
@@ -305,8 +311,8 @@ export function ChatComposer({
   // by `VoiceLiveTranscript`, which subscribes to the store on its own,
   // keeping the composer's deliberate opt-out of high-frequency live-voice
   // updates (amplitude ticks, transcript deltas) intact.
-  const hasLiveVoiceTranscript = useLiveVoiceStore(
-    (s) => Boolean(s.partialTranscript || s.finalTranscript),
+  const hasLiveVoiceTranscript = useLiveVoiceStore((s) =>
+    Boolean(s.partialTranscript || s.finalTranscript),
   );
   // The in-composer transcript shows the *user's* own speech, so it must
   // honor the "Show the words you say" voice preference (default OFF). When
@@ -340,12 +346,11 @@ export function ChatComposer({
   // the first-run card path defers the actual start to its own handler.
   const liveVoiceEntryOriginRef = useRef<{ x: number; y: number } | null>(null);
   const navigate = useNavigate();
-  const location = useLocation();
-  // Captured once at mount, mirroring `ChatLayout` / `useIsVoiceRoomVisible`:
-  // pop-out URLs carry `?popout=1` only on the window's initial load. Pop-outs
-  // never render the voice room, so the bar's expand-to-room control is
-  // omitted there (the mount-time value gates it below).
-  const [isPopout] = useState(() => isPopoutWindow(location.search));
+  // Window-lifetime, not mount-time: the composer is a per-route component
+  // that can remount after an in-window navigation has dropped `?popout=1`,
+  // so a mount-time capture could misread a pop-out as a main window and ship
+  // a dead expand-to-room control (pop-outs never render the voice room).
+  const isPopout = isPopoutWindowLifetime();
   // "Configure voice" copy surfaced when the pre-open preflight returns
   // `not-ready` — the daemon's human-readable `userMessage`. Non-null renders
   // the notice below (with a deep-link to voice settings) and the room stays
@@ -524,10 +529,8 @@ export function ChatComposer({
     phase === "queued" || phase === "thinking" || phase === "streaming";
   const showInlineVoicePreview =
     isVoiceActive && !isLocallyGenerating && !isElectronHost;
-  const hideTextareaForVoice =
-    isNative && showInlineVoicePreview;
-  const hasStagedQuotes =
-    useQuoteReplyStore.use.stagedQuotes().length > 0;
+  const hideTextareaForVoice = isNative && showInlineVoicePreview;
+  const hasStagedQuotes = useQuoteReplyStore.use.stagedQuotes().length > 0;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedQuotes;
   // Voice mode occupies the send slot while there is nothing to send: the
@@ -537,7 +540,10 @@ export function ChatComposer({
   // send arrow — byte-identical to before — whenever voice mode is unavailable.
   const voiceMode = useAssistantFeatureFlagStore.use.voiceMode();
   const showVoiceModeInSendSlot =
-    showVoiceInput && Boolean(assistantId) && voiceMode && !canSendMessageContent;
+    showVoiceInput &&
+    Boolean(assistantId) &&
+    voiceMode &&
+    !canSendMessageContent;
 
   const ghostSuffix = useMemo(
     () =>
@@ -669,7 +675,10 @@ export function ChatComposer({
                   // restored draft — retire the "draft restored" marker (and its
                   // notice). Keeps `restoredDraftConversationId` an accurate
                   // signal for "unedited restored draft" (see use-deep-link-consumer).
-                  if (useComposerStore.getState().restoredDraftConversationId !== null) {
+                  if (
+                    useComposerStore.getState().restoredDraftConversationId !==
+                    null
+                  ) {
                     useComposerStore.getState().clearRestoredDraftNotice();
                   }
                 }}
@@ -848,7 +857,9 @@ export function ChatComposer({
               // overlay bridge no-ops there.
               <div
                 className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
-                aria-label={voicePhase === "processing" ? "Transcribing" : "Recording"}
+                aria-label={
+                  voicePhase === "processing" ? "Transcribing" : "Recording"
+                }
                 aria-live="polite"
               >
                 <StreamingWaveform
@@ -919,7 +930,9 @@ export function ChatComposer({
                             <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
                           }
                           type="submit"
-                          disabled={sendDisabled || attachmentsUploadingCount > 0}
+                          disabled={
+                            sendDisabled || attachmentsUploadingCount > 0
+                          }
                           title={
                             sendDisabled
                               ? "Type a message to send"

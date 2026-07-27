@@ -833,6 +833,7 @@ export function useLiveVoice(
           void finishResponseAfterPlayback(session, teardown);
         }),
         client.on("minimizeRoom", () => {
+          if (!live()) return;
           // Assistant asked to reveal the screen behind the room. Advisory: if
           // the room isn't up (already minimized, pop-out, other route) this is
           // a no-op — minimizeVoiceRoom() is an idempotent store write.
