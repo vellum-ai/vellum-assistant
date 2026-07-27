@@ -78,25 +78,56 @@ const ALWAYS_SCOPED_TOOLS = new Set([
   "ui_dismiss",
 ]);
 
+// The Docker sandbox mounts the workspace at /workspace, and the model emits
+// container-scoped paths (e.g. "/workspace/tools/evil.ts") even on local
+// turns. The execution-time path policy and the gateway classifier both
+// apply this remap, so every workspace-containment decision here must too.
+const CONTAINER_WORKSPACE_PREFIX = "/workspace/";
+const CONTAINER_WORKSPACE_EXACT = "/workspace";
+
 /**
- * Extract a path-scoped tool's target path from its input, resolving
- * relative paths against the workspace root (not process.cwd()). Returns
- * `""` when the input carries no usable path.
+ * Resolve a sandbox file path to its lexical base the same way the
+ * execution-time `sandboxPolicy` and the gateway classifier do: remap a
+ * container-scoped `/workspace/...` path onto `workingDir`, then resolve
+ * (relative paths resolve against `workingDir`, not process.cwd()).
+ */
+export function resolveSandboxBase(
+  rawPath: string,
+  workingDir: string,
+): string {
+  let effectivePath = rawPath;
+  if (!rawPath.startsWith(workingDir + "/") && rawPath !== workingDir) {
+    if (rawPath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
+      effectivePath = rawPath.slice(CONTAINER_WORKSPACE_PREFIX.length);
+    } else if (rawPath === CONTAINER_WORKSPACE_EXACT) {
+      effectivePath = ".";
+    }
+  }
+  return resolve(workingDir, effectivePath);
+}
+
+/**
+ * Extract a path-scoped tool's target path from its input. `path` takes
+ * priority over `file_path` — the file tools execute `input.path` and the
+ * risk classifier reads the fields in the same order, so containment
+ * decisions must be derived from the field that actually executes (an input
+ * carrying both fields is not runtime-stripped). Returns `""` when the
+ * input carries no usable path.
  */
 function resolvePathScopedTarget(
   toolInput: Record<string, unknown>,
   workspaceRoot: string,
 ): string {
   const rawPath =
-    typeof toolInput.file_path === "string"
-      ? toolInput.file_path
-      : typeof toolInput.path === "string"
-        ? toolInput.path
+    typeof toolInput.path === "string"
+      ? toolInput.path
+      : typeof toolInput.file_path === "string"
+        ? toolInput.file_path
         : "";
-  if (rawPath === "" || rawPath.startsWith("/")) {
-    return rawPath;
+  if (rawPath === "") {
+    return "";
   }
-  return resolve(workspaceRoot, rawPath);
+  return resolveSandboxBase(rawPath, workspaceRoot);
 }
 
 /**

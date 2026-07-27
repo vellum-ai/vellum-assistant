@@ -53,6 +53,7 @@ import {
 import {
   isPathWithinWorkspaceRoot,
   isWorkspaceScopedInvocation,
+  resolveSandboxBase,
 } from "./workspace-policy.js";
 
 // ── Risk classification cache ────────────────────────────────────────────────
@@ -389,25 +390,6 @@ function buildFileContext(): FileContext {
  * filesystem this process cannot see (e.g. host_file paths proxied to a remote
  * client), so this never regresses below today's lexical behavior.
  */
-// The Docker sandbox mounts the workspace at /workspace, and the model emits
-// container-scoped paths (e.g. "/workspace/tools/evil.ts") even on local turns.
-// Mirror the gateway's resolveSandboxPath remap so the symlink-resolved path we
-// forward lines up with the gateway's lexical fallback and the protected dirs.
-const CONTAINER_WORKSPACE_PREFIX = "/workspace/";
-const CONTAINER_WORKSPACE_EXACT = "/workspace";
-
-function resolveSandboxBase(rawPath: string, workingDir: string): string {
-  let effectivePath = rawPath;
-  if (!rawPath.startsWith(workingDir + "/") && rawPath !== workingDir) {
-    if (rawPath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
-      effectivePath = rawPath.slice(CONTAINER_WORKSPACE_PREFIX.length);
-    } else if (rawPath === CONTAINER_WORKSPACE_EXACT) {
-      effectivePath = ".";
-    }
-  }
-  return resolve(workingDir, effectivePath);
-}
-
 function resolveClassificationPath(
   filePath: string,
   workingDir: string,

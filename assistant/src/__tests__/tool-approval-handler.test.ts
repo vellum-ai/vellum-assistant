@@ -582,6 +582,24 @@ describe("isSensitiveTool", () => {
           workingDir,
         ),
       ).toBe(false);
+      // `path` is the executed field — a benign `file_path` must not mask it.
+      expect(
+        isSensitiveTool(
+          "file_read",
+          "sandbox",
+          { path: "/etc/hosts", file_path: "notes.txt" },
+          workingDir,
+        ),
+      ).toBe(true);
+      // Container-style /workspace paths remap to the workspace.
+      expect(
+        isSensitiveTool(
+          "file_read",
+          "sandbox",
+          { path: "/workspace/notes.txt" },
+          workingDir,
+        ),
+      ).toBe(false);
       // Without a workingDir the boundary is unknown — name/target rule only.
       expect(
         isSensitiveTool("file_read", "sandbox", { path: "/etc/hosts" }),

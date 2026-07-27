@@ -115,9 +115,12 @@ mock.module("./trust-store.js", () => ({
   onRulesChanged: () => {},
 }));
 
-// Mock workspace policy.
+// Mock workspace policy. Spread the real module so pure path helpers
+// (resolveSandboxBase) keep their real behavior for param building.
+const realWorkspacePolicy = await import("./workspace-policy.js");
 let mockIsPathWithinWorkspaceRoot = true;
 mock.module("./workspace-policy.js", () => ({
+  ...realWorkspacePolicy,
   isWorkspaceScopedInvocation: () => false,
   isOutOfWorkspaceFileInvocation: () => false,
   isPathWithinWorkspaceRoot: () => mockIsPathWithinWorkspaceRoot,

@@ -59,7 +59,9 @@ mock.module("../permissions/gateway-threshold-reader.js", () => ({
   refreshAutoApproveThreshold: async () => null,
 }));
 
+const realWorkspacePolicy = await import("../permissions/workspace-policy.js");
 mock.module("../permissions/workspace-policy.js", () => ({
+  ...realWorkspacePolicy,
   isWorkspaceScopedInvocation: () => false,
   isOutOfWorkspaceFileInvocation: () => false,
   isPathWithinWorkspaceRoot: () => false,
