@@ -44,9 +44,11 @@ mock.module("../persistence/conversation-crud.js", () => ({
     return { id: "conv-1", ...opts };
   },
   // runBackgroundJob (loaded transitively via heartbeat-service) imports
-  // addMessage. Disk-pressure short-circuits before addMessage ever runs,
+  // addMessage, and `runtime/assistant-sandwich.ts` alongside it imports
+  // deleteMessageById. Disk-pressure short-circuits before either ever runs,
   // but the mock module must still expose every name the real module does.
   addMessage: () => Promise.resolve({ id: "mock-msg-id" }),
+  deleteMessageById: () => ({}),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 

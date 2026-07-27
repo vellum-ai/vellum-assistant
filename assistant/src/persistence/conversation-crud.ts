@@ -3197,6 +3197,10 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM tool_invocations");
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
+  // Subagent lifecycle records reference conversations by id without an FK
+  // cascade; wipe them explicitly so labels/objectives don't survive (or
+  // rehydrate after) a clear-all.
+  await runOrThrow("DELETE FROM subagents");
 
   // The memory feature's relocated conversation-keyed tables lost their main-DB
   // cascade. Signal the wipe through the hook rather than reaching into the
