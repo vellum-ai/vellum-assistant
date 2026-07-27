@@ -10,7 +10,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -160,6 +160,33 @@ describe("workspace path spans", () => {
     });
 
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  test("a file that appears later upgrades the span in place", async () => {
+    // The "I'll write it to X, ... wrote it to X" sequence: the listing is
+    // cached before the file exists, and the span must pick up the refreshed
+    // listing without being remounted.
+    const queryClient = clientWithListing("drafts", []);
+    renderMessage(
+      "I'll write it to `/workspace/drafts/notes.md`.",
+      queryClient,
+    );
+
+    expect(screen.queryByRole("button")).toBeNull();
+
+    queryClient.setQueryData(
+      workspaceTreeGetQueryKey({
+        path: { assistant_id: ASSISTANT_ID },
+        query: { path: "drafts" },
+      }),
+      { path: "drafts", entries: [entry("drafts/notes.md")] },
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "/workspace/drafts/notes.md" }),
+      ).toBeTruthy();
+    });
   });
 
   test("paths inside fenced code blocks are left alone", () => {

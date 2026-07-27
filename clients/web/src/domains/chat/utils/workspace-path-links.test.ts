@@ -18,9 +18,7 @@ describe("toWorkspaceRelativePath — accepted shapes", () => {
     // The mount point is deployment-specific, so recognition anchors on the
     // last `/workspace/` segment rather than a fixed prefix.
     expect(
-      toWorkspaceRelativePath(
-        "/Users/marina/.vellum/workspace/drafts/notes.md",
-      ),
+      toWorkspaceRelativePath("/Users/alice/.vellum/workspace/drafts/notes.md"),
     ).toBe("drafts/notes.md");
   });
 
@@ -59,9 +57,7 @@ describe("toWorkspaceRelativePath — rejected shapes", () => {
 
   test("absolute host path outside any workspace root", () => {
     expect(toWorkspaceRelativePath("/etc/passwd")).toBeNull();
-    expect(
-      toWorkspaceRelativePath("/Users/marina/Desktop/notes.md"),
-    ).toBeNull();
+    expect(toWorkspaceRelativePath("/Users/alice/Desktop/notes.md")).toBeNull();
   });
 
   test("home-relative path", () => {

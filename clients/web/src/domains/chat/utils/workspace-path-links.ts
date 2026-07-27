@@ -41,9 +41,9 @@ const MAX_PATH_LENGTH = 512;
  * assembled for a shell.
  *
  * This is intentionally over-broad: a filename containing one of these
- * characters simply renders as plain code, which is the status quo. The cost
- * of a miss is nothing; the cost of a false positive is a confusing
- * affordance on text that was never a file reference.
+ * characters simply renders as plain code. The cost of a miss is nothing; the
+ * cost of a false positive is a confusing affordance on text that was never a
+ * file reference.
  */
 const NON_PATH_CHARS = /[\s`"'<>|&;:,=$*?[\]{}()\\!#]/;
 
