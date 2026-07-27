@@ -44,6 +44,20 @@ function busyStatus(): unknown {
       { id: "job-1", type: "memory_retrospective", startedAt: Date.now() },
     ],
     scheduleRuns: [],
+    workflowRuns: [],
+  };
+}
+
+function workflowBusyStatus(): unknown {
+  return {
+    quiescedUntil: Date.now() + 60_000,
+    idle: false,
+    activeConversations: [],
+    memoryJobs: [],
+    scheduleRuns: [],
+    workflowRuns: [
+      { runId: "wf-1", name: "nightly-report", startedAt: Date.now() },
+    ],
   };
 }
 
@@ -54,6 +68,7 @@ function idleStatus(): unknown {
     activeConversations: [],
     memoryJobs: [],
     scheduleRuns: [],
+    workflowRuns: [],
   };
 }
 
@@ -101,6 +116,32 @@ describe("drainAssistant", () => {
       method: "POST",
     });
     expect(lines.join("\n")).toContain("memory memory_retrospective");
+  });
+
+  test("a running workflow keeps the drain busy and is narrated", async () => {
+    let statusCalls = 0;
+    const { impl } = fetchStub((_url, method) => {
+      if (method === "POST") {
+        return jsonResponse({ quiescedUntil: Date.now() + 60_000 });
+      }
+      statusCalls += 1;
+      return jsonResponse(
+        statusCalls < 2 ? workflowBusyStatus() : idleStatus(),
+      );
+    });
+    const lines: string[] = [];
+
+    const outcome = await drainAssistant({
+      baseUrl: BASE,
+      token: "tok",
+      deadlineAt: null,
+      pollIntervalMs: 1,
+      fetchImpl: impl,
+      log: (line) => lines.push(line),
+    });
+
+    expect(outcome).toBe("drained");
+    expect(lines.join("\n")).toContain('workflow "nightly-report"');
   });
 
   test("returns unsupported when the assistant lacks the quiesce route", async () => {

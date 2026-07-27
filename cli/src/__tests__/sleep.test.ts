@@ -56,6 +56,21 @@ mock.module("../lib/guardian-token.js", () => ({
   loadGuardianToken: loadGuardianTokenMock,
 }));
 
+// Stub the token-refresh helper without importing the real client module
+// (it drags in the interactive chat client's dependency graph). Pass-through
+// by default: the stored token is returned as-is.
+const resolveFreshBearerTokenMock = mock(
+  async (
+    _runtimeUrl: string,
+    _assistantId: string,
+    bearerToken: string | undefined,
+    _cloud: string | undefined,
+  ) => bearerToken,
+);
+mock.module("../commands/client.js", () => ({
+  resolveFreshBearerToken: resolveFreshBearerTokenMock,
+}));
+
 // Restore the real modules once this file finishes so the mocks do not leak
 // into other test files in the same `bun test` run.
 afterAll(() => {
@@ -134,6 +149,10 @@ describe("sleep command", () => {
     loadGuardianTokenMock.mockReturnValue({
       accessToken: "test-guardian-token",
     } as unknown as ReturnType<typeof realGuardianToken.loadGuardianToken>);
+    resolveFreshBearerTokenMock.mockReset();
+    resolveFreshBearerTokenMock.mockImplementation(
+      async (_url, _id, bearerToken, _cloud) => bearerToken,
+    );
     rmSync(assistantRootDir, { recursive: true, force: true });
     writeLockfile();
   });

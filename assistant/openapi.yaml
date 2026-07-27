@@ -16380,7 +16380,7 @@ paths:
                       - type: "null"
                   idle:
                     type: boolean
-                    description: True when no conversation turn, memory job, or schedule run is in flight.
+                    description: True when no conversation turn, memory job, schedule run, or workflow run is in flight.
                   activeConversations:
                     type: array
                     items:
@@ -16445,12 +16445,33 @@ paths:
                         - scheduleName
                         - startedAt
                       additionalProperties: false
+                  workflowRuns:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        runId:
+                          type: string
+                        name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        startedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                      required:
+                        - runId
+                        - name
+                        - startedAt
+                      additionalProperties: false
                 required:
                   - quiescedUntil
                   - idle
                   - activeConversations
                   - memoryJobs
                   - scheduleRuns
+                  - workflowRuns
                 additionalProperties: false
   /v1/lifecycle/quiesce:
     delete:

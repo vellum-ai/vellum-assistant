@@ -15,6 +15,7 @@ import {
 import { loadGuardianToken } from "../lib/guardian-token.js";
 import { stopIngressNginx } from "../lib/nginx-ingress.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
+import { resolveFreshBearerToken } from "./client.js";
 
 const ACTIVE_CALL_LEASES_FILE = "active-call-leases.json";
 
@@ -268,8 +269,23 @@ async function runDrainPhase(
     return "skipped";
   }
   const baseUrl = entry.localUrl ?? entry.runtimeUrl;
-  const token = loadGuardianToken(entry.assistantId)?.accessToken;
-  if (!baseUrl || !token) {
+  const stored = loadGuardianToken(entry.assistantId)?.accessToken;
+  if (!baseUrl || !stored) {
+    console.log(
+      "Cannot reach the assistant API to wait for background work (missing URL or guardian token) — stopping without waiting.",
+    );
+    return "skipped";
+  }
+  // A token past its renewal point would 401 and read as "unreachable",
+  // silently skipping the wait — refresh-and-fall-back like other CLI
+  // request paths.
+  const token = await resolveFreshBearerToken(
+    baseUrl,
+    entry.assistantId,
+    stored,
+    entry.cloud,
+  );
+  if (!token) {
     console.log(
       "Cannot reach the assistant API to wait for background work (missing URL or guardian token) — stopping without waiting.",
     );

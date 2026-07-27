@@ -22,6 +22,7 @@ import {
 } from "../../persistence/lifecycle-quiesce.js";
 import { listRunningScheduleRuns } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
+import { listRuns as listWorkflowRuns } from "../../workflows/journal-store.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -54,16 +55,23 @@ const runningScheduleRunSchema = z.object({
   startedAt: z.number(),
 });
 
+const runningWorkflowRunSchema = z.object({
+  runId: z.string(),
+  name: z.string().nullable(),
+  startedAt: z.number().nullable(),
+});
+
 const drainStatusResponseSchema = z.object({
   quiescedUntil: z.number().nullable(),
   idle: z
     .boolean()
     .describe(
-      "True when no conversation turn, memory job, or schedule run is in flight.",
+      "True when no conversation turn, memory job, schedule run, or workflow run is in flight.",
     ),
   activeConversations: z.array(activeConversationSchema),
   memoryJobs: z.array(runningMemoryJobSchema),
   scheduleRuns: z.array(runningScheduleRunSchema),
+  workflowRuns: z.array(runningWorkflowRunSchema),
 });
 
 export const ROUTES: RouteDefinition[] = [
@@ -149,15 +157,36 @@ export const ROUTES: RouteDefinition[] = [
       } catch (err) {
         log.warn({ err }, "Drain status: schedule runs unavailable");
       }
+      // Workflows launched by a schedule outlive their schedule run — the
+      // scheduler fires them and completes its own run row immediately — so
+      // a running workflow must hold the drain open in its own right.
+      let workflowRuns: Array<{
+        runId: string;
+        name: string | null;
+        startedAt: number | null;
+      }> = [];
+      try {
+        workflowRuns = listWorkflowRuns({ limit: 20, status: "running" }).map(
+          (run) => ({
+            runId: run.id,
+            name: run.name,
+            startedAt: run.createdAt,
+          }),
+        );
+      } catch (err) {
+        log.warn({ err }, "Drain status: workflow runs unavailable");
+      }
       return {
         quiescedUntil: getLifecycleQuiesceUntil(),
         idle:
           activeConversations.length === 0 &&
           memoryJobs.length === 0 &&
-          scheduleRuns.length === 0,
+          scheduleRuns.length === 0 &&
+          workflowRuns.length === 0,
         activeConversations,
         memoryJobs,
         scheduleRuns,
+        workflowRuns,
       };
     },
   },

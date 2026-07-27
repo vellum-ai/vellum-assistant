@@ -49,6 +49,11 @@ interface DrainStatusResponse {
     scheduleName: string | null;
     startedAt: number;
   }>;
+  workflowRuns?: Array<{
+    runId: string;
+    name: string | null;
+    startedAt: number | null;
+  }>;
 }
 
 export interface DrainOptions {
@@ -107,6 +112,10 @@ function describeBusyWork(status: DrainStatusResponse, now: number): string[] {
     const label = run.scheduleName ?? run.runId.slice(0, 8);
     items.push(`schedule "${label}" (${formatElapsed(run.startedAt, now)})`);
   }
+  for (const run of status.workflowRuns ?? []) {
+    const label = run.name ?? run.runId.slice(0, 8);
+    items.push(`workflow "${label}" (${formatElapsed(run.startedAt, now)})`);
+  }
   return items;
 }
 
@@ -115,6 +124,7 @@ function busySignature(status: DrainStatusResponse): string {
     ...status.activeConversations.map((c) => c.conversationId),
     ...status.memoryJobs.map((j) => j.id),
     ...status.scheduleRuns.map((r) => r.runId),
+    ...(status.workflowRuns ?? []).map((r) => r.runId),
   ].join("|");
 }
 
@@ -191,7 +201,14 @@ export async function drainAssistant(
   try {
     response = await armLease();
   } catch {
-    return opts.signal?.aborted ? "cancelled" : "unreachable";
+    if (opts.signal?.aborted) {
+      // The abort may have landed after the server persisted the lease, so
+      // its outcome is ambiguous — release best-effort rather than leaving
+      // background work paused for a TTL on a cancelled sleep.
+      await releaseLease();
+      return "cancelled";
+    }
+    return "unreachable";
   }
   if (response.status === 404 || response.status === 405) {
     return "unsupported";
