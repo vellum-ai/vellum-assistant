@@ -95,6 +95,21 @@ describe("sandboxPolicy", () => {
     }
   });
 
+  test("rejects a dangling symlink whose destination escapes the boundary", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+
+    // A dangling link inside the boundary pointing at a nonexistent outside
+    // file: a write through it would create the outside destination.
+    symlinkSync(join(outside, "not-yet.txt"), join(boundary, "dangle"));
+
+    const result = sandboxPolicy("dangle", boundary, { mustExist: false });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("out_of_bounds");
+    }
+  });
+
   test("rejects parent dir symlink escape in mustExist=false flow", () => {
     const boundary = makeTempDir();
     const outside = makeTempDir();
@@ -335,6 +350,29 @@ describe("sandboxPolicyWithHostFallback", () => {
       if (!result.ok) {
         expect(result.reason).toBe("denied");
       }
+    }
+  });
+
+  test("denies a dangling symlink pointing into the gateway security dir", () => {
+    const boundary = makeTempDir();
+    const outside = makeTempDir();
+    const securityDir = makeTempDir();
+    process.env.GATEWAY_SECURITY_DIR = securityDir;
+    // The destination does NOT exist — a write through the link would create
+    // it inside the security dir.
+    symlinkSync(
+      join(securityDir, "new-signing-key"),
+      join(outside, "innocent.txt"),
+    );
+
+    const result = sandboxPolicyWithHostFallback(
+      join(outside, "innocent.txt"),
+      boundary,
+      { mustExist: false },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("denied");
     }
   });
 

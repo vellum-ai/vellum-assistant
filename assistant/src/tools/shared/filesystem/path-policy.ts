@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { lstatSync, readlinkSync, realpathSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import {
   basename,
@@ -92,6 +92,31 @@ interface SandboxTarget {
 }
 
 /**
+ * Follow a trailing symlink chain manually so a DANGLING link reports its
+ * destination. `realpathSync` throws on a link whose destination does not
+ * exist, which makes canonicalization fall back to the benign link path —
+ * but a write through the link creates the destination, so containment
+ * checks must see it. Bounded well above the kernel's own symlink-depth
+ * limit; a deeper chain fails the eventual filesystem operation itself.
+ */
+function resolveTrailingLinkTarget(path: string): string {
+  let current = path;
+  for (let depth = 0; depth < 32; depth++) {
+    let linkTarget: string;
+    try {
+      if (!lstatSync(current).isSymbolicLink()) {
+        return current;
+      }
+      linkTarget = readlinkSync(current);
+    } catch {
+      return current;
+    }
+    current = resolve(dirname(current), linkTarget);
+  }
+  return current;
+}
+
+/**
  * Resolve a user-supplied path against the boundary directory: apply the
  * container /workspace remap, resolve to an absolute path, and canonicalize
  * symlinks on both the target and the boundary.
@@ -116,19 +141,24 @@ function resolveSandboxTarget(
 
   const resolved = resolve(boundaryDir, effectivePath);
 
+  // Follow a trailing (possibly dangling) symlink chain first — a write
+  // through a dangling link creates the link's destination, so the
+  // containment and denial checks below must run against it.
+  const linkTarget = resolveTrailingLinkTarget(resolved);
+
   // Resolve symlinks to catch symlink-based escapes.
   // For mustExist=false, walk up to the nearest existing ancestor and
   // resolve it, then re-append the trailing components.
-  let realResolved = resolved;
+  let realResolved = linkTarget;
   if (mustExist) {
     try {
-      realResolved = realpathSync(resolved);
+      realResolved = realpathSync(linkTarget);
     } catch {
       // File doesn't exist - will be caught by the tool's own existence check
-      realResolved = resolved;
+      realResolved = linkTarget;
     }
   } else {
-    realResolved = resolveRealPath(resolved);
+    realResolved = resolveRealPath(linkTarget);
   }
 
   // Resolve the boundary directory's real path too (in case it's a symlink)
