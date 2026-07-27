@@ -7,7 +7,9 @@ import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
 import type { ChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { AutoApproveThreshold } from "../permissions/approval-policy.js";
+import { buildChannelPermissionCellQuery } from "../permissions/channel-permission-query.js";
 import { isDynamicSkillLoadInvocation } from "../permissions/checker.js";
+import { resolveChannelPermissionCell } from "../permissions/gateway-threshold-reader.js";
 import { isOutOfWorkspaceFileInvocation } from "../permissions/workspace-policy.js";
 import {
   isUnparseableToolArgs,
@@ -23,6 +25,7 @@ import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { recordToolDenied, recordToolError } from "../telemetry/tool-audit.js";
 import { getLogger } from "../util/logger.js";
 import { resolveExecutionTarget } from "./execution-target.js";
+import { channelCoordinatesFromToolContext } from "./policy-context.js";
 import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
@@ -316,37 +319,78 @@ export type SensitiveToolDecision = "proceed" | "escalate-and-wait" | "deny";
 
 /**
  * Single composition point for the sensitive-tool approval decision:
- * approval-cell threshold × tool risk level × `CapabilitySet` floor.
+ * `CapabilitySet` floor × the actor's approval-matrix cell.
  *
- * The decision is about the tool; actor identity feeds in only through the
- * already-resolved `sensitiveToolApproval` capability. That floor is
- * deterministic and cannot be lifted by the other axes: when the capability
- * is not `"self"`, a sensitive invocation without a grant always escalates
- * or denies. `cellThreshold` and `riskLevel` are composition axes the
- * decision does not consult — no threshold/risk combination may lift the
- * outcome above the floor.
+ * The floor is the starting point — a sensitive invocation by a non-guardian
+ * needs a scoped grant. The cell is what can lift it: an owner who has given
+ * this contact type a non-`none` level in this room has said the assistant
+ * may act there without minting a per-call grant.
+ *
+ * Two things no cell lifts:
+ * - `deny` — an actor with no established identity has no cell to stand on.
+ * - A `none` cell authorizes nothing, so the floor stands unchanged.
+ *
+ * Lifting is not approval. It decides only that a scoped grant is not the
+ * mechanism; the risk/threshold policy in `permissions/approval-policy.ts`
+ * then applies that same cell against the fully-classified risk. Whatever the
+ * cell does not cover still reaches the guardian — a lane-B `"prompt"` is
+ * promoted to a guardian-bound `tool_approval` request
+ * (`permissions/confirmation-guardian-request.ts`), the same principal the
+ * escalation path would have asked.
  */
 export function resolveSensitiveToolDecision(input: {
   sensitive: boolean;
   /**
-   * Approval-matrix cell axis. The decision does not consult it — the floor
-   * alone resolves the outcome — so callers pass `undefined` rather than
-   * paying a threshold lookup to populate it.
+   * Threshold of the approval-matrix cell governing this invocation.
+   * `undefined` when no cell covers it — including when the cell could not be
+   * read, since an unreadable cell must never lift the floor.
    */
   cellThreshold: ApprovalCellThreshold | undefined;
-  /**
-   * Risk level as known at gate time. The full risk classification runs
-   * after this gate (in the permission checker), so callers may only have
-   * the pre-classification level here — composing decisions on this axis
-   * requires moving classification ahead of the gate first.
-   */
-  riskLevel: string;
   sensitiveToolApproval: SensitiveToolApproval;
 }): SensitiveToolDecision {
   if (!input.sensitive || input.sensitiveToolApproval === "self") {
     return "proceed";
   }
-  return input.sensitiveToolApproval;
+  if (input.sensitiveToolApproval === "deny") {
+    return "deny";
+  }
+  if (input.cellThreshold === undefined || input.cellThreshold === "none") {
+    return input.sensitiveToolApproval;
+  }
+  return "proceed";
+}
+
+/**
+ * Threshold of the approval-matrix cell governing this invocation, read only
+ * when it can change the outcome: a sensitive tool whose actor sits on the
+ * escalate floor. Guardians, non-sensitive tools, and identity-less actors
+ * return early, so the gateway lookup never lands on the paths where it could
+ * only add latency — grant consumption for an already-approved call, and voice
+ * abort handling.
+ *
+ * The permission checker reads this same cell later in the turn, within the
+ * reader's cache window, so the lift costs at most one lookup per turn.
+ *
+ * Returns `undefined` when the turn has no channel coordinates, when no
+ * cascade level has a cell, or when the lookup fails. All three mean the same
+ * thing to the caller: nothing lifts the floor.
+ */
+async function resolveApprovalCellThreshold(
+  sensitive: boolean,
+  sensitiveToolApproval: SensitiveToolApproval,
+  context: ToolContext,
+): Promise<ApprovalCellThreshold | undefined> {
+  if (!sensitive || sensitiveToolApproval !== "escalate-and-wait") {
+    return undefined;
+  }
+  const query = buildChannelPermissionCellQuery(
+    channelCoordinatesFromToolContext(context),
+  );
+  if (!query) {
+    return undefined;
+  }
+  const cell = await resolveChannelPermissionCell(query);
+  return cell.ok && cell.resolved ? cell.resolved.threshold : undefined;
 }
 
 /**
@@ -530,14 +574,13 @@ export class ToolApprovalHandler {
       context.workingDir,
     );
     const { sensitiveToolApproval } = resolveCapabilities(context.trustClass);
-    // cellThreshold stays unresolved: the decision does not consult it
-    // (the floor is deterministic), and resolving a live threshold here
-    // would block grant consumption — including already-approved calls and
-    // voice abort handling — on a gateway IPC read.
     const sensitiveDecision = resolveSensitiveToolDecision({
       sensitive,
-      cellThreshold: undefined,
-      riskLevel,
+      cellThreshold: await resolveApprovalCellThreshold(
+        sensitive,
+        sensitiveToolApproval,
+        context,
+      ),
       sensitiveToolApproval,
     });
 

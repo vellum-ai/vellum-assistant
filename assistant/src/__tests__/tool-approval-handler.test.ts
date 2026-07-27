@@ -1,5 +1,11 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  installThresholdReaderMock,
+  resetThresholdReaderMock,
+  thresholdReaderMock,
+} from "./gateway-threshold-reader-mock.js";
+
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Mock verification control-plane policy -- not targeting control-plane by default
@@ -37,6 +43,10 @@ mock.module("../permissions/checker.js", () => ({
     input: Record<string, unknown>,
   ) => input?.skill === "dynamic-skill",
 }));
+
+// The channel permission-matrix cell is a gateway IPC call; the shared mock
+// makes it per-test controllable and counts lookups.
+installThresholdReaderMock();
 
 // Capture tool-audit terminal calls so tests can assert on denied/error outcomes
 // the way they previously asserted on emitted lifecycle events.
@@ -625,7 +635,7 @@ describe("isSensitiveTool", () => {
   });
 });
 
-describe("resolveSensitiveToolDecision / CapabilitySet floor invariant", () => {
+describe("resolveSensitiveToolDecision / CapabilitySet floor × approval cell", () => {
   const cellThresholds: Array<ApprovalCellThreshold | undefined> = [
     undefined,
     "none",
@@ -633,43 +643,57 @@ describe("resolveSensitiveToolDecision / CapabilitySet floor invariant", () => {
     "medium",
     "high",
   ];
-  const riskLevels = ["low", "medium", "high"];
+  /** The cells that authorize something, and so can lift the floor. */
+  const liftingThresholds: ApprovalCellThreshold[] = ["low", "medium", "high"];
 
-  test("no cell threshold or risk level lifts the floor for non-self actors", () => {
+  test("no cell and a none cell both leave the escalate floor standing", () => {
+    for (const cellThreshold of [undefined, "none"] as const) {
+      expect(
+        resolveSensitiveToolDecision({
+          sensitive: true,
+          cellThreshold,
+          sensitiveToolApproval: "escalate-and-wait",
+        }),
+      ).toBe("escalate-and-wait");
+    }
+  });
+
+  test("a cell that authorizes something lifts the escalate floor", () => {
+    for (const cellThreshold of liftingThresholds) {
+      expect(
+        resolveSensitiveToolDecision({
+          sensitive: true,
+          cellThreshold,
+          sensitiveToolApproval: "escalate-and-wait",
+        }),
+      ).toBe("proceed");
+    }
+  });
+
+  // An actor with no established identity has no cell to stand on: the matrix
+  // is keyed by contact type, and "unknown" is the absence of one. No cell at
+  // any cascade level may turn that into permission to act.
+  test("deny is absolute — no cell threshold lifts it", () => {
     for (const cellThreshold of cellThresholds) {
-      for (const riskLevel of riskLevels) {
-        expect(
-          resolveSensitiveToolDecision({
-            sensitive: true,
-            cellThreshold,
-            riskLevel,
-            sensitiveToolApproval: "escalate-and-wait",
-          }),
-        ).toBe("escalate-and-wait");
-        expect(
-          resolveSensitiveToolDecision({
-            sensitive: true,
-            cellThreshold,
-            riskLevel,
-            sensitiveToolApproval: "deny",
-          }),
-        ).toBe("deny");
-      }
+      expect(
+        resolveSensitiveToolDecision({
+          sensitive: true,
+          cellThreshold,
+          sensitiveToolApproval: "deny",
+        }),
+      ).toBe("deny");
     }
   });
 
   test("self capability proceeds for sensitive tools (lane-B policy governs downstream)", () => {
     for (const cellThreshold of cellThresholds) {
-      for (const riskLevel of riskLevels) {
-        expect(
-          resolveSensitiveToolDecision({
-            sensitive: true,
-            cellThreshold,
-            riskLevel,
-            sensitiveToolApproval: "self",
-          }),
-        ).toBe("proceed");
-      }
+      expect(
+        resolveSensitiveToolDecision({
+          sensitive: true,
+          cellThreshold,
+          sensitiveToolApproval: "self",
+        }),
+      ).toBe("proceed");
     }
   });
 
@@ -683,11 +707,163 @@ describe("resolveSensitiveToolDecision / CapabilitySet floor invariant", () => {
         resolveSensitiveToolDecision({
           sensitive: false,
           cellThreshold: undefined,
-          riskLevel: "high",
           sensitiveToolApproval,
         }),
       ).toBe("proceed");
     }
+  });
+});
+
+// The gate decides only whether a scoped grant is the mechanism. Everything a
+// lifted cell lets through still faces the risk/threshold policy downstream,
+// which reads the same cell — so these assert the gate's handoff, not approval.
+describe("ToolApprovalHandler / approval cell lifts the sensitive-tool floor", () => {
+  const handler = new ToolApprovalHandler();
+  const toolName = "bash";
+  const input = { command: "ls -la" };
+
+  /**
+   * A contact in a room, with no `requesterExternalUserId` — escalation needs
+   * one, so when the floor stands the gate takes the generic denial path
+   * instead of reaching for the guardian-request machinery. That keeps these
+   * tests on the gate's own decision.
+   */
+  function channelContext(overrides: Partial<ToolContext> = {}): ToolContext {
+    return makeContext({
+      trustClass: "trusted_contact",
+      executionChannel: "telegram",
+      channelPermissionChannelId: "C-room",
+      ...overrides,
+    });
+  }
+
+  function cell(threshold: string) {
+    return { ok: true, resolved: { threshold, scope: "channel" } } as const;
+  }
+
+  beforeEach(() => {
+    clearTables();
+    resetAuditCalls();
+    resetThresholdReaderMock();
+  });
+
+  test.each(["low", "medium", "high"])(
+    "a %s cell lifts the floor — no scoped grant required",
+    async (threshold) => {
+      thresholdReaderMock.cell = cell(threshold);
+
+      const result = await handler.checkPreExecutionGates(
+        toolName,
+        input,
+        channelContext(),
+        "low",
+        Date.now(),
+      );
+
+      expect(result.allowed).toBe(true);
+      if (!result.allowed) {
+        return;
+      }
+      // Not "approved via a grant" — the gate stepped out of the grant
+      // mechanism entirely and handed off to the risk/threshold policy.
+      expect(result.grantConsumed).toBeFalsy();
+      expect(auditCalls.denied.length).toBe(0);
+    },
+  );
+
+  test("a none cell authorizes nothing — the floor stands", async () => {
+    thresholdReaderMock.cell = cell("none");
+
+    const result = await handler.checkPreExecutionGates(
+      toolName,
+      input,
+      channelContext(),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(false);
+    if (result.allowed) {
+      return;
+    }
+    expect(result.result.content).toContain("requires guardian approval");
+  });
+
+  test("no cell at any cascade level — the floor stands", async () => {
+    thresholdReaderMock.cell = { ok: true, resolved: null };
+
+    const result = await handler.checkPreExecutionGates(
+      toolName,
+      input,
+      channelContext(),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(false);
+  });
+
+  // Fail closed: an unreadable cell is indistinguishable from a strict one, so
+  // a gateway outage must never widen what a channel actor may do.
+  test("a failed cell lookup does not lift the floor", async () => {
+    thresholdReaderMock.cell = { ok: false };
+
+    const result = await handler.checkPreExecutionGates(
+      toolName,
+      input,
+      channelContext(),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(false);
+  });
+
+  // The matrix is keyed by contact type, and "unknown" is the absence of one.
+  test("an unknown actor stays fail-closed even under a full-access cell", async () => {
+    thresholdReaderMock.cell = cell("high");
+
+    const result = await handler.checkPreExecutionGates(
+      toolName,
+      input,
+      channelContext({ trustClass: "unknown" }),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(false);
+    if (result.allowed) {
+      return;
+    }
+    expect(result.result.content).toContain("verified channel identity");
+    // Nothing to resolve: no cell can lift an absolute deny.
+    expect(thresholdReaderMock.cellLookups).toBe(0);
+  });
+
+  test("a guardian never pays for the cell lookup", async () => {
+    const result = await handler.checkPreExecutionGates(
+      toolName,
+      input,
+      channelContext({ trustClass: "guardian" }),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(true);
+    expect(thresholdReaderMock.cellLookups).toBe(0);
+  });
+
+  test("a turn with no channel coordinates skips the lookup", async () => {
+    const result = await handler.checkPreExecutionGates(
+      toolName,
+      input,
+      makeContext({ trustClass: "trusted_contact" }),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(false);
+    expect(thresholdReaderMock.cellLookups).toBe(0);
   });
 });
 

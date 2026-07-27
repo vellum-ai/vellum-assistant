@@ -18,6 +18,19 @@ import {
 import type { PolicyContext } from "./types.js";
 
 /**
+ * The fields a cell query is derived from — a subset of {@link PolicyContext}
+ * so a caller holding only a turn's channel coordinates (the sensitive-tool
+ * gate, which runs before a policy context exists) can build the same query.
+ */
+export type ChannelPermissionCoordinates = Pick<
+  PolicyContext,
+  | "sourceChannel"
+  | "trustClass"
+  | "channelConversationType"
+  | "channelExternalId"
+>;
+
+/**
  * Build the permission-matrix cell query for a permission decision: the
  * channel coordinates of the turn plus the actor's contact-type. Returns
  * undefined when the turn has no channel coordinates (e.g. an internal job
@@ -26,7 +39,7 @@ import type { PolicyContext } from "./types.js";
  * from the conversation override / global defaults as before.
  */
 export function buildChannelPermissionCellQuery(
-  policyContext?: PolicyContext,
+  policyContext?: ChannelPermissionCoordinates,
 ): ResolveChannelPermissionRequest | undefined {
   const adapter = policyContext?.sourceChannel;
   const trustClass = policyContext?.trustClass;
