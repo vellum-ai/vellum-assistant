@@ -750,6 +750,27 @@ export async function createScheduleRun(
   return id;
 }
 
+/** Currently-running schedule runs with their job names, oldest first. */
+export function listRunningScheduleRuns(): Array<{
+  runId: string;
+  scheduleName: string | null;
+  startedAt: number;
+}> {
+  const db = getDb();
+  return db
+    .select({
+      runId: scheduleRuns.id,
+      scheduleName: scheduleJobs.name,
+      startedAt: scheduleRuns.startedAt,
+    })
+    .from(scheduleRuns)
+    .leftJoin(scheduleJobs, eq(scheduleRuns.jobId, scheduleJobs.id))
+    .where(eq(scheduleRuns.status, "running"))
+    .orderBy(asc(scheduleRuns.startedAt))
+    .limit(20)
+    .all();
+}
+
 export async function setScheduleRunConversationId(
   runId: string,
   conversationId: string,

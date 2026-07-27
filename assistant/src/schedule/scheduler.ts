@@ -9,6 +9,7 @@ import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getConversation } from "../persistence/conversation-crud.js";
+import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -434,6 +435,13 @@ export async function runScheduleDueWorkOnce(
     return result;
   }
 
+  // Drain guard: while a quiesce lease is active, start no new watcher or
+  // sequence work so in-flight turns can drain before a stop.
+  if (isLifecycleQuiesced()) {
+    log.debug("Schedule tick skipped — quiesce lease active");
+    return result;
+  }
+
   // ── Watchers (event-driven polling) ────────────────────────────────
   try {
     const watcherProcessed = await runWatchersOnce(emitWatcherNotifySignal);
@@ -487,6 +495,13 @@ export async function runDueSchedulesOnce(
         "Due-schedule run skipped during disk pressure cleanup mode",
       );
     }
+    return result;
+  }
+
+  // Drain guard: while a quiesce lease is active, claim no due schedules so
+  // in-flight runs can drain before a stop. Claims resume when it expires.
+  if (isLifecycleQuiesced()) {
+    log.debug("Due-schedule run skipped — quiesce lease active");
     return result;
   }
 

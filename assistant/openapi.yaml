@@ -16357,6 +16357,156 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/lifecycle/drain-status:
+    get:
+      operationId: lifecycle_drainstatus_get
+      summary: In-flight background work
+      description:
+        "Reports conversation turns, memory jobs, and schedule runs currently in flight, plus the active quiesce
+        lease. `idle: true` means it is safe to stop the assistant without interrupting work."
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quiescedUntil:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  idle:
+                    type: boolean
+                    description: True when no conversation turn, memory job, or schedule run is in flight.
+                  activeConversations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        conversationId:
+                          type: string
+                        title:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        originChannel:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        originInterface:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        processingStartedAt:
+                          type: number
+                      required:
+                        - conversationId
+                        - title
+                        - originChannel
+                        - originInterface
+                        - processingStartedAt
+                      additionalProperties: false
+                  memoryJobs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                        startedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                      required:
+                        - id
+                        - type
+                        - startedAt
+                      additionalProperties: false
+                  scheduleRuns:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        runId:
+                          type: string
+                        scheduleName:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        startedAt:
+                          type: number
+                      required:
+                        - runId
+                        - scheduleName
+                        - startedAt
+                      additionalProperties: false
+                required:
+                  - quiescedUntil
+                  - idle
+                  - activeConversations
+                  - memoryJobs
+                  - scheduleRuns
+                additionalProperties: false
+  /v1/lifecycle/quiesce:
+    delete:
+      operationId: lifecycle_quiesce_delete
+      summary: Release the drain quiesce lease
+      description:
+        Resumes background work immediately instead of waiting for the lease TTL to expire (e.g. when a drain is
+        cancelled).
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  released:
+                    type: boolean
+                required:
+                  - released
+                additionalProperties: false
+    post:
+      operationId: lifecycle_quiesce_post
+      summary: Arm or refresh the drain quiesce lease
+      description:
+        Pauses the starting of new background work (heartbeat, schedules, watchers, sequences, memory jobs) for the
+        lease TTL. Refresh by calling again; the lease self-expires so an abandoned drain never leaves background work
+        paused.
+      tags:
+        - system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ttlMs:
+                  description: Lease TTL in ms (clamped to a sane range).
+                  type: number
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quiescedUntil:
+                    type: number
+                    description: Epoch ms when the quiesce lease expires.
+                required:
+                  - quiescedUntil
+                additionalProperties: false
   /v1/live-voice/preflight:
     post:
       operationId: livevoice_preflight_post

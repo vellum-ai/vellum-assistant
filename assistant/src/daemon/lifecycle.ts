@@ -27,6 +27,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-backend.js";
 import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
+import { clearLifecycleQuiesce } from "../persistence/lifecycle-quiesce.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
@@ -654,6 +655,10 @@ export async function runDaemon(): Promise<void> {
 
   registerWatcherProviders();
   registerMessagingProviders();
+
+  // A quiesce lease can survive a stop that happened mid-drain; clear it so
+  // a fresh boot never starts with background work paused.
+  clearLifecycleQuiesce();
 
   try {
     await recoverStaleSchedules();

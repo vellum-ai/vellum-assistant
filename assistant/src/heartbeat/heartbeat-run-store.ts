@@ -25,7 +25,8 @@ export type HeartbeatSkipReason =
   | "overlap"
   | "pre_first_user_message"
   | "max_consecutive_runs"
-  | "max_daily_runs";
+  | "max_daily_runs"
+  | "quiesced";
 
 export interface HeartbeatRunRecord {
   id: string;

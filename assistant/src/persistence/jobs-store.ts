@@ -895,6 +895,26 @@ export function resetRunningJobsToPending(): number {
   return rawMemoryChanges();
 }
 
+/** Currently-running memory jobs, oldest first — the drain-status view. */
+export function listRunningMemoryJobs(): Array<{
+  id: string;
+  type: string;
+  startedAt: number | null;
+}> {
+  const db = memoryDb();
+  return db
+    .select({
+      id: memoryJobs.id,
+      type: memoryJobs.type,
+      startedAt: memoryJobs.startedAt,
+    })
+    .from(memoryJobs)
+    .where(eq(memoryJobs.status, "running"))
+    .orderBy(asc(memoryJobs.startedAt))
+    .limit(20)
+    .all();
+}
+
 /**
  * Fail running jobs whose `startedAt` is older than `timeoutMs` ago.
  * Returns the number of jobs that were timed out.

@@ -57,6 +57,7 @@ import {
   resetRunningJobsToPending,
   SLOW_LLM_JOB_TYPES,
 } from "../../../persistence/jobs-store.js";
+import { isLifecycleQuiesced } from "../../../persistence/lifecycle-quiesce.js";
 import type { JobHandler } from "../../types.js";
 import { sweepOrphanConversationMemoryTables } from "./conversation-memory-orphan-sweep.js";
 import { getLogger } from "./logging.js";
@@ -361,6 +362,14 @@ export async function runMemoryJobsOnce(
         "Memory jobs worker skipped during disk pressure cleanup mode",
       );
     }
+    return 0;
+  }
+
+  // Drain guard: while a quiesce lease is active, claim nothing and enqueue
+  // no maintenance so the in-flight job (if any) finishes and the queue
+  // drains to a stop. Fail-open — an unreadable lease never pauses the queue.
+  if (isLifecycleQuiesced()) {
+    log.debug("Memory jobs worker idle — quiesce lease active");
     return 0;
   }
 

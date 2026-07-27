@@ -202,6 +202,16 @@ mock.module("../../runtime/pre-first-message-gate.js", () => ({
   hasReceivedUserMessage: () => preFirstMessageGateOpen,
 }));
 
+// Stub the drain quiesce lease so tests can flip it without a database.
+// Defaults to INACTIVE so existing tests keep passing.
+const realLifecycleQuiesce =
+  await import("../../persistence/lifecycle-quiesce.js");
+let quiesceLeaseActive = false;
+mock.module("../../persistence/lifecycle-quiesce.js", () => ({
+  ...realLifecycleQuiesce,
+  isLifecycleQuiesced: () => quiesceLeaseActive,
+}));
+
 const { HeartbeatService } = await import("../heartbeat-service.js");
 
 let origWorkspaceDir: string | undefined;
@@ -387,6 +397,42 @@ describe("HeartbeatService", () => {
     expect(
       skipHeartbeatRunCalls.some((c) => c.reason === "pre_first_user_message"),
     ).toBe(false);
+  });
+
+  test("scheduled run skips with reason 'quiesced' while the drain lease is active", async () => {
+    quiesceLeaseActive = true;
+    const service = new HeartbeatService();
+    service.start();
+    skipHeartbeatRunCalls.length = 0;
+
+    try {
+      const result = await service.runOnce({ force: false });
+
+      expect(result).toBe(false);
+      expect(runBackgroundJobCalls).toHaveLength(0);
+      expect(skipHeartbeatRunCalls.some((c) => c.reason === "quiesced")).toBe(
+        true,
+      );
+    } finally {
+      await service.stop();
+      quiesceLeaseActive = false;
+    }
+  });
+
+  test("forced run bypasses the quiesce gate (manual operator action)", async () => {
+    quiesceLeaseActive = true;
+    const service = new HeartbeatService();
+
+    try {
+      await service.runOnce({ force: true });
+
+      expect(runBackgroundJobCalls).toHaveLength(1);
+      expect(skipHeartbeatRunCalls.some((c) => c.reason === "quiesced")).toBe(
+        false,
+      );
+    } finally {
+      quiesceLeaseActive = false;
+    }
   });
 
   describe("max consecutive runs cap", () => {
