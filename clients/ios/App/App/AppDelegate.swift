@@ -10,8 +10,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // A QR scan that launches the terminated app delivers the connect URL
         // here, not through `application(_:open:)` (which only covers warm
         // opens). Persist the origin now so the bridge boots to it.
-        if let url = launchOptions?[.url] as? URL {
-            _ = handleConnectDeepLink(url)
+        if let url = launchOptions?[.url] as? URL, !handleConnectDeepLink(url) {
+            // Every *other* custom-scheme launch URL — a `voice` link from an
+            // App Intent, the Live Activity, or Safari — would otherwise be
+            // dropped on the floor. Unlike the warm-open `application(_:open:)`
+            // path, this one never reaches `ApplicationDelegateProxy`, and the
+            // bridge web view does not exist yet, so there is nothing to
+            // forward to. Stash it and replay it once the web view is live.
+            pendingVoiceCommandURL = url
         }
         return true
     }
@@ -150,6 +156,50 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let encodedCode = deviceCode.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed) ?? deviceCode
         components.percentEncodedFragment = "device_code=\(encodedCode)"
         return components.url
+    }
+
+    // MARK: - Voice command deep links
+
+    /// A `<scheme>://voice?mode=…` command (or any other non-`connect` launch
+    /// URL) waiting for the bridge web view to come up, mirroring
+    /// `pendingConnectPairURL` above. Only the most recent one is kept — a
+    /// superseded command is stale by definition.
+    private var pendingVoiceCommandURL: URL?
+
+    /// Hand a voice command to the web layer, deferring until the bridge web
+    /// view exists.
+    ///
+    /// Called by the App Intents (`StartVoiceModeIntent` /
+    /// `StartNewVoiceConversationIntent`), which run in-process and therefore
+    /// never pass through `application(_:open:)`, and by the terminated-launch
+    /// path in `didFinishLaunchingWithOptions`.
+    func deliverVoiceCommand(_ url: URL) {
+        pendingVoiceCommandURL = url
+        deliverPendingVoiceCommand()
+    }
+
+    /// Replay a stashed voice command once the bridge web view is live. Safe to
+    /// call before the view controller exists (a cold launch defers to the first
+    /// `viewDidAppear`) and idempotent once delivered.
+    ///
+    /// Delivery goes through `ApplicationDelegateProxy`, the exact channel a
+    /// warm `application(_:open:)` uses, so the URL surfaces to JS as Capacitor's
+    /// `appUrlOpen` and `capacitor-deep-links.ts` handles it with no new web
+    /// code. `AppPlugin` posts that event with `retainUntilConsumed: true`, so a
+    /// command delivered before the SPA has registered its listener is replayed
+    /// rather than lost.
+    func deliverPendingVoiceCommand() {
+        guard let url = pendingVoiceCommandURL,
+              currentBridgeViewController()?.webView != nil
+        else {
+            return
+        }
+        pendingVoiceCommandURL = nil
+        _ = ApplicationDelegateProxy.shared.application(
+            UIApplication.shared,
+            open: url,
+            options: [:]
+        )
     }
 
     // MARK: - Web view navigation
