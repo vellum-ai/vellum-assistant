@@ -108,11 +108,10 @@ function onboardingEntrypoint(isLocalMode: boolean): string {
 }
 
 /**
- * The two paths a finished Stripe Checkout can land on: the legacy
- * `/assistant/settings/billing` (hardcoded as the platform's non-native
- * `success_url`, and forwarded by `BillingRedirectPage`) and the Billing tab's
- * real home, which the native deep-link return and `usageBillingCheckout()`
- * build directly.
+ * The two paths a finished Stripe Checkout can land on: the platform's
+ * hardcoded non-native `success_url` (`/assistant/settings/billing`, which
+ * `BillingRedirectPage` forwards) and the Billing tab's own path, which the
+ * native deep-link return and `usageBillingCheckout()` build directly.
  */
 const POST_CHECKOUT_LANDING_PATHS: Set<string> = new Set([
   `${routes.settings.root}/billing`,

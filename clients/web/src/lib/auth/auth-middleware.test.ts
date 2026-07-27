@@ -310,9 +310,9 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
   });
 
   // A local assistant satisfies `hasAssistants`, so the gateway-auth bypass
-  // would admit the return — but `BillingTab` gates the Pro onboarding wizard
-  // on a platform-hosted assistant, so the purchase would apply to nothing.
-  // Provision the managed assistant instead; the lockfile entry is untouched.
+  // admits the return — but a managed plan has no target in an org whose only
+  // entries are self-hosted. Provision the managed assistant; the lockfile
+  // entry is untouched.
   test("funnels a local-mode return whose only assistant is self-hosted", async () => {
     makePaidPlatformReturn();
     isLocalModeMock.mockImplementation(() => true);

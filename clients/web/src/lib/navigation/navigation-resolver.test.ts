@@ -600,8 +600,7 @@ describe("resolveNavigation", () => {
     });
 
     // The decision is "does a managed plan have a target", not "is the list
-    // empty": a self-hosted-only org lands on billing with the Pro onboarding
-    // wizard gated off, so the purchase would apply to nothing.
+    // empty": in a self-hosted-only org the purchase has nothing to apply to.
     test("funnels a return whose only assistants are self-hosted", () => {
       expect(guard(s(NO_MANAGED_ASSISTANT), POST_CHECKOUT_BILLING)).toEqual({
         action: "redirect",
