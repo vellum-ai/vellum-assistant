@@ -15,6 +15,15 @@ import WidgetKit
 /// room is a full-app takeover whose ✕ is the only exit. Tap-to-return is the
 /// single affordance, so both halves of "look at it" and "act on it" resolve
 /// to the same place: the room.
+///
+/// The tap target is `VoiceModeDeepLink.resume`, the same shared contract the
+/// App Intents use: it foregrounds the app into the live voice room, falling
+/// through to a fresh session if the app was killed and the session is gone.
+/// Its URL is built from *this* build's own scheme, so a Dev island opens the
+/// Dev app even with production installed — and is `nil` on a build that
+/// declares no scheme, which correctly leaves the presentation untappable
+/// (`.widgetURL(_:)` takes an optional) rather than sending a Dev island into
+/// the production app.
 struct VoiceSessionLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: VoiceSessionAttributes.self) { context in
@@ -22,7 +31,7 @@ struct VoiceSessionLiveActivity: Widget {
                 assistantName: context.attributes.assistantName,
                 state: context.state
             )
-            .widgetURL(VoiceSessionDeepLink.resume)
+            .widgetURL(VoiceModeDeepLink.resume.url)
         } dynamicIsland: { context in
             let state = context.state
             return DynamicIsland {
@@ -55,7 +64,7 @@ struct VoiceSessionLiveActivity: Widget {
             } minimal: {
                 VoiceAccentGlyph(accent: state.accentColor, scale: .small)
             }
-            .widgetURL(VoiceSessionDeepLink.resume)
+            .widgetURL(VoiceModeDeepLink.resume.url)
             .keylineTint(state.accentColor)
         }
     }
