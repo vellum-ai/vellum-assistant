@@ -29335,7 +29335,7 @@ paths:
           schema:
             type: string
           description:
-            The subagent's own conversation ID. Fallback only — when the daemon knows the subagent (live or
+            The subagent's own conversation ID. Fallback only — when the assistant knows the subagent (live or
             rehydrated), it resolves the conversation itself and this parameter is ignored.
       responses:
         "200":
@@ -29495,8 +29495,10 @@ paths:
       operationId: subagents_reconcile_get
       summary: Reconcile subagent live status
       description:
-        Returns the live in-memory status of all subagents known to the daemon for a given parent conversation.
-        Subagents not in the response are orphaned.
+        Returns the live in-memory state of all subagents known to the assistant for a given parent conversation.
+        Each entry carries enough detail (child conversation id, label, objective) for a client to rebuild its subagent
+        list from scratch, not just refresh statuses. Subagents absent from the response are orphaned or terminal. Only
+        `status` is guaranteed to be present; every other field is optional.
       tags:
         - subagents
       parameters:
@@ -29522,6 +29524,16 @@ paths:
                       type: object
                       properties:
                         status:
+                          type: string
+                        conversationId:
+                          type: string
+                        label:
+                          type: string
+                        objective:
+                          type: string
+                        isFork:
+                          type: boolean
+                        parentToolUseId:
                           type: string
                       required:
                         - status

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { getDb } from "../persistence/db-connection.js";
 import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
+import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/354-add-subagent-parent-tool-use-id.js";
 import { resetTestTables } from "../persistence/raw-query.js";
 import {
   deleteSubagentRecord,
@@ -20,6 +22,7 @@ function record(over: Partial<SubagentRecord> = {}): SubagentRecord {
     role: "researcher",
     isFork: false,
     sendResultToUser: true,
+    parentToolUseId: null,
     status: "running",
     error: null,
     createdAt: 1000,
@@ -35,13 +38,19 @@ function record(over: Partial<SubagentRecord> = {}): SubagentRecord {
 beforeEach(() => {
   // Idempotent; the table may already exist from a prior run.
   migrateCreateSubagentsTable();
+  migrateAddSubagentParentToolUseId(getDb());
   resetTestTables("subagents");
 });
 
 describe("subagent-store", () => {
   test("round-trips a record, mapping booleans and nullable fields", () => {
     upsertSubagentRecord(
-      record({ isFork: true, sendResultToUser: null, error: null }),
+      record({
+        isFork: true,
+        sendResultToUser: null,
+        error: null,
+        parentToolUseId: "toolu-abc",
+      }),
     );
 
     const rows = loadAllSubagentRecords();
@@ -50,10 +59,17 @@ describe("subagent-store", () => {
       id: "s1",
       isFork: true,
       sendResultToUser: null,
+      parentToolUseId: "toolu-abc",
       role: "researcher",
       status: "running",
       inputTokens: 5,
     });
+  });
+
+  test("a spawn with no anchoring tool call stores a null parentToolUseId", () => {
+    upsertSubagentRecord(record({ parentToolUseId: null }));
+
+    expect(loadAllSubagentRecords()[0].parentToolUseId).toBeNull();
   });
 
   test("upsert refreshes mutable lifecycle fields on conflict", () => {
@@ -110,6 +126,29 @@ describe("SubagentManager.rehydrateFromDb", () => {
     expect(
       loadAllSubagentRecords().find((r) => r.id === "running-1")?.status,
     ).toBe("interrupted");
+
+    mgr.disposeAll();
+  });
+
+  test("restores the spawn tool-call anchor onto rehydrated config", () => {
+    upsertSubagentRecord(
+      record({ id: "anchored", label: "anchored", parentToolUseId: "toolu-1" }),
+    );
+    upsertSubagentRecord(
+      record({ id: "loose", label: "loose", parentToolUseId: null }),
+    );
+
+    const mgr = new SubagentManager();
+    mgr.rehydrateFromDb();
+
+    expect(mgr.getState("anchored")?.config.parentToolUseId).toBe("toolu-1");
+    expect(mgr.getState("loose")?.config.parentToolUseId).toBeUndefined();
+
+    // The anchor survives the interrupted re-persist a rehydrate performs.
+    expect(
+      loadAllSubagentRecords().find((r) => r.id === "anchored")
+        ?.parentToolUseId,
+    ).toBe("toolu-1");
 
     mgr.disposeAll();
   });
