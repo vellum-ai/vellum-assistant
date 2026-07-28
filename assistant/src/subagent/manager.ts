@@ -21,7 +21,9 @@ import {
 } from "../daemon/conversation-registry.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import {
+  deleteAllSubagentRecords,
   deleteSubagentRecord,
+  deleteSubagentRecordsByParent,
   loadAllSubagentRecords,
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
@@ -1012,6 +1014,18 @@ export class SubagentManager {
     for (const parentId of [...this.parentToChildren.keys()]) {
       this.disposeAllForParent(parentId);
     }
+    // `parentToChildren` only names parents that still hold in-memory children,
+    // and the TTL sweep drops a child's entry while keeping its row — so a
+    // parent whose children were all swept has no key to iterate. Clearing the
+    // table is the only way to take every retained row with the data it
+    // belongs to.
+    if (!this.shuttingDown) {
+      try {
+        deleteAllSubagentRecords();
+      } catch (err) {
+        log.warn({ err }, "Failed to delete subagent records");
+      }
+    }
   }
 
   /**
@@ -1033,6 +1047,19 @@ export class SubagentManager {
       // Use snapshot since dispose mutates the set.
       for (const childId of [...children]) {
         this.dispose(childId);
+      }
+    }
+
+    // A child the TTL sweep already evicted has no in-memory entry left to
+    // dispose, so its row is only reachable by parent.
+    if (!this.shuttingDown) {
+      try {
+        deleteSubagentRecordsByParent(parentConversationId);
+      } catch (err) {
+        log.warn(
+          { parentConversationId, err },
+          "Failed to delete subagent records for parent",
+        );
       }
     }
 

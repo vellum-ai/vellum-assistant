@@ -21,6 +21,7 @@ import { getConversationUsageTotals } from "../../persistence/llm-usage-store.js
 import {
   getSubagentRecordById,
   getSubagentRecordsByParent,
+  type SubagentRecord,
 } from "../../persistence/subagent-store.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { TERMINAL_STATUSES } from "../../subagent/types.js";
@@ -169,6 +170,32 @@ export function parseSubagentMessages(
   return { subagentId, objective, events };
 }
 
+/**
+ * The usage worth putting on the wire, shared by the detail and reconcile
+ * routes. A child that has spent nothing reports no usage at all — an all-zero
+ * snapshot tells a client nothing its own tally doesn't already say. Cost with
+ * no counted tokens is still spend, so all three fields must be empty before
+ * the field is dropped.
+ */
+function reportableUsage(usage: {
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+}): z.infer<typeof SubagentUsageStatsSchema> | undefined {
+  if (
+    usage.inputTokens <= 0 &&
+    usage.outputTokens <= 0 &&
+    usage.estimatedCost <= 0
+  ) {
+    return undefined;
+  }
+  return {
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    estimatedCost: usage.estimatedCost,
+  };
+}
+
 function getSubagentDetail(
   subagentId: string,
   conversationId: string,
@@ -183,8 +210,8 @@ function getSubagentDetail(
     { subagentId, eventCount: result.events.length },
     "getSubagentDetail: parsed events",
   );
-  const usage = getConversationUsageTotals(conversationId);
-  if (usage.inputTokens > 0 || usage.outputTokens > 0) {
+  const usage = reportableUsage(getConversationUsageTotals(conversationId));
+  if (usage) {
     result.usage = usage;
   }
   return result;
@@ -238,28 +265,29 @@ function settledDurableStatus(status: SubagentStatus): SubagentStatus {
 }
 
 /**
- * A child that has spent nothing reports no usage at all, matching the detail
- * route — an all-zero snapshot tells a client nothing its own tally doesn't
- * already say.
+ * The status to report for a durable row, or `undefined` when the caller should
+ * omit the field. `SubagentRecord.status` is an untyped column while both route
+ * contracts are the closed `SubagentStatusSchema` enum, so a value that doesn't
+ * parse is dropped rather than widening the wire type; anything that does parse
+ * is settled by `settledDurableStatus`.
+ *
+ * Only ever called for a row no live manager entry answers for.
  */
-function reconciledUsage(usage: {
-  inputTokens: number;
-  outputTokens: number;
-  estimatedCost: number;
-}): z.infer<typeof SubagentUsageStatsSchema> | undefined {
-  if (
-    usage.inputTokens <= 0 &&
-    usage.outputTokens <= 0 &&
-    usage.estimatedCost <= 0
-  ) {
-    return undefined;
-  }
-  return {
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    estimatedCost: usage.estimatedCost,
-  };
+function settledRecordStatus(
+  record: SubagentRecord,
+): SubagentStatus | undefined {
+  const parsed = SubagentStatusSchema.safeParse(record.status);
+  return parsed.success ? settledDurableStatus(parsed.data) : undefined;
 }
+
+/**
+ * Cap on the terminal durable rows the reconcile snapshot carries per parent.
+ * Rows live as long as the conversation, so an old chat holds every subagent it
+ * ever spawned; a client rebuilding its list needs the recent ones, not the
+ * full history. Rows that are not terminal are never capped — a client's
+ * stuck-active entry has to be settled at any age.
+ */
+const MAX_RECONCILED_TERMINAL_RECORDS = 20;
 
 export const ROUTES: RouteDefinition[] = [
   {
@@ -272,7 +300,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Reconcile subagent live status",
     description:
-      "Returns every subagent the assistant knows for a given parent conversation — live, rehydrated, and durably recorded, including terminal runs whose in-memory metadata the retention sweep has already evicted. Each entry carries enough detail (child conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from scratch, not just refresh statuses. A subagent absent from the response is one the assistant has no knowledge of at all, so a client may settle its own stuck-active entries against this snapshot. Only `status` is guaranteed to be present; every other field is optional.",
+      "Returns the subagents the assistant knows for a given parent conversation — live, rehydrated, and durably recorded, including recently finished runs whose in-memory metadata the retention sweep has already evicted. Durable records live as long as the conversation, so the recorded pass is bounded: every record not in a terminal state is always returned, plus the 20 most recently finished ones. Each entry carries enough detail (child conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from scratch, not just refresh statuses. A subagent absent from the response is one the assistant no longer reports, so a client may settle its own stuck-active entries against this snapshot. Only `status` is guaranteed to be present; every other field is optional.",
     tags: ["subagents"],
     queryParams: [
       {
@@ -301,24 +329,23 @@ export const ROUTES: RouteDefinition[] = [
       // deliberately keeping the row, so a run that completed more than a TTL
       // ago is absent from memory — and a client settling orphans by absence
       // would rewrite its `completed` entry to `interrupted`.
-      for (const record of getSubagentRecordsByParent(parentConversationId)) {
-        // `SubagentRecord.status` is an untyped column; the response contract
-        // is the closed enum, so drop what doesn't parse rather than widening
-        // the wire type.
-        const status = SubagentStatusSchema.safeParse(record.status);
-        if (!status.success) {
+      const records = getSubagentRecordsByParent(parentConversationId, {
+        terminalStatuses: [...TERMINAL_STATUSES],
+        maxTerminal: MAX_RECONCILED_TERMINAL_RECORDS,
+      });
+      for (const record of records) {
+        const status = settledRecordStatus(record);
+        if (!status) {
           continue;
         }
         subagents[record.id] = {
-          // Coerced here, before the live pass below overwrites any id the
-          // manager also holds — so only genuinely orphaned rows keep it.
-          status: settledDurableStatus(status.data),
+          status,
           conversationId: record.conversationId,
           label: record.label,
           objective: record.objective,
           isFork: record.isFork,
           parentToolUseId: record.parentToolUseId ?? undefined,
-          usage: reconciledUsage(record),
+          usage: reportableUsage(record),
           error: record.error ?? undefined,
         };
       }
@@ -331,7 +358,7 @@ export const ROUTES: RouteDefinition[] = [
           objective: child.config.objective,
           isFork: child.isFork,
           parentToolUseId: child.config.parentToolUseId,
-          usage: child.usage ? reconciledUsage(child.usage) : undefined,
+          usage: child.usage ? reportableUsage(child.usage) : undefined,
           error: child.error,
         };
       }
@@ -367,15 +394,9 @@ export const ROUTES: RouteDefinition[] = [
       const state = manager.getState(pathParams!.id);
       // Durable rows outlive manager state — the TTL sweep evicts in-memory
       // metadata but keeps the row, and after a restart the row answers until
-      // `rehydrateFromDb()` runs — so they supply the conversation, label and
-      // status once the live state is gone.
+      // `rehydrateFromDb()` runs — so they supply the conversation, label,
+      // status and spawn anchor once the live state is gone.
       const record = state ? undefined : getSubagentRecordById(pathParams!.id);
-      // `SubagentRecord.status` is an untyped column; the response contract is
-      // the closed `SubagentStatusSchema` enum. Drop anything that doesn't
-      // parse rather than widening the wire type.
-      const recordStatus = record
-        ? SubagentStatusSchema.safeParse(record.status)
-        : undefined;
 
       // Prefer the authoritative child-conversation id the daemon holds.
       // Clients recovering from a missed `subagent_spawned` only know the
@@ -392,15 +413,11 @@ export const ROUTES: RouteDefinition[] = [
       return {
         ...getSubagentDetail(pathParams!.id, conversationId),
         conversationId,
-        // `record` is only read when the manager has no state, so a
-        // record-derived status is by definition orphaned and gets settled.
         status:
-          state?.status ??
-          (recordStatus?.success
-            ? settledDurableStatus(recordStatus.data)
-            : undefined),
+          state?.status ?? (record ? settledRecordStatus(record) : undefined),
         label: state?.config.label ?? record?.label,
-        parentToolUseId: state?.config.parentToolUseId,
+        parentToolUseId:
+          state?.config.parentToolUseId ?? record?.parentToolUseId ?? undefined,
       };
     },
   },

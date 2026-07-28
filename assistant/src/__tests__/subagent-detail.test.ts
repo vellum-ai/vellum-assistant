@@ -48,11 +48,20 @@ mock.module("../subagent/index.js", () => ({
 /** Subagents that survive only in durable records, keyed by subagent id. */
 const durableRecords = new Map<
   string,
-  { conversationId: string; label: string; status: string }
+  {
+    conversationId: string;
+    label: string;
+    status: string;
+    parentToolUseId?: string | null;
+  }
 >();
 
+// The mock replaces the whole module for the process, so every export the
+// routes file imports from it has to be present — a missing one reads as
+// `undefined` and only fails when a route calls it.
 mock.module("../persistence/subagent-store.js", () => ({
   getSubagentRecordById: (id: string) => durableRecords.get(id),
+  getSubagentRecordsByParent: () => [],
 }));
 
 import type { MessageRow } from "../persistence/conversation-crud.js";
@@ -237,6 +246,7 @@ interface DetailResponse {
   status?: string;
   label?: string;
   conversationId?: string;
+  parentToolUseId?: string;
 }
 
 function fetchDetail(id: string, conversationId?: string): DetailResponse {
@@ -371,6 +381,68 @@ describe("getSubagentDetail route resolution", () => {
     expect(result.conversationId).toBe("odd-child-conv");
     expect(result.label).toBe("Odd label");
     expect(result.status).toBeUndefined();
+  });
+
+  test("carries the durable spawn anchor for an evicted subagent", () => {
+    // Without the record fallback the anchor is lost the moment the sweep (or a
+    // restart) drops the live state, and the client's card can never re-attach
+    // to the tool call that spawned it.
+    seedConversation("anchored-child-conv", "anchored transcript");
+    durableRecords.set("sub-anchored", {
+      conversationId: "anchored-child-conv",
+      label: "Anchored label",
+      status: "completed",
+      parentToolUseId: "toolu-anchor",
+    });
+
+    expect(fetchDetail("sub-anchored", "parent-conv").parentToolUseId).toBe(
+      "toolu-anchor",
+    );
+  });
+
+  test("omits the spawn anchor when the durable row has none", () => {
+    seedConversation("unanchored-child-conv", "unanchored transcript");
+    durableRecords.set("sub-unanchored", {
+      conversationId: "unanchored-child-conv",
+      label: "Unanchored label",
+      status: "completed",
+      parentToolUseId: null,
+    });
+
+    expect(
+      fetchDetail("sub-unanchored", "parent-conv").parentToolUseId,
+    ).toBeUndefined();
+  });
+
+  test("reports cost-only usage that a token-count check would drop", () => {
+    seedConversation("cost-only-conv", "cost only transcript");
+    usageByConversation.set("cost-only-conv", {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0.002,
+    });
+    liveSubagents.set("sub-cost-only", {
+      conversationId: "cost-only-conv",
+      status: "completed",
+      config: { label: "Cost only" },
+    });
+
+    expect(fetchDetail("sub-cost-only").usage).toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0.002,
+    });
+  });
+
+  test("omits usage entirely for a child that has spent nothing", () => {
+    seedConversation("free-conv", "free transcript");
+    liveSubagents.set("sub-free", {
+      conversationId: "free-conv",
+      status: "completed",
+      config: { label: "Free" },
+    });
+
+    expect(fetchDetail("sub-free").usage).toBeUndefined();
   });
 
   test("uses the query param when the daemon knows nothing about the subagent", () => {

@@ -11,9 +11,10 @@ const COLUMN_DEFINITION = "parent_tool_use_id TEXT";
  * spawned the subagent. `SubagentManager` carries it on `SubagentConfig` so
  * the `subagent_spawned` event and the reconcile/detail routes can anchor an
  * inline subagent card to the exact spawn tool call. Persisting it keeps that
- * anchor resolvable after `rehydrateFromDb()` rebuilds children from this
- * table, so a client reloading after an assistant restart still lands the card
- * on the right tool call.
+ * anchor resolvable once the live state is gone: `rehydrateFromDb()` restores
+ * it onto rebuilt children, and both routes read it straight off the row for a
+ * subagent the retention sweep has already evicted — so a client reloading
+ * after an assistant restart still lands the card on the right tool call.
  *
  * Nullable with no backfill: the id is only known at spawn time and rows
  * written before this column existed have no surviving record of it, so they
