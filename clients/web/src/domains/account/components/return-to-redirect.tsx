@@ -15,9 +15,13 @@ export function ReturnToRedirect({ to }: { to: string }) {
   const fullPage = requiresFullPageNavigation(to);
 
   useEffect(() => {
-    if (fullPage) hardNavigate(to);
+    if (fullPage) {
+      hardNavigate(to);
+    }
   }, [fullPage, to]);
 
-  if (fullPage) return null;
+  if (fullPage) {
+    return null;
+  }
   return <Navigate to={to} replace />;
 }

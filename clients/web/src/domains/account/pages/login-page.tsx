@@ -176,8 +176,12 @@ export function LoginPage() {
       <DarkLoginShell>{null}</DarkLoginShell>
     );
   }
-  if (shortCircuit.kind === "redirect") return shortCircuit.node;
+  if (shortCircuit.kind === "redirect") {
+    return shortCircuit.node;
+  }
 
-  if (isNative) return <NativeLoginForm returnTo={shortCircuit.returnTo} />;
+  if (isNative) {
+    return <NativeLoginForm returnTo={shortCircuit.returnTo} />;
+  }
   return <WebLoginForm returnTo={shortCircuit.returnTo} />;
 }

@@ -15,8 +15,12 @@ import { useReturnToShortCircuit } from "@/domains/account/components/use-return
 export function SignupPage() {
   const shortCircuit = useReturnToShortCircuit();
 
-  if (shortCircuit.kind === "wait") return <SignupShell>{null}</SignupShell>;
-  if (shortCircuit.kind === "redirect") return shortCircuit.node;
+  if (shortCircuit.kind === "wait") {
+    return <SignupShell>{null}</SignupShell>;
+  }
+  if (shortCircuit.kind === "redirect") {
+    return shortCircuit.node;
+  }
 
   return <SignupScreen returnTo={shortCircuit.returnTo} />;
 }
