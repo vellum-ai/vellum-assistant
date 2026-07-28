@@ -156,7 +156,7 @@ export function routeDefinitionsToHTTPRoutes(
           });
         }
 
-        // Streaming responses — pipe the byte stream straight through with
+        // Streaming responses: pipe the byte stream straight through with
         // the handler's headers. `transfer-encoding` is managed by the HTTP
         // server, so it must not be set on the Response.
         if (isStreamingRouteResponse(result)) {

@@ -4,7 +4,7 @@
  * A handler that returns `{ stream, headers }` (an attachment proxied from
  * an upstream service) must reach HTTP clients as the raw bytes plus the
  * handler's headers. `transfer-encoding` is a hop-by-hop header owned by the
- * HTTP server (RFC 9110 §7.6.1 — https://httpwg.org/specs/rfc9110.html#field.connection),
+ * HTTP server (RFC 9110 §7.6.1, https://httpwg.org/specs/rfc9110.html#field.connection),
  * so it must not be copied onto the Response.
  */
 

@@ -4,8 +4,8 @@
  * Filenames originate from third parties (a mail provider echoing whatever
  * the sender named their attachment), so they may contain any Unicode
  * codepoint. HTTP field values are restricted to US-ASCII
- * (RFC 9110 §5.5 — https://httpwg.org/specs/rfc9110.html#fields.values), and
- * the standard escape hatch for `Content-Disposition` (RFC 6266 §4.3 —
+ * (RFC 9110 §5.5, https://httpwg.org/specs/rfc9110.html#fields.values), and
+ * the standard escape hatch for `Content-Disposition` (RFC 6266 §4.3,
  * https://httpwg.org/specs/rfc6266.html#advice.generating) does not exist for
  * custom headers. Non-ASCII therefore has to be encoded explicitly.
  */
@@ -14,8 +14,8 @@
 const PRINTABLE_ASCII = /^[\x20-\x7e]+$/;
 
 /**
- * Decode an RFC 8187 ext-value — `charset "'" [language] "'" value-chars`
- * (https://httpwg.org/specs/rfc8187.html#encoding) — as produced by a
+ * Decode an RFC 8187 ext-value, `charset "'" [language] "'" value-chars`
+ * (https://httpwg.org/specs/rfc8187.html#encoding), as produced by a
  * spec-compliant `filename*` parameter.
  */
 function decodeExtValue(raw: string): string | undefined {
@@ -93,7 +93,7 @@ export function parseContentDispositionFilename(
  *
  * `x-filename-encoded` is the authoritative value: percent-encoded UTF-8,
  * always ASCII, decoded with `decodeURIComponent`. `x-filename` stays for
- * clients that predate the encoded header and is mangled down to ASCII —
+ * clients that predate the encoded header and is mangled down to ASCII:
  * emitting the raw value there would put non-ASCII bytes on the wire, which
  * proxies and HTTP stacks reject.
  */
