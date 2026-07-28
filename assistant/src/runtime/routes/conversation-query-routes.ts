@@ -113,6 +113,7 @@ import {
   resolvePricingForUsage,
   usesAnthropicPricingRules,
 } from "../../util/pricing.js";
+import { publishConfigChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import {
   type LlmContextSummary,
@@ -1457,6 +1458,13 @@ export async function commitConfigWrite(
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, `${opLabel} config: provider reinit failed: ${message}`);
   }
+
+  // Notify clients. The file watcher normally publishes this, but it is
+  // suppressed for the whole debounce window above, so a route-driven write
+  // (profile create, active-profile switch, config patch) would otherwise
+  // leave every other client rendering stale config until a manual refresh —
+  // e.g. the chat composer still showing the previous model profile.
+  publishConfigChanged();
 }
 
 /**

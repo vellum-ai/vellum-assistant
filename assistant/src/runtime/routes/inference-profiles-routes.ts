@@ -42,7 +42,10 @@ import {
   isUnavailable,
 } from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
-import { isModelInCatalog } from "../../providers/model-catalog.js";
+import {
+  getModelDisplayName,
+  isModelInCatalog,
+} from "../../providers/model-catalog.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   commitConfigWrite,
@@ -459,6 +462,22 @@ async function handleCreateProfile({ body = {} }: RouteHandlerArgs) {
     model: input.model,
     source: "user",
   };
+  // Pickers render the label, so a label-less profile shows its raw config
+  // key (e.g. "gemini-latest"). Default it to the model's human-readable
+  // display name — the catalog's, or the named connection's for custom
+  // endpoints — so an unlabeled create still reads well in the UI.
+  if (entry.label === undefined) {
+    const displayName =
+      getModelDisplayName(input.model) ??
+      (input.connection
+        ? getConnection(getDb(), input.connection)?.models?.find(
+            (m) => m.id === input.model,
+          )?.displayName
+        : undefined);
+    if (displayName) {
+      entry.label = displayName;
+    }
+  }
   validateProfileEntry(entry);
 
   const raw = loadRawConfig();

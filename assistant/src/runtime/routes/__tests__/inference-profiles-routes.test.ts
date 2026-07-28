@@ -51,6 +51,16 @@ mock.module("../../../security/secure-keys.js", () => ({
   getSecureKeyResultAsync: async () => secureKeyResult,
 }));
 
+// commitConfigWrite notifies clients after every successful write so their
+// config views (e.g. the chat composer's model pill) refetch without a manual
+// refresh; counted here so tests can assert the notification fired.
+let configChangedPublishes = 0;
+mock.module("../../sync/resource-sync-events.js", () => ({
+  publishConfigChanged: () => {
+    configChangedPublishes += 1;
+  },
+}));
+
 // ── Real imports (after mocks) ────────────────────────────────────────────────
 
 import { setConfig } from "../../../__tests__/helpers/set-config.js";
@@ -210,6 +220,31 @@ describe("POST inference/profiles (create) validation", () => {
         },
       }),
     ).rejects.toThrow(/Codex models only/);
+  });
+
+  test("defaults the label to the catalog display name when omitted", async () => {
+    seedKeyedConnection("gemini");
+    const result = (await call("inference_profiles_create", {
+      body: {
+        name: "gemini-latest",
+        provider: "gemini",
+        model: "gemini-3.6-flash",
+      },
+    })) as { ok: true; entry: Record<string, unknown> };
+    expect(result.entry.label).toBe("Gemini 3.6 Flash");
+  });
+
+  test("keeps an explicit label over the catalog display name", async () => {
+    seedKeyedConnection("gemini");
+    const result = (await call("inference_profiles_create", {
+      body: {
+        name: "my-fast-gemini",
+        provider: "gemini",
+        model: "gemini-3.6-flash",
+        label: "My Fast Model",
+      },
+    })) as { ok: true; entry: Record<string, unknown> };
+    expect(result.entry.label).toBe("My Fast Model");
   });
 
   test("accepts a model advertised by the named connection", async () => {
@@ -617,6 +652,7 @@ describe("PUT inference/active-profile validation", () => {
         },
       },
     });
+    const publishesBefore = configChangedPublishes;
     const result = (await call("inference_profiles_set_active", {
       body: { name: "my-fast" },
     })) as { ok: true; activeProfile: string };
@@ -624,6 +660,9 @@ describe("PUT inference/active-profile validation", () => {
     expect(
       (loadRawConfig().llm as { activeProfile?: string }).activeProfile,
     ).toBe("my-fast");
+    // Clients are notified so their config views (composer model pill,
+    // Settings) refetch without a manual refresh.
+    expect(configChangedPublishes).toBe(publishesBefore + 1);
   });
 
   test("rejects a typo'd name with the valid-name list", async () => {

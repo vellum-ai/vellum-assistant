@@ -107,6 +107,8 @@ assistant inference profiles create <profile-name> \
   --label "<Display Name>"
 ```
 
+**Always pass `--label` with the human-readable model name** (e.g. `"Gemini 3.6 Flash"`, `"Claude Opus 5"`) — the label is what the model picker and chat composer display, so a missing or terse one surfaces a raw config key like `gemini-latest` to the user. When `--label` is omitted the daemon falls back to the catalog's display name for the model, but an explicit label is better when the user asked for something specific ("my fast model"). The profile _name_ stays a short kebab-case key.
+
 Creation validates the provider, model id (against the catalog — pass `--allow-unlisted` only for a model you already probed in Step 3), and connection existence. It also refuses a profile that provably cannot dispatch — no connection, no stored key, or a model the managed route does not serve — so an unusable profile can never reach the chat model. Read the refusal message and fix the underlying gap (go back to Step 0 or Step 1); it names what is missing. Optional tuning flags: `--effort`, `--max-tokens`, `--temperature`, `--thinking on|off`.
 
 ## Step 5 — Verify with a live call (mandatory)

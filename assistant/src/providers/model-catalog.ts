@@ -2225,6 +2225,21 @@ export function getCatalogProviderForModel(
 }
 
 /**
+ * Human-readable display name for a model id, from the first catalog entry
+ * that serves it (a model carries the same display name under every provider
+ * that offers it). Undefined for uncataloged ids.
+ */
+export function getModelDisplayName(modelId: string): string | undefined {
+  for (const provider of PROVIDER_CATALOG) {
+    const match = provider.models.find((m) => m.id === modelId);
+    if (match) {
+      return match.displayName;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Whether the given model only supports adaptive (always-on) thinking, driven
  * by the `adaptiveThinkingOnly` capability in the catalog. Matches the model ID
  * across every provider (a model carries the same id under each provider it is
