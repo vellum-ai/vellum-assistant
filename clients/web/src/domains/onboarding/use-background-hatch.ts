@@ -21,10 +21,9 @@ import {
 } from "@/domains/onboarding/purchased-provisioning";
 import {
   getLockfileAssistant,
-  getPlatformRuntimeUrl,
   isLocalMode,
   probeLocalGatewayReady,
-  saveLockfileAssistant,
+  saveManagedLockfileAssistant,
 } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useOrganizationStore } from "@/stores/organization-store";
@@ -105,9 +104,7 @@ export interface UseBackgroundHatchOptions {
  * lifecycle errors, timeout) set `error` and reject `awaitReady()`.
  * Recoverable failures (5xx / network) keep polling.
  *
- * Unmounting aborts the sequence: every loop and the purchased-provisioning
- * wait stop at their next check and the pending poll timer is cleared, so
- * leaving the funnel mid-hatch doesn't keep polling from a dead component.
+ * Unmounting aborts the sequence — see `abortedRef`.
  */
 export function useBackgroundHatch(
   {
@@ -133,8 +130,9 @@ export function useBackgroundHatch(
     { kind: "ready"; id: string } | { kind: "error"; message: string } | null
   >(null);
   // The hatch sequence outlives a render by minutes (a 90s purchased-resize
-  // hold, a 300s health poll), so unmount has to stop it: every loop and the
-  // provisioning wait check this, and the pending poll timer is cleared.
+  // hold, a 300s health poll), so unmount has to stop it: an aborted hatch
+  // refuses to settle, every loop and the provisioning wait check this, sleeps
+  // resolve immediately, and the pending poll timer is cleared.
   const abortedRef = useRef(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -152,32 +150,47 @@ export function useBackgroundHatch(
   }, []);
 
   const settleReady = useCallback((id: string) => {
-    if (settledRef.current) return;
+    if (abortedRef.current || settledRef.current) {
+      return;
+    }
     settledRef.current = { kind: "ready", id };
     setReady(true);
-    for (const w of waitersRef.current) w.resolve(id);
+    for (const w of waitersRef.current) {
+      w.resolve(id);
+    }
     waitersRef.current = [];
   }, []);
 
   const settleError = useCallback((message: string) => {
-    if (settledRef.current) return;
+    if (abortedRef.current || settledRef.current) {
+      return;
+    }
     settledRef.current = { kind: "error", message };
     setError(message);
     const err = new Error(message);
-    for (const w of waitersRef.current) w.reject(err);
+    for (const w of waitersRef.current) {
+      w.reject(err);
+    }
     waitersRef.current = [];
   }, []);
 
   const start = useCallback(() => {
-    if (startedRef.current) return;
+    if (startedRef.current) {
+      return;
+    }
     startedRef.current = true;
 
     const startMs = Date.now();
     const timedOut = () => Date.now() - startMs >= MAX_HATCH_WAIT_MS;
-    // Parks the pending handle so unmount can clear it; an aborted sleep never
-    // resumes, which is how the loops stop mid-wait.
+    // Parks the pending handle so unmount can clear it. Once aborted the wait
+    // resolves without scheduling anything, so the loop reaches its next check
+    // with no timer left behind.
     const sleep = (ms: number): Promise<void> =>
       new Promise((resolve) => {
+        if (abortedRef.current) {
+          resolve();
+          return;
+        }
         pollTimerRef.current = setTimeout(() => {
           pollTimerRef.current = null;
           resolve();
@@ -230,10 +243,9 @@ export function useBackgroundHatch(
           if (result.ok) {
             hatchedAssistantId = result.data.id;
             setAssistantId(result.data.id);
-            // Seed a freshly hatched (201) assistant's traits — parity with the
-            // foreground hatch. Paid-only because the free research hatch must
-            // stay byte-identical to today, adding no writes it doesn't already
-            // make. Fire-and-forget; the research face step overwrites later.
+            // Dock and tray icons are avatar-driven, so a freshly created (201)
+            // assistant gets seeded traits. Paid-only: the free hatch makes no
+            // avatar write. Fire-and-forget; the research face step overwrites.
             if (postCheckoutReturn && result.status === 201) {
               void seedHatchAvatar(
                 result.data.id,
@@ -263,38 +275,33 @@ export function useBackgroundHatch(
       // 2. Poll until the assistant reports `active`.
       let activeAssistantId: string | undefined;
       while (!activeAssistantId) {
-        if (abortedRef.current) return;
+        if (abortedRef.current) {
+          return;
+        }
         if (timedOut()) {
           settleError(TIMEOUT_ERROR);
           return;
         }
         try {
           let result = await getAssistant(hatchedAssistantId);
-          if (abortedRef.current) return;
           // A stale hatched id (404) falls back to list-based discovery.
           if (hatchedAssistantId && !result.ok && result.status === 404) {
             hatchedAssistantId = undefined;
             result = await getAssistant();
-            if (abortedRef.current) return;
           }
           const state = resolveAssistantLifecycleState(result);
           if (state.kind === "active" && result.ok) {
             activeAssistantId = result.data.id;
             setAssistantId(activeAssistantId);
-            // Mirrors the hatching screen: on the desktop build the assistant
-            // list and switcher are lockfile-driven, so a managed assistant
-            // hatched headlessly here would otherwise be missing from them.
+            // Desktop-only: the list and switcher read the lockfile. An adopted
+            // assistant is already the hatching screen's own write.
             if (!adoptExisting && isLocalMode()) {
-              void saveLockfileAssistant({
-                assistantId: activeAssistantId,
-                name: result.data.name,
-                cloud: "vellum",
-                runtimeUrl: getPlatformRuntimeUrl(),
-                hatchedAt: new Date().toISOString(),
-                organizationId:
-                  useOrganizationStore.getState().currentOrganizationId ??
+              void saveManagedLockfileAssistant(
+                activeAssistantId,
+                result.data.name,
+                useOrganizationStore.getState().currentOrganizationId ??
                   undefined,
-              });
+              );
             }
             break;
           }
@@ -322,7 +329,9 @@ export function useBackgroundHatch(
       // still being alive.
       if (adoptExisting) {
         while (!(await probeLocalGatewayReady())) {
-          if (abortedRef.current) return;
+          if (abortedRef.current) {
+            return;
+          }
           if (timedOut()) {
             settleError(TIMEOUT_ERROR);
             return;
@@ -331,11 +340,14 @@ export function useBackgroundHatch(
         }
       } else {
         while (true) {
-          if (abortedRef.current) return;
+          if (abortedRef.current) {
+            return;
+          }
           try {
             const health = await getAssistantHealthz(activeAssistantId);
-            if (abortedRef.current) return;
-            if (health.ok) break;
+            if (health.ok) {
+              break;
+            }
           } catch {
             // Daemon not reachable yet.
           }
@@ -346,7 +358,6 @@ export function useBackgroundHatch(
           await sleep(POLL_INTERVAL_MS);
         }
       }
-      if (abortedRef.current) return;
 
       // 4. On a paid return, hold `ready` until the purchased resize converges.
       //
@@ -364,9 +375,6 @@ export function useBackgroundHatch(
             pollTimerRef.current = timer;
           },
         });
-        // A cancelled wait also returns "ready" — the component is gone, so
-        // leave the hatch unsettled rather than completing into nothing.
-        if (abortedRef.current) return;
         if (outcome === "health_timeout") {
           // The assistant never answered healthz after the resize; completing
           // would hand the user an unreachable assistant.
@@ -401,8 +409,12 @@ export function useBackgroundHatch(
 
   const awaitReady = useCallback((): Promise<string> => {
     const settled = settledRef.current;
-    if (settled?.kind === "ready") return Promise.resolve(settled.id);
-    if (settled?.kind === "error") return Promise.reject(new Error(settled.message));
+    if (settled?.kind === "ready") {
+      return Promise.resolve(settled.id);
+    }
+    if (settled?.kind === "error") {
+      return Promise.reject(new Error(settled.message));
+    }
     return new Promise<string>((resolve, reject) => {
       waitersRef.current.push({ resolve, reject });
     });

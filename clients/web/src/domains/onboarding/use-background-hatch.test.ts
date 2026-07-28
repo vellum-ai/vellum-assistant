@@ -64,8 +64,22 @@ mock.module("@/lib/local-mode", () => ({
   probeLocalGatewayReady: probeLocalGatewayReadyMock,
   getLockfileAssistant: getLockfileAssistantMock,
   isLocalMode: () => localMode,
-  getPlatformRuntimeUrl: () => "https://runtime.example",
-  saveLockfileAssistant: saveLockfileAssistantMock,
+  // Stands in for the real helper (whose payload `local-mode.test.ts` pins) so
+  // the lockfile entry the hatch writes stays visible to the assertions below.
+  saveManagedLockfileAssistant: async (
+    assistantId: string,
+    name: string | undefined,
+    organizationId: string | undefined,
+  ): Promise<void> => {
+    await saveLockfileAssistantMock({
+      assistantId,
+      name,
+      cloud: "vellum",
+      runtimeUrl: "https://runtime.example",
+      hatchedAt: new Date().toISOString(),
+      organizationId,
+    });
+  },
 }));
 mock.module("@/stores/organization-store", () => ({
   useOrganizationStore: {
@@ -127,6 +141,21 @@ const { useBackgroundHatch } = await import("./use-background-hatch");
 
 const TIMEOUT_MESSAGE =
   "Your assistant is taking longer than expected. Please try again.";
+
+/**
+ * Poll a predicate without depending on the hook's own poll cadence, rejecting
+ * if it never holds. An absence is asserted with `.rejects`, so a slow machine
+ * only lengthens the wait instead of changing the verdict.
+ */
+async function until(predicate: () => boolean, timeoutMs = 300): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error("condition never became true");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 beforeEach(() => {
   hatchResult = { ok: true, status: 201, data: { id: "ast-research" } as never };
@@ -470,11 +499,56 @@ describe("useBackgroundHatch", () => {
     const callsAtUnmount = getAssistantMock.mock.calls.length;
 
     // Leaving the funnel mid-hatch must not keep polling from a dead
-    // component: many poll intervals elapse here with no further calls.
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    expect(getAssistantMock.mock.calls.length).toBeLessThanOrEqual(
-      callsAtUnmount + 1,
-    );
+    // component: the in-flight request may land, but nothing follows it —
+    // the aborted sleep schedules no timer to poll from.
+    await expect(
+      until(() => getAssistantMock.mock.calls.length > callsAtUnmount + 1),
+    ).rejects.toThrow();
+  });
+
+  test("unmounting during the initial hatch never settles", async () => {
+    // A terminal failure is the sharpest case: it settles straight from the
+    // hatch response, without a poll-loop check in between.
+    hatchResult = {
+      ok: false,
+      status: 400,
+      error: { detail: "Bad hatch request" },
+    };
+    let releaseHatch!: () => void;
+    hatchAssistantMock.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        releaseHatch = resolve;
+      });
+      return hatchResult;
+    });
+
+    const { result, unmount } = renderHook(() => useBackgroundHatch());
+
+    let resolved: string | undefined;
+    let rejection: Error | undefined;
+    act(() => {
+      void result.current.awaitReady().then(
+        (id) => {
+          resolved = id;
+        },
+        (err: Error) => {
+          rejection = err;
+        },
+      );
+      result.current.start();
+    });
+
+    await waitFor(() => expect(hatchAssistantMock).toHaveBeenCalledTimes(1));
+    unmount();
+
+    // The hatch response lands after the component is gone, so it settles
+    // nothing — the waiters of a hook nobody is watching stay pending.
+    await act(async () => {
+      releaseHatch();
+    });
+    await expect(
+      until(() => resolved != null || rejection != null),
+    ).rejects.toThrow();
   });
 
   test("unmounting cancels the purchased-provisioning wait without settling", async () => {
@@ -508,8 +582,9 @@ describe("useBackgroundHatch", () => {
 
     // A cancelled wait still resolves "ready"; the hatch must not complete on
     // it once the component is gone.
-    release();
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    await act(async () => {
+      release();
+    });
     expect(resolved).toBeUndefined();
   });
 
