@@ -269,7 +269,7 @@ body {
 
 /* While the avatar is withheld, an identity-neutral glow breathes on the
  * creature's resting footprint so the reserved stage doesn't read as a hole.
- * Centering is `margin-inline`, not a translate — the breathe owns `transform`. */
+ * Centering is `margin-inline`, not a translate: the breathe owns `transform`. */
 .provision-avatar-placeholder {
   position: absolute;
   inset-inline: 0;
