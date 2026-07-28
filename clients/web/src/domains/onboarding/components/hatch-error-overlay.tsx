@@ -22,12 +22,16 @@ interface HatchErrorOverlayProps {
  * so that case offers the local-assistant off-ramp instead.
  *
  * Portaled to `document.body` so no step's stacking or clipping context can
- * bury it.
+ * bury it — which also puts it outside the app shell's safe-area padding, so it
+ * owns its own inset. Anchored to the top strip, which every step reserves for
+ * chrome: bottom-anchored it would sit exactly over the results step's
+ * viewport-pinned Continue, the only way forward from there. The offset clears
+ * both the notch and `OnboardingTopBar`'s chevrons (`top-6` + `h-10`).
  */
 export function HatchErrorOverlay({ error, onRetry }: HatchErrorOverlayProps) {
   const platformHostedDisabled = error === PLATFORM_HOSTED_DISABLED_MESSAGE;
   return createPortal(
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center p-4">
+    <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-[calc(var(--safe-area-inset-top,env(safe-area-inset-top,0px))+5rem)]">
       <Notice
         tone="error"
         title="Something went wrong"

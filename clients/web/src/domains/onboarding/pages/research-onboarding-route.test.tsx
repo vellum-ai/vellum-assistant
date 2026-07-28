@@ -18,13 +18,11 @@
  * it.
  *
  * The paid-return block covers the `post_checkout=1` marker reaching the
- * background hatch and the failure overlay that surfaces a dead hatch on any
- * step, with the at-capacity download off-ramp in place of a retry. That
- * surface is a banner rather than a modal, so it also covers the funnel staying
- * usable underneath and the auto-advancing loading step holding its own
- * position while the hatch is dead. The retry block covers what the banner's
- * "Try again" has to un-poison: route state that resolved against the dead
- * hatch and would otherwise survive the retry.
+ * background hatch, and the failure banner: its at-capacity download off-ramp,
+ * the funnel staying usable underneath it, and everything that must stay held
+ * while the hatch is dead (the auto-advancing loading step, the terminal
+ * handoffs). The retry block covers what "Try again" has to un-poison: route
+ * state that resolved against the dead hatch and would otherwise survive it.
  *
  * Self-contained mocks (run this file solo — `mock.module` leaks across a shared
  * `bun test` run).
@@ -311,31 +309,16 @@ mock.module("@/domains/onboarding/screens/create-personality-step", () => ({
   ),
 }));
 
-// Renders the real step's contract: the connect action can't enable until the
-// hatch is ready, and "Skip for now" is revealed early on a failed hatch so the
-// user is never trapped behind a button that can never enable.
+// Only the skip escape matters here — when it is revealed is the step's own
+// concern (see lets-chat-tomorrow-step.test.tsx).
 mock.module("@/domains/onboarding/screens/lets-chat-tomorrow-step", () => ({
-  LetsChatTomorrowStep: (props: {
-    assistantId: string | null;
-    assistantReady: boolean;
-    hatchError?: string | null;
-    onSkip: () => void;
-  }) => {
-    const waitingForAssistant = !props.assistantId || !props.assistantReady;
-    return (
-      <div data-testid="letschat-step">
-        {!waitingForAssistant || props.hatchError ? (
-          <button
-            type="button"
-            data-testid="letschat-skip"
-            onClick={props.onSkip}
-          >
-            Skip for now
-          </button>
-        ) : null}
-      </div>
-    );
-  },
+  LetsChatTomorrowStep: (props: { onSkip: () => void }) => (
+    <div data-testid="letschat-step">
+      <button type="button" data-testid="letschat-skip" onClick={props.onSkip}>
+        Skip for now
+      </button>
+    </div>
+  ),
 }));
 
 mock.module("@/domains/onboarding/screens/research-result-steps", () => ({
@@ -418,6 +401,24 @@ function postFormSnapshot(
   };
 }
 
+/**
+ * A finished journey: the runner hydrates straight to "done" and
+ * resolveResumeStep lands it on the terminal handoff step.
+ */
+function doneSnapshot(): ResearchOnboardingSnapshot {
+  return postFormSnapshot({
+    step: "suggestions",
+    research: {
+      status: "done",
+      claims: [],
+      droppedClaims: [],
+      suggestions: [],
+      installedPlugins: [],
+      pluginCatalog: {},
+    },
+  });
+}
+
 beforeEach(() => {
   localStorage.clear();
   researchStatus = "idle";
@@ -487,23 +488,9 @@ describe("ResearchOnboardingRoute resume guard", () => {
     expect(startResearchMock).not.toHaveBeenCalled();
   });
 
-  // A completed snapshot hydrates the runner to "done" and resolveResumeStep
-  // lands it on the suggestions step. That is NOT idle, so the pre-fix resume
-  // effect returned early and never consulted the guard — the user could walk a
-  // done journey into the chat handoff against an established assistant.
-  const doneSnapshot = (): ResearchOnboardingSnapshot =>
-    postFormSnapshot({
-      step: "suggestions",
-      research: {
-        status: "done",
-        claims: [],
-        droppedClaims: [],
-        suggestions: [],
-        installedPlugins: [],
-        pluginCatalog: {},
-      },
-    });
-
+  // A completed snapshot is NOT idle, so the pre-fix resume effect returned
+  // early and never consulted the guard — the user could walk a done journey
+  // into the chat handoff against an established assistant.
   test("a restored completed snapshot diverts to the decision screen when the assistant is established", async () => {
     establishedResult = { established: true, assistantName: "Viper" };
     researchStatus = "done";
@@ -687,6 +674,63 @@ describe("ResearchOnboardingRoute paid return", () => {
     await screen.findByTestId("form-submit");
 
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  // The banner has to stay clear of the results step's viewport-pinned
+  // Continue, the only way forward from there — and, portaled out of the app
+  // shell, it owns its own iOS inset.
+  test("anchors the failure banner to the top strip, below the notch", async () => {
+    backgroundHatch.error = "Failed to start your assistant. Please try again.";
+
+    render(<ResearchOnboardingRoute />);
+
+    const banner = (await screen.findByRole("alert")).parentElement;
+    expect(banner?.className).toContain("top-0");
+    expect(banner?.className).not.toContain("bottom-0");
+    expect(banner?.className).toContain("safe-area-inset-top");
+  });
+
+  // A resumed COMPLETED snapshot lands straight on the terminal handoff, past
+  // the carousel that otherwise gates on the hatch. Handing off there clears
+  // the resume snapshot and navigates with a null assistant id — into nothing,
+  // with no way back.
+  test("holds the terminal handoff while the hatch is dead, and releases it after a retry", async () => {
+    researchStatus = "done";
+    writeResearchSnapshot(USER_ID, doneSnapshot());
+    backgroundHatch.error = "Failed to start your assistant. Please try again.";
+    backgroundHatch.ready = false;
+    backgroundHatch.assistantId = null;
+
+    const { rerender } = render(<ResearchOnboardingRoute />);
+
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+      ).toBe(true),
+    );
+
+    // Clicking the held CTA hands off to nothing: no navigation, and the
+    // journey's resume state survives for the retry.
+    fireEvent.click(screen.getByTestId("letschat-start"));
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(readResearchSnapshot(USER_ID)).not.toBeNull();
+
+    onRetryHatch = () => {
+      backgroundHatch.error = null;
+      backgroundHatch.ready = true;
+      backgroundHatch.assistantId = "asst-1";
+    };
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    rerender(<ResearchOnboardingRoute />);
+
+    // A recovered hatch has an assistant to hand off to again.
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByTestId("letschat-start"));
+    await waitFor(() => expect(navigateMock).toHaveBeenCalled());
   });
 
   // The failure surface is a banner, not a modal: it must not hide the funnel

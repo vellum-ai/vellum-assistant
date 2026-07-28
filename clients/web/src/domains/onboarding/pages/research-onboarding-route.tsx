@@ -901,11 +901,7 @@ export function ResearchOnboardingRoute() {
     }
   }
 
-  // A terminal hatch failure is layered over whichever step is on screen — the
-  // assistant is dead at all of them, so the failure shouldn't wait for the
-  // last step to be discovered. Layering (rather than replacing the step) keeps
-  // the funnel's collected state, so a successful retry resumes in place; the
-  // banner is non-modal, so each step's own escapes stay usable while it's up.
+  // Layered over whichever step is on screen (see HatchErrorOverlay).
   const withHatchError = (content: ReactNode) => (
     <>
       {content}
@@ -1104,8 +1100,11 @@ export function ResearchOnboardingRoute() {
             installedPlugins={research.installedPlugins}
             pluginCatalog={research.pluginCatalog}
             // Hold the handoff until a resumed done journey's guard settles, so
-            // it can't fire against an established assistant before the verdict.
-            disabled={resumeGuardPending}
+            // it can't fire against an established assistant before the verdict
+            // — and while the hatch is dead, since a resumed COMPLETED snapshot
+            // lands straight here (past the gated carousel) and the handoff
+            // would clear the snapshot and navigate to a null assistant.
+            disabled={resumeGuardPending || hatchError !== null}
             onStart={async () => {
               // Terminal step: the handoff leaves via enterAssistant, not
               // goForwardTo, so emit the completion here (mirrors SuggestionsStep).
@@ -1134,6 +1133,8 @@ export function ResearchOnboardingRoute() {
             suggestions={research.suggestions}
             loading={researchLoading}
             installedPlugins={research.installedPlugins}
+            // Same terminal-handoff hold as LetsChatReadyStep above.
+            disabled={hatchError !== null}
             onSuggestionClick={async (suggestion) => {
               // Terminal step: the handoff leaves via enterAssistant, not
               // goForwardTo, so emit the suggestions completion here (mirrors the
