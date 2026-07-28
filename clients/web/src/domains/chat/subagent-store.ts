@@ -706,14 +706,6 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
           )
         : get().byToolUseId;
 
-    // Backfill the spawn anchor for a recovered stub and register it in the
-    // tool-use index so the inline card re-anchors to its exact spawn call.
-    const parentToolUseId = existing.parentToolUseId ?? params.parentToolUseId;
-    const nextByToolUseId =
-      parentToolUseId && !existing.parentToolUseId
-        ? setToolUseAnchor(get().byToolUseId, parentToolUseId, params.subagentId)
-        : get().byToolUseId;
-
     set({
       byId: {
         ...byId,

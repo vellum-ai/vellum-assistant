@@ -408,7 +408,9 @@ export function useConversationLoader({
       // per-conversation process stores — wiping them kills the inline
       // cards of still-running subagents, which only repopulate from live
       // SSE events (LUM-2875).
-      if (key === useConversationStore.getState().activeConversationId) return;
+      if (key === useConversationStore.getState().activeConversationId) {
+        return;
+      }
       useSubagentStore.getState().reset();
       useWorkflowStore.getState().reset();
       void navigate(routes.conversation(key));
