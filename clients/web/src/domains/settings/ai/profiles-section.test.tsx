@@ -335,4 +335,18 @@ describe("ProfilesSection — row interactions", () => {
     renderSection();
     expect(document.querySelector('[draggable="true"]')).toBeNull();
   });
+
+  // The row actions and the create panel read config state (selections,
+  // call-site references, profileOrder), so the section must not expose
+  // them while the config query is still loading — even if the
+  // effective-catalog query has already produced rows.
+  test("holds rows back and disables Create Profile until config loads", () => {
+    renderSection({ config: undefined });
+    expect(document.querySelector('[data-slot="list-row"]')).toBeNull();
+    expect(document.body.textContent).toContain("Loading profiles…");
+    const createButton = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((b) => b.textContent?.includes("Create Profile"));
+    expect(createButton?.disabled).toBe(true);
+  });
 });

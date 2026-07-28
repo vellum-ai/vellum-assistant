@@ -32,7 +32,10 @@ interface ProfileDetailPanelProps {
  * profiles open read-only with "Save As New" as the escape hatch.
  *
  * Hosts must remount the panel per selection (key by `profileName`) — the
- * editor snapshots its initial values on mount.
+ * editor snapshots its initial values on mount. For the same reason the
+ * panel must only be mounted once the config query has data: the opening
+ * affordances (ProfilesSection rows and its Create button) are gated on
+ * config presence, so a mount never snapshots a blank profile.
  */
 export function ProfileDetailPanel({
   assistantId,

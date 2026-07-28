@@ -63,12 +63,28 @@ export function ProfilesSection({
             size="compact"
             onClick={onCreateProfile}
             leftIcon={<Plus />}
+            // The create panel needs config for duplicate-key validation
+            // and the profileOrder append — hold the door until it exists.
+            disabled={config == null}
           >
             Create Profile
           </Button>
         }
       >
-        {entries.length === 0 ? (
+        {config == null ? (
+          // The row actions (open, delete, make default) read config state
+          // — active/advisor selections, call-site references, profileOrder.
+          // The effective-catalog query can win the race against configGet
+          // on a cold load, so hold the rows back until config exists
+          // rather than exposing actions that would see blank state.
+          <Typography
+            variant="body-medium-lighter"
+            as="p"
+            className="py-4 text-center text-(--content-tertiary)"
+          >
+            Loading profiles…
+          </Typography>
+        ) : entries.length === 0 ? (
           <Typography
             variant="body-medium-lighter"
             as="p"
