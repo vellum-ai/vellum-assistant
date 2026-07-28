@@ -42,6 +42,7 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
       invalidate: () => {},
     };
   },
+  avatarQueryKey: (assistantId: string) => ["assistantAvatar", assistantId],
 }));
 
 // `useReducedMotion` reads a cached media-query singleton, so a per-test
