@@ -36,7 +36,14 @@ interface NativeAuthPlugin {
     baseURL: string;
     loginHint?: string;
     intent?: string;
+    postAuthDestination: string;
   }): Promise<{ sessionToken: string }>;
+  consumeRestoredAuth(): Promise<{
+    sessionToken?: string;
+    postAuthDestination?: string;
+    error?: string;
+    errorCode?: string;
+  }>;
 }
 
 const NativeAuth = registerPlugin<NativeAuthPlugin>("NativeAuth");
@@ -105,14 +112,47 @@ export async function startNativeLogin(options?: {
   clearStaleNativeCheckoutStash(options?.intent, options?.returnTo);
 
   const baseURL = options?.baseURL ?? deriveAuthBaseURL();
+  const destination = sanitizeReturnTo(
+    options?.returnTo ?? null,
+    DEFAULT_POST_AUTH_DESTINATION,
+  );
   const { sessionToken } = await NativeAuth.startAuth({
     baseURL,
     ...(options?.loginHint ? { loginHint: options.loginHint } : {}),
     ...(options?.intent ? { intent: options.intent } : {}),
+    postAuthDestination: destination,
   });
 
+  await completeNativeLogin(sessionToken, destination);
+}
+
+/** Resume an Android browser login whose WebView process was recreated. */
+export async function restorePendingNativeLogin(): Promise<void> {
+  if (!isNativePlatform() || Capacitor.getPlatform() !== "android") {
+    return;
+  }
+  const result = await NativeAuth.consumeRestoredAuth();
+  if (result.error) {
+    const error = new Error(result.error) as Error & { code?: string };
+    error.code = result.errorCode;
+    throw error;
+  }
+  if (!result.sessionToken) {
+    return;
+  }
+  const destination = sanitizeReturnTo(
+    result.postAuthDestination ?? null,
+    DEFAULT_POST_AUTH_DESTINATION,
+  );
+  await completeNativeLogin(result.sessionToken, destination);
+}
+
+async function completeNativeLogin(
+  sessionToken: string,
+  destination: string,
+): Promise<void> {
   // `document.cookie` can't set HttpOnly, but Django validates the
-  // session by DB lookup — the HttpOnly flag is client-side only.
+  // session by DB lookup; the HttpOnly flag is client-side only.
   //
   // We set BOTH `sessionid` (dev) and `__Secure-sessionid` (prod) so
   // the same code works across environments without runtime host
@@ -123,8 +163,8 @@ export async function startNativeLogin(options?: {
   // The JS-side cookie is the source of truth for the native WebView session.
   installSessionCookies(sessionToken);
 
-  // Native WebViews can async-flush `document.cookie` writes. Without a
-  // synchronization step, the subsequent
+  // Native WebViews can flush `document.cookie` writes asynchronously.
+  // Without a synchronization step, the subsequent
   // hard navigation can race the flush and the request to `/assistant`
   // goes out without the session cookie — Django sees an anonymous user,
   // `AuthProvider` redirects back to `/account/login`, and the user is
@@ -142,21 +182,13 @@ export async function startNativeLogin(options?: {
     await waitForNativeSessionCookie();
   }
 
-  // Persist the token in the Keychain for biometric session recovery.
+  // Persist the token in native secure storage for biometric session recovery.
   // Respects the user's opt-out preference; storeBiometricToken is also
   // a no-op if biometrics are unavailable on the device.
   if (isBiometricEnabled()) {
     await storeBiometricToken(sessionToken);
   }
 
-  // Honor returnTo (sanitized to prevent open-redirect) so deep links
-  // and post-login destinations work the same way as the web flow.
-  // `sanitizeReturnTo` handles nullish / empty / malformed values by
-  // returning the fallback.
-  const destination = sanitizeReturnTo(
-    options?.returnTo ?? null,
-    DEFAULT_POST_AUTH_DESTINATION,
-  );
   window.location.href = destination;
 }
 

@@ -26,6 +26,7 @@ import "@/lib/api-interceptors";
 import "./index.css";
 
 import { initSafeAreaBridge } from "@/runtime/native-safe-area";
+import { restorePendingNativeLogin } from "@/runtime/native-auth";
 import { initInputModality } from "@vellumai/design-library";
 
 async function boot() {
@@ -36,6 +37,13 @@ async function boot() {
   initInputModality();
   await initSafeAreaBridge();
   initSentry();
+  try {
+    await restorePendingNativeLogin();
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { context: "restore_pending_native_login" },
+    });
+  }
   initSessionReplay();
   installConsentRefreshListeners();
 

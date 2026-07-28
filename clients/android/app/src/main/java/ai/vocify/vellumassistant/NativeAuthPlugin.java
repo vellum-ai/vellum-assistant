@@ -3,6 +3,7 @@ package ai.vocify.vellumassistant;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
@@ -32,7 +33,15 @@ public class NativeAuthPlugin extends Plugin {
     private static final String AUTH_CALLBACK_PATH = "/callback";
     private static final String AUTH_ERROR_CODE = "AUTH_ERROR";
     private static final String AUTH_REPLACED_CODE = "AUTH_REPLACED";
+    private static final String AUTH_STATE_STORE = "native_auth_state";
     private static final String CONFIG_PATH = "/_allauth/app/v1/config";
+    private static final long FLOW_MAX_AGE_MS = 10 * 60 * 1000L;
+    private static final String FLOW_BASE_URL_KEY = "base_url";
+    private static final String FLOW_CLIENT_ID_KEY = "client_id";
+    private static final String FLOW_CODE_VERIFIER_KEY = "code_verifier";
+    private static final String FLOW_CREATED_AT_KEY = "created_at";
+    private static final String FLOW_DESTINATION_KEY = "destination";
+    private static final String FLOW_STATE_KEY = "state";
     private static final String PROVIDER_TOKEN_PATH = "/_allauth/app/v1/auth/provider/token";
     private static final String USER_CANCELLED_CODE = "USER_CANCELLED";
     private static final String WORKOS_AUTHENTICATE_PATH = "/user_management/authenticate";
@@ -41,6 +50,8 @@ public class NativeAuthPlugin extends Plugin {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     private AuthFlow flow;
+    private JSObject restoredResult;
+    private PluginCall restoredResultCall;
 
     @PluginMethod
     public void startAuth(PluginCall call) {
@@ -74,7 +85,8 @@ public class NativeAuthPlugin extends Plugin {
             call,
             baseURL,
             WorkOSAuth.generateBase64UrlToken(),
-            WorkOSAuth.generateBase64UrlToken()
+            WorkOSAuth.generateBase64UrlToken(),
+            sanitizePostAuthDestination(call.getString("postAuthDestination"))
         );
         replaceFlow(nextFlow);
 
@@ -106,6 +118,33 @@ public class NativeAuthPlugin extends Plugin {
         });
     }
 
+    @PluginMethod
+    public void consumeRestoredAuth(PluginCall call) {
+        JSObject result;
+        PluginCall previousCall = null;
+        boolean waiting = false;
+        synchronized (flowLock) {
+            result = restoredResult;
+            restoredResult = null;
+            if (result == null && flow != null && flow.call == null && flow.callbackReceived) {
+                previousCall = restoredResultCall;
+                restoredResultCall = call;
+                waiting = true;
+            }
+        }
+        if (result != null) {
+            call.resolve(result);
+            return;
+        }
+        if (waiting) {
+            if (previousCall != null) {
+                previousCall.reject("Another restored auth consumer started", AUTH_REPLACED_CODE);
+            }
+            return;
+        }
+        call.resolve(new JSObject());
+    }
+
     @Override
     protected void handleOnNewIntent(Intent intent) {
         Uri callbackUri = intent == null ? null : intent.getData();
@@ -116,6 +155,11 @@ public class NativeAuthPlugin extends Plugin {
         AuthFlow current;
         synchronized (flowLock) {
             current = flow;
+            if (current == null) {
+                // BridgeActivity forwards the initial launch intent here.
+                current = restorePendingFlow();
+                flow = current;
+            }
             if (current != null) {
                 current.callbackReceived = true;
             }
@@ -206,6 +250,10 @@ public class NativeAuthPlugin extends Plugin {
                 }
                 Intent intent = new Intent(Intent.ACTION_VIEW, authorizeUri);
                 intent.addCategory(Intent.CATEGORY_BROWSABLE);
+                if (!persistPendingFlow(expected)) {
+                    rejectFlow(expected, "Failed to persist native auth state", null, null);
+                    return;
+                }
                 expected.browserLaunched = true;
                 expected.browserLaunchTimeMs = SystemClock.elapsedRealtime();
                 activity.startActivity(intent);
@@ -351,12 +399,23 @@ public class NativeAuthPlugin extends Plugin {
 
     private void replaceFlow(AuthFlow nextFlow) {
         AuthFlow previous;
+        PluginCall previousRestoredCall = null;
         synchronized (flowLock) {
             previous = flow;
             flow = nextFlow;
+            if (previous != null) {
+                clearPendingFlow();
+            }
+            if (previous != null && previous.call == null) {
+                previousRestoredCall = restoredResultCall;
+                restoredResultCall = null;
+            }
         }
-        if (previous != null) {
+        if (previous != null && previous.call != null) {
             previous.call.reject("Another auth flow started", AUTH_REPLACED_CODE);
+        }
+        if (previousRestoredCall != null) {
+            previousRestoredCall.reject("Another auth flow started", AUTH_REPLACED_CODE);
         }
     }
 
@@ -366,35 +425,128 @@ public class NativeAuthPlugin extends Plugin {
         }
     }
 
-    private AuthFlow takeFlow(AuthFlow expected) {
+    private FlowCompletion completeFlow(AuthFlow expected, JSObject restoredFlowResult) {
         synchronized (flowLock) {
             if (flow != expected) {
                 return null;
             }
             AuthFlow current = flow;
             flow = null;
-            return current;
+            clearPendingFlow();
+
+            PluginCall restoredCall = null;
+            if (current.call == null) {
+                restoredCall = restoredResultCall;
+                restoredResultCall = null;
+                if (restoredCall == null) {
+                    restoredResult = restoredFlowResult;
+                }
+            }
+            return new FlowCompletion(current, restoredCall);
         }
     }
 
     private void resolveFlow(AuthFlow expected, String sessionToken) {
-        AuthFlow current = takeFlow(expected);
-        if (current == null) {
+        JSObject result = new JSObject();
+        result.put("sessionToken", sessionToken);
+        result.put("postAuthDestination", expected.postAuthDestination);
+        FlowCompletion completion = completeFlow(expected, result);
+        if (completion == null) {
             return;
         }
         runOnUiThread(() -> {
-            JSObject result = new JSObject();
-            result.put("sessionToken", sessionToken);
-            current.call.resolve(result);
+            if (completion.flow.call != null) {
+                completion.flow.call.resolve(result);
+            } else if (completion.restoredCall != null) {
+                completion.restoredCall.resolve(result);
+            }
         });
     }
 
     private void rejectFlow(AuthFlow expected, String message, String code, JSObject data) {
-        AuthFlow current = takeFlow(expected);
-        if (current == null) {
+        JSObject result = new JSObject();
+        result.put("error", message);
+        if (code != null) {
+            result.put("errorCode", code);
+        }
+        FlowCompletion completion = completeFlow(expected, result);
+        if (completion == null) {
             return;
         }
-        runOnUiThread(() -> current.call.reject(message, code, null, data));
+        runOnUiThread(() -> {
+            if (completion.flow.call != null) {
+                completion.flow.call.reject(message, code, null, data);
+            } else if (completion.restoredCall != null) {
+                completion.restoredCall.resolve(result);
+            }
+        });
+    }
+
+    private boolean persistPendingFlow(AuthFlow pendingFlow) {
+        if (pendingFlow.clientId == null) {
+            return false;
+        }
+        return authStateStore()
+            .edit()
+            .clear()
+            .putString(FLOW_BASE_URL_KEY, pendingFlow.baseURL.toString())
+            .putString(FLOW_CLIENT_ID_KEY, pendingFlow.clientId)
+            .putString(FLOW_CODE_VERIFIER_KEY, pendingFlow.codeVerifier)
+            .putLong(FLOW_CREATED_AT_KEY, System.currentTimeMillis())
+            .putString(FLOW_DESTINATION_KEY, pendingFlow.postAuthDestination)
+            .putString(FLOW_STATE_KEY, pendingFlow.state)
+            .commit();
+    }
+
+    private AuthFlow restorePendingFlow() {
+        SharedPreferences store = authStateStore();
+        long createdAt = store.getLong(FLOW_CREATED_AT_KEY, 0L);
+        long age = System.currentTimeMillis() - createdAt;
+        if (createdAt <= 0L || age < 0L || age > FLOW_MAX_AGE_MS) {
+            clearPendingFlow();
+            return null;
+        }
+
+        Uri baseURL = Uri.parse(store.getString(FLOW_BASE_URL_KEY, ""));
+        String clientId = nonEmpty(store.getString(FLOW_CLIENT_ID_KEY, null));
+        String codeVerifier = nonEmpty(store.getString(FLOW_CODE_VERIFIER_KEY, null));
+        String state = nonEmpty(store.getString(FLOW_STATE_KEY, null));
+        if (
+            !"https".equals(baseURL.getScheme()) ||
+            !isAllowedBaseURL(baseURL) ||
+            clientId == null ||
+            codeVerifier == null ||
+            state == null
+        ) {
+            clearPendingFlow();
+            return null;
+        }
+
+        AuthFlow restored = new AuthFlow(
+            null,
+            baseURL,
+            state,
+            codeVerifier,
+            sanitizePostAuthDestination(store.getString(FLOW_DESTINATION_KEY, null))
+        );
+        restored.clientId = clientId;
+        restored.browserLaunched = true;
+        return restored;
+    }
+
+    private SharedPreferences authStateStore() {
+        return getContext().getSharedPreferences(AUTH_STATE_STORE, Activity.MODE_PRIVATE);
+    }
+
+    private void clearPendingFlow() {
+        authStateStore().edit().clear().commit();
+    }
+
+    private static String sanitizePostAuthDestination(String value) {
+        if (value == null || !value.startsWith("/") || value.startsWith("//")) {
+            return "/assistant";
+        }
+        return value;
     }
 
     private void runOnUiThread(Runnable runnable) {
@@ -420,17 +572,29 @@ public class NativeAuthPlugin extends Plugin {
         final Uri baseURL;
         final String state;
         final String codeVerifier;
+        final String postAuthDestination;
 
         String clientId;
         boolean browserLaunched;
         boolean callbackReceived;
         long browserLaunchTimeMs;
 
-        AuthFlow(PluginCall call, Uri baseURL, String state, String codeVerifier) {
+        AuthFlow(PluginCall call, Uri baseURL, String state, String codeVerifier, String postAuthDestination) {
             this.call = call;
             this.baseURL = baseURL;
             this.state = state;
             this.codeVerifier = codeVerifier;
+            this.postAuthDestination = postAuthDestination;
+        }
+    }
+
+    private static final class FlowCompletion {
+        final AuthFlow flow;
+        final PluginCall restoredCall;
+
+        FlowCompletion(AuthFlow flow, PluginCall restoredCall) {
+            this.flow = flow;
+            this.restoredCall = restoredCall;
         }
     }
 }
