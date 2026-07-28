@@ -2,7 +2,7 @@
  * Consent-gated lifecycle for session replay, mirroring `sentry-control.ts`.
  *
  * Replay records the web DOM, so a single web-layer client covers every surface
- * (browser, Electron renderer, iOS WKWebView, Android WebView) — there is no
+ * (browser, Electron renderer, iOS WKWebView, Android WebView); there is no
  * native uploader or per-host client to fan out to. SDK access dispatches
  * through the provider seam (`session-replay-provider.ts`), a no-op today.
  *

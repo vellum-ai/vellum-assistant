@@ -64,7 +64,7 @@ export function deriveAuthBaseURL(): string {
 
 /**
  * True when we're running inside a Capacitor native shell. Safe to call
- * server-side — falls through to `false` before hydration.
+ * server-side, so it falls through to `false` before hydration.
  */
 export function isNativePlatform(): boolean {
   return typeof window !== "undefined" && Capacitor.isNativePlatform();
