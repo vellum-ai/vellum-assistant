@@ -460,6 +460,7 @@ import { migrateMoveMemoryGraphTablesToMemoryDb } from "./migrations/349-move-me
 import { migrateConversationsTotalInputTokensNullable } from "./migrations/350-conversations-total-input-tokens-nullable.js";
 import { migrateScheduleSkillScriptHandoff } from "./migrations/351-schedule-skill-script-handoff.js";
 import { migrateDropScheduleSkillScriptHandoff } from "./migrations/352-drop-schedule-skill-script-handoff.js";
+import { migrateBackfillAppConversationLineage } from "./migrations/353-backfill-app-conversation-lineage.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1477,4 +1478,5 @@ export const migrationSteps: MigrationStep[] = [
   migrateConversationsTotalInputTokensNullable,
   migrateScheduleSkillScriptHandoff,
   migrateDropScheduleSkillScriptHandoff,
+  migrateBackfillAppConversationLineage,
 ];

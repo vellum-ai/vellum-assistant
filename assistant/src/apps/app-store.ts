@@ -1296,11 +1296,12 @@ export function addAppConversationId(
  * thread is not captured by a background run's app.
  *
  * Best-effort per id: a link failure must never break app creation or opening.
+ * Returns the number of associations added.
  */
 export function linkAppToConversationLineage(
   appId: string,
   conversationId: string,
-): void {
+): number {
   // Lineage resolution reaches the conversation store; an unexpected throw
   // there degrades to the conversation itself rather than breaking the link.
   let lineage: string[];
@@ -1313,9 +1314,12 @@ export function linkAppToConversationLineage(
     );
     lineage = [conversationId];
   }
+  let associationsAdded = 0;
   for (const [index, id] of lineage.entries()) {
     try {
-      addAppConversationId(appId, id, { inherited: index > 0 });
+      if (addAppConversationId(appId, id, { inherited: index > 0 })) {
+        associationsAdded += 1;
+      }
     } catch (err) {
       log.warn(
         { err, appId, conversationId: id },
@@ -1323,6 +1327,7 @@ export function linkAppToConversationLineage(
       );
     }
   }
+  return associationsAdded;
 }
 
 /**
