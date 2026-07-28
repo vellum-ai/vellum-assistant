@@ -9,6 +9,47 @@
   <link rel="icon" href="/favicon.svg" />
   <link rel="apple-touch-icon" href="/favicon.svg" />
   <title>Vellum Assistant</title>
+
+  <!--
+    Open Graph fallback for every SPA route.
+
+    nginx serves this one file for all client-side routes (/account/signup,
+    /account/login, /assistant/...), so these tags are the only link preview
+    metadata those routes have. They are generic by necessity: one static file
+    backs every route. The marketing site is server rendered and supplies its
+    own per-route tags.
+
+    URLs must be absolute and on the www host. This file is also served from
+    assistant.* hosts and loaded inside the Capacitor WKWebView, where a
+    relative path resolves against a host that has no such asset. The apex
+    `vellum.ai` 308-redirects, and some unfurlers drop a redirecting og:image.
+
+    No `og:url`: it can only name one route, and unfurlers treat it as the
+    canonical target, so every link would unfurl as whichever route was
+    hardcoded. Omitting it lets each crawler use the URL it fetched.
+
+    `noindex, nofollow` above is intentional and separate: the shell stays out
+    of search results. Link preview crawlers reach it via a dedicated group in
+    the marketing site's robots.txt.
+  -->
+  <meta name="description" content="An assistant that knows you deeply, evolves alongside you, and belongs to no one else. Powered by memory that remembers the way you do." />
+  <meta property="og:site_name" content="Vellum" />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="en_US" />
+  <meta property="og:title" content="Vellum: Your Personal Intelligence" />
+  <meta property="og:description" content="An assistant that knows you deeply, evolves alongside you, and belongs to no one else. Powered by memory that remembers the way you do." />
+  <meta property="og:image" content="https://www.vellum.ai/og-cover-v2.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Vellum: Your Personal Intelligence" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" content="@vellum_ai" />
+  <meta name="twitter:creator" content="@vellum_ai" />
+  <meta name="twitter:title" content="Vellum: Your Personal Intelligence" />
+  <meta name="twitter:description" content="An assistant that knows you deeply, evolves alongside you, and belongs to no one else. Powered by memory that remembers the way you do." />
+  <meta name="twitter:image" content="https://www.vellum.ai/og-cover-v2.jpg" />
+  <meta name="twitter:image:alt" content="Vellum: Your Personal Intelligence" />
+
   <script src="/theme-init.js"></script>
 </head>
 <body>
