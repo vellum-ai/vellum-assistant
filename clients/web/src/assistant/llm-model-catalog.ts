@@ -33,6 +33,15 @@ export const MODELS_BY_PROVIDER = {
       longContextPricingThresholdTokens: 200_000,
     },
     {
+      id: "claude-opus-5",
+      displayName: "Claude Opus 5",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "claude-opus-4-8",
       displayName: "Claude Opus 4.8",
       contextWindowTokens: 1_000_000,
@@ -292,6 +301,15 @@ export const MODELS_BY_PROVIDER = {
   ],
   fireworks: [
     {
+      id: "accounts/fireworks/models/kimi-k3",
+      displayName: "Kimi K3",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+    },
+    {
       id: "accounts/fireworks/models/kimi-k2p6",
       displayName: "Kimi K2.6",
       contextWindowTokens: 262_144,
@@ -372,6 +390,15 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 128_000,
       supportsThinking: true,
       adaptiveThinkingOnly: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-opus-5",
+      displayName: "Claude Opus 5",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
       longContextPricingThresholdTokens: 200_000,
     },
     {
@@ -746,6 +773,15 @@ export const MODELS_BY_PROVIDER = {
       longContextPricingThresholdTokens: 200_000,
     },
     {
+      id: "anthropic/claude-opus-5",
+      displayName: "Claude Opus 5",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "anthropic/claude-opus-4.8",
       displayName: "Claude Opus 4.8",
       contextWindowTokens: 1_000_000,
@@ -871,6 +907,24 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
+  poolside: [
+    {
+      id: "poolside/laguna-s-2.1",
+      displayName: "Laguna S 2.1",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
+    {
+      id: "poolside/laguna-xs-2.1",
+      displayName: "Laguna XS 2.1",
+      contextWindowTokens: 262_144,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 32_768,
+      supportsThinking: true,
+    },
+  ],
   "openai-compatible": [],
 } as const satisfies Record<string, readonly LlmCatalogModel[]>;
 
@@ -889,6 +943,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   atlascloud: "deepseek-ai/deepseek-v4-pro",
   litellm: "",
   baseten: "thinkingmachines/inkling",
+  poolside: "poolside/laguna-s-2.1",
   "openai-compatible": "",
 };
 
@@ -916,6 +971,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   atlascloud: "Atlas Cloud",
   litellm: "LiteLLM",
   baseten: "Baseten",
+  poolside: "Poolside",
 };
 
 /**
@@ -939,6 +995,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   atlascloud: false,
   litellm: false,
   baseten: false,
+  poolside: false,
 };
 
 export const MANAGED_MODELS = MODELS_BY_PROVIDER.anthropic;

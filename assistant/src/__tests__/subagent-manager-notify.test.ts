@@ -29,7 +29,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 
@@ -42,7 +42,7 @@ interface FakeManagedSubagent {
       role: string;
       content: Array<{ type: string; text: string }>;
     }>;
-    sendToClient: (msg: ServerMessage) => void;
+    sendToClient: (msg: AssistantEvent) => void;
     loadFromDb?: () => Promise<void>;
     persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
@@ -54,7 +54,7 @@ interface FakeManagedSubagent {
     subagentDeniedToolNames: Set<string>;
   } | null;
   state: SubagentState;
-  parentSendToClient: (msg: ServerMessage) => void;
+  parentSendToClient: (msg: AssistantEvent) => void;
 }
 
 /** Type-safe accessor for SubagentManager's private internals via bracket notation. */
@@ -77,7 +77,7 @@ function injectFakeSubagent(
   manager: SubagentManager,
   subagentId: string,
   state: SubagentState,
-  parentSendToClient?: (msg: ServerMessage) => void,
+  parentSendToClient?: (msg: AssistantEvent) => void,
 ): void {
   const fakeSession: FakeManagedSubagent["conversation"] = {
     abort: () => {},
@@ -137,8 +137,8 @@ describe("SubagentManager abort notification", () => {
     const state = makeState(subagentId);
     injectFakeSubagent(manager, subagentId, state);
 
-    const clientMessages: ServerMessage[] = [];
-    const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
+    const clientMessages: AssistantEvent[] = [];
+    const sendToClient = (msg: AssistantEvent) => clientMessages.push(msg);
 
     const result = manager.abort(subagentId, sendToClient);
 
@@ -160,8 +160,8 @@ describe("SubagentManager abort notification", () => {
     injectFakeSubagent(manager, subagentId, state, parentSender);
 
     // A different sender (simulating abort from a different thread's socket).
-    const abortingSender = ((_msg: ServerMessage) => {}) as (
-      msg: ServerMessage,
+    const abortingSender = ((_msg: AssistantEvent) => {}) as (
+      msg: AssistantEvent,
     ) => void;
 
     manager.abort(subagentId, abortingSender);
@@ -175,8 +175,8 @@ describe("SubagentManager abort notification", () => {
     const manager = new SubagentManager();
     const subagentId = "sub-1";
 
-    const clientMessages: ServerMessage[] = [];
-    const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
+    const clientMessages: AssistantEvent[] = [];
+    const sendToClient = (msg: AssistantEvent) => clientMessages.push(msg);
 
     // Pass the sender as parentSendToClient so the stored sender receives the status update.
     injectFakeSubagent(
@@ -386,7 +386,7 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
 });
 
 describe("SubagentManager abortAllForParent", () => {
-  test("aborts all active children of a parent", () => {
+  test("aborts active children but keeps every child's state readable", () => {
     clearCaptured();
     const manager = new SubagentManager();
     injectFakeSubagent(manager, "sub-1", makeState("sub-1"));
@@ -402,17 +402,76 @@ describe("SubagentManager abortAllForParent", () => {
     expect(count).toBe(2); // sub-1 and sub-2, not sub-3 (already completed)
     expect(capturedNotifications).toHaveLength(2);
 
-    // All children should be disposed — parent is going away.
-    expect(manager.getState("sub-1")).toBeUndefined();
-    expect(manager.getState("sub-2")).toBeUndefined();
-    expect(manager.getState("sub-3")).toBeUndefined();
-    expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(0);
+    // The parent conversation lives on (stop/eviction/rebuild), so every
+    // child stays tracked: aborted ones as terminal metadata, and the
+    // completed one still readable via subagent_read.
+    expect(manager.getState("sub-1")?.status).toBe("aborted");
+    expect(manager.getState("sub-2")?.status).toBe("aborted");
+    expect(manager.getState("sub-3")?.status).toBe("completed");
+    expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(3);
   });
 
   test("returns 0 for unknown parent", () => {
     const manager = new SubagentManager();
     const count = manager.abortAllForParent("nonexistent");
     expect(count).toBe(0);
+  });
+});
+
+describe("SubagentManager disposeAllForParent", () => {
+  test("aborts and removes all children — parent data is going away", () => {
+    clearCaptured();
+    const manager = new SubagentManager();
+    injectFakeSubagent(manager, "sub-1", makeState("sub-1"));
+    injectFakeSubagent(
+      manager,
+      "sub-2",
+      makeState("sub-2", { status: "completed" }),
+    );
+
+    const count = manager.disposeAllForParent("parent-sess-1", () => {});
+
+    expect(count).toBe(1); // only sub-1 was still in flight
+    expect(manager.getState("sub-1")).toBeUndefined();
+    expect(manager.getState("sub-2")).toBeUndefined();
+    expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(0);
+  });
+
+  test("returns 0 for unknown parent", () => {
+    const manager = new SubagentManager();
+    const count = manager.disposeAllForParent("nonexistent");
+    expect(count).toBe(0);
+  });
+});
+
+describe("SubagentManager disposeAllForAllParents", () => {
+  test("removes retained children across every parent — clear-all semantics", () => {
+    clearCaptured();
+    const manager = new SubagentManager();
+    // Two parents; only one would appear in the in-memory conversation store
+    // during a clear-all — the other models an evicted parent whose terminal
+    // children are still retained.
+    injectFakeSubagent(manager, "sub-a", makeState("sub-a"));
+    injectFakeSubagent(
+      manager,
+      "sub-b",
+      makeState("sub-b", {
+        config: {
+          id: "sub-b",
+          parentConversationId: "parent-evicted",
+          label: "Evicted parent child",
+          objective: "Do something",
+        },
+        status: "completed",
+      }),
+    );
+
+    manager.disposeAllForAllParents();
+
+    expect(manager.getState("sub-a")).toBeUndefined();
+    expect(manager.getState("sub-b")).toBeUndefined();
+    expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(0);
+    expect(manager.getChildrenOf("parent-evicted")).toHaveLength(0);
   });
 });
 

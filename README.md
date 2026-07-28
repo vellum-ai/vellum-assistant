@@ -14,7 +14,7 @@
 
 ---
 
-## What it does
+## What It Does
 
 If you've set up a Personal AI on OpenClaw, Hermes Agent, or Claude Code, you know how long it takes, and how many times you have to hatch a new one to get it right. Vellum gets you the result you're looking for out of the box, one download away.
 | Area                          | Summary |
@@ -29,7 +29,7 @@ If you've set up a Personal AI on OpenClaw, Hermes Agent, or Claude Code, you kn
 
 ---
 
-## Get started
+## Get Started
 
 **1. [Sign up](https://vellum.ai/signup) or [download the app](https://vellum.ai/download)**
 
@@ -46,7 +46,7 @@ If you've set up a Personal AI on OpenClaw, Hermes Agent, or Claude Code, you kn
 
 ---
 
-## Quick demo
+## Quick Demo
 
 <p align="center">
   <img src="assets/quick-demo.gif" alt="Vellum Assistant demo" width="100%">
@@ -95,7 +95,7 @@ All commands target the default assistant. If you have multiple, pass the assist
 
 **Guides**
 
-- [Your self-hosted assistant on your phone](docs/self-hosted-phone.md) — reach a locally hosted assistant from your phone with the nginx edge, a Tailscale HTTPS front, and one-scan QR pairing.
+- [Your self-hosted assistant on your devices](docs/self-hosted-phone.md) — reach a locally hosted assistant from your phone, tablet, or another computer with the nginx edge, a Tailscale HTTPS front, and one-scan QR pairing.
 
 </details>
 

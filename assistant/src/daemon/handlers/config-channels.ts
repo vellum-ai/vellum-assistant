@@ -30,7 +30,6 @@ import type { ContactChannel } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { getBindingByChannelChat } from "../../persistence/external-conversation-store.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
-import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import {
   type ChannelReadinessService,
@@ -42,14 +41,11 @@ import {
 } from "../../runtime/channel-verification-service.js";
 import {
   cancelOutbound,
-  deliverVerificationEmail,
   deliverVerificationSlack,
   deliverVerificationTelegram,
   DESTINATION_RATE_WINDOW_MS,
   MAX_SENDS_PER_DESTINATION_WINDOW,
   normalizeTelegramDestination,
-  resendOutbound,
-  startOutbound,
 } from "../../runtime/verification-outbound-actions.js";
 import {
   composeVerificationSlack,
@@ -58,18 +54,48 @@ import {
 } from "../../runtime/verification-templates.js";
 import { getTelegramBotUsername } from "../../telegram/bot-username.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
-import type {
-  ChannelVerificationSessionRequest,
-  ChannelVerificationSessionResponse,
-} from "../message-protocol.js";
 import { log } from "./shared.js";
 
-// -- Transport-agnostic result type (omits the `type` discriminant) --
+// -- Channel verification result --
+//
+// The shape returned by the verification service functions and served by the
+// HTTP channel-verification routes.
 
-export type ChannelVerificationSessionResult = Omit<
-  ChannelVerificationSessionResponse,
-  "type"
->;
+export interface ChannelVerificationSessionResult {
+  success: boolean;
+  secret?: string;
+  instruction?: string;
+  /** Present when action is 'status'. */
+  bound?: boolean;
+  guardianExternalUserId?: string;
+  /** The channel this status pertains to (e.g. "telegram", "phone"). Present when action is 'status'. */
+  channel?: ChannelId;
+  /** The assistant ID scoped to this status. Present when action is 'status'. */
+  assistantId?: string;
+  /** The delivery chat ID for the guardian (e.g. Telegram chat ID). Present when action is 'status' and bound is true. */
+  guardianDeliveryChatId?: string;
+  /** Optional channel username/handle for the bound guardian (for UI display). */
+  guardianUsername?: string;
+  /** Optional display name for the bound guardian (for UI display). */
+  guardianDisplayName?: string;
+  /** Whether a pending verification challenge exists for this (assistantId, channel). Used by relay setup to detect active voice verification sessions. */
+  hasPendingChallenge?: boolean;
+  error?: string;
+  /** Human-readable error detail (e.g. for already_bound failures). */
+  message?: string;
+  /** Conversation ID for outbound verification flows. */
+  verificationSessionId?: string;
+  /** Epoch ms when the verification session expires. */
+  expiresAt?: number;
+  /** Epoch ms after which a resend is allowed. */
+  nextResendAt?: number;
+  /** Number of sends for this session. */
+  sendCount?: number;
+  /** Telegram deep-link URL for bootstrap (M3 placeholder). */
+  telegramBootstrapUrl?: string;
+  /** True when the outbound session is still in pending_bootstrap state (Telegram handle flow). Prevents the client from clearing the bootstrap URL during status polling. */
+  pendingBootstrap?: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Readiness service singleton
@@ -569,124 +595,4 @@ export async function verifyTrustedContact(
     success: false,
     error: `Verification is not supported for channel type "${channel.type}"`,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Channel verification session handler
-// ---------------------------------------------------------------------------
-
-export async function handleChannelVerificationSession(
-  msg: ChannelVerificationSessionRequest,
-): Promise<void> {
-  const channel = msg.channel ?? "telegram";
-
-  try {
-    if (msg.action === "create_session") {
-      if (msg.purpose === "trusted_contact" && !msg.contactChannelId) {
-        broadcastMessage({
-          type: "channel_verification_session_response",
-          success: false,
-          error: "contactChannelId is required for trusted_contact purpose",
-          channel,
-        });
-      } else if (msg.purpose === "trusted_contact") {
-        const result = await verifyTrustedContact(
-          msg.contactChannelId!,
-          DAEMON_INTERNAL_ASSISTANT_ID,
-        );
-        broadcastMessage({
-          type: "channel_verification_session_response",
-          ...result,
-        });
-      } else if (msg.destination) {
-        const result = await startOutbound({
-          channel,
-          destination: msg.destination,
-          rebind: msg.rebind,
-          originConversationId: msg.originConversationId,
-        });
-        if (result._pendingSlackDm) {
-          const { userId, text, assistantId: aid } = result._pendingSlackDm;
-          deliverVerificationSlack(userId, text, aid);
-        }
-        if (result._pendingEmail) {
-          const { to, text, subject, assistantId: aid } = result._pendingEmail;
-          deliverVerificationEmail(to, text, subject, aid);
-        }
-        const {
-          _pendingSlackDm: _,
-          _pendingEmail: __,
-          ...publicResult
-        } = result;
-        broadcastMessage({
-          type: "channel_verification_session_response",
-          ...publicResult,
-        });
-      } else {
-        const result = await createInboundChallenge(
-          channel,
-          msg.rebind,
-          msg.conversationId,
-        );
-        broadcastMessage({
-          type: "channel_verification_session_response",
-          ...result,
-        });
-      }
-    } else if (msg.action === "status") {
-      const result = await getVerificationStatus(channel);
-      broadcastMessage({
-        type: "channel_verification_session_response",
-        ...result,
-      });
-    } else if (msg.action === "cancel_session") {
-      await cancelOutbound({ channel });
-      await revokePendingSessions(channel);
-      broadcastMessage({
-        type: "channel_verification_session_response",
-        success: true,
-        channel,
-      });
-    } else if (msg.action === "revoke") {
-      const result = await revokeVerificationForChannel(channel);
-      broadcastMessage({
-        type: "channel_verification_session_response",
-        ...result,
-      });
-    } else if (msg.action === "resend_session") {
-      const result = await resendOutbound({
-        channel,
-        originConversationId: msg.originConversationId,
-      });
-      if (result._pendingSlackDm) {
-        const { userId, text, assistantId: aid } = result._pendingSlackDm;
-        deliverVerificationSlack(userId, text, aid);
-      }
-      if (result._pendingEmail) {
-        const { to, text, subject, assistantId: aid } = result._pendingEmail;
-        deliverVerificationEmail(to, text, subject, aid);
-      }
-      const { _pendingSlackDm: _, _pendingEmail: __, ...publicResult } = result;
-      broadcastMessage({
-        type: "channel_verification_session_response",
-        ...publicResult,
-      });
-    } else {
-      broadcastMessage({
-        type: "channel_verification_session_response",
-        success: false,
-        error: `Unknown action: ${String(msg.action)}`,
-        channel,
-      });
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to handle channel verification session");
-    broadcastMessage({
-      type: "channel_verification_session_response",
-      success: false,
-      error: message,
-      channel,
-    });
-  }
 }

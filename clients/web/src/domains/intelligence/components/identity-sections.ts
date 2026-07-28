@@ -4,8 +4,8 @@
  * come from the shared `ABOUT_ASSISTANT_SECTIONS` registry in
  * `utils/routes.ts`; this module owns only what is overview-specific:
  * ordering, descriptions, and capability gating. Pure so the gating
- * (channels feature flag, memory-graph availability) is unit-testable
- * without rendering the overview.
+ * (memory-graph availability) is unit-testable without rendering the
+ * overview.
  */
 
 import {
@@ -23,8 +23,6 @@ export interface IdentitySection {
 }
 
 export interface IdentitySectionGates {
-  /** The `channel-trust-floors` flag exposes the Channels surface. */
-  showChannels: boolean;
   /**
    * Whether the memory-concept graph is available for this assistant (memory
    * v3 live, reported by `GET /memory/stats` as `graph_supported`). The Memory
@@ -44,7 +42,6 @@ function section(
 }
 
 export function buildIdentitySections({
-  showChannels,
   showMemory,
 }: IdentitySectionGates): IdentitySection[] {
   const sections: IdentitySection[] = [
@@ -70,9 +67,7 @@ export function buildIdentitySections({
     section("library", "My apps & docs"),
     section("workspace", "My files"),
     section("contacts", "People I know"),
+    section("channels", "Where I listen"),
   );
-  if (showChannels) {
-    sections.push(section("channels", "Where I listen"));
-  }
   return sections;
 }

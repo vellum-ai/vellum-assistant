@@ -53,6 +53,15 @@ describe("getEffectiveProfiles", () => {
     }
   });
 
+  test("the managed Quality profile routes GPT-5.6 Sol through OpenAI", () => {
+    const quality = CODE_DEFAULT_PROFILE_ENTRIES["quality-optimized"];
+    expect(quality.model).toBe("gpt-5.6-sol");
+    expect(resolveRoutingIdentity(quality.provider, quality.model)).toEqual({
+      connectionName: "vellum",
+      expectedProvider: "openai",
+    });
+  });
+
   test("defaults absent from the workspace resolve from the catalog; os-beta stays flag-gated", () => {
     const effective = getEffectiveProfiles(undefined);
     expect(Object.keys(effective).sort()).toEqual(
@@ -159,8 +168,7 @@ describe("resolver integration", () => {
       }
       const expected = CODE_DEFAULT_PROFILE_ENTRIES[dflt.profile];
       const resolved = resolveCallSiteConfig(callSite as LLMCallSite, llm);
-      // A site-level model pin (e.g. voiceFrontDecision's latency pin)
-      // legitimately overrides the profile's model.
+      // A site-level model pin legitimately overrides the profile's model.
       expect(resolved.model).toBe((dflt.model ?? expected.model) as string);
     }
   });
@@ -207,6 +215,44 @@ describe("resolver integration", () => {
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
     );
     expect(resolved.model).not.toBe("claude-sonnet-4-6");
+  });
+
+  test("a pre-existing user profile cannot shadow an internal profile's call sites", () => {
+    // `latency-optimized` was a legal custom profile name before it was
+    // reserved, so a workspace can already hold one. The user-shadow rule
+    // that lets a user replace a default they can select must not apply to a
+    // name they were never able to select: the voice front model would
+    // silently run on an arbitrary user model.
+    const llm = LLMSchema.parse({
+      profiles: {
+        "latency-optimized": {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+          provider_connection: "anthropic-personal",
+          maxTokens: 32000,
+          effort: "high",
+        },
+      },
+    });
+    const body = CODE_DEFAULT_PROFILE_ENTRIES["latency-optimized"];
+    for (const callSite of ["voiceFrontDoor", "voiceFrontDecision"] as const) {
+      const resolved = resolveCallSiteConfig(callSite, llm);
+      expect(resolved.model).toBe(body.model as string);
+      expect(resolved.model).not.toBe("claude-opus-4-6");
+      expect(String(resolved.provider)).toBe("vellum");
+    }
+    // The entry itself is untouched — still on disk, still listed, and still
+    // a valid `activeProfile` reference for the user who created it.
+    expect(getEffectiveProfiles(llm.profiles)["latency-optimized"]?.model).toBe(
+      "claude-opus-4-6",
+    );
+    expect(() =>
+      LLMSchema.parse({
+        activeProfile: "latency-optimized",
+        profiles: llm.profiles,
+      }),
+    ).not.toThrow();
   });
 });
 

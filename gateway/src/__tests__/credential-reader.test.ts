@@ -24,6 +24,7 @@ mock.module("../logger.js", () => ({
 }));
 
 import {
+  ALL_CREDENTIAL_SPECS,
   readCredential,
   readServiceCredentials,
   type ServiceCredentialSpec,
@@ -362,5 +363,29 @@ describe("secret leak prevention", () => {
     const serialized = allLogStrings();
     expect(serialized).not.toContain(secretValue);
     expect(serialized).not.toContain("webhook-secret-value");
+  });
+});
+
+describe("ALL_CREDENTIAL_SPECS registration", () => {
+  // The credential watcher only reads and diffs services listed here, so a
+  // channel whose lifecycle is gated on `changed.has("<service>")` in
+  // index.ts is silently inert unless its spec is registered. Pinning the
+  // list makes that failure loud: the Discord Gateway client shipped with
+  // wiring the watcher could never trigger before this registration existed.
+  test("every credential-gated channel lifecycle has a registered spec", () => {
+    const services = ALL_CREDENTIAL_SPECS.map((spec) => spec.service);
+    expect(services).toContain("telegram");
+    expect(services).toContain("twilio");
+    expect(services).toContain("whatsapp");
+    expect(services).toContain("slack_channel");
+    expect(services).toContain("discord_channel");
+    expect(services).toContain("vellum");
+  });
+
+  test("the discord spec requires exactly the token the wiring reads", () => {
+    const discord = ALL_CREDENTIAL_SPECS.find(
+      (spec) => spec.service === "discord_channel",
+    );
+    expect(discord?.requiredFields).toEqual(["bot_token"]);
   });
 });

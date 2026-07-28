@@ -208,7 +208,7 @@ const BUN_BIN = "/usr/local/bin/bun";
 const BUN_ADD_KEY = `${BUN_BIN} add`;
 
 import type { AcpSessionUpdateEvent } from "../../api/events/acp-session-update.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../api/index.js";
 import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import type { AcpSessionState } from "../types.js";
@@ -292,7 +292,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     await manager.resumeFromHistory("resume-1", (msg) => sent.push(msg));
 
     const fake = fakeInstances[0]!;
@@ -355,7 +355,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     await manager.resumeFromHistory("resume-seq-1", (msg) => sent.push(msg));
 
     const fake = fakeInstances[0]!;
@@ -716,7 +716,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     insertHistoryRow({ id: "race-1" });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const [a, b] = await Promise.allSettled([
       manager.resumeFromHistory("race-1", (msg) => sent.push(msg)),
       manager.resumeFromHistory("race-1", (msg) => sent.push(msg)),
@@ -862,7 +862,7 @@ describe("AcpSessionManager.steerOrResume", () => {
     insertHistoryRow({ id: "sor-resume-1" });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const result = await manager.steerOrResume(
       "sor-resume-1",
       "continue the work",
@@ -904,7 +904,7 @@ describe("AcpSessionManager.steerOrResume", () => {
     insertHistoryRow({ id: "sor-race-1" });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const [a, b] = await Promise.all([
       manager.steerOrResume("sor-race-1", "first instruction", (msg) =>
         sent.push(msg),
@@ -943,7 +943,7 @@ describe("AcpSessionManager.steerOrResume", () => {
     });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const first = manager.steerOrResume(
       "sor-init-1",
       "first instruction",

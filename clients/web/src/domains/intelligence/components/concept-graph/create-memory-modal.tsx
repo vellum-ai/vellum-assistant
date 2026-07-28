@@ -12,6 +12,10 @@ export interface CreateMemoryModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   assistantId: string;
+  /** Fired after a successful save, with the created entry's pending graph
+   * node id when the daemon provides one — the page uses it to fly the map
+   * to the new memory. */
+  onCreated?: (pendingNodeId: string | undefined) => void;
 }
 
 /**
@@ -27,6 +31,7 @@ export function CreateMemoryModal({
   open,
   onOpenChange,
   assistantId,
+  onCreated,
 }: CreateMemoryModalProps) {
   const queryClient = useQueryClient();
   const [content, setContent] = useState("");
@@ -47,9 +52,18 @@ export function CreateMemoryModal({
         toast.error(result.message || "Couldn't save that memory.");
         return;
       }
-      toast.success("Got it — it's on your map while I file it away.");
+      // When the daemon returns the pending node id the map flies to it, so
+      // the toast just confirms; otherwise it sets the "look for it" tone.
+      toast.success(
+        result.pendingNodeId
+          ? "Got it — taking you to it."
+          : "Got it — it's on your map while I file it away.",
+      );
       setContent("");
       onOpenChange(false);
+      // Hand the id to the page before the refetch: the graph view parks the
+      // fly-to request until a layout containing the node lands.
+      onCreated?.(result.pendingNodeId);
       // Invalidate the graph so the refetch shows the fact as a pending node
       // immediately (it becomes a concept node once consolidation files it),
       // and the stats query so the identity Memory card's count refreshes too
@@ -69,7 +83,7 @@ export function CreateMemoryModal({
     } finally {
       setIsSaving(false);
     }
-  }, [assistantId, content, onOpenChange, queryClient]);
+  }, [assistantId, content, onOpenChange, onCreated, queryClient]);
 
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>

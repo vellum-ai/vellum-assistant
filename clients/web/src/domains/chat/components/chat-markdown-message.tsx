@@ -38,6 +38,9 @@ import {
   rehypeRedactedCredential,
 } from "@/domains/chat/utils/rehype-redacted-credential";
 import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
+import { rehypeWorkspacePath } from "@/domains/chat/utils/rehype-workspace-path";
+import { WORKSPACE_PATH_TAG } from "@/domains/chat/utils/workspace-path-links";
+import { WorkspacePathLink } from "@/domains/chat/components/workspace-path-link";
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {
@@ -263,6 +266,16 @@ export interface ChatMarkdownMessageProps extends Omit<
    * must render as literal text, not manufacture a reveal affordance.
    */
   redactedCredentialChips?: boolean;
+  /**
+   * Resolve inline code spans that hold a workspace file path into file links
+   * (see `rehypeWorkspacePath`). Requires `onVellumLinkClick` — the resolved
+   * link opens the same file-action modal as an explicit `vellum://` link.
+   *
+   * Enable only for assistant-authored content. The affordance is a claim
+   * that the assistant is referring to a file it worked with; a path the user
+   * typed is their own prose and should render as they wrote it.
+   */
+  workspacePathLinks?: boolean;
 }
 
 export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
@@ -274,6 +287,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   assistantId,
   streamWordFade,
   redactedCredentialChips,
+  workspacePathLinks,
 }: ChatMarkdownMessageProps) {
   const { openPreview, previewModal } = useAttachmentPreview(
     assistantId,
@@ -318,6 +332,12 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
       ...(redactedCredentialChips
         ? [rehypeRedactedCredential as import("unified").Pluggable]
         : []),
+      // Only worth running when a click handler exists to receive the
+      // resolved path — without one the upgraded span renders as plain code
+      // anyway.
+      ...(workspacePathLinks && onVellumLinkClick
+        ? [rehypeWorkspacePath as import("unified").Pluggable]
+        : []),
       ...(streamWordFade
         ? [
             [
@@ -327,7 +347,12 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
           ]
         : []),
     ],
-    [redactedCredentialChips, streamWordFade],
+    [
+      redactedCredentialChips,
+      streamWordFade,
+      workspacePathLinks,
+      onVellumLinkClick,
+    ],
   );
 
   const imageComponent: MarkdownImageComponent = useMemo(
@@ -372,9 +397,21 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
           assistantId={assistantId}
         />
       ),
+      [WORKSPACE_PATH_TAG]: (props: { path?: string; raw?: string }) => (
+        <WorkspacePathLink
+          {...props}
+          assistantId={assistantId}
+          onOpen={onVellumLinkClick}
+        />
+      ),
     }),
-    [assistantId],
+    [assistantId, onVellumLinkClick],
   );
+
+  // Both tags are registered together: each is only ever emitted by its own
+  // rehype plugin, so a tag whose plugin didn't run never appears in the tree.
+  const hasExtraComponents =
+    redactedCredentialChips || (workspacePathLinks && onVellumLinkClick);
 
   return (
     <>
@@ -386,7 +423,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
         imageComponent={imageComponent}
         urlTransform={vellumUrlTransform}
         extraRehypePlugins={extraRehypePlugins}
-        extraComponents={redactedCredentialChips ? extraComponents : undefined}
+        extraComponents={hasExtraComponents ? extraComponents : undefined}
       />
       {previewModal}
     </>

@@ -3,7 +3,10 @@ import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { ConceptGraphView } from "@/domains/intelligence/components/concept-graph/concept-graph-view";
+import {
+  ConceptGraphView,
+  type ConceptGraphViewHandle,
+} from "@/domains/intelligence/components/concept-graph/concept-graph-view";
 import { CreateMemoryModal } from "@/domains/intelligence/components/concept-graph/create-memory-modal";
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
 import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
@@ -26,6 +29,9 @@ interface MemoryPageProps {
 export function MemoryPage({ onOpenThread }: MemoryPageProps) {
   const assistantId = useActiveAssistantId();
   const [createOpen, setCreateOpen] = useState(false);
+  // Imperative handle into the graph view: after a create, fly the map to the
+  // new pending node so the user sees exactly where their memory landed.
+  const graphRef = useRef<ConceptGraphViewHandle | null>(null);
 
   // Two backend conditions must hold before revealing the hand-authoring CTA:
   //  1. The graph backend is actually supported. `GET /memory/stats` reads
@@ -61,6 +67,7 @@ export function MemoryPage({ onOpenThread }: MemoryPageProps) {
         assistantId={assistantId}
         className="h-full w-full"
         onOpenThread={onOpenThread}
+        handleRef={graphRef}
         headerAction={
           showCreate ? (
             /* Rendered into the graph header's right slot — a flex sibling of
@@ -83,6 +90,11 @@ export function MemoryPage({ onOpenThread }: MemoryPageProps) {
           open={createOpen}
           onOpenChange={setCreateOpen}
           assistantId={assistantId}
+          onCreated={(pendingNodeId) => {
+            if (pendingNodeId) {
+              graphRef.current?.focusNode(pendingNodeId);
+            }
+          }}
         />
       ) : null}
     </div>

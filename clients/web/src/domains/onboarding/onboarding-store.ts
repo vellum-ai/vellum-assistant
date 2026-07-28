@@ -87,6 +87,19 @@ export interface OnboardingState {
   analyticsConsentCurrent: boolean;
   diagnosticsConsentCurrent: boolean;
   /**
+   * Whether the platform has any consent record for this user — mirrors
+   * `resolveServerConsent`'s `hasServerRecord`, with the device-ack fallback
+   * folded in (a truly-empty server record backfilled from device acks counts
+   * as a record).
+   *
+   * Distinct from the legal flags: `tosAccepted`/`privacyConsent` carry
+   * VERSION CURRENCY, so both go `false` whenever both required versions are
+   * bumped. Only this flag separates "never consented" from "consented, now
+   * stale" — consent surfaces must key first-time framing off it, never off
+   * the two currency flags. In-memory only.
+   */
+  hasConsentRecord: boolean;
+  /**
    * Whether the consent flags above reflect a completed session sync (or an
    * explicit user acceptance) rather than their unhydrated boot defaults.
    */
@@ -103,6 +116,7 @@ export interface OnboardingActions {
   setPrivacyConsent: (value: boolean) => void;
   setAnalyticsConsentCurrent: (value: boolean) => void;
   setDiagnosticsConsentCurrent: (value: boolean) => void;
+  setHasConsentRecord: (value: boolean) => void;
   setConsentHydrated: (value: boolean) => void;
 }
 
@@ -122,6 +136,7 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   privacyConsent: false,
   analyticsConsentCurrent: false,
   diagnosticsConsentCurrent: false,
+  hasConsentRecord: false,
   consentHydrated: false,
 
   setShareAnalytics: (value) => {
@@ -158,6 +173,9 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   },
   setDiagnosticsConsentCurrent: (value) => {
     set({ diagnosticsConsentCurrent: value });
+  },
+  setHasConsentRecord: (value) => {
+    set({ hasConsentRecord: value });
   },
   setConsentHydrated: (value) => {
     set({ consentHydrated: value });

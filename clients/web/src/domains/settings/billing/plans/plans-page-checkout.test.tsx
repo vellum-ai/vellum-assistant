@@ -14,12 +14,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 
@@ -32,10 +27,17 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
   PlanListResponse,
-  ProPackage,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
-import { readCheckoutIntent } from "@/lib/billing/checkout-intent";
+import {
+  clearCheckoutIntent,
+  readCheckoutIntent,
+} from "@/lib/billing/checkout-intent";
+import {
+  makeProPackage,
+  makeSuperPackage,
+  makeUltraPackage,
+} from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
 
@@ -90,45 +92,11 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
 
 const { PlansPage } = await import("./plans-page");
 
-function makePackage(overrides: Partial<ProPackage>): ProPackage {
-  return {
-    key: "mighty",
-    name: "Mighty",
-    description: "",
-    version: 1,
-    machine_tier: null,
-    storage_tier: "xs",
-    credit_tier: "credits_25",
-    machine_size: null,
-    storage_gib: 10,
-    credits_usd: 25,
-    include_platform_fee: false,
-    base_price_cents: 0,
-    machine_price_cents: 0,
-    storage_price_cents: 0,
-    credit_price_cents: 0,
-    total_price_cents: 3000,
-    ...overrides,
-  };
-}
-
-const MIGHTY = makePackage({});
-const SUPER = makePackage({
-  key: "super",
-  name: "Super",
-  machine_size: "medium",
-  storage_gib: 25,
-  credits_usd: 50,
-  total_price_cents: 10000,
-});
-const ULTRA = makePackage({
-  key: "ultra",
-  name: "Ultra",
-  machine_size: "large",
-  storage_gib: 50,
-  credits_usd: 100,
-  total_price_cents: 20000,
-});
+// These tests only need the three catalog keys to exist and render their CTAs,
+// so the packages come straight from the shared fixtures.
+const MIGHTY = makeProPackage();
+const SUPER = makeSuperPackage();
+const ULTRA = makeUltraPackage();
 
 function fullCatalog(): PlanListResponse {
   return {
@@ -193,7 +161,10 @@ function renderPage(subscription: SubscriptionResponse) {
     organizationsBillingSubscriptionRetrieveQueryKey(),
     subscription,
   );
-  client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), fullCatalog());
+  client.setQueryData(
+    organizationsBillingPlansRetrieveQueryKey(),
+    fullCatalog(),
+  );
   return render(
     <MemoryRouter initialEntries={["/assistant/plans"]}>
       <QueryClientProvider client={client}>
@@ -207,7 +178,9 @@ function renderPage(subscription: SubscriptionResponse) {
 beforeEach(() => {
   upgradeCall = null;
   openedUrl = null;
-  sessionStorage.clear();
+  // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
+  // leaves a prior test's intent readable.
+  clearCheckoutIntent();
 });
 
 afterEach(() => {

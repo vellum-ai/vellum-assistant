@@ -13,12 +13,16 @@
  * subscription error maps to `confirmError`, and a post-confirm onboarding
  * fetch failure with no cached data maps to `targetsError`.
  *
- * On top of the observation it also *acts* once: the moment the subscription
- * first reports Pro it calls the idempotent ensure-provisioned reconcile
- * endpoint, so a webhook that never fired (or whose resize was lost) still
- * gets provisioned. The returned verdict feeds the state machine's
- * `serverVerdict` slot; the endpoint failing is not an error state — the
- * polling above converges on its own.
+ * On top of the observation it also *acts*: the moment the subscription first
+ * reports Pro it fires the idempotent ensure-provisioned reconcile endpoint
+ * automatically, and `kickProvisioning` fires the same reconcile on demand, so
+ * a webhook that never fired (or whose resize was lost) still gets
+ * provisioned. The returned verdict feeds the state machine's `serverVerdict`
+ * slot; the endpoint failing never blocks the flow — the polling above
+ * converges on its own. A reconcile failure from any source is held in
+ * `ensureError` (exposed as `kickError`) so the takeover can honestly surface
+ * the ≥90s snag variant; any later success clears it. The reconcile carries no
+ * pending flag.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -35,9 +39,12 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
-import type { OperationalStatus } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
+import {
+  isEntitlementRaceVerdict,
+  isResizeOperationInFlight,
+} from "@/lib/billing/provisioning-targets";
 import { useOrganizationStore } from "@/stores/organization-store";
 
 import {
@@ -69,33 +76,8 @@ const TERMINAL_STATES: readonly ProvisioningStateKind[] = [
   "CONFIRM_TIMEOUT",
 ];
 
-function isResizeOperationInFlight(
-  status: OperationalStatus | null | undefined,
-): boolean {
-  if (!status) return false;
-  if (
-    status.state === "resizing_machine" ||
-    status.state === "resizing_storage"
-  ) {
-    return true;
-  }
-  const operation = status.active_operation?.operation;
-  return typeof operation === "string" && operation.startsWith("resize");
-}
-
 export interface UseProProvisioningOptions {
   open: boolean;
-}
-
-/**
- * Stalled-state recovery affordance, shaped for `StalledApplyAction`. `error`
- * is only ever populated by a user-initiated call — the automatic reconcile
- * failing is deliberately silent.
- */
-export interface ProvisioningRetryAction {
-  onApply: () => void;
-  pending: boolean;
-  error: unknown;
 }
 
 export interface ProProvisioningResult {
@@ -110,12 +92,17 @@ export interface ProProvisioningResult {
    * operational-status polls.
    */
   assistantId: string | null;
-  /** `domain_setup_available` from the onboarding state, once loaded. */
-  domainSetupAvailable: boolean | undefined;
+  /**
+   * Whether the wizard may offer the domain/email step: the org holds the
+   * managed-email entitlement AND the onboarding payload names an assistant to
+   * attach the domain to. Both halves ride the same payload, so this is
+   * `undefined` until it loads.
+   */
+  domainStepAvailable: boolean | undefined;
   /**
    * The post-confirm onboarding fetch has settled — neither the cold load nor
    * the refetch from the on-open invalidation is in flight, so
-   * `domainSetupAvailable` is safe to route on.
+   * `domainStepAvailable` is safe to route on.
    */
   onboardingSettled: boolean;
   /** The CONFIRMING-phase subscription fetch failed. */
@@ -125,17 +112,24 @@ export interface ProProvisioningResult {
   /**
    * The watch has run long enough (without resolving) that the "continue in
    * the background" escape hatch may be offered. Re-bases with the stall clock
-   * after a manual-apply resume.
+   * after a successful `kickProvisioning` resume.
    */
   escapeEligible: boolean;
   /** Reset the confirm timeout and re-poll the subscription. */
   retryConfirm: () => void;
   /**
-   * STALLED-state recovery: re-calls the idempotent ensure-provisioned
+   * Fire-and-forget "escape" kick: fires the idempotent ensure-provisioned
    * reconcile (grow-only, in-flight-guarded, so a repeat never double-fires a
    * resize) and re-bases the stall clock on success so observation resumes.
+   * Carries no pending flag, so a hung call can never strand later UI. Used
+   * when closing the takeover into the background.
    */
-  stalledAction: ProvisioningRetryAction;
+  kickProvisioning: () => void;
+  /**
+   * Latest ensure-provisioned failure from any source; cleared by a later
+   * success. Drives the ≥90s snag variant on the takeover.
+   */
+  kickError: unknown;
 }
 
 export function useProProvisioning({
@@ -154,7 +148,7 @@ export function useProProvisioning({
   // after this instant may confirm pro.
   const [openedAt, setOpenedAt] = useState<number | null>(null);
   const [proConfirmedAt, setProConfirmedAt] = useState<number | null>(null);
-  // Stall-clock re-base set by a successful manual reconcile; proConfirmedAt
+  // Stall-clock re-base set by a successful kick reconcile; proConfirmedAt
   // otherwise.
   const [resumedAt, setResumedAt] = useState<number | null>(null);
   // Latest adopted ensure-provisioned verdict; null while the endpoint hasn't
@@ -179,15 +173,9 @@ export function useProProvisioning({
   const [targetsMetAssistantId, setTargetsMetAssistantId] = useState<
     string | null
   >(null);
-  // Only ever set by a user-initiated reconcile — see runEnsureProvisioned.
+  // Latest reconcile failure from any source (auto/escape); cleared by a later
+  // success — see runEnsureProvisioned.
   const [ensureError, setEnsureError] = useState<unknown>(null);
-  // Pending state for the *manual* reconcile only. The mutation's own
-  // `isPending` is shared with the automatic call fired on Pro confirm, and a
-  // hung automatic call is precisely the case that strands the user in
-  // STALLED — gating Apply & Restart on it would disable their only recovery
-  // path. The endpoint is idempotent and in-flight guarded, so letting a manual
-  // apply overlap a slow automatic one is safe.
-  const [manualPending, setManualPending] = useState(false);
   const [raceRetryScheduled, setRaceRetryScheduled] = useState(false);
   // Fire-once-per-open guard for the automatic reconcile. A ref (not state) so
   // it can't be lost to a re-render between the check and the call, and it
@@ -230,7 +218,6 @@ export function useProProvisioning({
     setTargetsMetAt(null);
     setTargetsMetAssistantId(null);
     setEnsureError(null);
-    setManualPending(false);
     setRaceRetryScheduled(false);
     ensureRequestedRef.current = false;
     ensureRaceRetriedRef.current = false;
@@ -310,11 +297,7 @@ export function useProProvisioning({
   const { mutate: ensureProvisioned } = ensureProvisionedMutation;
 
   const runEnsureProvisioned = useCallback(
-    (source: "auto" | "manual") => {
-      if (source === "manual") {
-        setEnsureError(null);
-        setManualPending(true);
-      }
+    (source: "auto" | "escape") => {
       // The open this call belongs to. Both callbacks drop out when the wizard
       // has since closed, so a late response can't drive a later session.
       const generation = ensureGenerationRef.current;
@@ -326,33 +309,31 @@ export function useProProvisioning({
               return;
             }
             setEnsureError(null);
-            // `not_applicable` + `no_active_pro` is the subscription-flipped-
-            // but-entitlement-not-yet-visible race, not an answer: adopting it
-            // would park the wizard in a terminal state with an unprovisioned
-            // assistant. Leave the verdict null (pure inference keeps running)
-            // and re-ask once — the race resolves in a beat.
-            if (
-              data.state === "not_applicable" &&
-              data.reason === "no_active_pro"
-            ) {
+            // A race reply is not an answer: adopting it would park the wizard
+            // in a terminal state with an unprovisioned assistant. Leave the
+            // verdict null (pure inference keeps running) and re-ask once —
+            // the race resolves in a beat.
+            if (isEntitlementRaceVerdict(data)) {
               if (!ensureRaceRetriedRef.current) {
                 ensureRaceRetriedRef.current = true;
                 setRaceRetryScheduled(true);
                 // A re-ask is already queued, so observation may resume.
-                if (source === "manual") {
+                if (source === "escape") {
                   resumeWatch();
                 }
-              } else if (source === "manual") {
+              } else {
                 // Dead end: the verdict is deliberately not adopted, nothing
                 // was queued, and the once-per-open re-ask is spent. Re-basing
-                // the stall clock here would drop the user out of STALLED —
-                // hiding Apply & Restart for another stall window — with no
-                // resize running and nothing said. Hold the state and explain.
-                setEnsureError({ error: "no_active_pro" });
+                // the stall clock here would drop the user out of STALLED with
+                // no resize running and nothing said. Hold the state and
+                // explain, regardless of source, so a repeat dead end surfaces
+                // why — carrying the server's own reason so the snag copy
+                // names the right one.
+                setEnsureError({ error: data.reason ?? "no_active_pro" });
               }
             } else {
               setServerVerdict(data.state);
-              if (source === "manual") {
+              if (source === "escape") {
                 resumeWatch();
               }
             }
@@ -363,19 +344,10 @@ export function useProProvisioning({
             }
             // 503 (submission couldn't be queued) or a network blip: nothing
             // was queued and nothing is broken — the actuals polling still
-            // converges, so the automatic call degrades silently to inference.
-            // Only a user-initiated retry earns a visible error.
-            if (source === "manual") {
-              setEnsureError(error);
-            }
-          },
-          // Unconditional (not generation-gated): the button's pending state
-          // must clear even for a response that belongs to a closed wizard,
-          // otherwise a reopen inherits a stuck-disabled Apply & Restart.
-          onSettled: () => {
-            if (source === "manual") {
-              setManualPending(false);
-            }
+            // converges, so the flow never blocks on this. The error is held
+            // for the ≥90s snag variant on the takeover and cleared by any
+            // later success, so a failure from any source is captured alike.
+            setEnsureError(error);
           },
         },
       );
@@ -414,13 +386,11 @@ export function useProProvisioning({
     return () => clearTimeout(t);
   }, [raceRetryScheduled, runEnsureProvisioned]);
 
-  const stalledAction = useMemo<ProvisioningRetryAction>(
-    () => ({
-      onApply: () => runEnsureProvisioned("manual"),
-      pending: manualPending,
-      error: ensureError,
-    }),
-    [runEnsureProvisioned, manualPending, ensureError],
+  // Fire-and-forget escape kick: fires the reconcile with no pending flag, so a
+  // hung escape-fired call can't strand later UI.
+  const kickProvisioning = useCallback(
+    () => runEnsureProvisioned("escape"),
+    [runEnsureProvisioned],
   );
 
   const onboardingQuery = useQuery({
@@ -454,7 +424,7 @@ export function useProProvisioning({
 
   // The post-confirm onboarding fetch has settled: fresh for this open, and
   // neither the cold load nor the on-open-invalidation refetch is in flight.
-  // Routing consumes this ("is domain_setup_available safe to route on yet?"),
+  // Routing consumes this ("is `domainStepAvailable` safe to route on yet?"),
   // so it must not settle on a stale pre-checkout payload.
   const onboardingSettled =
     onboardingFresh &&
@@ -512,6 +482,16 @@ export function useProProvisioning({
       storageGib: onboarding.selected_storage_gib ?? null,
     };
   }, [onboarding]);
+
+  // The managed-email entitlement alone doesn't make the domain step offerable:
+  // the domain POST re-resolves the caller's primary assistant server-side and
+  // rejects with 409 when there is none, so the payload must also name one. The
+  // active-assistant fallback that resolves `assistantId` is deliberately not
+  // consulted here — the server ignores any client-supplied id for that write.
+  const domainStepAvailable = onboarding
+    ? onboarding.domain_setup_available &&
+      onboarding.primary_assistant_id != null
+    : undefined;
 
   const assistant = assistantQuery.data;
   const actuals = useMemo<ProvisioningDimensions | null>(() => {
@@ -608,7 +588,7 @@ export function useProProvisioning({
     targets,
     actualsSnapshot,
     assistantId,
-    domainSetupAvailable: onboarding?.domain_setup_available,
+    domainStepAvailable,
     onboardingSettled,
     confirmError: !proConfirmed && subscriptionQuery.isError,
     // The onboarding endpoint is platform-side (not the restarting assistant
@@ -623,6 +603,7 @@ export function useProProvisioning({
     escapeEligible:
       msSinceWatchStart != null && msSinceWatchStart >= PROVISION_ESCAPE_MS,
     retryConfirm,
-    stalledAction,
+    kickProvisioning,
+    kickError: ensureError,
   };
 }

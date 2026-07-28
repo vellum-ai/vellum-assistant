@@ -1,5 +1,7 @@
 # Approvals & Guardian Rules
 
+The end-to-end lifecycle of interactive guardian requests (approvals, questions) — promotion, notification cards, reply routing, resolution — is mapped in [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md). Read it before extending any decision or card-delivery path.
+
 ## Approval Flow Resilience
 
 - **Rich delivery failures must degrade gracefully.** If delivering a rich approval prompt (e.g., Telegram inline buttons) fails, fall back to plain text with instructions (e.g., `Reply "yes" to approve`) — never auto-deny.

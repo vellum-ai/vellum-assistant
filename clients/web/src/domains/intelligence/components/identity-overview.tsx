@@ -36,7 +36,6 @@ import { PageShell } from "@/components/page-shell";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useElementSize } from "@/hooks/use-element-size";
 import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { contrastForeground } from "@/utils/avatar-tone";
@@ -201,10 +200,8 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   } = useAssistantAvatar(assistantId);
   const identityQuery = useAssistantIdentityDetails(assistantId);
   const supportsPlugins = useSupportsPluginsSurface();
-  const showChannels = useAssistantFeatureFlagStore.use.channelTrustFloors();
   const stats = useIdentitySectionStats(assistantId, {
     supportsPlugins,
-    showChannels,
   });
   // The Memory card's measurement is the cheap page-index concept count
   // (get-memory-stats) — NOT the concept-graph build, which is kept off
@@ -261,7 +258,6 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   }, [invalidateAvatar]);
 
   const sections = buildIdentitySections({
-    showChannels,
     showMemory,
   });
   const isLoading = isAvatarLoading || identityQuery.isLoading;

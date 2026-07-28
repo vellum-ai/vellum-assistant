@@ -18,6 +18,10 @@ console.warn = (...args: Parameters<typeof console.warn>) => {
 };
 
 const { getRouterBasename, routeTree } = await import("@/routes");
+const { authMiddleware } = await import("@/lib/auth/auth-middleware");
+const { onboardingCompletedMiddleware } = await import(
+  "@/lib/onboarding-middleware"
+);
 
 afterAll(() => {
   console.warn = originalWarn;
@@ -45,6 +49,16 @@ function hasRouteMiddleware(path: string, basename?: string): boolean {
   const matches = matchRoutes(routeTree as never, path, basename) ?? [];
   return matches.some((m) =>
     Array.isArray((m.route as { middleware?: unknown }).middleware),
+  );
+}
+
+// React Router runs middleware from the outermost matched route inward, and in
+// array order within each route, so flattening the matched chain that way is
+// the order they run in.
+function middlewareExecutionOrder(path: string): unknown[] {
+  const matches = matchRoutes(routeTree as never, path) ?? [];
+  return matches.flatMap(
+    (m) => (m.route as { middleware?: unknown[] }).middleware ?? [],
   );
 }
 
@@ -179,6 +193,42 @@ describe("skills routes", () => {
     const matches = matchRoutes(routeTree as never, url) ?? [];
     expect(matches.length).toBeGreaterThan(0);
     expect(matches.at(-1)?.params.skillId).toBe("org/repo/shared-skill");
+  });
+});
+
+describe("billing settings route", () => {
+  // A platform probe that reports after the auth guard's wait timed out
+  // corrects its forced decision by revalidating the router, and revalidation
+  // only re-runs the guard for paths whose matched chain carries route
+  // middleware. Billing is where a paid checkout return lands.
+  test("matches inside the auth-protected app tree", () => {
+    const path = "/assistant/settings/billing";
+    const matches = matchRoutes(routeTree as never, path) ?? [];
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.at(-1)?.pathname).toBe(path);
+    expect(hasRouteMiddleware(path)).toBe(true);
+  });
+});
+
+describe("onboarding funnel middleware order", () => {
+  // A paid return reaches the hatching route with its funnel markers in the
+  // query string, and an unconsented user is bounced from there to the privacy
+  // screen. `authMiddleware` resolves the guard with `pathname + search`, so
+  // its bounce carries the markers along as `returnTo`;
+  // `onboardingCompletedMiddleware` resolves with `pathname` alone and bounces
+  // without them. Running the auth guard first is what keeps the markers, so a
+  // reshuffle that puts the onboarding guard in front silently finishes the
+  // hatch at the baseline plan.
+  test("runs the auth guard before the onboarding guard on the hatching route", () => {
+    const order = middlewareExecutionOrder(
+      "/assistant/onboarding/hatching?hosting=vellum-cloud&post_checkout=1",
+    );
+    const authIndex = order.indexOf(authMiddleware);
+    const onboardingIndex = order.indexOf(onboardingCompletedMiddleware);
+
+    expect(authIndex).toBeGreaterThanOrEqual(0);
+    expect(onboardingIndex).toBeGreaterThanOrEqual(0);
+    expect(authIndex).toBeLessThan(onboardingIndex);
   });
 });
 

@@ -185,6 +185,15 @@ export const routes = {
    *  chrome, a sibling of the settings/logs full-screen shells. */
   plans: r("/assistant/plans"),
 
+  /**
+   * Deep-link checkout entrypoint. The marketing pricing CTAs route here (via
+   * auth `returnTo`) with `?package=<slug>` to start Stripe checkout for a
+   * chosen Pro package. Sits behind auth but OUTSIDE `ActiveAssistantGate` so a
+   * brand-new user with no assistant can reach it; the resolver exempts it from
+   * the no-assistant funnel redirect.
+   */
+  checkout: r("/assistant/checkout"),
+
   settings: {
     root: r("/assistant/settings"),
     general: r("/assistant/settings/general"),
@@ -200,6 +209,7 @@ export const routes = {
     // Deep-link straight to the Billing sub-tab (only shown when signed in to
     // the Vellum platform).
     usageBilling: `${SETTINGS_USAGE_PATH}?tab=billing`,
+    usageBillingConfigureTopUps: `${SETTINGS_USAGE_PATH}?tab=billing&configure_top_up=1`,
     // Post-Stripe-Checkout return. The Billing tab opens the Pro onboarding
     // wizard while `session_id` is in the URL — the same param the platform's
     // web `success_url` lands on `/assistant/settings/billing` with.

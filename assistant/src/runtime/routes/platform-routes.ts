@@ -30,8 +30,7 @@ import {
   getSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { getExistingDeviceId } from "../../util/device-id.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
@@ -193,9 +192,7 @@ async function handlePlatformConnect(
   }
 
   // Emit signal for connected clients to show the platform login UI
-  await assistantEventHub.publish(
-    buildAssistantEvent({ type: "show_platform_login" }),
-  );
+  broadcastMessage({ type: "show_platform_login" });
 
   return { showPlatformLogin: true };
 }
@@ -259,9 +256,7 @@ async function handlePlatformDisconnect(
   }
 
   // Notify connected clients
-  await assistantEventHub.publish(
-    buildAssistantEvent({ type: "platform_disconnected" }),
-  );
+  broadcastMessage({ type: "platform_disconnected" });
 
   return {
     disconnected: true,

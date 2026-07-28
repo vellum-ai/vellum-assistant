@@ -12,7 +12,8 @@ import { PairDeviceReady } from "./pair-device-ready";
 import { usePairDevice } from "./use-pair-device";
 
 /**
- * Settings card that pairs a phone to this assistant without shell commands —
+ * Settings card that pairs another device to this assistant without shell
+ * commands —
  * the UI equivalent of `vellum pair --qr`. It mints and auto-approves a
  * device-code challenge against the host's loopback gateway and renders the
  * https pair URL as a QR with a copyable link and expiry countdown.
@@ -72,9 +73,9 @@ export function PairDeviceCard() {
   return (
     <DetailCard
       title="Pair a device"
-      subtitle={`Scan from your phone's camera to open ${
+      subtitle={`Scan with another device's camera — or open the link on it — to use ${
         target.assistantName ?? "this assistant"
-      } on it.`}
+      } there.`}
     >
       <div className="flex flex-col gap-4">
         {showNoTunnelGuidance && (
@@ -91,8 +92,8 @@ export function PairDeviceCard() {
             placeholder="https://your-assistant.ts.net"
             helperText={
               prefilledFromTunnel
-                ? "This address comes from `vellum tunnel` on this computer. Edit it if your phone reaches this assistant at a different URL."
-                : "The https address your phone can reach this assistant at (e.g. your Tailscale or tunnel URL)."
+                ? "This address comes from `vellum tunnel` on this computer. Edit it if your devices reach this assistant at a different URL."
+                : "The https address your devices can reach this assistant at (your Tailscale URL, or another tunnel's)."
             }
             value={pair.publicBaseUrl}
             errorText={pair.inputError ?? undefined}

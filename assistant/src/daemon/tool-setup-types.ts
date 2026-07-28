@@ -118,6 +118,18 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
   readonly transportInterface?: InterfaceId;
   /**
+   * Per-turn snapshot of the channel's UI capabilities, captured at turn start
+   * (mirrors {@link Conversation.currentTurnChannelCapabilities}). Read per tool
+   * call — together with the structural {@link SurfaceConversationContext.channelCapabilities}
+   * fallback — to derive `ToolContext.supportsDynamicUi`, so UI-dependent tools
+   * (e.g. `ask_question`) can degrade to text on channels that can't render
+   * dynamic surfaces.
+   */
+  readonly currentTurnChannelCapabilities?: {
+    readonly channel: string;
+    readonly supportsDynamicUi: boolean;
+  };
+  /**
    * The conversation's per-chat plugin scope (mirrors
    * {@link Conversation.enabledPlugins}). `null`/absent means no per-chat
    * restriction. Read per tool call to derive the effective enabled-plugin set

@@ -86,6 +86,14 @@ export function notifyParentFromChild(
     return false;
   }
 
+  // A synchronous (spawnAndAwait) child's only parent channel is the awaiting
+  // caller: injecting a user-role turn into the live parent mid-await would
+  // start an unsolicited parent run (e.g. unprompted activity on a live voice
+  // call whose continuation is meant to stay silent until resurfaced).
+  if (child?.subagentSuppressParentNotifications) {
+    return false;
+  }
+
   // Cosmetic metadata only — a tampered record can at most mislabel a
   // notification to the child's own (routing is fixed to the live parent above).
   const record = getSubagentRecordByConversationId(childConversationId);

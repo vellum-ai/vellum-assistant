@@ -6,8 +6,7 @@
  * transcript deltas), so tests drive it by writing transcript fields through
  * the store and asserting the rendered surface: partial/final precedence,
  * store-driven clearing, the empty-renders-nothing contract, and the caret's
- * reduced-motion behavior (verified by stubbing `motion/react`, mirroring
- * `voice-timeline-waveform.test.tsx`).
+ * reduced-motion behavior (verified by stubbing `motion/react`).
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";

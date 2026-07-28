@@ -6,91 +6,178 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
 
-import {
-    getLocalSetting,
-    setLocalSetting,
-} from "@/utils/local-settings";
+import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { LS_IMAGE_GEN_MODE, LS_IMAGE_GEN_MODEL } from "@/utils/local-settings-keys";
-import { AVAILABLE_IMAGE_GEN_MODELS, IMAGE_GEN_MODEL_DISPLAY_NAMES, providerForImageGenModel } from "@/lib/provider-catalogs";
-import { parseServiceMode } from "@/domains/settings/ai/utils";
-import type { ServiceMode } from "@/generated/daemon/types.gen";
+import {
+  LS_IMAGE_GEN_MODEL,
+  LS_IMAGE_GEN_PROVIDER,
+} from "@/utils/local-settings-keys";
+import {
+  IMAGE_GEN_PROVIDER_DISPLAY_NAMES,
+  IMAGE_GEN_PROVIDERS,
+  IMAGE_GEN_MODEL_DISPLAY_NAMES,
+  imageGenModelsForProvider,
+  providerForImageGenModel,
+} from "@/lib/provider-catalogs";
 
-import {
-  ServiceCard,
-} from "@/domains/settings/ai/shared-ui";
-import {
-  ResetButton,
-  SaveButton,
-} from "@/components/service-form-controls";
+import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
+import { ResetButton, SaveButton } from "@/components/service-form-controls";
+import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
-import { configGetOptions, configGetQueryKey, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  credentialPresenceQueryKey,
+  useStoredCredentialPresence,
+} from "@/domains/settings/ai/use-stored-credential-presence";
+import {
+  configGetOptions,
+  configGetQueryKey,
+  configGetSetQueryData,
+  useConfigPatchMutation,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { useQuery } from "@tanstack/react-query";
 import { useDraftOverride } from "@/hooks/use-draft-override";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { modelImagegenPut } from "@/generated/daemon/sdk.gen";
+import { supportsImageGenVellumProvider } from "@/lib/backwards-compat/use-supports-image-gen-vellum-provider";
+import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
+
+const DEFAULT_IMAGE_GEN_MODEL = "gemini-3.1-flash-image-preview";
 
 export function ImageGenerationCard() {
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
+  const isOrgReady = useIsOrgReady();
 
   const { data: daemonConfig } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
+    enabled: isOrgReady,
     staleTime: 30_000,
   });
 
   const configMutation = useConfigPatchMutation({
     onSuccess: (data) => {
-      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+      configGetSetQueryData(
+        queryClient,
+        { path: { assistant_id: assistantId } },
+        data,
+      );
     },
   });
   const provisionProviderKey = useProvisionProviderKey();
+
   // Server value derived from daemon config, falling back to localStorage.
   // Updates automatically when the cache refreshes.
-  const serverImageGenMode = useMemo<ServiceMode>(() => {
+  const serverProvider = useMemo((): string => {
     if (!daemonConfig) {
-      return parseServiceMode(getLocalSetting(LS_IMAGE_GEN_MODE, "your-own"), "your-own");
+      return getLocalSetting(LS_IMAGE_GEN_PROVIDER, "gemini");
     }
-    return parseServiceMode(
-      daemonConfig.services?.["image-generation"]?.mode ?? getLocalSetting(LS_IMAGE_GEN_MODE, "your-own"),
-      "your-own",
-    );
+    const svc = daemonConfig.services?.["image-generation"] as
+      { provider?: string; mode?: string } | undefined;
+    // A config written by the legacy mode toggle marks managed via `mode` —
+    // the daemon routes it to Vellum, so the card renders it as Vellum too.
+    if (svc?.mode === "managed") {
+      return "vellum";
+    }
+    return svc?.provider || getLocalSetting(LS_IMAGE_GEN_PROVIDER, "gemini");
   }, [daemonConfig]);
 
-  const [imageGenMode, setDraftImageGenMode] = useDraftOverride(serverImageGenMode);
+  const [provider, setDraftProvider] = useDraftOverride(serverProvider);
 
   const [imageGenModel, setImageGenModel] = useState(() =>
-    getLocalSetting(LS_IMAGE_GEN_MODEL, "gemini-3.1-flash-image-preview"),
+    getLocalSetting(LS_IMAGE_GEN_MODEL, DEFAULT_IMAGE_GEN_MODEL),
   );
+  // Reconcile the stored model against the provider's list on every render,
+  // not just on a provider change — a stale stored model (e.g. gpt-image-2
+  // under a Gemini config) must never reach a save or a key provisioning.
+  const providerModels = imageGenModelsForProvider(provider);
+  const effectiveModel = providerModels.includes(imageGenModel)
+    ? imageGenModel
+    : (providerModels[0] ?? DEFAULT_IMAGE_GEN_MODEL);
   const [imageGenApiKey, setImageGenApiKey] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const providerOptions = IMAGE_GEN_PROVIDERS.map((id) => ({
+    value: id,
+    label: IMAGE_GEN_PROVIDER_DISPLAY_NAMES[id] ?? id,
+  }));
+
+  const modelOptions = useMemo(
+    () =>
+      imageGenModelsForProvider(provider).map((model) => ({
+        value: model,
+        label: IMAGE_GEN_MODEL_DISPLAY_NAMES[model] ?? model,
+      })),
+    [provider],
+  );
+
+  const requiresApiKey = provider === "gemini" || provider === "openai";
+
+  const { hasStoredCredential: imageGenHasStoredKey } =
+    useStoredCredentialPresence({
+      assistantId,
+      credentialKind: "api_key",
+      credentialName: provider,
+      enabled: requiresApiKey,
+    });
+
+  // Model reconciliation is derived (`effectiveModel`), so a provider change
+  // needs no imperative snap.
+  const handleProviderChange = setDraftProvider;
 
   const handleSave = useCallback(async () => {
     setSaving(true);
     const trimmed = imageGenApiKey.trim();
-    const hasUserKey = imageGenMode === "your-own" && trimmed.length > 0;
+    const hasUserKey = requiresApiKey && trimmed.length > 0;
     try {
       if (hasUserKey) {
-        await provisionProviderKey(providerForImageGenModel(imageGenModel), trimmed);
+        await provisionProviderKey(
+          providerForImageGenModel(effectiveModel),
+          trimmed,
+        );
       }
-      await configMutation.mutateAsync({
-        path: { assistant_id: assistantId },
-        body: { services: { "image-generation": { mode: imageGenMode } } },
-      }).catch((error) => {
-        toast.error("Failed to update assistant configuration. Please try again.");
-        captureError(error, { context: "patch_daemon_config" });
-        throw error;
-      });
+      // The provider is written as a pair with `mode`: a stale
+      // `mode: "managed"` from the legacy toggle would win over a BYOK choice
+      // unless reset. Only the `vellum` value is unrepresentable on daemons
+      // older than its enum entry — for those a Vellum selection writes the
+      // legacy managed mode alone (the read bridge renders that pair as
+      // Vellum), while BYOK providers keep their explicit provider write.
+      await whenAssistantVersionKnown();
+      const vellumUnsupported =
+        provider === "vellum" && !supportsImageGenVellumProvider();
+      const imageGenService: {
+        provider?: string;
+        mode: "managed" | "your-own";
+      } = vellumUnsupported
+        ? { mode: "managed" }
+        : {
+            provider,
+            mode: provider === "vellum" ? "managed" : "your-own",
+          };
+      await configMutation
+        .mutateAsync({
+          path: { assistant_id: assistantId },
+          body: { services: { "image-generation": imageGenService } },
+        })
+        .catch((error) => {
+          toast.error(
+            "Failed to update assistant configuration. Please try again.",
+          );
+          captureError(error, { context: "patch_daemon_config" });
+          throw error;
+        });
       try {
         await modelImagegenPut({
           path: { assistant_id: assistantId },
-          body: { modelId: imageGenModel },
+          body: { modelId: effectiveModel },
           throwOnError: true,
         });
       } catch (error) {
-        toast.error("Failed to update image generation model. Please try again.");
+        toast.error(
+          "Failed to update image generation model. Please try again.",
+        );
         captureError(error, { context: "set_image_gen_model" });
         throw error;
       } finally {
@@ -104,9 +191,18 @@ export function ImageGenerationCard() {
     }
     setSaving(false);
     try {
-      setLocalSetting(LS_IMAGE_GEN_MODE, imageGenMode);
-      setLocalSetting(LS_IMAGE_GEN_MODEL, imageGenModel);
+      setLocalSetting(LS_IMAGE_GEN_PROVIDER, provider);
+      setLocalSetting(LS_IMAGE_GEN_MODEL, effectiveModel);
       if (hasUserKey) {
+        // Optimistic update: mark key as stored immediately, then
+        // background-refetch confirms server state.
+        const presenceKey = credentialPresenceQueryKey(
+          assistantId,
+          "api_key",
+          provider,
+        );
+        queryClient.setQueryData(presenceKey, true);
+        void queryClient.invalidateQueries({ queryKey: presenceKey });
         setImageGenApiKey("");
       }
       toast.success("Image generation settings saved.");
@@ -116,8 +212,9 @@ export function ImageGenerationCard() {
     }
   }, [
     imageGenApiKey,
-    imageGenMode,
-    imageGenModel,
+    provider,
+    requiresApiKey,
+    effectiveModel,
     assistantId,
     configMutation,
     provisionProviderKey,
@@ -126,74 +223,70 @@ export function ImageGenerationCard() {
 
   const handleReset = useCallback(() => {
     setImageGenApiKey("");
-    setImageGenModel("gemini-3.1-flash-image-preview");
-    setLocalSetting(LS_IMAGE_GEN_MODEL, "gemini-3.1-flash-image-preview");
+    setImageGenModel(DEFAULT_IMAGE_GEN_MODEL);
+    setLocalSetting(LS_IMAGE_GEN_MODEL, DEFAULT_IMAGE_GEN_MODEL);
   }, []);
 
   return (
-    <ServiceCard
+    <ByoServiceCard
       title="Image Generation"
       subtitle="Configure which model your assistant uses to generate images"
-      mode={imageGenMode}
-      onModeChange={(m) => setDraftImageGenMode(m)}
     >
-      {imageGenMode === "managed" ? (
-        <div className="space-y-3">
+      <div className="space-y-4">
+        <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Active Model
+            Provider
           </label>
-          <div className="flex items-end gap-3">
-            <Dropdown
-              className="flex-1"
-              value={imageGenModel}
-              onChange={setImageGenModel}
-              options={AVAILABLE_IMAGE_GEN_MODELS.map((model) => ({
-                value: model,
-                label: IMAGE_GEN_MODEL_DISPLAY_NAMES[model] ?? model,
-              }))}
-            />
-            <SaveButton onClick={handleSave} disabled={saving} />
-            {saving && (
-              <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
-            )}
-          </div>
+          <Dropdown
+            aria-label="Image generation provider"
+            value={provider}
+            onChange={handleProviderChange}
+            options={providerOptions}
+          />
         </div>
-      ) : (
-        <div className="space-y-4">
+
+        {provider === "vellum" && (
+          <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
+            Image generation runs through your Vellum account.
+          </p>
+        )}
+
+        {requiresApiKey && (
           <Input
             label="API Key"
             type="password"
             value={imageGenApiKey}
             onChange={(e) => setImageGenApiKey(e.target.value)}
-            placeholder={
-              providerForImageGenModel(imageGenModel) === "openai"
+            placeholder={secretPlaceholder(
+              provider === "openai"
                 ? "Enter your OpenAI API key"
-                : "Enter your Gemini API key"
-            }
+                : "Enter your Gemini API key",
+              imageGenHasStoredKey,
+            )}
             fullWidth
           />
+        )}
 
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Active Model
-            </label>
-            <Dropdown
-              value={imageGenModel}
-              onChange={setImageGenModel}
-              options={AVAILABLE_IMAGE_GEN_MODELS.map((model) => ({
-                value: model,
-                label: IMAGE_GEN_MODEL_DISPLAY_NAMES[model] ?? model,
-              }))}
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <SaveButton onClick={handleSave} disabled={saving} />
-            {saving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
-            <ResetButton onClick={handleReset} />
-          </div>
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            Active Model
+          </label>
+          <Dropdown
+            aria-label="Image generation model"
+            value={effectiveModel}
+            onChange={setImageGenModel}
+            options={modelOptions}
+          />
         </div>
-      )}
-    </ServiceCard>
+
+        <div className="flex items-center gap-2">
+          <SaveButton onClick={handleSave} disabled={saving} />
+          {saving && (
+            <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
+          )}
+          {requiresApiKey && <ResetButton onClick={handleReset} />}
+        </div>
+      </div>
+    </ByoServiceCard>
   );
 }

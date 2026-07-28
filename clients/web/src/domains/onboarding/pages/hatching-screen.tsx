@@ -5,6 +5,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { getAssistant, getAssistantHealthz, hatchAssistant, type Assistant } from "@/assistant/api";
+import {
+    assistantsOperationalStatusDetailRead,
+    organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate,
+    organizationsBillingSubscriptionOnboardingRetrieve,
+    organizationsBillingSubscriptionRetrieve,
+} from "@/generated/api/sdk.gen";
+import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
+import {
+    isEntitlementRaceVerdict,
+    isResizeOperationInFlight,
+    targetsMet,
+    type ProvisioningDimensions,
+} from "@/lib/billing/provisioning-targets";
 import { seedHatchAvatar } from "@/assistant/seed-hatch-avatar";
 import {
     isPlatformHostedDisabled,
@@ -22,7 +35,11 @@ import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import { getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, probeLocalGatewayReady, saveLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
-import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import {
+    POST_CHECKOUT_HATCH_PARAM,
+    resolveNavigation,
+} from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isElectron } from "@/runtime/is-electron";
@@ -44,6 +61,10 @@ import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 const POLL_INTERVAL_MS = 3000;
 const COMPLETION_NAVIGATE_DELAY_MS = 800;
 const MAX_HATCH_WAIT_MS = 300_000;
+// Hard cap on the post-payment resize wait, mirroring PROVISION_STALL_MS in the
+// pro-onboarding takeover. On expiry the assistant completes at baseline and the
+// server reconciles the purchased specs later — the user is never trapped.
+const RESIZE_WAIT_MAX_MS = 90_000;
 
 // Module-level state so HMR remounts, StrictMode double-mounts, and — critically
 // — the auth-driven provider remount survive without spawning duplicate hatches.
@@ -65,12 +86,23 @@ function releaseHatchGuards(): void {
   hatchTraitsCache = null;
 }
 
-type HatchPhase = "initializing" | "provisioning" | "connecting" | "ready";
+type HatchPhase =
+  | "initializing"
+  | "provisioning"
+  | "connecting"
+  | "resizing"
+  | "ready";
+
+// How the purchased-provisioning wait ended. `health_timeout` means the
+// assistant never answered healthz within MAX_HATCH_WAIT_MS after the resize,
+// so the hatch must be failed rather than completed onto an unreachable pod.
+type HatchProvisioningOutcome = "ready" | "health_timeout";
 
 const PHASE_TARGET: Record<HatchPhase, number> = {
   initializing: 0,
   provisioning: 0.33,
   connecting: 0.66,
+  resizing: 0.85,
   ready: 1.0,
 };
 
@@ -80,6 +112,7 @@ const PHASE_LABEL: Record<HatchPhase, string> = {
   initializing: "Getting things ready…",
   provisioning: "Setting up your assistant…",
   connecting: "Connecting to your assistant…",
+  resizing: "Setting up your machine…",
   ready: "Ready",
 };
 
@@ -121,6 +154,16 @@ export function HatchingScreen() {
   const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
   const electron = isElectron();
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+  // `hosting=vellum-cloud` names a managed hatch even in a local-mode build
+  // (see `adopt-existing-assistant`): the assistant is provisioned on the
+  // platform, so its purchased machine and storage are waited for.
+  const managedHatch = hostingParam === "vellum-cloud";
+  // This hatch is the return leg of a completed checkout — only the
+  // post-checkout funnel sets the param, and only for a billing landing
+  // carrying Stripe's `session_id`. `managedHatch` is NOT a substitute: it
+  // names a hosting choice a free user can make too.
+  const postCheckoutReturn =
+    searchParams.get(POST_CHECKOUT_HATCH_PARAM) === "1";
   const sessionStatus = useAuthStore.use.sessionStatus();
   // Local hatches drive `sessionStatus` themselves (`connectLocalAssistant`
   // below flips it mid-handoff), so they gate on settled-ness to keep that flip
@@ -153,6 +196,9 @@ export function HatchingScreen() {
   const segmentStartRef = useRef(0);
   const segmentStartTimeRef = useRef(0);
   const displayProgressRef = useRef(0);
+  // Fire-once guard for the idempotent post-payment provisioning reconcile, so a
+  // remount or an extra poll can't re-trigger it within a single hatch.
+  const provisioningReconcileFiredRef = useRef(false);
 
   const transitionPhase = useCallback((next: HatchPhase) => {
     segmentStartRef.current = displayProgressRef.current;
@@ -179,6 +225,17 @@ export function HatchingScreen() {
       return;
     }
     if (decision.kind === "wait") return;
+
+    // A managed hatch in a local-mode build must address the platform, not the
+    // machine's own gateway: `getAssistant()` answers from the selected
+    // lockfile entry while a gateway token is held, and daemon SDK calls (the
+    // healthz probes below) rewrite to the local gateway while a self-hosted
+    // connection is primed. Dropping both is the same handoff the hosting
+    // screen performs for its Vellum Cloud choice.
+    if (managedHatch && isLocalMode()) {
+      clearGatewayToken();
+      setSelfHostedConnection(null);
+    }
 
     setPlatformHostedDisabled(false);
 
@@ -300,7 +357,9 @@ export function HatchingScreen() {
                   useOrganizationStore.getState().currentOrganizationId ?? undefined,
               });
             }
-            handleHatchReady();
+            // Route the reload path through the same provisioning wait as the
+            // polled-active path so a purchased resize is never skipped.
+            await finishActiveHatch(existing.data.id);
             return;
           }
           // A clean 404 (`auto_hatch`) means no assistant existed yet, so the
@@ -475,6 +534,306 @@ export function HatchingScreen() {
       pollTimer = setTimeout(runPoll, delay);
     };
 
+    // Platform-only: once the assistant is active and healthz-ready, hold the
+    // hatching screen until the server-side resize to the purchased machine and
+    // storage specs converges, then re-probe healthz (the resize restarts the
+    // pod). The reconcile is idempotent and fire-and-forget; a genuinely free
+    // org, and the RESIZE_WAIT_MAX_MS cap, fall through to completion at
+    // baseline, so a Pro hatch emerges at the right size without ever trapping
+    // the user. Every wait that entered the provisioning phase leaves through
+    // the healthz probe, and the caller must honour a `health_timeout` outcome.
+    const awaitPurchasedProvisioning = async (
+      assistantId: string,
+    ): Promise<HatchProvisioningOutcome> => {
+      // Purchased specs live on the platform, so only a managed hatch reads
+      // them. A local-mode run without the managed marker can reach here off a
+      // preflight that resolved the lockfile assistant, which has no billing
+      // surface — short-circuit there.
+      if (isLocalMode() && !managedHatch) {
+        return "ready";
+      }
+      // Fire the idempotent grow-only reconcile — the same resize the subscribe
+      // webhook triggers — covering a webhook that never fired or whose resize
+      // was lost. It is marked done only when it RECONCILES: a 503 ("nothing
+      // queued"), a network error, a pre-org-hydration mount, or a race reply
+      // leaves the guard unset so a later poll iteration re-fires the nudge. It
+      // never blocks completion (which keys off targets + op-status); the
+      // re-fires stay bounded by the RESIZE_WAIT_MAX_MS cap below.
+      const fireProvisioningReconcile = (): void => {
+        if (provisioningReconcileFiredRef.current) {
+          return;
+        }
+        void organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate({
+          throwOnError: false,
+        })
+          .then((result) => {
+            // Success carries a body; a 503/5xx resolves with no data under
+            // throwOnError:false. A race body — the entitlement not yet
+            // visible, or no settled assistant to provision, which is the
+            // common case this early in a hatch — is not an answer: nothing was
+            // queued, so it must not consume the guard or the nudge is lost for
+            // the whole hatch.
+            if (
+              result.data != null &&
+              !isEntitlementRaceVerdict(result.data)
+            ) {
+              provisioningReconcileFiredRef.current = true;
+            }
+          })
+          .catch(() => {
+            // Network/thrown error: leave the guard unset to re-fire on a later poll.
+          });
+      };
+
+      // A reconciled resize restarts the pod, so every exit from the waits below
+      // ends here before the hatch completes — otherwise the screen navigates
+      // onto a mid-restart daemon. Bounded by MAX_HATCH_WAIT_MS measured from
+      // the poll start, past which the assistant is not coming back and the
+      // hatch is a failure.
+      const waitForPostResizeHealth =
+        async (): Promise<HatchProvisioningOutcome> => {
+          while (!cancelled) {
+            try {
+              const health = await getAssistantHealthz(assistantId);
+              if (health.ok) {
+                return "ready";
+              }
+            } catch {
+              // Daemon not reachable yet during the post-resize restart.
+            }
+            if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
+              return "health_timeout";
+            }
+            await new Promise<void>((resolve) => {
+              pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+            });
+            pollTimer = null;
+          }
+          return "ready";
+        };
+
+      // The cap covers both waits below — the entitlement/targets confirmation
+      // and the resize itself — so a lagging subscription can never hold the
+      // user past RESIZE_WAIT_MAX_MS.
+      const resizeDeadline = Date.now() + RESIZE_WAIT_MAX_MS;
+
+      // Confirm the entitlement before concluding "free". A paid checkout can
+      // return before the onboarding targets are visible, so gate the no-wait
+      // completion on the actual subscription plan rather than on the first null
+      // targets. While the plan reads Pro but the targets aren't provisioned yet
+      // (the entitlement race), keep polling the subscription and targets within
+      // the cap instead of completing at baseline.
+      let targets: ProvisioningDimensions | null = null;
+      while (!cancelled) {
+        // Re-fire the reconcile until it succeeds (or the cap): a failed first
+        // attempt must not permanently consume the guard.
+        fireProvisioningReconcile();
+        // Tri-state entitlement read. Only a CONFIRMED non-Pro plan — a
+        // successful response whose plan_id is definitively not "pro" —
+        // completes early. An unknown result (a thrown error, or a 5xx that
+        // resolves with no data under throwOnError:false) must not be mistaken
+        // for "free"; it behaves like "Pro but targets not yet provisioned" and
+        // keeps polling within the cap so a purchased resize is never skipped.
+        let subscriptionState: "pro" | "non_pro" | "unknown" = "unknown";
+        try {
+          const subscription = await organizationsBillingSubscriptionRetrieve({
+            throwOnError: false,
+          });
+          if (cancelled) {
+            return "ready";
+          }
+          if (subscription.data) {
+            subscriptionState =
+              subscription.data.plan_id === "pro" ? "pro" : "non_pro";
+          }
+        } catch {
+          // Subscription endpoint blip: stay "unknown" and keep polling to the cap.
+        }
+
+        try {
+          const onboarding =
+            await organizationsBillingSubscriptionOnboardingRetrieve({
+              throwOnError: false,
+            });
+          if (cancelled) {
+            return "ready";
+          }
+          const data = onboarding.data;
+          if (data) {
+            targets = {
+              machineSize:
+                allowedMachineSizesForTier(data.max_machine_tier).at(-1) ?? null,
+              storageGib: data.selected_storage_gib ?? null,
+            };
+          }
+        } catch {
+          // Targets fetch blip; keep polling to the cap.
+        }
+
+        const hasTargets =
+          targets != null &&
+          (targets.machineSize != null || targets.storageGib != null);
+
+        // Confirmed non-Pro on an ordinary hatch — genuinely free. Complete
+        // exactly as a non-provisioned hatch does today, with no added poll.
+        // On a post-checkout return the same read is not an answer: Stripe
+        // redirects before the subscribe webhook updates the org, so the plan
+        // still reads at its pre-checkout base. That case falls through to the
+        // capped wait below.
+        if (subscriptionState === "non_pro" && !postCheckoutReturn) {
+          return "ready";
+        }
+        // Confirmed Pro with a purchased ceiling to wait on: hold for the resize
+        // below.
+        if (subscriptionState === "pro" && hasTargets) {
+          break;
+        }
+        // Pro with targets not yet visible, a still-base read on a paid return,
+        // or an unknown/errored subscription read: keep polling within the cap
+        // rather than completing at baseline onto an unprovisioned assistant.
+        // The cap is the ultimate escape, so a subscription that never flips —
+        // a persistently-erroring endpoint, a lost webhook — still completes.
+        if (Date.now() >= resizeDeadline) {
+          // Nothing was confirmed, but the reconcile has been nudged on every
+          // iteration, so a resize may already have restarted the pod. Health
+          // check before completing rather than returning straight to the
+          // caller.
+          return waitForPostResizeHealth();
+        }
+        await new Promise<void>((resolve) => {
+          pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+        });
+        pollTimer = null;
+      }
+      if (cancelled) {
+        return "ready";
+      }
+
+      // Hold in an in-progress phase while the resize lands.
+      transitionPhase("resizing");
+
+      while (!cancelled) {
+        // Keep nudging the resize in case the reconcile hasn't landed yet; the
+        // guard stops the re-fire once it succeeds.
+        fireProvisioningReconcile();
+        let actuals: ProvisioningDimensions | null = null;
+        try {
+          const actualsResult = await getAssistant(assistantId);
+          if (cancelled) {
+            return "ready";
+          }
+          if (actualsResult.ok) {
+            actuals = {
+              machineSize: actualsResult.data.machine_size ?? null,
+              storageGib: actualsResult.data.provisioned_storage_gib ?? null,
+            };
+          }
+        } catch {
+          // Assistant endpoint unreachable mid-resize; keep polling to the cap.
+        }
+
+        // Default to in-flight so an uncertain status read withholds completion.
+        // Under throwOnError:false a 5xx resolves with no data rather than
+        // throwing, and isResizeOperationInFlight(undefined) is false — so only
+        // a successful read (data present) may downgrade to "not in flight".
+        // Otherwise the screen could navigate onto a pod that is still restarting.
+        let operationInFlight = true;
+        try {
+          const opStatus = await assistantsOperationalStatusDetailRead({
+            path: { id: assistantId },
+            throwOnError: false,
+          });
+          if (cancelled) {
+            return "ready";
+          }
+          if (opStatus.data) {
+            operationInFlight = isResizeOperationInFlight(opStatus.data);
+          }
+        } catch {
+          // Operational-status endpoint unreachable mid-resize: retain the
+          // conservative in-flight value and keep polling to the cap.
+          operationInFlight = true;
+        }
+
+        // The platform persists the effective sizes before the pod finishes
+        // restarting, so completion requires the resize operation to have
+        // cleared — not just targets-met — to avoid landing on a soon-dead pod.
+        if (targetsMet(targets, actuals) && !operationInFlight) {
+          break;
+        }
+        if (Date.now() >= resizeDeadline) {
+          // Cap reached: stop waiting for the resize but still fall through to
+          // the healthz probe below, so completion never routes onto a pod
+          // mid-restart. The server reconciles the remaining resize later.
+          break;
+        }
+        await new Promise<void>((resolve) => {
+          pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+        });
+        pollTimer = null;
+      }
+      if (cancelled) {
+        return "ready";
+      }
+
+      // Both the converged and the cap-expiry exit above land on a pod the
+      // resize may still be restarting.
+      return waitForPostResizeHealth();
+    };
+
+    // Both the preflight-active path (a reload onto an already-active assistant)
+    // and the polled-active path converge here: wait for healthz, hold for the
+    // purchased resize, then complete. Sharing this tail keeps a reload from
+    // skipping the provisioning wait.
+    const finishActiveHatch = async (assistantId: string): Promise<void> => {
+      // The platform may report "active" before the pod is ready to serve, so
+      // wait for the daemon to answer healthz before holding for the resize.
+      transitionPhase("connecting");
+      while (!cancelled) {
+        try {
+          const health = await getAssistantHealthz(assistantId);
+          if (health.ok) {
+            break;
+          }
+        } catch {
+          // Daemon not reachable yet.
+        }
+        if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
+          setError(
+            "Your assistant is taking longer than expected. Please try again.",
+          );
+          return;
+        }
+        await new Promise<void>((resolve) => {
+          pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+        });
+        pollTimer = null;
+      }
+      if (cancelled) {
+        return;
+      }
+
+      const outcome = await awaitPurchasedProvisioning(assistantId);
+      if (cancelled) {
+        return;
+      }
+      if (outcome === "health_timeout") {
+        // The provisioning wait ran its course but the assistant never came
+        // back. Completing here would hand the user an unreachable assistant,
+        // so surface the same recoverable failure the other hatch timeouts do.
+        Sentry.captureMessage("Onboarding hatch wait exceeded timeout", {
+          level: "warning",
+          extra: { maxWaitMs: MAX_HATCH_WAIT_MS, stage: "post_resize_health" },
+        });
+        setError(
+          "Your assistant is taking longer than expected. Please try again.",
+        );
+        return;
+      }
+
+      handleHatchReady();
+    };
+
     const runPoll = async () => {
       if (cancelled) return;
       if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
@@ -518,27 +877,11 @@ export function HatchingScreen() {
               });
             }
 
-            // Wait for the daemon to be reachable before navigating.
-            // The platform may report "active" before the pod is
-            // fully ready to serve requests.
-            transitionPhase("connecting");
-            while (!cancelled) {
-              try {
-                const health = await getAssistantHealthz(assistantId);
-                if (health.ok) break;
-              } catch {
-                // Daemon not reachable yet
-              }
-              if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
-                setError("Your assistant is taking longer than expected. Please try again.");
-                return;
-              }
-              await new Promise<void>(resolve => {
-                pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
-              });
-              pollTimer = null;
-            }
-            if (cancelled) return;
+            // Wait for healthz, then hold for the purchased resize before
+            // completing (platform hatches only; local hatches never reach this
+            // poll loop).
+            await finishActiveHatch(assistantId);
+            return;
           }
 
           handleHatchReady();
@@ -571,6 +914,8 @@ export function HatchingScreen() {
     attempt,
     failParam,
     hatchTraits,
+    managedHatch,
+    postCheckoutReturn,
     sessionGateKey,
     navigate,
     queryClient,

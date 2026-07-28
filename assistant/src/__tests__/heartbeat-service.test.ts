@@ -34,6 +34,7 @@ mock.module("../heartbeat/heartbeat-run-store.js", () => ({
   countCompletedHeartbeatRuns: mockCountCompletedHeartbeatRuns,
   countCompletedRunsToday: mock(() => 0),
   countRecentConsecutiveRuns: mock(() => 0),
+  getLastHeartbeatRunAt: mock(() => null),
 }));
 
 // ── Heartbeat config seeding ────────────────────────────────────────

@@ -46,8 +46,15 @@ export function ChatConversationHeader({
 }: ChatConversationHeaderProps) {
   if (!activeConversation) {
     if (!assistantId) {return null;}
+    // `min-w-0` + `truncate` are load-bearing, not cosmetic: the header's
+    // centre slot is a `flex-1 min-w-0 justify-center` box, so when the right
+    // cluster (voice pill, assets pill) claims the row this item shrinks
+    // toward zero. Without them the span refuses to shrink and overflows its
+    // box in *both* directions — `justify-center` splits the overflow evenly —
+    // painting the title underneath the surrounding chrome. The titled branch
+    // below truncates for the same reason.
     return (
-      <span className="text-sm font-medium text-[var(--content-default)]">
+      <span className="min-w-0 truncate text-sm font-medium text-[var(--content-default)]">
         New Chat
       </span>
     );

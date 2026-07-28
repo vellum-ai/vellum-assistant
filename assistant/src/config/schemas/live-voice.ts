@@ -79,7 +79,31 @@ export const LiveVoiceProgressConfigSchema = z
       )
       .default(5_000)
       .describe(
-        "Narrate after this much silence (ms) with the turn still running",
+        "How often (ms) a running turn's silence is checked, and so the soonest new tool activity is narrated",
+      ),
+    maxSilenceMs: z
+      .number({
+        error: "liveVoice.frontModel.progress.maxSilenceMs must be a number",
+      })
+      .int("liveVoice.frontModel.progress.maxSilenceMs must be an integer")
+      .positive(
+        "liveVoice.frontModel.progress.maxSilenceMs must be a positive integer",
+      )
+      .default(35_000)
+      .describe(
+        "Heartbeat ceiling (ms): narrate after this much unbroken silence even when nothing new has happened. Evaluated on the idle tick, so its resolution is idleIntervalMs and it must be at least that long",
+      ),
+    longOpMs: z
+      .number({
+        error: "liveVoice.frontModel.progress.longOpMs must be a number",
+      })
+      .int("liveVoice.frontModel.progress.longOpMs must be an integer")
+      .positive(
+        "liveVoice.frontModel.progress.longOpMs must be a positive integer",
+      )
+      .default(15_000)
+      .describe(
+        "A tool operation that ran at least this long (ms) narrates the moment it completes, without waiting for opsThreshold",
       ),
     minGapMs: z
       .number({
@@ -108,6 +132,14 @@ export const LiveVoiceProgressConfigSchema = z
       .describe(
         "Budget (ms) for LLM-generated progress text — not latency-critical: it speaks into dead air",
       ),
+  })
+  // The heartbeat is checked when the idle tick finds the turn silent, so a
+  // ceiling shorter than the tick interval would be missed by up to a full
+  // interval — a promise the cadence cannot keep. Rejecting the combination
+  // beats silently overshooting it.
+  .refine((progress) => progress.maxSilenceMs >= progress.idleIntervalMs, {
+    error:
+      "liveVoice.frontModel.progress.maxSilenceMs must be at least idleIntervalMs — the heartbeat is evaluated on the idle tick",
   })
   .describe(
     "Progress-narration tuning for live voice sessions (spoken updates during long-running turns)",
@@ -172,12 +204,6 @@ export const LiveVoiceFrontModelConfigSchema = z
       )
       .default(600)
       .describe("Budget (ms) for LLM-generated ack text"),
-    llmAckText: z
-      .boolean({ error: "liveVoice.frontModel.llmAckText must be a boolean" })
-      .default(false)
-      .describe(
-        "Use the front model to phrase spoken acks; static phrases otherwise",
-      ),
     progress: LiveVoiceProgressConfigSchema.default(
       LiveVoiceProgressConfigSchema.parse({}),
     ),

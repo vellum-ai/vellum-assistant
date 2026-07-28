@@ -12,9 +12,13 @@ import { resolveQdrantUrl } from "./qdrant-client.js";
 
 const log = getLogger("embedding-identity");
 
-// Inlined rather than imported from `memory/v2/qdrant.ts`: the persistence
-// layer must not import from the memory feature layer (enforced by
-// persistence-layering-guard). The dependency direction is memory → persistence.
+// FROZEN: `memory_v2_concept_pages` is a Qdrant collection name on disk, and it
+// belongs to the concept-page SUBSTRATE (which outlives the v2 engine) despite
+// the `v2` spelling — see `plugins/defaults/memory/AGENTS.md`. Inlined rather
+// than imported from `memory/substrate/qdrant.ts`'s `MEMORY_V2_COLLECTION`: the
+// persistence layer must not import from the memory feature layer (enforced by
+// persistence-layering-guard). The dependency direction is memory →
+// persistence. This copy and the substrate's must change together or never.
 const MEMORY_V2_COLLECTION = "memory_v2_concept_pages";
 
 export interface BackendDimensionProbe {

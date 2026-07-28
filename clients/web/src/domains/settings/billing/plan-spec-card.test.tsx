@@ -1,9 +1,9 @@
 /**
- * Tests for PlanSpecCard: the shared, layout-only plan card used for both the
- * light ("current") and dark ("recommended") columns in the billing Plan
- * section. Verifies it renders the name, tagline, and spec chips; forwards
- * `nameTestId`; forces the `data-theme` palette; and omits the divider + chip
- * row when there are no specs.
+ * Tests for PlanSpecCard: the layout-only current-plan card in the billing
+ * "Plan" section. Verifies it renders the name and spec chips; forwards
+ * `nameTestId`; forces the light `data-theme` palette; centers its content on
+ * both axes; and brackets the header row with a divider both above and below
+ * only when spec chips are present (otherwise just the centered header row).
  *
  * Rendered with `renderToStaticMarkup` (single-pass, no DOM) — so the lazy
  * `PlanTierAvatar` compositor bundle is mocked to a placeholder, keeping the
@@ -30,80 +30,88 @@ const SPECS: PlanSpec[] = [
   { icon: HardDrive, label: "10 GB" },
 ];
 
+/** Counts non-overlapping occurrences of `needle` in `haystack`. */
+function count(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
+}
+
 describe("PlanSpecCard", () => {
-  test("renders name, tagline, spec labels, and the nameTestId", () => {
+  test("renders the name, spec labels, and forwards the nameTestId", () => {
     const html = renderToStaticMarkup(
       <PlanSpecCard
-        tone="light"
-        tierKey="free"
+        tierKey="mighty"
         name="Mighty"
         nameTestId="plan-card-name"
-        tagline="A great starter plan"
         specs={SPECS}
       />,
     );
     expect(html).toContain("Mighty");
-    expect(html).toContain("A great starter plan");
     expect(html).toContain("$25 credits");
     expect(html).toContain("10 GB");
     expect(html).toContain("plan-card-name");
   });
 
-  test("omits the divider + chip row when specs is null", () => {
+  test("forces the light data-theme scope", () => {
     const html = renderToStaticMarkup(
-      <PlanSpecCard
-        tone="light"
-        tierKey="free"
-        name="Free"
-        specs={null}
-      />,
+      <PlanSpecCard tierKey="mighty" name="Mighty" specs={SPECS} />,
     );
-    expect(html).toContain("Free");
-    expect(html).not.toContain("$25 credits");
-    expect(html).not.toContain("10 GB");
+    expect(html).toContain('data-theme="light"');
   });
 
-  test("omits the divider + chip row when specs is empty", () => {
+  test("centers its content on both axes", () => {
     const html = renderToStaticMarkup(
-      <PlanSpecCard tone="light" tierKey="free" name="Free" specs={[]} />,
+      <PlanSpecCard tierKey="free" name="Free" specs={null} />,
     );
-    expect(html).toContain("Free");
-    expect(html).not.toContain("$25 credits");
-    expect(html).not.toContain("10 GB");
-  });
-
-  test("forces data-theme=\"dark\" when tone is dark", () => {
-    const html = renderToStaticMarkup(
-      <PlanSpecCard
-        tone="dark"
-        tierKey="free"
-        name="Recommended"
-        specs={SPECS}
-      />,
-    );
-    expect(html).toContain('data-theme="dark"');
-  });
-
-  test("centers the card content when centered is set", () => {
-    const html = renderToStaticMarkup(
-      <PlanSpecCard
-        tone="light"
-        tierKey="free"
-        name="Free"
-        tagline="A great starter plan"
-        centered
-        specs={null}
-      />,
-    );
-    // The centering utilities land on both the root and the header row.
-    expect(html).toContain("justify-center");
     expect(html).toContain("items-center");
+    expect(html).toContain("justify-center");
+  });
+
+  test("brackets the header row with a divider both above and below when specs exist", () => {
+    const html = renderToStaticMarkup(
+      <PlanSpecCard tierKey="mighty" name="Mighty" specs={SPECS} />,
+    );
+    // A divider both above and below the header row → two divider rules.
+    expect(count(html, "bg-[var(--border-base)]")).toBe(2);
+    // The chip row is centered.
+    expect(html).toContain("justify-center");
+  });
+
+  test("omits the dividers + chip row when specs is null", () => {
+    const html = renderToStaticMarkup(
+      <PlanSpecCard tierKey="free" name="Free" specs={null} />,
+    );
+    expect(html).toContain("Free");
+    expect(html).not.toContain("bg-[var(--border-base)]");
+    expect(html).not.toContain("$25 credits");
+    expect(html).not.toContain("10 GB");
+  });
+
+  test("omits the dividers + chip row when specs is empty", () => {
+    const html = renderToStaticMarkup(
+      <PlanSpecCard tierKey="free" name="Free" specs={[]} />,
+    );
+    expect(html).toContain("Free");
+    expect(html).not.toContain("bg-[var(--border-base)]");
+    expect(html).not.toContain("$25 credits");
+    expect(html).not.toContain("10 GB");
+  });
+
+  test("renders the tag next to the name", () => {
+    const html = renderToStaticMarkup(
+      <PlanSpecCard
+        tierKey="free"
+        name="Free"
+        tag={<span>Current Plan</span>}
+        specs={null}
+      />,
+    );
+    expect(html).toContain("Free");
+    expect(html).toContain("Current Plan");
   });
 
   test("renders a wrapping pill for a multiline spec", () => {
     const html = renderToStaticMarkup(
       <PlanSpecCard
-        tone="dark"
         tierKey="mighty"
         name="Mighty"
         specs={[
@@ -124,7 +132,6 @@ describe("PlanSpecCard", () => {
   test("applies the passed className to the root", () => {
     const html = renderToStaticMarkup(
       <PlanSpecCard
-        tone="light"
         tierKey="free"
         name="Free"
         className="lg:flex-[3]"

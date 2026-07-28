@@ -2,6 +2,7 @@ import { v4 as uuid, v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
 import { SurfaceActionSchema } from "../api/events/ui-surface-show.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   CardSurfaceDataSchema,
   ChoiceSurfaceDataSchema,
@@ -76,7 +77,6 @@ import type {
   DynamicPagePreview,
   DynamicPageSurfaceData,
   FormSurfaceData,
-  ServerMessage,
   SurfaceAction,
   SurfaceData,
   SurfaceType,
@@ -818,7 +818,7 @@ export interface SurfaceConversationContext {
     channel: string;
     supportsDynamicUi: boolean;
   };
-  sendToClient(msg: ServerMessage): void;
+  sendToClient(msg: AssistantEvent): void;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   lastSurfaceAction: Map<
     string,
@@ -2001,7 +2001,7 @@ export async function handleSurfaceAction(
     // Pass conversationId so events without an inline conversationId (e.g.
     // text_delta) are published with the correct conversation scope and
     // reach the SSE subscriber filtered to this conversation.
-    const onEvent = (msg: ServerMessage) =>
+    const onEvent = (msg: AssistantEvent) =>
       broadcastMessage(msg, ctx.conversationId);
 
     const result = ctx.enqueueMessage({
@@ -2228,7 +2228,7 @@ export async function handleSurfaceAction(
   // Pass conversationId so events without an inline conversationId (e.g.
   // text_delta) are published with the correct conversation scope and
   // reach the SSE subscriber filtered to this conversation.
-  const onEvent = (msg: ServerMessage) =>
+  const onEvent = (msg: AssistantEvent) =>
     broadcastMessage(msg, ctx.conversationId);
 
   log.info(

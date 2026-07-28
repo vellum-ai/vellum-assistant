@@ -119,6 +119,7 @@ import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
+import { UISurfaceUndoResultEventSchema } from "./events/ui-surface-undo-result.js";
 import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
 import { UsageProgressEventSchema } from "./events/usage-progress.js";
 import { UsageUpdateEventSchema } from "./events/usage-update.js";
@@ -608,6 +609,10 @@ export {
   UISurfaceShowEventSchema,
 } from "./events/ui-surface-show.js";
 export {
+  type UISurfaceUndoResultEvent,
+  UISurfaceUndoResultEventSchema,
+} from "./events/ui-surface-undo-result.js";
+export {
   type UISurfaceUpdateEvent,
   UISurfaceUpdateEventSchema,
 } from "./events/ui-surface-update.js";
@@ -963,6 +968,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,
+  UISurfaceUndoResultEventSchema,
   UISurfaceUpdateEventSchema,
   UsageProgressEventSchema,
   UsageUpdateEventSchema,

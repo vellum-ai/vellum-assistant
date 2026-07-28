@@ -13,10 +13,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
 
-import type { StalledApplyAction } from "./primitives";
 import {
     CreatureCorners,
-    StalledApplyControls,
     SUBTLE_NOTICE_CLASS,
     SUBTLE_NOTICE_TEXT_CLASS,
     WizardCardHeading,
@@ -31,14 +29,11 @@ const LABEL_CLASSES = "text-[11px] font-medium text-[var(--content-secondary)]";
 export function DomainStep({
   onExit,
   machineBusy = false,
-  stalledAction,
   assistantId: preferredAssistantId,
 }: {
   onExit: () => void;
   /** The assistant machine is restarting (webhook-driven resize in flight). */
   machineBusy?: boolean;
-  /** Set only while the resize is stalled — offers the manual apply here. */
-  stalledAction?: StalledApplyAction;
   /** The provisioning target assistant (onboarding primary, else active). */
   assistantId?: string | null;
 }) {
@@ -196,19 +191,10 @@ export function DomainStep({
           )}
         </div>
 
-        {stalledAction && !isLocked ? (
-          <StalledApplyControls
-            action={stalledAction}
-            buttonTestId="domain-stalled-apply"
-          />
-        ) : (
-          machineBusy &&
-          !isLocked && (
-            <Notice tone="neutral">
-              Your assistant is restarting — you can set the domain in a
-              moment.
-            </Notice>
-          )
+        {machineBusy && !isLocked && (
+          <Notice tone="neutral">
+            Your assistant is restarting — you can set the domain in a moment.
+          </Notice>
         )}
         {!isLocked && (
           <Notice tone="info" className={SUBTLE_NOTICE_CLASS}>

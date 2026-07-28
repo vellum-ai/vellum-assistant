@@ -1,11 +1,11 @@
 /**
  * Interaction tests for the PlanCard recommended-upgrade CTA.
  *
- * Clicking "Upgrade for _ more" fires the Stripe upgrade for the recommended
- * package and redirects to the returned checkout URL — and stashes the
- * purchased package first, so the post-checkout provisioning screen shows what
- * was actually bought instead of an intent left behind by an abandoned earlier
- * checkout.
+ * Clicking the promo card's "Upgrade" CTA fires the Stripe upgrade for the
+ * recommended package and redirects to the returned checkout URL — and stashes
+ * the purchased package first, so the post-checkout provisioning screen shows
+ * what was actually bought instead of an intent left behind by an abandoned
+ * earlier checkout.
  *
  * Strategy mirrors plans-page-checkout.test.tsx: mock the generated SDK to
  * capture the upgrade body and return a redirect, and mock `openUrl` to capture
@@ -33,6 +33,7 @@ import {
   readCheckoutIntent,
   saveCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
+import { makeProPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
 
@@ -92,26 +93,7 @@ function plansResponse(): PlanListResponse {
         included_features: [],
         machine_tiers: [],
         storage_tiers: [],
-        packages: [
-          {
-            key: "mighty",
-            name: "Mighty",
-            description: "",
-            version: 1,
-            machine_tier: null,
-            storage_tier: "xs",
-            credit_tier: "credits_25",
-            machine_size: null,
-            storage_gib: 10,
-            credits_usd: 25,
-            include_platform_fee: false,
-            base_price_cents: 0,
-            machine_price_cents: 0,
-            storage_price_cents: 0,
-            credit_price_cents: 0,
-            total_price_cents: 3000,
-          },
-        ],
+        packages: [makeProPackage()],
       },
     ],
   };

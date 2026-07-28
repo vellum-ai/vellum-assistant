@@ -52,6 +52,13 @@ export interface CatalogModel {
   adaptiveThinkingOnly?: boolean;
   supportsCaching?: boolean;
   supportsVision?: boolean;
+  /**
+   * The model's serving surface accepts OpenAI chat-completions `input_audio`
+   * content parts (base64 wav/mp3), so eligible audio attachments are sent
+   * inline instead of as a text placeholder. Daemon-only: not projected into
+   * the client catalog (see scripts/sync-llm-catalog.ts).
+   */
+  supportsAudioInput?: boolean;
   supportsToolUse?: boolean;
   pricing?: CatalogModelPricing;
   /**
@@ -177,6 +184,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           outputPer1mTokens: 50,
           cacheWritePer1mTokens: 12.5,
           cacheReadPer1mTokens: 1,
+        },
+      },
+      {
+        id: "claude-opus-5",
+        displayName: "Claude Opus 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
         },
       },
       {
@@ -809,6 +833,22 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "accounts/fireworks/models/kimi-k3",
+        displayName: "Kimi K3",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 3,
+          outputPer1mTokens: 15,
+          cacheReadPer1mTokens: 0.3,
+        },
+      },
+      {
         id: "accounts/fireworks/models/kimi-k2p6",
         displayName: "Kimi K2.6",
         contextWindowTokens: 262144,
@@ -998,6 +1038,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           outputPer1mTokens: 50,
           cacheWritePer1mTokens: 12.5,
           cacheReadPer1mTokens: 1,
+        },
+      },
+      {
+        id: "anthropic/claude-opus-5",
+        displayName: "Claude Opus 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
         },
       },
       {
@@ -1734,6 +1791,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "anthropic/claude-opus-5",
+        displayName: "Claude Opus 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
         id: "anthropic/claude-opus-4.8",
         displayName: "Claude Opus 4.8",
         contextWindowTokens: 1000000,
@@ -2031,6 +2105,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: true,
+        // Inkling ingests audio natively (dMel tokens); Baseten's serving
+        // surface accepts `input_audio` parts for it.
+        supportsAudioInput: true,
         supportsToolUse: true,
         // Baseten's reasoning_effort for Inkling tops out at "xhigh" (no
         // "max"), matching the chat-completions client's default ceiling.
@@ -2045,6 +2122,45 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "thinkingmachines/inkling",
     apiKeyUrl: "https://app.baseten.co/settings/api_keys",
     apiKeyPlaceholder: "Your Baseten API key",
+  },
+  {
+    id: "poolside",
+    displayName: "Poolside",
+    subtitle:
+      "Laguna models from Poolside (OpenAI-compatible). Requires a Poolside API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your Poolside API key to enable Laguna models.",
+    envVar: "POOLSIDE_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to Poolside and create an API key.",
+      url: "https://poolside.ai",
+      linkLabel: "Open Poolside",
+    },
+    models: [
+      {
+        id: "poolside/laguna-s-2.1",
+        displayName: "Laguna S 2.1",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+      {
+        id: "poolside/laguna-xs-2.1",
+        displayName: "Laguna XS 2.1",
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+    ],
+    defaultModel: "poolside/laguna-s-2.1",
+    apiKeyUrl: "https://poolside.ai",
+    apiKeyPlaceholder: "Your Poolside API key",
   },
 ];
 
@@ -2117,5 +2233,17 @@ export function getCatalogProviderForModel(
 export function isAdaptiveThinkingOnlyModel(modelId: string): boolean {
   return PROVIDER_CATALOG.some((p) =>
     p.models.some((m) => m.id === modelId && m.adaptiveThinkingOnly === true),
+  );
+}
+
+/**
+ * Whether a model's serving surface accepts OpenAI chat-completions
+ * `input_audio` content parts, driven by the `supportsAudioInput` capability
+ * in the catalog. Matches the model ID across every provider (same pattern as
+ * {@link isAdaptiveThinkingOnlyModel}).
+ */
+export function modelSupportsAudioInput(modelId: string): boolean {
+  return PROVIDER_CATALOG.some((p) =>
+    p.models.some((m) => m.id === modelId && m.supportsAudioInput === true),
   );
 }

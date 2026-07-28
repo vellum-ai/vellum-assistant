@@ -17,6 +17,7 @@
     "./rpc": "./src/rpc.ts",
     "./attachment-naming": "./src/attachment-naming.ts",
     "./redacted-credential": "./src/redacted-credential.ts",
+    "./secret-detection": "./src/secret-detection.ts",
     "./error": "./src/error.ts"
   },
   "scripts": {

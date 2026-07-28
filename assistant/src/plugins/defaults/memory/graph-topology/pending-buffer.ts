@@ -18,6 +18,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { formatRememberEntry } from "../graph/tool-handlers.js";
 import type { MemoryGraphEdge, MemoryGraphNode } from "./types.js";
 
 /** Node id prefix marking a pending buffer entry (id = prefix + text hash). */
@@ -203,4 +204,32 @@ export async function readPendingBufferEntries(
     "utf-8",
   ).catch(() => "");
   return parseBufferEntries(content);
+}
+
+/**
+ * Resolve the pending entry a just-appended remember produced: the LAST
+ * entry whose text matches `content` run through the same
+ * timestamp-format + parse normalization the buffer applies (so multiline
+ * facts compare against their folded, trimmed form). Content matching —
+ * rather than taking the buffer tail — keeps a concurrently interleaved
+ * remember from another writer from being reported as this request's
+ * entry. Concurrent *identical* content remains ambiguous, which is
+ * harmless: the id is a navigation hint to visually identical nodes.
+ */
+export function findPendingEntryForContent(
+  entries: readonly PendingBufferEntry[],
+  content: string,
+): PendingBufferEntry | undefined {
+  const normalized = parseBufferEntries(
+    formatRememberEntry(content.trim(), new Date()),
+  )[0]?.text;
+  if (!normalized) {
+    return undefined;
+  }
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i]!.text === normalized) {
+      return entries[i];
+    }
+  }
+  return undefined;
 }

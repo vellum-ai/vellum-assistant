@@ -95,7 +95,9 @@ export function ChannelPanel({
 
   // Slack is its own adapter shape — a token-pair channel with dedicated
   // connected/disconnected cards (connection card vs. setup wizard) that own
-  // their card chrome, so it returns bare (the parent skips the DetailCard).
+  // their card chrome, so it returns bare (the parent skips the DetailCard). The
+  // cards stack at natural height and the parent section owns the vertical
+  // scroll, so no min-h-0/flex-1 fill here.
   if (channel.key === "slack") {
     return (
       <div className="flex flex-col gap-4">

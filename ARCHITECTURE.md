@@ -461,7 +461,7 @@ subgraph "Text Q&A Session"
 
     %% Main Window Chat flow
     CHAT_VM -->|"conversation_create +<br/>user_message +<br/>cancel<br/>(HTTP POST)"| HTTP_RT
-    HTTP_RT -->|"conversation_info +<br/>conversation_title_updated +<br/>text deltas +<br/>message_complete +<br/>conversation_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff<br/>(SSE)"| CHAT_VM
+    HTTP_RT -->|"conversation_title_updated +<br/>text deltas +<br/>message_complete +<br/>conversation_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff<br/>(SSE)"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
     MW_STATE -->|"app_open_request<br/>(dashboard-first bootstrap)"| HTTP_RT
 
@@ -589,7 +589,7 @@ All feature flags (assistant-scoped and client-scoped) are declared in the unifi
 
 **Unified registry:** The canonical source is `meta/feature-flags/feature-flag-registry.json`. Bundled copies are maintained at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. Labels come from the registry. Declared flags use their `defaultEnabled` value when no override is present. Flags not declared in the registry default to disabled (fail closed).
 
-**Canonical key format:** Simple kebab-case (e.g., `browser`, `voice-mode`). The legacy `feature_flags.<id>.enabled` and `skills.<id>.enabled` formats are no longer supported.
+**Canonical key format:** Simple kebab-case (e.g., `browser`, `contacts`). The legacy `feature_flags.<id>.enabled` and `skills.<id>.enabled` formats are no longer supported.
 
 **Resolution priority:** When determining whether an assistant flag is enabled, the resolver checks (highest priority first):
 

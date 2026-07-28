@@ -12,7 +12,7 @@
 import { memoizePluginPatternDerivation } from "./plugin-secret-patterns.js";
 import { isAllowlisted } from "./secret-allowlist.js";
 import {
-  PREFIX_PATTERNS,
+  REDACTION_PREFIX_PATTERNS,
   type SecretPrefixPattern,
 } from "./secret-patterns.js";
 
@@ -71,9 +71,14 @@ function derivePluginScannerPattern(p: SecretPrefixPattern): SecretPattern {
   };
 }
 
-// Static patterns derived from the shared source of truth.
+// Static patterns derived from the shared source of truth. This scanner
+// redacts by replacing the matched span in place, so it uses the bounded
+// whole-block private-key matcher (via REDACTION_PREFIX_PATTERNS): the match
+// must cover header → body → footer or the key body would survive redaction.
+// The bound keeps it O(n) on large serialized strings; `detectSecretsInText`
+// (chat) keeps the unbounded whole-block matcher for full-key capture.
 const PREFIX_DERIVED: SecretPattern[] =
-  PREFIX_PATTERNS.map(deriveScannerPattern);
+  REDACTION_PREFIX_PATTERNS.map(deriveScannerPattern);
 
 // Scanner-only patterns that require surrounding context or are not
 // simple prefix matches — these stay defined here.

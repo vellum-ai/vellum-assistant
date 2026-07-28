@@ -1,4 +1,9 @@
-import { useHasPlatformSession } from "@/stores/auth-store";
+import { useEffect, useState } from "react";
+
+import {
+  useHasPlatformSession,
+  useIsPlatformSessionSettled,
+} from "@/stores/auth-store";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { isLocalMode, isPlatformDisabled } from "@/lib/local-mode";
 
@@ -17,6 +22,33 @@ import { isLocalMode, isPlatformDisabled } from "@/lib/local-mode";
  *                    active assistant.
  */
 export type PlatformGateState = "full" | "disabled" | "gated";
+
+/**
+ * {@link PlatformGateState} plus the pre-settle window as its own value.
+ *
+ *   - `"pending"` — the platform-session probe has not settled, so "no session"
+ *     is not an answer yet, only the absence of one. A surface whose decision
+ *     is irreversible for the user (leaving the route, dropping stashed state,
+ *     bouncing a paid entry point) must hold here rather than read it as
+ *     `"disabled"`.
+ *
+ * {@link usePlatformGate} collapses `"pending"` into `"disabled"`: the surfaces
+ * it serves render either way and correct themselves when the probe lands, so
+ * an extra state would only add a branch nothing acts on.
+ */
+export type PlatformGateStateWithPending = PlatformGateState | "pending";
+
+/**
+ * How long {@link usePlatformGateWithPending} holds `"pending"` before deciding
+ * on `"disabled"`.
+ *
+ * Every path that completes settles the probe itself; this bounds the one that
+ * never completes. The fallback matches the route guard's: an unsettled session
+ * means "no decision yet" and a settled-absent one means "no platform account",
+ * so forcing the decision can only turn a non-decision into that documented
+ * answer.
+ */
+export const PLATFORM_SESSION_SETTLE_TIMEOUT_MS = 5_000;
 
 export interface PlatformGateOptions {
   /**
@@ -65,6 +97,14 @@ export interface PlatformGateOptions {
   platformHostedOnly?: boolean;
 }
 
+export interface PendingPlatformGateOptions extends PlatformGateOptions {
+  /**
+   * How long `"pending"` may hold before the gate decides on `"disabled"`.
+   * Defaults to {@link PLATFORM_SESSION_SETTLE_TIMEOUT_MS}; tests shorten it.
+   */
+  settleTimeoutMs?: number;
+}
+
 /**
  * Is the currently-active assistant self-hosted? Reads from
  * `useAssistantLifecycleStore` so the answer reactively flips as the
@@ -82,8 +122,12 @@ export interface PlatformGateOptions {
  */
 export function useActiveAssistantIsSelfHosted(): boolean {
   const assistantState = useAssistantLifecycleStore.use.assistantState();
-  if (assistantState.kind === "self_hosted") return true;
-  if (assistantState.kind === "active" && assistantState.isLocal) return true;
+  if (assistantState.kind === "self_hosted") {
+    return true;
+  }
+  if (assistantState.kind === "active" && assistantState.isLocal) {
+    return true;
+  }
   return false;
 }
 
@@ -119,7 +163,9 @@ export function useActiveAssistantIsSelfHosted(): boolean {
  */
 export function useActiveAssistantIsPlatformHosted(): boolean {
   const assistantState = useAssistantLifecycleStore.use.assistantState();
-  if (assistantState.kind === "active" && !assistantState.isLocal) return true;
+  if (assistantState.kind === "active" && !assistantState.isLocal) {
+    return true;
+  }
   return false;
 }
 
@@ -189,10 +235,55 @@ export function useActiveAssistantLifecycleIsLoading(): boolean {
  *     …). Gates on the active assistant's hosting instead of the app
  *     mode. See {@link PlatformGateOptions.platformHostedOnly} for its
  *     truth table and rationale.
+ *
+ * Both modes read the platform-session pre-settle window as `"disabled"`:
+ * these surfaces render either way and re-render when the probe lands. A
+ * surface that instead acts irreversibly on `"disabled"` wants
+ * {@link usePlatformGateWithPending}, which keeps that window distinct.
  */
 export function usePlatformGate(
   options: PlatformGateOptions = {},
 ): PlatformGateState {
+  const state = usePlatformGateDecision(options);
+  return state === "pending" ? "disabled" : state;
+}
+
+/**
+ * {@link usePlatformGate} with the pre-settle window kept distinct — see
+ * {@link PlatformGateStateWithPending}.
+ *
+ * `"pending"` is bounded: it is held for at most `settleTimeoutMs` (default
+ * {@link PLATFORM_SESSION_SETTLE_TIMEOUT_MS}) and then decides on `"disabled"`,
+ * so a probe that never settles still reaches an answer instead of holding a
+ * surface on its loading state forever.
+ *
+ * Use this only where reading the pre-settle window as `"disabled"` would take
+ * an action the user can't undo — leaving the route, clearing stashed state,
+ * bouncing a paid entry point. Everything else wants {@link usePlatformGate},
+ * which renders now and re-renders when the probe lands.
+ */
+export function usePlatformGateWithPending(
+  options: PendingPlatformGateOptions = {},
+): PlatformGateStateWithPending {
+  const state = usePlatformGateDecision(options);
+  const settleDeadlinePassed = useDeadlinePassed(
+    state === "pending",
+    options.settleTimeoutMs ?? PLATFORM_SESSION_SETTLE_TIMEOUT_MS,
+  );
+  if (state === "pending" && settleDeadlinePassed) {
+    return "disabled";
+  }
+  return state;
+}
+
+/**
+ * The gate's decision tree, with the platform-session pre-settle window
+ * reported as `"pending"`. The two public hooks differ only in what they do
+ * with that value.
+ */
+function usePlatformGateDecision(
+  options: PlatformGateOptions,
+): PlatformGateStateWithPending {
   // Atomic selectors — each returns a primitive so Zustand's default
   // `Object.is` snapshot equality is stable and `useSyncExternalStore`
   // does not loop. See CONVENTIONS.md § State management — `useShallow`
@@ -200,11 +291,17 @@ export function usePlatformGate(
   //
   // Gate on the bare platform-session signal — deliberately not a per-assistant
   // reachability check, which would fork on hosting type and change the
-  // self-hosted rows (states 3–5) of the truth table. `"unknown"` (pre-settle)
-  // gates the surface like `"absent"`.
+  // self-hosted rows (states 3–5) of the truth table.
   const hasPlatformSession = useHasPlatformSession();
+  const platformSessionSettled = useIsPlatformSessionSettled();
   const platformDisabled = isPlatformDisabled();
   const activeIsSelfHosted = useActiveAssistantIsSelfHosted();
+
+  // Only the negative branch consults the settle: `"present"` is a settled
+  // value by construction, so a live session is decisive on its own.
+  const noSession: PlatformGateStateWithPending = platformSessionSettled
+    ? "disabled"
+    : "pending";
 
   // Platform-hosted-only branch is fully self-contained: it only depends
   // on the active assistant's hosting and the platform session. The
@@ -212,13 +309,41 @@ export function usePlatformGate(
   // daemon-side API interceptor in local mode, which is orthogonal to
   // "is this UI's target assistant platform-hosted?"
   if (options.platformHostedOnly) {
-    if (activeIsSelfHosted) return "gated";
-    if (!hasPlatformSession) return "disabled";
+    if (activeIsSelfHosted) {
+      return "gated";
+    }
+    if (!hasPlatformSession) {
+      return noSession;
+    }
     return "full";
   }
 
   const local = isLocalMode();
-  if (local && platformDisabled) return "gated";
-  if (!hasPlatformSession) return "disabled";
+  if (local && platformDisabled) {
+    return "gated";
+  }
+  if (!hasPlatformSession) {
+    return noSession;
+  }
   return "full";
+}
+
+/**
+ * `true` once `timeoutMs` has elapsed with `armed` continuously set. Disarming
+ * cancels the timer and clears the result, so a window that reopens gets a
+ * fresh deadline rather than an already-expired one.
+ */
+function useDeadlinePassed(armed: boolean, timeoutMs: number): boolean {
+  const [passed, setPassed] = useState(false);
+  useEffect(() => {
+    if (!armed) {
+      setPassed(false);
+      return;
+    }
+    const timer = setTimeout(() => setPassed(true), timeoutMs);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [armed, timeoutMs]);
+  return passed;
 }

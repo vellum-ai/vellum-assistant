@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   buildCompletionSummary,
   createSurfaceMutex,
@@ -10,7 +11,6 @@ import type {
   ChoiceSurfaceData,
   CopyBlockSurfaceData,
   OAuthConnectSurfaceData,
-  ServerMessage,
   SurfaceType,
   UiSurfaceShow,
 } from "../daemon/message-protocol.js";
@@ -18,7 +18,7 @@ import { INTERACTIVE_SURFACE_TYPES } from "../daemon/message-protocol.js";
 import { uiShowTool } from "../tools/ui-surface/definitions.js";
 import { uiShowTeachingError } from "../tools/ui-surface/surface-shape-docs.js";
 
-function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext {
+function makeContext(sent: AssistantEvent[] = []): SurfaceConversationContext {
   return {
     conversationId: "session-1",
     sendToClient: (msg) => sent.push(msg),
@@ -67,7 +67,7 @@ describe("choice and copy_block surface definitions", () => {
 
 describe("choice and copy_block surface proxying", () => {
   test("ui_show normalizes choice options and creates recommended action payloads", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -126,7 +126,7 @@ describe("choice and copy_block surface proxying", () => {
   });
 
   test("ui_show rejects choice surfaces without valid options", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -142,7 +142,7 @@ describe("choice and copy_block surface proxying", () => {
   });
 
   test("ui_show passes copy_block data through without awaiting action", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -174,7 +174,7 @@ describe("choice and copy_block surface proxying", () => {
   });
 
   test("ui_show passes oauth_connect data through and awaits action", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -211,7 +211,7 @@ describe("choice and copy_block surface proxying", () => {
   });
 
   test("ui_show rejects oauth_connect without providerKey", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -225,7 +225,7 @@ describe("choice and copy_block surface proxying", () => {
   });
 
   test("ui_show recovers copy_block data sent as a JSON-encoded string", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -249,7 +249,7 @@ describe("choice and copy_block surface proxying", () => {
   });
 
   test("ui_show recovers copy_block fields placed at the top level of the input", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -275,7 +275,7 @@ describe("choice and copy_block surface proxying", () => {
   });
 
   test("ui_show rejects an unknown surface_type with the valid values", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -291,7 +291,7 @@ describe("choice and copy_block surface proxying", () => {
 
   test("ui_show rejects daemon-internal surface types and omits them from the valid list", async () => {
     for (const internalType of ["skill_card", "call_summary"]) {
-      const sent: ServerMessage[] = [];
+      const sent: AssistantEvent[] = [];
       const ctx = makeContext(sent);
 
       const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -325,7 +325,7 @@ describe("choice and copy_block surface proxying", () => {
   });
 
   test("uiShowTool.execute renders a copy_block whose text is at the top level", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
     const result = await uiShowTool.execute(
       { surface_type: "copy_block", text: "bunx vellum doctor", data: {} },
@@ -347,7 +347,7 @@ describe("choice and copy_block surface proxying", () => {
   });
 
   test("uiShowTool.execute renders a dynamic_page whose html is at the top level", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
     const result = await uiShowTool.execute(
       { surface_type: "dynamic_page", html: "<p>hello</p>", data: {} },

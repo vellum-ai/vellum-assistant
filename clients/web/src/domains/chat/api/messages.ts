@@ -431,6 +431,7 @@ export type PostChatMessageOptions = Pick<
   | "inferenceProfile"
   | "enabledPlugins"
   | "hidden"
+  | "bypassSecretCheck"
 > & {
   /** PreChat onboarding context — see the `postChatMessage` docs. */
   onboarding?: PreChatOnboardingContext;
@@ -470,6 +471,7 @@ export async function postChatMessage(
     inferenceProfile,
     enabledPlugins,
     hidden,
+    bypassSecretCheck,
   } = options;
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
@@ -543,6 +545,13 @@ export async function postChatMessage(
   // the channel-setup wizard close/hand-off notifications.
   if (hidden) {
     body.hidden = true;
+  }
+  // Single-use override for the daemon's `secret_blocked` ingress guard,
+  // set only when the user explicitly confirmed a client-side blocked send
+  // (the composer's "Send anyway" action). Applies to this message alone —
+  // never persisted, and omitted from every ordinary send.
+  if (bypassSecretCheck) {
+    body.bypassSecretCheck = true;
   }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)

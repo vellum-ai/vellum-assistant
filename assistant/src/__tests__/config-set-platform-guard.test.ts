@@ -174,8 +174,10 @@ describe("config set - platform connection guard for service mode paths", () => 
     mockIpcResult = { ok: true, result: { ok: true } };
   });
 
-  test("config set services.image-generation.mode your-own - succeeds without platform connection", async () => {
-    const { exitCode } = await runCli([
+  test("config set services.image-generation.mode - rejected with provider guidance, no IPC write emitted", async () => {
+    // The image-generation schema has no mode field; a raw write would be
+    // stripped at parse while the CLI reported success.
+    const { exitCode, stdout } = await runCli([
       "node",
       "assistant",
       "--json",
@@ -185,16 +187,13 @@ describe("config set - platform connection guard for service mode paths", () => 
       "your-own",
     ]);
 
-    expect(exitCode).toBe(0);
-    // The CLI should have emitted exactly one config_set IPC call.
-    const setCalls = mockIpcCalls.filter((c) => c.method === "config_set");
-    expect(setCalls).toHaveLength(1);
-    expect(setCalls[0]!.params).toEqual({
-      body: {
-        path: "services.image-generation.mode",
-        value: "your-own",
-      },
-    });
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("services.image-generation.provider vellum");
+    expect(mockIpcCalls.filter((c) => c.method === "config_set")).toHaveLength(
+      0,
+    );
   });
 
   test("config set calls.enabled true - succeeds without platform connection and parses to boolean", async () => {

@@ -26,6 +26,24 @@ describe("redactLogString", () => {
     expect(redactLogString(input)).toBe(input);
   });
 
+  test("redacts a whole PEM private-key block — body and footer, not just the header", () => {
+    // Synthetic fake PEM material only — never a real key. `redactLogString`
+    // replaces the matched span in place, so the match must cover
+    // header→body→footer or the base64 body and END footer leak into logs.
+    const fakeBody =
+      "MIIFAKEfakefakefakefakefakefakefakefakefake\n" +
+      "FAKEfakefakefakefakefakefakefakefakefake==";
+    const block = `-----BEGIN RSA PRIVATE KEY-----\n${fakeBody}\n-----END RSA PRIVATE KEY-----`;
+    const result = redactLogString(`error dumping key: ${block} <eol>`);
+    expect(result).toContain("[REDACTED]");
+    expect(result).not.toContain("MIIFAKE");
+    expect(result).not.toContain("FAKEfake");
+    expect(result).not.toContain("-----BEGIN");
+    expect(result).not.toContain("-----END");
+    expect(result).toContain("error dumping key:");
+    expect(result).toContain("<eol>");
+  });
+
   describe("plugin-declared patterns", () => {
     // Synthetic token mirroring the incident's shape (never a real credential).
     const pluginKey = "virlo_tkn_Qm7pW2xLbV9sKjR4tNcY8dZh3Fg";

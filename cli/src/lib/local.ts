@@ -548,6 +548,7 @@ export function generateLocalSigningKey(): string {
 type DaemonStartOptions = {
   foreground?: boolean;
   defaultWorkspaceConfigPath?: string;
+  requireReady?: boolean;
   signingKey?: string;
 };
 
@@ -597,7 +598,10 @@ function applyDaemonEnvOverrides(
   applyIpcSocketDirOverride(env);
 }
 
-function logDaemonReadiness(readiness: DaemonReadiness): void {
+function logDaemonReadiness(
+  readiness: DaemonReadiness,
+  requireReady = false,
+): void {
   switch (readiness) {
     case "ready":
       console.log("   Assistant ready\n");
@@ -613,6 +617,11 @@ function logDaemonReadiness(readiness: DaemonReadiness): void {
       );
       break;
     default:
+      if (requireReady) {
+        throw new Error(
+          "Assistant did not bind its local port within 60 seconds.",
+        );
+      }
       console.log(
         "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
       );
@@ -1320,6 +1329,7 @@ export async function startLocalDaemon(
           resources.daemonPort,
           Date.now() + 60000,
         ),
+        options?.requireReady,
       );
     }
     return;
@@ -1362,6 +1372,7 @@ export async function startLocalDaemon(
         // classifies it without blocking on an in-flight migration.
         logDaemonReadiness(
           await probeDaemonReadinessWithRetry(resources.daemonPort),
+          options?.requireReady,
         );
         return;
       }
@@ -1513,7 +1524,7 @@ export async function startLocalDaemon(
         readiness = await probeDaemonReadiness(resources.daemonPort);
       }
 
-      logDaemonReadiness(readiness);
+      logDaemonReadiness(readiness, options?.requireReady);
     }
   } else {
     console.log("🔨 Starting local assistant...");
@@ -1535,6 +1546,7 @@ export async function startLocalDaemon(
           resources.daemonPort,
           Date.now() + 60000,
         ),
+        options?.requireReady,
       );
     }
   }
@@ -1547,6 +1559,7 @@ export async function startGateway(
     signingKey?: string;
     bootstrapSecret?: string;
     envOverrides?: Record<string, string>;
+    requireReady?: boolean;
   },
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
@@ -1676,6 +1689,11 @@ export async function startGateway(
   // connection-refused errors.
   const ready = await waitForDaemonReady(effectiveGatewayPort, 30000);
   if (!ready) {
+    if (options?.requireReady) {
+      throw new Error(
+        "Assistant gateway did not bind its local port within 30 seconds.",
+      );
+    }
     console.warn(
       "⚠ Gateway started but health check did not respond within 30s",
     );

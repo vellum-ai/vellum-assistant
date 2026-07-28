@@ -1,5 +1,5 @@
 
-import { AlertTriangle, HardDrive } from "lucide-react";
+import { AlertTriangle, Package } from "lucide-react";
 import { useState } from "react";
 
 import { formatDiskPressureUsage } from "@/assistant/disk-pressure";
@@ -46,8 +46,8 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
     return (
       <Notice
         tone="warning"
-        title="Storage is running low"
-        icon={<HardDrive className="h-4 w-4" aria-hidden="true" />}
+        title="Your storage is almost full"
+        icon={<Package className="h-4 w-4" aria-hidden="true" />}
         onDismiss={
           onDismissWarning
             ? () => onDismissWarning(dontShowAgain)
@@ -72,7 +72,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
             </span>
           </div>
           <p className="m-0">
-            Your assistant will enter a locked state if it runs out of storage.
+            Free up space or add more storage to avoid interruptions.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             {onReviewWorkspaceData && (
@@ -81,7 +81,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
                 size="compact"
                 onClick={onReviewWorkspaceData}
               >
-                Review Workspace Data
+                Manage Storage
               </Button>
             )}
             {onUpgradeStorage && (
@@ -90,7 +90,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
                 size="compact"
                 onClick={onUpgradeStorage}
               >
-                Upgrade Storage
+                Upgrade
               </Button>
             )}
             {onDismissWarning ? (
@@ -115,7 +115,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
       <Notice
         tone="warning"
         title="Cleanup mode is active"
-        icon={<HardDrive className="h-4 w-4" aria-hidden="true" />}
+        icon={<Package className="h-4 w-4" aria-hidden="true" />}
         className="p-4"
         data-testid="disk-pressure-banner"
       >
@@ -144,7 +144,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
                 size="compact"
                 onClick={onReviewWorkspaceData}
               >
-                Review Workspace Data
+                Manage Storage
               </Button>
             )}
             {onUpgradeStorage && (
@@ -153,7 +153,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
                 size="compact"
                 onClick={onUpgradeStorage}
               >
-                Upgrade Storage
+                Upgrade
               </Button>
             )}
           </div>
@@ -169,7 +169,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
       <Notice
         tone="error"
         title="Storage is critically low"
-        icon={<HardDrive className="h-4 w-4" aria-hidden="true" />}
+        icon={<Package className="h-4 w-4" aria-hidden="true" />}
         className="p-4"
         data-testid="disk-pressure-banner"
       >
@@ -239,7 +239,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
                   onUpgradeStorage();
                 }}
               >
-                Upgrade Storage
+                Upgrade
               </Button>
             )}
             <Button

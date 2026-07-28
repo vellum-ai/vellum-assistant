@@ -330,6 +330,11 @@ export function useStreamEventHandler(
         case "ui_surface_complete":
           handleUISurfaceComplete(event, ctx);
           break;
+        // Surface undo result. The chat handler is a no-op — the undo is driven
+        // through the `surfaces/:id/undo` HTTP route and its response; the web
+        // does not render the broadcast result.
+        case "ui_surface_undo_result":
+          break;
         case "tool_use_start":
           handleToolUseStart(event, ctx);
           break;

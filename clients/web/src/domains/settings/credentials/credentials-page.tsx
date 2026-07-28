@@ -1,17 +1,19 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, KeyRound, Link2, Loader2, Plus, Search } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import {
+  AddCredentialModal,
+  credentialsListQueryKey,
+} from "@/components/add-credential-modal";
 import { DetailCard } from "@/components/detail-card";
 import { NotFound } from "@/components/not-found";
-import {
-  useCredentialsDeletePostMutation,
-  useCredentialsSetPostMutation,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { useCredentialsDeletePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { credentialsListPost } from "@/generated/daemon/sdk.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useSupportsCredentialsSettings } from "@/lib/backwards-compat/use-supports-credentials-settings";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -48,10 +50,6 @@ interface GeneratedLink {
   expiresAt: number | null;
 }
 
-function credentialsListQueryKey(assistantId: string) {
-  return ["credentials-list", assistantId] as const;
-}
-
 /** Below this count, scanning the list beats typing — so we hide the search. */
 const SEARCH_VISIBILITY_THRESHOLD = 6;
 
@@ -59,14 +57,22 @@ const SEARCH_VISIBILITY_THRESHOLD = 6;
 type CredentialView = "own" | "managed";
 
 export function CredentialsPage() {
-  const credentialsSettingsEnabled =
-    useAssistantFeatureFlagStore.use.credentialsSettings();
-  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
+  const assistantId = useActiveAssistantId();
+  // Older assistants don't serve the credentials-page routes (v0.10.8+); on
+  // direct navigation render NotFound once the version is known, and nothing
+  // while it hydrates. "Known" requires the identity snapshot to belong to
+  // THIS assistant: mid-switch the store can still hold the previous
+  // assistant's non-null version, which must read as unresolved, not 404.
+  const supportsCredentials = useSupportsCredentialsSettings(assistantId);
+  const identityAssistantId = useAssistantIdentityStore.use.assistantId();
+  const versionResolvedForOwner =
+    useAssistantIdentityStore.use.version() !== null &&
+    identityAssistantId === assistantId;
 
-  if (flagsHydrated && !credentialsSettingsEnabled) {
+  if (versionResolvedForOwner && !supportsCredentials) {
     return <NotFound />;
   }
-  if (!flagsHydrated) {
+  if (!supportsCredentials) {
     return null;
   }
   return <CredentialsPageInner />;
@@ -76,8 +82,6 @@ function CredentialsPageInner() {
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
   const isOrgReady = useIsOrgReady();
-  const credentialRequestsEnabled =
-    useAssistantFeatureFlagStore.use.credentialRequests();
 
   const listQueryKey = credentialsListQueryKey(assistantId);
   const listQuery = useQuery({
@@ -106,16 +110,6 @@ function CredentialsPageInner() {
     [listQuery.data],
   );
 
-  const setMutation = useCredentialsSetPostMutation({
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: listQueryKey });
-      toast.success("Credential saved.");
-    },
-    onError: (err) => {
-      toast.error(err.message || "Failed to save credential");
-    },
-  });
-
   const deleteMutation = useCredentialsDeletePostMutation({
     onError: (err) => {
       toast.error(err.message || "Failed to delete credential");
@@ -127,10 +121,6 @@ function CredentialsPageInner() {
   const [isShowingAddForm, setIsShowingAddForm] = useState(false);
   const [credentialView, setCredentialView] = useState<CredentialView>("own");
   const [searchText, setSearchText] = useState("");
-  const [service, setService] = useState("");
-  const [field, setField] = useState("");
-  const [value, setValue] = useState("");
-  const [label, setLabel] = useState("");
   const [pendingDeletion, setPendingDeletion] =
     useState<StoredCredential | null>(null);
   const [generatedLink, setGeneratedLink] = useState<GeneratedLink | null>(
@@ -140,7 +130,6 @@ function CredentialsPageInner() {
     null,
   );
 
-  const saving = setMutation.isPending;
   const deletingName = deleteMutation.isPending
     ? `${deleteMutation.variables?.body?.service}:${deleteMutation.variables?.body?.field}`
     : null;
@@ -183,38 +172,6 @@ function CredentialsPageInner() {
   }, [credentials.length, managedCredentials.length]);
 
   // --- Handlers ---
-
-  const resetAddForm = () => {
-    setIsShowingAddForm(false);
-    setService("");
-    setField("");
-    setValue("");
-    setLabel("");
-  };
-
-  const handleSave = (e?: FormEvent) => {
-    e?.preventDefault();
-    const trimmedService = service.trim();
-    const trimmedField = field.trim();
-    // The secret value is stored verbatim — some secrets legitimately carry
-    // leading/trailing whitespace, and the CLI set path stores them unchanged.
-    // Trimming is used only to reject effectively-empty input.
-    if (!trimmedService || !trimmedField || !value.trim()) {
-      return;
-    }
-    setMutation.mutate(
-      {
-        path: { assistant_id: assistantId },
-        body: {
-          service: trimmedService,
-          field: trimmedField,
-          value,
-          label: label.trim() || undefined,
-        },
-      },
-      { onSuccess: resetAddForm },
-    );
-  };
 
   const confirmDelete = () => {
     const credential = pendingDeletion;
@@ -387,7 +344,6 @@ function CredentialsPageInner() {
                           key={credential.credentialId ?? name}
                           credential={credential}
                           assistantId={assistantId}
-                          canGenerateLink={credentialRequestsEnabled}
                           generatingLink={generatingLinkName === name}
                           deleting={deletingName === name}
                           onGenerateLink={() =>
@@ -447,91 +403,10 @@ function CredentialsPageInner() {
         onCancel={() => setPendingDeletion(null)}
       />
 
-      <Modal.Root
+      <AddCredentialModal
         open={isShowingAddForm}
-        onOpenChange={(open) => {
-          // Ignore dismissal (Escape / backdrop) while a save is in flight so a
-          // slow or failing mutation can't discard the entered secret, which
-          // the user may not be able to recover. The form clears only once the
-          // mutation settles (resetAddForm runs on success and on explicit
-          // Cancel, which is itself disabled while saving).
-          if (!open && !saving) {
-            resetAddForm();
-          }
-        }}
-      >
-        <Modal.Content size="sm">
-          <form onSubmit={handleSave}>
-            <Modal.Header>
-              <Modal.Title icon={KeyRound}>Add credential</Modal.Title>
-              <Modal.Description>
-                Add an API key or token to let tools and integrations use it.
-              </Modal.Description>
-            </Modal.Header>
-            <Modal.Body className="flex flex-col gap-3">
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Input
-                  label="Service"
-                  type="text"
-                  value={service}
-                  onChange={(e) => setService(e.target.value)}
-                  placeholder="e.g. github"
-                  autoFocus
-                  fullWidth
-                />
-                <Input
-                  label="Field"
-                  type="text"
-                  value={field}
-                  onChange={(e) => setField(e.target.value)}
-                  placeholder="e.g. api_token"
-                  fullWidth
-                />
-              </div>
-              <Input
-                label="Value"
-                type="password"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                placeholder="Enter the secret value"
-                fullWidth
-              />
-              <Input
-                label="Label (optional)"
-                type="text"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="e.g. GitHub personal access token"
-                fullWidth
-              />
-            </Modal.Body>
-            <Modal.Footer>
-              <Button
-                type="button"
-                variant="outlined"
-                onClick={resetAddForm}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={
-                  saving || !service.trim() || !field.trim() || !value.trim()
-                }
-                leftIcon={
-                  saving ? (
-                    <Loader2 className="animate-spin" aria-hidden />
-                  ) : undefined
-                }
-              >
-                Save
-              </Button>
-            </Modal.Footer>
-          </form>
-        </Modal.Content>
-      </Modal.Root>
+        onClose={() => setIsShowingAddForm(false)}
+      />
 
       <Modal.Root
         open={generatedLink !== null}

@@ -214,7 +214,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T16:26:29.000Z"
+      "updatedAt": "2026-07-23T16:33:06.000Z"
     },
     {
       "id": "email-setup",
@@ -731,7 +731,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T14:02:39.000Z"
+      "updatedAt": "2026-07-27T13:35:46.000Z"
     },
     {
       "id": "public-ingress",
@@ -869,7 +869,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T15:56:47.000Z"
+      "updatedAt": "2026-07-24T22:39:12.000Z"
     },
     {
       "id": "start-the-day",
@@ -1107,7 +1107,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-22T18:02:37.000Z"
+      "updatedAt": "2026-07-27T16:03:59.000Z"
     },
     {
       "id": "vellum-oauth-integrations",
@@ -1268,7 +1268,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-23T16:26:29.000Z"
+      "updatedAt": "2026-07-23T16:33:06.000Z"
     },
     {
       "id": "watch-together",

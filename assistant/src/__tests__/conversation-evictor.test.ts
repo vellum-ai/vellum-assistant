@@ -19,11 +19,15 @@ import {
 
 function createMockSession(
   processing = false,
+  queued = false,
 ): EvictableConversation & { disposed: boolean } {
   return {
     disposed: false,
     isProcessing() {
       return processing;
+    },
+    hasQueuedMessages() {
+      return queued;
     },
     dispose() {
       this.disposed = true;
@@ -98,6 +102,21 @@ describe("ConversationEvictor", () => {
       expect(sessions.has("a")).toBe(true);
       expect(s1.disposed).toBe(false);
     });
+
+    test("skips sessions with queued messages even when not processing", () => {
+      // Models the gap between a turn's `finally` and the async queue-drain
+      // dispatch: isProcessing() is false but a queued turn (e.g. a subagent
+      // completion wake) is still pending.
+      const s1 = createMockSession(false, true);
+      sessions.set("a", s1);
+
+      const result = evictor.sweep();
+
+      expect(result.ttlEvicted).toBe(0);
+      expect(result.skipped).toBe(1);
+      expect(sessions.has("a")).toBe(true);
+      expect(s1.disposed).toBe(false);
+    });
   });
 
   describe("LRU eviction", () => {
@@ -130,6 +149,36 @@ describe("ConversationEvictor", () => {
       expect(sessions.has("s2")).toBe(true);
       expect(sessions.has("s3")).toBe(true);
       expect(sessions.has("s4")).toBe(true);
+    });
+
+    test("skips sessions with queued messages during LRU eviction", () => {
+      // maxConversations = 3, add 4 sessions; the LRU one has a queued turn.
+      const s0 = createMockSession(false, true); // queued — should not be evicted
+      const s1 = createMockSession();
+      const s2 = createMockSession();
+      const s3 = createMockSession();
+      sessions.set("s0", s0);
+      sessions.set("s1", s1);
+      sessions.set("s2", s2);
+      sessions.set("s3", s3);
+
+      const now = Date.now();
+      const lastAccess = (
+        evictor as unknown as { lastAccess: Map<string, number> }
+      ).lastAccess;
+      lastAccess.set("s0", now - 50); // old but has queued messages
+      lastAccess.set("s1", now - 40);
+      lastAccess.set("s2", now);
+      lastAccess.set("s3", now);
+
+      const result = evictor.sweep();
+
+      // s1 is the LRU evictable session, gets evicted
+      expect(result.lruEvicted).toBe(1);
+      expect(sessions.has("s0")).toBe(true); // kept: queued messages
+      expect(sessions.has("s1")).toBe(false); // evicted: LRU
+      expect(s0.disposed).toBe(false);
+      expect(s1.disposed).toBe(true);
     });
 
     test("skips processing sessions during LRU eviction", () => {

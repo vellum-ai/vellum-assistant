@@ -11,6 +11,8 @@ const PROGRESS_DEFAULTS = {
   enabled: true,
   opsThreshold: 3,
   idleIntervalMs: 5_000,
+  maxSilenceMs: 35_000,
+  longOpMs: 15_000,
   minGapMs: 6_000,
   generationTimeoutMs: 1_500,
 };
@@ -21,7 +23,6 @@ const FRONT_MODEL_DEFAULTS = {
   endpointMaxExtensions: 2,
   ackFirstDeltaTimeoutMs: 2500,
   ackGenerationTimeoutMs: 600,
-  llmAckText: false,
   progress: PROGRESS_DEFAULTS,
 };
 
@@ -86,11 +87,9 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
     const parsed = LiveVoiceFrontModelConfigSchema.parse({
       endpointDecisionTimeoutMs: 400,
       endpointMaxExtensions: 0,
-      llmAckText: true,
     });
     expect(parsed.endpointDecisionTimeoutMs).toBe(400);
     expect(parsed.endpointMaxExtensions).toBe(0);
-    expect(parsed.llmAckText).toBe(true);
     // Unspecified fields still get defaults
     expect(parsed.endpointExtensionMs).toBe(1500);
     expect(parsed.ackFirstDeltaTimeoutMs).toBe(2500);
@@ -111,19 +110,6 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("rejects a non-boolean llmAckText", () => {
-    const result = LiveVoiceFrontModelConfigSchema.safeParse({
-      llmAckText: "yes",
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map((i) => i.message);
-      expect(
-        msgs.some((m) => m.includes("liveVoice.frontModel.llmAckText")),
-      ).toBe(true);
-    }
-  });
-
   test("absent progress namespace parses to full progress defaults", () => {
     const parsed = LiveVoiceFrontModelConfigSchema.parse({});
     expect(parsed.progress).toEqual(PROGRESS_DEFAULTS);
@@ -137,6 +123,8 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
     expect(parsed.progress.opsThreshold).toBe(5);
     // Unspecified progress fields still get defaults
     expect(parsed.progress.idleIntervalMs).toBe(5_000);
+    expect(parsed.progress.maxSilenceMs).toBe(35_000);
+    expect(parsed.progress.longOpMs).toBe(15_000);
     expect(parsed.progress.minGapMs).toBe(6_000);
     expect(parsed.progress.generationTimeoutMs).toBe(1_500);
   });
@@ -154,6 +142,29 @@ describe("LiveVoiceFrontModelConfigSchema", () => {
       progress: { opsThreshold: 0 },
     });
     expect(result.success).toBe(false);
+  });
+
+  test("rejects a heartbeat ceiling shorter than the idle tick interval", () => {
+    // The heartbeat is only checked on the idle tick, so a shorter ceiling
+    // could be overshot by a full interval.
+    const result = LiveVoiceFrontModelConfigSchema.safeParse({
+      progress: { idleIntervalMs: 60_000, maxSilenceMs: 10_000 },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((issue) => issue.message);
+      expect(
+        msgs.some((msg) =>
+          msg.includes("liveVoice.frontModel.progress.maxSilenceMs"),
+        ),
+      ).toBe(true);
+    }
+    // The floor itself is allowed: the tick is exactly on the ceiling.
+    expect(
+      LiveVoiceFrontModelConfigSchema.safeParse({
+        progress: { idleIntervalMs: 60_000, maxSilenceMs: 60_000 },
+      }).success,
+    ).toBe(true);
   });
 
   test("rejects a non-boolean progress.enabled", () => {

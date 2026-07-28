@@ -8,6 +8,7 @@ import {
 import {
   _isPlaceholder,
   redactSecrets,
+  redactSecretsWith,
   scanText,
   type SecretMatch,
 } from "../security/secret-scanner.js";
@@ -430,6 +431,41 @@ describe("redaction", () => {
     const result = redactSecrets(input);
     expect(result).toContain('<redacted type="AWS Access Key" />');
     expect(result).toContain('<redacted type="GitHub Token" />');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PEM private-key body redaction — the scanner replaces the matched span in
+// place, so the match must cover header→body→footer or the base64 body and
+// END footer survive redaction (the header-only-matcher leak this fixes).
+// Synthetic fake PEM material only — never a real key.
+// ---------------------------------------------------------------------------
+describe("private-key block redaction", () => {
+  const FAKE_PEM_BODY =
+    "MIIFAKEfakefakefakefakefakefakefakefakefake\n" +
+    "FAKEfakefakefakefakefakefakefakefakefake==";
+  const FULL_PEM_BLOCK = `-----BEGIN RSA PRIVATE KEY-----\n${FAKE_PEM_BODY}\n-----END RSA PRIVATE KEY-----`;
+
+  test("redactSecrets removes the whole block — body and footer, not just the header", () => {
+    const input = `here is the key:\n${FULL_PEM_BLOCK}\nuse it well`;
+    const result = redactSecrets(input);
+    expect(result).toContain('<redacted type="Private Key" />');
+    // The base64 body must not survive.
+    expect(result).not.toContain("MIIFAKE");
+    expect(result).not.toContain("FAKEfake");
+    // Header and footer must not survive either.
+    expect(result).not.toContain("-----BEGIN");
+    expect(result).not.toContain("-----END");
+    // Surrounding text is preserved.
+    expect(result).toContain("here is the key:");
+    expect(result).toContain("use it well");
+  });
+
+  test("redactSecretsWith removes the whole block", () => {
+    const result = redactSecretsWith(FULL_PEM_BLOCK, () => "[KEY]");
+    expect(result).toBe("[KEY]");
+    expect(result).not.toContain("MIIFAKE");
+    expect(result).not.toContain("-----END");
   });
 });
 

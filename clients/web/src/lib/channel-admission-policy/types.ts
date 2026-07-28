@@ -31,7 +31,11 @@ export const INTERNAL_CHANNELS = new Set<string>(["platform", "a2a"]);
  * them into the UI. Mirrors `ADMISSION_POLICY_HIDDEN_CHANNELS` in
  * `packages/gateway-client/src/admission-policy-contract.ts`.
  */
-export const HIDDEN_CHANNELS = new Set<string>(["vellum", "whatsapp"]);
+export const HIDDEN_CHANNELS = new Set<string>([
+  "vellum",
+  "whatsapp",
+  "discord",
+]);
 
 export function isHiddenChannel(channelType: string): boolean {
   return HIDDEN_CHANNELS.has(channelType);

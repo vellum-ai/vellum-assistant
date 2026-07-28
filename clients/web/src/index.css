@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "@vellumai/design-library/tokens.css";
-@source "../node_modules/@vellumai/design-library/src/**/*.tsx";
 
 /* Base element styles — theme-aware defaults inherited by all descendants. */
 body {
@@ -132,7 +131,7 @@ body {
 /* Live-voice transcript caret — a thin bar blinking like a text caret at the
  * end of the streaming speech transcript in the composer (Light 55). The
  * component also holds it static via useReducedMotion; the media query is
- * defense-in-depth matching .avatar-streaming-ring below. */
+ * defense-in-depth for callers that don't. */
 @keyframes voice-caret-blink {
   0%, 50% { opacity: 1; }
   50.01%, 100% { opacity: 0; }
@@ -214,33 +213,6 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .stream-word-fade {
     transition: none;
-  }
-}
-
-/* Avatar streaming ring — a semicircular arc that traces the circular avatar's
-   edge and spins continuously while the assistant is streaming/loading. Used
-   only for custom uploaded-image avatars; character avatars convey streaming
-   through their own morph animation instead. Two adjacent borders are colored
-   (each border occupies a 90° quadrant of the ring when border-radius is 50%,
-   so two adjacent borders make a 180° semicircle); the rest stay transparent,
-   and the whole ring rotates. Border thickness/inset are set inline so the
-   ring scales with avatar size. `prefers-reduced-motion` holds it static. */
-@keyframes avatar-ring-spin {
-  to { transform: rotate(360deg); }
-}
-
-.avatar-streaming-ring {
-  border-style: solid;
-  border-radius: 50%;
-  border-color: transparent;
-  border-top-color: var(--border-active);
-  border-right-color: var(--border-active);
-  animation: avatar-ring-spin 0.85s linear infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .avatar-streaming-ring {
-    animation: none;
   }
 }
 
@@ -925,7 +897,8 @@ body {
   transform: translateY(-50%) scaleY(calc(0.5 + var(--voice-amp) * 0.7));
   opacity: calc(0.3 + var(--voice-amp) * 0.7);
 }
-.voice-listening-waves--center .voice-listening-waves__half {
+.voice-listening-waves--center .voice-listening-waves__half,
+.voice-listening-waves--inline .voice-listening-waves__half {
   position: absolute;
   left: 0;
   right: 0;
@@ -934,13 +907,28 @@ body {
 }
 /* Top half sits above the midline; its wave fill hugs the half's bottom edge
  * (= the center line), rippling upward. */
-.voice-listening-waves--center .voice-listening-waves__half--top {
+.voice-listening-waves--center .voice-listening-waves__half--top,
+.voice-listening-waves--inline .voice-listening-waves__half--top {
   top: 0;
 }
 /* Bottom half is the vertical mirror below the midline. */
-.voice-listening-waves--center .voice-listening-waves__half--bottom {
+.voice-listening-waves--center .voice-listening-waves__half--bottom,
+.voice-listening-waves--inline .voice-listening-waves__half--bottom {
   bottom: 0;
   transform: scaleY(-1);
+}
+
+/* Placement: inline = the band fills a small positioned container (the
+ * composer's voice-session bar strip) instead of anchoring to a screen edge.
+ * Same mirrored-halves structure as center — the wave fills meet at the
+ * strip's midline — with the amplitude swell expressed as a vertical scale
+ * around it. */
+.voice-listening-waves--inline {
+  inset: 0;
+  height: auto;
+  transform-origin: center;
+  transform: scaleY(calc(0.55 + var(--voice-amp) * 0.45));
+  opacity: calc(0.35 + var(--voice-amp) * 0.65);
 }
 
 /* Placement: top = the band sweeps in from the ceiling edge (both room looks —
@@ -973,6 +961,11 @@ body {
   /* Keep the top band pinned to the ceiling (flipped), just steady. */
   .voice-listening-waves--top {
     transform: scaleY(-1);
+    opacity: 0.4;
+  }
+  /* The inline strip is inset-anchored; it just holds steady. */
+  .voice-listening-waves--inline {
+    transform: none;
     opacity: 0.4;
   }
 }

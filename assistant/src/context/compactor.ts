@@ -1050,9 +1050,13 @@ function truncateHistoryToBudget(args: {
   systemPrompt: string;
   budgetTokens: number;
   providerName: string;
+  model?: string;
 }): Message[] {
-  const { messages, systemPrompt, budgetTokens, providerName } = args;
-  let estimate = estimatePromptTokens(messages, systemPrompt, { providerName });
+  const { messages, systemPrompt, budgetTokens, providerName, model } = args;
+  let estimate = estimatePromptTokens(messages, systemPrompt, {
+    providerName,
+    model,
+  });
   if (estimate <= budgetTokens || messages.length <= 1) {
     return messages;
   }
@@ -1061,6 +1065,7 @@ function truncateHistoryToBudget(args: {
     dropCount++;
     estimate = estimatePromptTokens(messages.slice(dropCount), systemPrompt, {
       providerName,
+      model,
     });
   }
   if (dropCount === 0) {
@@ -1155,6 +1160,7 @@ export async function runAssistantDrivenCompaction(
     systemPrompt: args.systemPrompt,
     budgetTokens: compactionPrefixBudget(args.maxInputTokens),
     providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
+    model: args.provider.defaultModel,
   });
   const requestMessages = buildCompactionRequest(summaryHistory, instruction);
 
@@ -1354,7 +1360,7 @@ export async function runAssistantDrivenCompaction(
       estimatePromptTokens(
         [...fixedPrefix, ...stripInjectionsForCompaction(tail)],
         args.systemPrompt,
-        { providerName, toolTokenBudget },
+        { providerName, model: args.provider.defaultModel, toolTokenBudget },
       );
     const floorIndex = resolveTailFloorIndex(args.messages, pairedTailIndex);
     const advanced = advanceTailForBudget({
@@ -1616,6 +1622,7 @@ export async function runEmergencyCompaction(
     systemPrompt: args.systemPrompt,
     budgetTokens: compactionPrefixBudget(args.maxInputTokens),
     providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
+    model: args.provider.defaultModel,
   });
 
   const instruction: Message = {

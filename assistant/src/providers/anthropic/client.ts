@@ -973,17 +973,19 @@ export class AnthropicProvider implements Provider {
         (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
       const isHaiku = effectiveModel.includes("haiku");
       const supportsEffort = !isHaiku;
-      // opus-4-7 / opus-4-8 and sonnet-5 reject `temperature`, `top_p`, and
-      // `top_k` with a 400 "`temperature`/`top_p` is deprecated for this model"
-      // — model-wide, not effort-conditional (verified 2026-06-23). opus-4-6 /
-      // sonnet-4-6 / haiku-4-5 still accept them. fable-5 is included
-      // conservatively (a frontier model that could not be verified directly
-      // but follows the same deprecation direction). Stripping the params here
-      // keeps callers that set them (e.g. the memory-v3 L2 selector's
-      // `temperature: 0`) from 400ing. OpenRouter `anthropic/...` models
-      // delegate to this provider, so the bare-id suffix is what matches.
+      // opus-4-7 / opus-4-8 / opus-5 and sonnet-5 reject `temperature`,
+      // `top_p`, and `top_k` with a 400 "`temperature`/`top_p` is deprecated
+      // for this model" — model-wide, not effort-conditional (verified
+      // 2026-06-23). opus-4-6 / sonnet-4-6 / haiku-4-5 still accept them.
+      // fable-5 is included conservatively (a frontier model that could not be
+      // verified directly but follows the same deprecation direction).
+      // Stripping the params here keeps callers that set them (e.g. the
+      // memory-v3 L2 selector's `temperature: 0`) from 400ing. OpenRouter
+      // `anthropic/...` models delegate to this provider, so the bare-id
+      // suffix is what matches.
       const deprecatesSamplingParams =
         /claude-opus-4-[78]\b/.test(effectiveModel) ||
+        /claude-opus-5\b/.test(effectiveModel) ||
         /claude-sonnet-5\b/.test(effectiveModel) ||
         effectiveModel.startsWith("claude-fable-");
       const mergedOutputConfig = {
@@ -1788,8 +1790,8 @@ export class AnthropicProvider implements Provider {
               ),
           );
 
-        // Preserve assistant turns that would otherwise become empty after filtering
-        // unknown block types (e.g. ui_surface). Dropping these messages can violate
+        // Preserve assistant turns that would otherwise become empty after
+        // filtering unknown block types. Dropping these messages can violate
         // Anthropic's role alternation requirement.
         if (
           content.length === 0 &&
@@ -1938,10 +1940,13 @@ export class AnthropicProvider implements Provider {
   }
 
   /**
-   * Convert a content block to Anthropic format, returning null for unknown
-   * block types instead of throwing.  Unknown types (e.g. ui_surface stored
-   * in DB) are silently dropped so they don't prevent the request from being
-   * sent or break tool_use/tool_result pairing.
+   * Convert a content block to Anthropic format, returning null for blocks the
+   * Messages API cannot carry instead of throwing, so they don't prevent the
+   * request from being sent or break tool_use/tool_result pairing.
+   *
+   * Two distinct null cases: `ui_surface` is a known client-rendering block
+   * dropped by design, while a block reaching `default` is genuinely
+   * unrecognised and warns so the gap is visible.
    */
   private toAnthropicBlockSafe(
     block: ContentBlock,
@@ -2084,6 +2089,12 @@ export class AnthropicProvider implements Provider {
           tool_use_id: block.tool_use_id,
           content: block.content,
         } as unknown as Anthropic.ContentBlockParam;
+      case "ui_surface":
+        // A client rendering instruction, not model context. Dropped by
+        // design: the producer's sibling `_surfaceFallback` text block is what
+        // the model reads. `buildSentMessages` projects the surface to text
+        // for legacy rows that have no fallback sibling.
+        return null;
       default: {
         log.warn(
           { blockType: (block as { type: string }).type },

@@ -1,12 +1,10 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import type { VoiceTurnOptions } from "../../calls/voice-session-bridge.js";
 import {
   ESCALATION_CONTINUATION_CONTENT,
   FALLBACK_ESCALATION_BRIDGE,
 } from "../../calls/voice-triage-escalate.js";
-import { clearFeatureFlagOverridesCache } from "../../config/assistant-feature-flags.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -21,8 +19,6 @@ import {
   type LiveVoiceClientStartFrame,
   type LiveVoiceServerFrame,
 } from "../protocol.js";
-
-const VOICE_MODE_FLAG = "voice-mode";
 
 const START_FRAME = {
   type: "start",
@@ -153,35 +149,8 @@ function spokenText(frames: LiveVoiceServerFrame[]): string {
     .join("");
 }
 
-function enableVoiceMode(): void {
-  setOverridesForTesting({
-    [VOICE_MODE_FLAG]: true,
-  });
-}
-
-afterEach(() => {
-  clearFeatureFlagOverridesCache();
-});
-
 describe("live-voice triage-and-escalate routing", () => {
-  test("flag off: a single leg runs on the call-site default (no routing options)", async () => {
-    const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["A simple reply."],
-    });
-    const { frames, session } = createHarness(starter);
-
-    await driveTurn(session);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-
-    expect(starter).toHaveBeenCalledTimes(1);
-    const options = starter.mock.calls[0]?.[0];
-    expect(options?.overrideProfile).toBeUndefined();
-    expect(options?.routingLeg).toBeUndefined();
-    expect(spokenText(frames)).toBe("A simple reply.");
-  });
-
-  test("voice-mode on, simple turn: only the fast front-door leg runs", async () => {
-    enableVoiceMode();
+  test("simple turn: only the fast front-door leg runs", async () => {
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["Sure, it's Tuesday."],
     });
@@ -198,8 +167,7 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(spokenText(frames)).toBe("Sure, it's Tuesday.");
   });
 
-  test("voice-mode on, tricky turn: the escalate verdict hands off to a second quality leg", async () => {
-    enableVoiceMode();
+  test("tricky turn: the escalate verdict hands off to a second quality leg", async () => {
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["[1] ", "Let me think about that."],
       escalated: ["The detailed answer is 42."],
@@ -222,8 +190,28 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(escalated?.content).toBe(ESCALATION_CONTINUATION_CONTENT);
   });
 
+  test("the [-1] teaching reaches the escalated leg's prompt but never the front-door leg's", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1] ", "Let me think about that."],
+      escalated: ["The detailed answer is 42."],
+    });
+    const { frames, session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    const frontDoorPrompt =
+      starter.mock.calls[0]?.[0]?.voiceControlPrompt ?? "";
+    const escalatedPrompt =
+      starter.mock.calls[1]?.[0]?.voiceControlPrompt ?? "";
+    // The toolless fast leg has nothing to show and its decision rule promises
+    // verbatim speech — it must never learn the marker.
+    expect(frontDoorPrompt).not.toContain("[-1]");
+    expect(escalatedPrompt).toContain("[-1]");
+  });
+
   test("the verdict token and any text past the bridge cap never reach the transcript", async () => {
-    enableVoiceMode();
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: [
         "[1] Let me think about that.",
@@ -245,7 +233,6 @@ describe("live-voice triage-and-escalate routing", () => {
   });
 
   test("a verdict token split across deltas is still detected and suppressed", async () => {
-    enableVoiceMode();
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["[", "1]", " One moment.", " leftover past the cap"],
       escalated: ["Answer."],
@@ -264,7 +251,6 @@ describe("live-voice triage-and-escalate routing", () => {
   });
 
   test("a bridge with no sentence terminator hands off at the leg's completion", async () => {
-    enableVoiceMode();
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["[1] Give me a moment"],
       escalated: ["Answer."],
@@ -282,7 +268,6 @@ describe("live-voice triage-and-escalate routing", () => {
   });
 
   test("the escalated leg receives the front-door leg's actual spoken bridge", async () => {
-    enableVoiceMode();
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["[1] Let me check your calendar.", " ignored tail"],
       escalated: ["You have three connections."],
@@ -300,7 +285,6 @@ describe("live-voice triage-and-escalate routing", () => {
   });
 
   test("a bare escalate verdict with no holding phrase still escalates (fallback bridge)", async () => {
-    enableVoiceMode();
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["[1]"],
       escalated: ["The thorough answer."],
@@ -325,26 +309,7 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(spokenText(frames)).not.toContain(FALLBACK_ESCALATION_BRIDGE);
   });
 
-  test("single-flag gating: voice-mode alone routes through the front door", async () => {
-    setOverridesForTesting({ [VOICE_MODE_FLAG]: true });
-    const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["[1] ", "Let me think about that."],
-      escalated: ["The detailed answer is 42."],
-    });
-    const { frames, session } = createHarness(starter);
-
-    await driveTurn(session);
-    await waitFor(() => starter.mock.calls.length >= 2);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-
-    // voice-mode alone activates the front door and its escalation hand-off.
-    expect(starter).toHaveBeenCalledTimes(2);
-    expect(starter.mock.calls[0]?.[0]?.routingLeg).toBe("front-door");
-    expect(starter.mock.calls[1]?.[0]?.routingLeg).toBe("escalated");
-  });
-
   test("barge-in during the escalated leg aborts it", async () => {
-    enableVoiceMode();
     const { starter, escalatedAbort } = scriptedStartVoiceTurn({
       frontDoor: ["[1] ", "Let me think about that."],
       holdEscalated: true,

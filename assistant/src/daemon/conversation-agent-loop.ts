@@ -15,6 +15,7 @@ import type {
   CheckpointDecision,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   ChannelId,
   InterfaceId,
@@ -116,7 +117,7 @@ import {
   registerInflightTurn,
   unregisterInflightTurn,
 } from "./inflight-turn-registry.js";
-import type { ServerMessage, UsageStats } from "./message-protocol.js";
+import type { UsageStats } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
 import { runWithLatencySubSpans } from "./turn-latency-sub-spans.js";
@@ -240,7 +241,7 @@ export async function runAgentLoopImpl(
   ctx: Conversation,
   content: string,
   userMessageId: string,
-  onEvent: (msg: ServerMessage) => void,
+  onEvent: (msg: AssistantEvent) => void,
   options?: {
     isInteractive?: boolean;
     isUserMessage?: boolean;
@@ -1669,7 +1670,13 @@ export async function runAgentLoopImpl(
     // the API, enabling stable prefix caching across turns.  Compaction
     // consolidates when it summarizes old messages (cache miss is expected).
 
-    ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
+    // kickDrainQueue never rejects — a drain failure here would otherwise be
+    // an unhandled rejection that strands the queue with nothing left to
+    // re-trigger it.
+    void ctx.kickDrainQueue(
+      yieldedForHandoff ? "checkpoint_handoff" : "loop_complete",
+      "agent_loop_finally",
+    );
   }
 }
 
@@ -1680,7 +1687,7 @@ function emitUsage(
   inputTokens: number,
   outputTokens: number,
   model: string,
-  onEvent: (msg: ServerMessage) => void,
+  onEvent: (msg: AssistantEvent) => void,
   actor: UsageActor,
   requestId: string | null = null,
   cacheCreationInputTokens = 0,
@@ -1769,7 +1776,7 @@ export async function applyCompactionResult(
     summaryCallSite?: LLMCallSite;
     summaryOverrideProfile?: string | null;
   },
-  onEvent: (msg: ServerMessage) => void,
+  onEvent: (msg: AssistantEvent) => void,
   reqId: string | null,
   options: {
     slackContextCompactionWatermarkTs?: string | null;
