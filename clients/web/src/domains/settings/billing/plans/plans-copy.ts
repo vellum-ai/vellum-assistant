@@ -21,8 +21,6 @@ export interface PlanTierCopy {
   recommended?: boolean;
   /** Feature rows appended after the catalog-derived rows. */
   extraFeatures?: readonly string[];
-  /** One-line pitch shown on the billing page's dark "Upgrade to X" card. */
-  upgradeBlurb?: string;
 }
 
 export const PLAN_TIER_COPY: Record<PlanTierKey, PlanTierCopy> = {
@@ -36,21 +34,18 @@ export const PLAN_TIER_COPY: Record<PlanTierKey, PlanTierCopy> = {
     cta: "Power Up",
     priceCaption: "Billed monthly",
     recommended: true,
-    upgradeBlurb: "$25 in Credits, more storage and power",
   },
   super: {
     tagline: "Stronger performance for heavier workloads.",
     cta: "Go Super",
     priceCaption: "Billed monthly",
     extraFeatures: ["Assistant email and subdomain"],
-    upgradeBlurb: "$45 credits, 3× storage, more power, and email.",
   },
   ultra: {
     tagline: "Built for sustained, high-demand work.",
     cta: "Unleash Ultra",
     priceCaption: "Billed monthly",
     extraFeatures: ["Assistant email and subdomain"],
-    upgradeBlurb: "$115 credits, 2x storage, more power, and email.",
   },
 };
 

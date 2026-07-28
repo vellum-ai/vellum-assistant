@@ -131,26 +131,31 @@ function onboardingEntrypoint(isLocalMode: boolean): string {
  * `BillingRedirectPage` forwards) and the Billing tab's own path, which the
  * native deep-link return and `usageBillingCheckout()` build directly.
  */
-const POST_CHECKOUT_LANDING_PATHS: Set<string> = new Set([
+const POST_CHECKOUT_LANDING_PATHS: ReadonlySet<string> = new Set([
   `${routes.settings.root}/billing`,
   routes.settings.usage,
 ]);
 
-/** Whether `pathnameWithSearch` is a billing landing carrying Stripe's `session_id`. */
-function isPostCheckoutReturn(
-  path: string,
-  pathnameWithSearch: string,
-): boolean {
-  if (!POST_CHECKOUT_LANDING_PATHS.has(path)) {
-    return false;
-  }
-  const qIdx = pathnameWithSearch.indexOf("?");
+/**
+ * Whether `destination` is a billing landing carrying Stripe's `session_id` —
+ * the return leg of a finished purchase rather than a plain visit to the same
+ * page.
+ *
+ * `destination` is a path with its query: the route guard asks about the
+ * location it is deciding on, and `requiresPlatformSession` asks about a
+ * `returnTo`. Both put the same question to the same URL shape, so they share
+ * this answer.
+ */
+export function isPostCheckoutReturn(destination: string): boolean {
+  const qIdx = destination.indexOf("?");
   if (qIdx < 0) {
     return false;
   }
-  return new URLSearchParams(pathnameWithSearch.slice(qIdx + 1)).has(
-    "session_id",
-  );
+  const path = destination.slice(0, qIdx).split("#")[0] ?? "";
+  if (!POST_CHECKOUT_LANDING_PATHS.has(path)) {
+    return false;
+  }
+  return new URLSearchParams(destination.slice(qIdx + 1)).has("session_id");
 }
 
 /**
@@ -389,7 +394,7 @@ function waitForSession(state: NavigationState): NavigationDecision | null {
  */
 function requirePostCheckoutProvisioning(
   state: NavigationState,
-  path: string,
+  _path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
   // An org with a platform-hosted assistant has a target for the purchase, so
@@ -398,7 +403,7 @@ function requirePostCheckoutProvisioning(
   if (state.hasPlatformHostedAssistant) {
     return null;
   }
-  if (!isPostCheckoutReturn(path, pathnameWithSearch)) {
+  if (!isPostCheckoutReturn(pathnameWithSearch)) {
     return null;
   }
   // Not signed in yet: fall through so `requireAuth` sends the user to login

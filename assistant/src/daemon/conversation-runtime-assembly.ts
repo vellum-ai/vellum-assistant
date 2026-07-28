@@ -15,7 +15,7 @@ import {
   resolveAppDir,
 } from "../apps/app-store.js";
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
-import { getEffectiveProfile } from "../config/default-profile-catalog.js";
+import { resolveDefaultProfileForProvider } from "../config/default-profile-catalog.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
@@ -231,7 +231,11 @@ export function resolveTurnModelProfileLabel(
   if (modelProfileNoticeKey == null) {
     return null;
   }
-  const profileEntry = getEffectiveProfile(llm.profiles, modelProfileNoticeKey);
+  const profileEntry = resolveDefaultProfileForProvider(
+    llm.profiles,
+    modelProfileNoticeKey,
+    llm.defaultProvider ?? null,
+  );
   const resolved = resolveCallSiteConfig(callSite, llm, {
     overrideProfile: modelProfileNoticeKey,
     selectionSeed,

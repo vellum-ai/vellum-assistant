@@ -47,12 +47,26 @@ export function ensureGroupMigration(): void {
     CREATE TABLE IF NOT EXISTS conversation_groups (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      icon TEXT,
       sort_position REAL NOT NULL DEFAULT 0,
       is_system_group BOOLEAN NOT NULL DEFAULT FALSE,
       created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
       updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
     )
   `);
+
+  // 1b. Add icon column for tables created before it existed.
+  try {
+    rawRun(
+      "group:migrateAddIcon",
+      "ALTER TABLE conversation_groups ADD COLUMN icon TEXT",
+    );
+  } catch (err) {
+    if (!isDuplicateColumnError(err)) {
+      log.error({ err }, "Failed to add icon column");
+      throw err;
+    }
+  }
 
   // 2. Add group_id column if not exists
   // Match existing error-handling pattern from conversation-display-order-migration.ts:

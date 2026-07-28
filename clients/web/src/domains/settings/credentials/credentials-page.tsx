@@ -13,6 +13,7 @@ import { useCredentialsDeletePostMutation } from "@/generated/daemon/@tanstack/r
 import { credentialsListPost } from "@/generated/daemon/sdk.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useSupportsCredentialsSettings } from "@/lib/backwards-compat/use-supports-credentials-settings";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import { Button } from "@vellumai/design-library/components/button";
@@ -227,11 +228,10 @@ function CredentialsPageInner() {
     if (!url) {
       return;
     }
-    void navigator.clipboard.writeText(url).then(
-      () => toast.success("Link copied to clipboard."),
-      () =>
-        toast.error("Couldn't copy the link — select it and copy manually."),
-    );
+    copyToClipboard(url, {
+      successMessage: "Link copied to clipboard.",
+      errorMessage: "Couldn't copy the link. Select it and copy manually.",
+    });
   };
 
   // --- Render ---

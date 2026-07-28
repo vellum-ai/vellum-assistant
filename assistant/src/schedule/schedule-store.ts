@@ -3,6 +3,7 @@ import { and, asc, desc, eq, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
+import { getGroup } from "../persistence/group-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { rawChanges } from "../persistence/raw-query.js";
 import { scheduleJobs, scheduleRuns } from "../persistence/schema/index.js";
@@ -72,6 +73,13 @@ export interface ScheduleJob {
    * LLM-executed runs; null = default main-agent model selection.
    */
   inferenceProfile: string | null;
+  /**
+   * Sidebar group (`conversation_groups` id) for conversations created by
+   * the schedule's runs; null = the default `system:scheduled`. Resolve via
+   * {@link resolveScheduleConversationGroupId}, since the group may have
+   * been deleted since it was set.
+   */
+  groupId: string | null;
   createdFromConversationId: string | null;
   createdBy: string;
   mode: ScheduleMode;
@@ -131,6 +139,7 @@ export async function createSchedule(params: {
   retryBackoffMs?: number;
   timeoutMs?: number | null;
   inferenceProfile?: string | null;
+  groupId?: string | null;
   createdFromConversationId?: string | null;
 }): Promise<ScheduleJob> {
   const expression = params.expression ?? params.cronExpression ?? null;
@@ -176,6 +185,7 @@ export async function createSchedule(params: {
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
   const timeoutMs = params.timeoutMs ?? null;
   const inferenceProfile = params.inferenceProfile ?? null;
+  const groupId = params.groupId ?? null;
   const createdFromConversationId = params.createdFromConversationId ?? null;
   const description = normalizeDescription(
     params.description,
@@ -217,6 +227,7 @@ export async function createSchedule(params: {
     retryBackoffMs,
     timeoutMs,
     inferenceProfile,
+    groupId,
     createdFromConversationId,
     createdBy: params.createdBy ?? "agent",
     mode,
@@ -235,6 +246,21 @@ export async function createSchedule(params: {
   });
   notifySchedulesChanged();
   return parseJobRow(row);
+}
+
+/**
+ * Sidebar group for conversations created by a schedule's runs. The job's
+ * `groupId` wins only while the group still exists: a schedule may outlive
+ * its custom group, and creating a conversation with a dangling group id
+ * would violate the conversations->conversation_groups FK.
+ */
+export function resolveScheduleConversationGroupId(
+  job: Pick<ScheduleJob, "groupId">,
+): string {
+  if (job.groupId && getGroup(job.groupId)) {
+    return job.groupId;
+  }
+  return "system:scheduled";
 }
 
 export function getSchedule(id: string): ScheduleJob | null {
@@ -325,6 +351,7 @@ export async function updateSchedule(
     retryBackoffMs?: number;
     timeoutMs?: number | null;
     inferenceProfile?: string | null;
+    groupId?: string | null;
     createdFromConversationId?: string | null;
   },
 ): Promise<ScheduleJob | null> {
@@ -411,6 +438,7 @@ export async function updateSchedule(
   if (updates.timeoutMs !== undefined) set.timeoutMs = updates.timeoutMs;
   if (updates.inferenceProfile !== undefined)
     set.inferenceProfile = updates.inferenceProfile;
+  if (updates.groupId !== undefined) set.groupId = updates.groupId;
   if (updates.createdFromConversationId !== undefined)
     set.createdFromConversationId = updates.createdFromConversationId;
 
@@ -1288,6 +1316,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     retryBackoffMs: row.retryBackoffMs ?? 60000,
     timeoutMs: row.timeoutMs ?? null,
     inferenceProfile: row.inferenceProfile ?? null,
+    groupId: row.groupId ?? null,
     createdFromConversationId: row.createdFromConversationId ?? null,
     createdBy: row.createdBy,
     mode: (row.mode ?? "execute") as ScheduleMode,

@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 // Exhaustive semver truth-table lives in `utils.test.ts`. Here we verify the
-// boundary on each side of MIN_VERSION (0.11.0 — the release that ships the
+// boundary on each side of MIN_VERSION (0.12.0, the release that ships the
 // manage-plugins surface) plus the conservative-on-unknown policy,
 // exercised through the public hook.
 describe("useSupportsInchatPluginEdit", () => {
@@ -28,16 +28,16 @@ describe("useSupportsInchatPluginEdit", () => {
     expect(readGate(null)).toBe(false);
   });
 
-  test("reads false below 0.11.0 (incl. 0.10.7, 0.10.9)", () => {
+  test("reads false below 0.12.0 (incl. 0.11.0, 0.11.1)", () => {
+    expect(readGate("0.11.1")).toBe(false);
+    expect(readGate("0.11.0")).toBe(false);
     expect(readGate("0.10.9")).toBe(false);
-    expect(readGate("0.10.7")).toBe(false);
-    expect(readGate("0.10.6")).toBe(false);
     expect(readGate("0.9.0")).toBe(false);
   });
 
-  test("reads true for assistants on 0.11.0+", () => {
-    expect(readGate("0.11.0")).toBe(true);
-    expect(readGate("0.11.1")).toBe(true);
+  test("reads true for assistants on 0.12.0+", () => {
+    expect(readGate("0.12.0")).toBe(true);
+    expect(readGate("0.12.1")).toBe(true);
     expect(readGate("1.0.0")).toBe(true);
   });
 

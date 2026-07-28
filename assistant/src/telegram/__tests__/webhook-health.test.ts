@@ -4,10 +4,14 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const secureKeyValues = new Map<string, string>();
 
-let webhookRouting: { configured: boolean; usesManagedCallbacks: boolean } = {
-  configured: true,
-  usesManagedCallbacks: false,
-};
+// Webhook routing is driven through its real inputs rather than by mocking
+// `hasWebhookRoutingConfigured` itself. Stubbing the predicate would have let
+// the sweep and the predicate drift apart unnoticed, which is exactly how
+// LUM-2882 stayed invisible: the predicate stopped matching what
+// `webhooks register` actually does for platform-connected local assistants.
+let ingressConfig: Record<string, unknown> = {};
+let isPlatform = false;
+let platformContextEnabled = false;
 
 type FetchOutcome =
   | { kind: "json"; status?: number; body: unknown }
@@ -34,11 +38,6 @@ mock.module("../../security/credential-key.js", () => ({
     `credential/${service}/${field}`,
 }));
 
-mock.module("../../config/webhook-routing.js", () => ({
-  hasWebhookRoutingConfigured: () => webhookRouting,
-  hasIngressConfigured: () => webhookRouting.configured,
-}));
-
 mock.module("../bot-username.js", () => ({
   getTelegramBotUsername: () => "test_bot",
   getTelegramBotId: () => "123",
@@ -46,8 +45,33 @@ mock.module("../bot-username.js", () => ({
 
 let apiBaseUrl = "https://api.telegram.org";
 
+// Spread the real modules below: these are broad barrels shared with peer test
+// files, and replacing one wholesale drops the exports those files import.
+const actualLoader = await import("../../config/loader.js");
 mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({ telegram: { apiBaseUrl } }),
+  ...actualLoader,
+  getConfig: () => ({ telegram: { apiBaseUrl }, ingress: ingressConfig }),
+  loadRawConfig: () => ({ ingress: ingressConfig }),
+}));
+
+const actualEnvRegistry = await import("../../config/env-registry.js");
+mock.module("../../config/env-registry.js", () => ({
+  ...actualEnvRegistry,
+  getIsPlatform: () => isPlatform,
+}));
+
+const actualRegistration =
+  await import("../../inbound/platform-callback-registration.js");
+mock.module("../../inbound/platform-callback-registration.js", () => ({
+  ...actualRegistration,
+  resolvePlatformCallbackRegistrationContext: async () => ({
+    isPlatform,
+    platformBaseUrl: "https://api.vellum.ai",
+    assistantId: platformContextEnabled ? "assistant-123" : "",
+    hasAssistantApiKey: platformContextEnabled,
+    authHeader: platformContextEnabled ? "Api-Key secret" : null,
+    enabled: platformContextEnabled,
+  }),
 }));
 
 // Mirrors the real `emitNotificationSignal` contract: it swallows pipeline
@@ -121,7 +145,9 @@ beforeEach(() => {
   secureKeyValues.clear();
   secureKeyValues.set(BOT_TOKEN_KEY, "12345:test-token");
   secureKeyValues.set(WEBHOOK_SECRET_KEY, "s3cret");
-  webhookRouting = { configured: true, usesManagedCallbacks: false };
+  ingressConfig = { publicBaseUrl: "https://example.test" };
+  isPlatform = false;
+  platformContextEnabled = false;
   setWebhookInfo({ url: WEBHOOK_URL, pending_update_count: 0 });
   fetchCallCount = 0;
   fetchedUrls.length = 0;
@@ -158,7 +184,7 @@ describe("gating", () => {
   });
 
   test("does not run when no webhook routing is configured", async () => {
-    webhookRouting = { configured: false, usesManagedCallbacks: false };
+    ingressConfig = {};
 
     const result = await runTelegramWebhookHealthCheck();
 
@@ -167,8 +193,45 @@ describe("gating", () => {
     expect(emittedSignals).toHaveLength(0);
   });
 
+  test("does not run when public ingress is explicitly disabled", async () => {
+    // An opt-out means no inbound webhook is expected at all, so the sweep has
+    // nothing to verify even though platform credentials are present.
+    ingressConfig = { enabled: false };
+    platformContextEnabled = true;
+
+    const result = await runTelegramWebhookHealthCheck();
+
+    expect(result.status).toBe("skipped");
+    expect(fetchCallCount).toBe(0);
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("runs for a platform-connected local assistant with no ingress", async () => {
+    // LUM-2882: `webhooks register telegram` registers a platform callback
+    // route in this exact configuration, so a broken registration is real and
+    // the sweep has to verify it rather than skip.
+    ingressConfig = {};
+    platformContextEnabled = true;
+    setWebhookInfo({
+      url: WEBHOOK_URL,
+      last_error_date: unixSecondsAgo(30),
+      last_error_message: "Wrong response from the webhook: 404 Not Found",
+    });
+
+    const result = await runTelegramWebhookHealthCheck();
+
+    expect(result.status).toBe("delivery_failing");
+    expect(fetchCallCount).toBeGreaterThan(0);
+    expect(emittedSignals).toHaveLength(1);
+    // The callback route is platform-owned, so the self-hosted remediation
+    // (point config at a new tunnel URL) does not apply.
+    expect(result.detail).not.toContain("assistant config set");
+    expect(result.detail).toContain("contact support");
+  });
+
   test("runs when platform-managed callbacks stand in for public ingress", async () => {
-    webhookRouting = { configured: true, usesManagedCallbacks: true };
+    isPlatform = true;
+    ingressConfig = {};
     setWebhookInfo({
       url: WEBHOOK_URL,
       last_error_date: unixSecondsAgo(30),

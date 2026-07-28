@@ -1,5 +1,5 @@
 import type { InterfaceId } from "../channels/types.js";
-import { getEffectiveProfiles } from "../config/default-profile-catalog.js";
+import { getEffectiveProfilesForProvider } from "../config/default-profile-catalog.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import {
@@ -136,7 +136,10 @@ async function resolveModelCommand(
   parse: ModelCommandParse,
 ): Promise<SlashResolution> {
   const config = getConfig();
-  const profiles = getEffectiveProfiles(config.llm.profiles);
+  const profiles = getEffectiveProfilesForProvider(
+    config.llm.profiles,
+    config.llm.defaultProvider ?? null,
+  );
   const profileNames = orderProfileKeys(profiles, config.llm.profileOrder);
   const activeProfile = config.llm.activeProfile;
 

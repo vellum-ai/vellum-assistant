@@ -14,6 +14,7 @@ import {
   listAssistantBackups,
   restoreAssistantBackup,
 } from "@/assistant/api";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { type TagTone, Tag } from "@vellumai/design-library/components/tag";
@@ -68,9 +69,12 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
   const [copiedSnapshot, setCopiedSnapshot] = useState<string | null>(null);
 
   const handleCopySnapshotName = useCallback((name: string) => {
-    navigator.clipboard.writeText(name).then(() => {
-      setCopiedSnapshot(name);
-      setTimeout(() => setCopiedSnapshot(null), 2000);
+    copyToClipboard(name, {
+      errorMessage: "Couldn't copy the snapshot name.",
+      onCopied: () => {
+        setCopiedSnapshot(name);
+        setTimeout(() => setCopiedSnapshot(null), 2000);
+      },
     });
   }, []);
 

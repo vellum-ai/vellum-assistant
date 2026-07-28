@@ -2,8 +2,14 @@ import type { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { RiskLevel } from "../permissions/types.js";
+import { ensureGroupMigration } from "../persistence/conversation-group-migration.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { createGroup, deleteGroup } from "../persistence/group-crud.js";
+import {
+  getSchedule,
+  resolveScheduleConversationGroupId,
+} from "../schedule/schedule-store.js";
 import {
   __clearRegistryForTesting,
   __resetRegistryForTesting,
@@ -2054,6 +2060,106 @@ describe("schedule tools — model-input schema validation", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain(
       'Invalid input for tool "schedule_delete"',
+    );
+  });
+});
+
+// ── schedule_create / schedule_update group ─────────────────────────
+
+describe("schedule_create / schedule_update group", () => {
+  beforeEach(() => {
+    ensureGroupMigration();
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+    getRawDb().run("DELETE FROM conversation_groups WHERE is_system_group = 0");
+  });
+
+  function extractJobId(content: string): string {
+    const match = content.match(/ID: (\S+)/);
+    expect(match).not.toBeNull();
+    return match![1];
+  }
+
+  test("creates a schedule filed into a custom group by name", async () => {
+    const group = createGroup("Briefs");
+
+    const result = await executeScheduleCreate(
+      {
+        name: "Morning brief",
+        expression: "0 8 * * *",
+        message: "Compile the morning brief.",
+        group: "briefs",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain("Conversation group: Briefs");
+    const job = getSchedule(extractJobId(result.content));
+    expect(job?.groupId).toBe(group.id);
+    expect(resolveScheduleConversationGroupId(job!)).toBe(group.id);
+  });
+
+  test("rejects an unknown group with the available list", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Orphan",
+        expression: "0 8 * * *",
+        message: "msg",
+        group: "Nonexistent",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('No group named "Nonexistent"');
+  });
+
+  test("update sets and clears the group", async () => {
+    const group = createGroup("Reports");
+    const created = await executeScheduleCreate(
+      { name: "Weekly report", expression: "0 9 * * 1", message: "msg" },
+      ctx,
+    );
+    const jobId = extractJobId(created.content);
+    expect(getSchedule(jobId)?.groupId).toBeNull();
+
+    const updated = await executeScheduleUpdate(
+      { job_id: jobId, group: "Reports" },
+      ctx,
+    );
+    expect(updated.isError).toBeFalsy();
+    expect(getSchedule(jobId)?.groupId).toBe(group.id);
+
+    const cleared = await executeScheduleUpdate(
+      { job_id: jobId, group: null },
+      ctx,
+    );
+    expect(cleared.isError).toBeFalsy();
+    expect(getSchedule(jobId)?.groupId).toBeNull();
+  });
+
+  test("run conversations fall back to system:scheduled when the group is deleted", async () => {
+    const group = createGroup("Ephemeral");
+    const created = await executeScheduleCreate(
+      {
+        name: "Doomed group",
+        expression: "0 9 * * *",
+        message: "msg",
+        group: group.id,
+      },
+      ctx,
+    );
+    const job = getSchedule(extractJobId(created.content));
+    expect(job?.groupId).toBe(group.id);
+
+    deleteGroup(group.id);
+    expect(resolveScheduleConversationGroupId(job!)).toBe("system:scheduled");
+  });
+
+  test("resolveScheduleConversationGroupId defaults to system:scheduled", () => {
+    expect(resolveScheduleConversationGroupId({ groupId: null })).toBe(
+      "system:scheduled",
     );
   });
 });

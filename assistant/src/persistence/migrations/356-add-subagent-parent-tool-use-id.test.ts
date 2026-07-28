@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import * as schema from "../schema.js";
-import { migrateAddSubagentParentToolUseId } from "./355-add-subagent-parent-tool-use-id.js";
+import { migrateAddSubagentParentToolUseId } from "./356-add-subagent-parent-tool-use-id.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");

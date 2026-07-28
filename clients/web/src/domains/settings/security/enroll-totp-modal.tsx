@@ -9,6 +9,7 @@ import {
   useUserMfaFactorsVerifyCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { userMfaFactorsDestroy } from "@/generated/api/sdk.gen";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -149,10 +150,10 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
     if (!enrollment) {
       return;
     }
-    void navigator.clipboard
-      .writeText(enrollment.secret)
-      .then(() => toast.success("Setup key copied."))
-      .catch(() => toast.error("Couldn't copy the setup key."));
+    copyToClipboard(enrollment.secret, {
+      successMessage: "Setup key copied.",
+      errorMessage: "Couldn't copy the setup key.",
+    });
   };
 
   const submitCode = () => {
