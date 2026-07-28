@@ -104,7 +104,11 @@ describe("useChangePackage", () => {
 
     expect(captured.value).toEqual(response);
     expect(mutationFnCalls).toEqual([{ body: { package: "ultra" } }]);
-    expect(invalidatedKeys).toEqual([SUBSCRIPTION_KEY, PLANS_KEY, ONBOARDING_KEY]);
+    expect(invalidatedKeys).toEqual([
+      SUBSCRIPTION_KEY,
+      PLANS_KEY,
+      ONBOARDING_KEY,
+    ]);
     expect(toastErrorCalls).toEqual([]);
   });
 

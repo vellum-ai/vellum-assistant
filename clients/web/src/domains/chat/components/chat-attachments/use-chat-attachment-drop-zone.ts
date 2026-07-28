@@ -1,11 +1,4 @@
-
-import {
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-  type DragEvent,
-} from "react";
+import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
 
 interface UseChatAttachmentDropZoneOptions {
   /** Callback that receives regular (non-directory) files dropped on the zone. */
@@ -86,7 +79,8 @@ function extractDrop(dataTransfer: DataTransfer): ExtractedDrop {
           webkitGetAsEntry?: () => { isDirectory?: boolean } | null;
         }
       ).webkitGetAsEntry;
-      const entry = typeof getAsEntry === "function" ? getAsEntry.call(item) : null;
+      const entry =
+        typeof getAsEntry === "function" ? getAsEntry.call(item) : null;
       if (entry?.isDirectory) {
         directories.push(file);
       } else {

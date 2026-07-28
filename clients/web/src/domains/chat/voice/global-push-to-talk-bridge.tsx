@@ -27,14 +27,18 @@ interface GlobalPushToTalkBridgeProps {
 
 function appendTranscript(current: string, text: string): string {
   const trimmed = text.trim();
-  if (!trimmed) return current;
+  if (!trimmed) {
+    return current;
+  }
   const needsLeadingSpace = current.length > 0 && !/\s$/.test(current);
   return `${current}${needsLeadingSpace ? " " : ""}${trimmed}`;
 }
 
 function ensureConversationKey(): string {
   const existing = useConversationStore.getState().activeConversationId;
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
 
   const draftId = createDraftConversationId();
   useConversationStore.getState().setActiveConversationId(draftId);
@@ -59,7 +63,9 @@ export function GlobalPushToTalkBridge({
   const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
 
   useEffect(() => {
-    if (!voiceStream) return;
+    if (!voiceStream) {
+      return;
+    }
     setVoiceAudioLevel(amplitude);
   }, [amplitude, voiceStream, setVoiceAudioLevel]);
 
@@ -81,7 +87,9 @@ export function GlobalPushToTalkBridge({
 
   useEffect(() => {
     return subscribeToDictationOverlayStop(() => {
-      if (useVoiceRecordingStore.getState().phase !== "recording") return;
+      if (useVoiceRecordingStore.getState().phase !== "recording") {
+        return;
+      }
       resolveTarget()?.stop();
     });
   }, [resolveTarget]);

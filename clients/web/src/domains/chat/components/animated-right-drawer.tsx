@@ -42,12 +42,18 @@ function readStoredWidth(
   storageKey: string | undefined,
   minWidth: number,
 ): number | null {
-  if (!storageKey || typeof window === "undefined") return null;
+  if (!storageKey || typeof window === "undefined") {
+    return null;
+  }
   try {
     const stored = localStorage.getItem(storageKey);
-    if (stored == null) return null;
+    if (stored == null) {
+      return null;
+    }
     const parsed = Number(stored);
-    if (!Number.isFinite(parsed)) return null;
+    if (!Number.isFinite(parsed)) {
+      return null;
+    }
     return Math.max(minWidth, parsed);
   } catch {
     return null;
@@ -102,10 +108,14 @@ export function AnimatedRightDrawer({
   // immediately; this retained copy only backs the close wipe.
   const [retainedRight, setRetainedRight] = useState<ReactNode>(right);
   useEffect(() => {
-    if (open) setMounted(true);
+    if (open) {
+      setMounted(true);
+    }
   }, [open]);
   useEffect(() => {
-    if (right != null) setRetainedRight(right);
+    if (right != null) {
+      setRetainedRight(right);
+    }
   }, [right]);
 
   const clamp = useCallback(
@@ -113,7 +123,9 @@ export function AnimatedRightDrawer({
       const container = containerRef.current;
       // Unmeasured container (offsetWidth 0): keep the requested width instead
       // of collapsing to the minimum on a negative max.
-      if (!container || container.offsetWidth <= 0) return Math.max(minWidth, next);
+      if (!container || container.offsetWidth <= 0) {
+        return Math.max(minWidth, next);
+      }
       const maxWidth = Math.max(
         minWidth,
         container.offsetWidth - minLeftWidth - SEPARATOR_WIDTH_PX,
@@ -135,7 +147,9 @@ export function AnimatedRightDrawer({
 
   const handlePointerMove = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
-      if (!dragRef.current) return;
+      if (!dragRef.current) {
+        return;
+      }
       // Dragging the handle LEFT (clientX decreases) widens the drawer.
       const delta = dragRef.current.startX - e.clientX;
       setWidth(clamp(dragRef.current.startWidth + delta));
@@ -145,7 +159,9 @@ export function AnimatedRightDrawer({
 
   const handlePointerUp = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
-      if (!dragRef.current) return;
+      if (!dragRef.current) {
+        return;
+      }
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
       const finalWidth = clamp(
         dragRef.current.startWidth + (dragRef.current.startX - e.clientX),
@@ -185,7 +201,9 @@ export function AnimatedRightDrawer({
           `flex flex-col` gives the chat body (`flex-1`) a bounded height so its
           transcript can scroll — a plain block parent would let the body grow
           to content height and kill the scroll. */}
-      <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">{left}</div>
+      <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+        {left}
+      </div>
 
       {/* Drag handle (matches ResizablePanel's hidden-divider look). Only
           present while the drawer is mounted so a closed drawer leaves no
@@ -230,7 +248,9 @@ export function AnimatedRightDrawer({
             : { duration: 0.34, ease: [0.16, 1, 0.3, 1] }
         }
         onAnimationComplete={() => {
-          if (!open) setMounted(false);
+          if (!open) {
+            setMounted(false);
+          }
         }}
       >
         {mounted && (

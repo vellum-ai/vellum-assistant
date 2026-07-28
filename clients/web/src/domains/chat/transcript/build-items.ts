@@ -61,7 +61,9 @@ const messageItemCache = new WeakMap<DisplayMessage, MessageItem>();
 
 function toMessageItem(message: DisplayMessage): MessageItem {
   const cached = messageItemCache.get(message);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
   const item: MessageItem = {
     kind: "message",
     key: message.clientMessageId ?? message.id,

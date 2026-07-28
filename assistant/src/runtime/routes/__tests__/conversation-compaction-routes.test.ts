@@ -75,7 +75,9 @@ mock.module("../../../persistence/compaction-log-store-clickhouse.js", () => ({
               afterStartedAt,
               beforeStartedAt,
             });
-            if (state.compactionStoreError) throw state.compactionStoreError;
+            if (state.compactionStoreError) {
+              throw state.compactionStoreError;
+            }
             return state.compactionStoreEvents ?? [];
           },
         },

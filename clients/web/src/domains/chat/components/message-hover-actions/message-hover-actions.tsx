@@ -1,5 +1,13 @@
-
-import { Bookmark, Check, Copy, ExternalLink, FileCode, GitBranch, ListCollapse, RotateCcw } from "lucide-react";
+import {
+  Bookmark,
+  Check,
+  Copy,
+  ExternalLink,
+  FileCode,
+  GitBranch,
+  ListCollapse,
+  RotateCcw,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -111,10 +119,7 @@ export function MessageHoverActions({
 
   // Flat plain-text body derived from the message's text blocks; this is the
   // copy payload and mirrors the daemon's `joinWithSpacing`.
-  const content = useMemo(
-    () => messagePlainText(message),
-    [message],
-  );
+  const content = useMemo(() => messagePlainText(message), [message]);
   const timestamp = useMemo(
     () => latestMessageActivityTimestamp(message),
     [message],

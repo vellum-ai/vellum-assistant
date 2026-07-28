@@ -128,11 +128,15 @@ export function generateUserFileSlug(displayName: string): string {
   const taken = new Set(rows.map((r) => r.userFile?.toLowerCase()));
 
   const base = `${slug}.md`;
-  if (!taken.has(base)) return base;
+  if (!taken.has(base)) {
+    return base;
+  }
 
   for (let i = 2; ; i++) {
     const candidate = `${slug}-${i}.md`;
-    if (!taken.has(candidate)) return candidate;
+    if (!taken.has(candidate)) {
+      return candidate;
+    }
   }
 }
 
@@ -199,7 +203,9 @@ interface SyncChannelData {
 export function getContact(id: string): ContactWithChannels | null {
   const db = getDb();
   const row = db.select().from(contacts).where(eq(contacts.id, id)).get();
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return withChannels(parseContact(row));
 }
 
@@ -217,7 +223,9 @@ export interface ContactInfo {
  */
 export function findContactInfoById(contactId: string): ContactInfo | null {
   const contact = getContact(contactId);
-  if (!contact) return null;
+  if (!contact) {
+    return null;
+  }
   return {
     notes: contact.notes,
   };
@@ -280,10 +288,15 @@ export function upsertContact(params: {
         displayName: params.displayName,
         updatedAt: now,
       };
-      if (params.notes !== undefined) updateSet.notes = params.notes;
-      if (params.contactType !== undefined)
+      if (params.notes !== undefined) {
+        updateSet.notes = params.notes;
+      }
+      if (params.contactType !== undefined) {
         updateSet.contactType = params.contactType;
-      if (params.userFile !== undefined) updateSet.userFile = params.userFile;
+      }
+      if (params.userFile !== undefined) {
+        updateSet.userFile = params.userFile;
+      }
 
       db.update(contacts)
         .set(updateSet)
@@ -315,10 +328,15 @@ export function upsertContact(params: {
           displayName: params.displayName,
           updatedAt: now,
         };
-        if (params.notes !== undefined) updateSet.notes = params.notes;
-        if (params.contactType !== undefined)
+        if (params.notes !== undefined) {
+          updateSet.notes = params.notes;
+        }
+        if (params.contactType !== undefined) {
           updateSet.contactType = params.contactType;
-        if (params.userFile !== undefined) updateSet.userFile = params.userFile;
+        }
+        if (params.userFile !== undefined) {
+          updateSet.userFile = params.userFile;
+        }
 
         db.update(contacts)
           .set(updateSet)
@@ -405,7 +423,9 @@ function syncChannels(
         const crossContact = byId.contactId !== contactId;
         // Never steal a channel the gateway left under another contact unless
         // the caller opts into reassignment (mirrors the address-conflict path).
-        if (crossContact && !reassignConflicting) continue;
+        if (crossContact && !reassignConflicting) {
+          continue;
+        }
 
         const updateSet: Record<string, unknown> = { updatedAt: now };
         if (byId.address !== ch.address) {
@@ -428,10 +448,15 @@ function syncChannels(
             updateSet.address = ch.address;
           }
         }
-        if (crossContact) updateSet.contactId = contactId;
-        if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
-        if (ch.externalChatId !== undefined)
+        if (crossContact) {
+          updateSet.contactId = contactId;
+        }
+        if (ch.isPrimary !== undefined) {
+          updateSet.isPrimary = ch.isPrimary;
+        }
+        if (ch.externalChatId !== undefined) {
           updateSet.externalChatId = ch.externalChatId;
+        }
 
         db.update(contactChannels)
           .set(updateSet)
@@ -458,10 +483,15 @@ function syncChannels(
     if (existing) {
       const updateSet: Record<string, unknown> = {};
       // Self-heal legacy lowercased addresses to canonical form.
-      if (existing.address !== ch.address) updateSet.address = ch.address;
-      if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
-      if (ch.externalChatId !== undefined)
+      if (existing.address !== ch.address) {
+        updateSet.address = ch.address;
+      }
+      if (ch.isPrimary !== undefined) {
+        updateSet.isPrimary = ch.isPrimary;
+      }
+      if (ch.externalChatId !== undefined) {
         updateSet.externalChatId = ch.externalChatId;
+      }
 
       if (Object.keys(updateSet).length > 0) {
         updateSet.updatedAt = now;
@@ -484,9 +514,12 @@ function syncChannels(
           contactId,
           updatedAt: now,
         };
-        if (ch.externalChatId !== undefined)
+        if (ch.externalChatId !== undefined) {
           reassignSet.externalChatId = ch.externalChatId;
-        if (ch.isPrimary !== undefined) reassignSet.isPrimary = ch.isPrimary;
+        }
+        if (ch.isPrimary !== undefined) {
+          reassignSet.isPrimary = ch.isPrimary;
+        }
 
         db.update(contactChannels)
           .set(reassignSet)
@@ -526,7 +559,9 @@ export function searchContacts(params: {
   // Search by channel address first (exact or partial match)
   if (params.channelAddress) {
     const escapedAddress = escapeLike(params.channelAddress);
-    if (!escapedAddress) return [];
+    if (!escapedAddress) {
+      return [];
+    }
     const channelRows = db
       .select({ contactId: contactChannels.contactId })
       .from(contactChannels)
@@ -542,7 +577,9 @@ export function searchContacts(params: {
       .all();
 
     const contactIds = [...new Set(channelRows.map((r) => r.contactId))];
-    if (contactIds.length === 0) return [];
+    if (contactIds.length === 0) {
+      return [];
+    }
 
     // Pre-compute the sanitized query for display-name filtering so the
     // loop body stays cheap.
@@ -552,7 +589,9 @@ export function searchContacts(params: {
 
     const results: ContactWithChannels[] = [];
     for (const id of contactIds) {
-      if (results.length >= limit) break;
+      if (results.length >= limit) {
+        break;
+      }
       const contact = getContact(id);
       if (
         contact &&
@@ -577,11 +616,15 @@ export function searchContacts(params: {
       .all();
 
     const contactIds = [...new Set(channelRows.map((r) => r.contactId))];
-    if (contactIds.length === 0) return [];
+    if (contactIds.length === 0) {
+      return [];
+    }
 
     const results: ContactWithChannels[] = [];
     for (const id of contactIds) {
-      if (results.length >= limit) break;
+      if (results.length >= limit) {
+        break;
+      }
       const contact = getContact(id);
       if (
         contact &&
@@ -597,7 +640,9 @@ export function searchContacts(params: {
   const conditions = [];
   if (params.query) {
     const sanitized = escapeLike(params.query);
-    if (!sanitized && !params.contactType) return [];
+    if (!sanitized && !params.contactType) {
+      return [];
+    }
     if (sanitized) {
       conditions.push(like(contacts.displayName, `%${sanitized}%`));
     }
@@ -624,11 +669,15 @@ export function searchContacts(params: {
       .all();
 
     const contactIds = [...new Set(rows.map((r) => r.contactId))];
-    if (contactIds.length === 0) return [];
+    if (contactIds.length === 0) {
+      return [];
+    }
 
     const results: ContactWithChannels[] = [];
     for (const id of contactIds) {
-      if (results.length >= limit) break;
+      if (results.length >= limit) {
+        break;
+      }
       const contact = getContact(id);
       if (contact) {
         results.push(contact);
@@ -688,7 +737,9 @@ export function mergeContactMirror(params: {
       .from(contacts)
       .where(eq(contacts.id, params.mergeContactId))
       .get();
-    if (!donor) return false;
+    if (!donor) {
+      return false;
+    }
 
     const now = Date.now();
     const survivor = tx
@@ -725,7 +776,9 @@ export function mergeContactMirror(params: {
     return true;
   });
 
-  if (applied) notifyContactsChanged();
+  if (applied) {
+    notifyContactsChanged();
+  }
 }
 
 /**
@@ -775,7 +828,9 @@ export function upsertContactMirrorFull(params: {
       if (params.displayName !== undefined) {
         updateSet.displayName = params.displayName;
       }
-      if (params.notes !== undefined) updateSet.notes = params.notes;
+      if (params.notes !== undefined) {
+        updateSet.notes = params.notes;
+      }
       if (params.contactType !== undefined) {
         updateSet.contactType = params.contactType;
       }
@@ -848,7 +903,9 @@ export function upsertContactMirrorFull(params: {
       }
 
       // Address owned by ANOTHER contact is never stolen.
-      if (findConflictingChannel(tx, ch.type, ch.address)) continue;
+      if (findConflictingChannel(tx, ch.type, ch.address)) {
+        continue;
+      }
 
       tx.insert(contactChannels)
         .values({
@@ -891,7 +948,9 @@ export function findContactByAddress(
     )
     .get();
 
-  if (!channel) return null;
+  if (!channel) {
+    return null;
+  }
   return getContact(channel.contactId);
 }
 
@@ -917,7 +976,9 @@ function findContactByChannelExternalChatId(
     )
     .orderBy(desc(contactChannels.updatedAt), desc(contactChannels.createdAt))
     .get();
-  if (!channel) return null;
+  if (!channel) {
+    return null;
+  }
   return getContact(channel.contactId);
 }
 
@@ -943,7 +1004,9 @@ export function findContactChannel(params: {
           c.type === params.channelType &&
           c.address.toLowerCase() === canonical.toLowerCase(),
       );
-      if (ch) return { contact, channel: ch };
+      if (ch) {
+        return { contact, channel: ch };
+      }
     }
   }
   if (params.externalChatId) {
@@ -957,7 +1020,9 @@ export function findContactChannel(params: {
           c.type === params.channelType &&
           c.externalChatId === params.externalChatId,
       );
-      if (ch) return { contact, channel: ch };
+      if (ch) {
+        return { contact, channel: ch };
+      }
     }
   }
   return null;
@@ -985,7 +1050,9 @@ export function repairChannelAddress(
     .from(contactChannels)
     .where(eq(contactChannels.id, channelId))
     .get();
-  if (!channel) return false;
+  if (!channel) {
+    return false;
+  }
 
   // Guard: check if another channel row holds this canonical identity.
   const conflicting = findConflictingChannel(db, channel.type, newAddress);
@@ -1030,6 +1097,8 @@ export function getAssistantContactMetadata(
     .where(eq(assistantContactMetadata.contactId, contactId))
     .get();
 
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return parseAssistantMetadata(row);
 }

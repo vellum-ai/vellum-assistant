@@ -82,7 +82,9 @@ function tokenize(text: string): string[] {
 /** Split a section's text into its head line and the remaining body. */
 function splitHeadBody(text: string): { head: string; body: string } {
   const newline = text.indexOf("\n");
-  if (newline === -1) return { head: text, body: "" };
+  if (newline === -1) {
+    return { head: text, body: "" };
+  }
   return { head: text.slice(0, newline), body: text.slice(newline + 1) };
 }
 
@@ -145,11 +147,15 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
   /** BM25F score per section for the given query terms. */
   function scoreSections(queryTerms: Set<string>): Map<number, number> {
     const scores = new Map<number, number>();
-    if (docCount === 0) return scores;
+    if (docCount === 0) {
+      return scores;
+    }
 
     for (const term of queryTerms) {
       const list = postings.get(term);
-      if (!list) continue;
+      if (!list) {
+        continue;
+      }
 
       const termIdf = idfFromDf(list.length);
 
@@ -171,18 +177,24 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
     scores: Map<number, number>,
   ): number {
     const byScore = (scores.get(c) ?? 0) - (scores.get(a) ?? 0);
-    if (byScore !== 0) return byScore;
+    if (byScore !== 0) {
+      return byScore;
+    }
     const sa = sections[a]!;
     const sc = sections[c]!;
     return sa.article.localeCompare(sc.article) || sa.ordinal - sc.ordinal;
   }
 
   function queryScored(text: string, k: number): SectionNeedleScoredHit[] {
-    if (k <= 0 || docCount === 0) return [];
+    if (k <= 0 || docCount === 0) {
+      return [];
+    }
 
     const queryTerms = new Set(tokenize(text));
     const scores = scoreSections(queryTerms);
-    if (scores.size === 0) return [];
+    if (scores.size === 0) {
+      return [];
+    }
 
     const ranked = [...scores.keys()].sort((a, c) => rankSection(a, c, scores));
 
@@ -192,10 +204,14 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
     const result: SectionNeedleScoredHit[] = [];
     for (const doc of ranked) {
       const article = sections[doc]!.article;
-      if (seen.has(article)) continue;
+      if (seen.has(article)) {
+        continue;
+      }
       seen.add(article);
       result.push({ article, section: doc, score: scores.get(doc) ?? 0 });
-      if (result.length >= k) break;
+      if (result.length >= k) {
+        break;
+      }
     }
     return result;
   }
@@ -212,7 +228,9 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
 
   function bestSection(article: Slug, queryText: string): number {
     const docs = index.byArticle.get(article);
-    if (!docs || docs.length === 0) return -1;
+    if (!docs || docs.length === 0) {
+      return -1;
+    }
 
     const queryTerms = new Set(tokenize(queryText));
     const scores = scoreSections(queryTerms);

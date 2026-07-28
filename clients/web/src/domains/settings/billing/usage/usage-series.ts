@@ -132,8 +132,7 @@ export function buildUsageSeriesLegend(
       totals.set(seriesKey, {
         label: current?.label ?? value.group,
         totalEstimatedCostUsd:
-          (current?.totalEstimatedCostUsd ?? 0) +
-          value.totalEstimatedCostUsd,
+          (current?.totalEstimatedCostUsd ?? 0) + value.totalEstimatedCostUsd,
       });
     }
   }

@@ -40,7 +40,9 @@ mock.module("../daemon/conversation-store.js", () => ({
       if (options?.conversationType) {
         createConversation({
           id: conversationId,
-          conversationType: options.conversationType as "standard" | "background",
+          conversationType: options.conversationType as
+            | "standard"
+            | "background",
         });
       } else {
         ensureConversationExists(conversationId);

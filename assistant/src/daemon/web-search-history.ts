@@ -47,7 +47,9 @@ export function stripHistoricalWebSearchResults(
     const transformed: ContentBlock[] = [];
 
     for (const block of msg.content) {
-      if (block.type !== "web_search_tool_result") continue;
+      if (block.type !== "web_search_tool_result") {
+        continue;
+      }
       const wsr = block as WebSearchToolResultContent;
       const query = findQueryForToolUseId(msg.content, wsr.tool_use_id);
       transformed.push(formatAsText(wsr, query));
@@ -55,7 +57,9 @@ export function stripHistoricalWebSearchResults(
       stats.blocksStripped++;
     }
 
-    if (droppedServerToolUseIds.size === 0) return msg;
+    if (droppedServerToolUseIds.size === 0) {
+      return msg;
+    }
 
     const rewritten: ContentBlock[] = [];
     let wsrIndex = 0;
@@ -86,9 +90,13 @@ function findQueryForToolUseId(
   toolUseId: string,
 ): string | null {
   for (const b of blocks) {
-    if (b.type !== "server_tool_use") continue;
+    if (b.type !== "server_tool_use") {
+      continue;
+    }
     const stu = b as ServerToolUseContent;
-    if (stu.id !== toolUseId) continue;
+    if (stu.id !== toolUseId) {
+      continue;
+    }
     const q = stu.input?.query;
     return typeof q === "string" ? q : null;
   }

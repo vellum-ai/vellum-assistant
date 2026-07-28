@@ -29,7 +29,9 @@ export async function getConnectedProviders(): Promise<MessagingProvider[]> {
     const connected = p.isConnected
       ? await p.isConnected()
       : await isProviderConnected(p.credentialService);
-    if (connected) results.push(p);
+    if (connected) {
+      results.push(p);
+    }
   }
   return results;
 }

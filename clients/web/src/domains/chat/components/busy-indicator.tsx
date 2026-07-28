@@ -1,4 +1,3 @@
-
 /**
  * Mirrors macOS VBusyIndicator.
  *

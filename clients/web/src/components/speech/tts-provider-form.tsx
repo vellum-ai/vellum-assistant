@@ -560,7 +560,9 @@ export function TtsProviderForm({
           {!hideSaveButton && (
             <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
           )}
-          {providerHasKey && !isManaged && <ResetButton onClick={handleReset} />}
+          {providerHasKey && !isManaged && (
+            <ResetButton onClick={handleReset} />
+          )}
         </div>
       </div>
     </div>

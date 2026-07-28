@@ -25,17 +25,25 @@ export function isDomainAllowed(
   requestHost: string,
   allowedDomains: string[],
 ): boolean {
-  if (!allowedDomains || allowedDomains.length === 0) return false;
+  if (!allowedDomains || allowedDomains.length === 0) {
+    return false;
+  }
 
   const requestInfo = normalizeDomain(requestHost);
-  if (!requestInfo) return false;
+  if (!requestInfo) {
+    return false;
+  }
 
   for (const allowed of allowedDomains) {
     const allowedInfo = normalizeDomain(allowed);
-    if (!allowedInfo) continue;
+    if (!allowedInfo) {
+      continue;
+    }
 
     // Exact hostname match
-    if (requestInfo.hostname === allowedInfo.hostname) return true;
+    if (requestInfo.hostname === allowedInfo.hostname) {
+      return true;
+    }
 
     // Registrable-domain match: request's registrable domain must equal
     // the allowed entry's registrable domain, and the allowed entry

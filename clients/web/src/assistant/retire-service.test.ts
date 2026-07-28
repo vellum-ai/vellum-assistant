@@ -13,13 +13,21 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 let isLocalModeValue = false;
 let lockfileAssistants: Array<{ assistantId: string; cloud?: string }> = [];
 let storeAssistants: Array<{ id: string }> = [];
-let retireByIdResult: { ok: true } | { ok: false; status: number; error: Record<string, unknown> } = { ok: true };
-let retireLocalResult: { ok: true } | { ok: false; error?: string } = { ok: true };
+let retireByIdResult:
+  { ok: true } | { ok: false; status: number; error: Record<string, unknown> } =
+  { ok: true };
+let retireLocalResult: { ok: true } | { ok: false; error?: string } = {
+  ok: true,
+};
 
 // --- module mocks --- //
 
 const retireAssistantByIdMock = mock(async (_id: string) => retireByIdResult);
-const listAssistantsMock = mock(async () => ({ ok: true as const, status: 200, data: [{ id: "p1", is_local: false, created: "" }] }));
+const listAssistantsMock = mock(async () => ({
+  ok: true as const,
+  status: 200,
+  data: [{ id: "p1", is_local: false, created: "" }],
+}));
 mock.module("@/assistant/api", () => ({
   retireAssistantById: retireAssistantByIdMock,
   listAssistants: listAssistantsMock,
@@ -30,7 +38,10 @@ const syncPlatformAssistantsToLockfileMock = mock(
   async (_a: unknown, _orgId?: string) => {},
 );
 mock.module("@/lib/local-mode", () => ({
-  getLockfile: () => ({ assistants: lockfileAssistants, activeAssistant: null }),
+  getLockfile: () => ({
+    assistants: lockfileAssistants,
+    activeAssistant: null,
+  }),
   isLocalAssistant: (a: { cloud?: string }) => a.cloud === "local",
   isLocalMode: () => isLocalModeValue,
   retireLocalAssistant: retireLocalAssistantMock,
@@ -57,10 +68,21 @@ mock.module("@/lib/navigation/navigation-resolver", () => ({
     state: Record<string, unknown>,
     query: { kind: string },
   ) => {
-    if (query.kind !== "post-retire") return { action: "allow" };
-    if (state.hasAssistants) return { action: "redirect", to: state.isLocalMode ? "/assistant/select-assistant" : "/assistant" };
-    if (!state.isLocalMode) return { action: "redirect", to: "/assistant/onboarding/privacy" };
-    if (state.platformSession === "present") return { action: "redirect", to: "/assistant/onboarding/hosting" };
+    if (query.kind !== "post-retire") {
+      return { action: "allow" };
+    }
+    if (state.hasAssistants) {
+      return {
+        action: "redirect",
+        to: state.isLocalMode ? "/assistant/select-assistant" : "/assistant",
+      };
+    }
+    if (!state.isLocalMode) {
+      return { action: "redirect", to: "/assistant/onboarding/privacy" };
+    }
+    if (state.platformSession === "present") {
+      return { action: "redirect", to: "/assistant/onboarding/hosting" };
+    }
     return { action: "redirect", to: "/assistant/welcome" };
   },
 }));

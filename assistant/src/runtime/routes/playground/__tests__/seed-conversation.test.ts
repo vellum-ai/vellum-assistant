@@ -43,7 +43,9 @@ function findRoute() {
   const route = ROUTES.find(
     (r) => r.operationId === "playgroundSeedConversation",
   );
-  if (!route) throw new Error("seed-conversation route not registered");
+  if (!route) {
+    throw new Error("seed-conversation route not registered");
+  }
   return route;
 }
 

@@ -21,7 +21,9 @@ export class OpenAIEmbeddingBackend implements EmbeddingBackend {
     inputs: EmbeddingInput[],
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]> {
-    if (inputs.length === 0) return [];
+    if (inputs.length === 0) {
+      return [];
+    }
 
     const texts = inputs.map((i) => {
       const n = normalizeEmbeddingInput(i);

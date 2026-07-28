@@ -57,7 +57,9 @@ function splitIntoRawSections(body: string): RawSection[] {
  * break on newlines so chunks stay readable. Order is preserved.
  */
 function chunkText(text: string): string[] {
-  if (text.length <= SECTION_CHUNK_CHARS) return [text];
+  if (text.length <= SECTION_CHUNK_CHARS) {
+    return [text];
+  }
 
   const chunks: string[] = [];
   let remaining = text;
@@ -70,7 +72,9 @@ function chunkText(text: string): string[] {
     chunks.push(remaining.slice(0, breakAt));
     remaining = remaining.slice(breakAt).replace(/^\n/, "");
   }
-  if (remaining.length > 0) chunks.push(remaining);
+  if (remaining.length > 0) {
+    chunks.push(remaining);
+  }
   return chunks;
 }
 

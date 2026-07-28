@@ -87,10 +87,7 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
                 void downloadRawPayload(displayText, downloadFilename)
               }
             />
-            <CopyButton
-              text={displayText}
-              ariaLabel={`Copy ${pane} payload`}
-            />
+            <CopyButton text={displayText} ariaLabel={`Copy ${pane} payload`} />
           </div>
         </div>
         <pre
@@ -129,8 +126,12 @@ export function selectResponsePayload(responsePayload: unknown): unknown {
 }
 
 export function formatPayload(value: unknown): string {
-  if (value == null) return "null";
-  if (typeof value === "string") return value;
+  if (value == null) {
+    return "null";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
   try {
     return JSON.stringify(value, null, 2);
   } catch {

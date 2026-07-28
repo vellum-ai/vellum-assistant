@@ -89,7 +89,10 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
       makeEvent({ type: "text", content: "first" }),
     ];
     p.project(events);
-    events = appendEvent(events, makeEvent({ type: "text", content: "second" }));
+    events = appendEvent(
+      events,
+      makeEvent({ type: "text", content: "second" }),
+    );
     const out = p.project(events);
     expect(out).toEqual(computeSubagentSteps(events));
     expect(out.steps).toHaveLength(2);
@@ -103,13 +106,20 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "ls" }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        content: "ls",
+      }),
     );
     const out = p.project(events);
     expect(out).toEqual(computeSubagentSteps(events));
     const last = out.steps[out.steps.length - 1]!;
     expect(last.kind).toBe("tool");
-    if (last.kind === "tool") expect(last.status).toBe("running");
+    if (last.kind === "tool") {
+      expect(last.status).toBe("running");
+    }
   });
 
   test("append-1 tool_result closes an EARLIER in-flight tool (not the tail)", () => {
@@ -118,35 +128,61 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
     // result must close the tool at an earlier index, exercising the
     // append-MOSTLY path through the real reducer.
     let events: SubagentTimelineEvent[] = [
-      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "ls", timestamp: NOW }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        content: "ls",
+        timestamp: NOW,
+      }),
       makeEvent({ type: "text", content: "waiting" }, NOW + 100),
     ];
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "tool_result", toolName: "bash", toolUseId: "tu-1", content: "ok", timestamp: NOW + 2500 }),
+      makeEvent({
+        type: "tool_result",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        content: "ok",
+        timestamp: NOW + 2500,
+      }),
     );
     const out = p.project(events);
     expect(out).toEqual(computeSubagentSteps(events));
     const toolStep = out.steps.find((s) => s.kind === "tool")!;
     expect(toolStep.kind).toBe("tool");
-    if (toolStep.kind === "tool") expect(toolStep.status).toBe("completed");
+    if (toolStep.kind === "tool") {
+      expect(toolStep.status).toBe("completed");
+    }
   });
 
   test("append-1 error closes in-flight tool + appends a tool_error step", () => {
     const p = createIncrementalStepProjection();
     let events: SubagentTimelineEvent[] = [
-      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "rm -rf /", timestamp: NOW }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        content: "rm -rf /",
+        timestamp: NOW,
+      }),
     ];
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "error", content: "permission denied", timestamp: NOW + 500 }),
+      makeEvent({
+        type: "error",
+        content: "permission denied",
+        timestamp: NOW + 500,
+      }),
     );
     const out = p.project(events);
     expect(out).toEqual(computeSubagentSteps(events));
     const toolStep = out.steps.find((s) => s.kind === "tool")!;
-    if (toolStep.kind === "tool") expect(toolStep.status).toBe("error");
+    if (toolStep.kind === "tool") {
+      expect(toolStep.status).toBe("error");
+    }
     expect(out.steps[out.steps.length - 1]!.kind).toBe("tool_error");
   });
 
@@ -202,7 +238,12 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
     // A wholesale swap — entirely new array, no shared prefix.
     const hydrated: SubagentTimelineEvent[] = [
       makeEvent({ type: "text", content: "hydrated-1" }),
-      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "h-1", content: "echo" }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "bash",
+        toolUseId: "h-1",
+        content: "echo",
+      }),
     ];
     const out = p.project(hydrated);
     expect(out).toEqual(computeSubagentSteps(hydrated));
@@ -211,11 +252,21 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
   test("subagent switch (totally different array) falls back to a full rebuild", () => {
     const p = createIncrementalStepProjection();
     p.project([
-      makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: "ws-a", input: { query: "a" } }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "web_search",
+        toolUseId: "ws-a",
+        input: { query: "a" },
+      }),
     ]);
     const other: SubagentTimelineEvent[] = [
       makeEvent({ type: "text", content: "different subagent" }),
-      makeEvent({ type: "tool_call", toolName: "web_fetch", toolUseId: "wf-b", input: { url: "https://x.dev" } }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "web_fetch",
+        toolUseId: "wf-b",
+        input: { url: "https://x.dev" },
+      }),
     ];
     const out = p.project(other);
     expect(out).toEqual(computeSubagentSteps(other));
@@ -238,20 +289,42 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
     // Two concurrent bash calls; the result for tu-2 must close the SECOND, not
     // the first — exercises `findMatchingInFlightToolIndex` through the append.
     let events: SubagentTimelineEvent[] = [
-      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1", content: "ls", timestamp: NOW }),
-      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-2", content: "pwd", timestamp: NOW + 100 }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        content: "ls",
+        timestamp: NOW,
+      }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "bash",
+        toolUseId: "tu-2",
+        content: "pwd",
+        timestamp: NOW + 100,
+      }),
     ];
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "tool_result", toolName: "bash", toolUseId: "tu-2", content: "/home", timestamp: NOW + 1500 }),
+      makeEvent({
+        type: "tool_result",
+        toolName: "bash",
+        toolUseId: "tu-2",
+        content: "/home",
+        timestamp: NOW + 1500,
+      }),
     );
     const out = p.project(events);
     expect(out).toEqual(computeSubagentSteps(events));
     const toolSteps = out.steps.filter((s) => s.kind === "tool");
     // First still running, second completed.
-    if (toolSteps[0]!.kind === "tool") expect(toolSteps[0]!.status).toBe("running");
-    if (toolSteps[1]!.kind === "tool") expect(toolSteps[1]!.status).toBe("completed");
+    if (toolSteps[0]!.kind === "tool") {
+      expect(toolSteps[0]!.status).toBe("running");
+    }
+    if (toolSteps[1]!.kind === "tool") {
+      expect(toolSteps[1]!.status).toBe("completed");
+    }
   });
 
   test("cross-subagent id collision (detail-1 reused) is NOT misclassified as mutate-last", () => {
@@ -276,7 +349,12 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
     p.project(subagentA);
     // Subagent B: a single text event — SAME id `detail-1`, different object.
     const subagentB: SubagentTimelineEvent[] = [
-      { id: "detail-1", type: "text", content: "B is thinking", timestamp: NOW },
+      {
+        id: "detail-1",
+        type: "text",
+        content: "B is thinking",
+        timestamp: NOW,
+      },
     ];
     const out = p.project(subagentB);
     // Must deep-equal a full rebuild of B — no stale tool step from A.
@@ -314,17 +392,31 @@ describe("createIncrementalStepProjection — per-diff-class", () => {
   test("web_search result flips the placeholder to 'Searched the web'", () => {
     const p = createIncrementalStepProjection();
     let events: SubagentTimelineEvent[] = [
-      makeEvent({ type: "tool_call", toolName: "web_search", toolUseId: "ws-1", input: { query: "vellum" }, timestamp: NOW }),
+      makeEvent({
+        type: "tool_call",
+        toolName: "web_search",
+        toolUseId: "ws-1",
+        input: { query: "vellum" },
+        timestamp: NOW,
+      }),
     ];
     p.project(events);
     events = appendEvent(
       events,
-      makeEvent({ type: "tool_result", toolName: "web_search", toolUseId: "ws-1", result: "Vellum\nhttps://vellum.ai", timestamp: NOW + 900 }),
+      makeEvent({
+        type: "tool_result",
+        toolName: "web_search",
+        toolUseId: "ws-1",
+        result: "Vellum\nhttps://vellum.ai",
+        timestamp: NOW + 900,
+      }),
     );
     const out = p.project(events);
     expect(out).toEqual(computeSubagentSteps(events));
     const search = out.steps[0]!;
-    if (search.kind === "web_search") expect(search.title).toBe("Searched the web");
+    if (search.kind === "web_search") {
+      expect(search.title).toBe("Searched the web");
+    }
   });
 });
 
@@ -358,7 +450,10 @@ describe("createIncrementalStepProjection — no-drift property", () => {
 // ---------------------------------------------------------------------------
 
 describe("createIncrementalStepProjection — incremental-work guard", () => {
-  function countReducerCalls(n: number): { calls: number; toolResults: number } {
+  function countReducerCalls(n: number): {
+    calls: number;
+    toolResults: number;
+  } {
     let calls = 0;
     const counting = (
       steps: ToolCallCardStep[],
@@ -371,7 +466,9 @@ describe("createIncrementalStepProjection — incremental-work guard", () => {
     const projector = createIncrementalStepProjection(counting);
     const mutations = generateStream(2024, n);
     const toolResults = mutations.filter(
-      (m) => m.kind === "append" && (m.event.type === "tool_result" || m.event.type === "error"),
+      (m) =>
+        m.kind === "append" &&
+        (m.event.type === "tool_result" || m.event.type === "error"),
     ).length;
 
     let events: SubagentTimelineEvent[] = [];

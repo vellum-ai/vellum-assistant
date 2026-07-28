@@ -15,7 +15,9 @@ export function migrateRenameThreadStartersTable(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'thread_starters'`,
     )
     .get();
-  if (!oldTableExists) return;
+  if (!oldTableExists) {
+    return;
+  }
 
   // If the new table already exists (crash recovery), skip the rename
   const newTableExists = raw
@@ -23,7 +25,9 @@ export function migrateRenameThreadStartersTable(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'conversation_starters'`,
     )
     .get();
-  if (newTableExists) return;
+  if (newTableExists) {
+    return;
+  }
 
   // Rename the physical table
   raw.exec(
@@ -64,7 +68,9 @@ export function migrateRenameThreadStartersTableDown(
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'conversation_starters'`,
     )
     .get();
-  if (!newTableExists) return;
+  if (!newTableExists) {
+    return;
+  }
 
   // Guard: old table must not already exist
   const oldTableExists = raw
@@ -72,7 +78,9 @@ export function migrateRenameThreadStartersTableDown(
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'thread_starters'`,
     )
     .get();
-  if (oldTableExists) return;
+  if (oldTableExists) {
+    return;
+  }
 
   // Rename the table back
   raw.exec(

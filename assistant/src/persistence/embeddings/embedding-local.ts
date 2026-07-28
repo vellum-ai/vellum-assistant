@@ -37,7 +37,9 @@ interface WorkerResponse {
  * that can be resolved by clearing the model cache and re-downloading.
  */
 function isModelCorruptionError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
+  if (!(err instanceof Error)) {
+    return false;
+  }
   const msg = err.message.toLowerCase();
   return (
     msg.includes("protobuf parsing") ||
@@ -106,7 +108,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     if (this.disposeRequested) {
       throw new Error("Local embedding backend is shutting down");
     }
-    if (inputs.length === 0) return [];
+    if (inputs.length === 0) {
+      return [];
+    }
 
     const texts = inputs.map((i) => {
       const n = normalizeEmbeddingInput(i);
@@ -115,8 +119,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       }
       return n.text;
     });
-    if (options?.signal?.aborted)
+    if (options?.signal?.aborted) {
       throw new DOMException("Aborted", "AbortError");
+    }
 
     this.activeEmbeds++;
     try {
@@ -125,8 +130,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       const results: number[][] = [];
       const batchSize = 32;
       for (let i = 0; i < texts.length; i += batchSize) {
-        if (options?.signal?.aborted)
+        if (options?.signal?.aborted) {
           throw new DOMException("Aborted", "AbortError");
+        }
         const batch = texts.slice(i, i + batchSize);
         const response = await this.sendRequest(batch);
         if (response.error) {
@@ -162,7 +168,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   }
 
   private async ensureInitialized(): Promise<void> {
-    if (this.workerProc) return;
+    if (this.workerProc) {
+      return;
+    }
     await this.initGuard.run(() => this.initialize());
   }
 
@@ -296,10 +304,13 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       try {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            break;
+          }
           const text = decoder.decode(value, { stream: true }).trim();
-          if (text)
+          if (text) {
             log.debug({ workerStderr: text }, "Embedding worker stderr");
+          }
         }
       } catch {
         // Reader cancelled or stream errored — expected on shutdown
@@ -308,7 +319,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   }
 
   private startStdoutReader(): void {
-    if (this.stdoutReaderActive || !this.workerProc) return;
+    if (this.stdoutReaderActive || !this.workerProc) {
+      return;
+    }
     this.stdoutReaderActive = true;
 
     // Capture reference to detect if a new worker was spawned during cleanup
@@ -320,7 +333,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       try {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            break;
+          }
           this.stdoutBuffer += decoder.decode(value, { stream: true });
           this.processStdoutBuffer();
         }
@@ -356,7 +371,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     while ((idx = this.stdoutBuffer.indexOf("\n")) !== -1) {
       const line = this.stdoutBuffer.slice(0, idx);
       this.stdoutBuffer = this.stdoutBuffer.slice(idx + 1);
-      if (!line.trim()) continue;
+      if (!line.trim()) {
+        continue;
+      }
 
       let msg: WorkerResponse;
       try {
@@ -462,7 +479,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   /** Read the PID from the on-disk PID file, or null if missing/invalid. */
   private readPidFile(): number | null {
     const path = this.getPidFilePath();
-    if (!existsSync(path)) return null;
+    if (!existsSync(path)) {
+      return null;
+    }
     try {
       const pid = parseInt(readFileSync(path, "utf-8").trim(), 10);
       return Number.isFinite(pid) && pid > 0 ? pid : null;
@@ -493,9 +512,13 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         stdout: "pipe",
         stderr: "ignore",
       });
-      if (result.exitCode !== 0) return false;
+      if (result.exitCode !== 0) {
+        return false;
+      }
       const cmd = new TextDecoder().decode(result.stdout).trim();
-      if (!cmd) return false;
+      if (!cmd) {
+        return false;
+      }
       return cmd.includes(workerPath);
     } catch {
       return false;
@@ -513,7 +536,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    */
   private reclaimStaleWorker(workerPath: string): void {
     const pid = this.readPidFile();
-    if (pid == null) return;
+    if (pid == null) {
+      return;
+    }
 
     // Never signal ourselves — should not happen since the worker is a child
     // process, but guard against logic bugs that would deadlock the daemon.
@@ -566,10 +591,18 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   }
 
   private disposeIfIdle(): void {
-    if (!this.disposeRequested) return;
-    if (this.activeEmbeds > 0) return;
-    if (this.pendingRequests.size > 0) return;
-    if (this.readyResolve || this.readyReject) return;
+    if (!this.disposeRequested) {
+      return;
+    }
+    if (this.activeEmbeds > 0) {
+      return;
+    }
+    if (this.pendingRequests.size > 0) {
+      return;
+    }
+    if (this.readyResolve || this.readyReject) {
+      return;
+    }
 
     const proc = this.workerProc;
     this.workerProc = null;
@@ -578,7 +611,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     this.initGuard.reset();
     this.removePidFile();
 
-    if (!proc) return;
+    if (!proc) {
+      return;
+    }
 
     try {
       proc.kill();

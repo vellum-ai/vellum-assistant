@@ -274,7 +274,9 @@ function mergeEvents(
       seqless.push(event);
       continue;
     }
-    if (!bySeq.has(event.seq)) bySeq.set(event.seq, event);
+    if (!bySeq.has(event.seq)) {
+      bySeq.set(event.seq, event);
+    }
   }
 
   const merged = Array.from(bySeq.values()).sort(
@@ -329,9 +331,13 @@ function bumpHighWaterMark(
   acpSessionId: string,
   seq: number | undefined,
 ): Map<string, number> {
-  if (typeof seq !== "number") return highWaterMark;
+  if (typeof seq !== "number") {
+    return highWaterMark;
+  }
   const prev = highWaterMark.get(acpSessionId);
-  if (prev !== undefined && prev >= seq) return highWaterMark;
+  if (prev !== undefined && prev >= seq) {
+    return highWaterMark;
+  }
   return new Map(highWaterMark).set(acpSessionId, seq);
 }
 
@@ -378,7 +384,9 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       // A respawn for an active run is a no-op. A respawn for a terminal run
       // is a resume (steer/resume-from-history): clear terminal fields and
       // mark it running while preserving events, usage, and spawn context.
-      if (isActiveAcpStatus(existing.status)) return;
+      if (isActiveAcpStatus(existing.status)) {
+        return;
+      }
 
       const resumed: AcpRunEntry = {
         ...existing,
@@ -438,7 +446,9 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
   receiveEvent: (params) => {
     const { byId, highWaterMark } = get();
     const existing = byId[params.acpSessionId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     set({
       byId: {
@@ -459,7 +469,9 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
   appendLocalMarker: (params) => {
     const { byId } = get();
     const existing = byId[params.acpSessionId];
-    if (!existing) return null;
+    if (!existing) {
+      return null;
+    }
 
     // Fractional seq sorts after existing events but never collides with a
     // daemon integer seq; the events-length-derived messageId is unique so it
@@ -492,12 +504,16 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
   removeLocalMarker: (params) => {
     const { byId } = get();
     const existing = byId[params.acpSessionId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     const events = existing.events.filter(
       (ev) => ev.messageId !== params.markerId,
     );
-    if (events.length === existing.events.length) return;
+    if (events.length === existing.events.length) {
+      return;
+    }
 
     set({
       byId: {
@@ -510,7 +526,9 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
   setTerminal: (params) => {
     const { byId } = get();
     const existing = byId[params.acpSessionId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     set({
       byId: {
@@ -532,7 +550,9 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       byId[params.acpSessionId],
       acpLifecycleConfig(params.completedAt),
     );
-    if (!next) return;
+    if (!next) {
+      return;
+    }
 
     set({ byId: { ...byId, [params.acpSessionId]: next } });
   },
@@ -544,7 +564,9 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       params.status,
       acpLifecycleConfig(),
     );
-    if (!next) return;
+    if (!next) {
+      return;
+    }
 
     set({ byId: { ...byId, [params.acpSessionId]: next } });
   },
@@ -556,17 +578,23 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
     const next = { ...byId };
     for (const id of params.acpSessionIds) {
       const retired = optimisticRetire(next[id], config);
-      if (!retired) continue;
+      if (!retired) {
+        continue;
+      }
       next[id] = retired;
       changed = true;
     }
-    if (changed) set({ byId: next });
+    if (changed) {
+      set({ byId: next });
+    }
   },
 
   updateUsage: (params) => {
     const { byId } = get();
     const existing = byId[params.acpSessionId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     set({
       byId: {
@@ -595,15 +623,14 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
     // usage metadata from history so a live entry can't stay stale. The shared
     // helper owns the byId/orderedIds insertion; the seq high-water mark and the
     // tool-use index are acp-specific and folded in from the merged result.
-    const { byId: nextById, orderedIds: nextOrderedIds } = seedEntriesFromHistory(
-      {
+    const { byId: nextById, orderedIds: nextOrderedIds } =
+      seedEntriesFromHistory({
         entries,
         byId,
         orderedIds,
         idOf: (entry) => entry.acpSessionId,
         merge: mergeHistoryEntry,
-      },
-    );
+      });
 
     let nextByToolUseId = byToolUseId;
     let nextHighWaterMark = highWaterMark;
@@ -619,7 +646,9 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       );
 
       for (const event of nextById[entry.acpSessionId].events) {
-        if (typeof event.seq !== "number") continue;
+        if (typeof event.seq !== "number") {
+          continue;
+        }
         nextHighWaterMark = bumpHighWaterMark(
           nextHighWaterMark,
           entry.acpSessionId,

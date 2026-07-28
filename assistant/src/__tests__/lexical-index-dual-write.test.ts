@@ -89,7 +89,9 @@ async function waitFor<T>(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const value = read();
-    if (value !== undefined || Date.now() > deadline) return value;
+    if (value !== undefined || Date.now() > deadline) {
+      return value;
+    }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }

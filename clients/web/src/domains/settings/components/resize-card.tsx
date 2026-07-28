@@ -9,17 +9,17 @@ import { formatResourceMb } from "@/domains/settings/components/assistant-status
 import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import { extractResizeError } from "@/domains/settings/components/resize-errors";
 import {
-    organizationsBillingSubscriptionOnboardingRetrieveOptions,
-    organizationsBillingSubscriptionRetrieveOptions,
-    useAssistantsResizeMutation,
+  organizationsBillingSubscriptionOnboardingRetrieveOptions,
+  organizationsBillingSubscriptionRetrieveOptions,
+  useAssistantsResizeMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
 import {
-    allowedMachineSizesForTier,
-    buildMachineSizeOptions,
-    machineSizeRank,
-    SIZE_LABEL,
+  allowedMachineSizesForTier,
+  buildMachineSizeOptions,
+  machineSizeRank,
+  SIZE_LABEL,
 } from "@/lib/billing/machine-sizes";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -385,7 +385,9 @@ export function ResizeCard({
       <Modal.Root
         open={upgradeModalOpen}
         onOpenChange={(o) => {
-          if (!o) setUpgradeModalOpen(false);
+          if (!o) {
+            setUpgradeModalOpen(false);
+          }
         }}
       >
         <Modal.Content size="sm">

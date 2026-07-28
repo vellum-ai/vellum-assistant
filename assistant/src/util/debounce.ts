@@ -24,7 +24,9 @@ export class DebouncerMap {
 
   schedule(key: string, fn: () => void, delayMs?: number): void {
     const existing = this.timers.get(key);
-    if (existing) clearTimeout(existing);
+    if (existing) {
+      clearTimeout(existing);
+    }
     const timer = setTimeout(() => {
       this.timers.delete(key);
       fn();
@@ -53,13 +55,18 @@ export class DebouncerMap {
   }
 
   private enforceLimit(): void {
-    if (this.timers.size <= this.maxEntries) return;
+    if (this.timers.size <= this.maxEntries) {
+      return;
+    }
     const excess = this.timers.size - this.maxEntries;
     let removed = 0;
     for (const [key, timer] of this.timers) {
-      if (removed >= excess) break;
-      if (this.protectedKeyPrefix && key.startsWith(this.protectedKeyPrefix))
+      if (removed >= excess) {
+        break;
+      }
+      if (this.protectedKeyPrefix && key.startsWith(this.protectedKeyPrefix)) {
         continue;
+      }
       clearTimeout(timer);
       this.timers.delete(key);
       removed++;

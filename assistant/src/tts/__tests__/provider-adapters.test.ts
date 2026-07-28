@@ -44,11 +44,15 @@ let mockXaiApiKey: string | null = "test-xai-api-key";
 
 mock.module("../../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key?: string) => {
-    if (key === "credential/xai/api_key") return mockXaiApiKey;
+    if (key === "credential/xai/api_key") {
+      return mockXaiApiKey;
+    }
     return mockApiKey;
   },
   getProviderKeyAsync: async (provider: string) => {
-    if (provider === "deepgram") return mockDeepgramApiKey;
+    if (provider === "deepgram") {
+      return mockDeepgramApiKey;
+    }
     return mockApiKey;
   },
 }));
@@ -214,7 +218,9 @@ function mockFetchError(status: number, body: string): void {
 function streamOf(...parts: Uint8Array[]): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
-      for (const part of parts) controller.enqueue(part);
+      for (const part of parts) {
+        controller.enqueue(part);
+      }
       controller.close();
     },
   });

@@ -33,7 +33,9 @@ mock.module("../runtime/pending-interactions.js", () => ({
   get: (requestId: string) => pending.get(requestId),
   resolve: (requestId: string) => {
     const entry = pending.get(requestId);
-    if (entry) pending.delete(requestId);
+    if (entry) {
+      pending.delete(requestId);
+    }
     return entry;
   },
 }));
@@ -125,7 +127,9 @@ describe("handleHostAppControlResult", () => {
         conversationId,
         hostAppControlProxy: {
           resolve(rid, payload) {
-            if (rid === requestId) resolveFn(payload);
+            if (rid === requestId) {
+              resolveFn(payload);
+            }
           },
         },
       });

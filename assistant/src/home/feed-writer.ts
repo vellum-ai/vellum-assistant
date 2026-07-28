@@ -413,9 +413,15 @@ async function runWrite(): Promise<void> {
     let count = 0;
     for (let i = 0; i < items.length; i++) {
       const current = items[i]!;
-      if (current.status === op.to) continue;
-      if (!fromSet.has(current.status)) continue;
-      if (idSet && !idSet.has(current.id)) continue;
+      if (current.status === op.to) {
+        continue;
+      }
+      if (!fromSet.has(current.status)) {
+        continue;
+      }
+      if (idSet && !idSet.has(current.id)) {
+        continue;
+      }
       items[i] = { ...current, status: op.to };
       count++;
     }
@@ -495,9 +501,13 @@ function mergeIncoming(items: FeedItem[], incoming: FeedItem): FeedItem[] {
  * expired (fail-open).
  */
 function isExpired(item: FeedItem, nowMs: number): boolean {
-  if (!item.expiresAt) return false;
+  if (!item.expiresAt) {
+    return false;
+  }
   const expiresMs = Date.parse(item.expiresAt);
-  if (Number.isNaN(expiresMs)) return false;
+  if (Number.isNaN(expiresMs)) {
+    return false;
+  }
   return expiresMs <= nowMs;
 }
 
@@ -507,12 +517,20 @@ function isExpired(item: FeedItem, nowMs: number): boolean {
  * items sort to the top of the feed.
  */
 function compareFeedItems(a: FeedItem, b: FeedItem): number {
-  if (a.priority !== b.priority) return b.priority - a.priority;
+  if (a.priority !== b.priority) {
+    return b.priority - a.priority;
+  }
   const aMs = Date.parse(a.createdAt);
   const bMs = Date.parse(b.createdAt);
-  if (Number.isNaN(aMs) && Number.isNaN(bMs)) return 0;
-  if (Number.isNaN(aMs)) return 1;
-  if (Number.isNaN(bMs)) return -1;
+  if (Number.isNaN(aMs) && Number.isNaN(bMs)) {
+    return 0;
+  }
+  if (Number.isNaN(aMs)) {
+    return 1;
+  }
+  if (Number.isNaN(bMs)) {
+    return -1;
+  }
   return bMs - aMs;
 }
 

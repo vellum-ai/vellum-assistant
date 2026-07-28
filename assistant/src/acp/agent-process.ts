@@ -252,16 +252,22 @@ export class AcpAgentProcess {
    */
   private selectEnvVarAuthMethod(): AuthMethod | undefined {
     const env = this.spawnedEnv;
-    if (!env) return undefined;
+    if (!env) {
+      return undefined;
+    }
 
     return this.authMethods.find((method) => {
-      if (!isEnvVarMethod(method)) return false;
+      if (!isEnvVarMethod(method)) {
+        return false;
+      }
 
       // `vars` is required by the SDK type, but agent responses aren't
       // runtime-validated — tolerate an out-of-spec agent omitting it so the
       // caller gets the friendly auth error instead of a TypeError.
       const requiredVars = (method.vars ?? []).filter((v) => !v.optional);
-      if (requiredVars.length === 0) return false;
+      if (requiredVars.length === 0) {
+        return false;
+      }
 
       return requiredVars.every((v) => {
         const value = env[v.name];
@@ -290,7 +296,9 @@ export class AcpAgentProcess {
     try {
       return await op();
     } catch (err) {
-      if (!isAuthRequiredError(err)) throw err;
+      if (!isAuthRequiredError(err)) {
+        throw err;
+      }
 
       // The agent may have exited between the auth_required rejection and
       // this retry path; fail with the standard not-spawned error.
@@ -322,7 +330,9 @@ export class AcpAgentProcess {
    * `"Login with ChatGPT" (chatgpt), "Use OPENAI_API_KEY" (env var OPENAI_API_KEY)`.
    */
   private describeAuthMethods(): string {
-    if (this.authMethods.length === 0) return "none";
+    if (this.authMethods.length === 0) {
+      return "none";
+    }
 
     return this.authMethods
       .map((method) => {
@@ -439,7 +449,9 @@ export class AcpAgentProcess {
    * Whether the child process is still running.
    */
   get isAlive(): boolean {
-    if (!this.proc) return false;
+    if (!this.proc) {
+      return false;
+    }
     // ChildProcess.exitCode is null while process is still running
     // exitCode is null while the process is still running
     return this.proc.exitCode == null;

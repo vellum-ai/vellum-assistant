@@ -38,7 +38,9 @@ function parseTar(tar: Uint8Array): Map<string, Uint8Array> {
     const header = tar.subarray(offset, offset + BLOCK_SIZE);
 
     // Check for end-of-archive (all zeros)
-    if (header.every((b) => b === 0)) break;
+    if (header.every((b) => b === 0)) {
+      break;
+    }
 
     // Read file name
     let name = "";

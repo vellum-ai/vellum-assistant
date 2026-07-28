@@ -88,9 +88,8 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
 }));
 
 // Imported after the mocks so the host picks up the mocked modules.
-const { VoiceSessionPillHost } = await import(
-  "@/domains/chat/components/voice-session-pill-host"
-);
+const { VoiceSessionPillHost } =
+  await import("@/domains/chat/components/voice-session-pill-host");
 
 const controls = makeControlsSpies();
 

@@ -61,7 +61,8 @@ mock.module("@vellumai/design-library", () => ({
   ),
 }));
 
-const { NudgeChatBanner } = await import("@/components/nudges/nudge-chat-banner");
+const { NudgeChatBanner } =
+  await import("@/components/nudges/nudge-chat-banner");
 
 describe("NudgeChatBanner", () => {
   test("uses an opaque surface so transcript content does not show through", () => {

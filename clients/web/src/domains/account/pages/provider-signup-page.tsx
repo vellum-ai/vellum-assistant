@@ -51,7 +51,9 @@ export function ProviderSignupPage() {
   const didLoad = useRef(false);
 
   useEffect(() => {
-    if (didLoad.current) return;
+    if (didLoad.current) {
+      return;
+    }
     didLoad.current = true;
 
     (async () => {
@@ -79,7 +81,10 @@ export function ProviderSignupPage() {
     if (!result.ok) {
       if (isConflict(result)) {
         await refreshSession();
-        const conflict = resolvePostLoginDestination(returnTo, routes.account.root);
+        const conflict = resolvePostLoginDestination(
+          returnTo,
+          routes.account.root,
+        );
         if (conflict.requiresFullPageNavigation) {
           window.location.href = conflict.destination;
         } else {
@@ -120,7 +125,9 @@ export function ProviderSignupPage() {
 
   const onPersonalPageSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!occupation.trim()) return;
+    if (!occupation.trim()) {
+      return;
+    }
     setError(null);
     setIsSubmitting(true);
     try {
@@ -155,7 +162,10 @@ export function ProviderSignupPage() {
     const canSubmit = occupation.trim().length > 0 && !isSubmitting;
     return (
       <SignupShell>
-        <form onSubmit={onPersonalPageSubmit} className="signup-details__thread">
+        <form
+          onSubmit={onPersonalPageSubmit}
+          className="signup-details__thread"
+        >
           <h2 className="signup-details__heading">
             Almost there,
             <br />
@@ -166,7 +176,8 @@ export function ProviderSignupPage() {
 
           <div className="signup-details__step">
             <span className="signup-details__label">
-              What should I call you? <span className="signup-details__req">*</span>
+              What should I call you?{" "}
+              <span className="signup-details__req">*</span>
             </span>
             <input
               className="signup-details__input"

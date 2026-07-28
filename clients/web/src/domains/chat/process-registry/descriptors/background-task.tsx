@@ -74,7 +74,9 @@ export const BACKGROUND_TASK_DESCRIPTOR: BackgroundProcessDescriptor = {
   useActiveIds,
   useCardSummary: (id) => {
     const data = useBackgroundTaskCardData(id);
-    if (!data) return null;
+    if (!data) {
+      return null;
+    }
     // No `count`: a background task has no meaningful unit count. `toolName`
     // drives `renderCardLeading`, not the summary.
     return { state: data.state, title: data.title, info: data.info };
@@ -90,7 +92,9 @@ export const BACKGROUND_TASK_DESCRIPTOR: BackgroundProcessDescriptor = {
   openCardAriaLabel: "Open command",
   stopAriaLabel: "Stop command",
   onOpenDetail: (id) =>
-    useViewerStore.getState().openProcessDetail({ kind: "background-task", id }),
+    useViewerStore
+      .getState()
+      .openProcessDetail({ kind: "background-task", id }),
   // `stopBackgroundTask` can reject (offline / non-OK / no active assistant);
   // report instead of leaving an unhandled rejection.
   onStop: (id) =>

@@ -101,7 +101,9 @@ describe("useActiveSubagentIds — conversation scoping", () => {
       timestamp: Date.now(),
     });
     store.changeStatus({ subagentId, status });
-    if (conversationId) store.setConversationId(subagentId, conversationId);
+    if (conversationId) {
+      store.setConversationId(subagentId, conversationId);
+    }
   }
 
   test("excludes an active subagent from a different conversation", () => {

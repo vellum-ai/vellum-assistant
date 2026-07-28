@@ -4,9 +4,9 @@ import { Navigate, useNavigate } from "react-router";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
-    useActiveAssistantIsPlatformHosted,
-    useActiveAssistantLifecycleIsLoading,
-    usePlatformGate,
+  useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
+  usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -55,7 +55,9 @@ export function UpgradeCancelPage() {
     // resolves, either `isPlatformHosted` flips true (run the effect) or
     // `platformGate` flips to `"gated"` (body's `<Navigate />` takes
     // over, this effect never runs).
-    if (!isPlatformHosted) return;
+    if (!isPlatformHosted) {
+      return;
+    }
     toast.info("Upgrade canceled. No changes to your plan.", {
       id: "pro-upgrade-cancel",
     });
@@ -106,11 +108,7 @@ export function UpgradeCancelPage() {
         <Typography as="h1" variant="title-large">
           Upgrade canceled
         </Typography>
-        <Typography
-          as="p"
-          variant="body-medium-default"
-          className="mt-2"
-        >
+        <Typography as="p" variant="body-medium-default" className="mt-2">
           Returning you to billing settings…
         </Typography>
       </Card>

@@ -13,7 +13,9 @@ export function migrateMemoryItemsFingerprintScopeUnique(
   const checkpoint = raw
     .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey);
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   // Check if the old column-level UNIQUE constraint still exists by inspecting
   // the CREATE TABLE DDL for the word UNIQUE (the PK also creates an autoindex,

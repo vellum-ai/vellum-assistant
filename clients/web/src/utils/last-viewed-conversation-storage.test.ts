@@ -1,4 +1,12 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 import {
   loadLastViewedConversationId,
@@ -9,7 +17,12 @@ import { installMemoryStorage } from "@/utils/memory-storage.test-helper";
 const ASSISTANT_ID = "asst_123";
 const STORAGE_KEY = `vellum:lastViewedConversation:${ASSISTANT_ID}`;
 
-const memoryStorage = installMemoryStorage({ beforeAll, afterAll, beforeEach, afterEach });
+const memoryStorage = installMemoryStorage({
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+});
 
 describe("loadLastViewedConversationId", () => {
   test("returns null when no value is stored", () => {

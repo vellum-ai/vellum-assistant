@@ -9,10 +9,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import {
-  generateInviteToken,
-  hashInviteToken,
-} from "@vellumai/gateway-client";
+import { generateInviteToken, hashInviteToken } from "@vellumai/gateway-client";
 import { and, eq } from "drizzle-orm";
 
 import { getDb } from "./db-connection.js";

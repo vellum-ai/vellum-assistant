@@ -357,13 +357,15 @@ export async function withValidToken<T>(
 
 function is401Error(err: unknown): boolean {
   if (err && typeof err === "object") {
-    if ("status" in err && (err as { status: number }).status === 401)
+    if ("status" in err && (err as { status: number }).status === 401) {
       return true;
+    }
     if (
       "statusCode" in err &&
       (err as { statusCode: number }).statusCode === 401
-    )
+    ) {
       return true;
+    }
   }
   return false;
 }

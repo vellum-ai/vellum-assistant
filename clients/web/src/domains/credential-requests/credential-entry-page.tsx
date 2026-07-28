@@ -1,4 +1,9 @@
-import { AlertCircle, CheckCircle2, KeyRound, LoaderCircle } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  KeyRound,
+  LoaderCircle,
+} from "lucide-react";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
@@ -131,9 +136,10 @@ export function CredentialEntryPage() {
     const controller = new AbortController();
 
     const peek = async () => {
-      const result = await peekCredentialRequest(token, controller.signal).catch(
-        () => ({ status: "error" }) as const,
-      );
+      const result = await peekCredentialRequest(
+        token,
+        controller.signal,
+      ).catch(() => ({ status: "error" }) as const);
       if (controller.signal.aborted) {
         return;
       }
@@ -232,14 +238,17 @@ export function CredentialEntryPage() {
         or ask for a new one.
       </StatusCard>
     );
-  } else if (phase.kind === "expired" || (phase.kind === "form" && !hasLiveForm)) {
+  } else if (
+    phase.kind === "expired" ||
+    (phase.kind === "form" && !hasLiveForm)
+  ) {
     content = (
       <StatusCard
         icon={<AlertCircle className="h-5 w-5 text-red-600" aria-hidden />}
         title="Link expired"
       >
-        This credential link has expired. Links only work for a short time —
-        ask for a new one and enter the value again.
+        This credential link has expired. Links only work for a short time — ask
+        for a new one and enter the value again.
       </StatusCard>
     );
   } else if (phase.kind === "used") {
@@ -248,8 +257,8 @@ export function CredentialEntryPage() {
         icon={<AlertCircle className="h-5 w-5 text-red-600" aria-hidden />}
         title="Link already used"
       >
-        This credential link has already been used. Each link works exactly
-        once — ask for a new one if the value still needs to be provided.
+        This credential link has already been used. Each link works exactly once
+        — ask for a new one if the value still needs to be provided.
       </StatusCard>
     );
   } else if (phase.kind === "store-failed") {
@@ -259,8 +268,7 @@ export function CredentialEntryPage() {
         title="Link no longer valid"
       >
         The assistant could not store the credential, and for safety this
-        one-time link cannot be reused. Ask for a new link and try again
-        there.
+        one-time link cannot be reused. Ask for a new link and try again there.
       </StatusCard>
     );
   } else if (phase.kind === "error") {
@@ -294,9 +302,9 @@ export function CredentialEntryPage() {
         </div>
 
         <p className="text-sm leading-6 text-[var(--content-secondary)]">
-          Enter the secret value below. It is stored encrypted on the
-          assistant, is never shown again, and this link stops working as soon
-          as it's used.
+          Enter the secret value below. It is stored encrypted on the assistant,
+          is never shown again, and this link stops working as soon as it's
+          used.
         </p>
 
         <form

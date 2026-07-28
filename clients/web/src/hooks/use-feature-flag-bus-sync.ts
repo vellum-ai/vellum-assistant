@@ -36,10 +36,16 @@ export function useFeatureFlagBusSync(
   const queryClient = useQueryClient();
 
   useBusSubscription("sse.event", (envelope) => {
-    if (!assistantId || !isAssistantActive) return;
+    if (!assistantId || !isAssistantActive) {
+      return;
+    }
     const event = envelope.message;
-    if (event.type !== "sync_changed") return;
-    if (event.originClientId && event.originClientId === getClientId()) return;
+    if (event.type !== "sync_changed") {
+      return;
+    }
+    if (event.originClientId && event.originClientId === getClientId()) {
+      return;
+    }
     for (const tag of event.tags) {
       if (tag === SYNC_TAGS.featureFlagsClient) {
         void queryClient.invalidateQueries({
@@ -56,8 +62,12 @@ export function useFeatureFlagBusSync(
   });
 
   useBusSubscription("sse.opened", ({ cause }) => {
-    if (!assistantId || !isAssistantActive) return;
-    if (cause === "fresh") return;
+    if (!assistantId || !isAssistantActive) {
+      return;
+    }
+    if (cause === "fresh") {
+      return;
+    }
     void queryClient.invalidateQueries({
       queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
     });

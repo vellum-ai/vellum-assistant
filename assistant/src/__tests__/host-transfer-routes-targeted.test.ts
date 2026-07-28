@@ -26,7 +26,9 @@ mock.module("../runtime/pending-interactions.js", () => ({
   get: (requestId: string) => pendingStore.get(requestId),
   resolve: (requestId: string) => {
     const entry = pendingStore.get(requestId);
-    if (entry) pendingStore.delete(requestId);
+    if (entry) {
+      pendingStore.delete(requestId);
+    }
     return entry;
   },
 }));

@@ -28,25 +28,38 @@ const byMostRecentlyUpdated = (
 export function useLibraryData(assistantId: string) {
   const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
 
-  const { data: apps = [], isLoading: appsLoading, error: appsError } = useQuery({
+  const {
+    data: apps = [],
+    isLoading: appsLoading,
+    error: appsError,
+  } = useQuery({
     ...appsGetOptions({ path: { assistant_id: assistantId } }),
     select: (data) => data.apps,
   });
 
-  const { data: documents = [], isLoading: docsLoading, error: docsError } = useQuery({
+  const {
+    data: documents = [],
+    isLoading: docsLoading,
+    error: docsError,
+  } = useQuery({
     ...documentsGetOptions({ path: { assistant_id: assistantId } }),
     select: (data) => data.documents,
   });
 
   const loading = appsLoading || docsLoading;
-  const error = appsError && docsError
-    ? (appsError instanceof Error ? appsError.message : "Failed to load library")
-    : null;
+  const error =
+    appsError && docsError
+      ? appsError instanceof Error
+        ? appsError.message
+        : "Failed to load library"
+      : null;
 
   const [searchText, setSearchText] = useState("");
 
   const filteredApps = useMemo(() => {
-    if (!searchText.trim()) return apps;
+    if (!searchText.trim()) {
+      return apps;
+    }
     const lower = searchText.toLowerCase();
     return apps.filter(
       (a) =>
@@ -56,17 +69,25 @@ export function useLibraryData(assistantId: string) {
   }, [apps, searchText]);
 
   const pinnedApps = useMemo(
-    () => filteredApps.filter((a) => pinnedAppIds.has(a.id)).sort(byMostRecentlyUpdated),
+    () =>
+      filteredApps
+        .filter((a) => pinnedAppIds.has(a.id))
+        .sort(byMostRecentlyUpdated),
     [filteredApps, pinnedAppIds],
   );
 
   const recentApps = useMemo(
-    () => filteredApps.filter((a) => !pinnedAppIds.has(a.id)).sort(byMostRecentlyUpdated),
+    () =>
+      filteredApps
+        .filter((a) => !pinnedAppIds.has(a.id))
+        .sort(byMostRecentlyUpdated),
     [filteredApps, pinnedAppIds],
   );
 
   const filteredDocuments = useMemo(() => {
-    if (!searchText.trim()) return documents;
+    if (!searchText.trim()) {
+      return documents;
+    }
     const lower = searchText.toLowerCase();
     return documents.filter((d) => d.title.toLowerCase().includes(lower));
   }, [documents, searchText]);

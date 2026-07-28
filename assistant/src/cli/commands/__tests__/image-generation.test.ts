@@ -39,7 +39,8 @@ mock.module("../../../util/logger.js", () => ({
 // We can set outputDir via --output-dir to avoid needing to mock os.tmpdir
 const TEST_OUTPUT_DIR = "/tmp/test-image-gen";
 
-const { registerImageGenerationCommand } = await import("../image-generation.js");
+const { registerImageGenerationCommand } =
+  await import("../image-generation.js");
 
 function buildProgram(): Command {
   const program = new Command();
@@ -110,7 +111,9 @@ describe("image-generation generate", () => {
       "--output-dir",
       TEST_OUTPUT_DIR,
     ]);
-    expect((mockCalls[0][1].body as Record<string, unknown>).model).toBe("gpt-image-2");
+    expect((mockCalls[0][1].body as Record<string, unknown>).model).toBe(
+      "gpt-image-2",
+    );
   });
 
   it("passes variants", async () => {

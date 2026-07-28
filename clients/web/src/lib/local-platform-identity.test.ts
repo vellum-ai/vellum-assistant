@@ -108,7 +108,9 @@ function jsonResponse(body: unknown): Response {
 }
 
 function parseRequestBody(init: RequestInit | undefined): unknown {
-  if (typeof init?.body !== "string") return null;
+  if (typeof init?.body !== "string") {
+    return null;
+  }
   return JSON.parse(init.body) as unknown;
 }
 

@@ -15,7 +15,9 @@ export async function run(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const appId = resolveAppId(input, context.conversationId);
-  if (!appId) return missingAppIdError();
+  if (!appId) {
+    return missingAppIdError();
+  }
   return executeAppUpdate(
     { ...input, app_id: appId } as unknown as AppUpdateInput,
     appStore,

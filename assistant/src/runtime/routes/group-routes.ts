@@ -56,7 +56,9 @@ function parseIconField(value: unknown): string | null | undefined {
 }
 
 function serializeGroup(group: ReturnType<typeof getGroup>) {
-  if (!group) return null;
+  if (!group) {
+    return null;
+  }
   return {
     id: group.id,
     name: group.name,
@@ -167,7 +169,9 @@ function handleReorderGroups({ body = {}, headers }: RouteHandlerArgs) {
   }
   for (const update of updates) {
     const group = getGroup(update.groupId);
-    if (!group) continue;
+    if (!group) {
+      continue;
+    }
     if (group.isSystemGroup) {
       throw new ForbiddenError(
         `Cannot reorder system group: ${update.groupId}`,

@@ -32,7 +32,9 @@ const AUTOINJECT_FILENAME = "_autoinject.md";
  */
 export function readAutoinjectList(pkbDir: string): string[] | null {
   const filePath = join(pkbDir, AUTOINJECT_FILENAME);
-  if (!existsSync(filePath)) return null;
+  if (!existsSync(filePath)) {
+    return null;
+  }
   try {
     const raw = stripCommentLines(readFileSync(filePath, "utf-8"));
     const files = raw

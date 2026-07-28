@@ -54,7 +54,9 @@ function readLocalCategories(repoSkillsDir: string): SkillCategoryDef[] {
       "utf-8",
     );
     const parsed = parseYaml(raw) as { categories?: SkillCategoryDef[] };
-    if (!Array.isArray(parsed?.categories)) return [];
+    if (!Array.isArray(parsed?.categories)) {
+      return [];
+    }
     return parsed.categories.filter(
       (c): c is SkillCategoryDef =>
         !!c && typeof c.slug === "string" && typeof c.label === "string",
@@ -125,7 +127,9 @@ export function getLocalCategorySlugs(): Set<string> {
   const repoSkillsDir = getRepoSkillsDir();
   if (repoSkillsDir) {
     const slugs = readLocalCategories(repoSkillsDir).map((c) => c.slug);
-    if (slugs.length > 0) return new Set(slugs);
+    if (slugs.length > 0) {
+      return new Set(slugs);
+    }
   }
   // Fallback for source runs where getRepoSkillsDir() returns undefined (e.g.
   // the Docker image runs `bun run src/index.ts` without VELLUM_DEV and is not
@@ -141,7 +145,9 @@ export function getLocalCategorySlugs(): Set<string> {
   const relativeSlugs = readLocalCategories(moduleRelativeSkillsDir).map(
     (c) => c.slug,
   );
-  if (relativeSlugs.length > 0) return new Set(relativeSlugs);
+  if (relativeSlugs.length > 0) {
+    return new Set(relativeSlugs);
+  }
   // Last resort: slugs from categories already fetched via the async/remote
   // path, so normalization still works once that cache is warm.
   return new Set(getCachedCategoriesSync().map((c) => c.slug));

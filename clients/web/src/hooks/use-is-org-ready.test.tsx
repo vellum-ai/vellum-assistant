@@ -17,9 +17,8 @@ mock.module("@/stores/auth-store", () => ({
   useHasPlatformSession: () => hasPlatformSessionMock,
 }));
 
-const { useIsOrgReady, useOrgHeaderReadiness } = await import(
-  "./use-is-org-ready"
-);
+const { useIsOrgReady, useOrgHeaderReadiness } =
+  await import("./use-is-org-ready");
 const { useOrganizationStore } = await import("@/stores/organization-store");
 
 const STORAGE_KEY = "vellum_active_organization_id";

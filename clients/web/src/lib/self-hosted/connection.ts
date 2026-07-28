@@ -46,9 +46,10 @@ let current: SelfHostedConnection = { url: null, token: null };
 export function setSelfHostedConnection(
   connection: SelfHostedConnection | null,
 ): void {
-  current = connection === null
-    ? { url: null, token: null }
-    : { url: connection.url, token: connection.token };
+  current =
+    connection === null
+      ? { url: null, token: null }
+      : { url: connection.url, token: connection.token };
 }
 
 export function getSelfHostedIngressUrl(): string | null {

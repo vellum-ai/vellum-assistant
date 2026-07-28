@@ -25,7 +25,11 @@ export function SuggestionIcon({
       return <GoogleDriveLogo size={size} />;
     case "vellum":
       return (
-        <Sparkles size={size} aria-hidden className="text-[var(--primary-base)]" />
+        <Sparkles
+          size={size}
+          aria-hidden
+          className="text-[var(--primary-base)]"
+        />
       );
     default:
       return (

@@ -77,7 +77,9 @@ let _collectionReady = false;
  * `dense.ts`) so they reuse one client instance and one reset hook.
  */
 export function getSectionDenseClient(): QdrantRestClient {
-  if (_client) return _client;
+  if (_client) {
+    return _client;
+  }
   _client = new QdrantRestClient({
     url: resolveQdrantUrl(),
     checkCompatibility: false,
@@ -103,7 +105,9 @@ function pointIdForSection(article: string, ordinal: number): string {
 export async function ensureSectionCollection(
   config: AssistantConfig,
 ): Promise<void> {
-  if (_collectionReady) return;
+  if (_collectionReady) {
+    return;
+  }
 
   const client = getSectionDenseClient();
   const vectorSize = config.memory.qdrant.vectorSize;
@@ -176,7 +180,9 @@ export async function ensureSectionCollection(
         err instanceof Error && "status" in err
           ? (err as { status: number }).status
           : undefined;
-      if (status !== 409) throw err;
+      if (status !== 409) {
+        throw err;
+      }
     }
 
     // A freshly (re)created collection is empty, so the section dense store
@@ -246,7 +252,9 @@ function sectionCacheId(article: string, ordinal: number): string {
  */
 function sectionContentHash(text: string, extras: string[]): string {
   const base = embeddingInputContentHash({ type: "text", text });
-  if (extras.length === 0) return base;
+  if (extras.length === 0) {
+    return base;
+  }
   return createHash("sha256")
     .update(`${base}\0${extras.join("\0")}`)
     .digest("hex");
@@ -269,7 +277,9 @@ export async function upsertSections(
   config: AssistantConfig,
   sections: Section[],
 ): Promise<void> {
-  if (sections.length === 0) return;
+  if (sections.length === 0) {
+    return;
+  }
 
   await ensureSectionCollection(config);
 
@@ -277,7 +287,9 @@ export async function upsertSections(
 
   const points = sections.flatMap((section, i) => {
     const vector = vectors[i];
-    if (!vector) return [];
+    if (!vector) {
+      return [];
+    }
     return [
       {
         id: pointIdForSection(section.article, section.ordinal),
@@ -291,7 +303,9 @@ export async function upsertSections(
     ];
   });
 
-  if (points.length === 0) return;
+  if (points.length === 0) {
+    return;
+  }
 
   await getSectionDenseClient().upsert(SECTION_COLLECTION, {
     wait: true,
@@ -350,10 +364,14 @@ async function embedSectionsCached(
       }
     }
   } else {
-    for (let i = 0; i < sections.length; i++) missIndices.push(i);
+    for (let i = 0; i < sections.length; i++) {
+      missIndices.push(i);
+    }
   }
 
-  if (missIndices.length === 0) return result;
+  if (missIndices.length === 0) {
+    return result;
+  }
 
   // Embed the misses in one batched call (the dominant cost).
   let embedded = await embedWithBackend(
@@ -386,7 +404,9 @@ async function embedSectionsCached(
   for (let j = 0; j < effectiveIndices.length; j++) {
     const i = effectiveIndices[j]!;
     const vector = embedded.vectors[j];
-    if (!vector) continue;
+    if (!vector) {
+      continue;
+    }
     result[i] = vector;
     const section = sections[i]!;
     writeEmbeddingCache(db, {
@@ -451,10 +471,14 @@ export async function listSectionArticles(
     });
     for (const point of result.points) {
       const article = (point.payload as { article?: unknown } | null)?.article;
-      if (typeof article === "string") articles.add(article);
+      if (typeof article === "string") {
+        articles.add(article);
+      }
     }
     const next = result.next_page_offset;
-    if (next == null) break;
+    if (next == null) {
+      break;
+    }
     offset = typeof next === "string" ? next : (next as number);
   }
 

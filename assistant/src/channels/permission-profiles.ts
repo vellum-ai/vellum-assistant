@@ -67,17 +67,23 @@ export function isToolAllowedInChannel(
   toolCategory?: string,
 ): boolean {
   const profile = getChannelPermissionProfile(channelId);
-  if (!profile) return true;
+  if (!profile) {
+    return true;
+  }
 
   // Check explicit block list first
-  if (profile.blockedTools?.includes(toolName)) return false;
+  if (profile.blockedTools?.includes(toolName)) {
+    return false;
+  }
 
   // Check allowed categories (if specified)
   if (
     profile.allowedToolCategories &&
     profile.allowedToolCategories.length > 0
   ) {
-    if (!toolCategory) return false;
+    if (!toolCategory) {
+      return false;
+    }
     return profile.allowedToolCategories.includes(toolCategory);
   }
 

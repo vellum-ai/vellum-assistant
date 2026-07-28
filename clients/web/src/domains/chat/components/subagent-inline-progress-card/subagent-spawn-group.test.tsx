@@ -65,17 +65,20 @@ describe("SubagentSpawnGroup", () => {
 
     // The crossfade defers the incoming view (AnimatePresence mode="wait"),
     // so wait for the inline cards to mount.
-    expect(await findAllByTestId("inline-process-card")).toHaveLength(
-      3,
-    );
+    expect(await findAllByTestId("inline-process-card")).toHaveLength(3);
     expect(queryAllByTestId("subagent-avatar-badge")).toHaveLength(0);
     expect(getByTestId("subagent-spawn-group-collapse")).toBeTruthy();
   });
 
   test("Collapse returns to the avatar summary", async () => {
     const ids = spawnIds(3);
-    const { getByTestId, findByTestId, findAllByTestId, queryAllByTestId, queryByTestId } =
-      render(<SubagentSpawnGroup subagentIds={ids} />);
+    const {
+      getByTestId,
+      findByTestId,
+      findAllByTestId,
+      queryAllByTestId,
+      queryByTestId,
+    } = render(<SubagentSpawnGroup subagentIds={ids} />);
 
     fireEvent.click(getByTestId("subagent-avatar-row-details"));
     fireEvent.click(await findByTestId("subagent-spawn-group-collapse"));
@@ -89,7 +92,9 @@ describe("SubagentSpawnGroup", () => {
     const ids = spawnIds(2);
     // Mark in-flight so the stop button renders on the rows.
     for (const id of ids) {
-      useSubagentStore.getState().changeStatus({ subagentId: id, status: "running" });
+      useSubagentStore
+        .getState()
+        .changeStatus({ subagentId: id, status: "running" });
     }
 
     const clicked: string[] = [];
@@ -108,7 +113,9 @@ describe("SubagentSpawnGroup", () => {
     // The open affordance lives on the leading cluster (a `role="button"`
     // element inside the row), not on the row container itself, so the stop
     // button is not nested inside it. Click the affordance, not the row.
-    fireEvent.click(within(rows[0]).getByRole("button", { name: /open subagent/i }));
+    fireEvent.click(
+      within(rows[0]).getByRole("button", { name: /open subagent/i }),
+    );
     expect(clicked).toEqual([ids[0]]);
 
     const stopButtons = getAllByTestId("inline-process-card-stop");

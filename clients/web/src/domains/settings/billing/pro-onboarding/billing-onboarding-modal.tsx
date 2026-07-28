@@ -147,7 +147,9 @@ export function BillingOnboardingModal({
   );
 
   useEffect(() => {
-    if (step === "complete") clearCheckoutIntent();
+    if (step === "complete") {
+      clearCheckoutIntent();
+    }
   }, [step]);
 
   // Domain/email/guardian registration must run while the assistant's machine

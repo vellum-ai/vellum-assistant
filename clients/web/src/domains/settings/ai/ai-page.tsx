@@ -17,7 +17,9 @@ export function AiPage() {
   // Scroll to hash target on mount (e.g. deep links to #email).
   useEffect(() => {
     const hash = window.location.hash.slice(1);
-    if (!hash) return;
+    if (!hash) {
+      return;
+    }
     requestAnimationFrame(() => {
       document.getElementById(hash)?.scrollIntoView({ block: "start" });
     });

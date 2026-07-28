@@ -16,9 +16,8 @@ import { useConversationStore } from "@/stores/conversation-store";
 // keeps the data-apply effect (and its downstream interaction/surface
 // fetches) dormant.
 // ---------------------------------------------------------------------------
-const realPaginationModule = await import(
-  "@/domains/chat/transcript/use-history-pagination"
-);
+const realPaginationModule =
+  await import("@/domains/chat/transcript/use-history-pagination");
 
 let invalidateSpy = mock(async () => {});
 
@@ -49,9 +48,8 @@ mock.module("@/domains/chat/transcript/use-history-pagination", () => ({
   useHistoryPagination: () => paginationStub(),
 }));
 
-const { useConversationHistory } = await import(
-  "@/domains/chat/hooks/use-conversation-history"
-);
+const { useConversationHistory } =
+  await import("@/domains/chat/hooks/use-conversation-history");
 
 // The hook reads `useQueryClient()` (for surface cache writes and the
 // turn-end history reseed), so it must render inside a provider.

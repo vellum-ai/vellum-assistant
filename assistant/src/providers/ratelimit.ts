@@ -69,7 +69,9 @@ export class RateLimitProvider implements Provider {
 
   private enforceRequestRate(): void {
     const limit = this.config.maxRequestsPerMinute;
-    if (limit <= 0) return;
+    if (limit <= 0) {
+      return;
+    }
 
     const now = Date.now();
     const windowStart = now - 60_000;
@@ -106,7 +108,9 @@ export class RateLimitProvider implements Provider {
   }
 
   private recordRequest(): void {
-    if (this.config.maxRequestsPerMinute <= 0) return;
+    if (this.config.maxRequestsPerMinute <= 0) {
+      return;
+    }
     this.requestTimestamps.push(Date.now());
   }
 }

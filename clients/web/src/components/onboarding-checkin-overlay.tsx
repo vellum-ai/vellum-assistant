@@ -36,7 +36,9 @@ export function OnboardingCheckinOverlay() {
   // which renders across pre-active/hatching states. Null is handled below.
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
-  if (!checkinPending) return null;
+  if (!checkinPending) {
+    return null;
+  }
 
   const handleConnect = () => {
     if (assistantId) {

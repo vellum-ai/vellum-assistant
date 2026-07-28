@@ -56,7 +56,9 @@ export class BYOOAuthConnection implements OAuthConnection {
           const params = new URLSearchParams();
           for (const [key, value] of Object.entries(req.query)) {
             if (Array.isArray(value)) {
-              for (const v of value) params.append(key, v);
+              for (const v of value) {
+                params.append(key, v);
+              }
             } else {
               params.append(key, value);
             }
@@ -122,7 +124,9 @@ export class BYOOAuthConnection implements OAuthConnection {
 }
 
 function buildTelegramBotApiPath(path: string, token: string): string {
-  if (path.startsWith("/bot")) return path;
+  if (path.startsWith("/bot")) {
+    return path;
+  }
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `/bot${token}${normalizedPath}`;
 }

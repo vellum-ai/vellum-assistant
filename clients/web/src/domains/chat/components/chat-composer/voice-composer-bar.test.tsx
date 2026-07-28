@@ -18,14 +18,17 @@ afterEach(() => {
   cleanup();
 });
 
-function renderBar(state: LiveVoiceSessionState, overrides?: {
-  muted?: boolean;
-  onToggleMute?: () => void;
-  onEnd?: () => void;
-  onStop?: () => void;
-  onExpand?: () => void;
-  standalone?: boolean;
-}) {
+function renderBar(
+  state: LiveVoiceSessionState,
+  overrides?: {
+    muted?: boolean;
+    onToggleMute?: () => void;
+    onEnd?: () => void;
+    onStop?: () => void;
+    onExpand?: () => void;
+    standalone?: boolean;
+  },
+) {
   return render(
     <VoiceComposerBar
       state={state}
@@ -90,7 +93,12 @@ describe("VoiceComposerBar — no manual send", () => {
   });
 
   test("end stays enabled in every session state", () => {
-    for (const state of ["connecting", "listening", "speaking", "ending"] as const) {
+    for (const state of [
+      "connecting",
+      "listening",
+      "speaking",
+      "ending",
+    ] as const) {
       const { unmount } = renderBar(state);
       const end = screen.getByRole("button", { name: "End voice session" });
       expect((end as HTMLButtonElement).disabled).toBe(false);
@@ -106,7 +114,6 @@ describe("VoiceComposerBar — callbacks", () => {
     fireEvent.click(screen.getByRole("button", { name: "End voice session" }));
     expect(onEnd).toHaveBeenCalledTimes(1);
   });
-
 });
 
 describe("VoiceComposerBar — mute toggle", () => {

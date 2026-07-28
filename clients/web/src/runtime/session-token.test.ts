@@ -11,7 +11,9 @@ function setBridge(token: string | null, calls?: { count: number }): void {
     platform: "electron",
     auth: {
       getSessionToken: () => {
-        if (calls) calls.count += 1;
+        if (calls) {
+          calls.count += 1;
+        }
         return token;
       },
     },

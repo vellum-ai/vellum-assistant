@@ -192,7 +192,9 @@ export async function runPatternScan(
     const validSources = pattern.source_node_ids.filter((id) =>
       existingIds.has(id),
     );
-    if (validSources.length < 3) continue;
+    if (validSources.length < 3) {
+      continue;
+    }
 
     const type =
       pattern.type === "behavioral"

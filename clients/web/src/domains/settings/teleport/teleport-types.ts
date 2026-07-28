@@ -82,8 +82,12 @@ export function resolveDestination(
   cloud: string | undefined,
 ): TeleportDestination | null {
   const hosting = classifyHosting(cloud);
-  if (hosting === "managed") return "local";
-  if (hosting === "local") return "platform";
+  if (hosting === "managed") {
+    return "local";
+  }
+  if (hosting === "local") {
+    return "platform";
+  }
   return null;
 }
 
@@ -119,18 +123,28 @@ export function destinationDescription(
  * `null` when the body isn't a recognizable version-mismatch payload.
  */
 export function parseVersionMismatch(body: unknown): string | null {
-  if (!body || typeof body !== "object") return null;
+  if (!body || typeof body !== "object") {
+    return null;
+  }
   const json = body as Record<string, unknown>;
-  if (json.reason !== "version_mismatch") return null;
+  if (json.reason !== "version_mismatch") {
+    return null;
+  }
 
   const compat = json.bundle_compat;
   const targetVersion = json.target_runtime_version;
-  if (!compat || typeof compat !== "object" || typeof targetVersion !== "string") {
+  if (
+    !compat ||
+    typeof compat !== "object" ||
+    typeof targetVersion !== "string"
+  ) {
     return null;
   }
   const compatObj = compat as Record<string, unknown>;
   const minVersion = compatObj.min_runtime_version;
-  if (typeof minVersion !== "string") return null;
+  if (typeof minVersion !== "string") {
+    return null;
+  }
   const maxVersion =
     typeof compatObj.max_runtime_version === "string"
       ? compatObj.max_runtime_version

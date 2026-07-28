@@ -37,7 +37,9 @@ function buildAssistantAttention(attentionState: AttentionState | undefined):
       lastSeenSignalType?: SignalType;
     }
   | undefined {
-  if (!attentionState) return undefined;
+  if (!attentionState) {
+    return undefined;
+  }
 
   return {
     hasUnseenLatestAssistantMessage:
@@ -70,7 +72,9 @@ function buildForkParent(
 ): { conversationId: string; messageId: string; title: string } | undefined {
   const parentConversationId = conversation.forkParentConversationId;
   const parentMessageId = conversation.forkParentMessageId;
-  if (!parentConversationId || !parentMessageId) return undefined;
+  if (!parentConversationId || !parentMessageId) {
+    return undefined;
+  }
 
   let parentConversation: ConversationRow | null | undefined =
     parentCache.get(parentConversationId);
@@ -109,7 +113,9 @@ function resolveSerializedGroupId(
   conversation: ConversationRow,
   persistedGroupId: string | null,
 ): string | null {
-  if (conversation.surfacedAt == null) return persistedGroupId;
+  if (conversation.surfacedAt == null) {
+    return persistedGroupId;
+  }
   if (
     persistedGroupId == null ||
     persistedGroupId === "system:background" ||

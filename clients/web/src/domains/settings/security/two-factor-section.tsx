@@ -77,8 +77,8 @@ export function TwoFactorSection() {
         </Notice>
       ) : factors.length === 0 ? (
         <p className="text-body-medium-default text-[var(--content-tertiary)]">
-          No authenticator app is set up. Add one to require a one-time code
-          at sign-in.
+          No authenticator app is set up. Add one to require a one-time code at
+          sign-in.
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-[var(--border-base)]">
@@ -113,11 +113,13 @@ export function TwoFactorSection() {
         </ul>
       )}
 
-      {!factorsQuery.isPending && !factorsQuery.isError && factors.length === 0 && (
-        <Button onClick={() => setEnrollOpen(true)} className="self-start">
-          Add authenticator app
-        </Button>
-      )}
+      {!factorsQuery.isPending &&
+        !factorsQuery.isError &&
+        factors.length === 0 && (
+          <Button onClick={() => setEnrollOpen(true)} className="self-start">
+            Add authenticator app
+          </Button>
+        )}
 
       <EnrollTotpModal open={enrollOpen} onOpenChange={setEnrollOpen} />
 

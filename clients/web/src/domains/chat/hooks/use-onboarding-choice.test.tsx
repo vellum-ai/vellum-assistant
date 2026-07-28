@@ -34,7 +34,10 @@ describe("useOnboardingChoice", () => {
 
   test("suppresses the card for ineligible handoffs (tasks selected or hidden kickoff)", () => {
     const { result } = renderHook(() =>
-      useOnboardingChoice({ ...baseOptions(), onboardingChoiceEligible: false }),
+      useOnboardingChoice({
+        ...baseOptions(),
+        onboardingChoiceEligible: false,
+      }),
     );
     expect(result.current.showOnboardingChoice).toBe(false);
   });

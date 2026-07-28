@@ -21,26 +21,38 @@ export const repairRecallCallsiteEmptyProfileMigration: WorkspaceMigration = {
     "Replace recall call-site profile pointer when cost-optimized profile lacks a model",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     const callSites = readObject(llm.callSites);
-    if (callSites === null) return;
+    if (callSites === null) {
+      return;
+    }
 
     const recall = readObject(callSites.recall);
-    if (recall === null) return;
-    if (recall.profile !== "cost-optimized") return;
+    if (recall === null) {
+      return;
+    }
+    if (recall.profile !== "cost-optimized") {
+      return;
+    }
 
     const profiles = readObject(llm.profiles) ?? {};
     const costOptimized = readObject(profiles["cost-optimized"]);
@@ -54,7 +66,9 @@ export const repairRecallCallsiteEmptyProfileMigration: WorkspaceMigration = {
     const defaultBlock = readObject(llm.default);
     const provider = readString(defaultBlock?.provider) ?? "anthropic";
     const cheapModel = PROVIDER_LATENCY_MODELS[provider];
-    if (cheapModel === undefined) return;
+    if (cheapModel === undefined) {
+      return;
+    }
 
     delete recall.profile;
     if (readString(recall.model) === undefined) {

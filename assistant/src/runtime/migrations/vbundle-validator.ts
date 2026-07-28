@@ -646,8 +646,12 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
   // Step 7: Ensure every required entry (except manifest.json itself) has a
   // checksum in the manifest — presence in the archive alone is not enough.
   for (const required of REQUIRED_ENTRIES) {
-    if (required === "manifest.json") continue;
-    if (!entryMap.has(required)) continue;
+    if (required === "manifest.json") {
+      continue;
+    }
+    if (!entryMap.has(required)) {
+      continue;
+    }
     if (!manifestFilePaths.has(required)) {
       errors.push({
         code: "REQUIRED_FILE_NOT_IN_MANIFEST",

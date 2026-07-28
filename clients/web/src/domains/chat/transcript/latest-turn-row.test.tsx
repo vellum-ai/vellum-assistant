@@ -23,9 +23,12 @@ mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ),
 }));
 
-mock.module("@/domains/chat/components/message-hover-actions/message-hover-actions", () => ({
-  MessageHoverActions: () => <div data-testid="hover-actions" />,
-}));
+mock.module(
+  "@/domains/chat/components/message-hover-actions/message-hover-actions",
+  () => ({
+    MessageHoverActions: () => <div data-testid="hover-actions" />,
+  }),
+);
 
 mock.module("@/domains/chat/components/tool-call-chip/tool-call-chip", () => ({
   ToolCallChip: () => <div data-testid="tool-call-chip" />,
@@ -35,9 +38,12 @@ mock.module("@/components/assistant/surfaces", () => ({
   SurfaceRouter: () => <div data-testid="surface-router" />,
 }));
 
-mock.module("@/domains/chat/components/chat-attachments/message-attachments", () => ({
-  MessageAttachments: () => <div data-testid="message-attachments" />,
-}));
+mock.module(
+  "@/domains/chat/components/chat-attachments/message-attachments",
+  () => ({
+    MessageAttachments: () => <div data-testid="message-attachments" />,
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // Subjects under test — imported AFTER mocks are registered.

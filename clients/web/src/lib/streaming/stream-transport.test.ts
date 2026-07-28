@@ -33,7 +33,10 @@ mock.module("@/lib/streaming/reconnect-cursor", () => ({
 }));
 
 import { getLifecycleDiagnosticsEvents } from "@/lib/diagnostics";
-import { subscribeEvents, type StreamReconnectCause } from "@/lib/streaming/stream-transport";
+import {
+  subscribeEvents,
+  type StreamReconnectCause,
+} from "@/lib/streaming/stream-transport";
 
 describe("subscribeEvents idle watchdog", () => {
   let originalFetch: typeof fetch;
@@ -45,7 +48,9 @@ describe("subscribeEvents idle watchdog", () => {
     // ensureCsrfCookie() on mutating requests; harmless for this GET
     // path but keeps the bun (Node) test env consistent.
     originalDocument = (globalThis as { document?: unknown }).document;
-    (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
+    (globalThis as { document?: unknown }).document = {
+      cookie: "csrftoken=test",
+    };
   });
 
   afterEach(() => {
@@ -59,19 +64,17 @@ describe("subscribeEvents idle watchdog", () => {
 
   test("omits any conversation query param when subscribing to all assistant events", async () => {
     const requestedUrls: string[] = [];
-    globalThis.fetch = mock(
-      async (input: RequestInfo | URL) => {
-        requestedUrls.push(input instanceof Request ? input.url : String(input));
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.close();
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "text/event-stream" } },
-        );
-      },
-    ) as unknown as typeof fetch;
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      requestedUrls.push(input instanceof Request ? input.url : String(input));
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+    }) as unknown as typeof fetch;
 
     const stream = subscribeEvents(
       "asst-1",
@@ -107,7 +110,9 @@ describe("subscribeEvents idle watchdog", () => {
       async (input: RequestInfo | URL, init?: RequestInit) => {
         fetchCallCount++;
         const signal = input instanceof Request ? input.signal : init?.signal;
-        if (signal) capturedSignals.push(signal);
+        if (signal) {
+          capturedSignals.push(signal);
+        }
 
         // A body that never produces any bytes — the watchdog is the
         // only thing that can break this stream out of its read.
@@ -128,19 +133,14 @@ describe("subscribeEvents idle watchdog", () => {
     const onError = mock(() => {});
     let reconnectCallbacks = 0;
 
-    const stream = subscribeEvents(
-      "asst-1",
-      onEvent,
-      onError,
-      {
-        // Short timings so the test runs in well under a second.
-        idleTimeoutMs: 50,
-        reconnectBaseDelayMs: 10,
-        onReconnect: () => {
-          reconnectCallbacks++;
-        },
+    const stream = subscribeEvents("asst-1", onEvent, onError, {
+      // Short timings so the test runs in well under a second.
+      idleTimeoutMs: 50,
+      reconnectBaseDelayMs: 10,
+      onReconnect: () => {
+        reconnectCallbacks++;
       },
-    );
+    });
 
     try {
       // Allow: connect → stall → watchdog (~50ms) → reconnect delay
@@ -555,9 +555,7 @@ describe("subscribeEvents idle watchdog", () => {
         new ReadableStream({
           start(controller) {
             setTimeout(() => {
-              controller.error(
-                new Error(`transport failure ${localCount}`),
-              );
+              controller.error(new Error(`transport failure ${localCount}`));
             }, 50);
           },
         }),
@@ -721,7 +719,9 @@ describe("subscribeEvents onStreamOpen / onStreamClose", () => {
   beforeEach(() => {
     originalFetch = globalThis.fetch;
     originalDocument = (globalThis as { document?: unknown }).document;
-    (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
+    (globalThis as { document?: unknown }).document = {
+      cookie: "csrftoken=test",
+    };
   });
 
   afterEach(() => {
@@ -848,7 +848,9 @@ describe("subscribeEvents reconnect cursor (resumable stream)", () => {
   beforeEach(() => {
     originalFetch = globalThis.fetch;
     originalDocument = (globalThis as { document?: unknown }).document;
-    (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
+    (globalThis as { document?: unknown }).document = {
+      cookie: "csrftoken=test",
+    };
     mockReconnectCursor = null;
   });
 
@@ -876,7 +878,9 @@ describe("subscribeEvents reconnect cursor (resumable stream)", () => {
           start(controller) {
             // First attempt ends cleanly (→ reconnect); later attempts
             // stay open so no third connect races into the assertion.
-            if (closeImmediately) controller.close();
+            if (closeImmediately) {
+              controller.close();
+            }
           },
         }),
         { status: 200, headers: { "Content-Type": "text/event-stream" } },

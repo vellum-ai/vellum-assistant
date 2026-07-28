@@ -87,15 +87,21 @@ function configFileSignaturesEqual(
   a: ConfigFileSignature,
   b: ConfigFileSignature,
 ): boolean {
-  if (a.path !== b.path || a.exists !== b.exists) return false;
-  if (!a.exists || !b.exists) return true;
+  if (a.path !== b.path || a.exists !== b.exists) {
+    return false;
+  }
+  if (!a.exists || !b.exists) {
+    return true;
+  }
   return (
     a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs
   );
 }
 
 function getCachedConfigIfFresh(): AssistantConfig | null {
-  if (!cached || !cachedFileSignature) return null;
+  if (!cached || !cachedFileSignature) {
+    return null;
+  }
 
   const currentSignature = readConfigFileSignature(getConfigPath());
   if (configFileSignaturesEqual(cachedFileSignature, currentSignature)) {
@@ -653,15 +659,21 @@ function deleteNestedKey(
   const chain: Array<{ container: Record<string, unknown>; key: string }> = [];
   let current: unknown = obj;
   for (let i = 0; i < path.length - 1; i++) {
-    if (current == null || typeof current !== "object") return;
+    if (current == null || typeof current !== "object") {
+      return;
+    }
     const key = String(path[i]);
     chain.push({ container: current as Record<string, unknown>, key });
     current = (current as Record<string, unknown>)[key];
   }
-  if (current == null || typeof current !== "object") return;
+  if (current == null || typeof current !== "object") {
+    return;
+  }
   delete (current as Record<string, unknown>)[String(path[path.length - 1])];
 
-  if (!pruneEmptyAncestors) return;
+  if (!pruneEmptyAncestors) {
+    return;
+  }
   // Remove ancestors emptied by the deletion, deepest first; stop at the first
   // that still has keys.
   for (let i = chain.length - 1; i >= 0; i--) {
@@ -727,7 +739,9 @@ function warnAndStripDeprecatedFields(
     }
   }
 
-  if (found.length === 0) return;
+  if (found.length === 0) {
+    return;
+  }
 
   // Strip from the in-memory object so Zod never sees them
   for (const dotPath of found) {
@@ -774,7 +788,9 @@ function stripNullLeaves(value: unknown): unknown {
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (v === null) continue;
+    if (v === null) {
+      continue;
+    }
     out[k] = stripNullLeaves(v);
   }
   return out;
@@ -821,7 +837,9 @@ export function deepMergeOverwrite(
   for (const key of Object.keys(overrides)) {
     const ov = overrides[key];
     if (ov === null) {
-      if (!(key in target)) continue;
+      if (!(key in target)) {
+        continue;
+      }
       const existing = target[key];
       if (
         existing != null &&
@@ -979,12 +997,16 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
 
 export function loadConfig(): AssistantConfig {
   const freshCached = getCachedConfigIfFresh();
-  if (freshCached) return freshCached;
+  if (freshCached) {
+    return freshCached;
+  }
 
   // Re-entrancy guard: log calls during loading (e.g. file-mode warning)
   // can trigger loadConfig again. Return defaults to break the cycle
   // instead of recursing to stack overflow.
-  if (loading) return cloneDefaultConfig();
+  if (loading) {
+    return cloneDefaultConfig();
+  }
   loading = true;
 
   try {
@@ -1145,7 +1167,9 @@ export function getConfig(): AssistantConfig {
  */
 export function getConfigReadOnly(): AssistantConfig {
   const freshCached = getCachedConfigIfFresh();
-  if (freshCached) return freshCached;
+  if (freshCached) {
+    return freshCached;
+  }
 
   const configPath = getConfigPath();
   let fileConfig: Record<string, unknown> = {};
@@ -1250,8 +1274,12 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * non-object JSON shapes the loader rejects.
  */
 function describeJsonShape(value: unknown): string {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return "an array";
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "an array";
+  }
   return `a ${typeof value}`;
 }
 

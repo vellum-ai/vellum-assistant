@@ -1,4 +1,3 @@
-
 import { Clock } from "lucide-react";
 import { useEffect } from "react";
 
@@ -43,8 +42,8 @@ export function CompactionCircuitOpenBanner({
     >
       <Clock className="h-4 w-4 shrink-0" aria-hidden="true" />
       <span className="text-body-medium-default">
-        Auto-compaction paused &mdash; long conversation may overflow. Use /compact to compact
-        manually.
+        Auto-compaction paused &mdash; long conversation may overflow. Use
+        /compact to compact manually.
       </span>
     </div>
   );

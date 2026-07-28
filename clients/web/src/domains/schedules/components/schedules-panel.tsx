@@ -146,11 +146,7 @@ export function SchedulesPanel({
           description="Ask your assistant to set one up, or create one yourself."
           actions={
             <>
-              <Button
-                variant="primary"
-                size="regular"
-                onClick={onStartNewChat}
-              >
+              <Button variant="primary" size="regular" onClick={onStartNewChat}>
                 New Conversation
               </Button>
               <span className="text-body-small-default text-[var(--content-tertiary)]">

@@ -694,11 +694,15 @@ describe("ChatComposer — send/stop button visibility", () => {
  */
 function sendButtonHasDisabledAttr(html: string): boolean {
   const idx = html.indexOf('aria-label="Send message"');
-  if (idx === -1) return false;
+  if (idx === -1) {
+    return false;
+  }
   // Walk back to the opening '<' for this <button>, then forward to the next '>'.
   const openIdx = html.lastIndexOf("<button", idx);
   const closeIdx = html.indexOf(">", idx);
-  if (openIdx === -1 || closeIdx === -1) return false;
+  if (openIdx === -1 || closeIdx === -1) {
+    return false;
+  }
   const tag = html.slice(openIdx, closeIdx + 1);
   // The HTML disabled attribute renders as `disabled=""` or bare `disabled`
   // (followed by space or `>`). Class names always live INSIDE quotes, so an

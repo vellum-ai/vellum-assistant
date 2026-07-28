@@ -17,7 +17,9 @@ export function supportsFnPushToTalk(): boolean {
 export async function setFnPushToTalkEnabled(
   enable: boolean,
 ): Promise<boolean> {
-  if (!supportsFnPushToTalk()) return false;
+  if (!supportsFnPushToTalk()) {
+    return false;
+  }
   try {
     const result = await window.vellum!.helper!.hotkey!.fnPushToTalk(enable);
     return result.ok;
@@ -29,6 +31,8 @@ export async function setFnPushToTalkEnabled(
 export function subscribeToHotkeyEvents(
   callback: (event: HotkeyEvent) => void,
 ): () => void {
-  if (!supportsFnPushToTalk()) return () => undefined;
+  if (!supportsFnPushToTalk()) {
+    return () => undefined;
+  }
   return window.vellum!.helper!.hotkey!.onEvent(callback);
 }

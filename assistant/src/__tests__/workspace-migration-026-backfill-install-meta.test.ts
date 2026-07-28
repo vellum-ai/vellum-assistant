@@ -85,7 +85,9 @@ function writeIntegrityManifest(
 
 function readInstallMeta(skillName: string): Record<string, unknown> | null {
   const path = join(skillsDir, skillName, "install-meta.json");
-  if (!existsSync(path)) return null;
+  if (!existsSync(path)) {
+    return null;
+  }
   return JSON.parse(readFileSync(path, "utf-8"));
 }
 

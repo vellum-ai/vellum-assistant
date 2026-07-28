@@ -197,9 +197,13 @@ export function subscribe<K extends BusEventName>(
   set.add(handler as AnyHandler);
   return () => {
     const current = handlers.get(event);
-    if (!current) return;
+    if (!current) {
+      return;
+    }
     current.delete(handler as AnyHandler);
-    if (current.size === 0) handlers.delete(event);
+    if (current.size === 0) {
+      handlers.delete(event);
+    }
   };
 }
 
@@ -209,7 +213,9 @@ export function publish<K extends BusEventName>(
   payload: BusEventPayload<K>,
 ): void {
   const set = handlers.get(event);
-  if (!set || set.size === 0) return;
+  if (!set || set.size === 0) {
+    return;
+  }
   // Snapshot before iterating so handlers that unsubscribe (or
   // resubscribe) during dispatch don't mutate the in-flight set.
   for (const handler of Array.from(set)) {

@@ -430,9 +430,13 @@ export function redactWorkspaceEvidence(
   evidence: readonly RecallEvidence[],
 ): readonly RecallEvidence[] {
   return evidence.map((item) => {
-    if (item.source !== "workspace") return item;
+    if (item.source !== "workspace") {
+      return item;
+    }
     const redacted = redactSecrets(item.excerpt);
-    if (redacted === item.excerpt) return item;
+    if (redacted === item.excerpt) {
+      return item;
+    }
     return { ...item, excerpt: redacted };
   });
 }

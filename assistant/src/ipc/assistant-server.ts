@@ -451,9 +451,13 @@ export class AssistantIpcServer {
     id: string,
   ): IpcResponse | null {
     // `$cancel` only aborts an in-flight request and never reads the DB.
-    if (method === "$cancel" || isDbMigrationGateBypassed(method)) return null;
+    if (method === "$cancel" || isDbMigrationGateBypassed(method)) {
+      return null;
+    }
     const readiness = getDbMigrationReadiness();
-    if (readiness.ready) return null;
+    if (readiness.ready) {
+      return null;
+    }
     return {
       id,
       error: `Database migrations ${readiness.state}; IPC method '${method}' is temporarily unavailable`,

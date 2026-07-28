@@ -114,9 +114,7 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
         setInlineError("Too many attempts. Wait a minute and try again.");
         return;
       }
-      setInlineError(
-        "Couldn't verify the code. Wait a moment and try again.",
-      );
+      setInlineError("Couldn't verify the code. Wait a moment and try again.");
     },
   });
 
@@ -173,8 +171,7 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
           <Modal.Title>Set up authenticator app</Modal.Title>
           <Modal.Description>
             Scan the QR code with an authenticator app such as Google
-            Authenticator or 1Password, then enter the 6-digit code it
-            shows.
+            Authenticator or 1Password, then enter the 6-digit code it shows.
           </Modal.Description>
         </Modal.Header>
         <Modal.Body>

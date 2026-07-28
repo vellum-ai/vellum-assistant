@@ -80,10 +80,16 @@ export function getStepName(step: MigrationStep): string {
 export function getMaxRollbackVersion(steps: MigrationStep[]): number {
   let max = 0;
   for (const step of steps) {
-    if (typeof step === "function") continue;
-    if (!step.rollback) continue;
+    if (typeof step === "function") {
+      continue;
+    }
+    if (!step.rollback) {
+      continue;
+    }
     for (const entry of step.rollback) {
-      if (entry.version > max) max = entry.version;
+      if (entry.version > max) {
+        max = entry.version;
+      }
     }
   }
   return max;
@@ -166,7 +172,9 @@ export function recoverCrashedMigrations(database: DrizzleDb): string[] {
   const crashed = rows
     .filter((r) => r.value === "started" || r.value === "rolling_back")
     .map((r) => r.key);
-  if (crashed.length === 0) return [];
+  if (crashed.length === 0) {
+    return [];
+  }
 
   log.error(
     { crashed },

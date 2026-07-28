@@ -1,14 +1,13 @@
-
 import type { LucideIcon } from "lucide-react";
 import { Loader2, Search, X } from "lucide-react";
 import {
-    useCallback,
-    useEffect,
-    useRef,
-    type FC,
-    type KeyboardEvent,
-    type MouseEvent,
-    type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  type FC,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 
@@ -101,7 +100,9 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
 
   // Scroll the selected item into view when keyboard-navigating.
   useEffect(() => {
-    if (!isOpen || !listRef.current) return;
+    if (!isOpen || !listRef.current) {
+      return;
+    }
     const selected = listRef.current.querySelector("[aria-current='page']");
     if (selected) {
       selected.scrollIntoView({ block: "nearest" });
@@ -127,9 +128,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   const useMobileLayout = isMobile && !isWindowSurface;
 
   const searchInputRow = (
-    <div
-      className="flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-4 py-3"
-    >
+    <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-4 py-3">
       {isSearching ? (
         <Loader2
           size={16}
@@ -308,9 +307,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
       onClick={handleBackdropClick}
       onKeyDown={onKeyDown}
     >
-      <div
-        className="flex w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-[var(--border-base)] bg-[var(--surface-base)] shadow-xl"
-      >
+      <div className="flex w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-[var(--border-base)] bg-[var(--surface-base)] shadow-xl">
         {searchInputRow}
         {resultsList}
       </div>

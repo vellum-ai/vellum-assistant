@@ -54,7 +54,9 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
       set({ pendingComposerMessage: message }),
     consumePendingComposerMessage: () => {
       const message = get().pendingComposerMessage;
-      if (message !== null) set({ pendingComposerMessage: null });
+      if (message !== null) {
+        set({ pendingComposerMessage: null });
+      }
       return message;
     },
   }),

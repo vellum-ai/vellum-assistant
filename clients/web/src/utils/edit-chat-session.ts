@@ -32,12 +32,19 @@ function buildKey(assistantId: string, appId: string): string {
 
 function readEntry(key: string): Entry | null {
   const store = storage();
-  if (!store) return null;
+  if (!store) {
+    return null;
+  }
   const raw = store.getItem(key);
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   try {
     const parsed = JSON.parse(raw) as Entry;
-    if (typeof parsed.conversationId !== "string" || typeof parsed.lastUsedAt !== "number") {
+    if (
+      typeof parsed.conversationId !== "string" ||
+      typeof parsed.lastUsedAt !== "number"
+    ) {
       return null;
     }
     return parsed;
@@ -48,7 +55,9 @@ function readEntry(key: string): Entry | null {
 
 function writeEntry(key: string, entry: Entry): void {
   const store = storage();
-  if (!store) return;
+  if (!store) {
+    return;
+  }
   try {
     store.setItem(key, JSON.stringify(entry));
   } catch {
@@ -63,7 +72,9 @@ export function getEditChatConversationId(
 ): string | null {
   const key = buildKey(assistantId, appId);
   const entry = readEntry(key);
-  if (!entry) return null;
+  if (!entry) {
+    return null;
+  }
   if (now - entry.lastUsedAt > TTL_MS) {
     const store = storage();
     store?.removeItem(key);
@@ -87,14 +98,23 @@ export function setEditChatConversationId(
  * the draft. Without this, the next Edit click would land on a conversation
  * id that no longer exists.
  */
-export function resolveEditChatDraftConversationId(oldConversationId: string, newConversationId: string): void {
+export function resolveEditChatDraftConversationId(
+  oldConversationId: string,
+  newConversationId: string,
+): void {
   const store = storage();
-  if (!store) return;
+  if (!store) {
+    return;
+  }
   for (let i = 0; i < store.length; i += 1) {
     const key = store.key(i);
-    if (!key || !key.startsWith(PREFIX)) continue;
+    if (!key || !key.startsWith(PREFIX)) {
+      continue;
+    }
     const entry = readEntry(key);
-    if (!entry || entry.conversationId !== oldConversationId) continue;
+    if (!entry || entry.conversationId !== oldConversationId) {
+      continue;
+    }
     writeEntry(key, { ...entry, conversationId: newConversationId });
   }
 }

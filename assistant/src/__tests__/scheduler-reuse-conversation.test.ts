@@ -359,7 +359,9 @@ describe("scheduler conversation reuse", () => {
     let shouldFail = false;
     processMessageImpl = async (conversationId, message) => {
       processedMessages.push({ conversationId, message });
-      if (shouldFail) throw new Error("Simulated failure");
+      if (shouldFail) {
+        throw new Error("Simulated failure");
+      }
       return { messageId: "test-message-id" };
     };
 

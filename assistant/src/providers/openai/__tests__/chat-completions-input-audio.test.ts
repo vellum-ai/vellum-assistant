@@ -29,7 +29,9 @@ const OK_CHUNKS: MockChunk[] = [
 function makeStream(chunks: MockChunk[]): AsyncIterable<MockChunk> {
   return {
     async *[Symbol.asyncIterator]() {
-      for (const c of chunks) yield c;
+      for (const c of chunks) {
+        yield c;
+      }
     },
   };
 }

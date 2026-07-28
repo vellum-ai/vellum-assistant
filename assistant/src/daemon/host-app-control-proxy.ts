@@ -479,7 +479,9 @@ export class HostAppControlProxy extends HostProxyBase<
   private promoteStartIfCurrent(
     attempted: ActiveAppControlSession | undefined,
   ): void {
-    if (attempted == null) return;
+    if (attempted == null) {
+      return;
+    }
     if (activeAppControlSession?.conversationId !== attempted.conversationId) {
       return;
     }

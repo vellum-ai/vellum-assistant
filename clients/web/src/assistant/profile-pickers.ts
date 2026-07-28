@@ -47,7 +47,9 @@ export function visibleProfilesForPicker<T extends ProfilePickerEntry>(
 ): T[] {
   const selected = new Set<string>();
   for (const n of selectedNames) {
-    if (n) selected.add(n);
+    if (n) {
+      selected.add(n);
+    }
   }
   return profiles.filter(
     (p) => p.status !== "disabled" || selected.has(p.name),

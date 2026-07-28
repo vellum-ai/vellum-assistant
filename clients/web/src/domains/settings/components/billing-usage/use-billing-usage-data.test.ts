@@ -74,7 +74,9 @@ describe("isBillingUsageDataEnabled", () => {
   });
 
   test("stays disabled with no platform session (gate 'disabled')", () => {
-    expect(isBillingUsageDataEnabled("disabled", "disabled", false)).toBe(false);
+    expect(isBillingUsageDataEnabled("disabled", "disabled", false)).toBe(
+      false,
+    );
     expect(isBillingUsageDataEnabled("disabled", "disabled", true)).toBe(false);
   });
 });
@@ -168,8 +170,10 @@ describe("default tz resolution", () => {
     }));
 
     // Re-import after mocking so the builders pick up the mocked default.
-    const { buildBillingUsageSeriesQuery: buildSeries, buildBillingUsageTotalsQuery: buildTotals } =
-      await import("./use-billing-usage-data");
+    const {
+      buildBillingUsageSeriesQuery: buildSeries,
+      buildBillingUsageTotalsQuery: buildTotals,
+    } = await import("./use-billing-usage-data");
 
     expect(buildSeries(makeState()).tz).toBe("Europe/Berlin");
     expect(buildTotals(makeState()).tz).toBe("Europe/Berlin");

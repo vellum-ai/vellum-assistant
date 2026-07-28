@@ -23,7 +23,9 @@ export const extractFeatureFlagsToProtectedMigration: WorkspaceMigration = {
     const protectedDir = join(getVellumRoot(), "protected");
     const featureFlagsPath = join(protectedDir, "feature-flags.json");
 
-    if (!existsSync(featureFlagsPath)) return;
+    if (!existsSync(featureFlagsPath)) {
+      return;
+    }
 
     let flagValues: Record<string, boolean>;
     try {
@@ -41,7 +43,9 @@ export const extractFeatureFlagsToProtectedMigration: WorkspaceMigration = {
       return; // Malformed file — skip
     }
 
-    if (Object.keys(flagValues).length === 0) return;
+    if (Object.keys(flagValues).length === 0) {
+      return;
+    }
 
     // Read config.json and restore assistantFeatureFlagValues
     const configPath = join(workspaceDir, "config.json");
@@ -82,12 +86,16 @@ export const extractFeatureFlagsToProtectedMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return; // Malformed config — skip

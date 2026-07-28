@@ -31,7 +31,9 @@ const NOTICE_PATH = getConfigValidationResetNoticePath();
 
 function writeNotice(resetAt: string, invalidPaths: string[]): void {
   const dir = dirname(NOTICE_PATH);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
   writeFileSync(
     NOTICE_PATH,
     JSON.stringify({ resetAt, invalidPaths }, null, 2),

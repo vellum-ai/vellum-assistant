@@ -285,7 +285,9 @@ function channelKey(type: string, address: string): string {
 async function hydrateTelemetryFromGateway(
   contacts: ContactWithChannels[],
 ): Promise<ContactWithGatewayTelemetry[]> {
-  if (contacts.length === 0) return [];
+  if (contacts.length === 0) {
+    return [];
+  }
 
   const gatewayById = new Map<string, ContactRead>();
   try {
@@ -293,7 +295,9 @@ async function hydrateTelemetryFromGateway(
       ids: contacts.map((c) => c.id),
     });
     const { contacts: rich } = ListContactsIpcResponseSchema.parse(result);
-    for (const c of rich) gatewayById.set(c.id, c);
+    for (const c of rich) {
+      gatewayById.set(c.id, c);
+    }
   } catch (err) {
     log.warn(
       { err },
@@ -416,7 +420,9 @@ export async function handleGetContact(contactId: string) {
   } catch (err) {
     // A clean not-found is a real 404. Any other relay failure fails closed
     // rather than reading ACL from the assistant DB.
-    if (err instanceof NotFoundError) throw err;
+    if (err instanceof NotFoundError) {
+      throw err;
+    }
     rethrowGatewayError(err);
   }
 }

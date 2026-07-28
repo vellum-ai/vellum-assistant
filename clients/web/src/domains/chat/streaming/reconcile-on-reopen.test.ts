@@ -36,9 +36,8 @@ mock.module("@sentry/react", () => ({
   captureException: captureExceptionMock,
 }));
 
-const { createReconcileOnReopen } = await import(
-  "@/domains/chat/streaming/reconcile-on-reopen"
-);
+const { createReconcileOnReopen } =
+  await import("@/domains/chat/streaming/reconcile-on-reopen");
 
 const makeReconcileResult = (
   override: Partial<ReconcileActiveConversationResult> = {},
@@ -49,14 +48,18 @@ const makeReconcileResult = (
   ...override,
 });
 
-const makeDeps = (override: Partial<{
-  assistantId: string;
-  conversationId: string;
-  reconcileActive: () => Promise<ReconcileActiveConversationResult>;
-  startReconciliationLoop: (epoch: number) => void;
-}> = {}) => {
-  const reconcileActive = override.reconcileActive ?? mock(async () => makeReconcileResult());
-  const startReconciliationLoop = override.startReconciliationLoop ?? mock(() => {});
+const makeDeps = (
+  override: Partial<{
+    assistantId: string;
+    conversationId: string;
+    reconcileActive: () => Promise<ReconcileActiveConversationResult>;
+    startReconciliationLoop: (epoch: number) => void;
+  }> = {},
+) => {
+  const reconcileActive =
+    override.reconcileActive ?? mock(async () => makeReconcileResult());
+  const startReconciliationLoop =
+    override.startReconciliationLoop ?? mock(() => {});
   return {
     reconcileActive,
     startReconciliationLoop,
@@ -80,8 +83,7 @@ beforeEach(() => {
 
 describe("reconcile-on-reopen — gating", () => {
   test("ignores opens for a different assistant", () => {
-    const { deps, reconcileActive, startReconciliationLoop } =
-      makeDeps();
+    const { deps, reconcileActive, startReconciliationLoop } = makeDeps();
     const handler = createReconcileOnReopen(deps);
 
     handler.handleSseOpened({ assistantId: "asst-OTHER", cause: "resume" });
@@ -92,8 +94,7 @@ describe("reconcile-on-reopen — gating", () => {
   });
 
   test("fresh cause: bumps epoch but does not reconcile", () => {
-    const { deps, reconcileActive, startReconciliationLoop } =
-      makeDeps();
+    const { deps, reconcileActive, startReconciliationLoop } = makeDeps();
     const handler = createReconcileOnReopen(deps);
 
     handler.handleSseOpened({ assistantId: "asst-1", cause: "fresh" });
@@ -112,8 +113,7 @@ describe("reconcile-on-reopen — gating", () => {
 
 describe("reconcile-on-reopen — resume cause", () => {
   test("standalone reconcile + start the loop on the bumped epoch", () => {
-    const { deps, reconcileActive, startReconciliationLoop } =
-      makeDeps();
+    const { deps, reconcileActive, startReconciliationLoop } = makeDeps();
     const handler = createReconcileOnReopen(deps);
 
     handler.handleSseOpened({ assistantId: "asst-1", cause: "resume" });
@@ -149,8 +149,8 @@ describe("reconcile-on-reopen — resume cause", () => {
 
 describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => {
   test("watchdog: reconciles and starts the loop", async () => {
-    const reconcileActive = mock(
-      async () => makeReconcileResult({ messagesAdded: 3 }),
+    const reconcileActive = mock(async () =>
+      makeReconcileResult({ messagesAdded: 3 }),
     );
     const { deps, startReconciliationLoop } = makeDeps({
       reconcileActive,
@@ -181,8 +181,9 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
   });
 
   test("stale epoch: if a later open bumps the epoch mid-reconcile, this completion self-cancels", async () => {
-    let resolveReconcile: (r: ReconcileActiveConversationResult) => void =
-      () => {};
+    let resolveReconcile: (
+      r: ReconcileActiveConversationResult,
+    ) => void = () => {};
     const reconcileActive = mock(
       () =>
         new Promise<ReconcileActiveConversationResult>((resolve) => {
@@ -209,8 +210,8 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
   });
 
   test("watchdog success records breadcrumb but not captureMessage", async () => {
-    const reconcileActive = mock(
-      async () => makeReconcileResult({ messagesAdded: 2, changed: true }),
+    const reconcileActive = mock(async () =>
+      makeReconcileResult({ messagesAdded: 2, changed: true }),
     );
     const { deps } = makeDeps({ reconcileActive });
     const handler = createReconcileOnReopen(deps);
@@ -223,8 +224,8 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
   });
 
   test("error cause does NOT record the watchdog rescue diagnostics", async () => {
-    const reconcileActive = mock(
-      async () => makeReconcileResult({ messagesAdded: 1 }),
+    const reconcileActive = mock(async () =>
+      makeReconcileResult({ messagesAdded: 1 }),
     );
     const { deps } = makeDeps({ reconcileActive });
     const handler = createReconcileOnReopen(deps);

@@ -63,7 +63,9 @@ export function seedEntriesFromHistory<E>(params: {
     const id = idOf(entry);
     const existing = byId[id];
     byId[id] = existing ? merge(existing, entry) : entry;
-    if (!orderedIds.includes(id)) orderedIds.push(id);
+    if (!orderedIds.includes(id)) {
+      orderedIds.push(id);
+    }
   }
 
   return { byId, orderedIds };

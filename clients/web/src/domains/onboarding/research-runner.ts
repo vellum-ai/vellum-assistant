@@ -103,7 +103,10 @@ const VELLUM_PLUGIN_OWNER = "vellum-ai";
  * by Vellum — including future persona plugins like a developer/PM kit — flows
  * through automatically.
  */
-const NON_RECOMMENDABLE_PLUGINS = new Set<string>(["simple-memory", "level-up"]);
+const NON_RECOMMENDABLE_PLUGINS = new Set<string>([
+  "simple-memory",
+  "level-up",
+]);
 
 type CatalogMatch = NonNullable<
   PluginsSearchGetResponses[200]["matches"]
@@ -117,7 +120,11 @@ export interface RecommendableCapabilities {
 
 /** Keep injected descriptions to one short clause so the prompt stays compact. */
 function compactDescription(raw: string): string {
-  const firstSentence = raw.trim().split(/(?<=\.)\s/)[0]?.trim() ?? raw.trim();
+  const firstSentence =
+    raw
+      .trim()
+      .split(/(?<=\.)\s/)[0]
+      ?.trim() ?? raw.trim();
   return firstSentence.length > 100
     ? `${firstSentence.slice(0, 97).trimEnd()}…`
     : firstSentence;
@@ -142,9 +149,15 @@ export function selectRecommendableCapabilities(
   for (const m of matches) {
     const name = m.name?.trim();
     const description = m.description?.trim();
-    if (!name || !description) continue;
-    if (repoOwner(m.source?.repo) !== VELLUM_PLUGIN_OWNER) continue;
-    if (NON_RECOMMENDABLE_PLUGINS.has(name)) continue;
+    if (!name || !description) {
+      continue;
+    }
+    if (repoOwner(m.source?.repo) !== VELLUM_PLUGIN_OWNER) {
+      continue;
+    }
+    if (NON_RECOMMENDABLE_PLUGINS.has(name)) {
+      continue;
+    }
     validNames.add(name);
     capabilities.push({ name, description: compactDescription(description) });
   }
@@ -498,7 +511,9 @@ export function useResearchRunner(): UseResearchRunner {
       includeSuggestions = true,
     }: StartResearchOptions) => {
       const subjectKey = JSON.stringify(subject);
-      if (subjectKeyRef.current === subjectKey) return;
+      if (subjectKeyRef.current === subjectKey) {
+        return;
+      }
       subjectKeyRef.current = subjectKey;
       const runId = runIdRef.current + 1;
       runIdRef.current = runId;
@@ -520,7 +535,9 @@ export function useResearchRunner(): UseResearchRunner {
         try {
           const assistantId = await awaitAssistantId();
           resolvedAssistantId = assistantId;
-          if (isStale()) return;
+          if (isStale()) {
+            return;
+          }
 
           // Advertise the Vellum-owned marketplace capabilities to the research
           // turn so it can pick the ones that best fit the person (returned as a
@@ -529,7 +546,9 @@ export function useResearchRunner(): UseResearchRunner {
           // browsing/install surfaces remain independently feature-gated.
           const { capabilities, validNames } =
             await fetchAvailableCapabilities(assistantId);
-          if (isStale()) return;
+          if (isStale()) {
+            return;
+          }
           // Name → description for the fetched catalog, so the UI can show each
           // installed plugin with its real name + description. Carried on every
           // state update below (the poll loop replaces state wholesale).
@@ -539,7 +558,9 @@ export function useResearchRunner(): UseResearchRunner {
           setState((s) => ({ ...s, pluginCatalog }));
           // Nothing installable (empty/unavailable catalog) — release the click
           // gate so suggestion clicks never wait on the research turn.
-          if (validNames.size === 0) resolvePluginsReady();
+          if (validNames.size === 0) {
+            resolvePluginsReady();
+          }
 
           // Tracks every install fired this run (deterministic floor + the model's
           // later picks), keyed by name so the suggestion click can await them and
@@ -559,7 +580,10 @@ export function useResearchRunner(): UseResearchRunner {
           );
           for (const name of deterministicPlugins) {
             if (!installs.has(name)) {
-              installs.set(name, installCapabilityBestEffort(assistantId, name));
+              installs.set(
+                name,
+                installCapabilityBestEffort(assistantId, name),
+              );
             }
           }
           if (deterministicPlugins.length > 0) {
@@ -587,7 +611,9 @@ export function useResearchRunner(): UseResearchRunner {
             // to the user's local clock. Mirrors `checkin-scheduler.ts`.
             try {
               const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-              if (tz) body.clientTimezone = tz;
+              if (tz) {
+                body.clientTimezone = tz;
+              }
             } catch {
               // Intl unavailable — daemon falls back to its own cascade.
             }
@@ -617,7 +643,9 @@ export function useResearchRunner(): UseResearchRunner {
             // once a complete payload settles.
             createdConversationId = conversation.data?.id;
             const id = conversation.data?.id;
-            if (!conversation.response?.ok || !id) return undefined;
+            if (!conversation.response?.ok || !id) {
+              return undefined;
+            }
             // Surface the new id immediately so the caller can persist it and
             // resume this exact thread across a refresh.
             onConversationCreated?.(id);
@@ -635,7 +663,9 @@ export function useResearchRunner(): UseResearchRunner {
               query: { conversationId: resumeConversationId },
               throwOnError: false,
             });
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
             if (existing.response?.ok) {
               conversationId = resumeConversationId;
               createdConversationId = resumeConversationId;
@@ -647,7 +677,9 @@ export function useResearchRunner(): UseResearchRunner {
                   setState((s) => ({ ...s, status: "error" }));
                   return;
                 }
-                if (isStale()) return;
+                if (isStale()) {
+                  return;
+                }
               }
             }
             // Not ok → conversation gone (e.g. completed + archived); fall
@@ -656,7 +688,9 @@ export function useResearchRunner(): UseResearchRunner {
 
           if (!conversationId) {
             conversationId = await startFreshConversation();
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
             if (!conversationId) {
               setState((s) => ({ ...s, status: "error" }));
               return;
@@ -665,7 +699,9 @@ export function useResearchRunner(): UseResearchRunner {
               setState((s) => ({ ...s, status: "error" }));
               return;
             }
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
           }
 
           // Poll the conversation, parsing the (possibly partial) reply each
@@ -695,13 +731,17 @@ export function useResearchRunner(): UseResearchRunner {
           // installing (see above); idempotent, so racing the same name is fine.
           while (Date.now() < deadline) {
             await sleep(POLL_INTERVAL_MS);
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
             const listed = await messagesGet({
               path: { assistant_id: assistantId },
               query: { conversationId },
               throwOnError: false,
             });
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
             const messages = listed.data?.messages ?? [];
             const text = latestAssistantText(messages);
             if (text) {
@@ -715,7 +755,9 @@ export function useResearchRunner(): UseResearchRunner {
               } = parseResearchResultStreaming(text);
               // Narrow the model's picks to the catalog we actually fetched so a
               // hallucinated name never hits the install route; fire each new one.
-              const validPlugins = plugins.filter((name) => validNames.has(name));
+              const validPlugins = plugins.filter((name) =>
+                validNames.has(name),
+              );
               for (const name of validPlugins) {
                 if (!installs.has(name)) {
                   installs.set(
@@ -727,7 +769,9 @@ export function useResearchRunner(): UseResearchRunner {
               // Once the plugin decision is final (array closed, even if empty),
               // the install set is complete — release the click gate so it waits
               // only on the installs themselves, not the rest of the turn.
-              if (pluginsResolved) resolvePluginsReady();
+              if (pluginsResolved) {
+                resolvePluginsReady();
+              }
               // Surface the full set actually installing: the deterministic
               // floor plus the model's picks, deduped, baseline first. Shared
               // by the state update and the telemetry report below so it's
@@ -749,7 +793,9 @@ export function useResearchRunner(): UseResearchRunner {
               lastSuggestions = suggestions;
               lastPlugins = plugins;
               lastInstalledPlugins = installedPlugins;
-              if (complete) sawCompletePayload = true;
+              if (complete) {
+                sawCompletePayload = true;
+              }
               if (complete && !telemetrySent) {
                 telemetrySent = true;
                 void sendOnboardingResearchTelemetry({
@@ -774,7 +820,9 @@ export function useResearchRunner(): UseResearchRunner {
             }
           }
 
-          if (isStale()) return;
+          if (isStale()) {
+            return;
+          }
           // The poll ceiling fired before a complete payload ever landed —
           // the in-loop send above never ran. Report the timeout with
           // whatever had been parsed so far rather than letting the turn go
@@ -797,7 +845,9 @@ export function useResearchRunner(): UseResearchRunner {
             status: resolveResearchCompletionStatus({ sawCompletePayload }),
           }));
         } catch (err) {
-          if (isStale()) return;
+          if (isStale()) {
+            return;
+          }
           captureError(err, { context: "research_onboarding_runner" });
           setState((s) => ({ ...s, status: "error" }));
         } finally {
@@ -819,7 +869,10 @@ export function useResearchRunner(): UseResearchRunner {
               resolvedAssistantId,
               createdConversationId,
             );
-            void invalidateConversationQueries(queryClient, resolvedAssistantId);
+            void invalidateConversationQueries(
+              queryClient,
+              resolvedAssistantId,
+            );
           }
         }
       })();

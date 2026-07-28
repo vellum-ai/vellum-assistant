@@ -21,14 +21,20 @@ let getAssistantResult: GetAssistantResult = {
     provisioned_storage_gib: 50,
   } as never,
 };
-let healthzResult: GetHealthzResult = { ok: true, status: 200, data: {} as never };
+let healthzResult: GetHealthzResult = {
+  ok: true,
+  status: 200,
+  data: {} as never,
+};
 let subscriptionReply: { data?: { plan_id?: string } } = {
   data: { plan_id: "pro" },
 };
 let onboardingReply: {
   data?: { max_machine_tier?: string; selected_storage_gib?: number };
 } = { data: { max_machine_tier: "medium", selected_storage_gib: 50 } };
-let opStatusReply: { data?: { state?: string } } = { data: { state: "running" } };
+let opStatusReply: { data?: { state?: string } } = {
+  data: { state: "running" },
+};
 let ensureProvisionedReply: { data?: { state?: string; reason?: string } } = {
   data: { state: "queued" },
 };
@@ -101,7 +107,9 @@ beforeEach(() => {
   };
   healthzResult = { ok: true, status: 200, data: {} as never };
   subscriptionReply = { data: { plan_id: "pro" } };
-  onboardingReply = { data: { max_machine_tier: "medium", selected_storage_gib: 50 } };
+  onboardingReply = {
+    data: { max_machine_tier: "medium", selected_storage_gib: 50 },
+  };
   opStatusReply = { data: { state: "running" } };
   ensureProvisionedReply = { data: { state: "queued" } };
   getAssistantMock.mockClear();
@@ -155,7 +163,9 @@ describe("awaitPurchasedProvisioning", () => {
       baseOptions({
         postCheckoutReturn: true,
         registerTimer: (timer: ReturnType<typeof setTimeout> | null) => {
-          if (timer) armed = timer;
+          if (timer) {
+            armed = timer;
+          }
         },
       }),
     ).then(() => {

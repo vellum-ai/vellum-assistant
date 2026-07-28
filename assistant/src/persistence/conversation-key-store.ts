@@ -119,7 +119,9 @@ export function resolveConversationId(idOrKey: string): string | null {
     .from(conversations)
     .where(eq(conversations.id, idOrKey))
     .get();
-  if (direct) return direct.id;
+  if (direct) {
+    return direct.id;
+  }
 
   // Slow path: check if it's a conversation key.
   const mapping = db

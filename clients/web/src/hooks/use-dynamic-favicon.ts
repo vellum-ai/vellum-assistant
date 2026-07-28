@@ -20,7 +20,9 @@ export function useDynamicFavicon(
 ): void {
   useEffect(() => {
     const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-    if (!link) return;
+    if (!link) {
+      return;
+    }
 
     const render = resolveAvatarRender(
       customImageUrl,

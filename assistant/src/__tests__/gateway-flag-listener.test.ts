@@ -99,7 +99,9 @@ function createTestServer(): {
     clients.add(socket);
     socket.on("close", () => clients.delete(socket));
     const waiter = clientWaiters.shift();
-    if (waiter) waiter(socket);
+    if (waiter) {
+      waiter(socket);
+    }
   });
 
   return {
@@ -108,7 +110,9 @@ function createTestServer(): {
     emit: (event: string, data?: unknown) => {
       const payload = JSON.stringify({ event, data }) + "\n";
       for (const client of clients) {
-        if (!client.destroyed) client.write(payload);
+        if (!client.destroyed) {
+          client.write(payload);
+        }
       }
     },
     waitForClient: () =>
@@ -143,7 +147,9 @@ describe("gateway-flag-listener", () => {
     stopGatewayFlagListener();
     await new Promise<void>((resolve) => {
       for (const client of testServer.clients) {
-        if (!client.destroyed) client.destroy();
+        if (!client.destroyed) {
+          client.destroy();
+        }
       }
       testServer.server.close(() => resolve());
     });

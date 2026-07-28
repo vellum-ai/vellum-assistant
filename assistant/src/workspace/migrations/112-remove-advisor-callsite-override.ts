@@ -27,26 +27,39 @@ export const removeAdvisorCallsiteOverrideMigration: WorkspaceMigration = {
     "Remove the stale advisor entry from llm.callSites (advisor call site removed)",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = config.llm;
-    if (!llm || typeof llm !== "object" || Array.isArray(llm)) return;
+    if (!llm || typeof llm !== "object" || Array.isArray(llm)) {
+      return;
+    }
 
     const callSites = (llm as Record<string, unknown>).callSites;
-    if (!callSites || typeof callSites !== "object" || Array.isArray(callSites))
+    if (
+      !callSites ||
+      typeof callSites !== "object" ||
+      Array.isArray(callSites)
+    ) {
       return;
+    }
 
     const sites = callSites as Record<string, unknown>;
-    if (!("advisor" in sites)) return;
+    if (!("advisor" in sites)) {
+      return;
+    }
 
     delete sites.advisor;
 

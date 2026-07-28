@@ -48,10 +48,10 @@ describe("useStickyProfiles", () => {
       ({ value }: { value: Llm }) => useStickyProfiles(value, "asst-1"),
       { initialProps: { value: FULL } },
     );
-    const next = llm(
-      { smart: { label: "Smart" }, fast: { label: "Fast" } },
-      ["smart", "fast"],
-    );
+    const next = llm({ smart: { label: "Smart" }, fast: { label: "Fast" } }, [
+      "smart",
+      "fast",
+    ]);
     rerender({ value: next });
     expect(Object.keys(result.current.profiles)).toEqual(["smart", "fast"]);
     expect(result.current.profileOrder).toEqual(["smart", "fast"]);

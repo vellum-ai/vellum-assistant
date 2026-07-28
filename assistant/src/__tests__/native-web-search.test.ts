@@ -60,7 +60,9 @@ mock.module("@anthropic-ai/sdk", () => ({
             async finalMessage() {
               // Fire any pending stream events
               for (const ev of pendingStreamEvents) {
-                for (const cb of handlers["streamEvent"] ?? []) cb(ev);
+                for (const cb of handlers["streamEvent"] ?? []) {
+                  cb(ev);
+                }
               }
               return { ...fakeResponse, content: fakeResponseContent };
             },

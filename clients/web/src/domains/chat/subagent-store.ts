@@ -16,7 +16,10 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
 import { useConversationStore } from "@/stores/conversation-store";
 import { createSelectors } from "@/utils/create-selectors";
-import type { SubagentStatus, SubagentInnerEvent } from "@vellumai/assistant-api";
+import type {
+  SubagentStatus,
+  SubagentInnerEvent,
+} from "@vellumai/assistant-api";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import { isActiveStatus } from "@/utils/subagent-status";
 import { fetchSubagentDetail } from "./fetch-subagent-detail";
@@ -256,7 +259,10 @@ export interface SubagentActions {
    * Dedup state lives in the store so it survives component lifecycle.
    * Clears the marker on failure or empty events so callers can retry.
    */
-  fetchDetailIfNeeded: (assistantId: string, subagentId: string) => Promise<void>;
+  fetchDetailIfNeeded: (
+    assistantId: string,
+    subagentId: string,
+  ) => Promise<void>;
 
   /**
    * Best-effort abort of a running subagent. Reads `assistantId` and
@@ -286,7 +292,9 @@ const INITIAL_STATE: SubagentState = {
 /** Parent-id keys an entry contributes to in the `byParent` index. */
 function parentKeysForEntry(entry: SubagentEntry): string[] {
   const keys: string[] = [];
-  if (entry.parentMessageStableId) keys.push(entry.parentMessageStableId);
+  if (entry.parentMessageStableId) {
+    keys.push(entry.parentMessageStableId);
+  }
   if (
     entry.parentMessageId &&
     entry.parentMessageId !== entry.parentMessageStableId
@@ -308,7 +316,9 @@ function addEntryToByParent(
   entry: SubagentEntry,
 ): Map<string, SubagentEntry[]> {
   const keys = parentKeysForEntry(entry);
-  if (keys.length === 0) return byParent;
+  if (keys.length === 0) {
+    return byParent;
+  }
 
   const next = new Map(byParent);
   for (const key of keys) {
@@ -439,7 +449,9 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
 
   spawnSubagent: (params) => {
     const { byId, orderedIds } = get();
-    if (byId[params.subagentId]) return;
+    if (byId[params.subagentId]) {
+      return;
+    }
 
     const entry: SubagentEntry = {
       subagentId: params.subagentId,
@@ -537,7 +549,9 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   changeStatus: (params) => {
     const { byId } = get();
     const existing = byId[params.subagentId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     set({
       byId: {
@@ -575,7 +589,9 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   receiveEvent: (params) => {
     const { byId } = get();
     const existing = byId[params.subagentId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     // A stub awaiting its detail backfill: the daemon-side history the
     // in-flight fetch returns already contains this event, and appending it
@@ -616,12 +632,16 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       }
       // Don't create a new text event for an empty delta — wait for a
       // non-empty one to start a fresh coalesced run.
-      if (!innerContent) return;
+      if (!innerContent) {
+        return;
+      }
     }
 
     // Skip message_complete — it carries no content and is only used
     // by macOS to attach a daemon message ID to the preceding text event.
-    if (params.event.type === "message_complete") return;
+    if (params.event.type === "message_complete") {
+      return;
+    }
 
     const timelineEvent: SubagentTimelineEvent = {
       id: generateTimelineEventId(),
@@ -641,7 +661,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       // the detail view needs, so capture both success and error results.
       result:
         params.event.type === "tool_result"
-          ? params.event.result ?? params.event.content ?? params.event.text
+          ? (params.event.result ?? params.event.content ?? params.event.text)
           : undefined,
       // The resolved web-search query — only present (and only needed) on a
       // web_search `tool_result`; `undefined` everywhere else.
@@ -662,14 +682,20 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   loadDetail: (params) => {
     const { byId } = get();
     const existing = byId[params.subagentId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     // Backfill the spawn anchor for a recovered stub and register it in the
     // tool-use index so the inline card re-anchors to its exact spawn call.
     const parentToolUseId = existing.parentToolUseId ?? params.parentToolUseId;
     const nextByToolUseId =
       parentToolUseId && !existing.parentToolUseId
-        ? setToolUseAnchor(get().byToolUseId, parentToolUseId, params.subagentId)
+        ? setToolUseAnchor(
+            get().byToolUseId,
+            parentToolUseId,
+            params.subagentId,
+          )
         : get().byToolUseId;
 
     set({
@@ -702,7 +728,9 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   setConversationId: (subagentId, conversationId) => {
     const { byId } = get();
     const existing = byId[subagentId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     set({
       byId: {
@@ -713,7 +741,9 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   },
 
   reanchorToMessage: ({ stableId, messageId }) => {
-    if (stableId === messageId) return;
+    if (stableId === messageId) {
+      return;
+    }
 
     const { byId } = get();
     const updatedById = new Map<string, SubagentEntry>();
@@ -722,10 +752,15 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
         entry.parentMessageStableId === stableId &&
         entry.parentMessageId !== messageId
       ) {
-        updatedById.set(entry.subagentId, { ...entry, parentMessageId: messageId });
+        updatedById.set(entry.subagentId, {
+          ...entry,
+          parentMessageId: messageId,
+        });
       }
     }
-    if (updatedById.size === 0) return;
+    if (updatedById.size === 0) {
+      return;
+    }
 
     const nextById = { ...byId };
     for (const [subagentId, updated] of updatedById) {
@@ -745,9 +780,13 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
 
   updateUsage: (params) => {
     const { byId, terminalUsageIds } = get();
-    if (terminalUsageIds.has(params.subagentId)) return;
+    if (terminalUsageIds.has(params.subagentId)) {
+      return;
+    }
     const existing = byId[params.subagentId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     set({
       byId: {
@@ -765,18 +804,28 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   fetchDetailIfNeeded: async (assistantId, subagentId) => {
     const { byId, fetchedAt } = get();
     const entry = byId[subagentId];
-    if (!entry?.conversationId) return;
-    if (entry.events.length > 0) return;
+    if (!entry?.conversationId) {
+      return;
+    }
+    if (entry.events.length > 0) {
+      return;
+    }
 
     const prev = fetchedAt.get(subagentId);
-    if (prev !== undefined && prev >= entry.spawnedAt) return;
+    if (prev !== undefined && prev >= entry.spawnedAt) {
+      return;
+    }
 
     // Mark as fetched before the await to prevent concurrent duplicates.
     const nextFetchedAt = new Map(fetchedAt);
     nextFetchedAt.set(subagentId, entry.spawnedAt);
     set({ fetchedAt: nextFetchedAt });
 
-    const detail = await fetchSubagentDetail(assistantId, subagentId, entry.conversationId);
+    const detail = await fetchSubagentDetail(
+      assistantId,
+      subagentId,
+      entry.conversationId,
+    );
 
     const clearMarker = () => {
       const next = new Map(get().fetchedAt);
@@ -821,8 +870,11 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
 
   abortSubagent: async (subagentId) => {
     const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-    const activeConversationId = useConversationStore.getState().activeConversationId;
-    if (!assistantId || !activeConversationId) return;
+    const activeConversationId =
+      useConversationStore.getState().activeConversationId;
+    if (!assistantId || !activeConversationId) {
+      return;
+    }
     try {
       await subagentsByIdAbortPost({
         path: { assistant_id: assistantId, id: subagentId },

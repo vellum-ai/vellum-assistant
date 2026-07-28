@@ -50,7 +50,9 @@ export function includesRequiredKeywords(
   text: string,
   requiredKeywords: string[] | undefined,
 ): boolean {
-  if (!requiredKeywords || requiredKeywords.length === 0) return true;
+  if (!requiredKeywords || requiredKeywords.length === 0) {
+    return true;
+  }
   return requiredKeywords.every((keyword) => {
     const re = new RegExp(
       `\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
@@ -173,7 +175,9 @@ export function getGuardianActionFallbackMessage(
 function formatGuardianRequestCodes(
   requestCodes: string[] | undefined,
 ): string {
-  if (!Array.isArray(requestCodes)) return "";
+  if (!Array.isArray(requestCodes)) {
+    return "";
+  }
   const cleaned = requestCodes
     .map((code) => code.trim())
     .filter((code) => code.length > 0);

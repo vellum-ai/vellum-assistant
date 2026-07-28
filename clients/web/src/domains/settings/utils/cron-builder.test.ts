@@ -15,9 +15,9 @@ function cadence(overrides: Partial<Cadence>): Cadence {
 
 describe("buildCronExpression", () => {
   test("hourly fires at the chosen minute of every hour", () => {
-    expect(buildCronExpression(cadence({ frequency: "hourly", minute: 30 }))).toBe(
-      "30 * * * *",
-    );
+    expect(
+      buildCronExpression(cadence({ frequency: "hourly", minute: 30 })),
+    ).toBe("30 * * * *");
   });
 
   test("daily fires at the chosen time", () => {
@@ -72,7 +72,12 @@ describe("buildCronExpression", () => {
     // would skip months that lack those dates.
     expect(
       buildCronExpression(
-        cadence({ frequency: "monthly", hour24: 99, minute: -5, dayOfMonth: 99 }),
+        cadence({
+          frequency: "monthly",
+          hour24: 99,
+          minute: -5,
+          dayOfMonth: 99,
+        }),
       ),
     ).toBe("0 23 28 * *");
   });

@@ -51,7 +51,9 @@ const mockRegisterBackgroundTool = mock((tool: BackgroundTool) => {
 });
 const mockRemoveBackgroundTool = mock((_id: string) => {
   const idx = registeredTools.findIndex((t) => t.id === _id);
-  if (idx !== -1) registeredTools.splice(idx, 1);
+  if (idx !== -1) {
+    registeredTools.splice(idx, 1);
+  }
 });
 const mockGenerateBackgroundToolId = mock(() => "bg-test1234");
 

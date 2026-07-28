@@ -33,7 +33,9 @@ describe("parseResearchResultStreaming — plugins install list", () => {
   test("defaults to an empty array when the key is absent", () => {
     const text = JSON.stringify({
       claims: [],
-      suggestions: [{ suggestion: "I'll plan your trip", prompt: "Plan my trip" }],
+      suggestions: [
+        { suggestion: "I'll plan your trip", prompt: "Plan my trip" },
+      ],
     });
 
     const { plugins } = parseResearchResultStreaming(text);
@@ -118,7 +120,7 @@ describe("parseResearchResultStreaming — completeness signal", () => {
 
   test("a payload buried in surrounding prose still parses complete", () => {
     const text =
-      'Here is what I found:\n' +
+      "Here is what I found:\n" +
       JSON.stringify({
         suggestions: [
           { suggestion: "a", prompt: "a" },
@@ -318,7 +320,9 @@ describe("parseResearchResultStreaming — dropped aggregator-only claims", () =
     // Only claims that HAD sources — all of them aggregators — are dropped; a
     // sourceless "guessing" claim is legitimate stated-info and stays.
     const { claims, droppedClaims } = parseResearchResultStreaming(
-      payload([{ claim: "Into climbing", confidence: "guessing", sources: [] }]),
+      payload([
+        { claim: "Into climbing", confidence: "guessing", sources: [] },
+      ]),
     );
 
     expect(claims.map((c) => c.claim)).toEqual(["Into climbing"]);

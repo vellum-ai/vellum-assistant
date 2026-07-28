@@ -19,7 +19,10 @@ import type { FeedbackReason } from "@/components/share-feedback-types";
 // Handlers
 // ---------------------------------------------------------------------------
 
-export function handleMessageDelta(ctx: DoctorPanelContext, event: { content: string }): void {
+export function handleMessageDelta(
+  ctx: DoctorPanelContext,
+  event: { content: string },
+): void {
   ctx.setThinking(false);
   const currentId = ctx.getStreamingEntryId();
   if (!currentId) {
@@ -92,7 +95,12 @@ export function handleToolResult(
 
 export function handleApprovalRequired(
   ctx: DoctorPanelContext,
-  event: { toolName: string; input: Record<string, unknown>; id: string; description: string },
+  event: {
+    toolName: string;
+    input: Record<string, unknown>;
+    id: string;
+    description: string;
+  },
 ): void {
   ctx.setThinking(false);
   ctx.setPendingApproval(true);
@@ -108,7 +116,10 @@ export function handleApprovalRequired(
   });
 }
 
-export function handleBackupPrompt(ctx: DoctorPanelContext, event: { toolName: string }): void {
+export function handleBackupPrompt(
+  ctx: DoctorPanelContext,
+  event: { toolName: string },
+): void {
   ctx.setThinking(false);
   ctx.setPendingBackup(true);
   ctx.appendEntry({
@@ -184,7 +195,10 @@ export function handleStatus(
   return false;
 }
 
-export function handleError(ctx: DoctorPanelContext, event: { message: string }): void {
+export function handleError(
+  ctx: DoctorPanelContext,
+  event: { message: string },
+): void {
   ctx.setThinking(false);
   ctx.setPendingApproval(false);
   ctx.setPendingBackup(false);

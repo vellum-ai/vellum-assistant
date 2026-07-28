@@ -8,7 +8,9 @@ function setVersion(version: string | null) {
   // setIdentity(name, version, assistantId) — the scoped gate compares the
   // rendered transcript's owner against the identity store's `assistantId`, so
   // that (not the name) is what must be "test-asst" for the gate to resolve.
-  useAssistantIdentityStore.getState().setIdentity("Test", version, "test-asst");
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("Test", version, "test-asst");
 }
 
 // The identity store hydrates for "test-asst"; pass the same id as the rendered

@@ -42,13 +42,11 @@ const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
 const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
 mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
 
-const { MultiActivityGroup } = await import(
-  "@/domains/chat/components/multi-activity-group/multi-activity-group"
-);
+const { MultiActivityGroup } =
+  await import("@/domains/chat/components/multi-activity-group/multi-activity-group");
 const { useViewerStore } = await import("@/stores/viewer-store");
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 
 afterEach(() => {
   cleanup();
@@ -82,16 +80,9 @@ function makeToolCall(
 
 function renderCard(
   toolCalls: ChatMessageToolCall[],
-  overrides: Partial<
-    ComponentProps<typeof MultiActivityGroup>
-  > = {},
+  overrides: Partial<ComponentProps<typeof MultiActivityGroup>> = {},
 ) {
-  return render(
-    <MultiActivityGroup
-      toolCalls={toolCalls}
-      {...overrides}
-    />,
-  );
+  return render(<MultiActivityGroup toolCalls={toolCalls} {...overrides} />);
 }
 
 describe("MultiActivityGroup — non-web tool group", () => {
@@ -104,7 +95,8 @@ describe("MultiActivityGroup — non-web tool group", () => {
         input: { command: "git status" },
       }),
     ];
-    const { getByRole, getByText, getByTestId, queryByTestId, queryByText } = renderCard(toolCalls);
+    const { getByRole, getByText, getByTestId, queryByTestId, queryByText } =
+      renderCard(toolCalls);
     // The unified group mounts the shared shell wrapper.
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
     // The header carousels the live step: the tool's "Working" title paired
@@ -523,7 +515,9 @@ describe("MultiActivityGroup — lone web group error chrome", () => {
       }),
     ];
     // Expand the inline link so the error row is in the DOM.
-    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
+    useChatSessionStore.setState({
+      expandedCardIds: new Map([["tc-1", true]]),
+    });
     const { getByTestId, getAllByText } = renderCard(toolCalls);
     const link = getByTestId("inline-web-link");
     expect(link.className).toContain("text-[var(--system-negative-strong)]");

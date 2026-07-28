@@ -190,20 +190,28 @@ export interface ChatComposerProps {
  * then screen-center).
  */
 function measureVoiceOriginAvatar(): { x: number; y: number } | null {
-  if (typeof document === "undefined") return null;
+  if (typeof document === "undefined") {
+    return null;
+  }
   let best: DOMRect | null = null;
   for (const node of document.querySelectorAll("[data-voice-origin]")) {
     const rect = node.getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) continue;
+    if (rect.width === 0 && rect.height === 0) {
+      continue;
+    }
     const onScreen =
       rect.bottom > 0 &&
       rect.top < window.innerHeight &&
       rect.right > 0 &&
       rect.left < window.innerWidth;
     // Keep the last on-screen one in DOM order (the most recent avatar).
-    if (onScreen) best = rect;
+    if (onScreen) {
+      best = rect;
+    }
   }
-  if (!best) return null;
+  if (!best) {
+    return null;
+  }
   return { x: best.left + best.width / 2, y: best.top + best.height / 2 };
 }
 
@@ -263,7 +271,9 @@ export function ChatComposer({
   });
   const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
   useEffect(() => {
-    if (!voiceStream) return;
+    if (!voiceStream) {
+      return;
+    }
     setVoiceAudioLevel(amplitude);
   }, [amplitude, voiceStream, setVoiceAudioLevel]);
   const showVoiceInput =
@@ -506,8 +516,7 @@ export function ChatComposer({
 
   // The Doctor is platform-hosted only, so `/doctor` is not offered when the
   // active assistant is self-hosted (the Doctor tab doesn't exist there).
-  const doctorGated =
-    usePlatformGate({ platformHostedOnly: true }) === "gated";
+  const doctorGated = usePlatformGate({ platformHostedOnly: true }) === "gated";
   const searchSlashCommands = useCallback(
     (filter: string) => {
       const commands = filteredCommands(filter);
@@ -587,7 +596,8 @@ export function ChatComposer({
   // cannot happen — the voice bar is the only live control. Collapse the row
   // away and let the bar stand alone. The user transcript, when the pref is
   // on, occupies that same grid cell and is real content, so it keeps the row.
-  const hideTextareaForLiveVoice = isLiveVoiceActive && !showLiveVoiceTranscript;
+  const hideTextareaForLiveVoice =
+    isLiveVoiceActive && !showLiveVoiceTranscript;
   const hideTextareaRow = hideTextareaForVoice || hideTextareaForLiveVoice;
   const hasStagedQuotes = useQuoteReplyStore.use.stagedQuotes().length > 0;
   const canSendMessageContent =
@@ -744,13 +754,17 @@ export function ChatComposer({
                 }}
                 onPaste={(e) => {
                   const items = e.clipboardData?.items;
-                  if (!items) return;
+                  if (!items) {
+                    return;
+                  }
                   const files: File[] = [];
                   for (let i = 0; i < items.length; i++) {
                     const item = items[i];
                     if (item?.kind === "file") {
                       const file = item.getAsFile();
-                      if (file) files.push(file);
+                      if (file) {
+                        files.push(file);
+                      }
                     }
                   }
                   if (files.length > 0) {
@@ -773,7 +787,9 @@ export function ChatComposer({
                     if (e.key === "Tab" || e.key === "Enter") {
                       e.preventDefault();
                       const cmd = slash.items[slash.selectedIndex];
-                      if (cmd) handleSlashCommandSelect(cmd);
+                      if (cmd) {
+                        handleSlashCommandSelect(cmd);
+                      }
                       return;
                     }
                     if (e.key === "Escape") {
@@ -798,7 +814,9 @@ export function ChatComposer({
                     if (e.key === "Tab" || e.key === "Enter") {
                       e.preventDefault();
                       const selected = emoji.items[emoji.selectedIndex];
-                      if (selected) insertEmoji(selected);
+                      if (selected) {
+                        insertEmoji(selected);
+                      }
                       return;
                     }
                     if (e.key === "Escape") {

@@ -10,7 +10,9 @@ export function migrateMemoryEntityRelationDedup(database: DrizzleDb): void {
   const checkpoint = raw
     .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey);
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   // Drop the staging temp table if it was left behind by a previous failed
   // attempt in the same connection.  TEMP tables survive ROLLBACK (they live

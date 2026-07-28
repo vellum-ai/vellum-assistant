@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mock the vendor SDK so we can assert how the provider drives it without
 // loading the real recorder. The provider imports it lazily (dynamic import),
 // which mock.module intercepts the same as a static import.
-const initMock = mock((_appId: string, _options: Record<string, unknown>) => {});
+const initMock = mock(
+  (_appId: string, _options: Record<string, unknown>) => {},
+);
 const identifyMock = mock(
   (_uid: string, _traits: Record<string, string>) => {},
 );
@@ -11,9 +13,8 @@ mock.module("logrocket", () => ({
   default: { init: initMock, identify: identifyMock },
 }));
 
-const { provider } = await import(
-  "@/lib/session-replay/session-replay-provider"
-);
+const { provider } =
+  await import("@/lib/session-replay/session-replay-provider");
 
 const BASE = "https://app.example.com";
 const NETWORK = {

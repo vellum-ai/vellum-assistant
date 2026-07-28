@@ -591,7 +591,9 @@ function errorResult(
  * The body must NEVER reach user-facing `content`/`errorMessage`.
  */
 function rawBodyDetail(body: unknown): { message: string } | undefined {
-  if (body == null) return undefined;
+  if (body == null) {
+    return undefined;
+  }
   const text = typeof body === "string" ? body : safeStringifyBody(body);
   const trimmed = text.trim();
   return trimmed ? { message: trimmed } : undefined;
@@ -1451,7 +1453,9 @@ export const webSearchTool = {
     if (!apiKey && !WEB_SEARCH_ADAPTERS[provider].keyless) {
       for (const fallback of fallbackProvidersFor(provider)) {
         const fallbackKey = await getApiKey(fallback);
-        if (!fallbackKey) continue;
+        if (!fallbackKey) {
+          continue;
+        }
         log.info(
           { from: provider, to: fallback },
           "Configured web search provider has no API key, falling back",

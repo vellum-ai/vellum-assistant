@@ -19,9 +19,9 @@ describe("login flow routing", () => {
   });
 
   test("reads signup callback intent", () => {
-    expect(readAuthCallbackIntent(new URLSearchParams("authIntent=signup"))).toBe(
-      "signup",
-    );
+    expect(
+      readAuthCallbackIntent(new URLSearchParams("authIntent=signup")),
+    ).toBe("signup");
     expect(readAuthCallbackIntent(new URLSearchParams())).toBe("login");
   });
 
@@ -66,10 +66,18 @@ describe("login flow routing", () => {
   });
 
   test("requiresFullPageNavigation for /accounts/ paths", () => {
-    expect(requiresFullPageNavigation("/accounts/cli/callback?port=12345&state=xyz")).toBe(true);
-    expect(requiresFullPageNavigation("/accounts/native/callback?scheme=vellum&state=abc")).toBe(true);
+    expect(
+      requiresFullPageNavigation("/accounts/cli/callback?port=12345&state=xyz"),
+    ).toBe(true);
+    expect(
+      requiresFullPageNavigation(
+        "/accounts/native/callback?scheme=vellum&state=abc",
+      ),
+    ).toBe(true);
     expect(requiresFullPageNavigation("/v1/some-api")).toBe(true);
-    expect(requiresFullPageNavigation("https://www.vellum.ai/assistant")).toBe(true);
+    expect(requiresFullPageNavigation("https://www.vellum.ai/assistant")).toBe(
+      true,
+    );
     expect(requiresFullPageNavigation("/assistant")).toBe(false);
     expect(requiresFullPageNavigation("/onboarding/privacy")).toBe(false);
   });

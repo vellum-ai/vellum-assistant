@@ -17,7 +17,9 @@ import {
 } from "@/domains/settings/components/panels/doctor-history";
 import type { ChatEntry } from "@/domains/settings/components/panels/doctor-history";
 
-function msg(overrides: Partial<DoctorMessage> & Pick<DoctorMessage, "kind">): DoctorMessage {
+function msg(
+  overrides: Partial<DoctorMessage> & Pick<DoctorMessage, "kind">,
+): DoctorMessage {
   return {
     id: "msg-1",
     content: "",
@@ -67,7 +69,11 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({
         kind: "tool_call",
         content: "run_diagnostics",
-        metadata: { toolName: "run_diagnostics", input: { flag: true }, id: "tc-1" },
+        metadata: {
+          toolName: "run_diagnostics",
+          input: { flag: true },
+          id: "tc-1",
+        },
       }),
     ]);
     expect(entries).toHaveLength(1);
@@ -96,7 +102,12 @@ describe("mapPersistedMessagesToEntries", () => {
 
   test("tool_call falls back to message.id when metadata.id is missing", () => {
     const entries = mapPersistedMessagesToEntries([
-      msg({ id: "msg-tc", kind: "tool_call", content: "tool", metadata: { toolName: "tool" } }),
+      msg({
+        id: "msg-tc",
+        kind: "tool_call",
+        content: "tool",
+        metadata: { toolName: "tool" },
+      }),
     ]);
     const entry = entries[0]!;
     if (entry.kind !== "tool_call") {
@@ -189,7 +200,11 @@ describe("mapPersistedMessagesToEntries", () => {
 
   test("approval falls back to empty description when metadata lacks it", () => {
     const entries = mapPersistedMessagesToEntries([
-      msg({ kind: "approval", content: "exec", metadata: { toolName: "exec" } }),
+      msg({
+        kind: "approval",
+        content: "exec",
+        metadata: { toolName: "exec" },
+      }),
     ]);
     const entry = entries[0]!;
     if (entry.kind !== "approval") {
@@ -344,7 +359,12 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ id: "5", kind: "status", content: "completed" }),
     ]);
     expect(entries).toHaveLength(4);
-    expect(entries.map((e) => e.kind)).toEqual(["user", "assistant", "tool_call", "status"]);
+    expect(entries.map((e) => e.kind)).toEqual([
+      "user",
+      "assistant",
+      "tool_call",
+      "status",
+    ]);
     const toolEntry = entries[2]!;
     if (toolEntry.kind !== "tool_call") {
       throw new Error("unreachable");
@@ -431,7 +451,12 @@ describe("hasPendingApproval", () => {
         kind: "approval",
         content: "exec",
         timestamp: 0,
-        meta: { toolName: "exec", input: {}, toolCallId: "tc-1", description: "" },
+        meta: {
+          toolName: "exec",
+          input: {},
+          toolCallId: "tc-1",
+          description: "",
+        },
       },
       {
         id: "3",
@@ -451,7 +476,12 @@ describe("hasPendingApproval", () => {
         kind: "approval",
         content: "exec",
         timestamp: 0,
-        meta: { toolName: "exec", input: {}, toolCallId: "tc-1", description: "" },
+        meta: {
+          toolName: "exec",
+          input: {},
+          toolCallId: "tc-1",
+          description: "",
+        },
       },
       { id: "2", kind: "assistant", content: "done", timestamp: 0 },
     ];
@@ -606,7 +636,9 @@ describe("serializeSessionToText", () => {
     const result = serializeSessionToText(entries);
 
     // THEN it includes tool name, description, and input
-    expect(result).toContain("Approval Required: delete_thing — Delete x permanently");
+    expect(result).toContain(
+      "Approval Required: delete_thing — Delete x permanently",
+    );
     expect(result).toContain("Input:");
     expect(result).toContain('"target": "workspace"');
   });
@@ -660,13 +692,23 @@ describe("serializeSessionToText", () => {
     // GIVEN a mixed session timeline
     const entries: ChatEntry[] = [
       { id: "1", kind: "user", content: "fix my assistant", timestamp: 0 },
-      { id: "2", kind: "assistant", content: "Looking into it...", timestamp: 0 },
+      {
+        id: "2",
+        kind: "assistant",
+        content: "Looking into it...",
+        timestamp: 0,
+      },
       {
         id: "3",
         kind: "tool_call",
         content: "inspect",
         timestamp: 0,
-        meta: { toolName: "inspect", input: {}, toolCallId: "tc-1", status: "completed" },
+        meta: {
+          toolName: "inspect",
+          input: {},
+          toolCallId: "tc-1",
+          status: "completed",
+        },
       },
       { id: "4", kind: "assistant", content: "Found the issue.", timestamp: 0 },
       { id: "5", kind: "status", content: "Session completed", timestamp: 0 },
@@ -728,12 +770,21 @@ describe("applySessionUserOutcome", () => {
 
   test("returns entries unchanged when user outcome is null or unknown", () => {
     expect(applySessionUserOutcome([promptEntry], null)).toEqual([promptEntry]);
-    expect(applySessionUserOutcome([promptEntry], undefined)).toEqual([promptEntry]);
-    expect(applySessionUserOutcome([promptEntry], "bogus")).toEqual([promptEntry]);
+    expect(applySessionUserOutcome([promptEntry], undefined)).toEqual([
+      promptEntry,
+    ]);
+    expect(applySessionUserOutcome([promptEntry], "bogus")).toEqual([
+      promptEntry,
+    ]);
   });
 
   test("leaves other entry kinds untouched", () => {
-    const user: ChatEntry = { id: "u1", kind: "user", content: "hi", timestamp: 0 };
+    const user: ChatEntry = {
+      id: "u1",
+      kind: "user",
+      content: "hi",
+      timestamp: 0,
+    };
     const entries = applySessionUserOutcome([user, promptEntry], "resolved");
     expect(entries[0]).toEqual(user);
   });

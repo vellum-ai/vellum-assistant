@@ -16,13 +16,10 @@ export type KnownSyncInvalidationTag =
   (typeof SYNC_TAGS)[keyof typeof SYNC_TAGS];
 
 export type ConversationSyncInvalidationTag =
-  | `conversation:${string}:metadata`
-  | `conversation:${string}:messages`;
+  `conversation:${string}:metadata` | `conversation:${string}:messages`;
 
 export type SyncInvalidationTag =
-  | KnownSyncInvalidationTag
-  | ConversationSyncInvalidationTag
-  | (string & {});
+  KnownSyncInvalidationTag | ConversationSyncInvalidationTag | (string & {});
 
 export interface SyncChangedEvent {
   type: "sync_changed";
@@ -50,8 +47,7 @@ export interface ParsedConversationSyncTag {
   resource: ConversationSyncResource;
 }
 
-const CONVERSATION_SYNC_TAG_RE =
-  /^conversation:([^:]+):(metadata|messages)$/;
+const CONVERSATION_SYNC_TAG_RE = /^conversation:([^:]+):(metadata|messages)$/;
 
 export function conversationMetadataSyncTag(
   conversationId: string,

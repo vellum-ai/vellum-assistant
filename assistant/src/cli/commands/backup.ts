@@ -19,10 +19,15 @@ import { backupHelp } from "./backup.help.js";
 
 /** Format a byte count as a human-readable string (B / KB / MB / GB). */
 function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  if (bytes < 1024 * 1024 * 1024) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
@@ -41,17 +46,27 @@ function formatDate(date: Date): string {
  * "12m", "45s", or "just now".
  */
 function formatDurationShort(ms: number): string {
-  if (ms < 0) ms = 0;
+  if (ms < 0) {
+    ms = 0;
+  }
   const seconds = Math.floor(ms / 1000);
-  if (seconds < 30) return "just now";
+  if (seconds < 30) {
+    return "just now";
+  }
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 1) return `${seconds}s`;
+  if (minutes < 1) {
+    return `${seconds}s`;
+  }
   const hours = Math.floor(minutes / 60);
   const remMinutes = minutes - hours * 60;
-  if (hours < 1) return `${minutes}m`;
+  if (hours < 1) {
+    return `${minutes}m`;
+  }
   const days = Math.floor(hours / 24);
   const remHours = hours - days * 24;
-  if (days < 1) return `${hours}h ${remMinutes}m`;
+  if (days < 1) {
+    return `${hours}h ${remMinutes}m`;
+  }
   return `${days}d ${remHours}h`;
 }
 
@@ -84,11 +99,12 @@ export function registerBackupCommand(program: Command): void {
               ...(opts.offsite === false && { offsiteEnabled: false }),
             },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
           const cfg = r.result as {
             intervalHours: number;
             retention: number;
@@ -104,11 +120,12 @@ export function registerBackupCommand(program: Command): void {
       subcommand(backup, "disable").action(
         async (_opts: unknown, cmd: Command) => {
           const r = await cliIpcCall("backup_disable");
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
           log.info("Automatic backups disabled");
         },
       );
@@ -121,11 +138,12 @@ export function registerBackupCommand(program: Command): void {
           const r = await cliIpcCall<{
             destinations: Array<{ path: string; encrypt: boolean }>;
           }>("backup_destinations_list");
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
           const { destinations: dests } = r.result!;
           if (dests.length === 0) {
             log.info("No offsite destinations configured");
@@ -148,11 +166,12 @@ export function registerBackupCommand(program: Command): void {
               encrypt: !opts.plaintext,
             },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
           log.info(
             `Added destination ${path} (${opts.plaintext ? "plaintext" : "encrypted"})`,
           );
@@ -164,11 +183,12 @@ export function registerBackupCommand(program: Command): void {
           const r = await cliIpcCall("backup_destinations_remove", {
             body: { path },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
           log.info(`Removed destination ${path}`);
         },
       );
@@ -190,11 +210,12 @@ export function registerBackupCommand(program: Command): void {
               encrypt: normalized === "true",
             },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
           log.info(`Set ${path} encrypt=${normalized}`);
         },
       );
@@ -218,11 +239,12 @@ export function registerBackupCommand(program: Command): void {
               snapshotCount: number;
             }>;
           }>("backup_status");
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
           const s = r.result!;
           const now = Date.now();
 
@@ -303,16 +325,19 @@ export function registerBackupCommand(program: Command): void {
             offsiteEnabled: boolean;
             nextRunAt: string | null;
           }>("backups_list");
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
           const data = r.result!;
 
           printSnapshotGroup(`Local:`, data.local);
 
-          if (!data.offsiteEnabled) return;
+          if (!data.offsiteEnabled) {
+            return;
+          }
           for (const dest of data.offsite) {
             const tag = dest.destination.encrypt ? "encrypted" : "plaintext";
             log.info("");

@@ -69,7 +69,9 @@ describe("LLM call-site catalog", () => {
   test("every CALL_SITE_DEFAULTS profile, when present, is a non-empty string", () => {
     for (const [, config] of Object.entries(CALL_SITE_DEFAULTS)) {
       // A call site may omit `profile` to inherit the workspace default config.
-      if (config.profile === undefined) continue;
+      if (config.profile === undefined) {
+        continue;
+      }
       expect(typeof config.profile).toBe("string");
       expect(config.profile.length).toBeGreaterThan(0);
     }

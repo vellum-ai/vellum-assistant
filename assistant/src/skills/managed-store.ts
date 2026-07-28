@@ -27,7 +27,9 @@ const log = getLogger("managed-store");
 const VALID_SKILL_ID = /^[a-z0-9][a-z0-9._-]*$/;
 
 export function validateManagedSkillId(id: string): string | null {
-  if (!id || typeof id !== "string") return "skill_id is required";
+  if (!id || typeof id !== "string") {
+    return "skill_id is required";
+  }
   if (id.includes("..") || id.includes("/") || id.includes("\\")) {
     return "skill_id must not contain path traversal characters";
   }

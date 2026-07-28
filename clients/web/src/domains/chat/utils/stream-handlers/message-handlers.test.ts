@@ -175,10 +175,9 @@ describe("handleAssistantActivityState", () => {
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(2);
-    expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith(
-      undefined,
-      { canStartFromIdle: false },
-    );
+    expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith(undefined, {
+      canStartFromIdle: false,
+    });
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
@@ -257,9 +256,7 @@ describe("handleAssistantActivityState", () => {
       ctx,
     );
     expect(
-      ctx.lastActivityVersionRef.current.get(
-        ctx.streamContext!.conversationId,
-      ),
+      ctx.lastActivityVersionRef.current.get(ctx.streamContext!.conversationId),
     ).toBe(1);
     expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
     expect(ctx.endTurn).not.toHaveBeenCalled();
@@ -292,11 +289,15 @@ describe("handleAssistantActivityState — stranded-phase recovery (LUM-2786)", 
       },
       ctx,
     );
-    expect(ctx.turnActions.recoverFromAwaitingUserInput).toHaveBeenCalledTimes(1);
+    expect(ctx.turnActions.recoverFromAwaitingUserInput).toHaveBeenCalledTimes(
+      1,
+    );
   });
 
   it("does not recover on a thinking event while a question prompt is pending", () => {
-    useInteractionStore.getState().showQuestion({ requestId: "q1", entries: [] });
+    useInteractionStore
+      .getState()
+      .showQuestion({ requestId: "q1", entries: [] });
     const ctx = makeCtx();
     handleAssistantActivityState(
       {
@@ -325,7 +326,9 @@ describe("handleAssistantActivityState — stranded-phase recovery (LUM-2786)", 
       },
       ctx,
     );
-    expect(ctx.turnActions.recoverFromAwaitingUserInput).toHaveBeenCalledTimes(1);
+    expect(ctx.turnActions.recoverFromAwaitingUserInput).toHaveBeenCalledTimes(
+      1,
+    );
   });
 });
 
@@ -473,8 +476,9 @@ describe("handleUserMessageEcho", () => {
     const ctx = makeCtx();
     handleUserMessageEcho(event, ctx);
     expect(ctx.setOptimisticSends).toHaveBeenCalled();
-    const updater = (ctx.setOptimisticSends as unknown as ReturnType<typeof Object>)
-      .mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
+    const updater = (
+      ctx.setOptimisticSends as unknown as ReturnType<typeof Object>
+    ).mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
     return updater(prev);
   }
 

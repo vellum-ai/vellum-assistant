@@ -91,7 +91,9 @@ export function useConversationSync(
   }, [assistantId, isAssistantActive]);
 
   useBusSubscription("sse.event", (envelope) => {
-    if (!assistantId || !isAssistantActive) return;
+    if (!assistantId || !isAssistantActive) {
+      return;
+    }
     const event = envelope.message;
 
     switch (event.type) {
@@ -112,24 +114,21 @@ export function useConversationSync(
         return;
 
       case "conversation_title_updated":
-        patchConversation(
-          queryClient,
-          assistantId,
-          event.conversationId,
-          { title: event.title },
-        );
+        patchConversation(queryClient, assistantId, event.conversationId, {
+          title: event.title,
+        });
         return;
     }
   });
 
   useBusSubscription("sse.opened", ({ cause }) => {
-    if (!assistantId || !isAssistantActive) return;
-    if (cause === "fresh") return;
-    scheduleConversationListRefetch(
-      queryClient,
-      assistantId,
-      debounceTimerRef,
-    );
+    if (!assistantId || !isAssistantActive) {
+      return;
+    }
+    if (cause === "fresh") {
+      return;
+    }
+    scheduleConversationListRefetch(queryClient, assistantId, debounceTimerRef);
   });
 }
 
@@ -158,7 +157,9 @@ function scheduleConversationListRefetch(
   assistantId: string,
   debounceTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>,
 ): void {
-  if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+  if (debounceTimerRef.current) {
+    clearTimeout(debounceTimerRef.current);
+  }
   debounceTimerRef.current = setTimeout(() => {
     debounceTimerRef.current = null;
     // One first-page GET per populated list bucket — never a full
@@ -182,7 +183,9 @@ function scheduleConversationListRefetch(
       queryKey: originChannelListPrefix(assistantId),
     });
     void queryClient.invalidateQueries({
-      queryKey: groupsGetQueryKey({ path: { assistant_id: assistantId ?? "" } }),
+      queryKey: groupsGetQueryKey({
+        path: { assistant_id: assistantId ?? "" },
+      }),
     });
   }, CONVERSATION_LIST_DEBOUNCE_MS);
 }

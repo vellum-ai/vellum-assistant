@@ -36,8 +36,12 @@ export function installedPluginsQueryOptions(assistantId: string) {
       const status = result.response?.status;
       // Older daemons return 404 when the list endpoint isn't implemented
       // yet — degrade to an empty installed list.
-      if (status === 404) return { plugins: [] } as PluginsGetResponse;
-      if (!result.response?.ok) throw new Error("Failed to load plugins");
+      if (status === 404) {
+        return { plugins: [] } as PluginsGetResponse;
+      }
+      if (!result.response?.ok) {
+        throw new Error("Failed to load plugins");
+      }
       return result.data ?? ({ plugins: [] } as PluginsGetResponse);
     },
     staleTime: INSTALLED_STALE_TIME_MS,

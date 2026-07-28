@@ -1,4 +1,3 @@
-
 import { captureError } from "@/lib/sentry/capture-error";
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,7 +21,10 @@ import {
   removeGroup,
   replaceOptimisticGroup,
 } from "@/utils/conversation-cache-mutations";
-import { cancelConversationQueries, invalidateConversationQueries } from "@/utils/conversation-cache";
+import {
+  cancelConversationQueries,
+  invalidateConversationQueries,
+} from "@/utils/conversation-cache";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
 import { haptic } from "@/utils/haptics";
@@ -79,16 +81,28 @@ export function useConversationGroupActions({
       name: string,
       icon?: string | null,
     ): Promise<ConversationGroup | null> => {
-      if (!assistantId) {return null;}
+      if (!assistantId) {
+        return null;
+      }
       const trimmed = name.trim();
-      if (!trimmed) {return null;}
+      if (!trimmed) {
+        return null;
+      }
       haptic.light();
 
-      const groupsKey = groupsGetQueryKey({ path: { assistant_id: assistantId } });
+      const groupsKey = groupsGetQueryKey({
+        path: { assistant_id: assistantId },
+      });
       await queryClient.cancelQueries({ queryKey: groupsKey });
 
       const optimisticId = `optimistic-${Date.now()}`;
-      appendGroup(queryClient, assistantId, { id: optimisticId, name: trimmed, icon: icon ?? null, sortPosition: 0, isSystemGroup: false });
+      appendGroup(queryClient, assistantId, {
+        id: optimisticId,
+        name: trimmed,
+        icon: icon ?? null,
+        sortPosition: 0,
+        isSystemGroup: false,
+      });
 
       try {
         const created = await createGroupAsync({
@@ -112,7 +126,9 @@ export function useConversationGroupActions({
 
   const renameGroup = useCallback(
     async (groupId: string, name: string, icon?: string | null) => {
-      if (!assistantId) {return;}
+      if (!assistantId) {
+        return;
+      }
       const currentGroup = conversationGroups.find((g) => g.id === groupId);
       const currentName = currentGroup?.name ?? "";
       const currentIcon = currentGroup?.icon ?? null;
@@ -120,9 +136,13 @@ export function useConversationGroupActions({
       // `icon === undefined` means "leave unchanged" (picker hidden by the
       // backwards-compat gate); `null` explicitly clears the icon.
       const iconChanged = icon !== undefined && icon !== currentIcon;
-      if (!trimmed || (trimmed === currentName && !iconChanged)) {return;}
+      if (!trimmed || (trimmed === currentName && !iconChanged)) {
+        return;
+      }
 
-      const groupsKey = groupsGetQueryKey({ path: { assistant_id: assistantId } });
+      const groupsKey = groupsGetQueryKey({
+        path: { assistant_id: assistantId },
+      });
       await queryClient.cancelQueries({ queryKey: groupsKey });
 
       patchGroup(queryClient, assistantId, groupId, {
@@ -149,10 +169,14 @@ export function useConversationGroupActions({
 
   const handleDeleteGroup = useCallback(
     async (groupId: string) => {
-      if (!assistantId) return;
+      if (!assistantId) {
+        return;
+      }
       haptic.medium();
 
-      const groupsKey = groupsGetQueryKey({ path: { assistant_id: assistantId } });
+      const groupsKey = groupsGetQueryKey({
+        path: { assistant_id: assistantId },
+      });
       await Promise.all([
         cancelConversationQueries(queryClient, assistantId),
         queryClient.cancelQueries({ queryKey: groupsKey }),

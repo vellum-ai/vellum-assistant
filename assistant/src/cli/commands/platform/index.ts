@@ -59,11 +59,12 @@ export function registerPlatformCommand(program: Command): void {
             "platform_status",
             {},
           );
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
 
           const result = r.result!;
 
@@ -100,11 +101,12 @@ export function registerPlatformCommand(program: Command): void {
             "platform_credits",
             {},
           );
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
 
           const result = r.result!;
 
@@ -149,11 +151,12 @@ export function registerPlatformCommand(program: Command): void {
           }>("platform_callback_routes_register", {
             body: { path: opts.path, type: opts.type },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
 
           writeOutput(cmd, { ok: true, ...r.result });
 
@@ -178,11 +181,12 @@ export function registerPlatformCommand(program: Command): void {
               callback_url: string;
             }>;
           }>("platform_callback_routes_list", {});
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
 
           const routes = r.result!.routes;
 

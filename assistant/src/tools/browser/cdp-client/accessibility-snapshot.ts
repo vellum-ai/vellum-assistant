@@ -142,8 +142,12 @@ interface RawAxTree {
 
 /** Coerce any AX property value to a string for the `attrs` map. */
 function stringifyAxValue(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
@@ -179,7 +183,9 @@ function walkAxTreeInDocumentOrder(nodes: RawAxNode[]): RawAxNode[] {
     }
     if (Array.isArray(node.childIds)) {
       for (const childId of node.childIds) {
-        if (typeof childId === "string") childIds.add(childId);
+        if (typeof childId === "string") {
+          childIds.add(childId);
+        }
       }
     }
   }
@@ -198,15 +204,21 @@ function walkAxTreeInDocumentOrder(nodes: RawAxNode[]): RawAxNode[] {
   // Push roots in reverse so pop order matches input order.
   for (let i = roots.length - 1; i >= 0; i -= 1) {
     const root = roots[i];
-    if (root) stack.push(root);
+    if (root) {
+      stack.push(root);
+    }
   }
 
   while (stack.length > 0) {
     const node = stack.pop();
-    if (!node) continue;
+    if (!node) {
+      continue;
+    }
     const id = node.nodeId;
     if (typeof id === "string") {
-      if (visited.has(id)) continue;
+      if (visited.has(id)) {
+        continue;
+      }
       visited.add(id);
     }
     ordered.push(node);
@@ -214,9 +226,13 @@ function walkAxTreeInDocumentOrder(nodes: RawAxNode[]): RawAxNode[] {
       // Iterate in reverse so the first child is popped next.
       for (let i = node.childIds.length - 1; i >= 0; i -= 1) {
         const childId = node.childIds[i];
-        if (typeof childId !== "string") continue;
+        if (typeof childId !== "string") {
+          continue;
+        }
         const child = byId.get(childId);
-        if (child) stack.push(child);
+        if (child) {
+          stack.push(child);
+        }
       }
     }
   }
@@ -261,11 +277,17 @@ function isKeeperNode(node: RawAxNode): boolean {
  */
 function extractAttrs(node: RawAxNode): Record<string, string> {
   const attrs: Record<string, string> = {};
-  if (!Array.isArray(node.properties)) return attrs;
+  if (!Array.isArray(node.properties)) {
+    return attrs;
+  }
   for (const prop of node.properties) {
     const name = prop?.name;
-    if (typeof name !== "string") continue;
-    if (!PROPERTY_ALLOWLIST.has(name)) continue;
+    if (typeof name !== "string") {
+      continue;
+    }
+    if (!PROPERTY_ALLOWLIST.has(name)) {
+      continue;
+    }
     attrs[name] = stringifyAxValue(prop.value?.value).slice(0, MAX_VALUE_CHARS);
   }
   return attrs;
@@ -299,19 +321,29 @@ export function transformAxTree(
   const selectorMap = new Map<ElementId, number>();
 
   for (const node of orderedNodes) {
-    if (elements.length >= maxElements) break;
+    if (elements.length >= maxElements) {
+      break;
+    }
 
     // Drop ignored nodes (Chrome excluded from the AX tree on purpose).
-    if (node.ignored === true) continue;
+    if (node.ignored === true) {
+      continue;
+    }
 
     // Role and backendNodeId are mandatory for an element to be usable.
     const role = node.role?.value;
-    if (typeof role !== "string" || role.length === 0) continue;
+    if (typeof role !== "string" || role.length === 0) {
+      continue;
+    }
 
     const backendNodeId = node.backendDOMNodeId;
-    if (typeof backendNodeId !== "number") continue;
+    if (typeof backendNodeId !== "number") {
+      continue;
+    }
 
-    if (!isKeeperNode(node)) continue;
+    if (!isKeeperNode(node)) {
+      continue;
+    }
 
     const rawName = typeof node.name?.value === "string" ? node.name.value : "";
     const name = rawName.trim().slice(0, MAX_NAME_CHARS);

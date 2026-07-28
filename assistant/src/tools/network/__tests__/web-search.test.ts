@@ -29,11 +29,21 @@ function seedWebSearch(mode: string | undefined, provider: string): void {
 
 mock.module("../../../security/secure-keys.js", () => ({
   getProviderKeyAsync: async (provider: string) => {
-    if (provider === "brave") return mockBraveSecureKey;
-    if (provider === "perplexity") return mockPerplexitySecureKey;
-    if (provider === "tavily") return mockTavilySecureKey;
-    if (provider === "firecrawl") return mockFirecrawlSecureKey;
-    if (provider === "keenable") return mockKeenableSecureKey;
+    if (provider === "brave") {
+      return mockBraveSecureKey;
+    }
+    if (provider === "perplexity") {
+      return mockPerplexitySecureKey;
+    }
+    if (provider === "tavily") {
+      return mockTavilySecureKey;
+    }
+    if (provider === "firecrawl") {
+      return mockFirecrawlSecureKey;
+    }
+    if (provider === "keenable") {
+      return mockKeenableSecureKey;
+    }
     return undefined;
   },
 }));

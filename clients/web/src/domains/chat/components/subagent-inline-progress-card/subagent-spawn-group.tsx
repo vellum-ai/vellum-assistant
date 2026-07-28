@@ -26,7 +26,9 @@ export function SubagentSpawnGroup({
   const [expanded, setExpanded] = useState(false);
   const reduce = useReducedMotion();
 
-  if (subagentIds.length === 0) return null;
+  if (subagentIds.length === 0) {
+    return null;
+  }
 
   const transition = reduce
     ? { duration: 0 }

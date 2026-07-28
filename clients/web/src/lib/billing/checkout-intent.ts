@@ -147,9 +147,13 @@ function readInMemoryIntent(): CheckoutIntent | null {
 }
 
 function isCheckoutIntent(value: unknown): value is CheckoutIntent {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
   const intent = value as Partial<CheckoutIntent>;
-  if (typeof intent.savedAt !== "number") return false;
+  if (typeof intent.savedAt !== "number") {
+    return false;
+  }
   if (intent.kind === "package") {
     return typeof intent.packageKey === "string";
   }
