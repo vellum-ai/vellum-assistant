@@ -107,11 +107,11 @@ describe("agent loop — built-in history-repair recovery", () => {
     expect(events.some((e) => e.type === "error")).toBe(true);
   });
 
-  test("native ordering repair takes precedence over a generic hook continue", async () => {
-    // A user hook that blindly continues on any rejection without repairing.
-    // Native ordering repair must run first, so the retry sends a repaired
-    // history and recovers — rather than this hook re-sending the malformed
-    // history and burning the retry budget.
+  test("dispatches post-model-call but lets native repair drive the ordering retry", async () => {
+    // A user hook that observes the rejection and blindly continues without
+    // repairing. It must still fire (the hook contract dispatches at every
+    // model-call outcome), but native ordering repair takes precedence, so the
+    // retry sends a repaired history rather than the hook's unrepaired continue.
     let genericContinueFired = 0;
     registerPlugin({
       manifest: { name: "generic-continue", version: "0.0.1" },
@@ -125,7 +125,30 @@ describe("agent loop — built-in history-repair recovery", () => {
       },
     });
 
-    const { provider, callCount } = orderingRejectionProvider(1);
+    // History with an orphan tool_use: deep repair appends a synthetic
+    // tool_result so the retry is well-formed.
+    const orphanHistory: Message[] = [
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "t1", name: "noop", input: {} }],
+      },
+    ];
+
+    let calls = 0;
+    let retryMessages: Message[] | null = null;
+    const provider: Provider = {
+      name: "test-ordering",
+      async sendMessage(messages): Promise<ProviderResponse> {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error(ORDERING_REJECTION);
+        }
+        retryMessages = messages;
+        return textResponse("recovered");
+      },
+    };
+
     const loop = new AgentLoop({
       provider,
       systemPrompt: "system",
@@ -133,22 +156,25 @@ describe("agent loop — built-in history-repair recovery", () => {
     });
 
     const events: AgentEvent[] = [];
-    const { history } = await loop.run({
+    await loop.run({
       requestId: "test-request",
-      messages: [userMessage],
+      messages: orphanHistory,
       onEvent: (e) => {
         events.push(e);
       },
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
-    // Native repair handled the ordering rejection before the hook chain ran,
-    // so the generic hook never fired on it and recovery succeeded in one retry.
-    expect(genericContinueFired).toBe(0);
-    expect(callCount()).toBe(2);
-    expect(history[history.length - 1]).toEqual({
-      role: "assistant",
-      content: [{ type: "text", text: "recovered" }],
-    });
+    // The hook observed the rejection (contract preserved).
+    expect(genericContinueFired).toBeGreaterThanOrEqual(1);
+    // Recovery happened in exactly one retry, and that retry used the repaired
+    // history: the orphan tool_use now has a matching tool_result. If the hook's
+    // unrepaired continue had driven the retry, this block would be absent.
+    expect(calls).toBe(2);
+    const repaired: Message[] = retryMessages ?? [];
+    const hasPairedResult = repaired.some((m) =>
+      m.content.some((b) => b.type === "tool_result" && b.tool_use_id === "t1"),
+    );
+    expect(hasPairedResult).toBe(true);
   });
 });
