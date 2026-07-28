@@ -8,6 +8,10 @@ import type {
   ToolResultContent,
   ToolUseContent,
 } from "../providers/types.js";
+import {
+  parseExternalContentEnvelope,
+  wrapUntrustedContent,
+} from "../security/untrusted-content.js";
 import { safeStringSlice } from "../util/unicode.js";
 
 /** Minimum content length (chars) before a tool result is eligible for truncation. ~2000 tokens at 4 chars/token. */
@@ -101,17 +105,8 @@ export function getToolResultFilePath(
   return join(conversationDir, TOOL_RESULT_DIR, `${hash}.txt`);
 }
 
-/**
- * Build the truncated stub that replaces a large tool result in context.
- * Preserves the first and last halves of TARGET_CHARS, with a middle marker
- * indicating how many tokens were omitted, where to find the full result, and
- * how to page it back in — the marker is the model's only signal that the
- * omitted content is recoverable at all.
- */
-export function buildTruncatedContent(
-  original: string,
-  filePath: string,
-): string {
+/** Head/tail stub of `original` with the recovery marker spliced in between. */
+function spliceWithMarker(original: string, marker: string): string {
   const half = Math.floor(TARGET_CHARS / 2);
   const prefix = safeStringSlice(original, 0, half);
   const suffix = safeStringSlice(
@@ -119,9 +114,54 @@ export function buildTruncatedContent(
     original.length - half,
     original.length,
   );
-  const omittedChars = original.length - TARGET_CHARS;
+  return `${prefix}\n\n...(${marker})\n\n${suffix}`;
+}
+
+/** `(N tokens omitted — full result: <path> — use file_read to view)` body. */
+function recoveryMarker(omittedChars: number, filePath: string): string {
   const estimatedTokens = Math.round(omittedChars / 4);
-  return `${prefix}\n\n...(${estimatedTokens} tokens omitted ${TRUNCATION_MARKER} ${filePath} — use file_read to view)\n\n${suffix}`;
+  return `${estimatedTokens} tokens omitted ${TRUNCATION_MARKER} ${filePath} — use file_read to view`;
+}
+
+/**
+ * Build the truncated stub that replaces a large tool result in context.
+ * Preserves the first and last halves of TARGET_CHARS, with a middle marker
+ * indicating how many tokens were omitted, where to find the full result, and
+ * how to page it back in — the marker is the model's only signal that the
+ * omitted content is recoverable at all.
+ *
+ * When the result is an `<external_content>` envelope (web fetch, browser page
+ * text, and anything else fenced per `security/AGENTS.md`), only the fenced
+ * data is truncated and the marker is appended after the closing tag. The
+ * marker is the daemon's own instruction, and the model is told never to act
+ * on instructions inside the fence — spliced in there, the one signal that the
+ * omitted content is recoverable is a signal it must ignore.
+ */
+export function buildTruncatedContent(
+  original: string,
+  filePath: string,
+): string {
+  const envelope = parseExternalContentEnvelope(original);
+  if (envelope) {
+    // The in-fence marker stays purely descriptive: nothing inside the
+    // fence should read as an instruction. The recoverable-content
+    // signal goes below, in the daemon's own voice.
+    const inner = spliceWithMarker(envelope.content, "content omitted");
+    const refenced = wrapUntrustedContent(inner, {
+      source: envelope.source,
+      ...(envelope.origin === undefined
+        ? {}
+        : { sourceDetail: envelope.origin }),
+      maxChars: Number.MAX_SAFE_INTEGER,
+    });
+    const omittedChars = Math.max(0, envelope.content.length - TARGET_CHARS);
+    return `${refenced}\n\n(${recoveryMarker(omittedChars, filePath)})`;
+  }
+
+  return spliceWithMarker(
+    original,
+    recoveryMarker(original.length - TARGET_CHARS, filePath),
+  );
 }
 
 /**

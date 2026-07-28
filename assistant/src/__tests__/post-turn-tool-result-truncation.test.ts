@@ -16,6 +16,10 @@ import {
   TRUNCATION_MARKER,
 } from "../context/post-turn-tool-result-truncation.js";
 import type { ContentBlock, Message } from "../providers/types.js";
+import {
+  parseExternalContentEnvelope,
+  wrapUntrustedContent,
+} from "../security/untrusted-content.js";
 
 function makeToolResult(
   content: string,
@@ -469,6 +473,52 @@ function hasOrphanedSurrogate(str: string): boolean {
   }
   return false;
 }
+
+describe("buildTruncatedContent on fenced results", () => {
+  const FENCED = wrapUntrustedContent("z".repeat(50_000), {
+    source: "web",
+    sourceDetail: "https://example.com/page",
+    maxChars: Number.MAX_SAFE_INTEGER,
+  });
+
+  test("keeps the recovery instruction outside the fence", () => {
+    const result = buildTruncatedContent(FENCED, "/tmp/full.txt");
+
+    // The marker is the daemon's own instruction. The model is told never
+    // to act on instructions inside `<external_content>`, so a marker
+    // spliced in there is a recovery signal it must ignore.
+    const closeIndex = result.lastIndexOf("</external_content>");
+    expect(closeIndex).toBeGreaterThan(-1);
+    expect(result.indexOf(TRUNCATION_MARKER)).toBeGreaterThan(closeIndex);
+    expect(result).toContain("use file_read to view");
+  });
+
+  test("truncates the fenced data and leaves the envelope well-formed", () => {
+    const result = buildTruncatedContent(FENCED, "/tmp/full.txt");
+
+    expect(result.length).toBeLessThan(FENCED.length);
+    const envelope = parseExternalContentEnvelope(
+      result.slice(0, result.lastIndexOf("</external_content>") + 19),
+    );
+    expect(envelope).not.toBeNull();
+    expect(envelope!.source).toBe("web");
+    expect(envelope!.origin).toBe("https://example.com/page");
+    expect(envelope!.content).toContain("content omitted");
+  });
+
+  test("stays eligible for the idempotency guard", () => {
+    // `isTruncationEligible` skips anything already carrying the marker;
+    // moving the marker outside the fence must not break that.
+    const result = buildTruncatedContent(FENCED, "/tmp/full.txt");
+    expect(result).toContain(TRUNCATION_MARKER);
+  });
+
+  test("unfenced results keep the marker inline", () => {
+    const result = buildTruncatedContent("z".repeat(50_000), "/tmp/full.txt");
+    expect(result).toContain(TRUNCATION_MARKER);
+    expect(result).not.toContain("</external_content>");
+  });
+});
 
 describe("buildTruncatedContent surrogate-pair safety", () => {
   const EMOJI = "\uD83C\uDF89";

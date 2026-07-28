@@ -14,7 +14,7 @@ This applies to tool results, not just channel ingress. A tool that reads from t
 
 Three rules for how the fence is applied:
 
-- **Fence the data, not your own words.** The tool's scaffolding — the URL it navigated to, its remediation steps, its error strings — stays outside so it remains distinguishable as the tool's own voice. Only page/message-derived text goes inside.
+- **Fence the data, not your own words.** The tool's scaffolding — the URL it navigated to, its remediation steps, its error strings — stays outside so it remains distinguishable as the tool's own voice. Only page/message-derived text goes inside. This holds downstream too: anything that rewrites a tool result on its way into context (e.g. the oversized-result spool in `context/post-turn-tool-result-truncation.ts`) must keep its own instructions outside the envelope, or it hands the model a directive it has been told to ignore.
 - **Size the budget deliberately.** `wrapUntrustedContent` applies a per-source character budget. When a tool already enforces its own cap, pass an explicit `maxChars` above it so fencing does not silently shrink what the tool returns.
 - **Bound every untrusted string inside the budget, not just the obvious one.** A budget only protects the payload if the payload's length is bounded. Anything page-controlled that renders _ahead_ of the important part — a URL, a title, a header field — can otherwise consume the whole budget and truncate the part that mattered. Cap each such string at the source.
 
