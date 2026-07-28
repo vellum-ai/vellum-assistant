@@ -28,8 +28,6 @@ import {
   getDefaultPluginRoutesDir,
 } from "../../../plugins/defaults/main.js";
 import { getWorkspacePluginsDir } from "../../../util/platform.js";
-import { AssistantEventHub } from "../../assistant-event-hub.js";
-import type { UserRouteContext } from "../user-route-dispatcher.js";
 import { UserRouteDispatcher } from "../user-route-dispatcher.js";
 import {
   isRouteTestPath,
@@ -44,11 +42,7 @@ const DEFAULT_PLUGIN_DIR = "platform-hosted";
 const DEFAULT_PLUGIN = `default-${DEFAULT_PLUGIN_DIR}`;
 
 function makeDispatcher(): UserRouteDispatcher {
-  const context: UserRouteContext = {
-    assistantEventHub: new AssistantEventHub(),
-    conversations: { postMessage: async () => ({ messageId: "m" }) },
-  };
-  return new UserRouteDispatcher({ context });
+  return new UserRouteDispatcher();
 }
 
 /** Create a workspace plugin dir; returns its `routes/` dir. Cleaned up per test. */
