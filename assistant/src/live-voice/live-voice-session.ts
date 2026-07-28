@@ -949,15 +949,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // a barge-in cut off: its final answer, folded into the next turn the user
   // starts as context. Consumed (and cleared) when that turn launches; cleared
   // on a hard stop (abortDetachedRuns) so a stale result never surfaces later,
-  // and cleared by an announcement that delivers the same answer itself.
+  // and cleared by an announcement that delivers the same answer itself — an
+  // announcement the user cuts short hands it straight back.
   private pendingContinuationResult: string | null = null;
   // The same finished continuation, queued for an announcement turn: the
   // session speaks the result on its own once the call has been quiet for
   // `continuationAnnounceSilenceMs`. This and `pendingContinuationResult` are
   // armed together and are two routes for ONE answer — whichever fires first
   // clears the other, so the user hears it exactly once. An announcement whose
-  // turn fails to start hands the answer back to the stash, so a lost dispatch
-  // costs the announcement, not the answer.
+  // turn fails to start, or whose turn a barge-in cuts short, hands the answer
+  // back to the stash, so a lost delivery costs the announcement, not the
+  // answer.
   private pendingAnnouncement: ContinuationDelivery | null = null;
   private announcementTimer: ReturnType<typeof setTimeout> | null = null;
   // Set when a continuation actually spawns: the request it took over, so the
@@ -1712,6 +1714,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // out the interrupted TURN's teardown before forking, which bounds the
     // overlap to that one abandoned call.
     this.abortDetachedRuns({ reason: "superseded_by_new_barge_in" });
+    // An announcement turn is the one interruption with nothing to continue:
+    // the work is already finished, which is why detachInterruptedTurn skips it
+    // as `announcement_turn`. The analog of "the interrupted work survives" is
+    // therefore the stash — the answer goes back into it so the user's next real
+    // turn still carries it, and the announcement (cut short, at best partly
+    // spoken) is not the delivery it was supposed to be. The restore sits after
+    // the abort above, which clears the stash, so nothing in this sequence
+    // re-drops it. Only a barge-in restores: interrupt/close/a superseding new
+    // continuation are resets the user asked for, and their answer stays gone.
+    if (turn.continuationDelivery !== null) {
+      this.pendingContinuationResult = turn.continuationDelivery.answer;
+    }
     // Order this barge-in among concurrent detaches SYNCHRONOUSLY, in barge
     // order — the actual detach runs after an async teardown chain, and those
     // chains can interleave, so bumping there could assign sequences out of
@@ -1792,7 +1806,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         ? "session_closed"
         : // Barging in over an announcement means the user is answering it, not
           // asking for it to be finished in the background — there is no
-          // pending request behind an announcement turn to continue.
+          // pending request behind an announcement turn to continue. Its answer
+          // is already finished, so bargeIn returns it to the stash instead.
           turn.continuationDelivery !== null
           ? "announcement_turn"
           : // The model already finished generating (barge-in during TTS playback
@@ -2165,8 +2180,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     this.pendingAnnouncement = null;
     // The two routes for one answer are mutually exclusive: while this turn is
-    // in flight the stash must not deliver the same answer again, and the stash
-    // only comes back if the turn provably never started.
+    // in flight the stash must not deliver the same answer again. It comes back
+    // only if this turn provably never started (below) or a barge-in cuts it
+    // short before it delivers (see bargeIn).
     this.pendingContinuationResult = null;
     // Pins the invalidation state this hand-off was decided in: a hard stop
     // landing while the turn starts owns the drop, and must not be undone by

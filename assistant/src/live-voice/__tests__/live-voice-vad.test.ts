@@ -1930,6 +1930,47 @@ describe("LiveVoiceSession server VAD", () => {
     expect(continuation.spawnBackgroundContinuation.mock.calls.length).toBe(1);
   });
 
+  test("voice-duplex-handoff on: a barge-in over an announcement returns the answer to the stash", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    const continuation = makeControlledContinuation();
+    const { startVoiceTurn, calls } = makeNeverCompletingTurnStarter();
+    const { frames, session } = createHarness({
+      finals: ["first question", "", "third question"],
+      startVoiceTurn,
+      streamTtsAudio: makeImmediateTts(),
+      spawnBackgroundContinuation: continuation.spawnBackgroundContinuation,
+      continuationAnnounceSilenceMs: 20,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(
+      () => continuation.spawnBackgroundContinuation.mock.calls.length === 1,
+    );
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "utterance_discarded"),
+    );
+
+    continuation.finish("THE_RESULT");
+    await waitFor(() => announcementOf(calls) !== undefined);
+
+    // The user cuts in while the announcement turn is still in flight, so it
+    // never delivers. Nothing is forked to replace it (the work is finished),
+    // so the stash is the only route left for the answer.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => countType(frames, "turn_cancelled") === 2);
+
+    await waitFor(() => calls.some((c) => c.content === "third question"));
+    const later = calls.find((c) => c.content === "third question");
+    expect(later?.voiceControlPrompt).toContain("THE_RESULT");
+    // One announcement, and no second one racing the real turn: the answer is
+    // recoverable, not duplicated.
+    await flushAsyncCallbacks();
+    expect(announcementCount(calls)).toBe(1);
+  });
+
   test("voice-duplex-handoff on: an announcement turn that cannot start hands the answer back to the stash", async () => {
     setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
     const continuation = makeControlledContinuation();
