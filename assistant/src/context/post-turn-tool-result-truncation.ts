@@ -105,14 +105,38 @@ export function getToolResultFilePath(
   return join(conversationDir, TOOL_RESULT_DIR, `${hash}.txt`);
 }
 
-const EXTERNAL_CONTENT_OPEN_TAG = /<external_content\b[^\n>]*>/g;
+const EXTERNAL_CONTENT_TAG = /<(\/?)external_content\b[^\n>]*>/g;
 const EXTERNAL_CONTENT_CLOSE_TAG = "</external_content>";
+const EXTERNAL_CONTENT_OPEN_TAG = '<external_content source="tool_result">';
 
-function countOccurrences(haystack: string, pattern: RegExp | string): number {
-  if (typeof pattern === "string") {
-    return haystack.split(pattern).length - 1;
+/**
+ * Whether `chunk` ends inside an envelope, and whether it starts inside
+ * one — determined by walking its fence tags in order rather than
+ * comparing totals, so a stray tag on one side cannot mask one on the
+ * other.
+ *
+ * Fenced content never contains a literal tag of either form
+ * (`escapeContentBoundaries` escapes both), so every tag seen here is a
+ * real wrapper.
+ */
+function scanEnvelopeBoundaries(chunk: string): {
+  endsOpen: boolean;
+  startsClosed: boolean;
+} {
+  let depth = 0;
+  let startsClosed = false;
+  for (const match of chunk.matchAll(EXTERNAL_CONTENT_TAG)) {
+    if (match[1] === "/") {
+      if (depth === 0) {
+        startsClosed = true;
+      } else {
+        depth -= 1;
+      }
+    } else {
+      depth += 1;
+    }
   }
-  return haystack.match(pattern)?.length ?? 0;
+  return { endsOpen: depth > 0, startsClosed };
 }
 
 /**
@@ -124,9 +148,9 @@ function countOccurrences(haystack: string, pattern: RegExp | string): number {
  * exact placement the model is told to ignore.
  */
 function closeDanglingEnvelope(chunk: string): string {
-  const opens = countOccurrences(chunk, EXTERNAL_CONTENT_OPEN_TAG);
-  const closes = countOccurrences(chunk, EXTERNAL_CONTENT_CLOSE_TAG);
-  return opens > closes ? `${chunk}\n${EXTERNAL_CONTENT_CLOSE_TAG}` : chunk;
+  return scanEnvelopeBoundaries(chunk).endsOpen
+    ? `${chunk}\n${EXTERNAL_CONTENT_CLOSE_TAG}`
+    : chunk;
 }
 
 /**
@@ -134,10 +158,8 @@ function closeDanglingEnvelope(chunk: string): string {
  * precedes it does not fall inside the resulting envelope.
  */
 function openDanglingEnvelope(chunk: string): string {
-  const opens = countOccurrences(chunk, EXTERNAL_CONTENT_OPEN_TAG);
-  const closes = countOccurrences(chunk, EXTERNAL_CONTENT_CLOSE_TAG);
-  return closes > opens
-    ? `<external_content source="tool_result">\n${chunk}`
+  return scanEnvelopeBoundaries(chunk).startsClosed
+    ? `${EXTERNAL_CONTENT_OPEN_TAG}\n${chunk}`
     : chunk;
 }
 
