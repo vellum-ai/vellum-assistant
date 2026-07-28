@@ -75,13 +75,20 @@ let openedUrl: string | null = null;
 // apart to stand for a cache the server has moved past.
 let serverSubscription: SubscriptionResponse | null = null;
 let serverCatalog: PlanListResponse | null = null;
+// When non-null the catalog read rejects with this, standing for a forced
+// re-read that fails while the cache it was meant to refresh is still usable.
+let catalogReadError: unknown = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
   organizationsBillingSubscriptionRetrieve: () =>
     Promise.resolve({ data: serverSubscription, response: { ok: true } }),
-  organizationsBillingPlansRetrieve: () =>
-    Promise.resolve({ data: serverCatalog, response: { ok: true } }),
+  organizationsBillingPlansRetrieve: () => {
+    if (catalogReadError !== null) {
+      return Promise.reject(catalogReadError);
+    }
+    return Promise.resolve({ data: serverCatalog, response: { ok: true } });
+  },
   organizationsBillingSubscriptionUpgradeCreate: (opts: Captured) => {
     upgradeCall = opts;
     return Promise.resolve({
@@ -216,6 +223,10 @@ function LocationProbe() {
  *   refetch runs behind it. The default pins the cache instead, which is the
  *   other shape of the same staleness — a read fresh enough by `staleTime` that
  *   no refetch is scheduled at all.
+ * @param options.plans the catalog seeded into the cache.
+ * @param options.serverPlans what the catalog read answers. Defaults to
+ *   `options.plans`; a different value stands for a cache the server has already
+ *   moved past.
  */
 function renderPage(
   subscription: SubscriptionResponse,
@@ -223,10 +234,13 @@ function renderPage(
   options: {
     server?: SubscriptionResponse;
     backgroundRefetch?: boolean;
+    plans?: PlanListResponse;
+    serverPlans?: PlanListResponse;
   } = {},
 ) {
   serverSubscription = options.server ?? subscription;
-  serverCatalog = fullCatalog();
+  const cachedCatalog = options.plans ?? fullCatalog();
+  serverCatalog = options.serverPlans ?? cachedCatalog;
   const client = new QueryClient({
     defaultOptions: {
       queries: options.backgroundRefetch
@@ -240,7 +254,7 @@ function renderPage(
   );
   client.setQueryData(
     organizationsBillingPlansRetrieveQueryKey(),
-    fullCatalog(),
+    cachedCatalog,
   );
   return {
     client,
@@ -331,6 +345,7 @@ beforeEach(() => {
   lifecycleLoading = false;
   serverSubscription = null;
   serverCatalog = null;
+  catalogReadError = null;
   // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
   // leaves a prior test's intent readable.
   clearCheckoutIntent();
@@ -514,6 +529,62 @@ describe("PlansPage — ?package= deep link", () => {
     await waitFor(() =>
       expect(getByTestId("loc").textContent).toMatch(ON_PLANS_WITHOUT_PARAM),
     );
+  });
+
+  // The catalog carries the same staleness as the subscription. A read taken
+  // with `pro-packages` off answers an empty package list, and emptiness is what
+  // the page treats as nothing-to-show — so the cached verdict has to wait for
+  // the forced re-read rather than bounce the link first.
+  test("a cached empty catalog can't bail the link before the forced re-read lands", async () => {
+    const { findByText, getByTestId } = renderPage(
+      proMightySubscription(),
+      "/assistant/plans?package=super",
+      { plans: emptyPackagesCatalog(), serverPlans: fullCatalog() },
+    );
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toMatch(ON_PLANS_WITHOUT_PARAM),
+    );
+    await findByText("Upgrade to Super");
+    expect(upgradeCall).toBeNull();
+  });
+
+  // A forced re-read that fails is still a finished read: the cache it was meant
+  // to refresh is right there, so the link decides from that instead of sitting
+  // unconsumed with no modal, no redirect, and the param still on the URL.
+  test("a failed forced catalog re-read decides from the retained cache", async () => {
+    catalogReadError = new Error("catalog read failed");
+    const { findByText, getByTestId, queryByLabelText } = renderPage(
+      proMightySubscription(),
+      "/assistant/plans?package=super",
+    );
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toMatch(ON_PLANS_WITHOUT_PARAM),
+    );
+    await findByText("Upgrade to Super");
+    expect(queryByLabelText("Loading plans")).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
+
+  // No amount of re-reading billing turns a self-hosted assistant into a hosted
+  // one, so that bail must not be held behind the deep link's forced reads. It
+  // also lands on the plain billing page — there is no adjust-plan upgrade path
+  // without a platform session.
+  test("self-hosted still bails immediately with the link present", async () => {
+    platformHosted = false;
+    const { getByTestId, queryAllByTestId } = renderPage(
+      proMightySubscription(),
+      "/assistant/plans?package=super",
+    );
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe(
+        "/assistant/settings/usage?tab=billing",
+      ),
+    );
+    expect(queryAllByTestId("confirm-package-switch-button").length).toBe(0);
+    expect(upgradeCall).toBeNull();
   });
 
   test("the param is consumed once — later subscription changes don't reopen the modal", async () => {

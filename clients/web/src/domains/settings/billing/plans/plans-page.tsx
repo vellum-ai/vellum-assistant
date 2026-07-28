@@ -274,14 +274,26 @@ export function PlansPage() {
     };
   }, [isProUser, current.machineTier, current.storageTier, current.creditTier]);
 
+  // `?package=<key>` is the one-shot deep link; it is live until the effects
+  // below strip it.
+  const packageParam = searchParams.get(PACKAGE_PARAM);
+
   // The takeover only makes sense against a platform-hosted assistant with a
   // live package catalog. Anything else — self-hosted or no platform session,
   // an empty catalog (the `pro-packages` flag off), or a subscription we can't
   // read — has nothing to show, so fall back to the billing page.
   const notPlatformHosted = !platformReady && !platformResolving;
   const catalogEmpty = platformReady && !plansQuery.isLoading && !hasPackages;
+  // An unconsumed deep link has asked for both billing reads again, so the two
+  // read-derived bails are answers to a question already being re-asked: a
+  // catalog that reads empty (flag flipped on since) or a subscription that
+  // reads failed can both come back resolvable. Hold them until that re-read
+  // settles. Hosting is not something a refetch can change, so it still bails
+  // on sight.
+  const deepLinkAwaitingReads = packageParam != null && !billingReadsRefreshed;
   const cannotResolve =
-    notPlatformHosted || subscriptionQuery.isError || catalogEmpty;
+    notPlatformHosted ||
+    (!deepLinkAwaitingReads && (subscriptionQuery.isError || catalogEmpty));
   useEffect(() => {
     if (cannotResolve) {
       // Platform-hosted but catalog-empty (pro-packages off) or a failed
@@ -417,9 +429,8 @@ export function PlansPage() {
   // gets. Non-Pro users get no checkout from a URL, and `free` names a
   // cancellation rather than a package — but the param is dropped either way so
   // it can't fire later once they are Pro.
-  const packageParam = searchParams.get(PACKAGE_PARAM);
-
-  // Both reads answer `isSuccess` off the cache the moment the page mounts, and
+  //
+  // Both reads answer off the cache the moment the page mounts, and
   // `staleTime` can keep them from refetching at all — so the one-shot link
   // would be spent on whatever was true the last time anything asked. The
   // checkout `no_op` bail is the case that makes this load-bearing: it routes
@@ -462,13 +473,12 @@ export function PlansPage() {
     // The redirect effect above is already navigating away this tick. Stripping
     // now would abort it, and its deps never change again, so it would never
     // re-fire — stranding the user on the spinner.
-    if (
-      cannotResolve ||
-      !platformReady ||
-      !billingReadsRefreshed ||
-      !subscriptionQuery.isSuccess ||
-      !plansQuery.isSuccess
-    ) {
+    //
+    // Refreshed means the re-read finished or its bound elapsed, not that it
+    // succeeded: a failed refetch leaves the cache it was meant to replace
+    // sitting right there, and deciding from that is what keeps the link from
+    // going inert — no modal, no redirect, param never dropped.
+    if (cannotResolve || !platformReady || !billingReadsRefreshed) {
       return;
     }
     packageParamConsumedRef.current = true;
@@ -488,8 +498,6 @@ export function PlansPage() {
     cannotResolve,
     packageParam,
     platformReady,
-    subscriptionQuery.isSuccess,
-    plansQuery.isSuccess,
     isProUser,
     setSearchParams,
   ]);
