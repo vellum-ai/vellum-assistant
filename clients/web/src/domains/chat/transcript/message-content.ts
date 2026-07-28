@@ -21,7 +21,6 @@ import {
   containsInlineThinkingTag,
   parseInlineThinkingTags,
 } from "@/domains/chat/utils/parse-inline-thinking";
-import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 /**
  * One item inside a blocks-driven `activity` run, reusing the server block
@@ -122,10 +121,8 @@ export function groupContentBlocks(
     : blocks;
 
   const groups: ContentBlockGroup[] = [];
-  let current: {
-    type: "activity";
-    items: ContentBlockActivityItem[];
-  } | null = null;
+  let current: { type: "activity"; items: ContentBlockActivityItem[] } | null =
+    null;
 
   const openActivity = () => {
     if (!current) {
@@ -189,21 +186,16 @@ export function groupContentBlocks(
  * Project an activity group's ordered items into the card-rendering shape:
  * ordered `ToolCallCardItem`s (thinking text interleaved with tool calls)
  * plus the flat tool-call list. Empty thinking segments and suppressed UI
- * tools are dropped, and in-flight visual renders are split out into
- * `pendingVisuals` for the render body's shimmer placeholder. Single source of
- * truth for the transcript's `MultiActivityGroup` props and the activity-steps
- * side panel's live re-derivation, so the two views cannot drift.
+ * tools are dropped. Single source of truth for the transcript's
+ * `MultiActivityGroup` props and the activity-steps side panel's live
+ * re-derivation, so the two views cannot drift.
  */
-export function activityItemsToCardData(
-  items: ContentBlockActivityItem[],
-): {
+export function activityItemsToCardData(items: ContentBlockActivityItem[]): {
   cardItems: ToolCallCardItem[];
   toolCalls: ChatMessageToolCall[];
-  pendingVisuals: ChatMessageToolCall[];
 } {
   const cardItems: ToolCallCardItem[] = [];
   const toolCalls: ChatMessageToolCall[] = [];
-  const pendingVisuals: ChatMessageToolCall[] = [];
   for (const item of items) {
     if (item.type === "thinking") {
       if (item.thinking) {
@@ -220,16 +212,10 @@ export function activityItemsToCardData(
     if (isSuppressedUiTool(tc)) {
       continue;
     }
-    if (isSuppressedVisualizeRender(tc)) {
-      if (isToolCallRunning(tc)) {
-        pendingVisuals.push(tc);
-      }
-      continue;
-    }
     toolCalls.push(tc);
     cardItems.push({ kind: "toolCall", toolCall: tc });
   }
-  return { cardItems, toolCalls, pendingVisuals };
+  return { cardItems, toolCalls };
 }
 
 /**
@@ -243,28 +229,6 @@ export function isSuppressedUiTool(tc: ChatMessageToolCall): boolean {
     (tc.name === "ui_show" ||
       tc.name === "ui_update" ||
       tc.name === "ui_dismiss")
-  );
-}
-
-/** Tool name the visualize plugin registers for inline visual renders. */
-export const VISUALIZE_RENDER_TOOL_NAME = "visualize_render";
-
-/**
- * A `visualize_render` call whose chip the transcript owns rather than the
- * activity card: the rendered surface *is* the UI while the call is in flight
- * or has succeeded, so a chip beside it would be redundant machinery. The
- * render body shows a shimmer placeholder for the in-flight case.
- *
- * A failed call keeps its chip — nothing rendered, so the failure has to be
- * visible — as does one carrying a pending confirmation, which needs the chip
- * to host the inline confirmation card. `visualize_guide` is untouched; it
- * loads guidance and reads as ordinary tool work.
- */
-export function isSuppressedVisualizeRender(tc: ChatMessageToolCall): boolean {
-  return (
-    tc.name === VISUALIZE_RENDER_TOOL_NAME &&
-    !tc.pendingConfirmation &&
-    !tc.isError
   );
 }
 
@@ -360,8 +324,7 @@ export function isBackgroundBashCall(toolCall: ChatMessageToolCall): boolean {
  */
 export function isTaskProgressSurface(surface: Surface): boolean {
   const data = surface.data as
-    | { template?: string; templateData?: { steps?: unknown } }
-    | undefined;
+    { template?: string; templateData?: { steps?: unknown } } | undefined;
   return (
     data?.template === "task_progress" &&
     Array.isArray(data.templateData?.steps) &&

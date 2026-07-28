@@ -66,7 +66,8 @@ interface SurfaceShapeDoc {
    * Returns a description of what keeps the payload from rendering as intended
    * — missing load-bearing content, or keys that would be silently dropped —
    * or null when the payload is fine. Absent for types the daemon normalizes
-   * leniently (card) or that have bespoke handling (dynamic_page). Guards for
+   * leniently (card) or that have bespoke handling (dynamic_page, visual).
+   * Guards for
    * types whose daemon normalizer recovers top-level input fields also receive
    * the full tool `input`, so the guard accepts exactly what the normalizer
    * accepts.
@@ -193,6 +194,12 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
     shape:
       "{ html, width?, height?, preview?: { title, subtitle?, description?, icon?, metrics?: [{ label, value }] } } — custom visual HTML for transient surfaces only, never app-like builds",
   },
+  visual: {
+    purpose:
+      "polished custom HTML/SVG visual rendered inline; load the `visualize` skill first and follow it",
+    shape:
+      "{ html, height? } — one self-contained HTML/SVG fragment (no DOCTYPE/html/head/body, no external resources); every colour comes from the injected design-token CSS variables, so hex/rgb literals and invented `var()` names are rejected. Load the `visualize` skill with `skill_load` for the full contract and the token vocabulary",
+  },
   channel_setup: {
     purpose: "open the Slack/Telegram/Phone setup panel",
     shape: '{ channel: "slack" | "telegram" | "phone" }',
@@ -247,8 +254,8 @@ export const UI_SHOW_TYPE_DOCS = [
  * Teaching error for a ui_show payload that would render nothing, or null
  * when the payload is displayable. Unknown/missing surface_type gets the
  * full type index; a known type missing its load-bearing content gets that
- * type's exact shape. dynamic_page emptiness is handled by the bespoke
- * model-aware envelopes in `definitions.ts`, not here.
+ * type's exact shape. dynamic_page emptiness and the `visual` fragment
+ * checks are handled by the bespoke envelopes in `definitions.ts`, not here.
  */
 export function uiShowTeachingError(
   input: Record<string, unknown>,

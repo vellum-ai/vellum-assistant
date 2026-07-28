@@ -459,11 +459,10 @@ export const WorkResultSurfaceDataSchema = z.object({
 export type WorkResultSurfaceData = z.infer<typeof WorkResultSurfaceDataSchema>;
 
 /**
- * Inline visual drawn by the default-visualize plugin: a self-contained html
- * fragment rendered in a sandboxed frame. Emitted only by the plugin's
- * `visualize_render` tool, which validates the fragment (no external
- * resources, design-token styling) before showing it — see
- * `DAEMON_INTERNAL_SURFACE_TYPES` for why `ui_show` must reject it.
+ * Inline visual: a self-contained html fragment rendered in a sandboxed
+ * frame. Model-invokable via `ui_show`, which validates the fragment (no
+ * external resources, design-token styling) before emitting it — see
+ * `tools/ui-surface/visual-validation.ts`.
  */
 export const VisualSurfaceDataSchema = z.object({
   /** The visual's markup. Load-bearing: empty renders a blank box. */
@@ -472,6 +471,45 @@ export const VisualSurfaceDataSchema = z.object({
   height: tolerantNumber(),
 });
 export type VisualSurfaceData = z.infer<typeof VisualSurfaceDataSchema>;
+
+/**
+ * Bounds for the caller's initial height estimate, in CSS pixels. The maximum
+ * matches the client renderer's clamp (`visual-surface.tsx`), so an estimate
+ * the frame would clip never reaches the wire.
+ */
+const VISUAL_MIN_HEIGHT = 80;
+const VISUAL_MAX_HEIGHT = 1400;
+
+/**
+ * Normalize a visual `ui_show` payload: recover `html`/`height` the model
+ * placed at the top level of the tool input instead of nesting inside `data`,
+ * clamp the height estimate, then parse through the canonical schema. Shared
+ * by the tool's validation guard and the daemon resolver so both layers see
+ * the same fragment.
+ */
+export function normalizeVisualShowData(
+  input: Record<string, unknown>,
+  data: Record<string, unknown>,
+): VisualSurfaceData {
+  const normalized: Record<string, unknown> = { ...data };
+  if (typeof normalized.html !== "string" && typeof input.html === "string") {
+    normalized.html = input.html;
+  }
+  if (normalized.height == null && input.height != null) {
+    normalized.height = input.height;
+  }
+  const parsed = VisualSurfaceDataSchema.parse(normalized);
+  if (parsed.height === undefined || parsed.height <= 0) {
+    return { html: parsed.html };
+  }
+  return {
+    html: parsed.html,
+    height: Math.min(
+      VISUAL_MAX_HEIGHT,
+      Math.max(VISUAL_MIN_HEIGHT, Math.round(parsed.height)),
+    ),
+  };
+}
 
 // === Surface type registry ===
 
@@ -499,21 +537,16 @@ export const SurfaceTypeSchema = z.enum(SURFACE_TYPES);
 export type SurfaceType = z.infer<typeof SurfaceTypeSchema>;
 
 /**
- * Surface types the daemon or a trusted tool emits directly — the memory
- * retrospective's `skill_card`, a call's `call_summary`, and the
- * default-visualize plugin's `visual` — but that the model must never invoke
- * via `ui_show`. They are members of `SurfaceType` so the
- * persistence/restore path can represent them, but they are deliberately
- * absent from the model-facing `ui_show` surface list
- * (`SURFACE_SHAPE_DOCS`), and the `ui_show` resolver rejects them. For
- * `visual` that rejection is load-bearing: the `visualize_render` tool
- * validates the fragment (sandbox, token styling) before emitting, and a
- * raw `ui_show` would bypass those guards.
+ * Surface types the daemon emits and persists directly — the memory
+ * retrospective's `skill_card` and a call's `call_summary` — but that the
+ * model must never invoke via `ui_show`. They are members of `SurfaceType`
+ * so the persistence/restore path can represent them, but they are
+ * deliberately absent from the model-facing `ui_show` surface list
+ * (`SURFACE_SHAPE_DOCS`), and the `ui_show` resolver rejects them.
  */
 export const DAEMON_INTERNAL_SURFACE_TYPES = [
   "skill_card",
   "call_summary",
-  "visual",
 ] as const;
 
 const DAEMON_INTERNAL_SURFACE_TYPE_SET = new Set<string>(

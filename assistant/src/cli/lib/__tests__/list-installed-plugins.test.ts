@@ -199,7 +199,7 @@ describe("listAllPlugins", () => {
     // Every default plugin should be present. History repair is not one — it is
     // daemon logic invoked directly at its agent-loop call sites (see
     // `src/agent/history-repair/`), not a registered plugin.
-    expect(defaults.length).toBe(19);
+    expect(defaults.length).toBe(18);
     // Names should all start with "default-".
     expect(defaults.every((p) => p.name.startsWith("default-"))).toBe(true);
     // None should be disabled by default in a fresh temp dir.

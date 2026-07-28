@@ -90,8 +90,6 @@ import toolResultTruncatePostToolUse from "./tool-result-truncate/hooks/post-too
 import toolResultTruncatePkg from "./tool-result-truncate/package.json" with { type: "json" };
 import { turnContextInjectors } from "./turn-context/injectors.js";
 import turnContextPkg from "./turn-context/package.json" with { type: "json" };
-import visualizePkg from "./visualize/package.json" with { type: "json" };
-import { visualizeTools } from "./visualize/tools.js";
 import { workspaceInjectors } from "./workspace/injectors.js";
 import workspacePkg from "./workspace/package.json" with { type: "json" };
 
@@ -271,22 +269,6 @@ export const defaultSessionPlugin: Plugin = {
 };
 
 /**
- * `visualize` — inline rich visuals. Contributes two model-visible tools:
- * `visualize_guide` serves the visual-authoring design system (core document
- * plus per-module guidance), and `visualize_render` pushes a self-contained
- * HTML fragment to the client as an inline `visual` surface. Tool-only; it
- * contributes no hooks, no injectors, and owns no state, so disabling the
- * plugin removes both tools from every request.
- */
-export const defaultVisualizePlugin: Plugin = {
-  manifest: {
-    name: visualizePkg.name,
-    version: visualizePkg.version,
-  },
-  tools: visualizeTools,
-};
-
-/**
  * `platform-hosted` — contributes the platform-hosted `/reengage` route. It
  * ships no hooks, tools, or injectors, so it registers as a manifest only;
  * the route source is served once the assistant dispatches default-plugin
@@ -453,7 +435,6 @@ export function getAllDefaultPlugins(): readonly Plugin[] {
     defaultChannelPlugin,
     defaultSessionPlugin,
     defaultPlatformHostedPlugin,
-    defaultVisualizePlugin,
     defaultImageFallbackPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,

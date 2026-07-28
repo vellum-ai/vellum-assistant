@@ -43,6 +43,11 @@ const PALETTES = [
  * than a sweep of every declared property: the widget contract is a stable,
  * documented token vocabulary, and app-internal layout variables
  * (`--chat-max-width`, `--avatar-accent`, …) are not part of it.
+ *
+ * Mirrored by `WIDGET_TOKEN_PROPERTIES` in
+ * `assistant/src/tools/ui-surface/visual-validation.ts`, which rejects a
+ * visual referencing a variable outside this list — the two must change
+ * together.
  */
 export const WIDGET_TOKEN_PROPERTIES: readonly string[] = [
   // Surfaces
