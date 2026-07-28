@@ -15,7 +15,7 @@ import type {
   ImageContent,
   Message,
 } from "@vellumai/plugin-api";
-import { and, desc, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -240,11 +240,11 @@ export class ConversationGraphMemory {
       }
 
       // Page through candidate summary keys most-recent first from the memory
-      // connection (memory_summaries lives there), resolving each page's
+      // connection (which holds memory_summaries), resolving each page's
       // conversation types on the main connection before moving on, and stop as
       // soon as 3 user summaries are found. Only keys are read here so the full
       // text is fetched for just the rows returned. conversationType is a
-      // separate lookup rather than a JOIN, since the two tables no longer share
+      // separate lookup rather than a JOIN, since the two tables do not share
       // a database file; keeping it per-page bounds the scan to the pages
       // actually needed. A summary whose conversation row is gone is skipped, and
       // at most 1 background/scheduled summary fills a remaining slot.
@@ -302,7 +302,7 @@ export class ConversationGraphMemory {
         for (const scopeKey of pageKeys) {
           const type = typeByConversation.get(scopeKey);
           if (type === undefined) {
-            continue; // its conversation row is gone — skip it
+            continue; // its conversation row is gone, skip it
           }
           if (type === "background" || type === "scheduled") {
             if (backgroundKey === null) {

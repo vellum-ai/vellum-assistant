@@ -9,7 +9,7 @@ import {
 
 /**
  * How to drain `memory_summaries` from `main` into the dedicated memory
- * database — the last table of the memory-DB cutover.
+ * database. The last table of the memory-DB cutover.
  *
  * The column list is explicit: the base `CREATE` columns (migration 000) plus
  * `version` and `scope_id` (both added by migration 102). `scope_id` is a real
