@@ -9,8 +9,8 @@
  *
  * Response *enrichment* (label/objective/child conversation id, added in
  * 0.11.0) is not gated here: `reconcileFromDaemon` degrades per-field, so
- * a bare `{status}` response from 0.10.0–0.10.12 still updates known
- * entries and stubs unknowns.
+ * a bare `{status}` response from a pre-0.11.0 assistant still updates
+ * known entries and stubs unknowns.
  */
 import {
   assistantSupports,
