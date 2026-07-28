@@ -21,6 +21,18 @@ const TRAITS: CharacterTraits = {
   color: "purple",
 };
 
+const OTHER_TRAITS: CharacterTraits = {
+  bodyShape: "square",
+  eyeStyle: "wide",
+  color: "green",
+};
+
+interface AvatarCacheEntry {
+  components: CharacterComponents | null;
+  traits: CharacterTraits | null;
+  customImageUrl: string | null;
+}
+
 beforeEach(() => {
   sessionStorage.clear();
   // Reset the module-level in-memory mirror so it can't leak across tests.
@@ -96,20 +108,43 @@ describe("saveTakeoverAvatarStash / readTakeoverAvatarStash", () => {
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
-  test("a stash with malformed components reads as null and self-clears", () => {
-    sessionStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        assistantId: "a1",
-        components: { bodyShapes: "not-an-array" },
-        traits: null,
-        savedAt: Date.now(),
-      }),
-    );
+  // Every array here is dereferenced unconditionally while rendering, so a
+  // stash missing one crashes the takeover rather than degrading.
+  const MALFORMED_COMPONENTS: Array<[string, unknown]> = [
+    ["non-object components", "not-an-object"],
+    ["a non-array bodyShapes", { ...BUNDLED_COMPONENTS, bodyShapes: "nope" }],
+    ["a non-array eyeStyles", { ...BUNDLED_COMPONENTS, eyeStyles: "nope" }],
+    ["a non-array colors", { ...BUNDLED_COMPONENTS, colors: "nope" }],
+    [
+      "a non-array faceCenterOverrides",
+      { ...BUNDLED_COMPONENTS, faceCenterOverrides: "nope" },
+    ],
+    [
+      "no faceCenterOverrides at all",
+      {
+        bodyShapes: BUNDLED_COMPONENTS.bodyShapes,
+        eyeStyles: BUNDLED_COMPONENTS.eyeStyles,
+        colors: BUNDLED_COMPONENTS.colors,
+      },
+    ],
+  ];
 
-    expect(readTakeoverAvatarStash()).toBeNull();
-    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
-  });
+  for (const [label, components] of MALFORMED_COMPONENTS) {
+    test(`a stash with ${label} reads as null and self-clears`, () => {
+      sessionStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          assistantId: "a1",
+          components,
+          traits: null,
+          savedAt: Date.now(),
+        }),
+      );
+
+      expect(readTakeoverAvatarStash()).toBeNull();
+      expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    });
+  }
 
   test("a stash with malformed traits reads as null and self-clears", () => {
     sessionStorage.setItem(
@@ -155,10 +190,12 @@ describe("clearTakeoverAvatarStash", () => {
   });
 });
 
-describe("in-memory fallback when sessionStorage is unavailable", () => {
-  test("the mirror carries the stash past a throwing setItem", () => {
-    // happy-dom's Storage is a Proxy, so overwriting `setItem` on it just
-    // writes a storage entry — swap the whole global instead.
+describe("in-memory mirror on a same-document return", () => {
+  test("the mirror serves the stash back after a throwing setItem", () => {
+    // The native path: checkout opens in an external browser, so the document
+    // is never unloaded and the module is still alive to answer. happy-dom's
+    // Storage is a Proxy, so overwriting `setItem` on it just writes a storage
+    // entry; swap the whole global instead.
     const original = Object.getOwnPropertyDescriptor(
       globalThis,
       "sessionStorage",
@@ -195,15 +232,21 @@ describe("captureTakeoverAvatarStash", () => {
     queryClient = new QueryClient();
   });
 
+  /**
+   * The live query key appends a `supportsManifest` boolean, so a cache can
+   * hold both variants at once; `supportsManifest` and `updatedAt` let a test
+   * control which entry is stale and which order they land in.
+   */
   function seed(
     assistantId: string,
-    data: {
-      components: CharacterComponents | null;
-      traits: CharacterTraits | null;
-      customImageUrl: string | null;
-    },
+    data: AvatarCacheEntry,
+    options?: { supportsManifest?: boolean; updatedAt?: number },
   ) {
-    queryClient.setQueryData([...avatarQueryKey(assistantId), true], data);
+    queryClient.setQueryData(
+      [...avatarQueryKey(assistantId), options?.supportsManifest ?? true],
+      data,
+      { updatedAt: options?.updatedAt },
+    );
   }
 
   /** A stash capture must overwrite or remove, never leave behind. */
@@ -285,6 +328,102 @@ describe("captureTakeoverAvatarStash", () => {
       traits: TRAITS,
       customImageUrl: null,
     });
+    preexistingStash();
+
+    captureTakeoverAvatarStash(queryClient);
+
+    expect(readTakeoverAvatarStash()).toBeNull();
+  });
+
+  test("stashes the freshest entry when the stale variant was cached first", () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    const now = Date.now();
+    seed(
+      "a1",
+      {
+        components: BUNDLED_COMPONENTS,
+        traits: OTHER_TRAITS,
+        customImageUrl: null,
+      },
+      { supportsManifest: false, updatedAt: now - 60_000 },
+    );
+    seed(
+      "a1",
+      { components: BUNDLED_COMPONENTS, traits: TRAITS, customImageUrl: null },
+      { supportsManifest: true, updatedAt: now },
+    );
+
+    captureTakeoverAvatarStash(queryClient);
+
+    expect(readTakeoverAvatarStash()).toMatchObject({ traits: TRAITS });
+  });
+
+  test("stashes the freshest entry when the stale variant was cached last", () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    const now = Date.now();
+    seed(
+      "a1",
+      { components: BUNDLED_COMPONENTS, traits: TRAITS, customImageUrl: null },
+      { supportsManifest: true, updatedAt: now },
+    );
+    seed(
+      "a1",
+      {
+        components: BUNDLED_COMPONENTS,
+        traits: OTHER_TRAITS,
+        customImageUrl: null,
+      },
+      { supportsManifest: false, updatedAt: now - 60_000 },
+    );
+
+    captureTakeoverAvatarStash(queryClient);
+
+    expect(readTakeoverAvatarStash()).toMatchObject({ traits: TRAITS });
+  });
+
+  test("a stale custom-image entry does not veto the freshest avatar", () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    const now = Date.now();
+    seed(
+      "a1",
+      {
+        components: null,
+        traits: null,
+        customImageUrl: "blob:http://localhost/abc",
+      },
+      { supportsManifest: false, updatedAt: now - 60_000 },
+    );
+    seed(
+      "a1",
+      { components: BUNDLED_COMPONENTS, traits: TRAITS, customImageUrl: null },
+      { supportsManifest: true, updatedAt: now },
+    );
+
+    captureTakeoverAvatarStash(queryClient);
+
+    expect(readTakeoverAvatarStash()).toMatchObject({
+      assistantId: "a1",
+      traits: TRAITS,
+    });
+  });
+
+  test("a fresh custom-image entry clears a stale drawable one", () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    const now = Date.now();
+    seed(
+      "a1",
+      { components: BUNDLED_COMPONENTS, traits: TRAITS, customImageUrl: null },
+      { supportsManifest: false, updatedAt: now - 60_000 },
+    );
+    seed(
+      "a1",
+      {
+        components: null,
+        traits: null,
+        customImageUrl: "blob:http://localhost/abc",
+      },
+      { supportsManifest: true, updatedAt: now },
+    );
     preexistingStash();
 
     captureTakeoverAvatarStash(queryClient);
