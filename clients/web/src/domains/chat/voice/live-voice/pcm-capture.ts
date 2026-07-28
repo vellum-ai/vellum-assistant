@@ -14,8 +14,8 @@
  * On iOS the capture also brackets itself with `runtime/native-voice-audio-session`,
  * which puts the app's `AVAudioSession` into `.playAndRecord` / `.voiceChat` so
  * the platform runs echo cancellation against our own TTS instead of letting
- * the assistant barge in on itself through the speaker. It is a no-op off the
- * Capacitor shell.
+ * the assistant barge in on itself through the speaker. It is gated on the
+ * `ios-voice-audio-session` flag and a no-op off the Capacitor shell.
  *
  * The capture is permission-agnostic: it requests `getUserMedia` directly and
  * surfaces a denial as a typed `LiveVoiceCaptureResult` rather than throwing.
@@ -177,8 +177,8 @@ export class LiveVoiceAudioCapture {
     // Put the iOS audio session into `.playAndRecord` / `.voiceChat` *before*
     // opening the mic: the category and mode in force when WebKit builds its
     // capture unit decide whether the platform echo canceller runs at all, so
-    // configuring after the fact is too late for this stream. No-op off the
-    // Capacitor shell.
+    // configuring after the fact is too late for this stream. Gated on the
+    // `ios-voice-audio-session` flag; a no-op off the Capacitor shell.
     await activateVoiceAudioSession();
 
     let stream: MediaStream;
@@ -197,14 +197,11 @@ export class LiveVoiceAudioCapture {
     }
     this.stream = stream;
 
-    // Nothing may touch the audio session between getUserMedia resolving and
-    // the assignment above. An earlier revision re-asserted the category here,
-    // on the theory that WebKit reconfigures the shared session when capture
-    // starts. That theory was never verified, the call ran while WebKit's
-    // capture unit was live, and it is the prime suspect for the device
-    // regression that followed (build 202607281114: mic picked up nothing).
-    // If the theory needs testing, read the category back and log it — do not
-    // blind-set it underneath a live capture.
+    // The audio session is configured once, before the mic opens, and not
+    // touched again while capture is live: `setCategory`/`setActive` under a
+    // running WebKit capture unit can leave the graph attached to a dead
+    // input. To learn what WebKit does to the session, read the category back
+    // and log it rather than setting it.
 
     try {
       const context = createAudioContext();

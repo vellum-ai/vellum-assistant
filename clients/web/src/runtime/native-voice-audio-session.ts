@@ -10,31 +10,26 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
  *
  * Puts the iOS app's `AVAudioSession` into `.playAndRecord` / `.voiceChat` for
  * the duration of a live-voice session so the platform runs acoustic echo
- * cancellation against our own TTS (JARVIS-1364) — the `echoCancellation: true`
- * constraint in `utils/voice-input-device.ts` is not enough on its own inside a
- * WKWebView, because the canceller WebKit gets is chosen by the app's audio
- * session.
+ * cancellation against our own TTS. The `echoCancellation: true` constraint in
+ * `utils/voice-input-device.ts` is not sufficient on its own inside a
+ * WKWebView: the canceller WebKit gets is chosen by the app's audio session.
  *
- * ## Default OFF, and why the gate is here rather than in Swift
+ * Gated on the `ios-voice-audio-session` client flag, default off. The gate
+ * lives here rather than in Swift because the native half ships inside the app
+ * binary — a native gate could only be flipped by a TestFlight release,
+ * whereas the web bundle hot-loads, so this one is a true runtime kill switch
+ * and allows the configuration to be exercised on a device without cutting a
+ * build. To enable on one device, from the WKWebView console:
  *
- * The first attempt at this shipped unconditionally and stopped the microphone
- * picking up any audio on device (build `202607281114`); the Simulator could
- * not have caught it, because it feeds a synthetic `Mock audio device` with no
- * real audio unit behind it. The native half ships inside the app binary, so a
- * native-side gate would need an App Store / TestFlight release to flip. This
- * web-side gate hot-loads with the bundle, which makes it a genuine kill
- * switch and lets the configuration be iterated on a real device without
- * cutting a build.
+ *     localStorage.setItem("vellum:ff:iosVoiceAudioSession", "true")
  *
- * To try it on a device, set the local override in the WKWebView console:
+ * That is the *store* key (camel-cased), which is what
+ * `client-feature-flag-store`'s override reader looks for — the kebab-case
+ * registry key is not read from localStorage. Takes effect on reload.
  *
- *     localStorage.setItem("vellum:ff:ios-voice-audio-session", "true")
- *
- * ## Failure policy
- *
- * Nothing in here may throw or reject. `LiveVoiceAudioCapture.start()` is
- * documented never to throw — `use-live-voice.ts` awaits its promise with no
- * catch — so an exception escaping this module takes the whole live-voice
+ * Nothing here may throw or reject. `LiveVoiceAudioCapture.start()` is
+ * documented never to throw and `use-live-voice.ts` awaits its promise with no
+ * catch, so an exception escaping this module takes the whole live-voice
  * session down rather than degrading to "no echo cancellation".
  */
 
@@ -50,27 +45,28 @@ const VoiceAudioSession =
 const FLAG_KEY = "iosVoiceAudioSession";
 
 /**
+ * Whether an `activate()` has been attempted and not yet handed back. Gates
+ * `deactivate()` so that a disabled flag means *no* native traffic at all,
+ * while a session taken before the flag flipped off is still released.
+ *
+ * Set on attempt rather than on success: a partially-applied activation (the
+ * category took, activation failed) still leaves state the native side must
+ * restore.
+ */
+let sessionHeld = false;
+
+/**
  * Whether to touch the audio session at all. Read non-reactively — the callers
  * are capture lifecycle methods, not React render bodies.
  *
- * Deliberately does *not* wait on `hydrated`: capture must not block on an LD
- * fetch, and the registry default (off) plus any local override is the right
- * answer for a cold start. A flag that flips to on mid-session takes effect on
- * the next session.
+ * Does not wait on `hydrated`: capture must not block on an LD fetch, and the
+ * registry default plus any local override is the right answer for a cold
+ * start. A flag that flips mid-session takes effect on the next session.
  */
 function isEnabled(): boolean {
   try {
     if (!isNativePlatform()) return false;
     return useClientFeatureFlagStore.getState()[FLAG_KEY] === true;
-  } catch {
-    return false;
-  }
-}
-
-/** `isNativePlatform()` behind the same never-throws guarantee. */
-function onNativeShell(): boolean {
-  try {
-    return isNativePlatform();
   } catch {
     return false;
   }
@@ -85,6 +81,7 @@ function onNativeShell(): boolean {
  */
 export async function activateVoiceAudioSession(): Promise<void> {
   if (!isEnabled()) return;
+  sessionHeld = true;
   try {
     await VoiceAudioSession.activate();
   } catch (err) {
@@ -93,16 +90,14 @@ export async function activateVoiceAudioSession(): Promise<void> {
 }
 
 /**
- * Restore the pre-session audio configuration and release the session. Safe to
- * call without a matching `activate()` — the native side no-ops.
- *
- * Not gated on the flag: if the flag was turned off mid-session, the session
- * that an earlier `activate()` took still has to be handed back.
+ * Restore the pre-session audio configuration and release the session. A no-op
+ * unless this module holds one.
  *
  * Resolves regardless of outcome.
  */
 export async function deactivateVoiceAudioSession(): Promise<void> {
-  if (!onNativeShell()) return;
+  if (!sessionHeld) return;
+  sessionHeld = false;
   try {
     await VoiceAudioSession.deactivate();
   } catch (err) {

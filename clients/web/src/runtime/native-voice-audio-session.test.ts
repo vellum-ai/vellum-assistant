@@ -33,11 +33,13 @@ const { activateVoiceAudioSession, deactivateVoiceAudioSession } = await import(
   "@/runtime/native-voice-audio-session"
 );
 
-beforeEach(() => {
+beforeEach(async () => {
   isNative = true;
   nativeThrows = false;
   storeThrows = false;
   flagValue = true;
+  // `sessionHeld` is module-level: drop any hold the previous test left.
+  await deactivateVoiceAudioSession();
   activateMock.mockClear();
   deactivateMock.mockClear();
   activateMock.mockImplementation(async () => {});
@@ -106,15 +108,30 @@ describe("activateVoiceAudioSession", () => {
 });
 
 describe("deactivateVoiceAudioSession", () => {
-  test("calls into the native plugin on the Capacitor shell", async () => {
+  test("releases a session this module holds", async () => {
+    await activateVoiceAudioSession();
+
     await deactivateVoiceAudioSession();
 
     expect(deactivateMock).toHaveBeenCalledTimes(1);
   });
 
-  // A session taken while the flag was on still has to be handed back if the
-  // flag flips off mid-session, so deactivate is deliberately ungated.
-  test("still releases the session when the flag is off", async () => {
+  // A disabled flag must mean no native traffic at all, in either direction —
+  // otherwise "off" still reaches the plugin on every capture teardown.
+  test("makes no native call when nothing was ever activated", async () => {
+    flagValue = false;
+    await activateVoiceAudioSession();
+
+    await deactivateVoiceAudioSession();
+
+    expect(activateMock).not.toHaveBeenCalled();
+    expect(deactivateMock).not.toHaveBeenCalled();
+  });
+
+  // The session outlives the flag: one taken while it was on still has to be
+  // handed back if it flips off mid-session.
+  test("still releases when the flag flips off mid-session", async () => {
+    await activateVoiceAudioSession();
     flagValue = false;
 
     await deactivateVoiceAudioSession();
@@ -122,15 +139,30 @@ describe("deactivateVoiceAudioSession", () => {
     expect(deactivateMock).toHaveBeenCalledTimes(1);
   });
 
-  test("is a no-op off the Capacitor shell", async () => {
-    isNative = false;
+  // A partial activation (category applied, activation failed) still leaves
+  // state the native side has to restore.
+  test("releases even when the activation failed", async () => {
+    activateMock.mockImplementation(async () => {
+      throw new Error("session busy");
+    });
+    await activateVoiceAudioSession();
 
     await deactivateVoiceAudioSession();
 
-    expect(deactivateMock).not.toHaveBeenCalled();
+    expect(deactivateMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("is idempotent — a second release makes no further call", async () => {
+    await activateVoiceAudioSession();
+
+    await deactivateVoiceAudioSession();
+    await deactivateVoiceAudioSession();
+
+    expect(deactivateMock).toHaveBeenCalledTimes(1);
   });
 
   test("swallows a native rejection so teardown always completes", async () => {
+    await activateVoiceAudioSession();
     deactivateMock.mockImplementation(async () => {
       throw new Error("deactivation failed");
     });
@@ -138,13 +170,5 @@ describe("deactivateVoiceAudioSession", () => {
     await deactivateVoiceAudioSession();
 
     expect(deactivateMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("never throws when the platform check itself throws", async () => {
-    nativeThrows = true;
-
-    await deactivateVoiceAudioSession();
-
-    expect(deactivateMock).not.toHaveBeenCalled();
   });
 });
