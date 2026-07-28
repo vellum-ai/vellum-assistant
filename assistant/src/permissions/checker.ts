@@ -296,19 +296,23 @@ export function isDynamicSkillLoadInvocation(
  * writes to the workspace, an inline expansion anywhere in it executes shell,
  * and either makes the load something other than a read.
  *
- * Fails closed — a target that is absent from the catalog, a missing include, a
- * cycle, or an unreadable catalog all return false. Exported for gates that
- * must not proceed on anything capable of writing local state.
+ * Fails closed and never throws — an unresolvable selector, a target absent
+ * from the catalog, a missing include, a cycle, or an unreadable catalog all
+ * return false. Selector resolution and catalog reads both touch the
+ * filesystem, so both sit inside the guard: callers include a synchronous
+ * live-voice event callback where a throw would abort the rest of the frame's
+ * dispatch. Exported for gates that must not proceed on anything capable of
+ * writing local state.
  */
 export function isInstalledStaticSkillLoad(
   toolName: string,
   input: Record<string, unknown>,
 ): boolean {
-  const skillId = resolveSkillLoadTargetId(toolName, input);
-  if (skillId === null) {
-    return false;
-  }
   try {
+    const skillId = resolveSkillLoadTargetId(toolName, input);
+    if (skillId === null) {
+      return false;
+    }
     const catalogIndex = indexCatalogById(loadSkillCatalog());
     if (!catalogIndex.has(skillId)) {
       return false;
