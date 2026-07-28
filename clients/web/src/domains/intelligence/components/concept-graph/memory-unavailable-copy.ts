@@ -24,8 +24,8 @@ import type { MemoryTier } from "@/domains/intelligence/memory-graph/get-memory-
 export const MEMORY_V3_UPGRADE_PROMPT =
   "Upgrade my memory to v3 so the memory graph works. Check whether your " +
   "concept corpus is empty or already populated first, then run the migration " +
-  "that fits — and tell me what you're about to change before you rewrite " +
-  "anything you remember.";
+  "that fits. Tell me what you're about to change before you rewrite anything " +
+  "you remember.";
 
 /**
  * Seeds the turn-memory-back-on chat. The Memory toggle lives on the Developer
@@ -34,7 +34,7 @@ export const MEMORY_V3_UPGRADE_PROMPT =
  * reachable way to flip `memory.enabled`, not a fallback for one.
  */
 export const MEMORY_ENABLE_PROMPT =
-  "Turn my memory back on — I'd like you to start remembering things from our " +
+  "Turn my memory back on. I'd like you to start remembering things from our " +
   "conversations again.";
 
 /** Which way out this surface offers, if any. */
@@ -80,7 +80,7 @@ export function describeMemoryUnavailable(
     return {
       title: "Upgrade to memory v3",
       detail:
-        "Your assistant is on an older memory engine. Memory v3 reorganizes what it knows into a linked wiki of concepts — and that wiki is what this map draws.",
+        "Your assistant is on an older memory engine. Memory v3 reorganizes what it knows into a linked wiki of concepts, and that wiki is what this map draws.",
       action: "upgrade",
     };
   }

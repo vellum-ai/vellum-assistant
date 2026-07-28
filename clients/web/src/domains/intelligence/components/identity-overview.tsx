@@ -109,7 +109,7 @@ const MINI_SECTION_KEYS = [
  * the greeting becomes his commentary on whatever you're pointing at.
  */
 const CARD_HOVER_LINES: Record<string, string> = {
-  personality: "Go ahead — tweak my soul",
+  personality: "Go ahead, tweak my soul",
   superpowers: "Everything I know how to do",
   memory: "Everything I remember",
   library: "The apps and docs I've made for you",
