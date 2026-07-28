@@ -184,7 +184,10 @@ export class TrustRuleStore {
       .select()
       .from(trustRules)
       .where(
-        and(eq(trustRules.tool, input.tool), eq(trustRules.pattern, input.pattern)),
+        and(
+          eq(trustRules.tool, input.tool),
+          eq(trustRules.pattern, input.pattern),
+        ),
       )
       .get();
 
@@ -291,11 +294,7 @@ export class TrustRuleStore {
       updates.description = originalDescription;
     }
 
-    this.db
-      .update(trustRules)
-      .set(updates)
-      .where(eq(trustRules.id, id))
-      .run();
+    this.db.update(trustRules).set(updates).where(eq(trustRules.id, id)).run();
 
     return this.getById(id)!;
   }

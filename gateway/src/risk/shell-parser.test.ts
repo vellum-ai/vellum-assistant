@@ -681,7 +681,7 @@ describe("Shell Parser", () => {
     test("parse-recovery in multi-stage pipeline marks ALL siblings synthetic", async () => {
       // The original bug repro from the iPhone screenshot.
       const cmd =
-        "cat /workspace/vellum-assistant-platform/web/src/app/(app)/admin/organizations/[id]/page.tsx | grep -A 30 -B 5 \"credit\\|Credit\" | head -80";
+        'cat /workspace/vellum-assistant-platform/web/src/app/(app)/admin/organizations/[id]/page.tsx | grep -A 30 -B 5 "credit\\|Credit" | head -80';
       const result = await parse(cmd);
       expect(result.segments.length).toBeGreaterThan(1);
       expect(result.segments.every((s) => s.synthetic === true)).toBe(true);

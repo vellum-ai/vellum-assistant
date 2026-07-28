@@ -14,15 +14,8 @@
  * IV with the same key.
  */
 
-import {
-  createCipheriv,
-  createDecipheriv,
-  randomBytes,
-} from "node:crypto";
-import {
-  createReadStream,
-  createWriteStream,
-} from "node:fs";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
 import { open, rename, stat, unlink } from "node:fs/promises";
 import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";

@@ -1209,7 +1209,8 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
 
       const assistantMeta = body.assistantMetadata as
-        { species?: unknown; metadata?: unknown } | undefined;
+        | { species?: unknown; metadata?: unknown }
+        | undefined;
 
       if (body.contactType === "assistant") {
         if (!assistantMeta) {
@@ -1365,7 +1366,9 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
                 species: assistantMeta.species as string,
                 metadata:
                   (assistantMeta.metadata as
-                    Record<string, unknown> | null | undefined) ?? null,
+                    | Record<string, unknown>
+                    | null
+                    | undefined) ?? null,
               }
             : undefined,
         channels: channelInputs?.map((ch) => ({

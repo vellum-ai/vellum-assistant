@@ -83,6 +83,8 @@ describe("findProjectBoundary", () => {
     // Use a path unlikely to contain markers near the root. We don't assert
     // the return value (the real "/" might legitimately have a .git), only
     // that the call returns without hanging or throwing.
-    expect(() => findProjectBoundary("/nonexistent-xyz-findboundary")).not.toThrow();
+    expect(() =>
+      findProjectBoundary("/nonexistent-xyz-findboundary"),
+    ).not.toThrow();
   });
 });

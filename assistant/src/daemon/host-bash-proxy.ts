@@ -131,10 +131,12 @@ export class HostBashProxy extends HostProxyBase<
     // Spread command fields at the top level of the envelope so the desktop
     // client receives the same flat message shape it has always expected.
     const extraFields: Record<string, unknown> = { command: input.command };
-    if (input.working_dir !== undefined) extraFields.working_dir = input.working_dir;
+    if (input.working_dir !== undefined)
+      extraFields.working_dir = input.working_dir;
     if (input.timeout_seconds !== undefined)
       extraFields.timeout_seconds = input.timeout_seconds;
-    if (input.env && Object.keys(input.env).length > 0) extraFields.env = input.env;
+    if (input.env && Object.keys(input.env).length > 0)
+      extraFields.env = input.env;
 
     try {
       const payload = await this.dispatchRequest(

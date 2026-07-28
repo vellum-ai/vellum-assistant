@@ -69,13 +69,12 @@ const {
   guardianRequestDeliveries,
   guardianRequests,
 } = await import("../db/schema.js");
-const { createGuardianRequest } = await import("../db/guardian-request-store.js");
-const { decideGuardianRequest } = await import(
-  "../approvals/guardian-request-service.js"
-);
-const { createOutboundSession } = await import(
-  "../verification/session-service.js"
-);
+const { createGuardianRequest } =
+  await import("../db/guardian-request-store.js");
+const { decideGuardianRequest } =
+  await import("../approvals/guardian-request-service.js");
+const { createOutboundSession } =
+  await import("../verification/session-service.js");
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -254,7 +253,10 @@ describe("decide — per-outcome success", () => {
 
     const channels = channelRows();
     expect(channels).toHaveLength(1);
-    expect(channels[0]).toMatchObject({ status: "unverified", policy: "allow" });
+    expect(channels[0]).toMatchObject({
+      status: "unverified",
+      policy: "allow",
+    });
 
     const contact = getGatewayDb()
       .select()

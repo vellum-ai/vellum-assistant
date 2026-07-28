@@ -227,21 +227,21 @@ function seedGatewayRateLimit(
 }
 
 function gatewaySessionIds(): string[] {
-  const rows = getGatewayDb().$client
-    .prepare("SELECT id FROM channel_verification_sessions")
+  const rows = getGatewayDb()
+    .$client.prepare("SELECT id FROM channel_verification_sessions")
     .all() as { id: string }[];
   return rows.map((r) => r.id).sort();
 }
 
 function gatewaySession(id: string): Record<string, unknown> | undefined {
-  return getGatewayDb().$client
-    .prepare("SELECT * FROM channel_verification_sessions WHERE id = ?")
+  return getGatewayDb()
+    .$client.prepare("SELECT * FROM channel_verification_sessions WHERE id = ?")
     .get(id) as Record<string, unknown> | undefined;
 }
 
 function gatewayRateLimits(): Record<string, unknown>[] {
-  return getGatewayDb().$client
-    .prepare("SELECT * FROM channel_guardian_rate_limits ORDER BY id")
+  return getGatewayDb()
+    .$client.prepare("SELECT * FROM channel_guardian_rate_limits ORDER BY id")
     .all() as Record<string, unknown>[];
 }
 

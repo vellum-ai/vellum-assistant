@@ -15,25 +15,23 @@ await import("../../__tests__/test-preload.js");
 
 // Leak-safe snapshot-spread delegating mock: only resolveAdmissionPolicy is
 // overridden, and it delegates to a per-test implementation.
-const actualAdmissionPolicyCache = await import(
-  "../../risk/admission-policy-cache.js"
-);
-let resolveAdmissionPolicyImpl: (channelType: string) => AdmissionPolicy | null =
-  () => null;
+const actualAdmissionPolicyCache =
+  await import("../../risk/admission-policy-cache.js");
+let resolveAdmissionPolicyImpl: (
+  channelType: string,
+) => AdmissionPolicy | null = () => null;
 mock.module("../../risk/admission-policy-cache.js", () => ({
   ...actualAdmissionPolicyCache,
   resolveAdmissionPolicy: (channelType: string) =>
     resolveAdmissionPolicyImpl(channelType),
 }));
 
-const { initGatewayDb, resetGatewayDb, getGatewayDb } = await import(
-  "../../db/connection.js"
-);
+const { initGatewayDb, resetGatewayDb, getGatewayDb } =
+  await import("../../db/connection.js");
 const { contacts: gwContacts, contactChannels: gwContactChannels } =
   await import("../../db/schema.js");
-const { resolveTrustVerdict } = await import(
-  "../../risk/trust-verdict-resolver.js"
-);
+const { resolveTrustVerdict } =
+  await import("../../risk/trust-verdict-resolver.js");
 const { trustVerdictRoutes } = await import("../trust-verdict-handlers.js");
 
 const CHANNEL = "telegram";

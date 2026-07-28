@@ -107,10 +107,9 @@ const ChannelIdentityLookupParamsSchema = z
     type: z.string().optional(),
     address: z.string().optional(),
   })
-  .refine(
-    (v) => v.channelId != null || (v.type != null && v.address != null),
-    { message: "Provide channelId, or both type and address" },
-  );
+  .refine((v) => v.channelId != null || (v.type != null && v.address != null), {
+    message: "Provide channelId, or both type and address",
+  });
 
 const CHANNEL_IDENTITY_PROJECTION = {
   id: contactChannels.id,

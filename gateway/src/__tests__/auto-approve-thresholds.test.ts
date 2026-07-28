@@ -201,7 +201,9 @@ describe("auto-approve thresholds", () => {
     test("empty object preserves existing values when row exists", async () => {
       const putHandler = createGlobalThresholdPutHandler();
 
-      await putHandler(makeRequest({ interactive: "medium", autonomous: "low" }));
+      await putHandler(
+        makeRequest({ interactive: "medium", autonomous: "low" }),
+      );
 
       const res = await putHandler(makeRequest({}));
       expect(res.status).toBe(200);

@@ -27,9 +27,7 @@ export function composeVerificationSuccessReply(
   return "Verification successful. You are now set as the guardian for this channel.";
 }
 
-export function composeVerificationFailureReply(
-  reason?: string,
-): string {
+export function composeVerificationFailureReply(reason?: string): string {
   return reason ?? "The verification code is invalid or has expired.";
 }
 
@@ -100,10 +98,7 @@ export async function deliverVerificationReply(
         );
       }
     } catch (retryErr) {
-      log.error(
-        { err: retryErr, chatId },
-        "Verification reply retry threw",
-      );
+      log.error({ err: retryErr, chatId }, "Verification reply retry threw");
     }
   }
 }

@@ -179,11 +179,7 @@ describe("037-create-meets-dir migration", () => {
     const meetingDir = join(meetsDir, "meeting-xyz");
     mkdirSync(meetingDir, { recursive: true });
     const transcriptPath = join(meetingDir, "transcript.jsonl");
-    writeFileSync(
-      transcriptPath,
-      '{"t":0,"text":"hello"}\n',
-      "utf-8",
-    );
+    writeFileSync(transcriptPath, '{"t":0,"text":"hello"}\n', "utf-8");
     const before = snapshotTree(workspaceDir);
 
     createMeetsDirMigration.run(workspaceDir);

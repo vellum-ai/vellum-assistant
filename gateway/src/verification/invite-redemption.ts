@@ -82,7 +82,11 @@ export type InviteRedemptionEngineResult =
 function failed(
   reason: InviteRedemptionFailureReason,
 ): InviteRedemptionEngineResult {
-  return { status: "failed", reason, replyText: INVITE_REPLY_TEMPLATES[reason] };
+  return {
+    status: "failed",
+    reason,
+    replyText: INVITE_REPLY_TEMPLATES[reason],
+  };
 }
 
 /** Sender identity fields shared by every redemption path. */

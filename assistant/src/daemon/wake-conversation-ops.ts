@@ -176,7 +176,9 @@ export function emitWakeAgentEvent(
     event,
     conversation.conversationId,
   );
-  if (!frame) {return;}
+  if (!frame) {
+    return;
+  }
   broadcastMessage(frame);
 }
 

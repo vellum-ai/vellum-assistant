@@ -291,10 +291,26 @@ describe("ContactStore.listContactsWithInfo", () => {
   test("joins ACL + info and orders by createdAt desc", async () => {
     seedGatewayContact({ id: "old", createdAt: 100 });
     seedGatewayContact({ id: "new", createdAt: 900 });
-    seedGatewayChannel({ id: "ch-new", contactId: "new", interactionCount: 5, lastInteraction: 800 });
-    seedGatewayChannel({ id: "ch-old", contactId: "old", interactionCount: 2, lastInteraction: 200 });
+    seedGatewayChannel({
+      id: "ch-new",
+      contactId: "new",
+      interactionCount: 5,
+      lastInteraction: 800,
+    });
+    seedGatewayChannel({
+      id: "ch-old",
+      contactId: "old",
+      interactionCount: 2,
+      lastInteraction: 200,
+    });
     seedAssistantInfo({ id: "new", notes: "new notes", contactType: "human" });
-    seedAssistantInfo({ id: "old", notes: "old notes", contactType: "assistant", species: "vellum", metadata: { x: 1 } });
+    seedAssistantInfo({
+      id: "old",
+      notes: "old notes",
+      contactType: "assistant",
+      species: "vellum",
+      metadata: { x: 1 },
+    });
 
     const result = await new ContactStore().listContactsWithInfo();
 
@@ -333,7 +349,11 @@ describe("ContactStore.listContactsWithInfo", () => {
   test("soft-fails on assistant DB outage: returns ACL shape with null info", async () => {
     seedGatewayContact({ id: "c1" });
     seedGatewayChannel({ id: "ch1", contactId: "c1", interactionCount: 3 });
-    seedAssistantInfo({ id: "c1", notes: "should not be seen", contactType: "human" });
+    seedAssistantInfo({
+      id: "c1",
+      notes: "should not be seen",
+      contactType: "human",
+    });
     fakeAssistantDb.throwOnQuery = true;
 
     const result = await new ContactStore().listContactsWithInfo();
@@ -370,8 +390,20 @@ describe("ContactStore.listContactsWithInfo", () => {
 
   test("multiple channels on one contact group together", async () => {
     seedGatewayContact({ id: "multi" });
-    seedGatewayChannel({ id: "ch-a", contactId: "multi", interactionCount: 1, lastInteraction: 100, createdAt: 100 });
-    seedGatewayChannel({ id: "ch-b", contactId: "multi", interactionCount: 4, lastInteraction: 500, createdAt: 200 });
+    seedGatewayChannel({
+      id: "ch-a",
+      contactId: "multi",
+      interactionCount: 1,
+      lastInteraction: 100,
+      createdAt: 100,
+    });
+    seedGatewayChannel({
+      id: "ch-b",
+      contactId: "multi",
+      interactionCount: 4,
+      lastInteraction: 500,
+      createdAt: 200,
+    });
     seedAssistantInfo({ id: "multi", contactType: "human" });
 
     const result = await new ContactStore().listContactsWithInfo();
@@ -427,7 +459,12 @@ describe("ContactStore.getContactWithInfo", () => {
 
   test("returns joined shape for a single contact", async () => {
     seedGatewayContact({ id: "c1", role: "guardian" });
-    seedGatewayChannel({ id: "ch1", contactId: "c1", interactionCount: 7, lastInteraction: 999 });
+    seedGatewayChannel({
+      id: "ch1",
+      contactId: "c1",
+      interactionCount: 7,
+      lastInteraction: 999,
+    });
     seedAssistantInfo({ id: "c1", notes: "my guardian", contactType: "human" });
 
     const result = await new ContactStore().getContactWithInfo("c1");

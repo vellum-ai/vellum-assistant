@@ -178,9 +178,9 @@ describe("ContactStore ingress_invites", () => {
       "inv3",
       "inv2",
     ]);
-    expect(store.listInvites({ limit: 2, offset: 2 }).map((r) => r.id)).toEqual([
-      "inv1",
-    ]);
+    expect(store.listInvites({ limit: 2, offset: 2 }).map((r) => r.id)).toEqual(
+      ["inv1"],
+    );
   });
 
   test("full lifecycle: create → redeem (maxUses=1) flips to redeemed → revoke is no-op", () => {
@@ -481,9 +481,9 @@ describe("ContactStore ingress_invites", () => {
 
     // Non-active rows drop out.
     store.revokeInvite("inv-voice-1");
-    expect(store.findActiveVoiceInvites("+15550001111").map((r) => r.id)).toEqual(
-      ["inv-voice-2"],
-    );
+    expect(
+      store.findActiveVoiceInvites("+15550001111").map((r) => r.id),
+    ).toEqual(["inv-voice-2"]);
   });
 
   test("markInviteExpired flips active → expired once and gates redemption", () => {

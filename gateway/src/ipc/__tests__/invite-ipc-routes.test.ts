@@ -136,10 +136,9 @@ describe("buildErrorResponse — typed-error envelope preservation", () => {
   });
 
   test("mirrors a structured `details` payload into errorDetails", () => {
-    const err = Object.assign(
-      new TypedError("Conflict", 409, "CONFLICT"),
-      { details: { reason: "already_revoked" } },
-    );
+    const err = Object.assign(new TypedError("Conflict", 409, "CONFLICT"), {
+      details: { reason: "already_revoked" },
+    });
     const res = buildErrorResponse("req-3", err);
     expect(res.errorDetails).toEqual({ reason: "already_revoked" });
   });

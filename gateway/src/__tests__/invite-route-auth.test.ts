@@ -40,9 +40,8 @@ const { createRouter } = await import("../http/router.js");
 // Registration pinning — the route table index.ts spreads
 // ---------------------------------------------------------------------------
 
-const { buildMarkedContactRoutes, markedHandlerName } = await import(
-  "./helpers/contact-route-table.js"
-);
+const { buildMarkedContactRoutes, markedHandlerName } =
+  await import("./helpers/contact-route-table.js");
 
 describe("invite route registrations (contact route table)", () => {
   test("all five invite routes use edge-scoped auth with the original runtime scopes", async () => {

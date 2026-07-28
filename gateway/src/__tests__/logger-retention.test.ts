@@ -9,11 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  initLogger,
-  pruneOldLogFiles,
-  getLogger,
-} from "../logger.js";
+import { initLogger, pruneOldLogFiles, getLogger } from "../logger.js";
 
 // NOTE: `sleep-wake-detector.test.ts` installs a process-global
 // `mock.module("../logger.js", …)` with a no-op `initLogger`. That would
@@ -29,7 +25,11 @@ import {
  * either pretty `.log` or sidecar `.jsonl` form. Used to assert that the
  * retention sweep prunes both formats once `retentionDays` has elapsed.
  */
-function makeLogFile(dir: string, daysAgo: number, ext: "log" | "jsonl"): string {
+function makeLogFile(
+  dir: string,
+  daysAgo: number,
+  ext: "log" | "jsonl",
+): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - daysAgo);
   const stamp = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;

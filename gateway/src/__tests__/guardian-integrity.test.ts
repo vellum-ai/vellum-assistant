@@ -15,18 +15,16 @@
 import { beforeEach, afterEach, describe, expect, test } from "bun:test";
 
 await import("./test-preload.js");
-const { initGatewayDb, resetGatewayDb, getGatewayDb } = await import(
-  "../db/connection.js"
-);
+const { initGatewayDb, resetGatewayDb, getGatewayDb } =
+  await import("../db/connection.js");
 const {
   contacts,
   contactChannels,
   actorTokenRecords,
   actorRefreshTokenRecords,
 } = await import("../db/schema.js");
-const { seedActorToken, seedContact } = await import(
-  "./helpers/contact-fixtures.js"
-);
+const { seedActorToken, seedContact } =
+  await import("./helpers/contact-fixtures.js");
 const {
   resetGuardianIntegrityReporterForTesting,
   setGuardianIntegrityReporterOverridesForTesting,
@@ -36,9 +34,8 @@ const {
   guardianIntegrityState,
   hasEvidenceOfPriorGuardian,
 } = await import("../auth/guardian-integrity.js");
-const { applyGuardianBindingGatewayWrites } = await import(
-  "../auth/guardian-bootstrap.js"
-);
+const { applyGuardianBindingGatewayWrites } =
+  await import("../auth/guardian-bootstrap.js");
 
 // The reporter's first-report error log carries the detail payload; capture
 // it as the "reported" signal.

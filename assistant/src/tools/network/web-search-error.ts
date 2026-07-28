@@ -126,7 +126,9 @@ function categoryFromStatusCode(
  * timeouts without an explicit user-abort reason) are treated as backend
  * failures.
  */
-function categoryFromError(error: unknown): WebSearchFailureCategory | undefined {
+function categoryFromError(
+  error: unknown,
+): WebSearchFailureCategory | undefined {
   if (error == null) return undefined;
 
   // A user-initiated abort (Stop/Esc, preemption, dispose) is not a failure.
@@ -150,11 +152,12 @@ function categoryFromError(error: unknown): WebSearchFailureCategory | undefined
   // hang-ups, including one level of `cause` chain) are backend failures.
   if (isRetryableNetworkError(error)) return "backend_unavailable";
 
-  const name = typeof (error as { name?: unknown }).name === "string"
-    ? (error as { name: string }).name
-    : "";
-  const haystack = `${name} ${(error as { message?: unknown }).message ?? ""}`
-    .toLowerCase();
+  const name =
+    typeof (error as { name?: unknown }).name === "string"
+      ? (error as { name: string }).name
+      : "";
+  const haystack =
+    `${name} ${(error as { message?: unknown }).message ?? ""}`.toLowerCase();
 
   // web_search-only: treat aborts/timeouts/DNS/fetch failures (the cases
   // `isRetryableNetworkError` doesn't cover) as backend failures.

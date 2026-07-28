@@ -164,7 +164,9 @@ describe("resolveAcpAgent", () => {
     if (result.ok) return;
     expect(result.reason).toBe("binary_not_found");
     if (result.reason !== "binary_not_found") return;
-    expect(result.hint).toBe("bun add -g @agentclientprotocol/claude-agent-acp");
+    expect(result.hint).toBe(
+      "bun add -g @agentclientprotocol/claude-agent-acp",
+    );
     expect(result.command).toBe("claude-agent-acp");
   });
 
@@ -285,7 +287,9 @@ describe("resolveAcpAgent - missing binary", () => {
     expect(result.reason).toBe("binary_not_found");
     if (result.reason !== "binary_not_found") return;
     expect(result.command).toBe("claude-agent-acp");
-    expect(result.hint).toBe("bun add -g @agentclientprotocol/claude-agent-acp");
+    expect(result.hint).toBe(
+      "bun add -g @agentclientprotocol/claude-agent-acp",
+    );
   });
 
   test("binary missing + bun missing: binary_not_found with the bun hint", () => {
@@ -298,7 +302,9 @@ describe("resolveAcpAgent - missing binary", () => {
     if (result.ok) return;
     expect(result.reason).toBe("binary_not_found");
     if (result.reason !== "binary_not_found") return;
-    expect(result.hint).toBe("bun add -g @agentclientprotocol/claude-agent-acp");
+    expect(result.hint).toBe(
+      "bun add -g @agentclientprotocol/claude-agent-acp",
+    );
   });
 });
 

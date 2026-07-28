@@ -1,13 +1,13 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import type { AssistantEvent } from "../api/index.js";
-import type {
-  SurfaceType,
-} from "../daemon/message-protocol.js";
+import type { SurfaceType } from "../daemon/message-protocol.js";
 
 mock.module("../apps/app-store.js", () => ({
   getApp: (id: string) => {
-    if (id !== "test-app") {return null;}
+    if (id !== "test-app") {
+      return null;
+    }
     return {
       id,
       name: "Test App",

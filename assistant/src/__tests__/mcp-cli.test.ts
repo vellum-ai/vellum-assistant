@@ -42,7 +42,11 @@ mock.module("../ipc/cli-client.js", () => ({
     params?: Record<string, unknown>,
     opts?: { timeoutMs?: number },
   ) => mockCliIpcCallFn(method, params, opts),
-  exitFromIpcResult: (r: { ok: false; error?: string; statusCode?: number }) => {
+  exitFromIpcResult: (r: {
+    ok: false;
+    error?: string;
+    statusCode?: number;
+  }) => {
     process.stderr.write((r.error ?? "Unknown error") + "\n");
     process.exitCode = 10;
   },
@@ -394,7 +398,8 @@ describe("assistant mcp add", () => {
     mockCliIpcCallFn = mock(() =>
       Promise.resolve({
         ok: false,
-        error: 'MCP server "existing" already exists. Remove it first with: assistant mcp remove existing',
+        error:
+          'MCP server "existing" already exists. Remove it first with: assistant mcp remove existing',
       }),
     );
 

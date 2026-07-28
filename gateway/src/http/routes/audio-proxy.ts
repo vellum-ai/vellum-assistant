@@ -42,12 +42,16 @@ export function createAudioProxyHandler(config: GatewayConfig) {
       const body = await response.text();
       return new Response(body, {
         status: response.status,
-        headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
+        headers: {
+          "Content-Type":
+            response.headers.get("Content-Type") ?? "application/json",
+        },
       });
     }
 
     const headers: Record<string, string> = {
-      "Content-Type": response.headers.get("Content-Type") ?? "application/octet-stream",
+      "Content-Type":
+        response.headers.get("Content-Type") ?? "application/octet-stream",
     };
     const contentLength = response.headers.get("Content-Length");
     if (contentLength) {

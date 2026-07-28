@@ -85,7 +85,11 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
     const entry = flag as Record<string, unknown>;
     if (entry.scope !== "assistant" && entry.scope !== "both") continue;
     if (typeof entry.key !== "string") continue;
-    if (typeof entry.defaultEnabled !== "boolean" && typeof entry.defaultEnabled !== "string") continue;
+    if (
+      typeof entry.defaultEnabled !== "boolean" &&
+      typeof entry.defaultEnabled !== "string"
+    )
+      continue;
     if (typeof entry.description !== "string") {
       log.warn(
         { key: entry.key },

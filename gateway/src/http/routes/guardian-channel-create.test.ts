@@ -12,9 +12,8 @@ import "../../__tests__/test-preload.js";
 
 // --- Mocks ----------------------------------------------------------------
 
-const assistantDbQueryMock = mock(
-  (_sql: string, _params?: unknown[]) =>
-    Promise.resolve([] as Record<string, unknown>[]),
+const assistantDbQueryMock = mock((_sql: string, _params?: unknown[]) =>
+  Promise.resolve([] as Record<string, unknown>[]),
 );
 
 const createGuardianBindingMock = mock((_params: unknown) =>
@@ -37,12 +36,10 @@ mock.module("../../auth/guardian-bootstrap.js", () => ({
 }));
 
 // Import after mocks are registered
-const { createGuardianChannelHandler } = await import(
-  "./guardian-channel-create.js"
-);
-const { initGatewayDb, getGatewayDb, resetGatewayDb } = await import(
-  "../../db/connection.js"
-);
+const { createGuardianChannelHandler } =
+  await import("./guardian-channel-create.js");
+const { initGatewayDb, getGatewayDb, resetGatewayDb } =
+  await import("../../db/connection.js");
 const { contacts, contactChannels } = await import("../../db/schema.js");
 
 // --- Helpers ---------------------------------------------------------------

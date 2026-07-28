@@ -56,8 +56,8 @@ mock.module("../notifications/deliveries-store.js", () => ({
 // Captures call arguments so tests can inspect what was passed in.
 // Set `nextPairingResult` to override the return value for a single call.
 let nextPairingResult:
-  import("../notifications/conversation-pairing.js").PairingResult | null =
-  null;
+  | import("../notifications/conversation-pairing.js").PairingResult
+  | null = null;
 let pairingCallCount = 0;
 
 interface PairingCall {

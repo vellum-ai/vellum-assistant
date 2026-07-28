@@ -13,10 +13,7 @@ import { Database } from "bun:sqlite";
 
 import { getGatewayDb } from "../connection.js";
 import { getLogger } from "../../logger.js";
-import {
-  assistantDbExec,
-  assistantDbQuery,
-} from "../assistant-db-proxy.js";
+import { assistantDbExec, assistantDbQuery } from "../assistant-db-proxy.js";
 
 import type { MigrationResult } from "./index.js";
 
@@ -161,9 +158,7 @@ export async function up(): Promise<MigrationResult> {
         );
       }
 
-      await assistantDbExec(
-        `DROP TABLE IF EXISTS actor_refresh_token_records`,
-      );
+      await assistantDbExec(`DROP TABLE IF EXISTS actor_refresh_token_records`);
       log.info("Dropped actor_refresh_token_records from assistant DB");
     }
 

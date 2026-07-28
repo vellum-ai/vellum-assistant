@@ -351,7 +351,9 @@ describe("createSlackReplySession", () => {
   test("falls back when stopStream throws after streaming text", async () => {
     deliverImpl = async (_url, payload) => {
       const op = payload.slackStream as { action: string };
-      if (op.action === "stop") {throw new Error("stop failed");}
+      if (op.action === "stop") {
+        throw new Error("stop failed");
+      }
       return { ok: true, ts: "stream-ts-1" };
     };
     const session = createSlackReplySession({

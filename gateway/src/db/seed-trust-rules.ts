@@ -9,10 +9,7 @@
 
 import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry/index.js";
 import type { CommandRiskSpec } from "../risk/risk-types.js";
-import type {
-  TrustRuleStore,
-  UpsertDefaultInput,
-} from "./trust-rule-store.js";
+import type { TrustRuleStore, UpsertDefaultInput } from "./trust-rule-store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -134,7 +134,13 @@ describe("conversations wake untrusted-content input", () => {
   });
 
   test("no untrusted content and no --persist sends neither field", async () => {
-    const code = await runWake(["wake", "conv-5", "--hint", "wake up", "--json"]);
+    const code = await runWake([
+      "wake",
+      "conv-5",
+      "--hint",
+      "wake up",
+      "--json",
+    ]);
     expect(code).toBe(0);
     expect(lastBody().persist).toBeUndefined();
     expect(lastBody().externalContent).toBeUndefined();

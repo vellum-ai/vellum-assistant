@@ -51,7 +51,10 @@ export function resolveGuardianDelivery(
       verifiedAt: gwContactChannels.verifiedAt,
     })
     .from(gwContacts)
-    .innerJoin(gwContactChannels, eq(gwContactChannels.contactId, gwContacts.id))
+    .innerJoin(
+      gwContactChannels,
+      eq(gwContactChannels.contactId, gwContacts.id),
+    )
     .where(and(...filters))
     .orderBy(desc(gwContactChannels.verifiedAt))
     .all();

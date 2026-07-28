@@ -41,7 +41,12 @@ function deriveSafeAncestor(destinationPath: string): string {
   // iCloud Drive subtrees anchor on the iCloud root
   const home = process.env.HOME || "";
   if (home) {
-    const iCloudRoot = join(home, "Library", "Mobile Documents", "com~apple~CloudDocs");
+    const iCloudRoot = join(
+      home,
+      "Library",
+      "Mobile Documents",
+      "com~apple~CloudDocs",
+    );
     if (
       destinationPath === iCloudRoot ||
       destinationPath.startsWith(`${iCloudRoot}/`)

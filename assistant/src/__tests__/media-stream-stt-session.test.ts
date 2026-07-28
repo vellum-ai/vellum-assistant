@@ -276,7 +276,10 @@ describe("MediaStreamSttSession", () => {
 
   test("non-mark frames do not fire onMark", () => {
     const onMark = jest.fn();
-    const session = new MediaStreamSttSession({}, { onMark, onDtmf: jest.fn() });
+    const session = new MediaStreamSttSession(
+      {},
+      { onMark, onDtmf: jest.fn() },
+    );
 
     session.handleMessage(makeStartMessage());
     session.handleMessage(makeMediaMessage());

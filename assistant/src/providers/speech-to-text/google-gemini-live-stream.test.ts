@@ -159,14 +159,12 @@ describe("GoogleGeminiLiveStreamingTranscriber", () => {
 
   // ── Helper: start a session ────────────────────────────────────────
 
-  async function startSession(
-    options?: {
-      transcriberOptions?: ConstructorParameters<
-        typeof GoogleGeminiLiveStreamingTranscriber
-      >[1];
-      installOptions?: Parameters<typeof installMockClient>[1];
-    },
-  ): Promise<{
+  async function startSession(options?: {
+    transcriberOptions?: ConstructorParameters<
+      typeof GoogleGeminiLiveStreamingTranscriber
+    >[1];
+    installOptions?: Parameters<typeof installMockClient>[1];
+  }): Promise<{
     transcriber: GoogleGeminiLiveStreamingTranscriber;
     session: MockLiveSession;
     events: SttStreamServerEvent[];
@@ -436,10 +434,7 @@ describe("GoogleGeminiLiveStreamingTranscriber", () => {
     t.stop();
     session.simulateClose(1000, "normal");
 
-    expect(events).toEqual([
-      { type: "final", text: "" },
-      { type: "closed" },
-    ]);
+    expect(events).toEqual([{ type: "final", text: "" }, { type: "closed" }]);
   });
 
   // ─────────────────────────────────────────────────────────────────
@@ -593,143 +588,125 @@ describe("GoogleGeminiLiveStreamingTranscriber", () => {
   // Regression: double-final on stop → turnComplete → close race
   // ─────────────────────────────────────────────────────────────────
 
-  test(
-    "does not emit a second empty final when provider closes normally after a completion signal",
-    async () => {
-      const { transcriber: t, session, events } = await startSession();
+  test("does not emit a second empty final when provider closes normally after a completion signal", async () => {
+    const { transcriber: t, session, events } = await startSession();
 
-      session.simulateMessage({
-        serverContent: { inputTranscription: { text: "hello" } },
-      });
-      t.stop();
+    session.simulateMessage({
+      serverContent: { inputTranscription: { text: "hello" } },
+    });
+    t.stop();
 
-      // Server flushes turnComplete in response to audioStreamEnd, then
-      // closes normally. Both events used to produce a final event, with
-      // the second being an empty string — storage-writer in Meet would
-      // write an empty transcript line.
-      session.simulateMessage({
-        serverContent: { turnComplete: true },
-      });
-      session.simulateClose(1000, "normal");
+    // Server flushes turnComplete in response to audioStreamEnd, then
+    // closes normally. Both events used to produce a final event, with
+    // the second being an empty string — storage-writer in Meet would
+    // write an empty transcript line.
+    session.simulateMessage({
+      serverContent: { turnComplete: true },
+    });
+    session.simulateClose(1000, "normal");
 
-      const finals = events.filter((e) => e.type === "final");
-      expect(finals).toEqual([{ type: "final", text: "hello" }]);
-      expect(events.filter((e) => e.type === "closed")).toHaveLength(1);
-    },
-  );
+    const finals = events.filter((e) => e.type === "final");
+    expect(finals).toEqual([{ type: "final", text: "hello" }]);
+    expect(events.filter((e) => e.type === "closed")).toHaveLength(1);
+  });
 
-  test(
-    "still emits a final on normal close when no completion signal arrived during the grace period",
-    async () => {
-      const { transcriber: t, session, events } = await startSession();
+  test("still emits a final on normal close when no completion signal arrived during the grace period", async () => {
+    const { transcriber: t, session, events } = await startSession();
 
-      session.simulateMessage({
-        serverContent: { inputTranscription: { text: "midstream" } },
-      });
-      t.stop();
-      // No turnComplete/generationComplete before close — the flush is
-      // the only source of the final.
-      session.simulateClose(1000, "normal");
+    session.simulateMessage({
+      serverContent: { inputTranscription: { text: "midstream" } },
+    });
+    t.stop();
+    // No turnComplete/generationComplete before close — the flush is
+    // the only source of the final.
+    session.simulateClose(1000, "normal");
 
-      const finals = events.filter((e) => e.type === "final");
-      expect(finals).toEqual([{ type: "final", text: "midstream" }]);
-    },
-  );
+    const finals = events.filter((e) => e.type === "final");
+    expect(finals).toEqual([{ type: "final", text: "midstream" }]);
+  });
 
   // ─────────────────────────────────────────────────────────────────
   // Regression: session leak on connect timeout
   // ─────────────────────────────────────────────────────────────────
 
-  test(
-    "closes the underlying session when start() times out after the SDK resolved a session handle",
-    async () => {
-      const t = new GoogleGeminiLiveStreamingTranscriber(TEST_API_KEY, {
-        connectTimeoutMs: 20,
-      });
-      // autoOpen=false so `onopen` never fires; connectPromise still
-      // resolves synchronously with the session — this is the leak path.
-      const { capturedCalls } = installMockClient(t, { autoOpen: false });
+  test("closes the underlying session when start() times out after the SDK resolved a session handle", async () => {
+    const t = new GoogleGeminiLiveStreamingTranscriber(TEST_API_KEY, {
+      connectTimeoutMs: 20,
+    });
+    // autoOpen=false so `onopen` never fires; connectPromise still
+    // resolves synchronously with the session — this is the leak path.
+    const { capturedCalls } = installMockClient(t, { autoOpen: false });
 
-      const { onEvent } = createEventCollector();
-      await expect(t.start(onEvent)).rejects.toThrow(
-        "Gemini Live connect timeout",
-      );
+    const { onEvent } = createEventCollector();
+    await expect(t.start(onEvent)).rejects.toThrow(
+      "Gemini Live connect timeout",
+    );
 
-      const session = capturedCalls[0]?.session;
-      expect(session).toBeDefined();
-      // The session handle must have been closed by start()'s catch
-      // block via forceCloseSession() — otherwise the WebSocket leaks.
-      expect(session!.closeCalled).toBe(true);
-    },
-  );
+    const session = capturedCalls[0]?.session;
+    expect(session).toBeDefined();
+    // The session handle must have been closed by start()'s catch
+    // block via forceCloseSession() — otherwise the WebSocket leaks.
+    expect(session!.closeCalled).toBe(true);
+  });
 
   // ─────────────────────────────────────────────────────────────────
   // Regression: honor inputTranscription.finished
   // ─────────────────────────────────────────────────────────────────
 
-  test(
-    "emits final on inputTranscription.finished=true (SDK says it's independent of model turns)",
-    async () => {
-      const { session, events } = await startSession();
+  test("emits final on inputTranscription.finished=true (SDK says it's independent of model turns)", async () => {
+    const { session, events } = await startSession();
 
-      session.simulateMessage({
-        serverContent: { inputTranscription: { text: "quick brown fox" } },
-      });
-      session.simulateMessage({
-        serverContent: { inputTranscription: { finished: true } },
-      });
+    session.simulateMessage({
+      serverContent: { inputTranscription: { text: "quick brown fox" } },
+    });
+    session.simulateMessage({
+      serverContent: { inputTranscription: { finished: true } },
+    });
 
-      const finals = events.filter((e) => e.type === "final");
-      expect(finals).toEqual([{ type: "final", text: "quick brown fox" }]);
-    },
-  );
+    const finals = events.filter((e) => e.type === "final");
+    expect(finals).toEqual([{ type: "final", text: "quick brown fox" }]);
+  });
 
-  test(
-    "finished=true also suppresses the trailing empty final on subsequent normal close",
-    async () => {
-      const { transcriber: t, session, events } = await startSession();
+  test("finished=true also suppresses the trailing empty final on subsequent normal close", async () => {
+    const { transcriber: t, session, events } = await startSession();
 
-      session.simulateMessage({
-        serverContent: { inputTranscription: { text: "done" } },
-      });
-      session.simulateMessage({
-        serverContent: { inputTranscription: { finished: true } },
-      });
+    session.simulateMessage({
+      serverContent: { inputTranscription: { text: "done" } },
+    });
+    session.simulateMessage({
+      serverContent: { inputTranscription: { finished: true } },
+    });
 
-      t.stop();
-      session.simulateClose(1000, "normal");
+    t.stop();
+    session.simulateClose(1000, "normal");
 
-      const finals = events.filter((e) => e.type === "final");
-      expect(finals).toEqual([{ type: "final", text: "done" }]);
-    },
-  );
+    const finals = events.filter((e) => e.type === "final");
+    expect(finals).toEqual([{ type: "final", text: "done" }]);
+  });
 
   // ─────────────────────────────────────────────────────────────────
   // Regression: MIME normalization preserves non-rate parameters
   // ─────────────────────────────────────────────────────────────────
 
-  test(
-    "normalizePcmMimeType appends rate= without dropping other PCM parameters",
-    async () => {
-      const { transcriber: t, session } = await startSession({
-        transcriberOptions: {
-          pcmSampleRate: 16_000,
-          inactivityTimeoutMs: 60_000,
-        },
-      });
+  test("normalizePcmMimeType appends rate= without dropping other PCM parameters", async () => {
+    const { transcriber: t, session } = await startSession({
+      transcriberOptions: {
+        pcmSampleRate: 16_000,
+        inactivityTimeoutMs: 60_000,
+      },
+    });
 
-      t.sendAudio(Buffer.from([1, 2, 3]), "audio/pcm;encoding=linear16");
+    t.sendAudio(Buffer.from([1, 2, 3]), "audio/pcm;encoding=linear16");
 
-      const input = session.sentInputs[0] as {
-        audio?: { data: string; mimeType: string };
-      };
-      // The original `encoding=linear16` parameter must be preserved;
-      // only the missing `rate=` is appended.
-      expect(input.audio?.mimeType).toBe(
-        "audio/pcm;encoding=linear16;rate=16000",
-      );
-    },
-  );
+    const input = session.sentInputs[0] as {
+      audio?: { data: string; mimeType: string };
+    };
+    // The original `encoding=linear16` parameter must be preserved;
+    // only the missing `rate=` is appended.
+    expect(input.audio?.mimeType).toBe(
+      "audio/pcm;encoding=linear16;rate=16000",
+    );
+  });
 
   // ─────────────────────────────────────────────────────────────────
   // Provider identity

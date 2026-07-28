@@ -56,10 +56,20 @@ const SLOW_STREAM_FIXTURE_ROUTE = {
   handler: async (params: Record<string, unknown> | undefined) => {
     slowStreamAborted = false;
     const signal = (params as { abortSignal?: AbortSignal })?.abortSignal;
-    signal?.addEventListener("abort", () => { slowStreamAborted = true; }, { once: true });
+    signal?.addEventListener(
+      "abort",
+      () => {
+        slowStreamAborted = true;
+      },
+      { once: true },
+    );
     await new Promise((r) => setTimeout(r, 50));
     return {
-      stream: new ReadableStream<Uint8Array>({ start(ctrl) { ctrl.close(); } }),
+      stream: new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          ctrl.close();
+        },
+      }),
       headers: {} as Record<string, string>,
     };
   },
@@ -84,10 +94,14 @@ const CANCEL_FIXTURE_ROUTE = {
             ctrl.error(new DOMException("Aborted", "AbortError"));
             return;
           }
-          signal?.addEventListener("abort", () => {
-            cancelAborted = true;
-            ctrl.error(new DOMException("Aborted", "AbortError"));
-          }, { once: true });
+          signal?.addEventListener(
+            "abort",
+            () => {
+              cancelAborted = true;
+              ctrl.error(new DOMException("Aborted", "AbortError"));
+            },
+            { once: true },
+          );
           // Hold open — no close() until aborted
         },
       }),
@@ -97,7 +111,12 @@ const CANCEL_FIXTURE_ROUTE = {
 };
 
 mock.module("../../runtime/routes/index.js", () => ({
-  ROUTES: [STREAM_FIXTURE_ROUTE, BINARY_FIXTURE_ROUTE, CANCEL_FIXTURE_ROUTE, SLOW_STREAM_FIXTURE_ROUTE],
+  ROUTES: [
+    STREAM_FIXTURE_ROUTE,
+    BINARY_FIXTURE_ROUTE,
+    CANCEL_FIXTURE_ROUTE,
+    SLOW_STREAM_FIXTURE_ROUTE,
+  ],
 }));
 
 // ---------------------------------------------------------------------------
@@ -204,7 +223,11 @@ describe("cliIpcCallStream", () => {
     // request, before slow_stream_fixture's 50ms handler delay expires.
     const rawSocket = new Socket();
     await new Promise<void>((res) => rawSocket.connect(socketPath, res));
-    writeMessage(rawSocket, { id: crypto.randomUUID(), method: "slow_stream_fixture", params: {} });
+    writeMessage(rawSocket, {
+      id: crypto.randomUUID(),
+      method: "slow_stream_fixture",
+      params: {},
+    });
     rawSocket.destroy();
 
     // Wait for the handler to complete and sendStreamingResponse to run

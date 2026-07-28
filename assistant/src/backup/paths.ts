@@ -4,7 +4,6 @@ import { dirname, isAbsolute, join } from "node:path";
 import { getBackupDirOverride } from "../config/env-registry.js";
 import type { BackupDestination } from "../config/schema.js";
 
-
 /**
  * Returns the backup root directory. Respects the `VELLUM_BACKUP_DIR`
  * environment variable override (used in containerized deployments where

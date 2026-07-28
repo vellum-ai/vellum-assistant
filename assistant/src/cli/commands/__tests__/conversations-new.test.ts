@@ -135,7 +135,9 @@ describe("conversations new --json", () => {
     };
     const code = await runNew(["new", "Notes"]);
     expect(code).toBe(0);
-    const info = loggerCalls.filter((c) => c.level === "info").map((c) => c.msg);
+    const info = loggerCalls
+      .filter((c) => c.level === "info")
+      .map((c) => c.msg);
     expect(
       info.some((m) => m.includes("Created conversation: Notes (conv-new-2)")),
     ).toBe(true);

@@ -205,7 +205,10 @@ export async function pollForToken(
 
     if (errorCode === "slow_down") {
       interval += 5;
-      log.info({ newInterval: interval }, "Received slow_down, increasing poll interval");
+      log.info(
+        { newInterval: interval },
+        "Received slow_down, increasing poll interval",
+      );
       continue;
     }
 

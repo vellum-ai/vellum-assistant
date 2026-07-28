@@ -99,8 +99,6 @@ function getStoreKeyPath(): string {
   );
 }
 
-
-
 /**
  * Read the store.key file. Returns the raw 32-byte key buffer, or null
  * if the file is missing, wrong size, or unreadable.

@@ -10,9 +10,8 @@ describe("stripHistoricalWebSearchResults", () => {
       { role: "assistant", content: [{ type: "text", text: "Hi" }] },
     ];
 
-    const { messages: result, stats } = stripHistoricalWebSearchResults(
-      messages,
-    );
+    const { messages: result, stats } =
+      stripHistoricalWebSearchResults(messages);
 
     expect(result).toEqual(messages);
     expect(stats.blocksStripped).toBe(0);
@@ -20,68 +19,64 @@ describe("stripHistoricalWebSearchResults", () => {
     expect(stats.messagesModified).toBe(0);
   });
 
-  test(
-    "replaces historical web_search_tool_result with text summary including title+url",
-    () => {
-      const messages: Message[] = [
-        { role: "user", content: [{ type: "text", text: "Search cats" }] },
-        {
-          role: "assistant",
-          content: [
-            { type: "text", text: "Let me look" },
-            {
-              type: "server_tool_use",
-              id: "stu_1",
-              name: "web_search",
-              input: { query: "cats" },
-            },
-            {
-              type: "web_search_tool_result",
-              tool_use_id: "stu_1",
-              content: [
-                {
-                  type: "web_search_result",
-                  url: "https://cats.com",
-                  title: "Cats!",
-                  encrypted_content: "expired_token_1",
-                },
-                {
-                  type: "web_search_result",
-                  url: "https://felines.org",
-                  title: "Feline facts",
-                  encrypted_content: "expired_token_2",
-                },
-              ],
-            },
-            { type: "text", text: "Here's what I found." },
-          ],
-        },
-      ];
+  test("replaces historical web_search_tool_result with text summary including title+url", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Search cats" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Let me look" },
+          {
+            type: "server_tool_use",
+            id: "stu_1",
+            name: "web_search",
+            input: { query: "cats" },
+          },
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "stu_1",
+            content: [
+              {
+                type: "web_search_result",
+                url: "https://cats.com",
+                title: "Cats!",
+                encrypted_content: "expired_token_1",
+              },
+              {
+                type: "web_search_result",
+                url: "https://felines.org",
+                title: "Feline facts",
+                encrypted_content: "expired_token_2",
+              },
+            ],
+          },
+          { type: "text", text: "Here's what I found." },
+        ],
+      },
+    ];
 
-      const { messages: result, stats } = stripHistoricalWebSearchResults(
-        messages,
-      );
+    const { messages: result, stats } =
+      stripHistoricalWebSearchResults(messages);
 
-      expect(stats.blocksStripped).toBe(1);
-      expect(stats.serverToolUsesDropped).toBe(1);
-      expect(stats.messagesModified).toBe(1);
+    expect(stats.blocksStripped).toBe(1);
+    expect(stats.serverToolUsesDropped).toBe(1);
+    expect(stats.messagesModified).toBe(1);
 
-      const assistantMsg = result[1];
-      const types = assistantMsg.content.map((b) => b.type);
-      expect(types).toEqual(["text", "text", "text"]);
+    const assistantMsg = result[1];
+    const types = assistantMsg.content.map((b) => b.type);
+    expect(types).toEqual(["text", "text", "text"]);
 
-      const summary = assistantMsg.content[1];
-      expect(summary.type).toBe("text");
-      if (summary.type === "text") {
-        expect(summary.text).toContain("cats");
-        expect(summary.text).toContain("Cats!");
-        expect(summary.text).toContain("https://cats.com");
-        expect(summary.text).toContain("Feline facts");
-        expect(summary.text).toContain("https://felines.org");
-        expect(summary.text).not.toContain("expired_token_1");
-      }
-    },
-  );
+    const summary = assistantMsg.content[1];
+    expect(summary.type).toBe("text");
+    if (summary.type === "text") {
+      expect(summary.text).toContain("cats");
+      expect(summary.text).toContain("Cats!");
+      expect(summary.text).toContain("https://cats.com");
+      expect(summary.text).toContain("Feline facts");
+      expect(summary.text).toContain("https://felines.org");
+      expect(summary.text).not.toContain("expired_token_1");
+    }
+  });
 
   test("drops server_tool_use paired with converted results", () => {
     const messages: Message[] = [
@@ -110,9 +105,8 @@ describe("stripHistoricalWebSearchResults", () => {
       },
     ];
 
-    const { messages: result, stats } = stripHistoricalWebSearchResults(
-      messages,
-    );
+    const { messages: result, stats } =
+      stripHistoricalWebSearchResults(messages);
 
     expect(stats.blocksStripped).toBe(1);
     expect(stats.serverToolUsesDropped).toBe(1);
@@ -153,9 +147,8 @@ describe("stripHistoricalWebSearchResults", () => {
       },
     ];
 
-    const { messages: result, stats } = stripHistoricalWebSearchResults(
-      messages,
-    );
+    const { messages: result, stats } =
+      stripHistoricalWebSearchResults(messages);
 
     expect(stats.serverToolUsesDropped).toBe(1);
     const types = result[0].content.map((b) => b.type);
@@ -190,9 +183,8 @@ describe("stripHistoricalWebSearchResults", () => {
       },
     ];
 
-    const { messages: result, stats } = stripHistoricalWebSearchResults(
-      messages,
-    );
+    const { messages: result, stats } =
+      stripHistoricalWebSearchResults(messages);
 
     expect(stats.blocksStripped).toBe(1);
     expect(result[0].content).toHaveLength(1);
@@ -224,9 +216,8 @@ describe("stripHistoricalWebSearchResults", () => {
       },
     ];
 
-    const { messages: result, stats } = stripHistoricalWebSearchResults(
-      messages,
-    );
+    const { messages: result, stats } =
+      stripHistoricalWebSearchResults(messages);
 
     expect(stats.blocksStripped).toBe(1);
     expect(stats.serverToolUsesDropped).toBe(0);
@@ -284,9 +275,8 @@ describe("stripHistoricalWebSearchResults", () => {
       },
     ];
 
-    const { messages: result, stats } = stripHistoricalWebSearchResults(
-      messages,
-    );
+    const { messages: result, stats } =
+      stripHistoricalWebSearchResults(messages);
 
     expect(stats.blocksStripped).toBe(2);
     expect(stats.serverToolUsesDropped).toBe(2);

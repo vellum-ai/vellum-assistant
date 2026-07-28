@@ -15,8 +15,10 @@ type IpcCall = { method: string; params?: Record<string, unknown> };
 
 const ipc = {
   calls: [] as IpcCall[],
-  responder: (_method: string, _params?: Record<string, unknown>): unknown =>
-    ({}),
+  responder: (
+    _method: string,
+    _params?: Record<string, unknown>,
+  ): unknown => ({}),
   reset(): void {
     this.calls = [];
     this.responder = () => ({});
@@ -40,9 +42,8 @@ const {
   probeContactMirror,
   listContactUserFileSlugs,
 } = await import("../ipc/contacts-info-client.js");
-const { findContactChannelByAddress } = await import(
-  "../verification/contact-helpers.js"
-);
+const { findContactChannelByAddress } =
+  await import("../verification/contact-helpers.js");
 
 beforeEach(() => {
   ipc.reset();

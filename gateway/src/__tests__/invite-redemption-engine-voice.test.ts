@@ -53,9 +53,8 @@ const { contacts, contactChannels, ingressInvites } =
   await import("../db/schema.js");
 const { getActiveVoiceInviteForCaller, redeemVoiceInvite } =
   await import("../verification/invite-redemption.js");
-const { inviteRow, seedVoiceInvite } = await import(
-  "./helpers/contact-fixtures.js"
-);
+const { inviteRow, seedVoiceInvite } =
+  await import("./helpers/contact-fixtures.js");
 
 const CALLER = "+15555550100";
 const OTHER_CALLER = "+15555550199";

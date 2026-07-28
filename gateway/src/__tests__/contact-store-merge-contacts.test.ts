@@ -264,9 +264,9 @@ describe("ContactStore.mergeContacts — typed transactional mirror", () => {
     seedContact("ct_guardian", "guardian");
 
     const store = new ContactStore();
-    await expect(
-      store.mergeContacts("ct_keep", "ct_guardian"),
-    ).rejects.toThrow(/guardian/i);
+    await expect(store.mergeContacts("ct_keep", "ct_guardian")).rejects.toThrow(
+      /guardian/i,
+    );
 
     expect(mirrorMergeCalls()).toHaveLength(0);
     expect(

@@ -40,7 +40,10 @@ function collectSourceFiles(dir: string): string[] {
 }
 
 function relPosix(file: string): string {
-  return file.slice(GATEWAY_SRC.length + 1).split(sep).join("/");
+  return file
+    .slice(GATEWAY_SRC.length + 1)
+    .split(sep)
+    .join("/");
 }
 
 // A static/dynamic import of the proxy module, or a direct db_proxy IPC call.
@@ -88,7 +91,9 @@ describe("db_proxy caller allowlist guard", () => {
 
   test("matcher detects both proxy imports and direct db_proxy calls", () => {
     expect(
-      usesDbProxy(`import { assistantDbRun } from "../db/assistant-db-proxy.js";`),
+      usesDbProxy(
+        `import { assistantDbRun } from "../db/assistant-db-proxy.js";`,
+      ),
     ).toBe(true);
     expect(
       usesDbProxy(`const m = await import("./db/assistant-db-proxy.js");`),
@@ -102,29 +107,33 @@ describe("db_proxy caller allowlist guard", () => {
     );
     // Aliased / indirected callees are caught via the method-name string.
     expect(
-      usesDbProxy(`import { ipcCallAssistant as call } from "x";\ncall("db_proxy", { sql });`),
+      usesDbProxy(
+        `import { ipcCallAssistant as call } from "x";\ncall("db_proxy", { sql });`,
+      ),
     ).toBe(true);
-    expect(
-      usesDbProxy(`const M = "db_proxy";\nawait send(M, { sql });`),
-    ).toBe(true);
+    expect(usesDbProxy(`const M = "db_proxy";\nawait send(M, { sql });`)).toBe(
+      true,
+    );
     // Template-literal method strings (backtick-quoted) are caught too.
     expect(usesDbProxy("await ipcCallAssistant(`db_proxy`, { sql });")).toBe(
       true,
     );
     // Unrelated IPC methods and identifiers must NOT match.
     expect(
-      usesDbProxy(`await ipcCallAssistant("contacts_mirror_upsert_channel", {});`),
+      usesDbProxy(
+        `await ipcCallAssistant("contacts_mirror_upsert_channel", {});`,
+      ),
     ).toBe(false);
-    expect(usesDbProxy(`import { getGatewayDb } from "../db/connection.js";`)).toBe(
-      false,
-    );
+    expect(
+      usesDbProxy(`import { getGatewayDb } from "../db/connection.js";`),
+    ).toBe(false);
     // A doc-comment mention of the method name must NOT count as a caller.
-    expect(usesDbProxy("/**\n * `db_proxy` SELECTs the gateway used to run.\n */")).toBe(
-      false,
-    );
-    expect(usesDbProxy(`// legacy db_proxy("db_proxy") note\nconst x = 1;`)).toBe(
-      false,
-    );
+    expect(
+      usesDbProxy("/**\n * `db_proxy` SELECTs the gateway used to run.\n */"),
+    ).toBe(false);
+    expect(
+      usesDbProxy(`// legacy db_proxy("db_proxy") note\nconst x = 1;`),
+    ).toBe(false);
   });
 
   test("every allowlisted file exists and still reaches the db_proxy", () => {

@@ -97,9 +97,7 @@ function sendHandlerError(
   statusCode: number,
   errorCode: string,
 ): void {
-  socket.write(
-    JSON.stringify({ id, error, statusCode, errorCode }) + "\n",
-  );
+  socket.write(JSON.stringify({ id, error, statusCode, errorCode }) + "\n");
 }
 
 /**

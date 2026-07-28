@@ -90,10 +90,7 @@ export function getTwilioVoiceWebhookUrl(
   config: IngressConfig,
   callSessionId?: string,
 ): string {
-  return buildTwilioVoiceWebhookUrl(
-    getPublicBaseUrl(config),
-    callSessionId,
-  );
+  return buildTwilioVoiceWebhookUrl(getPublicBaseUrl(config), callSessionId);
 }
 
 /**

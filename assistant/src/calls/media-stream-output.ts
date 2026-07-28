@@ -988,7 +988,6 @@ export class MediaStreamOutput implements CallTransport {
         return;
       }
 
-
       const contentType = response.headers.get("content-type") ?? "audio/mpeg";
       const format: CallAudioFormat = contentType.includes("wav")
         ? "wav"

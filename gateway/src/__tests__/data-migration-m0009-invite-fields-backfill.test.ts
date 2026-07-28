@@ -173,15 +173,15 @@ function seedAssistantInvite(opts: Partial<FakeInvite> & { id: string }): void {
 }
 
 function gatewayInviteIds(): string[] {
-  const rows = getGatewayDb().$client
-    .prepare("SELECT id FROM ingress_invites")
+  const rows = getGatewayDb()
+    .$client.prepare("SELECT id FROM ingress_invites")
     .all() as { id: string }[];
   return rows.map((r) => r.id).sort();
 }
 
 function gatewayInvite(id: string): Record<string, unknown> | undefined {
-  return getGatewayDb().$client
-    .prepare("SELECT * FROM ingress_invites WHERE id = ?")
+  return getGatewayDb()
+    .$client.prepare("SELECT * FROM ingress_invites WHERE id = ?")
     .get(id) as Record<string, unknown> | undefined;
 }
 
@@ -329,7 +329,11 @@ describe("m0009-invite-fields-backfill", () => {
 
   test("never copies a2a invites", async () => {
     seedGatewayContact("c1");
-    seedAssistantInvite({ id: "a2a-1", contact_id: "c1", source_channel: "a2a" });
+    seedAssistantInvite({
+      id: "a2a-1",
+      contact_id: "c1",
+      source_channel: "a2a",
+    });
     seedAssistantInvite({ id: "tg-1", contact_id: "c1" });
 
     const result = await m0009Up();

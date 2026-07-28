@@ -86,8 +86,7 @@ const CATEGORY_USER_MESSAGES: Record<SlackErrorCategory, string | undefined> = {
     "I don't have the required permissions for this channel. Please check my access.",
   not_found: "The requested resource could not be found in Slack.",
   rate_limit: "Slack rate limit reached. Please try again in a moment.",
-  client_error:
-    "I couldn't format that message for Slack. Please try again.",
+  client_error: "I couldn't format that message for Slack. Please try again.",
   transient: undefined,
   unknown: undefined,
 };

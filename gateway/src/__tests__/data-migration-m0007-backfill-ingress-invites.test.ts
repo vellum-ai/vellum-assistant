@@ -136,15 +136,15 @@ function seedAssistantInvite(opts: Partial<FakeInvite> & { id: string }): void {
 }
 
 function gatewayInviteIds(): string[] {
-  const rows = getGatewayDb().$client
-    .prepare("SELECT id FROM ingress_invites")
+  const rows = getGatewayDb()
+    .$client.prepare("SELECT id FROM ingress_invites")
     .all() as { id: string }[];
   return rows.map((r) => r.id).sort();
 }
 
 function gatewayInvite(id: string): Record<string, unknown> | undefined {
-  return getGatewayDb().$client
-    .prepare("SELECT * FROM ingress_invites WHERE id = ?")
+  return getGatewayDb()
+    .$client.prepare("SELECT * FROM ingress_invites WHERE id = ?")
     .get(id) as Record<string, unknown> | undefined;
 }
 

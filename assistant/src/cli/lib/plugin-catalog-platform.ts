@@ -113,5 +113,8 @@ export async function fetchPluginCatalogFromPlatform(
     });
   }
 
-  return { ref: opts?.ref ?? "platform", matches: projectMarketplaceEntries(entries) };
+  return {
+    ref: opts?.ref ?? "platform",
+    matches: projectMarketplaceEntries(entries),
+  };
 }

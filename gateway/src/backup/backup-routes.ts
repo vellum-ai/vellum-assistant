@@ -145,7 +145,10 @@ export function createBackupSnapshotHandler(deps: BackupRouteDeps) {
 
       if (message.includes("already in progress")) {
         return Response.json(
-          { error: "Conflict", message: "A backup snapshot is already in progress" },
+          {
+            error: "Conflict",
+            message: "A backup snapshot is already in progress",
+          },
           { status: 409 },
         );
       }

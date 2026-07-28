@@ -83,5 +83,7 @@ function report(
 /** Test-only seams; see {@link createWatchdogReporter}. */
 export const setGuardianIntegrityReporterOverridesForTesting =
   reporter.setOverridesForTesting;
-export const resetGuardianIntegrityReporterForTesting = reporter.resetForTesting;
-export const flushGuardianIntegrityReporterForTesting = reporter.flushForTesting;
+export const resetGuardianIntegrityReporterForTesting =
+  reporter.resetForTesting;
+export const flushGuardianIntegrityReporterForTesting =
+  reporter.flushForTesting;

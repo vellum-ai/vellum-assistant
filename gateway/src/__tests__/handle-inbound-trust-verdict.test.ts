@@ -83,9 +83,8 @@ const {
   actorTokenRecords,
   actorRefreshTokenRecords,
 } = await import("../db/schema.js");
-const { bustGuardianIntegrityCache } = await import(
-  "../auth/guardian-integrity.js"
-);
+const { bustGuardianIntegrityCache } =
+  await import("../auth/guardian-integrity.js");
 const {
   resetGuardianIntegrityReporterForTesting,
   setGuardianIntegrityReporterOverridesForTesting,

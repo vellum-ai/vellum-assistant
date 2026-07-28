@@ -70,9 +70,8 @@ mock.module("../../../util/logger.js", () => ({
 // Import module under test (after mocks)
 // ---------------------------------------------------------------------------
 
-const { registerChannelVerificationSessionsCommand } = await import(
-  "../channel-verification-sessions.js"
-);
+const { registerChannelVerificationSessionsCommand } =
+  await import("../channel-verification-sessions.js");
 
 // ---------------------------------------------------------------------------
 // Test helper
@@ -358,7 +357,9 @@ describe("channel-verification-sessions resend", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("channel_verification_sessions_resend");
-    expect(lastIpcCall!.params).toMatchObject({ body: { channel: "telegram" } });
+    expect(lastIpcCall!.params).toMatchObject({
+      body: { channel: "telegram" },
+    });
   });
 
   test("--origin-conversation-id is passed to IPC", async () => {
@@ -409,7 +410,9 @@ describe("channel-verification-sessions cancel", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("channel_verification_sessions_cancel");
-    expect(lastIpcCall!.params).toMatchObject({ body: { channel: "telegram" } });
+    expect(lastIpcCall!.params).toMatchObject({
+      body: { channel: "telegram" },
+    });
   });
 
   test("IPC error results in exit code 1", async () => {

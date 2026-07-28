@@ -28,9 +28,8 @@ const TEST_REGISTRY = {
   ],
 };
 
-const { readEnvFeatureFlagOverrides, resetEnvOverridesCache } = await import(
-  "./feature-flag-env-overrides.js"
-);
+const { readEnvFeatureFlagOverrides, resetEnvOverridesCache } =
+  await import("./feature-flag-env-overrides.js");
 const { resetFeatureFlagDefaultsCache, _setRegistryCandidateOverrides } =
   await import("./feature-flag-defaults.js");
 

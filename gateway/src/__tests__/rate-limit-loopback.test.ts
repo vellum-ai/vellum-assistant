@@ -48,11 +48,7 @@ describe("checkAuthRateLimit loopback exemption", () => {
   test("returns null for unrelated routes regardless of block state", () => {
     const ip = "203.0.113.5";
     const limiter = blockedLimiter(ip);
-    const res = checkAuthRateLimit(
-      new URL("http://local/health"),
-      limiter,
-      ip,
-    );
+    const res = checkAuthRateLimit(new URL("http://local/health"), limiter, ip);
     expect(res).toBeNull();
   });
 

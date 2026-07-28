@@ -28,7 +28,10 @@ function parseValue(raw: string): boolean | string {
  * The result is cached for the process lifetime. Unknown keys (not declared in
  * the registry) are logged at warn level and discarded.
  */
-export function readEnvFeatureFlagOverrides(): Record<string, boolean | string> {
+export function readEnvFeatureFlagOverrides(): Record<
+  string,
+  boolean | string
+> {
   if (cache !== null) return cache;
 
   const result: Record<string, boolean | string> = {};
@@ -41,7 +44,10 @@ export function readEnvFeatureFlagOverrides(): Record<string, boolean | string> 
     if (raw === undefined) continue;
 
     if (!isFlagDeclared(flagKey)) {
-      log.warn({ envKey, flagKey }, "Ignoring unknown env feature flag override");
+      log.warn(
+        { envKey, flagKey },
+        "Ignoring unknown env feature flag override",
+      );
       continue;
     }
 

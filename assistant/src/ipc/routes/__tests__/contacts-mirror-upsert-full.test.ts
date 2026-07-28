@@ -107,8 +107,9 @@ function metadataRow(
       .prepare(
         "SELECT species, metadata FROM assistant_contact_metadata WHERE contact_id = ?",
       )
-      .get(contactId) as { species: string; metadata: string | null } | undefined) ??
-    null
+      .get(contactId) as
+      | { species: string; metadata: string | null }
+      | undefined) ?? null
   );
 }
 
@@ -248,7 +249,10 @@ describe("contacts_mirror_upsert_full", () => {
       contactType: "assistant",
       assistantMetadata: { species: "openclaw", metadata: null },
     });
-    expect(metadataRow("co-bot")).toEqual({ species: "openclaw", metadata: null });
+    expect(metadataRow("co-bot")).toEqual({
+      species: "openclaw",
+      metadata: null,
+    });
   });
 
   // ── Channel sync ──────────────────────────────────────────────────────
@@ -259,7 +263,12 @@ describe("contacts_mirror_upsert_full", () => {
     upsertFull({
       contactId: "co-1",
       channels: [
-        { id: "gw-ch-1", type: "email", address: "adopt@x.com", isPrimary: true },
+        {
+          id: "gw-ch-1",
+          type: "email",
+          address: "adopt@x.com",
+          isPrimary: true,
+        },
         { type: "email", address: "minted@x.com" },
       ],
     });
@@ -307,14 +316,20 @@ describe("contacts_mirror_upsert_full", () => {
       contactId: "co-1",
       channels: [{ type: "telegram", address: "tg-1" }],
     });
-    expect(channelByAddress("telegram", "tg-1")?.external_chat_id).toBe("chat-9");
+    expect(channelByAddress("telegram", "tg-1")?.external_chat_id).toBe(
+      "chat-9",
+    );
 
     // Provided → overwritten.
     upsertFull({
       contactId: "co-1",
-      channels: [{ type: "telegram", address: "tg-1", externalChatId: "chat-10" }],
+      channels: [
+        { type: "telegram", address: "tg-1", externalChatId: "chat-10" },
+      ],
     });
-    expect(channelByAddress("telegram", "tg-1")?.external_chat_id).toBe("chat-10");
+    expect(channelByAddress("telegram", "tg-1")?.external_chat_id).toBe(
+      "chat-10",
+    );
 
     // Explicit null → cleared.
     upsertFull({

@@ -308,7 +308,13 @@ async function runGatewayFlow(
 
   const code = await codePromise;
 
-  return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier, state);
+  return await exchangeCodeForTokens(
+    config,
+    code,
+    redirectUri,
+    codeVerifier,
+    state,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -336,7 +342,13 @@ async function runLoopbackFlow(
     callbackPath,
   );
 
-  return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier, state);
+  return await exchangeCodeForTokens(
+    config,
+    code,
+    redirectUri,
+    codeVerifier,
+    state,
+  );
 }
 
 /**
@@ -579,7 +591,13 @@ export async function prepareOAuth2Flow(
   const authorizeUrl = `${config.authorizeUrl}?${authParams}`;
 
   const completion = codePromise.then(async (code) => {
-    return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier, state);
+    return await exchangeCodeForTokens(
+      config,
+      code,
+      redirectUri,
+      codeVerifier,
+      state,
+    );
   });
 
   log.debug({ transport: "gateway", state }, "Prepared deferred OAuth2 flow");
@@ -621,7 +639,13 @@ async function prepareLoopbackFlow(
   const authorizeUrl = `${config.authorizeUrl}?${authParams}`;
 
   const completion = codePromise.then(async (code) => {
-    return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier, state);
+    return await exchangeCodeForTokens(
+      config,
+      code,
+      redirectUri,
+      codeVerifier,
+      state,
+    );
   });
 
   log.debug(

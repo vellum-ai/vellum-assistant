@@ -28,13 +28,17 @@ type FetchFn = (
   init?: RequestInit,
 ) => Promise<Response>;
 let fetchCalls: { url: string; body: Record<string, unknown> }[] = [];
-const fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async (input, init) => {
-  fetchCalls.push({
-    url: String(input),
-    body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {},
-  });
-  return new Response();
-});
+const fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async (input, init) => {
+    fetchCalls.push({
+      url: String(input),
+      body: init?.body
+        ? (JSON.parse(String(init.body)) as Record<string, unknown>)
+        : {},
+    });
+    return new Response();
+  },
+);
 
 let runtimePayloads: RuntimeInboundPayload[] = [];
 const forwardToRuntimeMock = mock(
@@ -115,23 +119,16 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 }));
 
 await import("./test-preload.js");
-const { initGatewayDb, resetGatewayDb, getGatewayDb } = await import(
-  "../db/connection.js"
-);
-const {
-  initAdmissionPolicyCache,
-  resetAdmissionPolicyCache,
-} = await import("../risk/admission-policy-cache.js");
-const { contacts, contactChannels, ingressInvites } = await import(
-  "../db/schema.js"
-);
+const { initGatewayDb, resetGatewayDb, getGatewayDb } =
+  await import("../db/connection.js");
+const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
+  await import("../risk/admission-policy-cache.js");
+const { contacts, contactChannels, ingressInvites } =
+  await import("../db/schema.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
-const { inviteRow, seedInvite } = await import(
-  "./helpers/contact-fixtures.js"
-);
-const { bustGuardianIntegrityCache } = await import(
-  "../auth/guardian-integrity.js"
-);
+const { inviteRow, seedInvite } = await import("./helpers/contact-fixtures.js");
+const { bustGuardianIntegrityCache } =
+  await import("../auth/guardian-integrity.js");
 
 const CHANNEL = "telegram";
 const CODE = "123456";
@@ -400,7 +397,9 @@ describe("handle-inbound invite redemption intercept", () => {
       "This invite is not valid for this channel.",
     );
     expect(inviteRow(inviteId).useCount).toBe(0);
-    expect(ipcCalls.find((c) => c.method === "invite_redeemed")).toBeUndefined();
+    expect(
+      ipcCalls.find((c) => c.method === "invite_redeemed"),
+    ).toBeUndefined();
   });
 
   test("blocked sender with a valid code: intercepted failure, channel stays blocked", async () => {
@@ -418,7 +417,9 @@ describe("handle-inbound invite redemption intercept", () => {
     expect(inviteRow(inviteId).useCount).toBe(0);
     const channel = getGatewayDb().select().from(contactChannels).all()[0];
     expect(channel?.status).toBe("blocked");
-    expect(ipcCalls.find((c) => c.method === "invite_redeemed")).toBeUndefined();
+    expect(
+      ipcCalls.find((c) => c.method === "invite_redeemed"),
+    ).toBeUndefined();
   });
 
   test("assistant mirror IPC down: valid code still redeems with the success reply, never forwards", async () => {

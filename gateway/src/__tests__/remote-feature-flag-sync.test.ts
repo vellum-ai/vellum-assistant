@@ -35,9 +35,8 @@ const { readRemoteFeatureFlags, clearRemoteFeatureFlagStoreCache } =
   await import("../feature-flag-remote-store.js");
 const { resetFeatureFlagDefaultsCache, _setRegistryCandidateOverrides } =
   await import("../feature-flag-defaults.js");
-const { resetEnvOverridesCache } = await import(
-  "../feature-flag-env-overrides.js"
-);
+const { resetEnvOverridesCache } =
+  await import("../feature-flag-env-overrides.js");
 
 // ---------------------------------------------------------------------------
 // Test-local registry with a GA flag (defaultEnabled: true) for the

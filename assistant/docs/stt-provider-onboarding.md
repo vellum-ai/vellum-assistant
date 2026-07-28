@@ -52,13 +52,13 @@ If the new provider **shares** an existing credential name (e.g. reuses `"openai
 
 All client-facing metadata is part of the daemon's provider catalog entry (`src/providers/speech-to-text/provider-catalog.ts`). When adding a new provider, include these fields in the catalog entry:
 
-| Field              | Description                                                               |
-| ------------------ | ------------------------------------------------------------------------- |
-| `displayName`      | Human-readable name shown in client settings UI.                          |
-| `subtitle`         | Short description displayed below the provider selector.                  |
-| `setupMode`        | `"api-key"` (inline key field) or `"cli"` (instructions-only).            |
-| `setupHint`        | Brief guidance shown during setup.                                        |
-| `credentialsGuide` | Object with `description`, `url`, and `linkLabel` for the key mgmt page.  |
+| Field              | Description                                                              |
+| ------------------ | ------------------------------------------------------------------------ |
+| `displayName`      | Human-readable name shown in client settings UI.                         |
+| `subtitle`         | Short description displayed below the provider selector.                 |
+| `setupMode`        | `"api-key"` (inline key field) or `"cli"` (instructions-only).           |
+| `setupHint`        | Brief guidance shown during setup.                                       |
+| `credentialsGuide` | Object with `description`, `url`, and `linkLabel` for the key mgmt page. |
 
 Native clients fetch this metadata at launch via `GET /v1/stt/providers`. No separate client-side file updates are needed.
 

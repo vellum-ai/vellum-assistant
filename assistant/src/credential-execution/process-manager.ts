@@ -232,7 +232,9 @@ function createCloseNotifier(): {
     isAlive: () => alive,
     markDead() {
       alive = false;
-      if (notified) {return;}
+      if (notified) {
+        return;
+      }
       notified = true;
       for (const handler of handlers) {
         try {

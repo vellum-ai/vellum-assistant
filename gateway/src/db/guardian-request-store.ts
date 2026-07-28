@@ -417,7 +417,8 @@ export interface ResolveGuardianRequestDecision {
 }
 
 export type ResolveGuardianRequestResult =
-  { applied: true; request: GuardianRequest } | { applied: false };
+  | { applied: true; request: GuardianRequest }
+  | { applied: false };
 
 /**
  * Compare-and-swap resolve: only transitions the request from

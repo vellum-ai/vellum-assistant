@@ -106,7 +106,10 @@ export function clearPinnedTab(
  *
  * Returns the number of slots cleared.
  */
-export function clearPinnedTabByTabId(tabId: string, clientId?: string): number {
+export function clearPinnedTabByTabId(
+  tabId: string,
+  clientId?: string,
+): number {
   if (!tabId) return 0;
   let cleared = 0;
   for (const [conversationId, inner] of pinnedTabs.entries()) {

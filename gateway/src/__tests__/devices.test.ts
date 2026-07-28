@@ -24,8 +24,12 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 
 const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
-const { actorTokenRecords, actorRefreshTokenRecords, contacts, contactChannels } =
-  await import("../db/schema.js");
+const {
+  actorTokenRecords,
+  actorRefreshTokenRecords,
+  contacts,
+  contactChannels,
+} = await import("../db/schema.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
 const { handleListDevices, handleRevokeDevice } =
   await import("../http/routes/devices.js");

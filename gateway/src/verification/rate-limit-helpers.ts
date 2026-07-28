@@ -50,7 +50,10 @@ export function getRateLimit(
     .get();
 
   return row
-    ? { attemptTimestampsJson: row.attemptTimestampsJson, lockedUntil: row.lockedUntil }
+    ? {
+        attemptTimestampsJson: row.attemptTimestampsJson,
+        lockedUntil: row.lockedUntil,
+      }
     : null;
 }
 
@@ -136,7 +139,8 @@ export async function resetRateLimit(
   const now = Date.now();
 
   const gwDb = getGatewayDb();
-  gwDb.update(gwRateLimits)
+  gwDb
+    .update(gwRateLimits)
     .set({
       attemptTimestampsJson: "[]",
       lockedUntil: null,

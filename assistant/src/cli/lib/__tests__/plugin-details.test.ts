@@ -273,9 +273,7 @@ describe("getPluginDetails (bundled catalog, offline)", () => {
     // AND an external repo that would otherwise be used
     const fetch = makeFetch({
       listings: {
-        [caveman.source.repo]: [
-          fileEntry("README.md", "raw://caveman/readme"),
-        ],
+        [caveman.source.repo]: [fileEntry("README.md", "raw://caveman/readme")],
       },
       raw: { "raw://caveman/readme": "# Remote Caveman" },
     });

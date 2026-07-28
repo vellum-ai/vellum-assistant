@@ -168,9 +168,10 @@ function generateUserFileSlug(db: Database, displayName: string): string {
   const slug = computeUserFileBaseSlug(displayName);
 
   const rows = db
-    .query<{ user_file: string | null }, [string]>(
-      `SELECT user_file FROM contacts WHERE user_file LIKE ?`,
-    )
+    .query<
+      { user_file: string | null },
+      [string]
+    >(`SELECT user_file FROM contacts WHERE user_file LIKE ?`)
     .all(`${escapeLike(slug)}%`);
 
   const taken = new Set(rows.map((r) => r.user_file?.toLowerCase()));

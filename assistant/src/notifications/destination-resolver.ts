@@ -33,9 +33,7 @@ function resolveGuardian(
   guardians: GuardianDelivery[] | null,
   channelType: string,
 ): ResolvedGuardian | undefined {
-  const g = guardians
-    ? guardianForChannel(guardians, channelType)
-    : undefined;
+  const g = guardians ? guardianForChannel(guardians, channelType) : undefined;
   if (!g) return undefined;
   return {
     principalId: g.principalId ?? undefined,
@@ -168,7 +166,11 @@ export function resolveDestinations(
             Object.keys(platformMeta).length > 0 ? platformMeta : undefined,
         });
         log.debug(
-          { channel: "platform", source: "guardian-delivery", hasEndpoint: false },
+          {
+            channel: "platform",
+            source: "guardian-delivery",
+            hasEndpoint: false,
+          },
           "destination resolved",
         );
         break;

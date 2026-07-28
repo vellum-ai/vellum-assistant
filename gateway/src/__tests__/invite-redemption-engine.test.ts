@@ -9,7 +9,15 @@
  * mocked out — it is a best-effort info mirror and not under test here.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { sql } from "drizzle-orm";
 
@@ -59,22 +67,16 @@ mock.module("../ipc/contacts-info-client.js", () => ({
   lookupContactChannelIdentity: () => identityLookupImpl(),
 }));
 
-
 await import("./test-preload.js");
 
-const { initGatewayDb, getGatewayDb, resetGatewayDb } = await import(
-  "../db/connection.js"
-);
-const { contacts, contactChannels, ingressInvites } = await import(
-  "../db/schema.js"
-);
+const { initGatewayDb, getGatewayDb, resetGatewayDb } =
+  await import("../db/connection.js");
+const { contacts, contactChannels, ingressInvites } =
+  await import("../db/schema.js");
 const { ContactStore } = await import("../db/contact-store.js");
-const { redeemInviteByCode, redeemInviteByToken } = await import(
-  "../verification/invite-redemption.js"
-);
-const { inviteRow, seedInvite } = await import(
-  "./helpers/contact-fixtures.js"
-);
+const { redeemInviteByCode, redeemInviteByToken } =
+  await import("../verification/invite-redemption.js");
+const { inviteRow, seedInvite } = await import("./helpers/contact-fixtures.js");
 
 const CHANNEL = "telegram";
 const CODE = "123456";
@@ -107,7 +109,13 @@ function seedContact(id: string, displayName = `name-${id}`): void {
   const now = Date.now();
   getGatewayDb()
     .insert(contacts)
-    .values({ id, displayName, role: "contact", createdAt: now, updatedAt: now })
+    .values({
+      id,
+      displayName,
+      role: "contact",
+      createdAt: now,
+      updatedAt: now,
+    })
     .run();
 }
 

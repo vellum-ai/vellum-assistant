@@ -10,14 +10,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 await import("./test-preload.js");
-const { initGatewayDb, resetGatewayDb, getGatewayDb } = await import(
-  "../db/connection.js"
-);
+const { initGatewayDb, resetGatewayDb, getGatewayDb } =
+  await import("../db/connection.js");
 const { contacts: gwContacts, contactChannels: gwContactChannels } =
   await import("../db/schema.js");
-const { resolveGuardianDelivery } = await import(
-  "../risk/guardian-delivery-resolver.js"
-);
+const { resolveGuardianDelivery } =
+  await import("../risk/guardian-delivery-resolver.js");
 
 function insertContact(args: {
   id: string;
@@ -235,9 +233,8 @@ describe("guardianDeliveryRoutes handler", () => {
         throw new Error("boom");
       },
     }));
-    const { guardianDeliveryRoutes } = await import(
-      "../ipc/guardian-delivery-handlers.js"
-    );
+    const { guardianDeliveryRoutes } =
+      await import("../ipc/guardian-delivery-handlers.js");
 
     const route = guardianDeliveryRoutes[0]!;
     // A resolver error must NOT be swallowed into {guardians:[]}: it propagates
@@ -252,9 +249,8 @@ describe("guardianDeliveryRoutes handler", () => {
     mock.module("../risk/guardian-delivery-resolver.js", () => ({
       resolveGuardianDelivery: () => [],
     }));
-    const { guardianDeliveryRoutes } = await import(
-      "../ipc/guardian-delivery-handlers.js"
-    );
+    const { guardianDeliveryRoutes } =
+      await import("../ipc/guardian-delivery-handlers.js");
 
     const route = guardianDeliveryRoutes[0]!;
     expect(await route.handler({})).toEqual({ guardians: [] });

@@ -34,7 +34,6 @@ beforeEach(async () => {
   await initGatewayDb();
   initTrustRuleCache();
   store = new TrustRuleStore();
-
 });
 
 afterEach(() => {
@@ -93,10 +92,7 @@ describe("GET /v1/trust-rules — list", () => {
     expect(defaults.length).toBeGreaterThan(0);
     store.update(defaults[0].id, { risk: "high" });
 
-    const reqModified = jsonRequest(
-      "http://localhost/v1/trust-rules",
-      "GET",
-    );
+    const reqModified = jsonRequest("http://localhost/v1/trust-rules", "GET");
     const resModified = await handler(reqModified);
     const bodyModified = (await resModified.json()) as {
       rules: Array<{ origin: string; userModified: boolean }>;

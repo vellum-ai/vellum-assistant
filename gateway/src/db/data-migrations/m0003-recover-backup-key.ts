@@ -18,7 +18,11 @@ import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import { getLogger } from "../../logger.js";
-import { getGatewaySecurityDir, getLegacyRootDir, getWorkspaceDir } from "../../paths.js";
+import {
+  getGatewaySecurityDir,
+  getLegacyRootDir,
+  getWorkspaceDir,
+} from "../../paths.js";
 
 import type { MigrationResult } from "./index.js";
 
@@ -30,13 +34,20 @@ export function up(): MigrationResult {
   const targetPath = join(getGatewaySecurityDir(), BACKUP_KEY_FILENAME);
 
   if (existsSync(targetPath)) {
-    log.info({ targetPath }, "Backup key already exists at target — nothing to do");
+    log.info(
+      { targetPath },
+      "Backup key already exists at target — nothing to do",
+    );
     return "done";
   }
 
   // Check both possible source locations
   const workspacePath = join(getWorkspaceDir(), ".backup.key");
-  const legacyProtectedPath = join(getLegacyRootDir(), "protected", BACKUP_KEY_FILENAME);
+  const legacyProtectedPath = join(
+    getLegacyRootDir(),
+    "protected",
+    BACKUP_KEY_FILENAME,
+  );
 
   // Prefer the workspace copy (migration 061 moved it there most recently)
   const sourceCandidates = [workspacePath, legacyProtectedPath];
@@ -62,7 +73,9 @@ export function up(): MigrationResult {
     }
   }
 
-  log.info("No existing backup key found at either legacy location — ensureBackupKey will generate one");
+  log.info(
+    "No existing backup key found at either legacy location — ensureBackupKey will generate one",
+  );
   return "done";
 }
 

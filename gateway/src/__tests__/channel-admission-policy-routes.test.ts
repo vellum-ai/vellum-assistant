@@ -161,11 +161,10 @@ describe("PUT /v1/channel-admission-policy/:channelType", () => {
   test("upserts a valid policy and invalidates the cache", async () => {
     const handler = createChannelAdmissionPolicySetHandler();
     const res = await handler(
-      jsonRequest(
-        "http://localhost/v1/channel-admission-policy/slack",
-        "PUT",
-        { policy: "guardian_only", note: "tight" },
-      ),
+      jsonRequest("http://localhost/v1/channel-admission-policy/slack", "PUT", {
+        policy: "guardian_only",
+        note: "tight",
+      }),
       "slack",
     );
     expect(res.status).toBe(200);
@@ -199,11 +198,9 @@ describe("PUT /v1/channel-admission-policy/:channelType", () => {
   test("rejects invalid policy with 400", async () => {
     const handler = createChannelAdmissionPolicySetHandler();
     const res = await handler(
-      jsonRequest(
-        "http://localhost/v1/channel-admission-policy/email",
-        "PUT",
-        { policy: "lets-everyone-in" },
-      ),
+      jsonRequest("http://localhost/v1/channel-admission-policy/email", "PUT", {
+        policy: "lets-everyone-in",
+      }),
       "email",
     );
     expect(res.status).toBe(400);
@@ -298,7 +295,10 @@ describe("DELETE /v1/channel-admission-policy/:channelType", () => {
     store.set("slack", "guardian_only");
     const handler = createChannelAdmissionPolicyDeleteHandler();
     const res = await handler(
-      jsonRequest("http://localhost/v1/channel-admission-policy/slack", "DELETE"),
+      jsonRequest(
+        "http://localhost/v1/channel-admission-policy/slack",
+        "DELETE",
+      ),
       "slack",
     );
     expect(res.status).toBe(200);
@@ -335,7 +335,9 @@ describe("GET /v1/channel-admission-policy — phone enforced", () => {
       jsonRequest("http://localhost/v1/channel-admission-policy", "GET"),
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { policies: Array<{ channelType: string }> };
+    const body = (await res.json()) as {
+      policies: Array<{ channelType: string }>;
+    };
     const seen = new Set(body.policies.map((p) => p.channelType));
     expect(seen.has("phone")).toBe(true);
     // Confirm other non-exempt channels still appear.

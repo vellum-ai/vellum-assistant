@@ -280,25 +280,25 @@ export function buildPinnedCandidateList(
 
   switch (mode) {
     case "extension": {
-        const hostBrowserProxy = HostBrowserProxy.instance;
-        if (!hostBrowserProxy.hasExtensionClient(sourceActorPrincipalId)) {
-          throw new CdpError(
-            "transport_error",
-            `Pinned mode "extension" unavailable: no Chrome Extension connected`,
-            {
-              attemptDiagnostics: [
-                {
-                  candidateKind: "extension",
-                  inclusionReason: `pinned mode: extension`,
-                  stage: "candidate_selection",
-                  errorCode: "transport_error",
-                  errorMessage: "no Chrome Extension connected",
-                },
-              ],
-            },
-          );
-        }
-        return [
+      const hostBrowserProxy = HostBrowserProxy.instance;
+      if (!hostBrowserProxy.hasExtensionClient(sourceActorPrincipalId)) {
+        throw new CdpError(
+          "transport_error",
+          `Pinned mode "extension" unavailable: no Chrome Extension connected`,
+          {
+            attemptDiagnostics: [
+              {
+                candidateKind: "extension",
+                inclusionReason: `pinned mode: extension`,
+                stage: "candidate_selection",
+                errorCode: "transport_error",
+                errorMessage: "no Chrome Extension connected",
+              },
+            ],
+          },
+        );
+      }
+      return [
         {
           kind: "extension",
           reason: "pinned mode: extension",
@@ -429,7 +429,10 @@ export function buildPinnedCandidateList(
  *
  * Exported for testing.
  */
-export function buildCandidateList(context: ToolContext, targetClientId?: string): BackendCandidate[] {
+export function buildCandidateList(
+  context: ToolContext,
+  targetClientId?: string,
+): BackendCandidate[] {
   const { conversationId, sourceActorPrincipalId } = context;
   const candidates: BackendCandidate[] = [];
   const hostBrowserProxy = HostBrowserProxy.instance;
@@ -836,7 +839,10 @@ export function buildChainedClient(
       // Fresh client: route through the failover walk so the extension
       // backend is selected automatically. The Vellum.listTabs pseudo-method
       // is handled by the extension dispatcher before chrome.debugger.sendCommand.
-      const result = await scopedClient.send<{ tabs?: TabInfo[] }>("Vellum.listTabs", {});
+      const result = await scopedClient.send<{ tabs?: TabInfo[] }>(
+        "Vellum.listTabs",
+        {},
+      );
       if (!active?.client.listTabs) {
         // Backend became sticky but isn't an extension client — not supported.
         throw new CdpError(

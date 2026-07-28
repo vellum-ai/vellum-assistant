@@ -15,7 +15,10 @@ import {
   type AdmissionPolicy,
 } from "@vellumai/gateway-client";
 import { CHANNEL_IDS, type ChannelId } from "../channels/types.js";
-import { AdmissionPolicyStore, isExemptChannelType } from "./admission-policy-store.js";
+import {
+  AdmissionPolicyStore,
+  isExemptChannelType,
+} from "./admission-policy-store.js";
 
 /**
  * Per-channel default floors. Channels absent from this map default to
@@ -29,7 +32,9 @@ import { AdmissionPolicyStore, isExemptChannelType } from "./admission-policy-st
  * `ADMISSION_POLICY_DEFAULT` (`trusted_contacts`), default-denying unknown /
  * unverified inbound callers.
  */
-export const CHANNEL_ADMISSION_DEFAULTS: Partial<Record<ChannelId, AdmissionPolicy>> = {
+export const CHANNEL_ADMISSION_DEFAULTS: Partial<
+  Record<ChannelId, AdmissionPolicy>
+> = {
   vellum: "guardian_only",
 };
 

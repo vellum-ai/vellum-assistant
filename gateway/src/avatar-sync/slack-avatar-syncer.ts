@@ -51,7 +51,10 @@ export class SlackAvatarSyncer implements ChannelAvatarSyncer {
         return true;
       }
 
-      if (body.error === "missing_scope" || body.error === "not_allowed_token_type") {
+      if (
+        body.error === "missing_scope" ||
+        body.error === "not_allowed_token_type"
+      ) {
         log.warn(
           "Slack avatar sync requires a user token (xoxp) with the " +
             "'users.profile:write' scope — bot tokens (xoxb) cannot call " +

@@ -25,12 +25,10 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
-const { resolveLocalPrincipalTrustContext } = await import(
-  "../local-principal-trust.js"
-);
-const { resolveActorTrust, toTrustContext } = await import(
-  "../actor-trust-resolver.js"
-);
+const { resolveLocalPrincipalTrustContext } =
+  await import("../local-principal-trust.js");
+const { resolveActorTrust, toTrustContext } =
+  await import("../actor-trust-resolver.js");
 
 const SOURCE_CHANNEL: ChannelId = "vellum";
 const CONVERSATION_ID = "conv-1";

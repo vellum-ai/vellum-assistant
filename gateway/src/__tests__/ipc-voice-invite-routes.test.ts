@@ -55,9 +55,8 @@ const { contacts, contactChannels, ingressInvites } =
   await import("../db/schema.js");
 const { GatewayIpcServer } = await import("../ipc/server.js");
 const { inviteRoutes } = await import("../ipc/invite-handlers.js");
-const { inviteRow, seedVoiceInvite } = await import(
-  "./helpers/contact-fixtures.js"
-);
+const { inviteRow, seedVoiceInvite } =
+  await import("./helpers/contact-fixtures.js");
 
 // Short name: the workspace tmp prefix leaves little headroom under the
 // AF_UNIX socket-path length limit.

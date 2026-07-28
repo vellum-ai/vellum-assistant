@@ -70,7 +70,8 @@ afterEach(() => {
   delete process.env.VELLUM_FLAG_DEFAULT_MODEL;
 });
 
-const { isFeatureFlagEnabled, getFeatureFlagValue } = await import("../feature-flag-resolver.js");
+const { isFeatureFlagEnabled, getFeatureFlagValue } =
+  await import("../feature-flag-resolver.js");
 const { resetFeatureFlagDefaultsCache, _setRegistryCandidateOverrides } =
   await import("../feature-flag-defaults.js");
 const { clearFeatureFlagStoreCache, writeFeatureFlag } =
