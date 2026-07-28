@@ -55,9 +55,22 @@ let lockfileEntries: Record<string, { assistantId: string }> = {};
 const getLockfileAssistantMock = mock(
   (id: string): { assistantId: string } | undefined => lockfileEntries[id],
 );
+// The desktop (Electron) build reports local mode even for a managed hatch.
+let localMode = false;
+const saveLockfileAssistantMock = mock(async (_entry: unknown): Promise<void> =>
+  undefined,
+);
 mock.module("@/lib/local-mode", () => ({
   probeLocalGatewayReady: probeLocalGatewayReadyMock,
   getLockfileAssistant: getLockfileAssistantMock,
+  isLocalMode: () => localMode,
+  getPlatformRuntimeUrl: () => "https://runtime.example",
+  saveLockfileAssistant: saveLockfileAssistantMock,
+}));
+mock.module("@/stores/organization-store", () => ({
+  useOrganizationStore: {
+    getState: () => ({ currentOrganizationId: "org-1" }),
+  },
 }));
 mock.module("@/utils/api-errors", () => ({
   extractErrorMessage: (e: unknown, _r: unknown, fallback?: string) =>
@@ -89,8 +102,12 @@ const awaitPurchasedProvisioningMock = mock(
     return provisioningOutcome;
   },
 );
+// The hook reads the poll cadence and the wait ceiling from this module too
+// (single-sourced); a short interval keeps the poll-loop tests fast.
 mock.module("@/domains/onboarding/purchased-provisioning", () => ({
   awaitPurchasedProvisioning: awaitPurchasedProvisioningMock,
+  POLL_INTERVAL_MS: 10,
+  MAX_HATCH_WAIT_MS: 300_000,
 }));
 
 const seedHatchAvatarMock = mock(
@@ -116,12 +133,19 @@ beforeEach(() => {
   getAssistantResult = {
     ok: true,
     status: 200,
-    data: { id: "ast-research", status: "active", is_local: false } as never,
+    data: {
+      id: "ast-research",
+      name: "Research",
+      status: "active",
+      is_local: false,
+    } as never,
   };
   healthzResult = { ok: true, status: 200, data: {} as never };
   lockfileEntries = {};
+  localMode = false;
   provisioningOutcome = "ready";
   provisioningGate = null;
+  saveLockfileAssistantMock.mockClear();
   hatchAssistantMock.mockClear();
   getAssistantMock.mockClear();
   getAssistantHealthzMock.mockClear();
@@ -420,5 +444,117 @@ describe("useBackgroundHatch", () => {
     await waitFor(() => expect(existing.result.current.ready).toBe(true));
     // A returning user may have a real avatar; only a fresh hatch is seeded.
     expect(seedHatchAvatarMock).not.toHaveBeenCalled();
+  });
+
+  test("unmounting stops the assistant poll loop", async () => {
+    getAssistantResult = {
+      ok: true,
+      status: 200,
+      data: {
+        id: "ast-research",
+        status: "initializing",
+        is_local: false,
+      } as never,
+    };
+
+    const { result, unmount } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() =>
+      expect(getAssistantMock.mock.calls.length).toBeGreaterThanOrEqual(2),
+    );
+    unmount();
+    const callsAtUnmount = getAssistantMock.mock.calls.length;
+
+    // Leaving the funnel mid-hatch must not keep polling from a dead
+    // component: many poll intervals elapse here with no further calls.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(getAssistantMock.mock.calls.length).toBeLessThanOrEqual(
+      callsAtUnmount + 1,
+    );
+  });
+
+  test("unmounting cancels the purchased-provisioning wait without settling", async () => {
+    const release = holdProvisioning();
+
+    const { result, unmount } = renderHook(() =>
+      useBackgroundHatch({ postCheckoutReturn: true }),
+    );
+
+    let resolved: string | undefined;
+    act(() => {
+      void result.current.awaitReady().then((id) => {
+        resolved = id;
+      });
+      result.current.start();
+    });
+
+    await waitFor(() =>
+      expect(awaitPurchasedProvisioningMock).toHaveBeenCalledTimes(1),
+    );
+    const options = awaitPurchasedProvisioningMock.mock.calls[0][0] as {
+      isCancelled: () => boolean;
+      registerTimer?: (timer: ReturnType<typeof setTimeout> | null) => void;
+    };
+    expect(options.isCancelled()).toBe(false);
+    // The wait's own poll timer has to be clearable from the caller.
+    expect(typeof options.registerTimer).toBe("function");
+
+    unmount();
+    expect(options.isCancelled()).toBe(true);
+
+    // A cancelled wait still resolves "ready"; the hatch must not complete on
+    // it once the component is gone.
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(resolved).toBeUndefined();
+  });
+
+  test("a managed hatch in local mode records the assistant in the lockfile", async () => {
+    // The desktop build's assistant list and switcher are lockfile-driven, so
+    // a headless managed hatch has to register there like the foreground one.
+    localMode = true;
+
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(saveLockfileAssistantMock).toHaveBeenCalledTimes(1);
+    expect(saveLockfileAssistantMock.mock.calls[0][0]).toMatchObject({
+      assistantId: "ast-research",
+      name: "Research",
+      cloud: "vellum",
+      runtimeUrl: "https://runtime.example",
+      organizationId: "org-1",
+    });
+
+    // Adopting a foreground-hatched assistant is the hatching screen's own
+    // write; the background hatch must not duplicate it.
+    saveLockfileAssistantMock.mockClear();
+    const adopt = renderHook(() => useBackgroundHatch({ adoptExisting: true }));
+
+    act(() => {
+      adopt.result.current.start();
+    });
+
+    await waitFor(() => expect(adopt.result.current.ready).toBe(true));
+    expect(saveLockfileAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("a non-local build writes no lockfile entry", async () => {
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(saveLockfileAssistantMock).not.toHaveBeenCalled();
   });
 });

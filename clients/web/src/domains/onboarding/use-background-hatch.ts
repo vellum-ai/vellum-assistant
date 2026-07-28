@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   getAssistant,
@@ -14,29 +14,28 @@ import {
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
 import { seedHatchAvatar } from "@/assistant/seed-hatch-avatar";
-import { awaitPurchasedProvisioning } from "@/domains/onboarding/purchased-provisioning";
-import { getLockfileAssistant, probeLocalGatewayReady } from "@/lib/local-mode";
+import {
+  awaitPurchasedProvisioning,
+  MAX_HATCH_WAIT_MS,
+  POLL_INTERVAL_MS,
+} from "@/domains/onboarding/purchased-provisioning";
+import {
+  getLockfileAssistant,
+  getPlatformRuntimeUrl,
+  isLocalMode,
+  probeLocalGatewayReady,
+  saveLockfileAssistant,
+} from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
+import { useOrganizationStore } from "@/stores/organization-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { randomCharacterTraits } from "@/utils/avatar-random";
-
-// Mirrors the poll/backoff constants in
-// `@/domains/onboarding/pages/hatching-screen.tsx`. The research-onboarding
-// flow kicks this hatch off in the background the moment the user lands on the
-// onboarding page, so by the time they finish the intro/pitch steps and submit
-// their details the assistant is (usually) already healthy and the flow can
-// immediately fire its research turn.
-const POLL_INTERVAL_MS = 3000;
-const MAX_HATCH_WAIT_MS = 300_000;
 
 const GENERIC_HATCH_ERROR =
   "Failed to start your assistant. Please try again.";
 const TIMEOUT_ERROR =
   "Your assistant is taking longer than expected. Please try again.";
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface UseBackgroundHatch {
   /** Fire the hatch. Idempotent — only the first call provisions. */
@@ -105,6 +104,10 @@ export interface UseBackgroundHatchOptions {
  * Terminal failures (platform-hosted disabled, non-recoverable hatch errors,
  * lifecycle errors, timeout) set `error` and reject `awaitReady()`.
  * Recoverable failures (5xx / network) keep polling.
+ *
+ * Unmounting aborts the sequence: every loop and the purchased-provisioning
+ * wait stop at their next check and the pending poll timer is cleared, so
+ * leaving the funnel mid-hatch doesn't keep polling from a dead component.
  */
 export function useBackgroundHatch(
   {
@@ -129,6 +132,24 @@ export function useBackgroundHatch(
   const settledRef = useRef<
     { kind: "ready"; id: string } | { kind: "error"; message: string } | null
   >(null);
+  // The hatch sequence outlives a render by minutes (a 90s purchased-resize
+  // hold, a 300s health poll), so unmount has to stop it: every loop and the
+  // provisioning wait check this, and the pending poll timer is cleared.
+  const abortedRef = useRef(false);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // Reset on (re)mount so StrictMode's simulated unmount doesn't abort the
+    // hatch its own second mount is about to keep running.
+    abortedRef.current = false;
+    return () => {
+      abortedRef.current = true;
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const settleReady = useCallback((id: string) => {
     if (settledRef.current) return;
@@ -153,6 +174,15 @@ export function useBackgroundHatch(
 
     const startMs = Date.now();
     const timedOut = () => Date.now() - startMs >= MAX_HATCH_WAIT_MS;
+    // Parks the pending handle so unmount can clear it; an aborted sleep never
+    // resumes, which is how the loops stop mid-wait.
+    const sleep = (ms: number): Promise<void> =>
+      new Promise((resolve) => {
+        pollTimerRef.current = setTimeout(() => {
+          pollTimerRef.current = null;
+          resolve();
+        }, ms);
+      });
 
     void (async () => {
       // 0. Adopt straight from the lockfile when the handed-off id resolves.
@@ -200,9 +230,10 @@ export function useBackgroundHatch(
           if (result.ok) {
             hatchedAssistantId = result.data.id;
             setAssistantId(result.data.id);
-            // The Dock/tray icons are avatar-driven, so a freshly hatched (201)
-            // assistant needs seeded traits — parity with the foreground hatch.
-            // Fire-and-forget; the research face step overwrites them later.
+            // Seed a freshly hatched (201) assistant's traits — parity with the
+            // foreground hatch. Paid-only because the free research hatch must
+            // stay byte-identical to today, adding no writes it doesn't already
+            // make. Fire-and-forget; the research face step overwrites later.
             if (postCheckoutReturn && result.status === 201) {
               void seedHatchAvatar(
                 result.data.id,
@@ -232,21 +263,39 @@ export function useBackgroundHatch(
       // 2. Poll until the assistant reports `active`.
       let activeAssistantId: string | undefined;
       while (!activeAssistantId) {
+        if (abortedRef.current) return;
         if (timedOut()) {
           settleError(TIMEOUT_ERROR);
           return;
         }
         try {
           let result = await getAssistant(hatchedAssistantId);
+          if (abortedRef.current) return;
           // A stale hatched id (404) falls back to list-based discovery.
           if (hatchedAssistantId && !result.ok && result.status === 404) {
             hatchedAssistantId = undefined;
             result = await getAssistant();
+            if (abortedRef.current) return;
           }
           const state = resolveAssistantLifecycleState(result);
           if (state.kind === "active" && result.ok) {
             activeAssistantId = result.data.id;
             setAssistantId(activeAssistantId);
+            // Mirrors the hatching screen: on the desktop build the assistant
+            // list and switcher are lockfile-driven, so a managed assistant
+            // hatched headlessly here would otherwise be missing from them.
+            if (!adoptExisting && isLocalMode()) {
+              void saveLockfileAssistant({
+                assistantId: activeAssistantId,
+                name: result.data.name,
+                cloud: "vellum",
+                runtimeUrl: getPlatformRuntimeUrl(),
+                hatchedAt: new Date().toISOString(),
+                organizationId:
+                  useOrganizationStore.getState().currentOrganizationId ??
+                  undefined,
+              });
+            }
             break;
           }
           if (state.kind === "error") {
@@ -273,6 +322,7 @@ export function useBackgroundHatch(
       // still being alive.
       if (adoptExisting) {
         while (!(await probeLocalGatewayReady())) {
+          if (abortedRef.current) return;
           if (timedOut()) {
             settleError(TIMEOUT_ERROR);
             return;
@@ -281,8 +331,10 @@ export function useBackgroundHatch(
         }
       } else {
         while (true) {
+          if (abortedRef.current) return;
           try {
             const health = await getAssistantHealthz(activeAssistantId);
+            if (abortedRef.current) return;
             if (health.ok) break;
           } catch {
             // Daemon not reachable yet.
@@ -294,6 +346,7 @@ export function useBackgroundHatch(
           await sleep(POLL_INTERVAL_MS);
         }
       }
+      if (abortedRef.current) return;
 
       // 4. On a paid return, hold `ready` until the purchased resize converges.
       //
@@ -303,11 +356,17 @@ export function useBackgroundHatch(
       if (!adoptExisting && postCheckoutReturn) {
         const outcome = await awaitPurchasedProvisioning({
           assistantId: activeAssistantId,
-          postCheckoutReturn: true,
+          postCheckoutReturn,
           managedHatch: true,
           hatchStartMs: startMs,
-          isCancelled: () => settledRef.current?.kind === "error",
+          isCancelled: () => abortedRef.current,
+          registerTimer: (timer) => {
+            pollTimerRef.current = timer;
+          },
         });
+        // A cancelled wait also returns "ready" — the component is gone, so
+        // leave the hatch unsettled rather than completing into nothing.
+        if (abortedRef.current) return;
         if (outcome === "health_timeout") {
           // The assistant never answered healthz after the resize; completing
           // would hand the user an unreachable assistant.
