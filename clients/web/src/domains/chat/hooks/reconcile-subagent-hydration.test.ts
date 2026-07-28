@@ -5,6 +5,7 @@ import { reconcileSubagentStoreFromNotifications } from "@/domains/chat/hooks/re
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 
 const NOW = 1700000000000;
+const PARENT = "conv-parent";
 
 function store() {
   return useSubagentStore.getState();
@@ -32,6 +33,7 @@ describe("reconcileSubagentStoreFromNotifications", () => {
     reconcileSubagentStoreFromNotifications(
       store(),
       [{ subagentId: "done", label: "done", status: "completed" }],
+      PARENT,
       NOW,
     );
     expect(store().byId["live"]?.status).toBe("running"); // live preserved
@@ -43,6 +45,7 @@ describe("reconcileSubagentStoreFromNotifications", () => {
     reconcileSubagentStoreFromNotifications(
       store(),
       [{ subagentId: "new", label: "new", status: "completed" }],
+      PARENT,
       NOW,
     );
     expect(store().byId["old"]).toBeUndefined(); // reset cleared it
@@ -61,10 +64,75 @@ describe("reconcileSubagentStoreFromNotifications", () => {
           conversationId: "conv-x",
         },
       ],
+      PARENT,
       NOW,
     );
     expect(store().byId["sub"]).toBeDefined();
     expect(store().byId["sub"]?.status).toBe("completed");
     expect(store().byId["sub"]?.conversationId).toBe("conv-x");
+  });
+
+  test("stamps the child id from the notification and the parent id from the arg on a fresh spawn", () => {
+    reconcileSubagentStoreFromNotifications(
+      store(),
+      [
+        {
+          subagentId: "fresh",
+          label: "fresh",
+          status: "running",
+          conversationId: "conv-child",
+        },
+      ],
+      PARENT,
+      NOW,
+    );
+
+    const entry = store().byId["fresh"]!;
+    expect(entry.conversationId).toBe("conv-child");
+    expect(entry.parentConversationId).toBe(PARENT);
+  });
+
+  test("stamps the parent id on a live entry via the merge path", () => {
+    spawn("sub", "running");
+    reconcileSubagentStoreFromNotifications(
+      store(),
+      [{ subagentId: "sub", label: "sub", status: "running" }],
+      PARENT,
+      NOW,
+    );
+
+    expect(store().byId["sub"]?.parentConversationId).toBe(PARENT);
+  });
+
+  test("an out-of-enum status leaves a live entry's status alone", () => {
+    spawn("sub", "running");
+    reconcileSubagentStoreFromNotifications(
+      store(),
+      [
+        {
+          subagentId: "sub",
+          label: "sub",
+          status: "bogus",
+          conversationId: "conv-child",
+        },
+      ],
+      PARENT,
+      NOW,
+    );
+
+    expect(store().byId["sub"]?.status).toBe("running");
+    expect(store().byId["sub"]?.conversationId).toBe("conv-child");
+    expect(store().byId["sub"]?.parentConversationId).toBe(PARENT);
+  });
+
+  test("an out-of-enum status falls back to completed on a fresh spawn", () => {
+    reconcileSubagentStoreFromNotifications(
+      store(),
+      [{ subagentId: "hist", label: "hist", status: "bogus" }],
+      PARENT,
+      NOW,
+    );
+
+    expect(store().byId["hist"]?.status).toBe("completed");
   });
 });

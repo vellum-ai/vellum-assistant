@@ -1,6 +1,21 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it, mock } from "bun:test";
 import type { SubagentInnerEvent } from "@vellumai/assistant-api";
-import { useSubagentStore } from "@/domains/chat/subagent-store";
+
+let selfLookupSupported = true;
+mock.module("@/lib/backwards-compat/subagent-detail-self-lookup", () => ({
+  supportsSubagentDetailSelfLookup: () => selfLookupSupported,
+}));
+
+const fetchSubagentDetail = mock(
+  async (
+    _assistantId: string,
+    _subagentId: string,
+    _conversationId: string,
+  ): Promise<null> => null,
+);
+mock.module("./fetch-subagent-detail", () => ({ fetchSubagentDetail }));
+
+const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -14,6 +29,8 @@ const NOW = 1700000000000;
 
 beforeEach(() => {
   getState().reset();
+  selfLookupSupported = true;
+  fetchSubagentDetail.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -147,6 +164,64 @@ describe("spawnSubagent", () => {
     const state = getState();
     expect(state.orderedIds).toEqual(["sa-a", "sa-b", "sa-c"]);
     expect(Object.keys(state.byId)).toHaveLength(3);
+  });
+
+  it("stores the parent conversation id separately from the child one", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-parented",
+      label: "Agent",
+      objective: "",
+      conversationId: "conv-child",
+      parentConversationId: "conv-parent",
+      timestamp: NOW,
+    });
+
+    const entry = getState().byId["sa-parented"]!;
+    expect(entry.conversationId).toBe("conv-child");
+    expect(entry.parentConversationId).toBe("conv-parent");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// setParentConversationId
+// ---------------------------------------------------------------------------
+
+describe("setParentConversationId", () => {
+  it("stamps the parent conversation id without touching the child one", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-p",
+      label: "Agent",
+      objective: "",
+      conversationId: "conv-child",
+      timestamp: NOW,
+    });
+
+    getState().setParentConversationId("sa-p", "conv-parent");
+
+    const entry = getState().byId["sa-p"]!;
+    expect(entry.parentConversationId).toBe("conv-parent");
+    expect(entry.conversationId).toBe("conv-child");
+  });
+
+  it("no-ops for an unknown subagent id", () => {
+    getState().setParentConversationId("sa-missing", "conv-parent");
+
+    expect(getState().byId["sa-missing"]).toBeUndefined();
+  });
+
+  it("preserves entry identity when the value is unchanged", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-same",
+      label: "Agent",
+      objective: "",
+      parentConversationId: "conv-parent",
+      timestamp: NOW,
+    });
+    const before = getState().byId["sa-same"]!;
+
+    getState().setParentConversationId("sa-same", "conv-parent");
+
+    expect(getState().byId["sa-same"]).toBe(before);
   });
 });
 
@@ -1394,12 +1469,58 @@ describe("ensureEntry", () => {
     getState().ensureEntry({
       subagentId: "sa-1",
       timestamp: NOW,
-      conversationId: "conv-parent",
+      conversationId: "conv-child",
     });
 
     const entry = getState().byId["sa-1"];
-    expect(entry?.conversationId).toBe("conv-parent");
+    expect(entry?.conversationId).toBe("conv-child");
     expect(entry?.hydrationPending).toBe(true);
+  });
+
+  it("arms on the child id even on a pre-0.10.13 daemon", () => {
+    // The child id addresses the subagent's own conversation, so an old
+    // daemon trusting it verbatim still parses the right messages.
+    selfLookupSupported = false;
+
+    getState().ensureEntry({
+      subagentId: "sa-1",
+      timestamp: NOW,
+      conversationId: "conv-child",
+      parentConversationId: "conv-parent",
+    });
+
+    const entry = getState().byId["sa-1"];
+    expect(entry?.conversationId).toBe("conv-child");
+    expect(entry?.parentConversationId).toBe("conv-parent");
+    expect(entry?.hydrationPending).toBe(true);
+  });
+
+  it("arms on a parent-only stub without polluting the child field", () => {
+    getState().ensureEntry({
+      subagentId: "sa-1",
+      timestamp: NOW,
+      parentConversationId: "conv-parent",
+    });
+
+    const entry = getState().byId["sa-1"];
+    expect(entry?.parentConversationId).toBe("conv-parent");
+    expect(entry?.conversationId).toBeUndefined();
+    expect(entry?.hydrationPending).toBe(true);
+  });
+
+  it("leaves a parent-only stub un-armed on a pre-0.10.13 daemon", () => {
+    selfLookupSupported = false;
+
+    getState().ensureEntry({
+      subagentId: "sa-1",
+      timestamp: NOW,
+      parentConversationId: "conv-parent",
+    });
+
+    const entry = getState().byId["sa-1"];
+    expect(entry?.parentConversationId).toBe("conv-parent");
+    expect(entry?.conversationId).toBeUndefined();
+    expect(entry?.hydrationPending).toBeUndefined();
   });
 
   it("is a no-op when the entry already exists", () => {
@@ -1446,7 +1567,7 @@ describe("hydrationPending", () => {
     getState().ensureEntry({
       subagentId: "sa-1",
       timestamp: NOW,
-      conversationId: "conv-parent",
+      conversationId: "conv-child",
     });
 
     getState().receiveEvent({
@@ -1462,7 +1583,7 @@ describe("hydrationPending", () => {
     getState().ensureEntry({
       subagentId: "sa-1",
       timestamp: NOW,
-      conversationId: "conv-parent",
+      conversationId: "conv-child",
     });
 
     getState().loadDetail({ subagentId: "sa-1", events: [] });
@@ -1487,7 +1608,7 @@ describe("loadDetail identity backfill", () => {
     getState().ensureEntry({
       subagentId: "sa-1",
       timestamp: NOW,
-      conversationId: "conv-parent",
+      conversationId: "conv-child",
     });
 
     getState().loadDetail({
@@ -1539,5 +1660,63 @@ describe("loadDetail identity backfill", () => {
 
     expect(getState().byId["sa-1"]?.parentToolUseId).toBe("toolu_original");
     expect(getState().byToolUseId).toBe(byToolUseIdBefore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchDetailIfNeeded — which conversation id addresses the subagent
+// ---------------------------------------------------------------------------
+
+describe("fetchDetailIfNeeded conversation id", () => {
+  it("queries with the child id when the entry knows it", async () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "",
+      conversationId: "conv-child",
+      parentConversationId: "conv-parent",
+      timestamp: NOW,
+    });
+
+    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+
+    expect(fetchSubagentDetail).toHaveBeenCalledWith(
+      "assistant-1",
+      "sa-1",
+      "conv-child",
+    );
+  });
+
+  it("falls back to the parent id only on a self-lookup daemon", async () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "",
+      parentConversationId: "conv-parent",
+      timestamp: NOW,
+    });
+
+    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+
+    expect(fetchSubagentDetail).toHaveBeenCalledWith(
+      "assistant-1",
+      "sa-1",
+      "conv-parent",
+    );
+  });
+
+  it("does not fetch with a parent-only entry on a pre-0.10.13 daemon", async () => {
+    selfLookupSupported = false;
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "",
+      parentConversationId: "conv-parent",
+      timestamp: NOW,
+    });
+
+    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+
+    expect(fetchSubagentDetail).not.toHaveBeenCalled();
   });
 });
