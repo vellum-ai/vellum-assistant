@@ -9,7 +9,7 @@ import {
   recordCallEvent,
   updateCallSession,
 } from "../calls/call-store.js";
-import { getMessages } from "../persistence/conversation-crud.js";
+import { addMessage, getMessages } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations } from "../persistence/schema/index.js";
@@ -215,5 +215,28 @@ describe("call-conversation-messages", () => {
 
     const blocks = getLatestAssistantBlocks(conversationId);
     expect(contentBlockArraySchema.safeParse(blocks).success).toBe(true);
+  });
+
+  test("persisting a card-only message throws in tests (model-invisible guard)", async () => {
+    // The guard in `insertMessageCore` is what stops LUM-2869 recurring: a
+    // producer that persists a card with no model-readable sibling fails its
+    // own suite instead of silently shipping turns the model cannot see.
+    // (In production the same condition only warns — never-block posture.)
+    const conversationId = "conv-card-only-guard";
+    ensureConversation(conversationId);
+    await expect(
+      addMessage(
+        conversationId,
+        "assistant",
+        JSON.stringify([
+          {
+            type: "ui_surface",
+            surfaceId: "bare-1",
+            surfaceType: "call_summary",
+            data: { summaryText: "orphaned card" },
+          },
+        ]),
+      ),
+    ).rejects.toThrow(/only content is ui_surface/);
   });
 });
