@@ -337,6 +337,37 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(player.isPlaying).toBe(true);
   });
 
+  test("reports the decoded buffer schedule and cancellation without changing playback", () => {
+    const observerEvents: string[] = [];
+    const observedContext = new MockAudioContext();
+    const observedPlayer = new LiveVoiceAudioPlayer({
+      audioContextFactory: () =>
+        observedContext as unknown as AudioContextLike,
+      playbackObserver: {
+        onBufferScheduled: ({ id, buffer, delaySeconds }) => {
+          observerEvents.push(
+            `scheduled:${id}:${buffer.length}:${delaySeconds}`,
+          );
+        },
+        onBufferEnded: ({ id, state }) => {
+          observerEvents.push(`ended:${id}:${state}`);
+        },
+      },
+    });
+
+    observedPlayer.enqueue({
+      ...chunk([1, 2, 3, 4], 4),
+      id: "tts-7",
+    });
+    observedPlayer.stop();
+
+    expect(observedContext.sources[0]!.startedAt).toBe(0);
+    expect(observerEvents).toEqual([
+      "scheduled:tts-7:4:0",
+      "ended:tts-7:cancelled",
+    ]);
+  });
+
   test("never schedules in the past after the queue lags currentTime", () => {
     player.enqueue(chunk(new Array(24000).fill(1))); // 1.0s buffer at t=0
     // Advance the clock past the scheduled tail, then enqueue again.

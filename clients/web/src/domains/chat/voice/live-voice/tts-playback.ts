@@ -44,6 +44,8 @@ import { isNativeIOS } from "@/runtime/platform-detection";
 
 /** A single TTS audio frame as delivered by the live-voice channel. */
 export interface TtsAudioChunk {
+  /** Capture/debug identifier for this wire chunk. */
+  id?: string;
   /**
    * Base64-encoded audio payload. For `audio/pcm` this is raw little-endian
    * 16-bit PCM samples; for container formats it is the encoded container bytes.
@@ -56,6 +58,19 @@ export interface TtsAudioChunk {
   sampleRate: number;
   /** MIME type of the audio payload (e.g. "audio/pcm", "audio/wav"). */
   mimeType: string;
+}
+
+export interface LiveVoiceAudioPlaybackObserver {
+  onBufferScheduled?(event: {
+    id: string;
+    buffer: AudioBuffer;
+    delaySeconds: number;
+  }): void;
+  onBufferEnded?(event: {
+    id: string;
+    state: "completed" | "cancelled";
+    delaySeconds: number;
+  }): void;
 }
 
 /**
@@ -209,11 +224,13 @@ export class LiveVoiceAudioPlayer {
   private readonly createContext: AudioContextFactory;
   private readonly useMediaStreamOutput: boolean;
   private readonly createMediaStreamPlaybackElement: MediaStreamPlaybackElementFactory;
+  private readonly playbackObserver?: LiveVoiceAudioPlaybackObserver;
   private context: AudioContextLike | null = null;
   private mediaStreamOutput: MediaStreamOutputRoute | null = null;
 
   /** Sources currently scheduled (playing or pending). */
-  private activeSources = new Set<AudioBufferSourceNode>();
+  private activeSources = new Map<AudioBufferSourceNode, { id: string }>();
+  private chunkSequence = 0;
 
   /**
    * Absolute `AudioContext.currentTime` at which the next buffer should begin.
@@ -281,6 +298,7 @@ export class LiveVoiceAudioPlayer {
     audioContextFactory?: AudioContextFactory;
     useMediaStreamOutput?: boolean;
     mediaStreamPlaybackElementFactory?: MediaStreamPlaybackElementFactory;
+    playbackObserver?: LiveVoiceAudioPlaybackObserver;
   }) {
     this.createContext =
       options?.audioContextFactory ?? defaultAudioContextFactory;
@@ -288,6 +306,7 @@ export class LiveVoiceAudioPlayer {
     this.createMediaStreamPlaybackElement =
       options?.mediaStreamPlaybackElementFactory ??
       defaultMediaStreamPlaybackElementFactory;
+    this.playbackObserver = options?.playbackObserver;
   }
 
   /** Whether any audio is scheduled, playing, or still decoding. */
@@ -341,7 +360,7 @@ export class LiveVoiceAudioPlayer {
     const buffer = context.createBuffer(1, samples.length, chunk.sampleRate);
     buffer.getChannelData(0).set(samples);
 
-    this.scheduleBuffer(context, buffer);
+    this.scheduleBuffer(context, buffer, this.chunkId(chunk));
   }
 
   /**
@@ -389,7 +408,7 @@ export class LiveVoiceAudioPlayer {
         ) {
           return;
         }
-        this.scheduleBuffer(context, buffer);
+        this.scheduleBuffer(context, buffer, this.chunkId(chunk));
       } finally {
         // A stop() between start and resolution already zeroed the counter (and
         // resolved drain); skip the accounting so we don't go negative.
@@ -404,7 +423,11 @@ export class LiveVoiceAudioPlayer {
   }
 
   /** Connect a decoded buffer to the destination and start it gaplessly. */
-  private scheduleBuffer(context: AudioContextLike, buffer: AudioBuffer): void {
+  private scheduleBuffer(
+    context: AudioContextLike,
+    buffer: AudioBuffer,
+    id: string,
+  ): void {
     const source = context.createBufferSource();
     source.buffer = buffer;
 
@@ -423,10 +446,17 @@ export class LiveVoiceAudioPlayer {
     this.playheadTime = startAt + buffer.duration;
     this.totalScheduledSeconds += buffer.duration;
 
-    this.activeSources.add(source);
+    this.activeSources.set(source, { id });
     source.onended = () => {
       this.handleSourceEnded(source);
     };
+    this.notifyPlaybackObserver(() => {
+      this.playbackObserver?.onBufferScheduled?.({
+        id,
+        buffer,
+        delaySeconds: startAt - context.currentTime,
+      });
+    });
 
     this.playingState = true;
   }
@@ -445,10 +475,17 @@ export class LiveVoiceAudioPlayer {
    */
   stop(): void {
     this.generation += 1;
-    for (const source of this.activeSources) {
+    for (const [source, scheduled] of this.activeSources) {
       // Detach the handler first so stop() doesn't re-enter handleSourceEnded
       // mid-iteration as we mutate the set.
       source.onended = null;
+      this.notifyPlaybackObserver(() => {
+        this.playbackObserver?.onBufferEnded?.({
+          id: scheduled.id,
+          state: "cancelled",
+          delaySeconds: 0,
+        });
+      });
       try {
         source.stop();
       } catch {
@@ -666,11 +703,35 @@ export class LiveVoiceAudioPlayer {
   }
 
   private handleSourceEnded(source: AudioBufferSourceNode): void {
-    if (!this.activeSources.delete(source)) {
+    const scheduled = this.activeSources.get(source);
+    if (!scheduled) {
       return;
     }
+    this.activeSources.delete(source);
+    this.notifyPlaybackObserver(() => {
+      this.playbackObserver?.onBufferEnded?.({
+        id: scheduled.id,
+        state: "completed",
+        delaySeconds: 0,
+      });
+    });
     source.disconnect();
     this.settleIfIdle();
+  }
+
+  private chunkId(chunk: TtsAudioChunk): string {
+    return chunk.id ?? `tts-${++this.chunkSequence}`;
+  }
+
+  private notifyPlaybackObserver(callback: () => void): void {
+    try {
+      callback();
+    } catch (error) {
+      console.warn(
+        "[LiveVoiceAudioPlayer] playback observer failed; continuing playback",
+        error,
+      );
+    }
   }
 
   /**

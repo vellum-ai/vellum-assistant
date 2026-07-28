@@ -93,6 +93,7 @@ import {
   LiveVoiceAudioPlayer,
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
+import { VoiceDemoCaptureSession } from "@/domains/chat/voice/live-voice/voice-demo-capture";
 import {
   isLiveVoiceSessionActive,
   minimizeVoiceRoom,
@@ -219,6 +220,7 @@ interface SessionContext {
   client: LiveVoiceChannelClient;
   capture: LiveVoiceAudioCapture;
   player: LiveVoiceAudioPlayer;
+  demoCapture: VoiceDemoCaptureSession | null;
   /** Unsubscribe callbacks for the client event handlers. */
   unsubscribes: Array<() => void>;
   /** Monotonic id; a stale callback whose generation differs is ignored. */
@@ -252,6 +254,10 @@ interface SessionContext {
   forwardingAudio: boolean;
   /** Whether the assistant has sent any TTS audio for the current response. */
   responseAudioStarted: boolean;
+  /** Server turn currently producing assistant text/audio. */
+  currentTurnId: string | null;
+  /** Local speech interval used when manual mode has no server VAD events. */
+  manualSpeechOpen: boolean;
   /**
    * Monotonic counter bumped on every transition into `thinking` (server
    * frame, or hands-free stt-final); identifies which response owns the state.
@@ -342,6 +348,7 @@ export function useLiveVoice(
   const error = useLiveVoiceStore.use.error();
 
   const sessionRef = useRef<SessionContext | null>(null);
+  const demoCaptureRef = useRef<VoiceDemoCaptureSession | null>(null);
 
   // Monotonic count of `start()` calls for this hook instance. `stop()`
   // captures it before its awaits and skips its trailing store reset when a
@@ -420,6 +427,14 @@ export function useLiveVoice(
     disposeStandbyPlayer();
   }, [clearReconnectTimer, disposeStandbyPlayer]);
 
+  const finalizeDemoCapture = useCallback(() => {
+    const demoCapture = demoCaptureRef.current;
+    demoCaptureRef.current = null;
+    if (demoCapture) {
+      void demoCapture.finalizeAndExport();
+    }
+  }, []);
+
   /**
    * Tear down the active session's primitives, clear the ref, and reset the
    * store to idle.
@@ -448,12 +463,14 @@ export function useLiveVoice(
       if (useLiveVoiceStore.getState().state !== "idle") {
         useLiveVoiceStore.getState().reset();
       }
+      finalizeDemoCapture();
       return;
     }
     sessionRef.current = null;
     disposeSessionPrimitives(session);
+    finalizeDemoCapture();
     useLiveVoiceStore.getState().reset();
-  }, [cancelPendingConnection]);
+  }, [cancelPendingConnection, finalizeDemoCapture]);
 
   const stop = useCallback(async () => {
     // A user-initiated stop ends the session outright — drop any pending
@@ -465,6 +482,7 @@ export function useLiveVoice(
     const session = sessionRef.current;
     if (!session) {
       useLiveVoiceStore.getState().reset();
+      finalizeDemoCapture();
       return;
     }
     const startGeneration = startGenerationRef.current;
@@ -478,12 +496,13 @@ export function useLiveVoice(
     // Release the AudioContext, not just the scheduled sources (see teardown).
     await session.player.dispose();
     await session.capture.shutdown();
+    finalizeDemoCapture();
     // A start() that raced the awaits owns the store now (e.g. a second ✕
     // click resets `ending` → idle mid-await, unblocking start()); wiping it
     // here would leave that session's mic hot behind idle UI.
     if (startGenerationRef.current !== startGeneration) return;
     useLiveVoiceStore.getState().reset();
-  }, [cancelPendingConnection]);
+  }, [cancelPendingConnection, finalizeDemoCapture]);
 
   /**
    * Manual turn release ("send now"). Guarded to `listening` so a stray click
@@ -560,7 +579,26 @@ export function useLiveVoice(
   const createPlayer = useCallback(
     () =>
       (
-        optionsRef.current.createPlayer ?? (() => new LiveVoiceAudioPlayer())
+        optionsRef.current.createPlayer ??
+        (() =>
+          new LiveVoiceAudioPlayer({
+            playbackObserver: {
+              onBufferScheduled: ({ id, buffer, delaySeconds }) => {
+                demoCaptureRef.current?.recordAssistantBufferScheduled({
+                  id,
+                  buffer,
+                  delaySeconds,
+                });
+              },
+              onBufferEnded: ({ id, state, delaySeconds }) => {
+                demoCaptureRef.current?.recordAssistantBufferEnded({
+                  id,
+                  state,
+                  delaySeconds,
+                });
+              },
+            },
+          }))
       )(),
     [],
   );
@@ -665,12 +703,15 @@ export function useLiveVoice(
         capture: undefined as unknown as LiveVoiceAudioCapture,
         capturePromise: undefined as unknown as Promise<LiveVoiceCaptureResult>,
         player,
+        demoCapture: demoCaptureRef.current,
         unsubscribes: [],
         generation: 0,
         handsFree: startOptions.handsFree === true,
         captureRunning: false,
         forwardingAudio: false,
         responseAudioStarted: false,
+        currentTurnId: null,
+        manualSpeechOpen: false,
         responseEpoch: 0,
         interruptSent: false,
         releaseInFlight: false,
@@ -687,6 +728,12 @@ export function useLiveVoice(
         opts.createCapture ?? ((o) => new LiveVoiceAudioCapture(o))
       )({
         onChunk: (buf) => handleChunk(session, buf),
+        ...(session.demoCapture
+          ? {
+              onCapturedChunk: (buf: ArrayBuffer) =>
+                session.demoCapture?.recordMicrophoneChunk(buf),
+            }
+          : {}),
         onAmplitude: (amplitude) =>
           handleAmplitude(session, amplitude, teardown),
       });
@@ -733,15 +780,24 @@ export function useLiveVoice(
           useLiveVoiceStore.getState().setConversationId(frame.conversationId);
           void finishCaptureStartup(session, teardown);
         }),
-        client.on("speechStarted", () => {
+        client.on("speechStarted", (frame) => {
           if (!live() || !session.handsFree) return;
           // Server VAD heard the user: flush tail playback unconditionally
           // (even mid-`thinking`, when no cancellation follows) and open the
           // next utterance. Speech resuming inside a HELD utterance (semantic
           // endpointing suppressed the boundary) re-fires speech_started for
           // the same utterance — its finalized transcript prefix must stay.
-          if (!session.utteranceOpen) {
+          const opensUtterance = !session.utteranceOpen;
+          if (opensUtterance) {
             useLiveVoiceStore.getState().clearUserTranscripts();
+            session.demoCapture?.recordUserSpeechStarted(
+              `utterance-${frame.seq}`,
+            );
+          }
+          if (session.player.isPlaying) {
+            session.demoCapture?.recordInterruptionStarted(
+              session.currentTurnId ?? undefined,
+            );
           }
           session.utteranceOpen = true;
           flushPlaybackToListening(session);
@@ -749,6 +805,7 @@ export function useLiveVoice(
         client.on("utteranceEnd", () => {
           if (!live() || !session.handsFree) return;
           session.utteranceOpen = false;
+          session.demoCapture?.recordUserSpeechEnded();
           // End of user speech: stamp the client-heard latency start; the
           // response's first tts_audio consumes it (see
           // beginAssistantAudioIfNeeded). Manual mode stamps at the
@@ -760,6 +817,7 @@ export function useLiveVoice(
         client.on("utteranceDiscarded", () => {
           if (!live() || !session.handsFree) return;
           session.utteranceOpen = false;
+          session.demoCapture?.recordUserSpeechEnded();
           // The discarded utterance never becomes a turn — drop its
           // end-of-speech stamp so it can't pair with a later turn's audio.
           session.speechEndedAtMs = null;
@@ -772,6 +830,7 @@ export function useLiveVoice(
         }),
         client.on("sttPartial", (frame) => {
           if (!live()) return;
+          session.demoCapture?.recordUserTranscriptPartial(frame.text);
           const s = useLiveVoiceStore.getState();
           s.setPartialTranscript(frame.text);
           // Manual mode: only while still forwarding (the user's turn) does a
@@ -784,6 +843,7 @@ export function useLiveVoice(
         }),
         client.on("sttFinal", (frame) => {
           if (!live()) return;
+          session.demoCapture?.recordUserTranscriptFinal(frame.text);
           const s = useLiveVoiceStore.getState();
           s.setFinalTranscript(frame.text);
           s.setPartialTranscript("");
@@ -818,8 +878,10 @@ export function useLiveVoice(
           }
           s.setState("thinking");
         }),
-        client.on("thinking", () => {
+        client.on("thinking", (frame) => {
           if (!live()) return;
+          session.currentTurnId = frame.turnId;
+          session.demoCapture?.recordRequestStarted(frame.turnId);
           // New response: reset the per-response transcript and barge-in flags.
           session.responseEpoch += 1;
           session.responseAudioStarted = false;
@@ -849,6 +911,12 @@ export function useLiveVoice(
           // or drag the flushed `listening` back to `thinking`; like
           // `ttsAudio` below, the guard lifts on the next turn.
           if (session.interruptSent) return;
+          if (session.currentTurnId) {
+            session.demoCapture?.recordAssistantTextDelta(
+              session.currentTurnId,
+              frame.text,
+            );
+          }
           const s = useLiveVoiceStore.getState();
           s.appendAssistantTranscript(frame.text);
           const phase = s.state;
@@ -864,7 +932,16 @@ export function useLiveVoice(
           // stt-final reset `interruptSent`).
           if (session.interruptSent) return;
           beginAssistantAudioIfNeeded(session);
+          const chunkId = `tts-${frame.seq}`;
+          session.demoCapture?.recordTtsChunkReceived({
+            id: chunkId,
+            turnId: session.currentTurnId,
+            sampleRate: frame.sampleRate,
+            mimeType: frame.mimeType,
+            byteLength: base64ByteLength(frame.dataBase64),
+          });
           const chunk: TtsAudioChunk = {
+            id: chunkId,
             dataBase64: frame.dataBase64,
             sampleRate: frame.sampleRate,
             mimeType: frame.mimeType,
@@ -876,8 +953,9 @@ export function useLiveVoice(
           markAssistantAudioActive(session);
           useLiveVoiceStore.getState().setState("speaking");
         }),
-        client.on("ttsDone", () => {
+        client.on("ttsDone", (frame) => {
           if (!live()) return;
+          session.demoCapture?.recordAssistantTextFinal(frame.turnId);
           void finishResponseAfterPlayback(session, teardown);
         }),
         client.on("minimizeRoom", () => {
@@ -897,8 +975,9 @@ export function useLiveVoice(
             minimizeVoiceRoom();
           });
         }),
-        client.on("turnCancelled", () => {
+        client.on("turnCancelled", (frame) => {
           if (!live() || !session.handsFree) return;
+          session.demoCapture?.recordInterruptionEnded(frame.turnId);
           // Drop the cancelled turn's bound stamp so the next response's
           // audio can't pair against it. The unbound `speechEndedAtMs` is
           // left alone — it belongs to a newer overlapping utterance whose
@@ -1136,6 +1215,7 @@ export function useLiveVoice(
       reconnectAttemptRef.current = 0;
       initialConnectAttemptRef.current = 0;
       hasReadyRef.current = false;
+      demoCaptureRef.current = VoiceDemoCaptureSession.startIfEnabled();
       await connectSession(assistantId, conversationId, startOptions ?? {});
     },
     [connectSession, clearReconnectTimer],
@@ -1282,6 +1362,17 @@ function handleAmplitude(
   if (
     !muted &&
     !session.handsFree &&
+    !session.manualSpeechOpen &&
+    amplitude >= SPEECH_AMPLITUDE_THRESHOLD
+  ) {
+    session.manualSpeechOpen = true;
+    session.demoCapture?.recordUserSpeechStarted(
+      `manual-utterance-${session.responseEpoch + 1}`,
+    );
+  }
+  if (
+    !muted &&
+    !session.handsFree &&
     amplitude >= BARGE_IN_AMPLITUDE_THRESHOLD
   ) {
     interruptIfSpeaking(session, teardown);
@@ -1333,6 +1424,10 @@ function releasePushToTalk(session: SessionContext): void {
   // gate closes below (re-entry is blocked by releaseInFlight above).
   session.capture.flush();
   session.forwardingAudio = false;
+  if (session.manualSpeechOpen) {
+    session.demoCapture?.recordUserSpeechEnded();
+    session.manualSpeechOpen = false;
+  }
   session.client.pttRelease();
   // End of user speech (manual mode): stamp the client-heard latency start,
   // mirroring the hands-free utterance_end stamp.
@@ -1356,8 +1451,14 @@ function interruptIfSpeaking(
   if (useLiveVoiceStore.getState().state !== "speaking") return;
   if (!session.player.isPlaying || session.interruptSent) return;
   session.interruptSent = true;
+  session.demoCapture?.recordInterruptionStarted(
+    session.currentTurnId ?? undefined,
+  );
   session.player.stop();
   session.client.interrupt();
+  session.demoCapture?.recordInterruptionEnded(
+    session.currentTurnId ?? undefined,
+  );
   teardown();
 }
 
@@ -1378,6 +1479,9 @@ function interruptTurnHandsFree(session: SessionContext): void {
   if (useLiveVoiceStore.getState().state !== "speaking") return;
   if (session.interruptSent) return;
   session.interruptSent = true;
+  session.demoCapture?.recordInterruptionStarted(
+    session.currentTurnId ?? undefined,
+  );
   // The cancelled turn's latency stamp must not pair with a later response.
   session.turnHeardStampMs = null;
   session.client.interrupt();
@@ -1531,4 +1635,9 @@ function finishWithError(
 ): void {
   teardown();
   useLiveVoiceStore.getState().fail(message);
+}
+
+function base64ByteLength(value: string): number {
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((value.length * 3) / 4) - padding);
 }
