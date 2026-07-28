@@ -24,6 +24,10 @@ import {
   nullAsOmitted,
 } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+import {
+  ACTIVE_MODEL_SELECTION_NOTE,
+  shouldNoteActiveModelSelection,
+} from "./model-selection-note.js";
 
 const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
 const VALID_ROUTING_INTENTS: RoutingIntent[] = [
@@ -356,6 +360,13 @@ export async function executeScheduleUpdate(
         `  Schedule: ${scheduleDescription}${job.timezone ? ` (${job.timezone})` : ""}`,
         `  Enabled: ${job.enabled}`,
         `  Next run: ${job.enabled ? formatLocalDate(job.nextRunAt) : "n/a (disabled)"}`,
+        ...(shouldNoteActiveModelSelection(
+          job.mode,
+          job.inferenceProfile,
+          job.expression != null,
+        )
+          ? [ACTIVE_MODEL_SELECTION_NOTE]
+          : []),
       ].join("\n"),
       isError: false,
     };
