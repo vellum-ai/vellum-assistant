@@ -25,11 +25,13 @@ import type {
   ProviderResponse,
   SendMessageOptions,
   ToolDefinition,
+  UiSurfaceContent,
 } from "../types.js";
 import {
   ContextOverflowError,
   extractOverflowTokensFromMessage,
 } from "../types.js";
+import { uiSurfaceFallbackText } from "../ui-surface-projection.js";
 import {
   type ShadowStreamEvent,
   StreamContentShadow,
@@ -1790,8 +1792,30 @@ export class AnthropicProvider implements Provider {
               ),
           );
 
-        // Preserve assistant turns that would otherwise become empty after filtering
-        // unknown block types (e.g. ui_surface). Dropping these messages can violate
+        // An assistant turn whose only content was a `ui_surface` card (voice
+        // call summaries are the common case) would otherwise reach the model
+        // as a bare "blocks omitted" sentinel — it could not tell that the call
+        // happened. Recover the card's display copy as text. Rows written by
+        // producers that emit the `_surfaceFallback` sibling never reach here:
+        // that text block survives filtering, so `content` is non-empty.
+        if (content.length === 0 && m.role === "assistant") {
+          const surfaceText = m.content
+            .filter(
+              (block): block is UiSurfaceContent => block.type === "ui_surface",
+            )
+            .map(uiSurfaceFallbackText)
+            .filter((text): text is string => text !== null)
+            .join("\n");
+          if (surfaceText) {
+            return {
+              role: "assistant" as const,
+              content: [{ type: "text" as const, text: surfaceText }],
+            };
+          }
+        }
+
+        // Preserve assistant turns that would otherwise become empty after
+        // filtering unknown block types. Dropping these messages can violate
         // Anthropic's role alternation requirement.
         if (
           content.length === 0 &&
@@ -1940,10 +1964,13 @@ export class AnthropicProvider implements Provider {
   }
 
   /**
-   * Convert a content block to Anthropic format, returning null for unknown
-   * block types instead of throwing.  Unknown types (e.g. ui_surface stored
-   * in DB) are silently dropped so they don't prevent the request from being
-   * sent or break tool_use/tool_result pairing.
+   * Convert a content block to Anthropic format, returning null for blocks the
+   * Messages API cannot carry instead of throwing, so they don't prevent the
+   * request from being sent or break tool_use/tool_result pairing.
+   *
+   * Two distinct null cases: `ui_surface` is a known client-rendering block
+   * dropped by design, while a block reaching `default` is genuinely
+   * unrecognised and warns so the gap is visible.
    */
   private toAnthropicBlockSafe(
     block: ContentBlock,
@@ -2086,6 +2113,12 @@ export class AnthropicProvider implements Provider {
           tool_use_id: block.tool_use_id,
           content: block.content,
         } as unknown as Anthropic.ContentBlockParam;
+      case "ui_surface":
+        // A client rendering instruction, not model context. Dropped by
+        // design: the producer's sibling `_surfaceFallback` text block is what
+        // the model reads. `buildSentMessages` projects the surface to text
+        // for legacy rows that have no fallback sibling.
+        return null;
       default: {
         log.warn(
           { blockType: (block as { type: string }).type },

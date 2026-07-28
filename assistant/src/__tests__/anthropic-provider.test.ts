@@ -1915,6 +1915,72 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }
   });
 
+  test("legacy bare call_summary surface projects its summaryText instead of a placeholder", async () => {
+    // Voice call summaries persisted before the producer emitted a
+    // `_surfaceFallback` sibling carry the card alone (LUM-2869). The turn must
+    // still tell the model that a call happened rather than collapsing to a
+    // "blocks omitted" sentinel.
+    const callSummaryBlock = {
+      type: "ui_surface",
+      surfaceId: "call-1",
+      surfaceType: "call_summary",
+      completed: true,
+      data: {
+        summaryText: "**Call completed** (42s). 3 event(s) recorded.",
+        status: "completed",
+        duration: 42,
+        events: [],
+      },
+    } as unknown as ContentBlock;
+    const messages: Message[] = [
+      userMsg("Start"),
+      { role: "assistant", content: [callSummaryBlock] },
+      userMsg("Continue"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    expect(sent).toHaveLength(3);
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content).toEqual([
+      { type: "text", text: "**Call completed** (42s). 3 event(s) recorded." },
+    ]);
+    // The opaque card payload itself never reaches the wire.
+    expect(JSON.stringify(sent)).not.toContain("call_summary");
+    expect(JSON.stringify(sent)).not.toContain(PLACEHOLDER_BLOCKS_OMITTED);
+  });
+
+  test("surface with no display copy still falls back to the placeholder", async () => {
+    // A card carrying only machine data has nothing worth projecting — the
+    // placeholder is still needed to preserve role alternation.
+    const opaqueSurface = {
+      type: "ui_surface",
+      surfaceId: "opaque-1",
+      surfaceType: "form",
+      data: { fields: [{ name: "email" }] },
+    } as unknown as ContentBlock;
+    const messages: Message[] = [
+      userMsg("Start"),
+      { role: "assistant", content: [opaqueSurface] },
+      userMsg("Continue"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    expect(sent).toHaveLength(3);
+    expect(sent[1].content).toEqual([
+      { type: "text", text: PLACEHOLDER_BLOCKS_OMITTED },
+    ]);
+  });
+
   test("assistant message with mix of known and unknown blocks keeps known blocks", async () => {
     const messages: Message[] = [
       userMsg("Start"),

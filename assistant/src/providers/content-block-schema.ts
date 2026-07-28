@@ -131,6 +131,26 @@ const webSearchToolResultContentSchema = z
   })
   .passthrough();
 
+/**
+ * Client-rendered surface cards. `data`/`actions` stay loose because the
+ * concrete shape is chosen per `surfaceType` by `daemon/message-types/
+ * surfaces.ts` — validating them strictly here would reject renderable
+ * surfaces at the read boundary, which is exactly the failure this variant
+ * exists to prevent.
+ */
+const uiSurfaceContentSchema = z
+  .object({
+    type: z.literal("ui_surface"),
+    surfaceId: z.string(),
+    surfaceType: z.string(),
+    title: z.string().optional(),
+    data: z.record(z.string(), z.unknown()).optional(),
+    actions: z.array(z.unknown()).optional(),
+    display: z.enum(["inline", "panel"]).optional(),
+    completed: z.boolean().optional(),
+  })
+  .passthrough();
+
 export const contentBlockSchema: z.ZodType<ContentBlock> = z.discriminatedUnion(
   "type",
   [
@@ -143,6 +163,7 @@ export const contentBlockSchema: z.ZodType<ContentBlock> = z.discriminatedUnion(
     toolResultContentSchema,
     serverToolUseContentSchema,
     webSearchToolResultContentSchema,
+    uiSurfaceContentSchema,
   ],
 );
 
