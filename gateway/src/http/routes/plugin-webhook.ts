@@ -7,21 +7,47 @@
  * plugin declares but nobody has approved, so an unapproved declaration is
  * indistinguishable from one that was never made.
  *
- * Requests arrive from the public internet through the Velay tunnel and are
- * unauthenticated, like every other handler under `/webhooks/`. Approval
- * governs which paths exist, not who may call them; a plugin that needs to
- * know its caller must validate a provider signature or shared secret itself,
- * the same obligation the Twilio and Mailgun handlers carry.
+ * Requests arrive from the public internet through the Velay tunnel, so
+ * approval alone would only decide which paths exist, not who may call them.
+ * Every request is therefore signature-checked before it is forwarded, and
+ * a route whose secret is missing is refused rather than served unsigned.
+ * The declaration picks whose secret that is — see `IngressRouteSchema.signer`.
  */
 
 import type { PluginIngressResolution } from "../../channels/plugin-ingress-approvals.js";
+import type { IngressSigner } from "../../channels/plugin-ingress.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
+import type { CredentialCache } from "../../credential-cache.js";
+import { credentialKey } from "../../credential-key.js";
+import {
+  resolveCredentialWithRefresh,
+  verifySecretWithRefresh,
+} from "../../credential-refresh.js";
 import { getLogger } from "../../logger.js";
 import { readLimitedBodyBytes } from "../read-limited-body.js";
+import { verifyVellumSignature } from "../vellum-signature.js";
 import { proxyForwardToResponse } from "@vellumai/assistant-client";
 
 const log = getLogger("plugin-webhook");
+
+/**
+ * Credential holding the secret that signs this route.
+ *
+ * `vellum` routes verify against the platform's own webhook secret — the
+ * same credential the email webhook uses — so a plugin that only ever hears
+ * from Vellum needs no secret of its own. Everything else verifies against
+ * the plugin's, stored under its own service name.
+ *
+ * The field name is fixed for now; making it configurable per plugin is a
+ * later step, along with what the HMAC covers.
+ */
+function signingCredentialKey(plugin: string, signer: IngressSigner): string {
+  return credentialKey(
+    signer === "vellum" ? "vellum" : plugin,
+    "webhook_secret",
+  );
+}
 
 /** Methods a Request refuses to carry a body for. */
 const METHODS_WITHOUT_BODY = new Set(["GET", "HEAD"]);
@@ -41,6 +67,8 @@ export interface PluginWebhookHandlerDeps {
   config: GatewayConfig;
   /** Approved-ingress view; cached by the caller so this stays off the disk. */
   resolve: () => PluginIngressResolution;
+  /** Signing secrets, read through the TTL cache so rotation is picked up. */
+  credentials: CredentialCache | undefined;
   fetchImpl?: (
     input: string | URL | Request,
     init?: RequestInit,
@@ -58,7 +86,7 @@ export interface PluginWebhookHandlerDeps {
  * which fail closed rather than being decoded into a match.
  */
 export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
-  const { config, resolve, fetchImpl } = deps;
+  const { config, resolve, credentials, fetchImpl } = deps;
 
   return async (req: Request, plugin: string, path: string) => {
     let approved: PluginIngressResolution["approved"];
@@ -94,6 +122,38 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
     }
     if (body.status === "unreadable") {
       return Response.json({ error: "Bad Request" }, { status: 400 });
+    }
+
+    // Signature check before the forward, and fail-closed when no secret is
+    // configured: serving a public route unsigned because its secret is
+    // missing would turn a setup mistake into an open endpoint.
+    const secretKey = signingCredentialKey(plugin, route.signer);
+    const secret = await resolveCredentialWithRefresh(credentials, secretKey);
+    if (!secret) {
+      log.warn(
+        { plugin, path, signer: route.signer },
+        "Plugin webhook secret is not configured — rejecting request",
+      );
+      return Response.json(
+        { error: "Webhook secret not configured" },
+        { status: 409 },
+      );
+    }
+
+    const signatureValid = await verifySecretWithRefresh({
+      credentials,
+      key: secretKey,
+      verify: (candidate) =>
+        verifyVellumSignature(req.headers, body.bytes, candidate),
+      log,
+      label: "Plugin webhook signature",
+    });
+    if (!signatureValid) {
+      log.warn(
+        { plugin, path, signer: route.signer },
+        "Plugin webhook signature verification failed",
+      );
+      return Response.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const upstreamPath = pluginRouteUpstreamPath(plugin, path);

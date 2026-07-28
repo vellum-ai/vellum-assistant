@@ -19,15 +19,16 @@ const log = getLogger("plugin-ingress-approvals");
 /**
  * Digest of what a declaration asks for.
  *
- * Covers reach only — each route's transport and path, order-independent.
- * A `description` reword leaves the digest alone, so it does not revoke an
- * approval, while adding a route or changing one's transport does.
+ * Covers reach only — each route's transport, signer, and path,
+ * order-independent. A `description` reword leaves the digest alone, so it
+ * does not revoke an approval, while adding a route, changing one's
+ * transport, or changing whose signature opens it does.
  */
 export function ingressDeclarationDigest(
-  routes: readonly Pick<IngressRoute, "kind" | "path">[],
+  routes: readonly Pick<IngressRoute, "kind" | "path" | "signer">[],
 ): string {
   const canonical = routes
-    .map((route) => `${route.kind} ${route.path}`)
+    .map((route) => `${route.kind} ${route.signer} ${route.path}`)
     .sort()
     .join("\n");
   return createHash("sha256").update(canonical).digest("hex").slice(0, 32);

@@ -610,6 +610,7 @@ async function main() {
   const handlePluginWebhook = createPluginWebhookHandler({
     config,
     resolve: resolveCachedPluginIngress,
+    credentials: credentialCache,
   });
   const handleChannelPermissionOverridesList =
     createChannelPermissionOverridesListHandler();

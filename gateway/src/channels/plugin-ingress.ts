@@ -24,6 +24,13 @@ export const PLUGIN_INGRESS_MANIFEST_RELPATH = join("channels", "ingress.json");
 export const IngressRouteKindSchema = z.enum(["http", "websocket"]);
 export type IngressRouteKind = z.infer<typeof IngressRouteKindSchema>;
 
+/**
+ * Party whose `webhook_secret` must have signed an inbound request. Every
+ * public plugin route is signature-checked; this only selects the key.
+ */
+export const IngressSignerSchema = z.enum(["plugin", "vellum"]);
+export type IngressSigner = z.infer<typeof IngressSignerSchema>;
+
 /** Plugin directory name usable as a public URL path segment. */
 const SAFE_PLUGIN_NAME = /^[a-z0-9][a-z0-9._-]*$/i;
 
@@ -74,6 +81,18 @@ export const IngressRouteSchema = z.object({
       message: "path must not contain . or .. segments",
     }),
   kind: IngressRouteKindSchema,
+  /**
+   * Whose secret signs requests to this route.
+   *
+   * `plugin` (the default) verifies against the plugin's own
+   * `webhook_secret`, so a plugin can receive third-party callbacks it has
+   * arranged itself. `vellum` verifies against the platform's
+   * `webhook_secret` — for routes only Vellum calls, which would otherwise
+   * need a per-plugin secret provisioned for a caller we already
+   * authenticate. Declaring it is the plugin's choice; approving it is the
+   * guardian's, which is why it is part of the digest.
+   */
+  signer: IngressSignerSchema.default("plugin"),
   /** Human-readable purpose, surfaced in gateway logs and admin UI. */
   description: z.string().min(1),
 });

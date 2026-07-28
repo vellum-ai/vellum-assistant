@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import { describe, expect, it } from "bun:test";
 
 import "../../__tests__/test-preload.js";
@@ -20,8 +22,30 @@ const CONFIG = {
 const ROUTE = {
   path: "realtime",
   kind: "http" as const,
+  signer: "plugin" as const,
   description: "events",
 };
+
+const PLUGIN_SECRET = "plugin-webhook-secret";
+const VELLUM_SECRET = "platform-webhook-secret";
+
+/** Stands in for the credential cache, holding secrets by key. */
+function credentialsFor(entries: Record<string, string>) {
+  return {
+    get: async (key: string) => entries[key],
+  } as unknown as Parameters<
+    typeof createPluginWebhookHandler
+  >[0]["credentials"];
+}
+
+const CREDENTIALS = credentialsFor({
+  "credential/meeting-bot/webhook_secret": PLUGIN_SECRET,
+  "credential/vellum/webhook_secret": VELLUM_SECRET,
+});
+
+function sign(body: string, secret: string): string {
+  return `sha256=${createHmac("sha256", secret).update(body, "utf8").digest("hex")}`;
+}
 
 function resolution(
   overrides: Partial<PluginIngressResolution> = {},
@@ -31,7 +55,12 @@ function resolution(
 
 /** An approved declaration for `meeting-bot` carrying `routes`. */
 function approvedWith(
-  routes: { path: string; kind: "http" | "websocket"; description: string }[],
+  routes: {
+    path: string;
+    kind: "http" | "websocket";
+    signer: "plugin" | "vellum";
+    description: string;
+  }[],
 ): PluginIngressResolution {
   return resolution({
     approved: [{ plugin: "meeting-bot", routes, digest: "d".repeat(32) }],
@@ -58,8 +87,13 @@ function recordingFetch() {
   return { calls, fetchImpl };
 }
 
-function post(path: string, body = "{}"): Request {
-  return new Request(`http://gateway${path}`, { method: "POST", body });
+/** A signed POST. Pass `secret` to sign with something else, or "" for none. */
+function post(path: string, body = "{}", secret = PLUGIN_SECRET): Request {
+  return new Request(`http://gateway${path}`, {
+    method: "POST",
+    body,
+    headers: secret ? { "vellum-signature": sign(body, secret) } : {},
+  });
 }
 
 describe("approved routes", () => {
@@ -67,6 +101,7 @@ describe("approved routes", () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () => approvedWith([ROUTE]),
       fetchImpl,
     });
@@ -90,6 +125,7 @@ describe("approved routes", () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () => approvedWith([ROUTE]),
       fetchImpl,
     });
@@ -110,6 +146,7 @@ describe("the gate", () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () =>
         resolution({
           pending: [
@@ -133,6 +170,7 @@ describe("the gate", () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () => approvedWith([ROUTE]),
       fetchImpl,
     });
@@ -151,6 +189,7 @@ describe("the gate", () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () => approvedWith([ROUTE]),
       fetchImpl,
     });
@@ -169,6 +208,7 @@ describe("the gate", () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () => approvedWith([ROUTE]),
       fetchImpl,
     });
@@ -188,6 +228,7 @@ describe("the gate", () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () => approvedWith([ROUTE]),
       fetchImpl,
     });
@@ -214,6 +255,7 @@ describe("the gate", () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () => approvedWith([{ ...ROUTE, kind: "websocket" as const }]),
       fetchImpl,
     });
@@ -232,6 +274,7 @@ describe("the gate", () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () => {
         throw new Error("db unavailable");
       },
@@ -249,11 +292,159 @@ describe("the gate", () => {
   });
 });
 
+describe("signature verification", () => {
+  it("rejects an unsigned request", async () => {
+    // Approval decides which paths exist; it does not say who may call them.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", ""),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects a signature made with the wrong secret", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", "not-the-secret"),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects a signature that does not cover this body", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const tampered = new Request(
+      "http://gateway/webhooks/plugins/meeting-bot/realtime",
+      {
+        method: "POST",
+        body: '{"event":"tampered"}',
+        headers: {
+          "vellum-signature": sign('{"event":"joined"}', PLUGIN_SECRET),
+        },
+      },
+    );
+
+    const res = await handle(tampered, "meeting-bot", "realtime");
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+
+  it("refuses to serve the route at all when no secret is configured", async () => {
+    // Fail closed: a missing secret is a setup mistake, and treating it as
+    // "no signature required" would turn it into an open public endpoint.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: credentialsFor({}),
+      resolve: () => approvedWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime"),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(409);
+    expect(calls).toEqual([]);
+  });
+
+  it("verifies a vellum-signed route against the platform secret", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([{ ...ROUTE, signer: "vellum" as const }]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", VELLUM_SECRET),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not accept the plugin's own secret on a vellum-signed route", async () => {
+    // Otherwise declaring `signer: "vellum"` would widen rather than narrow
+    // who can reach the route.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([{ ...ROUTE, signer: "vellum" as const }]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", PLUGIN_SECRET),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+
+  it("does not accept the platform secret on a plugin-signed route", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", VELLUM_SECRET),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+});
+
 describe("payload limits", () => {
   it("rejects a body over the webhook cap without forwarding it", async () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () => approvedWith([ROUTE]),
       fetchImpl,
     });
@@ -274,6 +465,7 @@ describe("payload limits", () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () => approvedWith([ROUTE]),
       fetchImpl,
     });
@@ -303,6 +495,7 @@ describe("payload limits", () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () => approvedWith([ROUTE]),
       fetchImpl,
     });
@@ -322,6 +515,7 @@ describe("upstream failures", () => {
   it("reports a runtime that cannot be reached as 502", async () => {
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () => approvedWith([ROUTE]),
       fetchImpl: async () => {
         throw new Error("ECONNREFUSED");
@@ -340,6 +534,7 @@ describe("upstream failures", () => {
   it("passes an upstream error status through rather than masking it", async () => {
     const handle = createPluginWebhookHandler({
       config: CONFIG,
+      credentials: CREDENTIALS,
       resolve: () => approvedWith([ROUTE]),
       fetchImpl: async () => new Response("no such route", { status: 404 }),
     });

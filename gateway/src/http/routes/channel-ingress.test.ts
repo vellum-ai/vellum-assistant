@@ -29,7 +29,12 @@ const created: string[] = [];
 let workspaceDir = "";
 
 const ROUTES = [
-  { path: "realtime", kind: "websocket" as const, description: "events" },
+  {
+    path: "realtime",
+    kind: "websocket" as const,
+    signer: "plugin" as const,
+    description: "events",
+  },
 ];
 
 // Resolve against this test's scratch workspace rather than the ambient one.
