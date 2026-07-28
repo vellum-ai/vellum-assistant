@@ -71,6 +71,32 @@ interface UseConversationLoaderParams {
 }
 
 // ---------------------------------------------------------------------------
+// switchConversation side effects
+// ---------------------------------------------------------------------------
+
+/**
+ * Applies the store + navigation side effects of selecting a conversation.
+ *
+ * Resetting the subagent/workflow stores discards live run state, so it only
+ * runs on a genuine conversation change — re-selecting the conversation
+ * already on screen just closes any open side panel.
+ */
+export function applyConversationSwitch(
+  key: string,
+  navigate: (path: string) => void | Promise<unknown>,
+): void {
+  const isSameConversation =
+    key === useConversationStore.getState().activeConversationId;
+  if (!isSameConversation) {
+    useSubagentStore.getState().reset();
+    useWorkflowStore.getState().reset();
+  }
+  useViewerStore.getState().setMainView("chat");
+  if (isSameConversation) return;
+  void navigate(routes.conversation(key));
+}
+
+// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
@@ -380,13 +406,7 @@ export function useConversationLoader({
   // switchConversation
   // -------------------------------------------------------------------------
   const switchConversation = useCallback(
-    (key: string) => {
-      useSubagentStore.getState().reset();
-      useWorkflowStore.getState().reset();
-      useViewerStore.getState().setMainView("chat");
-      if (key === useConversationStore.getState().activeConversationId) return;
-      void navigate(routes.conversation(key));
-    },
+    (key: string) => applyConversationSwitch(key, navigate),
     [navigate],
   );
 
