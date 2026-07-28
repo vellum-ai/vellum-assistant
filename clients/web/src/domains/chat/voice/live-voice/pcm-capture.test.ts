@@ -6,14 +6,34 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // category/mode must be in force *before* WebKit builds its capture unit.
 // Declared before the module under test is imported.
 const audioSessionCalls: string[] = [];
+// Lets a test park one `activate` call mid-flight, standing in for a slow
+// Capacitor bridge round-trip.
+let activateCallCount = 0;
+let gatedActivateCall: number | null = null;
+let gate: { promise: Promise<void>; resolve: () => void } | null = null;
+
+function makeGate(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 mock.module("@/runtime/native-voice-audio-session", () => ({
   activateVoiceAudioSession: mock(async () => {
+    activateCallCount += 1;
     audioSessionCalls.push("activate");
+    if (gate && gatedActivateCall === activateCallCount) await gate.promise;
   }),
   deactivateVoiceAudioSession: mock(async () => {
     audioSessionCalls.push("deactivate");
   }),
 }));
+
+const flushMicrotasks = async (rounds = 4) => {
+  for (let i = 0; i < rounds; i++) await Promise.resolve();
+};
 
 const { isSupported, LIVE_VOICE_AUDIO_FORMAT, LiveVoiceAudioCapture } =
   await import("@/domains/chat/voice/live-voice/pcm-capture");
@@ -119,6 +139,9 @@ beforeEach(() => {
   lastWorklet = null;
   FakeAudioContext.lastInstance = null;
   audioSessionCalls.length = 0;
+  activateCallCount = 0;
+  gatedActivateCall = null;
+  gate = null;
   getUserMediaImpl = () => Promise.resolve(new FakeMediaStream());
   installAudioGlobals();
 });
@@ -412,6 +435,34 @@ describe("native audio session (iOS echo cancellation)", () => {
       "getUserMedia",
       "deactivate",
     ]);
+  });
+
+  test("a stop() during the post-getUserMedia re-assert releases the mic without waiting on the bridge", async () => {
+    const stream = recordGetUserMedia();
+    gate = makeGate();
+    gatedActivateCall = 2; // park the re-assert that follows getUserMedia
+    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
+
+    const startPromise = capture.start();
+    await flushMicrotasks();
+    expect(audioSessionCalls).toEqual(["activate", "getUserMedia", "activate"]);
+
+    // The mic is open but the native call has not answered. A stop() here must
+    // release it immediately — the capture has to own the stream before the
+    // round-trip, or the mic stays live for however long the bridge takes.
+    const stopPromise = capture.stop();
+    await flushMicrotasks();
+    expect(stream.tracks.every((t) => t.stopped)).toBe(true);
+
+    gate.resolve();
+    const result = await startPromise;
+    await stopPromise;
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("aborted");
+    // The late activate resolved after teardown's deactivate; the session must
+    // not be left held with no owner.
+    expect(audioSessionCalls.at(-1)).toBe("deactivate");
   });
 
   test("deactivates when a stop() cancels an in-flight start", async () => {

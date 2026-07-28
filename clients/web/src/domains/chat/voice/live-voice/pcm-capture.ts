@@ -189,18 +189,29 @@ export class LiveVoiceAudioCapture {
       return { ok: false, error: classifyError(cause), cause };
     }
 
-    // WebKit reconfigures the shared `AVAudioSession` itself when capture
-    // starts, which can drop the mode we just set. Re-assert it now that the
-    // stream is live; the native side is idempotent.
-    await activateVoiceAudioSession();
-
     // A concurrent shutdown()/stop() may have raced the awaits above.
     if (cancelled()) {
       stopTracks(stream);
       await deactivateVoiceAudioSession();
       return { ok: false, error: "aborted" };
     }
+    // Take ownership of the stream *before* the next native round-trip, so a
+    // stop() that lands mid-call releases the mic through teardown() instead
+    // of leaving it live until the bridge answers.
     this.stream = stream;
+
+    // WebKit reconfigures the shared `AVAudioSession` itself when capture
+    // starts, which can drop the mode we just set. Re-assert it now that the
+    // stream is live; the native side is idempotent.
+    await activateVoiceAudioSession();
+
+    // A stop() that raced the re-assert already ran teardown() — including its
+    // deactivate, which our late activate then undid. Tear down again so the
+    // session isn't left held in the duplex category with no owner.
+    if (cancelled()) {
+      await this.teardown();
+      return { ok: false, error: "aborted" };
+    }
 
     try {
       const context = createAudioContext();
