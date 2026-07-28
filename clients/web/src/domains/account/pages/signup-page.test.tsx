@@ -13,6 +13,9 @@ import type { PlatformSessionStatus } from "@/stores/session-status";
 
 const CHECKOUT = "/assistant/checkout?package=super";
 const LOCAL_DESTINATION = "/assistant/settings/general";
+// The platform's hardcoded Stripe `success_url` — the real post-checkout return.
+const LEGACY_BILLING_LANDING =
+  "/assistant/settings/billing?session_id=cs_test_123";
 
 let authenticated = false;
 let initializing = false;
@@ -88,6 +91,16 @@ describe("SignupPage", () => {
     authenticated = true;
     setPlatformSession("absent");
     const entry = `/account/signup?returnTo=${encodeURIComponent(CHECKOUT)}`;
+    renderAt(entry);
+
+    expect(location()).toBe(entry);
+    expect(screen.getByText("Continue")).toBeTruthy();
+  });
+
+  test("the legacy billing landing without a platform session still signs in", () => {
+    authenticated = true;
+    setPlatformSession("absent");
+    const entry = `/account/signup?returnTo=${encodeURIComponent(LEGACY_BILLING_LANDING)}`;
     renderAt(entry);
 
     expect(location()).toBe(entry);

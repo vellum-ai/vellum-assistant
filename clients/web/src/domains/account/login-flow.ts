@@ -1,4 +1,7 @@
-import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
+import {
+  POST_CHECKOUT_LANDING_PATHS,
+  resolveNavigation,
+} from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { routes } from "@/utils/routes";
 
@@ -56,7 +59,10 @@ export function requiresFullPageNavigation(destination: string): boolean {
 const PLATFORM_DEPENDENT_PATHS: readonly string[] = [
   routes.checkout,
   routes.plans,
-  routes.settings.usage,
+  // Shared with the route guard rather than restated, so the legacy
+  // `/assistant/settings/billing` landing — the platform's hardcoded Stripe
+  // `success_url` — can never fall out of one list and stay in the other.
+  ...POST_CHECKOUT_LANDING_PATHS,
   routes.settings.upgradeSuccess,
   routes.settings.upgradeCancel,
   routes.account.root,

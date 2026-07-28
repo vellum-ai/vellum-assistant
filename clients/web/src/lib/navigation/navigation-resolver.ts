@@ -121,8 +121,11 @@ function onboardingEntrypoint(isLocalMode: boolean): string {
  * hardcoded non-native `success_url` (`/assistant/settings/billing`, which
  * `BillingRedirectPage` forwards) and the Billing tab's own path, which the
  * native deep-link return and `usageBillingCheckout()` build directly.
+ *
+ * Exported so the auth entry points gate on the same pair — a second hand-kept
+ * copy would drift and let a paid return skip the platform login.
  */
-const POST_CHECKOUT_LANDING_PATHS: Set<string> = new Set([
+export const POST_CHECKOUT_LANDING_PATHS: ReadonlySet<string> = new Set([
   `${routes.settings.root}/billing`,
   routes.settings.usage,
 ]);
