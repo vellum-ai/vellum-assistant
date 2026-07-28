@@ -277,10 +277,9 @@ body {
   height: var(--provision-avatar-size);
   width: calc(var(--provision-avatar-size) * 0.8);
   margin-inline: auto;
-  /* Fallback glow for engines without color-mix() (WKWebView before
-   * iOS 16.2, per the iOS 15.0 deployment target): the takeover is always
-   * dark-themed, so a translucent white stands in for the emphasised mix.
-   * Engines that parse color-mix() take the declaration below instead. */
+  /* Fallback first for engines without color-mix(), see the skeleton-shimmer
+   * note above. The takeover is always dark-themed, so a translucent white
+   * stands in for the emphasised mix. */
   background: radial-gradient(
     closest-side,
     rgba(255, 255, 255, 0.12),

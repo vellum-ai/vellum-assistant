@@ -40,6 +40,12 @@ import { Button } from "@vellumai/design-library/components/button";
  */
 type CheckoutPhase = "idle" | "running" | "handed_off" | "settled";
 
+/** Drops everything an attempt that never reached Stripe left behind. */
+function abandonCheckout() {
+  clearCheckoutIntent();
+  clearTakeoverAvatarStash();
+}
+
 /**
  * Deep-link checkout entrypoint (`/assistant/checkout?package=<slug>`). The
  * marketing pricing CTAs route a chosen Pro package here — reachable by a
@@ -157,7 +163,6 @@ export function CheckoutPage() {
         // Stash the selection so the post-checkout provisioning screen can show
         // the purchased package before the subscribe webhook lands.
         saveCheckoutIntent({ kind: "package", packageKey });
-        // Snapshot the avatar so the takeover can draw it on a cold return.
         captureTakeoverAvatarStash(queryClient);
         setAwaitingReturn(returnTarget === "native");
         void openUrl(result.checkout_url);
@@ -167,8 +172,7 @@ export function CheckoutPage() {
       // an already-Pro bounce doesn't leave it lingering for its TTL, then hand
       // off rather than stranding the user on a blank splash.
       phaseRef.current = "settled";
-      clearCheckoutIntent();
-      clearTakeoverAvatarStash();
+      abandonCheckout();
       navigate(bailTarget, { replace: true });
     } catch {
       if (phaseRef.current !== "running") {
@@ -214,12 +218,12 @@ export function CheckoutPage() {
         return;
       }
       // The attempt is over. Settling it makes an in-flight upgrade's result a
-      // no-op, so a response landing after this can't open Stripe. The stash
-      // goes with it whatever ended the attempt: nothing was bought, and a
+      // no-op, so a response landing after this can't open Stripe. Both stashes
+      // go with it whatever ended the attempt: nothing was bought, and a
       // signup-marked intent left readable for its TTL is one the privacy
       // screen resumes checkout from.
       phaseRef.current = "settled";
-      clearCheckoutIntent();
+      abandonCheckout();
       navigate(bailTarget, { replace: true });
       return;
     }
@@ -268,13 +272,13 @@ export function CheckoutPage() {
         <div className="flex items-center gap-4">
           <Button onClick={retryCheckout}>Try again</Button>
           {/*
-           * Taking the escape ends the attempt, so the stash goes with it.
+           * Taking the escape ends the attempt, so both stashes go with it.
            * Nothing was bought, and a signup-marked intent left behind is one
            * the privacy screen resumes checkout from for the rest of its TTL.
            */}
           <Link
             to={bailTarget}
-            onClick={clearCheckoutIntent}
+            onClick={abandonCheckout}
             className="text-sm text-[var(--content-tertiary)] underline"
           >
             {bailLabel}
@@ -294,7 +298,7 @@ export function CheckoutPage() {
         <div className="flex items-center gap-4">
           <Button onClick={retryCheckout}>Reopen checkout</Button>
           {/*
-           * No `clearCheckoutIntent` here, unlike the failure escape: a
+           * No `abandonCheckout` here, unlike the failure escape: a
            * checkout that reached Stripe may have been paid for, and this page
            * can't tell. The hand-off already rewrote the stash without the
            * signup marker, so leaving it can only help the return trip — it

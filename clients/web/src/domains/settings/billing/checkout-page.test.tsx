@@ -356,6 +356,11 @@ describe("CheckoutPage", () => {
       packageKey: "super",
       resumeAfterOnboarding: true,
     });
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: AVATAR_TRAITS,
+    });
     const { findByRole, getByTestId } = renderCheckout(
       "/assistant/checkout?package=super",
     );
@@ -367,6 +372,7 @@ describe("CheckoutPage", () => {
       expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
     );
     expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+    expect(readTakeoverAvatarStash()).toBeNull();
   });
 
   test("the error escape resumes the carried onboarding step", async () => {
@@ -473,6 +479,11 @@ describe("CheckoutPage", () => {
       packageKey: "super",
       resumeAfterOnboarding: true,
     });
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: AVATAR_TRAITS,
+    });
     const { getByTestId } = renderCheckout(ONBOARDING_ENTRY);
 
     await waitFor(() =>
@@ -481,6 +492,9 @@ describe("CheckoutPage", () => {
     expect(upgradeCalls.length).toBe(0);
     expect(openedUrl).toBeNull();
     expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+    // The avatar snapshot is stashed for a checkout that never happened, so the
+    // bail drops it alongside the intent.
+    expect(readTakeoverAvatarStash()).toBeNull();
   });
 
   test("the hand-off rewrites a marked stash without the marker", async () => {

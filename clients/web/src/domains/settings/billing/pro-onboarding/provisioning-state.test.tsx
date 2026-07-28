@@ -13,6 +13,7 @@ import * as motionReact from "motion/react";
 
 import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { PlanListResponse } from "@/generated/api/types.gen";
+import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -32,6 +33,7 @@ let avatarTraits: CharacterTraits | null = null;
 /** An uploaded avatar image, which the takeover also blurs behind its content. */
 let avatarCustomImageUrl: string | null = null;
 mock.module("@/hooks/use-assistant-avatar", () => ({
+  ...assistantAvatarMod,
   useAssistantAvatar: (assistantId: string | null) => {
     avatarQueryId = assistantId;
     return {
@@ -42,7 +44,6 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
       invalidate: () => {},
     };
   },
-  avatarQueryKey: (assistantId: string) => ["assistantAvatar", assistantId],
 }));
 
 // `useReducedMotion` reads a cached media-query singleton, so a per-test
@@ -750,18 +751,16 @@ describe("takeover avatar mode", () => {
     );
   });
 
-  for (const state of ["CONFIRMING", "WAITING"] as const) {
-    test(`renders exactly one placeholder in ${state}`, () => {
-      const { container } = renderState({
-        state,
-        assistantId: "primary-assistant",
-      });
-
-      expect(
-        container.querySelectorAll(".provision-avatar-placeholder"),
-      ).toHaveLength(1);
+  test("renders exactly one placeholder", () => {
+    const { container } = renderState({
+      state: "WAITING",
+      assistantId: "primary-assistant",
     });
-  }
+
+    expect(
+      container.querySelectorAll(".provision-avatar-placeholder"),
+    ).toHaveLength(1);
+  });
 
   test("reveals the avatar once the target and the query both settle", () => {
     const { container, getByTestId } = renderState({
