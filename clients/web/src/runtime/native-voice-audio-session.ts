@@ -14,12 +14,10 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
  * `utils/voice-input-device.ts` is not sufficient on its own inside a
  * WKWebView: the canceller WebKit gets is chosen by the app's audio session.
  *
- * Gated on the `ios-voice-audio-session` client flag, default off. The gate
- * lives here rather than in Swift because the native half ships inside the app
- * binary — a native gate could only be flipped by a TestFlight release,
- * whereas the web bundle hot-loads, so this one is a true runtime kill switch
- * and allows the configuration to be exercised on a device without cutting a
- * build.
+ * Gated on the `ios-voice-audio-session` client flag, default off. The gate is
+ * in JS rather than Swift so it can be flipped at runtime on an installed
+ * build — which is what makes the configuration testable per-device, and
+ * switchable off without waiting on a deploy.
  *
  * To enable on one device: Settings, seven taps on the version string, then
  * the Feature Flags panel. That writes the local override through the store,
@@ -27,7 +25,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
  * `client-feature-flag-store`'s override reader looks for, so a hand-written
  * `localStorage` entry under the kebab-case registry key is ignored. Release
  * builds are not Web Inspector-inspectable, so the panel is the only route on
- * a TestFlight install.
+ * an installed build.
  *
  * Nothing here may throw or reject. `LiveVoiceAudioCapture.start()` is
  * documented never to throw and `use-live-voice.ts` awaits its promise with no
