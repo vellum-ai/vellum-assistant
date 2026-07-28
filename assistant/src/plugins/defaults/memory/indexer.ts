@@ -120,11 +120,11 @@ export async function indexMessageNow(
     payload: Record<string, unknown>;
   }> = [];
 
-  // memory_segments has no cross-file FK to messages, so re-check the source row
-  // on the main connection and skip when it is gone. Without this a message
-  // deleted after this job was queued (e.g. a delete racing a v1 backfill) would
-  // be resurrected as searchable segments the conversation-keyed purge cannot
-  // reclaim.
+  // memory_segments has no cross-file FK to messages, so this call must not
+  // leave pieces for a message that no longer exists. Skip early when the source
+  // row is already gone — the common case of a backfill job running after the
+  // message was deleted. A post-write re-check below closes the narrower window
+  // where the delete lands mid-transaction.
   const sourceMessage = getDb()
     .select({ id: messages.id })
     .from(messages)
@@ -192,6 +192,24 @@ export async function indexMessageNow(
       }
     }
   });
+
+  // Re-check the source message after committing: the preflight leaves a window
+  // where a delete lands between it and this write. If the message is gone now,
+  // drop the pieces this call just wrote and skip the embedding jobs, so a
+  // delete racing a backfill leaves nothing searchable behind. No embeddings
+  // exist yet — the skipped jobs are what would have created them.
+  const stillExists = getDb()
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.id, input.messageId))
+    .get();
+  if (!stillExists) {
+    mem
+      .delete(memorySegments)
+      .where(eq(memorySegments.messageId, input.messageId))
+      .run();
+    return { indexedSegments: 0, enqueuedJobs: 0 };
+  }
 
   // Flush queued jobs onto the memory connection now the segment writes have
   // committed — enqueue only on success, mirroring the prior in-transaction
