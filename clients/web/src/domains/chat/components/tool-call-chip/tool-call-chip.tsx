@@ -47,6 +47,7 @@ import type {
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { perceivedStartedAt } from "@/domains/chat/utils/tool-call-status";
 import {
   extractInputSummary,
@@ -415,7 +416,10 @@ export function ToolCallChip({
 
   const handleCopyOutput = useCallback(() => {
     if (toolCall.result !== undefined) {
-      void navigator.clipboard.writeText(toolCall.result);
+      copyToClipboard(toolCall.result, {
+        successMessage: "Output copied to clipboard.",
+        errorMessage: "Couldn't copy the output.",
+      });
     }
   }, [toolCall.result]);
 

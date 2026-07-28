@@ -33,6 +33,7 @@ import { useEffect, useRef, useState } from "react";
 import { Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { DetailShell } from "@/domains/chat/components/detail-shell";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
@@ -77,15 +78,26 @@ function CopyButton({ text }: { text: string }) {
 
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
     };
   }, []);
 
   const handleCopy = () => {
-    void navigator.clipboard.writeText(text);
-    setCopied(true);
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => setCopied(false), COPIED_RESET_MS);
+    copyToClipboard(text, {
+      errorMessage: "Couldn't copy.",
+      onCopied: () => {
+        setCopied(true);
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+        }
+        timeoutRef.current = setTimeout(
+          () => setCopied(false),
+          COPIED_RESET_MS,
+        );
+      },
+    });
   };
 
   return (

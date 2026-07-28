@@ -6,6 +6,7 @@ import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 interface CopyBlockSurfaceProps {
   surface: Surface;
@@ -28,13 +29,17 @@ export function CopyBlockSurface({ surface }: CopyBlockSurfaceProps) {
   const text = data.text;
   const label = data.label ?? data.language;
 
-  const handleCopy = async () => {
+  const handleCopy = () => {
     if (!text) {
       return;
     }
-    await navigator.clipboard?.writeText(text);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+    copyToClipboard(text, {
+      errorMessage: "Couldn't copy.",
+      onCopied: () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1600);
+      },
+    });
   };
 
   return (

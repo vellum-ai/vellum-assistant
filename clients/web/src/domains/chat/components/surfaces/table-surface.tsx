@@ -13,6 +13,7 @@ import { sfSymbolToLucideIcon } from "@/domains/chat/components/surfaces/sf-symb
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { useSelectionState } from "@/domains/chat/components/surfaces/use-selection-state";
 import type { Surface } from "@/domains/chat/types/types";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { cn } from "@/utils/misc";
 
 // ---------------------------------------------------------------------------
@@ -99,20 +100,17 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleCopy = useCallback(() => {
-    if (!navigator.clipboard?.writeText) {
-      return;
-    }
     const md = tableToMarkdown(data.columns, data.rows);
-    navigator.clipboard
-      .writeText(md)
-      .then(() => {
+    copyToClipboard(md, {
+      errorMessage: "Couldn't copy the table.",
+      onCopied: () => {
         setCopied(true);
         if (copyTimeoutRef.current) {
           clearTimeout(copyTimeoutRef.current);
         }
         copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000);
-      })
-      .catch(() => {});
+      },
+    });
   }, [data.columns, data.rows]);
 
   useEffect(() => {
