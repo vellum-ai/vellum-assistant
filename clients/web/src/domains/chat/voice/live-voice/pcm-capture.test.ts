@@ -1,42 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// The native audio-session bridge (`.playAndRecord` / `.voiceChat` on iOS) is a
-// no-op off Capacitor, so it would be invisible here. Mock it to record the
-// call order relative to getUserMedia — the ordering is the whole point: the
-// category/mode must be in force *before* WebKit builds its capture unit.
-// Declared before the module under test is imported.
-const audioSessionCalls: string[] = [];
-// Lets a test park one `activate` call mid-flight, standing in for a slow
-// Capacitor bridge round-trip.
-let activateCallCount = 0;
-let gatedActivateCall: number | null = null;
-let gate: { promise: Promise<void>; resolve: () => void } | null = null;
-
-function makeGate(): { promise: Promise<void>; resolve: () => void } {
-  let resolve!: () => void;
-  const promise = new Promise<void>((r) => {
-    resolve = r;
-  });
-  return { promise, resolve };
-}
-
-mock.module("@/runtime/native-voice-audio-session", () => ({
-  activateVoiceAudioSession: mock(async () => {
-    activateCallCount += 1;
-    audioSessionCalls.push("activate");
-    if (gate && gatedActivateCall === activateCallCount) await gate.promise;
-  }),
-  deactivateVoiceAudioSession: mock(async () => {
-    audioSessionCalls.push("deactivate");
-  }),
-}));
-
-const flushMicrotasks = async (rounds = 4) => {
-  for (let i = 0; i < rounds; i++) await Promise.resolve();
-};
-
-const { isSupported, LIVE_VOICE_AUDIO_FORMAT, LiveVoiceAudioCapture } =
-  await import("@/domains/chat/voice/live-voice/pcm-capture");
+import {
+  isSupported,
+  LIVE_VOICE_AUDIO_FORMAT,
+  LiveVoiceAudioCapture,
+} from "@/domains/chat/voice/live-voice/pcm-capture";
 
 // ---------------------------------------------------------------------------
 // Browser audio API fakes
@@ -138,10 +106,6 @@ function installAudioGlobals(): void {
 beforeEach(() => {
   lastWorklet = null;
   FakeAudioContext.lastInstance = null;
-  audioSessionCalls.length = 0;
-  activateCallCount = 0;
-  gatedActivateCall = null;
-  gate = null;
   getUserMediaImpl = () => Promise.resolve(new FakeMediaStream());
   installAudioGlobals();
 });
@@ -378,111 +342,6 @@ describe("lifecycle", () => {
     // The accumulator was reset: a second flush emits nothing.
     capture.flush();
     expect(chunks.length).toBe(1);
-  });
-});
-
-describe("native audio session (iOS echo cancellation)", () => {
-  /** Records `getUserMedia` in the same log as the audio-session calls. */
-  function recordGetUserMedia(stream = new FakeMediaStream()) {
-    getUserMediaImpl = () => {
-      audioSessionCalls.push("getUserMedia");
-      return Promise.resolve(stream);
-    };
-    return stream;
-  }
-
-  test("activates before opening the mic, then re-asserts once the stream is live", async () => {
-    recordGetUserMedia();
-    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
-
-    const result = await capture.start();
-
-    expect(result.ok).toBe(true);
-    // The first activate must precede getUserMedia — configuring the session
-    // after WebKit has built its capture unit is too late for that stream.
-    // The second re-asserts the mode WebKit may have dropped when capture
-    // started.
-    expect(audioSessionCalls).toEqual([
-      "activate",
-      "getUserMedia",
-      "activate",
-    ]);
-  });
-
-  test("deactivates when the session's capture is torn down", async () => {
-    recordGetUserMedia();
-    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
-    await capture.start();
-    audioSessionCalls.length = 0;
-
-    await capture.stop();
-
-    expect(audioSessionCalls).toEqual(["deactivate"]);
-  });
-
-  test("deactivates when the mic is denied, leaving no session held", async () => {
-    getUserMediaImpl = () => {
-      audioSessionCalls.push("getUserMedia");
-      return Promise.reject(new DOMException("denied", "NotAllowedError"));
-    };
-    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
-
-    const result = await capture.start();
-
-    expect(result.ok).toBe(false);
-    expect(audioSessionCalls).toEqual([
-      "activate",
-      "getUserMedia",
-      "deactivate",
-    ]);
-  });
-
-  test("a stop() during the post-getUserMedia re-assert releases the mic without waiting on the bridge", async () => {
-    const stream = recordGetUserMedia();
-    gate = makeGate();
-    gatedActivateCall = 2; // park the re-assert that follows getUserMedia
-    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
-
-    const startPromise = capture.start();
-    await flushMicrotasks();
-    expect(audioSessionCalls).toEqual(["activate", "getUserMedia", "activate"]);
-
-    // The mic is open but the native call has not answered. A stop() here must
-    // release it immediately — the capture has to own the stream before the
-    // round-trip, or the mic stays live for however long the bridge takes.
-    const stopPromise = capture.stop();
-    await flushMicrotasks();
-    expect(stream.tracks.every((t) => t.stopped)).toBe(true);
-
-    gate.resolve();
-    const result = await startPromise;
-    await stopPromise;
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toBe("aborted");
-    // The late activate resolved after teardown's deactivate; the session must
-    // not be left held with no owner.
-    expect(audioSessionCalls.at(-1)).toBe("deactivate");
-  });
-
-  test("deactivates when a stop() cancels an in-flight start", async () => {
-    const stream = new FakeMediaStream();
-    let resolveGum: (s: FakeMediaStream) => void = () => {};
-    getUserMediaImpl = () =>
-      new Promise<FakeMediaStream>((resolve) => {
-        resolveGum = resolve;
-      });
-    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
-
-    const startPromise = capture.start();
-    await capture.stop();
-    resolveGum(stream);
-    await startPromise;
-
-    // Whatever the interleaving, the cancelled start must not leave the audio
-    // session held in the duplex category.
-    expect(audioSessionCalls.at(-1)).toBe("deactivate");
-    expect(stream.tracks.every((t) => t.stopped)).toBe(true);
   });
 });
 

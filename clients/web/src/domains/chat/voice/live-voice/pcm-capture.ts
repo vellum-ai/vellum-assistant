@@ -11,12 +11,6 @@
  * An RMS `amplitude` in [0, 1] is also surfaced for UI / barge-in detection,
  * reusing the smoothing constants from `domains/voice/use-audio-amplitude.ts`.
  *
- * On iOS the capture also brackets itself with `runtime/native-voice-audio-session`,
- * which puts the app's `AVAudioSession` into `.playAndRecord` / `.voiceChat` so
- * the platform runs echo cancellation against our own TTS instead of letting
- * the assistant barge in on itself through the speaker. It is a no-op off the
- * Capacitor shell.
- *
  * The capture is permission-agnostic: it requests `getUserMedia` directly and
  * surfaces a denial as a typed `LiveVoiceCaptureResult` rather than throwing.
  * Per `clients/web/AGENTS.md` / `docs/CAPACITOR.md` § OS permission requests,
@@ -42,10 +36,6 @@ import WORKLET_MODULE_URL from "./pcm-downsample-worklet.ts?worker&url";
 
 import { createAudioContext, getAudioContextCtor } from "@/domains/chat/voice/audio-context";
 import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
-import {
-  activateVoiceAudioSession,
-  deactivateVoiceAudioSession,
-} from "@/runtime/native-voice-audio-session";
 import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
 
 // Re-exported for capture consumers (e.g. use-live-voice.ts) so they don't need
@@ -174,44 +164,19 @@ export class LiveVoiceAudioCapture {
     const epoch = this.cancelEpoch;
     const cancelled = () => this.disposed || this.cancelEpoch !== epoch;
 
-    // Put the iOS audio session into `.playAndRecord` / `.voiceChat` *before*
-    // opening the mic: the category and mode in force when WebKit builds its
-    // capture unit decide whether the platform echo canceller runs at all, so
-    // configuring after the fact is too late for this stream. No-op off the
-    // Capacitor shell.
-    await activateVoiceAudioSession();
-
     let stream: MediaStream;
     try {
       stream = await getVoiceInputMediaStream();
     } catch (cause) {
-      await deactivateVoiceAudioSession();
       return { ok: false, error: classifyError(cause), cause };
     }
 
-    // A concurrent shutdown()/stop() may have raced the awaits above.
+    // A concurrent shutdown()/stop() may have raced the await above.
     if (cancelled()) {
       stopTracks(stream);
-      await deactivateVoiceAudioSession();
       return { ok: false, error: "aborted" };
     }
-    // Take ownership of the stream *before* the next native round-trip, so a
-    // stop() that lands mid-call releases the mic through teardown() instead
-    // of leaving it live until the bridge answers.
     this.stream = stream;
-
-    // WebKit reconfigures the shared `AVAudioSession` itself when capture
-    // starts, which can drop the mode we just set. Re-assert it now that the
-    // stream is live; the native side is idempotent.
-    await activateVoiceAudioSession();
-
-    // A stop() that raced the re-assert already ran teardown() — including its
-    // deactivate, which our late activate then undid. Tear down again so the
-    // session isn't left held in the duplex category with no owner.
-    if (cancelled()) {
-      await this.teardown();
-      return { ok: false, error: "aborted" };
-    }
 
     try {
       const context = createAudioContext();
@@ -331,10 +296,6 @@ export class LiveVoiceAudioCapture {
       await context.close().catch(() => {});
     }
     this.smoothedAmplitude = 0;
-    // Hand the audio session back so ordinary media playback isn't left in a
-    // duplex, speaker-forced category once the call ends. Native no-ops when
-    // there is no activation outstanding, so an unstarted teardown is free.
-    await deactivateVoiceAudioSession();
   }
 }
 
