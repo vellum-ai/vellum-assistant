@@ -873,13 +873,13 @@ bun run openapi-ts
 Generated output lives in `src/generated/api/` (gitignored). Codegen runs
 automatically via [npm lifecycle hooks](https://docs.npmjs.com/cli/v10/using-npm/scripts#life-cycle-scripts):
 
-- **`postinstall`** — runs after every `bun install`; always regenerates
+- **`postinstall`**: runs after every `bun install`; always regenerates
   (~2s, idempotent) so a stale `src/generated/` from an older checkout or
   worktree can't survive an install and cause phantom `tsc` errors that
   never reproduce in CI.
-- **`predev`** — runs before every `bun run dev`; regenerates so the
+- **`predev`**: runs before every `bun run dev`; regenerates so the
   client stays in sync with the committed specs.
-- **`pretypecheck`** — runs before every `bun run typecheck`; regenerates
+- **`pretypecheck`**: runs before every `bun run typecheck`; regenerates
   for the same reason. A bare `bunx tsc --noEmit` bypasses this hook, so
   prefer `bun run typecheck`.
 
