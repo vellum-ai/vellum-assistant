@@ -367,9 +367,7 @@ mock.module("@/stores/auth-store", () => ({
 }));
 
 mock.module("@/stores/organization-store", () => ({
-  useOrganizationStore: {
-    getState: () => ({ currentOrganizationId: null }),
-  },
+  getActiveOrganizationIdForRequests: () => null,
 }));
 
 mock.module("@/stores/resolved-assistants-store", () => ({

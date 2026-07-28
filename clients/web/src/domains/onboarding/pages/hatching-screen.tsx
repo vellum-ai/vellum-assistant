@@ -38,7 +38,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { setSelectedAssistant } from "@/assistant/selection";
 import { useAuthStore } from "@/stores/auth-store";
-import { useOrganizationStore } from "@/stores/organization-store";
+import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { isSessionSettled } from "@/stores/session-status";
 import type { CharacterTraits } from "@/types/avatar";
@@ -328,7 +328,7 @@ export function HatchingScreen() {
               void saveManagedLockfileAssistant(
                 existing.data.id,
                 existing.data.name,
-                useOrganizationStore.getState().currentOrganizationId ??
+                getActiveOrganizationIdForRequests() ??
                   undefined,
               );
             }
@@ -607,7 +607,7 @@ export function HatchingScreen() {
               void saveManagedLockfileAssistant(
                 assistantId,
                 result.data.name,
-                useOrganizationStore.getState().currentOrganizationId ??
+                getActiveOrganizationIdForRequests() ??
                   undefined,
               );
             }

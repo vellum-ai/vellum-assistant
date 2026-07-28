@@ -102,9 +102,7 @@ mock.module("@/lib/local-mode", () => ({
   },
 }));
 mock.module("@/stores/organization-store", () => ({
-  useOrganizationStore: {
-    getState: () => ({ currentOrganizationId: "org-1" }),
-  },
+  getActiveOrganizationIdForRequests: () => "org-1",
 }));
 mock.module("@/utils/api-errors", () => ({
   extractErrorMessage: (e: unknown, _r: unknown, fallback?: string) =>

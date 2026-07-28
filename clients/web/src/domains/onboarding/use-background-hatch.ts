@@ -28,7 +28,7 @@ import {
 } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { captureError } from "@/lib/sentry/capture-error";
-import { useOrganizationStore } from "@/stores/organization-store";
+import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { randomCharacterTraits } from "@/utils/avatar-random";
@@ -322,7 +322,7 @@ export function useBackgroundHatch(
               void saveManagedLockfileAssistant(
                 activeAssistantId,
                 result.data.name,
-                useOrganizationStore.getState().currentOrganizationId ??
+                getActiveOrganizationIdForRequests() ??
                   undefined,
               );
             }
