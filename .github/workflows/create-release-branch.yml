@@ -2,11 +2,11 @@ name: Create Release Branch
 
 on:
   schedule:
-    # Release at 8:00am ET every Tuesday and Friday. Two entries cover EDT
+    # Release at 7:52am ET every Tuesday and Friday. Two entries cover EDT
     # (UTC-4) and EST (UTC-5); schedule-guard picks the one matching today's
     # offset and drops the other.
-    - cron: "0 12 * * 2,5"  # EDT: 8:00am ET
-    - cron: "0 13 * * 2,5"  # EST: 8:00am ET
+    - cron: "52 11 * * 2,5"  # EDT: 7:52am ET
+    - cron: "52 12 * * 2,5"  # EST: 7:52am ET
   workflow_dispatch:
     inputs:
       bump:
@@ -40,15 +40,15 @@ jobs:
             echo "should-run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Two cron entries fire (12:00 and 13:00 UTC) to cover EDT/EST. Run
+          # Two cron entries fire (11:52 and 12:52 UTC) to cover EDT/EST. Run
           # only the entry matching today's Eastern offset so the release fires
           # once. Keying off the triggering cron (not the wall-clock hour at job
           # start) stays correct even when GitHub delays the scheduled run.
           OFFSET=$(TZ=America/New_York date +%z)
           if [ "$OFFSET" = "-0400" ]; then
-            EXPECTED="0 12 * * 2,5"  # EDT: 8:00am ET = 12:00 UTC
+            EXPECTED="52 11 * * 2,5"  # EDT: 7:52am ET = 11:52 UTC
           else
-            EXPECTED="0 13 * * 2,5"  # EST: 8:00am ET = 13:00 UTC
+            EXPECTED="52 12 * * 2,5"  # EST: 7:52am ET = 12:52 UTC
           fi
           if [ "${{ github.event.schedule }}" != "$EXPECTED" ]; then
             echo "should-run=false" >> "$GITHUB_OUTPUT"
