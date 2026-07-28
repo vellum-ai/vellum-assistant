@@ -881,10 +881,10 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.26,
         },
       },
-      // Kimi K2.5 (accounts/fireworks/models/kimi-k2p5) was removed on
-      // 2026-07-28: Fireworks withdrew its serverless deployment, so
+      // Kimi K2.5 (accounts/fireworks/models/kimi-k2p5) is intentionally
+      // absent: Fireworks serves it on-demand/dedicated only, so serverless
       // chat/completions calls 404 ("not found, inaccessible, and/or not
-      // deployed"). Migration 136 repairs configs still pinning it.
+      // deployed").
       {
         id: "accounts/fireworks/models/minimax-m3",
         displayName: "MiniMax M3",

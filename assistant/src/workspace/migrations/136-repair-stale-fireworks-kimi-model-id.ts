@@ -16,8 +16,8 @@ import type { WorkspaceMigration } from "./types.js";
  * model-not-found on every message routed through those entries
  * (ATL-1164, ATL-1167, ATL-1144, ATL-1142).
  *
- * Repair known LLM config leaves where clients write model IDs —
- * `llm.default`, `llm.callSites.*`, and `llm.profiles.*` — only on an
+ * Repair known LLM config leaves where clients write model IDs
+ * (`llm.default`, `llm.callSites.*`, and `llm.profiles.*`) only on an
  * exact stale match, replacing with `accounts/fireworks/models/
  * deepseek-v4-flash` (the same latency-intent replacement the managed
  * catalog already made, verified serverless-servable).
@@ -87,7 +87,7 @@ export const repairStaleFireworksKimiModelIdMigration: WorkspaceMigration = {
 };
 
 // ---------------------------------------------------------------------------
-// Helpers — self-contained per workspace migrations AGENTS.md
+// Helpers: self-contained per workspace migrations AGENTS.md
 // ---------------------------------------------------------------------------
 
 const STALE_MODEL_ID = "accounts/fireworks/models/kimi-k2p5";

@@ -325,8 +325,8 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 131_072,
       supportsThinking: true,
     },
-    // Kimi K2.5 (kimi-k2p5) removed 2026-07-28: Fireworks withdrew its
-    // serverless deployment, so calls 404. Mirrors the daemon catalog.
+    // Kimi K2.5 (kimi-k2p5) is intentionally absent: Fireworks serves it
+    // on-demand/dedicated only, so serverless calls 404.
     {
       id: "accounts/fireworks/models/minimax-m3",
       displayName: "MiniMax M3",
