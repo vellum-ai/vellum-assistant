@@ -19,7 +19,9 @@
  *
  * The paid-return block covers the `post_checkout=1` marker reaching the
  * background hatch and the failure overlay that surfaces a dead hatch on any
- * step, with the at-capacity download off-ramp in place of a retry.
+ * step, with the at-capacity download off-ramp in place of a retry. The retry
+ * block covers what that overlay's "Try again" has to un-poison: route state
+ * that resolved against the dead hatch and would otherwise survive the retry.
  *
  * Self-contained mocks (run this file solo — `mock.module` leaks across a shared
  * `bun test` run).
@@ -47,9 +49,15 @@ const USER_ID = "user-1";
 const navigateMock = mock((_to: string, _opts?: unknown) => {});
 const searchParams = new URLSearchParams();
 
-const startResearchMock = mock((_opts: unknown) => {});
-const hydrateResearchMock = mock((_results: unknown, _await?: unknown) => {});
 let researchStatus = "idle";
+// Mirrors the real runner, which flips to "running" synchronously inside
+// `start` — that is what keeps the mid-flow resume effect from firing a second
+// turn behind a form submit.
+const startResearchMock = mock((_opts: unknown) => {
+  researchStatus = "running";
+});
+const hydrateResearchMock = mock((_results: unknown, _await?: unknown) => {});
+const resetResearchMock = mock(() => {});
 const researchRunner = {
   get status() {
     return researchStatus;
@@ -61,6 +69,7 @@ const researchRunner = {
   pluginCatalog: {} as Record<string, string>,
   start: startResearchMock,
   hydrate: hydrateResearchMock,
+  reset: resetResearchMock,
   awaitPluginInstalls: async () => {},
 };
 
@@ -86,14 +95,22 @@ const checkEstablishedAssistantMock = mock(async (_id: string) => {
   return establishedResult;
 });
 
-const retryHatchMock = mock(() => {});
+// The hatch's readiness promise is swapped per test (a dead first attempt
+// rejects; the retry hands back a healthy one), and `onRetryHatch` is where a
+// test stages that recovery — it runs inside the overlay's click, exactly where
+// the real `retry()` would clear the hook's terminal state.
+let awaitHatchReady: () => Promise<string> = async () => "asst-1";
+let onRetryHatch: () => void = () => {};
+const retryHatchMock = mock(() => {
+  onRetryHatch();
+});
 const backgroundHatch = {
   start: () => {},
   retry: retryHatchMock,
   ready: true,
   assistantId: "asst-1",
   error: null as string | null,
-  awaitReady: async () => "asst-1",
+  awaitReady: () => awaitHatchReady(),
 };
 const useBackgroundHatchMock = mock(
   (_options: { postCheckoutReturn?: boolean }) => backgroundHatch,
@@ -350,9 +367,12 @@ beforeEach(() => {
   releaseEstablishedCheck = () => {};
   searchParams.delete("post_checkout");
   backgroundHatch.error = null;
+  awaitHatchReady = async () => "asst-1";
+  onRetryHatch = () => {};
   navigateMock.mockClear();
   startResearchMock.mockClear();
   hydrateResearchMock.mockClear();
+  resetResearchMock.mockClear();
   checkEstablishedAssistantMock.mockClear();
   useBackgroundHatchMock.mockClear();
   retryHatchMock.mockClear();
@@ -603,5 +623,91 @@ describe("ResearchOnboardingRoute paid return", () => {
     await screen.findByTestId("form-submit");
 
     expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+});
+
+// Retrying the hatch has to restart everything that already resolved against
+// the dead one. Both of these used to survive the retry poisoned: the
+// established-assistant verdict (cached fail-open from the rejected
+// `awaitReady`) and a research turn that settled "error" while keeping its
+// subject key, which made even an identical resubmit a no-op.
+describe("ResearchOnboardingRoute hatch retry", () => {
+  const HATCH_ERROR = "Failed to start your assistant. Please try again.";
+
+  function failFirstHatch() {
+    backgroundHatch.error = HATCH_ERROR;
+    awaitHatchReady = () => Promise.reject(new Error("hatch failed"));
+  }
+
+  function recoverOnRetry() {
+    onRetryHatch = () => {
+      backgroundHatch.error = null;
+      awaitHatchReady = async () => "asst-1";
+    };
+  }
+
+  test("re-runs the established-assistant check against the retried hatch", async () => {
+    failFirstHatch();
+    // The retry recovers an assistant that already has a life.
+    establishedResult = { established: true, assistantName: "Viper" };
+
+    render(<ResearchOnboardingRoute />);
+    await screen.findByRole("alertdialog");
+    // The dead hatch never got far enough to ask.
+    expect(checkEstablishedAssistantMock).not.toHaveBeenCalled();
+
+    recoverOnRetry();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    fireEvent.click(screen.getByTestId("form-submit"));
+
+    // The gate recomputed against the new attempt, so the submit lands on the
+    // keep/redo choice instead of running research + persona writes against an
+    // established assistant.
+    await waitFor(() =>
+      expect(screen.getByTestId("existing-step").textContent).toBe("Viper"),
+    );
+    expect(startResearchMock).not.toHaveBeenCalled();
+  });
+
+  test("re-fires a research turn that died with the hatch", async () => {
+    const { rerender } = render(<ResearchOnboardingRoute />);
+    fireEvent.click(await screen.findByTestId("form-submit"));
+    await waitFor(() => expect(startResearchMock).toHaveBeenCalledTimes(1));
+
+    // The hatch dies after the submit: the runner's `awaitAssistantId` rejects
+    // and the turn settles "error", still holding the submitted subject key.
+    researchStatus = "error";
+    backgroundHatch.error = HATCH_ERROR;
+    rerender(<ResearchOnboardingRoute />);
+
+    recoverOnRetry();
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+
+    expect(resetResearchMock).toHaveBeenCalledTimes(1);
+    expect(startResearchMock).toHaveBeenCalledTimes(2);
+    // Ordering stays the runner's job: the re-fired turn awaits the retried
+    // hatch itself rather than the handler awaiting readiness first.
+    const refired = startResearchMock.mock.calls[1]?.[0] as {
+      awaitAssistantId: () => Promise<string>;
+    };
+    expect(refired.awaitAssistantId).toBe(backgroundHatch.awaitReady);
+  });
+
+  test("does not re-fire a research turn that never errored", async () => {
+    const { rerender } = render(<ResearchOnboardingRoute />);
+    fireEvent.click(await screen.findByTestId("form-submit"));
+    await waitFor(() => expect(startResearchMock).toHaveBeenCalledTimes(1));
+
+    // Still running when the hatch failed — the turn is already parked on the
+    // runner's own `awaitAssistantId`, so a retry must not double-fire it.
+    backgroundHatch.error = HATCH_ERROR;
+    rerender(<ResearchOnboardingRoute />);
+
+    recoverOnRetry();
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+
+    expect(resetResearchMock).not.toHaveBeenCalled();
+    expect(startResearchMock).toHaveBeenCalledTimes(1);
   });
 });

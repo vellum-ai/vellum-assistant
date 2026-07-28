@@ -371,7 +371,12 @@ export function ResearchOnboardingRoute() {
   // personality step rewrites the persona, so an already-customized assistant
   // must never be run through them silently. The submit handler awaits this
   // verdict (briefly) and branches to the "existing" guard step.
-  useEffect(() => {
+  //
+  // The ref both memoizes the verdict and marks the CURRENT hatch attempt as
+  // covered, so a retry must clear it (see `handleHatchRetry`) — otherwise the
+  // fail-open verdict a dead hatch produced would outlive it and let a
+  // recovered, already-established assistant through the gate.
+  const armEstablishedCheck = useCallback(() => {
     if (establishedCheckRef.current) return;
     const check = awaitHatchReady()
       .then((id) => checkEstablishedAssistant(id))
@@ -380,6 +385,10 @@ export function ResearchOnboardingRoute() {
     establishedCheckRef.current = check;
     void check.then(setEstablishedCheck);
   }, [awaitHatchReady]);
+
+  useEffect(() => {
+    armEstablishedCheck();
+  }, [armEstablishedCheck]);
 
   // Resolve the established-assistant verdict for a gate decision: race the
   // in-flight check (kicked off at mount, above) against a short timeout so a
@@ -833,6 +842,22 @@ export function ResearchOnboardingRoute() {
     goForwardTo("meeting");
   }
 
+  // "Try again" restarts the hatch AND everything that resolved against the
+  // dead one. The established verdict failed open on the rejected `awaitReady`,
+  // and a research turn fired before the failure settled to "error" while
+  // keeping its subject key (so an identical resubmit would dedupe to nothing).
+  // Both re-arm against the new attempt; research goes through the runner's own
+  // hatch await, so it still can't run ahead of readiness.
+  function handleHatchRetry() {
+    establishedCheckRef.current = null;
+    retryHatch();
+    armEstablishedCheck();
+    if (research.status === "error" && formValues) {
+      research.reset();
+      fireResearch(formValues);
+    }
+  }
+
   // A terminal hatch failure is layered over whichever step is on screen — the
   // assistant is dead at all of them, so the failure shouldn't wait for the
   // last step to be discovered. Layering (rather than replacing the step) keeps
@@ -841,7 +866,7 @@ export function ResearchOnboardingRoute() {
     <>
       {content}
       {hatchError !== null && (
-        <HatchErrorOverlay error={hatchError} onRetry={retryHatch} />
+        <HatchErrorOverlay error={hatchError} onRetry={handleHatchRetry} />
       )}
     </>
   );

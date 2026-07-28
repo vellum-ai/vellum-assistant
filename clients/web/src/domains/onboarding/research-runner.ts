@@ -326,6 +326,17 @@ export interface ResearchRunnerState {
   pluginCatalog: Record<string, string>;
 }
 
+function emptyResearchState(status: ResearchStatus): ResearchRunnerState {
+  return {
+    status,
+    claims: [],
+    droppedClaims: [],
+    suggestions: [],
+    installedPlugins: [],
+    pluginCatalog: {},
+  };
+}
+
 export interface StartResearchOptions {
   /** Resolves with the hatched assistant id once it's healthy. */
   awaitAssistantId: () => Promise<string>;
@@ -388,6 +399,14 @@ export interface UseResearchRunner extends ResearchRunnerState {
     results: ResearchRunnerState,
     awaitAssistantId?: () => Promise<string>,
   ) => void;
+  /**
+   * Drop the run's subject key and results so a following `start` with the SAME
+   * subject re-fires instead of deduping to a no-op. For restarting a turn that
+   * died with the dependency it was waiting on — a failed hatch rejects
+   * `awaitAssistantId` and settles the run "error" while it keeps holding the
+   * key — not for ordinary resubmits, which the key is there to collapse.
+   */
+  reset: () => void;
 }
 
 const sleep = (ms: number): Promise<void> =>
@@ -411,14 +430,9 @@ export function resolveOnboardingPluginInstalls({
 }
 
 export function useResearchRunner(): UseResearchRunner {
-  const [state, setState] = useState<ResearchRunnerState>({
-    status: "idle",
-    claims: [],
-    droppedClaims: [],
-    suggestions: [],
-    installedPlugins: [],
-    pluginCatalog: {},
-  });
+  const [state, setState] = useState<ResearchRunnerState>(() =>
+    emptyResearchState("idle"),
+  );
   // Monotonic run id: every fresh run claims the next id; in-flight loops bail
   // the moment a newer run supersedes them. Paired with the last subject key so
   // an identical resubmit is a no-op but an edited one restarts.
@@ -461,14 +475,7 @@ export function useResearchRunner(): UseResearchRunner {
         resolvePluginsReady = res;
       });
       installPromisesRef.current.clear();
-      setState({
-        status: "running",
-        claims: [],
-        droppedClaims: [],
-        suggestions: [],
-        installedPlugins: [],
-        pluginCatalog: {},
-      });
+      setState(emptyResearchState("running"));
 
       void (async () => {
         let resolvedAssistantId: string | undefined;
@@ -784,6 +791,18 @@ export function useResearchRunner(): UseResearchRunner {
     [queryClient],
   );
 
+  const reset = useCallback(() => {
+    // Supersede any in-flight loop, release the subject key so an identical
+    // resubmit is treated as a genuinely fresh run, and re-arm an already-
+    // resolved click gate so `awaitPluginInstalls` can't hang on a run that no
+    // longer exists.
+    runIdRef.current += 1;
+    subjectKeyRef.current = null;
+    installPromisesRef.current.clear();
+    pluginsReadyRef.current = Promise.resolve();
+    setState(emptyResearchState("idle"));
+  }, []);
+
   const awaitPluginInstalls = useCallback(async (): Promise<void> => {
     // Wait only for the plugin decision to be final (so a click that beats the
     // parse doesn't await an empty map), then for those installs — never for the
@@ -828,5 +847,5 @@ export function useResearchRunner(): UseResearchRunner {
     [],
   );
 
-  return { ...state, start, awaitPluginInstalls, hydrate };
+  return { ...state, start, awaitPluginInstalls, hydrate, reset };
 }
