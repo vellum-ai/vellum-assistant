@@ -5434,6 +5434,12 @@ export async function defaultSpawnBackgroundContinuation(args: {
       objective: args.objective,
       fork: true,
       sendResultToUser: false,
+      // Distinct spawn mode so this unattended continuation is separable in
+      // cost telemetry from a tool-initiated fork. Mechanically both are
+      // forks, but they come from different call sites with different cost
+      // profiles, and lumping them together is what made delegated spend
+      // opaque in the first place.
+      spawnMode: "voice_continuation",
       // Full subagent abilities: the continuation runs like any other
       // background subagent, so it can genuinely finish build-shaped work
       // (JARVIS-1354). Side effects are governed by the standard

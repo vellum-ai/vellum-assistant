@@ -281,6 +281,12 @@ const usageSource = simpleSource(
     turn_index: e.turnIndex,
     parent_conversation_id: e.parentConversationId,
     parent_turn_index: e.parentTurnIndex,
+    // Delegated-work decomposition. Every subagent variety shares
+    // `llm_call_site = "subagentSpawn"`; these two orthogonal dimensions are
+    // what make advisor consults, forks, and regular spawns separable. Null
+    // for the vast majority of calls, which are not delegated at all.
+    subagent_role: e.subagentRole,
+    subagent_spawn_mode: e.subagentSpawnMode,
     provider: e.provider,
     model: e.model,
     input_tokens: e.inputTokens,

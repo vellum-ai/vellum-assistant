@@ -213,6 +213,11 @@ export async function executeSubagentSpawn(
         // Regular forks omit the role so they default to general; the advisor
         // role is special-cased earlier via runAdvisorConsult, not here.
         ...(!fork && role ? { role: role as SubagentRole } : {}),
+        // Declare the spawn mode so delegated LLM spend is separable in
+        // telemetry: every variety shares `llm_call_site = "subagentSpawn"`,
+        // and a fork's inherited transcript costs very differently from a
+        // fresh objective-only spawn.
+        spawnMode: fork ? "fork" : "regular",
         ...(inheritedOverrideProfile
           ? { overrideProfile: inheritedOverrideProfile }
           : {}),
@@ -349,6 +354,10 @@ async function runAdvisorConsult(args: {
           sendResultToUser: false,
           role: "advisor",
           fork: true,
+          // The advisor is a ROLE, not an `LLMCallSiteEnum` value — its usage
+          // lands under `subagentSpawn` like any other subagent. This is what
+          // makes advisor consults separable from regular forks in telemetry.
+          spawnMode: "advisor_consult",
           parentMessages: sanitizedMessages,
           systemPromptOverride: buildAdvisorSystem(parentSystemPrompt),
           ...(overrideProfile ? { overrideProfile } : {}),

@@ -95,6 +95,19 @@ export interface SubagentConfig {
   /** Optional role for the subagent. Defaults handled by consumers. */
   role?: SubagentRole;
   /**
+   * How this subagent was spawned — the call site and its context/lifecycle
+   * shape. Stamped onto the child conversation row and emitted as
+   * `subagent_spawn_mode` on `llm_usage` telemetry so delegated spend is
+   * separable per variety.
+   *
+   * Set by the spawning call site, which is the only layer that knows: the
+   * manager cannot tell an advisor consult from a plain fork, nor a live-voice
+   * continuation from a tool-initiated one. Omitting it falls back to the
+   * mechanical `fork ? "fork" : "regular"`, so a future call site that forgets
+   * still lands on an honest value rather than NULL.
+   */
+  spawnMode?: SubagentSpawnMode;
+  /**
    * When true, side-effecting tools (send/write/delete/purchase, host commands)
    * are refused for this subagent regardless of trust class — the executor
    * rejects any such dispatch and the tool is kept off the model's tool surface.
@@ -216,6 +229,34 @@ export type SubagentRole =
   | "planner"
   | "investigator"
   | "advisor";
+
+// ── Spawn modes ──────────────────────────────────────────────────────────
+
+/**
+ * How a subagent was spawned. Orthogonal to {@link SubagentRole}: the role
+ * selects the tool allowlist and system-prompt preamble (what the child may
+ * do), the spawn mode selects context inheritance and lifecycle (how many
+ * input tokens the child starts with, and whether the parent blocks on it).
+ * A fork's inherited parent transcript is the dominant input-token driver and
+ * is independent of which role ran, which is why neither field subsumes the
+ * other.
+ *
+ * - `regular` — fire-and-forget `subagent_spawn`, fresh objective-only context.
+ * - `fork` — `subagent_spawn` with `fork: true`, inherits the parent transcript.
+ * - `advisor_consult` — synchronous, tool-less advisor consult on the advisor
+ *   profile; the parent turn blocks on it and returns its guidance inline.
+ * - `voice_continuation` — silent, read-only live-voice background
+ *   continuation of an interrupted turn.
+ *
+ * Mirrored on the wire as `llm_usage.subagent_spawn_mode`, which is an OPEN
+ * string set on the platform side: adding a value here needs no coordinated
+ * platform release.
+ */
+export type SubagentSpawnMode =
+  | "regular"
+  | "fork"
+  | "advisor_consult"
+  | "voice_continuation";
 
 export interface SubagentRoleConfig {
   /**

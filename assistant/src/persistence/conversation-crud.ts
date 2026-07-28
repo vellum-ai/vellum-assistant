@@ -921,6 +921,14 @@ export function createConversation(
          * `forkParentConversationId` it implies no history inheritance.
          */
         parentConversationId?: string;
+        /**
+         * Role of the subagent that owns this conversation, and how it was
+         * spawned. Persisted here (not only on the ephemeral `subagents` row)
+         * so usage telemetry can decompose delegated spend by variety long
+         * after the subagent record is disposed. See migration 356.
+         */
+        subagentRole?: string;
+        subagentSpawnMode?: string;
       },
 ) {
   const db = getDb();
@@ -964,6 +972,8 @@ export function createConversation(
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
     parentConversationId: opts.parentConversationId ?? null,
+    subagentRole: opts.subagentRole ?? null,
+    subagentSpawnMode: opts.subagentSpawnMode ?? null,
     // Snapshot↔stream alignment baseline, captured at the creation instant.
     // 0 (nothing stamped yet this process) is stored as NULL so `/messages`
     // reports null and the client cold-starts rather than aligning to seq 0.
