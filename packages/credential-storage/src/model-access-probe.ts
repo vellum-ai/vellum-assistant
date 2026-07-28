@@ -76,7 +76,7 @@ export interface ModelAccessProbeResult {
 const PROBE_TIMEOUT_MS = 10_000;
 
 /** Cap on the provider body read, so a hostile endpoint cannot exhaust memory. */
-const MAX_BODY_CHARS = 1_000_000;
+const MAX_BODY_BYTES = 1_000_000;
 
 /** Cap on the error text echoed back to the caller. */
 const MAX_DETAIL_CHARS = 300;
@@ -160,6 +160,42 @@ function stripCredential(text: string, credential: string): string {
   return text.split(credential).join("[REDACTED]");
 }
 
+/**
+ * Read the response body up to {@link MAX_BODY_BYTES}, cancelling the stream
+ * at the cap rather than buffering whatever the endpoint chooses to send.
+ * A truncated body is reported rather than parsed: a partial listing cannot
+ * distinguish a model the credential lacks from one past the cut.
+ */
+async function readBoundedBody(
+  response: Response,
+): Promise<{ text: string; truncated: boolean }> {
+  if (!response.body) {
+    return { text: "", truncated: false };
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let read = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        chunks.push(decoder.decode());
+        return { text: chunks.join(""), truncated: false };
+      }
+      const remaining = MAX_BODY_BYTES - read;
+      if (value.byteLength >= remaining) {
+        chunks.push(decoder.decode(value.subarray(0, remaining)));
+        return { text: chunks.join(""), truncated: true };
+      }
+      read += value.byteLength;
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+}
+
 function verdicts(
   models: string[],
   access: ModelAccess,
@@ -230,7 +266,22 @@ export async function probeModelAccess(
     };
   }
 
-  const raw = (await response.text()).slice(0, MAX_BODY_CHARS);
+  let raw: string;
+  let truncated: boolean;
+  try {
+    ({ text: raw, truncated } = await readBoundedBody(response));
+  } catch (err) {
+    return {
+      outcome: "inconclusive",
+      status: response.status,
+      detail: stripCredential(
+        err instanceof Error ? err.message : String(err),
+        credential,
+      ).slice(0, MAX_DETAIL_CHARS),
+      accessibleModels: [],
+      models: verdicts(request.models, "unknown"),
+    };
+  }
 
   if (!response.ok) {
     // 401 and 403 are the provider saying the credential itself is the
@@ -245,6 +296,16 @@ export async function probeModelAccess(
       outcome: rejected ? "invalid" : "inconclusive",
       status: response.status,
       ...(detail ? { detail } : {}),
+      accessibleModels: [],
+      models: verdicts(request.models, "unknown"),
+    };
+  }
+
+  if (truncated) {
+    return {
+      outcome: "valid",
+      status: response.status,
+      detail: "Provider model listing is larger than the probe reads.",
       accessibleModels: [],
       models: verdicts(request.models, "unknown"),
     };

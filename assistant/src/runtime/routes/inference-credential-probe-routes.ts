@@ -71,20 +71,33 @@ const ProbeResponseSchema = z.object({
 type ProbeResponse = z.infer<typeof ProbeResponseSchema>;
 
 /**
- * The account the connection's credential is stored under, or null when the
- * connection authenticates without one (keyless or platform auth).
+ * The account holding a credential that can be sent to a provider's model
+ * listing as-is, or the reason the connection's auth cannot be probed.
+ *
+ * Only `api_key` qualifies. An `oauth_subscription` credential is a ChatGPT
+ * Codex access token that the inference path refreshes before use and sends to
+ * the subscription endpoint, so probing the stored token would report a
+ * refreshable token as invalid. `service_account` auth is rejected at
+ * inference time, and `platform` and `none` store no provider credential.
  */
 function credentialAccountFor(auth: {
   type: string;
   credential?: string;
-}): string | null {
+}): { account: string } | { unsupported: string } {
   switch (auth.type) {
     case "api_key":
+      return auth.credential
+        ? { account: auth.credential }
+        : { unsupported: "its api_key auth names no stored credential." };
     case "oauth_subscription":
-    case "service_account":
-      return auth.credential ?? null;
+      return {
+        unsupported:
+          "subscription access tokens are refreshed at inference time, so a probe of the stored token would not reflect what inference uses.",
+      };
     default:
-      return null;
+      return {
+        unsupported: `its "${auth.type}" auth stores no provider credential a model listing can be called with.`,
+      };
   }
 }
 
@@ -169,11 +182,9 @@ export async function handleProbeModelAccess(
       models: verdicts("unknown"),
     });
 
-  const account = credentialAccountFor(connection.auth);
-  if (!account) {
-    return unsupported(
-      `its "${connection.auth.type}" auth stores no provider credential.`,
-    );
+  const credential = credentialAccountFor(connection.auth);
+  if ("unsupported" in credential) {
+    return unsupported(credential.unsupported);
   }
 
   const listing = buildModelListingRequest(
@@ -187,7 +198,7 @@ export async function handleProbeModelAccess(
   }
 
   const result = await probeModelAccessAsync({
-    account,
+    account: credential.account,
     request: listing,
     models,
   });

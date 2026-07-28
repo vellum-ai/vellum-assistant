@@ -177,6 +177,25 @@ describe("probe model access", () => {
     expect(probeCalls).toHaveLength(0);
   });
 
+  test("GIVEN a subscription connection WHEN probing THEN it is reported as unsupported, since inference refreshes the stored token before use", async () => {
+    seedConnection({
+      name: "chatgpt-subscription",
+      provider: "openai",
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/chatgpt/access_token",
+      },
+    });
+
+    const result = await handleProbeModelAccess({
+      pathParams: { name: "chatgpt-subscription" },
+    });
+
+    expect(result.outcome).toBe("unsupported");
+    expect(result.summary).toContain("refreshed at inference time");
+    expect(probeCalls).toHaveLength(0);
+  });
+
   test("GIVEN an unreachable credential store WHEN probing THEN the outcome is inconclusive", async () => {
     seedGeminiSetup();
     probeResult = null;

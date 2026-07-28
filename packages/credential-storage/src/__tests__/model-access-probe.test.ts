@@ -241,6 +241,41 @@ describe("probeModelAccess", () => {
     expect(result.models[0]?.access).toBe("unknown");
   });
 
+  test("GIVEN an endless listing body WHEN probing THEN the read stops at the cap and models read unknown", async () => {
+    // GIVEN an endpoint that never stops sending
+    let cancelled = false;
+    let sent = 0;
+    const chunk = new Uint8Array(64 * 1024).fill(0x20);
+    mockFetch(
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              sent += chunk.byteLength;
+              controller.enqueue(chunk);
+            },
+            cancel() {
+              cancelled = true;
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+
+    // WHEN the credential is probed
+    const result = await probeModelAccess(
+      GEMINI_REQUEST,
+      storeWith(STORED_KEY),
+    );
+
+    // THEN the probe stops reading at its cap instead of buffering the body,
+    // and reports the listing as unread rather than guessing at model access
+    expect(cancelled).toBe(true);
+    expect(sent).toBeLessThanOrEqual(2_000_000);
+    expect(result.models[0]?.access).toBe("unknown");
+    expect(result.detail).toContain("larger than the probe reads");
+  });
+
   test("GIVEN a provider outage WHEN probing THEN the outcome is inconclusive rather than invalid", async () => {
     mockFetch(() => new Response("upstream exploded", { status: 503 }));
 
