@@ -99,6 +99,16 @@ const MAX_EXTRACT_LENGTH = 50_000;
 const MAX_EXTRACT_FENCE_CHARS = MAX_EXTRACT_LENGTH + 10_000;
 
 /**
+ * Caps on the link list `browser_extract` returns with `include_links`.
+ * Anchor text and hrefs are page-authored and unbounded (a data-URI href
+ * runs to megabytes), so one link could otherwise spend the whole extract
+ * budget and truncate away every link after it.
+ */
+const MAX_EXTRACTED_LINKS = 200;
+const MAX_LINK_TEXT_CHARS = 80;
+const MAX_LINK_HREF_CHARS = 200;
+
+/**
  * Character budget for the fenced payload returned by `browser_snapshot`.
  *
  * A snapshot's usefulness is all-or-nothing per element: truncating the
@@ -2280,10 +2290,18 @@ export async function executeBrowserExtract(
       if (links.length > 0) {
         lines.push("");
         lines.push("Links:");
-        for (const link of links) {
-          lines.push(
-            `  [${link.text || "(no text)"}](${sanitizeUrlStringForOutput(link.href)})`,
+        // Bound both fields here rather than trusting the caps in
+        // EXTRACT_LINKS_EXPRESSION: that runs inside the page, so its
+        // return value is as page-controlled as the DOM it reads. A
+        // single unbounded href would otherwise spend the fence budget
+        // and truncate away every link after it.
+        for (const link of links.slice(0, MAX_EXTRACTED_LINKS)) {
+          const text = truncate(String(link.text ?? ""), MAX_LINK_TEXT_CHARS);
+          const href = truncate(
+            sanitizeUrlStringForOutput(String(link.href ?? "")),
+            MAX_LINK_HREF_CHARS,
           );
+          lines.push(`  [${text || "(no text)"}](${href})`);
         }
       }
     }

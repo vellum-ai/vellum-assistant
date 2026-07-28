@@ -370,6 +370,33 @@ describe("browser_extract fences page-derived content", () => {
     expect(envelope.content).not.toContain("[... truncated at");
   });
 
+  test("one hostile link cannot crowd out the rest of the list", async () => {
+    // Anchor text and href are page-authored. The caps in
+    // EXTRACT_LINKS_EXPRESSION run inside the page, so its return value
+    // is as page-controlled as the DOM — the daemon-side caps are the
+    // only trustworthy bound.
+    currentPage = makeFakePage({
+      links: [
+        {
+          text: "T".repeat(100_000),
+          href: `https://evil.example.com/${"h".repeat(100_000)}`,
+        },
+        { text: "Second", href: "https://example.com/second" },
+        { text: "Third", href: "https://example.com/third" },
+      ],
+    });
+
+    const result = await executeBrowserExtract(
+      { include_links: true },
+      makeContext("ext-link-flood"),
+    );
+
+    const envelope = expectSingleEnvelope(result.content);
+    expect(envelope.content).toContain("https://example.com/second");
+    expect(envelope.content).toContain("https://example.com/third");
+    expect(envelope.content).not.toContain("[... truncated at");
+  });
+
   test("keeps the innerText cap as the effective body-text limit", async () => {
     // The fence budget sits above MAX_EXTRACT_LENGTH so fencing does not
     // shrink how much page text the tool can return.
