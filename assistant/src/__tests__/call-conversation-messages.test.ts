@@ -14,8 +14,6 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations } from "../persistence/schema/index.js";
 import { contentBlockArraySchema } from "../providers/content-block-schema.js";
-import type { UiSurfaceContent } from "../providers/types.js";
-import { uiSurfaceFallbackText } from "../providers/ui-surface-projection.js";
 
 await initializeDb();
 
@@ -217,11 +215,5 @@ describe("call-conversation-messages", () => {
 
     const blocks = getLatestAssistantBlocks(conversationId);
     expect(contentBlockArraySchema.safeParse(blocks).success).toBe(true);
-
-    // The card alone still projects to text, so legacy rows written before the
-    // fallback existed are recovered rather than dropped.
-    expect(
-      uiSurfaceFallbackText(blocks[0] as unknown as UiSurfaceContent),
-    ).toBe("**Call completed**. 1 event(s) recorded.");
   });
 });

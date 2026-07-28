@@ -25,13 +25,11 @@ import type {
   ProviderResponse,
   SendMessageOptions,
   ToolDefinition,
-  UiSurfaceContent,
 } from "../types.js";
 import {
   ContextOverflowError,
   extractOverflowTokensFromMessage,
 } from "../types.js";
-import { uiSurfaceFallbackText } from "../ui-surface-projection.js";
 import {
   type ShadowStreamEvent,
   StreamContentShadow,
@@ -1791,28 +1789,6 @@ export class AnthropicProvider implements Provider {
                 !(block as { text?: string }).text?.trim()
               ),
           );
-
-        // An assistant turn whose only content was a `ui_surface` card (voice
-        // call summaries are the common case) would otherwise reach the model
-        // as a bare "blocks omitted" sentinel — it could not tell that the call
-        // happened. Recover the card's display copy as text. Rows written by
-        // producers that emit the `_surfaceFallback` sibling never reach here:
-        // that text block survives filtering, so `content` is non-empty.
-        if (content.length === 0 && m.role === "assistant") {
-          const surfaceText = m.content
-            .filter(
-              (block): block is UiSurfaceContent => block.type === "ui_surface",
-            )
-            .map(uiSurfaceFallbackText)
-            .filter((text): text is string => text !== null)
-            .join("\n");
-          if (surfaceText) {
-            return {
-              role: "assistant" as const,
-              content: [{ type: "text" as const, text: surfaceText }],
-            };
-          }
-        }
 
         // Preserve assistant turns that would otherwise become empty after
         // filtering unknown block types. Dropping these messages can violate
