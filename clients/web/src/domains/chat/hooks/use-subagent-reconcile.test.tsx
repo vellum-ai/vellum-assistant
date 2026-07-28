@@ -9,6 +9,10 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import { __resetForTesting, publish } from "@/lib/event-bus";
 
+mock.module("@/lib/backwards-compat/subagents-reconcile", () => ({
+  supportsSubagentsReconcile: () => true,
+}));
+
 let getCalls = 0;
 mock.module("@/generated/daemon/sdk.gen", () => ({
   subagentsReconcileGet: async () => {
