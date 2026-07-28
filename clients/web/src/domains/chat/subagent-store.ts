@@ -28,12 +28,15 @@ import {
   type SubagentInnerEvent,
 } from "@vellumai/assistant-api";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
-import { isActiveStatus } from "@/utils/subagent-status";
-import { supportsSubagentDetailSelfLookup } from "@/lib/backwards-compat/subagent-detail-self-lookup";
+import { isActiveStatus, shouldApplyStatus } from "@/utils/subagent-status";
 import { supportsSubagentsReconcile } from "@/lib/backwards-compat/subagents-reconcile";
 import { fetchSubagentDetail } from "./fetch-subagent-detail";
 import { mapDetailEvents } from "./map-detail-events";
 import { setToolUseAnchor } from "./store-helpers/by-tool-use-id-index";
+import {
+  canAddressSubagentDetail,
+  resolveSubagentDetailConversationId,
+} from "./store-helpers/subagent-detail-addressability";
 
 // ---------------------------------------------------------------------------
 // State
@@ -181,6 +184,16 @@ export interface SubagentActions {
     parentMessageStableId?: string;
     parentMessageId?: string;
     parentToolUseId?: string;
+    /**
+     * Final tallies for a run materialized after the fact — a reconcile
+     * snapshot carries them alongside the identity. A live spawn omits them
+     * and starts at zero. Supplied on a terminal spawn they also mark the
+     * entry in `terminalUsageIds`, so a late `usage_progress` can't stack on
+     * top of totals that already include it.
+     */
+    inputTokens?: number;
+    outputTokens?: number;
+    totalCost?: number;
   }) => void;
 
   changeStatus: (params: {
@@ -193,19 +206,25 @@ export interface SubagentActions {
   }) => void;
 
   /**
-   * Create a stub entry for a subagent known only from mid-run evidence —
-   * a `subagent_event` or `subagent_status_changed` whose id has no entry
-   * because the `subagent_spawned` event was missed (SSE gap, page reload)
-   * or the store was reset after it arrived. No-op when the entry exists.
+   * Materialize an entry for a subagent this client learned about out of
+   * band — a `subagent_event` / `subagent_status_changed` whose id has no
+   * entry because the `subagent_spawned` was missed (SSE gap, page reload)
+   * or the store was reset after it arrived, or a row from the daemon's
+   * reconcile snapshot. No-op when the entry exists.
    *
-   * The stub is marked `hydrationPending` and left with zero events —
-   * making the detail auto-fetch (`fetchDetailIfNeeded`) backfill the
-   * authoritative label/objective/status/timeline — whenever the ids at hand
-   * can address the subagent's own conversation: either `conversationId`
-   * (the child id, good on every daemon) or, on a daemon that resolves the
-   * subagent's conversation itself, `parentConversationId` as a wire
-   * placeholder. Otherwise the stub renders from whatever streams in — a
-   * generic but functional card.
+   * Whatever identity the evidence carries is applied; the rest falls back to
+   * placeholders (`label: ""`) that the detail fetch or a later, richer
+   * snapshot can backfill. `parentConversationId` falls back to the
+   * conversation on screen — the same guess `requestSubagentReconcile` makes —
+   * because an entry with no parent id is shown by the Active-Subagents
+   * overlay in *every* conversation and is settled by reconcile's orphan pass
+   * in none of them.
+   *
+   * An entry that is still ACTIVE and can address a detail fetch is marked
+   * `hydrationPending`, so the live events that race the backfill are deferred
+   * rather than appended (see the field's doc on `SubagentEntry`). Terminal
+   * rows can't race anything and are deliberately left un-armed: they'd
+   * otherwise drag the whole snapshot through the auto-fetch on every load.
    */
   ensureEntry: (params: {
     subagentId: string;
@@ -213,6 +232,14 @@ export interface SubagentActions {
     conversationId?: string;
     parentConversationId?: string;
     status?: SubagentStatus;
+    label?: string;
+    objective?: string;
+    isFork?: boolean;
+    error?: string;
+    parentToolUseId?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    totalCost?: number;
   }) => void;
 
   receiveEvent: (params: {
@@ -244,6 +271,33 @@ export interface SubagentActions {
      */
     conversationId?: string;
   }) => void;
+
+  /**
+   * Fill in identity a placeholder entry never had — the label, objective and
+   * spawn anchor missing from a stub, or from a row a pre-enrichment daemon
+   * could only report a status for. Placeholder yields, real value wins: a
+   * value the entry already holds is never overwritten, because it came from
+   * the same source of truth (`subagent_spawned`) at first hand. A backfilled
+   * `parentToolUseId` is registered in `byToolUseId` so the transcript can
+   * anchor the inline card to its exact spawn tool call.
+   */
+  backfillIdentity: (params: {
+    subagentId: string;
+    label?: string;
+    objective?: string;
+    parentToolUseId?: string;
+  }) => void;
+
+  /**
+   * Anchor an entry to the assistant message that spawned it and index it
+   * under that id in `byParent`, so the transcript can find it. For entries
+   * materialized without any parent message id — everything reconcile
+   * recovers — history hydration is the first evidence source that names the
+   * spawning message. No-op when the entry is unknown or already anchored;
+   * re-anchoring an optimistic id to its reconciled server id is
+   * `reanchorToMessage`'s job.
+   */
+  attachParentMessage: (subagentId: string, parentMessageId: string) => void;
 
   /**
    * Stamp the subagent's own conversation id, used to fetch detail. No-ops
@@ -297,15 +351,18 @@ export interface SubagentActions {
    * and no terminal event is ever coming.
    *
    * 0.10.13+ daemons return full identity per child (label, objective, child
-   * conversation id, spawn anchor) so unknown ids materialize as complete
-   * rows; older ones return only `status`, which recovers stub-level rows the
-   * detail auto-fetch can still flesh out. Timeline backfill stays with that
-   * auto-fetch — this never touches `events` or `hydrationPending`.
+   * conversation id, spawn anchor) so unknown ids materialize as complete rows
+   * and known placeholder rows are backfilled; older ones return only
+   * `status`, which recovers stub-level rows the detail fetch can still flesh
+   * out. Timeline backfill stays with that fetch — this never touches
+   * `events`.
    *
-   * Concurrent calls for the same parent conversation share one request. A
-   * `reset()` while one is in flight invalidates it — the snapshot describes
-   * the conversation the user just left, so it is dropped rather than merged
-   * into the store that now belongs to a different chat.
+   * Concurrent calls for the same parent conversation share one request, and
+   * every trigger — mount, SSE reopen, unknown-id kick — shares one throttle
+   * window per parent, so an SSE flap loop costs a single round-trip. A
+   * `reset()` while a request is in flight invalidates it (the snapshot
+   * describes the conversation the user just left) and reopens the window for
+   * the conversation now on screen.
    */
   reconcileFromDaemon: (
     assistantId: string,
@@ -415,6 +472,23 @@ function reindexByParentForReanchor(
   return next;
 }
 
+/**
+ * Next `byId` with a single field patched on one entry, or `null` when
+ * nothing would change — the entry is unknown, or already holds that value.
+ * Returning `null` lets the caller skip the `set()` entirely so a per-event
+ * write path doesn't churn store identity.
+ */
+function patchedEntryField<K extends keyof SubagentEntry>(
+  byId: Record<string, SubagentEntry>,
+  subagentId: string,
+  key: K,
+  value: SubagentEntry[K],
+): Record<string, SubagentEntry> | null {
+  const existing = byId[subagentId];
+  if (!existing || existing[key] === value) return null;
+  return { ...byId, [subagentId]: { ...existing, [key]: value } };
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -499,27 +573,54 @@ const reconcileInFlight = new Map<string, Promise<void>>();
  */
 let resetGeneration = 0;
 
-/** Minimum spacing between `requestSubagentReconcile` kicks for one parent. */
+/** Minimum spacing between reconcile round-trips for one parent. */
 const RECONCILE_KICK_INTERVAL_MS = 5_000;
 
 /**
- * Last kick time keyed by parent conversation id, mirroring
+ * Last reconcile time keyed by parent conversation id, mirroring
  * `reconcileInFlight`. Subagent events are routed globally, so a background
- * conversation's kick must not consume the window the conversation on screen
- * needs — a single shared throttle lets either starve the other.
+ * conversation's reconcile must not consume the window the conversation on
+ * screen needs — a single shared throttle lets either starve the other.
  */
 const lastReconcileKickAt = new Map<string, number>();
+
+/**
+ * Take `parentConversationId`'s reconcile slot for this window, reporting
+ * whether it was free. Claiming and testing are one step so two triggers
+ * firing in the same tick can't both pass.
+ */
+function claimReconcileWindow(parentConversationId: string): boolean {
+  const now = Date.now();
+  const lastKickAt = lastReconcileKickAt.get(parentConversationId) ?? 0;
+  if (now - lastKickAt < RECONCILE_KICK_INTERVAL_MS) {
+    return false;
+  }
+  lastReconcileKickAt.set(parentConversationId, now);
+  return true;
+}
 
 /** One child row from the reconcile snapshot; only `status` is guaranteed. */
 type ReconciledSubagent = SubagentsReconcileGetResponse["subagents"][string];
 
+/** The store surface one reconciled row is applied through. */
+type ReconcileApplySlice = Pick<
+  SubagentStore,
+  | "byId"
+  | "ensureEntry"
+  | "changeStatus"
+  | "backfillIdentity"
+  | "setConversationId"
+  | "setParentConversationId"
+>;
+
 /**
  * Apply one child row from the reconcile snapshot. A known entry is refreshed
- * in place; an unknown one is materialized as a full row when the daemon
- * supplied its identity, and as a stub otherwise.
+ * in place — including the identity a placeholder row is still missing, since
+ * a stub created from a bare status event is "known" but blank; an unknown one
+ * is materialized from whatever the daemon supplied.
  */
 function applyReconciledSubagent(
-  store: SubagentStore,
+  store: ReconcileApplySlice,
   subagentId: string,
   info: ReconciledSubagent,
   status: SubagentStatus,
@@ -527,15 +628,12 @@ function applyReconciledSubagent(
 ): void {
   const existing = store.byId[subagentId];
   if (existing) {
-    // The snapshot is a round-trip old, so it can still say `running` for a
-    // subagent whose terminal event has since landed over SSE. Settled entries
-    // only ever move between terminal states.
-    if (isActiveStatus(existing.status) || !isActiveStatus(status)) {
+    if (shouldApplyStatus(existing.status, status)) {
       // Usage and error ride along so an entry whose terminal
       // `subagent_status_changed` was lost still recovers its final totals and
-      // failure reason — the detail auto-fetch won't, since it refuses any
-      // entry that already has events. `changeStatus` preserves what it
-      // already holds when the snapshot omits these.
+      // failure reason — the detail fetch won't, since it refuses any entry
+      // that already has events. `changeStatus` preserves what it already
+      // holds when the snapshot omits these.
       store.changeStatus({
         subagentId,
         status,
@@ -545,6 +643,12 @@ function applyReconciledSubagent(
         totalCost: info.usage?.estimatedCost,
       });
     }
+    store.backfillIdentity({
+      subagentId,
+      label: info.label,
+      objective: info.objective,
+      parentToolUseId: info.parentToolUseId,
+    });
     if (info.conversationId) {
       store.setConversationId(subagentId, info.conversationId);
     }
@@ -552,42 +656,22 @@ function applyReconciledSubagent(
     return;
   }
 
-  if (info.label) {
-    store.spawnSubagent({
-      subagentId,
-      label: info.label,
-      objective: info.objective ?? "",
-      status,
-      isFork: info.isFork,
-      error: info.error,
-      conversationId: info.conversationId,
-      parentConversationId,
-      timestamp: Date.now(),
-      parentToolUseId: info.parentToolUseId,
-    });
-    // A spawn starts every tally at zero, so stamp the snapshot's totals
-    // through `changeStatus` — which also marks a terminal entry so a late
-    // usage event can't double-count on top of them.
-    if (info.usage) {
-      store.changeStatus({
-        subagentId,
-        status,
-        error: info.error,
-        inputTokens: info.usage.inputTokens,
-        outputTokens: info.usage.outputTokens,
-        totalCost: info.usage.estimatedCost,
-      });
-    }
-    return;
-  }
-
-  // Pre-enrichment daemon: `status` is all we get, so fall back to the same
-  // stub the missed-spawn recovery path builds.
+  // A pre-enrichment daemon reports `status` and nothing else, so the row
+  // lands as the same placeholder the missed-spawn recovery path builds.
   store.ensureEntry({
     subagentId,
     timestamp: Date.now(),
-    parentConversationId,
     status,
+    label: info.label,
+    objective: info.objective,
+    isFork: info.isFork,
+    error: info.error,
+    conversationId: info.conversationId,
+    parentConversationId,
+    parentToolUseId: info.parentToolUseId,
+    inputTokens: info.usage?.inputTokens,
+    outputTokens: info.usage?.outputTokens,
+    totalCost: info.usage?.estimatedCost,
   });
 }
 
@@ -614,11 +698,9 @@ async function runReconcile(
     return;
   }
 
-  // The store is global but a snapshot is not: a `reset()` during the
-  // round-trip means the user switched conversation or assistant, so these
-  // rows belong to a context that is no longer on screen. Applying them would
-  // repopulate the fresh store with the previous chat's subagents — and settle
-  // its orphans against the wrong state — so drop the whole step.
+  // A `reset()` during the round-trip means these rows describe a context the
+  // user has already left — drop the whole step rather than repopulate a fresh
+  // store with the previous chat's subagents.
   if (generation !== resetGeneration) {
     return;
   }
@@ -640,11 +722,8 @@ async function runReconcile(
     );
   }
 
-  // Only a successful snapshot is authoritative enough to settle orphans: an
-  // entry this conversation still shows as active that the daemon no longer
-  // knows about died with a restart, and no terminal event is coming. An entry
-  // younger than the request postdates the snapshot, so its absence proves
-  // nothing about it.
+  // Settle this conversation's orphans. An entry younger than the request
+  // postdates the snapshot, so its absence proves nothing about it.
   const { byId, changeStatus } = get();
   for (const entry of Object.values(byId)) {
     if (
@@ -677,9 +756,9 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       status: params.status ?? "pending",
       isFork: params.isFork ?? false,
       error: params.error,
-      inputTokens: 0,
-      outputTokens: 0,
-      totalCost: 0,
+      inputTokens: params.inputTokens ?? 0,
+      outputTokens: params.outputTokens ?? 0,
+      totalCost: params.totalCost ?? 0,
       spawnedAt: params.timestamp,
       events: [],
       conversationId: params.conversationId,
@@ -704,32 +783,60 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       byParent: addEntryToByParent(get().byParent, entry),
       byToolUseId: nextByToolUseId,
     });
+
+    // Mirrors `changeStatus`: totals stamped onto an already-terminal row are
+    // final, so a straggling `usage_progress` must not add to them.
+    if (
+      !isActiveStatus(entry.status) &&
+      (params.inputTokens != null ||
+        params.outputTokens != null ||
+        params.totalCost != null)
+    ) {
+      get().terminalUsageIds.add(params.subagentId);
+    }
   },
 
   ensureEntry: (params) => {
     if (get().byId[params.subagentId]) return;
-    // The child id addresses the subagent's conversation on every daemon. The
-    // parent id only works as a placeholder on a daemon that self-resolves the
-    // subagent's conversation — and even then it stays out of the
-    // child-semantic `conversationId` field.
-    const armsBackfill =
-      Boolean(params.conversationId) ||
-      (Boolean(params.parentConversationId) &&
-        supportsSubagentDetailSelfLookup());
+    // An entry with no parent id at all is scoped to no conversation: the
+    // overlay shows it everywhere and reconcile's per-parent orphan pass
+    // settles it nowhere. A `subagent_status_changed` carries no ids, so fall
+    // back to the conversation on screen.
+    const parentConversationId =
+      params.parentConversationId ??
+      useConversationStore.getState().activeConversationId ??
+      undefined;
+    const status = params.status ?? "running";
 
     get().spawnSubagent({
       subagentId: params.subagentId,
-      // Placeholder identity — the detail fetch backfills the real label
-      // and objective on 0.10.13+ daemons (see `loadDetail`).
-      label: "",
-      objective: "",
-      status: params.status ?? "running",
+      // Placeholder identity when the evidence carries none — the detail
+      // fetch (0.10.13+ daemons) or a later snapshot backfills it.
+      label: params.label ?? "",
+      objective: params.objective ?? "",
+      status,
+      isFork: params.isFork,
+      error: params.error,
       conversationId: params.conversationId,
-      parentConversationId: params.parentConversationId,
+      parentConversationId,
       timestamp: params.timestamp,
+      parentToolUseId: params.parentToolUseId,
+      inputTokens: params.inputTokens,
+      outputTokens: params.outputTokens,
+      totalCost: params.totalCost,
     });
 
-    if (!armsBackfill) return;
+    // Only a live row can have its backfill overtaken by streamed events, and
+    // only an addressable one has a backfill coming at all.
+    if (
+      !isActiveStatus(status) ||
+      !canAddressSubagentDetail({
+        conversationId: params.conversationId,
+        parentConversationId,
+      })
+    ) {
+      return;
+    }
     const { byId } = get();
     const entry = byId[params.subagentId];
     if (!entry) return;
@@ -914,32 +1021,86 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     });
   },
 
-  setConversationId: (subagentId, conversationId) => {
+  backfillIdentity: (params) => {
     const { byId } = get();
-    const existing = byId[subagentId];
-    if (!existing) return;
-    if (existing.conversationId === conversationId) return;
+    const existing = byId[params.subagentId];
+    if (!existing) {
+      return;
+    }
+
+    const label = existing.label || (params.label ?? "");
+    const objective = existing.objective || (params.objective ?? "");
+    const parentToolUseId = existing.parentToolUseId ?? params.parentToolUseId;
+    if (
+      label === existing.label &&
+      objective === existing.objective &&
+      parentToolUseId === existing.parentToolUseId
+    ) {
+      return;
+    }
 
     set({
       byId: {
         ...byId,
-        [subagentId]: { ...existing, conversationId },
+        [params.subagentId]: {
+          ...existing,
+          label,
+          objective,
+          parentToolUseId,
+        },
       },
+      byToolUseId: setToolUseAnchor(
+        get().byToolUseId,
+        parentToolUseId,
+        params.subagentId,
+      ),
     });
   },
 
-  setParentConversationId: (subagentId, parentConversationId) => {
+  attachParentMessage: (subagentId, parentMessageId) => {
     const { byId } = get();
     const existing = byId[subagentId];
-    if (!existing) return;
-    if (existing.parentConversationId === parentConversationId) return;
+    if (!existing || existing.parentMessageId) {
+      return;
+    }
 
+    const updated = { ...existing, parentMessageId };
     set({
-      byId: {
-        ...byId,
-        [subagentId]: { ...existing, parentConversationId },
-      },
+      byId: { ...byId, [subagentId]: updated },
+      // An entry with no stable id was never indexed under one, so re-index
+      // against the message id itself: the stable-bucket pass then finds
+      // nothing to swap and only the message bucket gains the entry.
+      byParent: reindexByParentForReanchor(
+        get().byParent,
+        existing.parentMessageStableId ?? parentMessageId,
+        parentMessageId,
+        new Map([[subagentId, updated]]),
+      ),
     });
+  },
+
+  setConversationId: (subagentId, conversationId) => {
+    const next = patchedEntryField(
+      get().byId,
+      subagentId,
+      "conversationId",
+      conversationId,
+    );
+    if (next) {
+      set({ byId: next });
+    }
+  },
+
+  setParentConversationId: (subagentId, parentConversationId) => {
+    const next = patchedEntryField(
+      get().byId,
+      subagentId,
+      "parentConversationId",
+      parentConversationId,
+    );
+    if (next) {
+      set({ byId: next });
+    }
   },
 
   reanchorToMessage: ({ stableId, messageId }) => {
@@ -996,16 +1157,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     const { byId, fetchedAt } = get();
     const entry = byId[subagentId];
     if (!entry) return;
-    // A stub recovered without its `subagent_spawned` may only know the parent
-    // conversation. 0.10.13+ daemons resolve the subagent's own conversation
-    // and treat this parameter as a fallback, so the parent id is a harmless
-    // wire placeholder there; an older daemon would trust it verbatim and
-    // parse the parent's messages as the subagent's.
-    const queryConversationId =
-      entry.conversationId ??
-      (supportsSubagentDetailSelfLookup()
-        ? entry.parentConversationId
-        : undefined);
+    const queryConversationId = resolveSubagentDetailConversationId(entry);
     if (!queryConversationId) return;
     if (entry.events.length > 0) return;
 
@@ -1076,6 +1228,12 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     if (inFlight) {
       return inFlight;
     }
+    // Throttled here rather than at the kick call site so a reconnect loop —
+    // which re-fires the mount and `sse.opened` triggers, not the kick — is
+    // bounded too.
+    if (!claimReconcileWindow(parentConversationId)) {
+      return Promise.resolve();
+    }
 
     const run: Promise<void> = runReconcile(
       get,
@@ -1109,8 +1267,8 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   },
 
   reset: () => {
-    // A reset means a conversation switch, so the next unknown-id kick should
-    // fire immediately instead of inheriting the previous chat's window.
+    // A reset means a conversation switch, so the next reconcile should fire
+    // immediately instead of inheriting the previous chat's window.
     lastReconcileKickAt.clear();
     // Invalidate every in-flight snapshot (they describe the context being
     // left) and drop them from the single-flight map so a reconcile for the
@@ -1133,12 +1291,11 @@ export const useSubagentStore = createSelectors(useSubagentStoreBase);
 /**
  * Ask the daemon to resync this conversation's subagents, best-effort.
  *
- * For imperative call sites that only hold a reason — the stream handlers hit
- * this when an event names a subagent the store has never seen, which means
- * the client's picture of the run is incomplete. Reads the active assistant
- * from its store (same pattern as `abortSubagent`) and rate-limits to one
- * round-trip per parent per `RECONCILE_KICK_INTERVAL_MS`, so a burst of events
- * for the same missing subagent costs a single fetch.
+ * For the stream handlers, which hit this when an event names a subagent the
+ * store has never seen — the client's picture of the run is incomplete. Reads
+ * the active assistant from its store (same pattern as `abortSubagent`);
+ * `reconcileFromDaemon` decides whether the request actually goes out, so a
+ * burst of events for the same missing subagent costs a single fetch.
  *
  * `parentConversationId` names the conversation to resync. Subagent events are
  * routed globally, so an event for a background conversation must reconcile
@@ -1146,10 +1303,7 @@ export const useSubagentStore = createSelectors(useSubagentStoreBase);
  * hand — `subagent_status_changed` carries none — fall back to the active
  * conversation.
  */
-export function requestSubagentReconcile(
-  reason: string,
-  parentConversationId?: string,
-): void {
+export function requestSubagentReconcile(parentConversationId?: string): void {
   const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
   const targetConversationId =
     parentConversationId ??
@@ -1158,14 +1312,9 @@ export function requestSubagentReconcile(
     return;
   }
 
-  const now = Date.now();
-  const lastKickAt = lastReconcileKickAt.get(targetConversationId) ?? 0;
-  if (now - lastKickAt < RECONCILE_KICK_INTERVAL_MS) {
-    return;
-  }
-  lastReconcileKickAt.set(targetConversationId, now);
-
-  recordDiagnostic("subagent_reconcile_kick", { reason });
+  recordDiagnostic("subagent_reconcile_kick", {
+    reason: "unknown_subagent_id",
+  });
   void useSubagentStoreBase
     .getState()
     .reconcileFromDaemon(assistantId, targetConversationId);

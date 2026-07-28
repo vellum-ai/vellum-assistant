@@ -1,13 +1,14 @@
 import { SubagentStatusSchema } from "@vellumai/assistant-api";
 
 import type { SubagentStore } from "@/domains/chat/subagent-store";
-import { isActiveStatus } from "@/utils/subagent-status";
+import { shouldApplyStatus } from "@/utils/subagent-status";
 
 type SubagentStoreSlice = Pick<
   SubagentStore,
   | "byId"
   | "spawnSubagent"
   | "changeStatus"
+  | "attachParentMessage"
   | "setConversationId"
   | "setParentConversationId"
 >;
@@ -56,17 +57,16 @@ export function reconcileSubagentStoreFromNotifications(
     if (existing) {
       // An unparseable status carries no information about an entry we
       // already hold — keep what SSE or reconcile told us rather than
-      // flipping it terminal. A settled entry likewise never regresses to an
-      // active status on the say-so of a historical notification: reconcile
-      // may have just settled a run whose mid-run "running" notification
-      // still sits in history, and an interrupted run emits no further
-      // terminal event to re-correct the regression.
-      const regressesTerminal =
-        parsed.success &&
-        !isActiveStatus(existing.status) &&
-        isActiveStatus(parsed.data);
-      if (parsed.success && !regressesTerminal) {
+      // flipping it terminal.
+      if (parsed.success && shouldApplyStatus(existing.status, parsed.data)) {
         store.changeStatus({ subagentId: n.subagentId, status: parsed.data });
+      }
+      // Entries reconcile materialized carry no parent message id, so nothing
+      // has indexed them in `byParent` and the transcript can't place their
+      // inline card. The notification is the only source that names the
+      // spawning message.
+      if (n.parentMessageId) {
+        store.attachParentMessage(n.subagentId, n.parentMessageId);
       }
       if (n.conversationId) {
         store.setConversationId(n.subagentId, n.conversationId);

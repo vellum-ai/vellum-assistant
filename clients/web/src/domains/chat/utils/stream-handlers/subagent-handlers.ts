@@ -36,16 +36,18 @@ export function handleSubagentStatusChanged(
   // was missed (SSE gap, page reload) or the store was reset after it
   // arrived. Materialize a stub so the status lands instead of silently
   // vanishing — a dropped terminal status is how the inline card dies (the
-  // avatar row expands to nothing and the detail panel can't open). The
-  // reconcile kick then recovers the real identity, and any sibling subagent
-  // that streamed nothing at all, a round-trip later.
+  // avatar row expands to nothing and the detail panel can't open). The event
+  // carries no conversation ids at all, so `ensureEntry` scopes the stub to
+  // the conversation on screen. The reconcile kick then recovers the real
+  // identity, and any sibling subagent that streamed nothing at all, a
+  // round-trip later.
   if (!store.byId[event.subagentId]) {
     store.ensureEntry({
       subagentId: event.subagentId,
       timestamp: Date.now(),
       status: event.status,
     });
-    requestSubagentReconcile("unknown_subagent_id");
+    requestSubagentReconcile();
   }
   store.changeStatus({
     subagentId: event.subagentId,
@@ -99,7 +101,7 @@ export function handleSubagentEvent(
     // Reconcile the envelope's OWN parent: this event may belong to a
     // background conversation, whose subagents the active chat's snapshot
     // would say nothing about.
-    requestSubagentReconcile("unknown_subagent_id", parentConversationId);
+    requestSubagentReconcile(parentConversationId);
   }
 
   if (inner.type === "usage_progress") {

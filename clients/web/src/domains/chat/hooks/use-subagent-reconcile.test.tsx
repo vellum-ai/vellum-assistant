@@ -3,8 +3,20 @@
  * this conversation's subagents. Mocks the generated `subagentsReconcileGet`
  * so each trigger is a countable round-trip; the reconcile's effect on the
  * store is covered by `subagent-store.test.ts`.
+ *
+ * The store throttles per parent conversation, so a trigger that fires inside
+ * the previous one's window is a deliberate no-op. Tests that want a second
+ * round-trip step the clock past it.
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import { __resetForTesting, publish } from "@/lib/event-bus";
@@ -48,14 +60,21 @@ function mount(
   );
 }
 
+/** Step past the store's per-parent reconcile window. */
+function advancePastReconcileWindow() {
+  setSystemTime(new Date(Date.now() + 10_000));
+}
+
 beforeEach(() => {
   getCalls = 0;
+  setSystemTime();
   __resetForTesting();
   useSubagentStore.getState().reset();
 });
 
 afterEach(() => {
   cleanup();
+  setSystemTime();
 });
 
 describe("useSubagentReconcile", () => {
@@ -80,8 +99,26 @@ describe("useSubagentReconcile", () => {
   test("reconciles again when the SSE stream reopens on resume", async () => {
     mount();
     await waitFor(() => expect(getCalls).toBe(1));
+    advancePastReconcileWindow();
 
     publish("sse.opened", { assistantId: ASSISTANT, cause: "resume" });
+
+    await waitFor(() => expect(getCalls).toBe(2));
+  });
+
+  test("a reconnect flap costs one round-trip per window, not one per reopen", async () => {
+    // A stream that drops and re-opens repeatedly used to bypass the kick
+    // throttle entirely: it lives on the store's triggers, not the kick path.
+    mount();
+    await waitFor(() => expect(getCalls).toBe(1));
+
+    for (const cause of ["error", "watchdog", "resume"] as const) {
+      publish("sse.opened", { assistantId: ASSISTANT, cause });
+    }
+    await waitFor(() => expect(getCalls).toBe(1));
+
+    advancePastReconcileWindow();
+    publish("sse.opened", { assistantId: ASSISTANT, cause: "error" });
 
     await waitFor(() => expect(getCalls).toBe(2));
   });
