@@ -40,6 +40,24 @@ mock.module("../daemon/conversation-registry.js", () => ({
   },
 }));
 
+/**
+ * Durable `parent_conversation_id` rows, keyed by conversation id. Stands for
+ * parentage that outlives residency in either in-memory index.
+ */
+let persistedParents = new Map<string, string>();
+
+/** When set, every durable read fails — the degraded-database case. */
+let persistedReadFails = false;
+
+mock.module("../persistence/conversation-parent.js", () => ({
+  getPersistedParentConversationId: (id: string) => {
+    if (persistedReadFails) {
+      throw new Error("database unavailable");
+    }
+    return persistedParents.get(id);
+  },
+}));
+
 const { MAX_LINEAGE_DEPTH, resolveConversationLineage } =
   await import("../daemon/conversation-lineage.js");
 
@@ -47,6 +65,8 @@ describe("resolveConversationLineage", () => {
   beforeEach(() => {
     residents = new Map();
     subagentResidents = new Map();
+    persistedParents = new Map();
+    persistedReadFails = false;
   });
 
   test("a plain conversation is its own lineage", () => {
@@ -101,17 +121,89 @@ describe("resolveConversationLineage", () => {
     ]);
   });
 
-  test("a non-resident conversation is its own lineage", () => {
+  test("a conversation resident nowhere and unparented in the database is its own lineage", () => {
     expect(resolveConversationLineage("conv-gone")).toEqual(["conv-gone"]);
   });
 
-  test("a non-resident ancestor ends the walk", () => {
+  test("a non-resident ancestor with no durable parentage ends the walk", () => {
     residents.set("conv-child", "conv-evicted");
 
     expect(resolveConversationLineage("conv-child")).toEqual([
       "conv-child",
       "conv-evicted",
     ]);
+  });
+
+  // ── Durable parentage ─────────────────────────────────────────────────────
+  // The subagent index entry is dropped as soon as a run goes terminal and
+  // idle top-level conversations are evicted, so an artifact linked after
+  // either point must still reach the user-visible thread.
+
+  test("a seed dropped from the subagent index still reaches its parent", () => {
+    persistedParents.set("conv-terminal-subagent", "conv-visible");
+    residents.set("conv-visible", undefined);
+
+    expect(resolveConversationLineage("conv-terminal-subagent")).toEqual([
+      "conv-terminal-subagent",
+      "conv-visible",
+    ]);
+  });
+
+  test("an ancestor resident only in the database is reached", () => {
+    subagentResidents.set("conv-inner", "conv-outer");
+    persistedParents.set("conv-outer", "conv-visible");
+
+    expect(resolveConversationLineage("conv-inner")).toEqual([
+      "conv-inner",
+      "conv-outer",
+      "conv-visible",
+    ]);
+  });
+
+  test("the resident record wins over the durable column", () => {
+    subagentResidents.set("conv-fork", "conv-resident-parent");
+    persistedParents.set("conv-fork", "conv-stale-parent");
+    residents.set("conv-resident-parent", undefined);
+
+    expect(resolveConversationLineage("conv-fork")).toEqual([
+      "conv-fork",
+      "conv-resident-parent",
+    ]);
+  });
+
+  test("a failing durable read degrades to the chain resolved so far", () => {
+    subagentResidents.set("conv-inner", "conv-outer");
+    persistedReadFails = true;
+
+    expect(() => resolveConversationLineage("conv-inner")).not.toThrow();
+    expect(resolveConversationLineage("conv-inner")).toEqual([
+      "conv-inner",
+      "conv-outer",
+    ]);
+  });
+
+  test("a cycle spanning the durable column terminates", () => {
+    persistedParents.set("conv-a", "conv-b");
+    persistedParents.set("conv-b", "conv-a");
+
+    expect(resolveConversationLineage("conv-a")).toEqual(["conv-a", "conv-b"]);
+  });
+
+  test("a durable chain longer than the depth cap is truncated at the cap", () => {
+    const chain = Array.from(
+      { length: MAX_LINEAGE_DEPTH + 5 },
+      (_, i) => `conv-durable-${i}`,
+    );
+    for (const [i, id] of chain.entries()) {
+      const parent = chain[i + 1];
+      if (parent) {
+        persistedParents.set(id, parent);
+      }
+    }
+
+    expect(resolveConversationLineage(chain[0]!)).toEqual(
+      chain.slice(0, MAX_LINEAGE_DEPTH),
+    );
   });
 
   test("a self-referential parent does not loop forever", () => {

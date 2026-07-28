@@ -63,6 +63,12 @@ export interface AppDefinition {
   dirName?: string;
   /** Conversation IDs that have interacted with this app (create/open/refresh). */
   conversationIds?: string[];
+  /**
+   * The subset of {@link conversationIds} the app reached only by lineage —
+   * ancestors of the conversation that actually interacted with it. Absent
+   * means every association is direct.
+   */
+  inheritedConversationIds?: string[];
 }
 
 /**
@@ -1221,12 +1227,17 @@ export function editAppFile(
  * Associate a conversation with an app. Writes directly to the JSON metadata
  * file without bumping `updatedAt` so the app list ordering is preserved.
  *
+ * `inherited` marks an association the app reached through a descendant's
+ * lineage rather than through work done in the conversation itself. A direct
+ * association supersedes an inherited one for the same conversation.
+ *
  * @returns `true` if the association was added, `false` if the app was not
  *   found or the conversationId was already present (dedup).
  */
 export function addAppConversationId(
   appId: string,
   conversationId: string,
+  options?: { inherited?: boolean },
 ): boolean {
   const app = getApp(appId);
   if (!app) return false;
@@ -1246,10 +1257,27 @@ export function addAppConversationId(
   const onDiskIds = Array.isArray(parsed.conversationIds)
     ? (parsed.conversationIds as string[])
     : [];
+  // An absent list means the record holds only direct associations.
+  const onDiskInherited = Array.isArray(parsed.inheritedConversationIds)
+    ? (parsed.inheritedConversationIds as string[])
+    : [];
+  const inherited = options?.inherited === true;
 
-  if (onDiskIds.includes(conversationId)) return false;
+  if (onDiskIds.includes(conversationId)) {
+    if (inherited || !onDiskInherited.includes(conversationId)) {
+      return false;
+    }
+    parsed.inheritedConversationIds = onDiskInherited.filter(
+      (id) => id !== conversationId,
+    );
+    writeFileSync(jsonPath, JSON.stringify(parsed, null, 2));
+    return false;
+  }
 
   parsed.conversationIds = [...onDiskIds, conversationId];
+  if (inherited) {
+    parsed.inheritedConversationIds = [...onDiskInherited, conversationId];
+  }
   writeFileSync(jsonPath, JSON.stringify(parsed, null, 2));
 
   return true;
@@ -1262,6 +1290,10 @@ export function addAppConversationId(
  * only the fork leaves the app unopenable from the thread the user actually
  * has in front of them. Associations are additive and de-duplicated, so
  * linking the whole chain is safe.
+ *
+ * The seed conversation's association is direct; every ancestor's is
+ * inherited, so an implicit "the app I am working on" lookup in an ancestor
+ * thread is not captured by a background run's app.
  *
  * Best-effort per id: a link failure must never break app creation or opening.
  */
@@ -1281,9 +1313,9 @@ export function linkAppToConversationLineage(
     );
     lineage = [conversationId];
   }
-  for (const id of lineage) {
+  for (const [index, id] of lineage.entries()) {
     try {
-      addAppConversationId(appId, id);
+      addAppConversationId(appId, id, { inherited: index > 0 });
     } catch (err) {
       log.warn(
         { err, appId, conversationId: id },
@@ -1294,7 +1326,9 @@ export function linkAppToConversationLineage(
 }
 
 /**
- * Return all apps associated with a given conversation ID.
+ * Return all apps associated with a given conversation ID, whether the
+ * association is direct or inherited from a descendant subagent run — a user
+ * finds and opens a background run's app from the thread they can see.
  */
 export function listAppsByConversation(
   conversationId: string,
@@ -1302,6 +1336,19 @@ export function listAppsByConversation(
   return listApps().filter((app) =>
     app.conversationIds?.includes(conversationId),
   );
+}
+
+/**
+ * Whether an app's association with a conversation is direct — the app was
+ * created or operated on in that conversation itself, rather than reaching it
+ * through a descendant's lineage. A record carrying no
+ * `inheritedConversationIds` holds only direct associations.
+ */
+export function isDirectAppConversation(
+  app: AppDefinition,
+  conversationId: string,
+): boolean {
+  return app.inheritedConversationIds?.includes(conversationId) !== true;
 }
 
 // ---------------------------------------------------------------------------

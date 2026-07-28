@@ -43,9 +43,24 @@ type MockSkill = {
 };
 let mockSkillCatalog: MockSkill[] = [];
 let mockResolvedSkill: MockSkill | null = null;
+// Set to make the corresponding skills-module call throw, modelling an
+// unreadable catalog or a selector resolution that hits the filesystem and
+// fails.
+let mockCatalogError: Error | null = null;
+let mockSelectorError: Error | null = null;
 mock.module("../config/skills.js", () => ({
-  loadSkillCatalog: () => mockSkillCatalog,
-  resolveSkillSelector: () => ({ skill: mockResolvedSkill }),
+  loadSkillCatalog: () => {
+    if (mockCatalogError) {
+      throw mockCatalogError;
+    }
+    return mockSkillCatalog;
+  },
+  resolveSkillSelector: () => {
+    if (mockSelectorError) {
+      throw mockSelectorError;
+    }
+    return { skill: mockResolvedSkill };
+  },
 }));
 
 // Mock skills helpers used for file context building.
@@ -209,6 +224,8 @@ describe("Permission Checker (gateway IPC)", () => {
     thresholdCallLog.length = 0;
     mockSkillCatalog = [];
     mockResolvedSkill = null;
+    mockCatalogError = null;
+    mockSelectorError = null;
   });
 
   // ── classifyRisk ──────────────────────────────────────────────────────────
@@ -1500,6 +1517,32 @@ describe("Permission Checker (gateway IPC)", () => {
       expect(
         isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
       ).toBe(true);
+    });
+
+    // ── Fail-closed ─────────────────────────────────────────────────────────
+    // The live-voice contention gate calls this from a synchronous event
+    // callback, so a throw would abort the rest of the frame's dispatch.
+
+    test("returns false when the catalog cannot be read", () => {
+      installSkill();
+      mockCatalogError = new Error("catalog unreadable");
+      expect(() =>
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).not.toThrow();
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when selector resolution throws", () => {
+      installSkill();
+      mockSelectorError = new Error("skill directory unreadable");
+      expect(() =>
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).not.toThrow();
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
     });
   });
 });
