@@ -14,6 +14,7 @@ import type {
   HatchResult,
 } from "@/assistant/api";
 import type { PurchasedProvisioningOutcome } from "@/domains/onboarding/purchased-provisioning";
+import type { OrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 
 let hatchResult: HatchResult = {
   ok: true,
@@ -101,8 +102,22 @@ mock.module("@/lib/local-mode", () => ({
     });
   },
 }));
+const fetchOrganizationsMock = mock(async (): Promise<void> => undefined);
 mock.module("@/stores/organization-store", () => ({
   getActiveOrganizationIdForRequests: () => "org-1",
+  useOrganizationStore: {
+    getState: () => ({ fetchOrganizations: fetchOrganizationsMock }),
+  },
+}));
+// Whether the `Vellum-Organization-Id` source can answer yet. The managed hatch
+// holds its platform sequence on this; a warm store (the default) is ready on
+// the first synchronous check and adds no delay.
+let orgReadiness: OrgHeaderReadiness = "ready";
+mock.module("@/hooks/use-is-org-ready", () => ({
+  getOrgHeaderReadiness: () => orgReadiness,
+  // Short ceiling so the never-settles case doesn't hold the suite open, while
+  // still leaving room for a few of the hook's 100ms poll ticks.
+  ORG_HEADER_SETTLE_TIMEOUT_MS: 500,
 }));
 mock.module("@/utils/api-errors", () => ({
   extractErrorMessage: (e: unknown, _r: unknown, fallback?: string) =>
@@ -159,6 +174,8 @@ const { useBackgroundHatch } = await import("./use-background-hatch");
 
 const TIMEOUT_MESSAGE =
   "Your assistant is taking longer than expected. Please try again.";
+const ORG_HEADER_MESSAGE =
+  "We couldn't confirm your organization. Please try again.";
 
 /**
  * Poll a predicate without depending on the hook's own poll cadence, rejecting
@@ -192,6 +209,8 @@ beforeEach(() => {
   localMode = false;
   provisioningOutcome = "ready";
   provisioningGate = null;
+  orgReadiness = "ready";
+  fetchOrganizationsMock.mockClear();
   saveLockfileAssistantMock.mockClear();
   hatchAssistantMock.mockClear();
   getAssistantMock.mockClear();
@@ -770,5 +789,143 @@ describe("useBackgroundHatch", () => {
     await waitFor(() => expect(result.current.ready).toBe(true));
     expect(clearsAtHatch).toEqual({ gateway: 2, selfHosted: 2 });
     expect(setSelfHostedConnectionMock.mock.calls).toEqual([[null], [null]]);
+  });
+
+  // -- org header readiness -------------------------------------------------
+  //
+  // Every platform call here is scoped by `Vellum-Organization-Id`, sourced
+  // from a store that hydrates after auth. A checkout deep link can relaunch
+  // the app straight into this hook before that lands, so the managed sequence
+  // holds until the header source can answer.
+
+  test("a warm org store costs the managed hatch no delay", async () => {
+    // Microtasks only — no timer elapses — so a POST here proves the wait
+    // short-circuits on its first synchronous check.
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    await act(async () => {
+      result.current.start();
+    });
+
+    expect(hatchAssistantMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(result.current.ready).toBe(true));
+  });
+
+  test("the managed hatch holds its POST until the org header resolves", async () => {
+    orgReadiness = "resolving";
+
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    // Nothing may address the platform while the header source is unresolved.
+    // Sampled well inside the wait's ceiling, so the absence is the hold rather
+    // than a hatch that already gave up.
+    await expect(
+      until(() => hatchAssistantMock.mock.calls.length > 0, 60),
+    ).rejects.toThrow();
+    expect(result.current.error).toBeNull();
+
+    orgReadiness = "ready";
+
+    await waitFor(() => expect(hatchAssistantMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+  });
+
+  test("an org header that never settles fails the hatch, retryably", async () => {
+    orgReadiness = "resolving";
+
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    let rejection: Error | undefined;
+    act(() => {
+      void result.current.awaitReady().catch((err: Error) => {
+        rejection = err;
+      });
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.error).toBe(ORG_HEADER_MESSAGE));
+    // A header-less hatch would be rejected by the platform, so none is sent.
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+    expect(result.current.ready).toBe(false);
+    await waitFor(() => expect(rejection?.message).toBe(ORG_HEADER_MESSAGE));
+
+    // The banner's retry re-runs the wait, which passes once hydration lands.
+    orgReadiness = "ready";
+    act(() => {
+      result.current.retry();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.error).toBeNull();
+    expect(hatchAssistantMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("concluded org resolution is re-run once before the hatch fails", async () => {
+    orgReadiness = "unavailable";
+
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.error).toBe(ORG_HEADER_MESSAGE));
+    // Resolution that already ended without an id is never arriving on its own,
+    // so the wait kicks it once — and stops rather than waiting forever.
+    expect(fetchOrganizationsMock).toHaveBeenCalledTimes(1);
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("unmounting during the org wait settles nothing", async () => {
+    orgReadiness = "resolving";
+
+    const { result, unmount } = renderHook(() => useBackgroundHatch());
+
+    let resolved: string | undefined;
+    let rejection: Error | undefined;
+    act(() => {
+      void result.current.awaitReady().then(
+        (id) => {
+          resolved = id;
+        },
+        (err: Error) => {
+          rejection = err;
+        },
+      );
+      result.current.start();
+    });
+
+    unmount();
+    orgReadiness = "ready";
+
+    // The aborted sleep schedules no timer, so the wait never reaches the
+    // header it was holding for, and the departed hatch neither POSTs nor
+    // settles its waiters.
+    await expect(
+      until(() => resolved != null || rejection != null),
+    ).rejects.toThrow();
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("the adopt path skips the org wait", async () => {
+    // The assistant is already live and adoption resolves it through the local
+    // gateway, so an unresolved platform org can't hold that hand-off.
+    orgReadiness = "unavailable";
+
+    const { result } = renderHook(() =>
+      useBackgroundHatch({ adoptExisting: true }),
+    );
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.error).toBeNull();
+    expect(fetchOrganizationsMock).not.toHaveBeenCalled();
   });
 });

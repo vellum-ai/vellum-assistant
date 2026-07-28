@@ -19,6 +19,10 @@ import {
   MAX_HATCH_WAIT_MS,
   POLL_INTERVAL_MS,
 } from "@/domains/onboarding/purchased-provisioning";
+import {
+  getOrgHeaderReadiness,
+  ORG_HEADER_SETTLE_TIMEOUT_MS,
+} from "@/hooks/use-is-org-ready";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import {
   getLockfileAssistant,
@@ -28,7 +32,10 @@ import {
 } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { captureError } from "@/lib/sentry/capture-error";
-import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
+import {
+  getActiveOrganizationIdForRequests,
+  useOrganizationStore,
+} from "@/stores/organization-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { randomCharacterTraits } from "@/utils/avatar-random";
@@ -37,6 +44,11 @@ const GENERIC_HATCH_ERROR =
   "Failed to start your assistant. Please try again.";
 const TIMEOUT_ERROR =
   "Your assistant is taking longer than expected. Please try again.";
+const ORG_HEADER_ERROR =
+  "We couldn't confirm your organization. Please try again.";
+// Cadence for the org-header wait. Tighter than the assistant poll: the store
+// hydrates in one round trip, so every tick is dead time before the hatch POST.
+const ORG_HEADER_POLL_INTERVAL_MS = 100;
 
 export interface UseBackgroundHatch {
   /** Fire the hatch. Idempotent — only the first call provisions. */
@@ -199,6 +211,42 @@ export function useBackgroundHatch(
         }, ms);
       });
 
+    // Every platform request below is scoped by `Vellum-Organization-Id`, which
+    // the interceptor reads from the org store — and that store hydrates after
+    // auth. A checkout deep link can relaunch the app straight into this hook
+    // before hydration lands (no list yet, no persisted id either), where a
+    // header-less hatch is rejected and a paying user meets the failure banner.
+    //
+    // Resolves true once the header source can answer, which on a warm store is
+    // the first synchronous check. False means the sequence must stop: aborted,
+    // or settled without an id — terminal but retryable, since `retry()` re-runs
+    // this wait. Resolution that already concluded without an id is re-run once
+    // per attempt, so "Try again" has something new to wait on.
+    const awaitOrgHeader = async (): Promise<boolean> => {
+      const waitStartMs = Date.now();
+      let refetched = false;
+      while (true) {
+        if (abortedRef.current) {
+          return false;
+        }
+        const readiness = getOrgHeaderReadiness();
+        if (readiness === "ready") {
+          return true;
+        }
+        if (readiness === "unavailable" && !refetched) {
+          refetched = true;
+          void useOrganizationStore.getState().fetchOrganizations();
+        } else if (
+          readiness === "unavailable" ||
+          Date.now() - waitStartMs >= ORG_HEADER_SETTLE_TIMEOUT_MS
+        ) {
+          settleError(ORG_HEADER_ERROR);
+          return false;
+        }
+        await sleep(ORG_HEADER_POLL_INTERVAL_MS);
+      }
+    };
+
     void (async () => {
       // 0. Adopt straight from the lockfile when the handed-off id resolves.
       //
@@ -240,6 +288,11 @@ export function useBackgroundHatch(
         ? adoptAssistantId
         : undefined;
       if (!adoptExisting) {
+        // Hold the whole platform sequence — hatch, discovery, the purchased
+        // resize — until the org header can be attached.
+        if (!(await awaitOrgHeader())) {
+          return;
+        }
         // A managed hatch in a local-mode build must address the platform, not
         // the machine's own gateway: `getAssistant()` answers from the selected
         // lockfile entry while a gateway token is held, and daemon SDK calls
