@@ -1187,8 +1187,16 @@ export class SubagentManager {
    * Dispose a subagent and remove it from tracking.
    * Should be called after the subagent reaches a terminal state
    * and its data is no longer needed.
+   *
+   * Durable-row invariant: a subagent's row in the `subagents` table lives as
+   * long as its parent conversation. Only disposals that mean "the parent's
+   * data is going away" (`disposeAllForParent` / `disposeAllForAllParents`)
+   * delete it. The TTL sweep passes `keepRecord` so it frees in-memory
+   * metadata only, leaving the row to answer `getSubagentDetail` for a client
+   * that missed the spawn event; shutdown likewise keeps rows (`shuttingDown`)
+   * so an in-flight subagent can rehydrate as `interrupted` on the next boot.
    */
-  dispose(subagentId: string): void {
+  dispose(subagentId: string, opts?: { keepRecord?: boolean }): void {
     const managed = this.subagents.get(subagentId);
     if (!managed) {
       return;
@@ -1211,10 +1219,10 @@ export class SubagentManager {
     }
     this.subagents.delete(subagentId);
 
-    // Drop the durable record too — but only during normal operation. On
-    // shutdown we keep rows so a subagent that was in flight can rehydrate as
-    // `interrupted` on the next boot.
-    if (!this.shuttingDown) {
+    // Drop the durable record only when the caller owns its lifetime — the
+    // parent conversation is going away. The TTL sweep (`keepRecord`) and
+    // shutdown both evict in-memory metadata while leaving the row.
+    if (!this.shuttingDown && !opts?.keepRecord) {
       try {
         deleteSubagentRecord(subagentId);
       } catch (err) {
@@ -1422,7 +1430,9 @@ export class SubagentManager {
         { subagentId: id },
         "Sweeping expired terminal subagent metadata",
       );
-      this.dispose(id);
+      // Metadata only — the durable row outlives the sweep so a client that
+      // missed `subagent_spawned` can still resolve the child conversation.
+      this.dispose(id, { keepRecord: true });
     }
     // Stop the timer if there are no more entries to sweep.
     const hasTerminal = [...this.subagents.values()].some(

@@ -1,12 +1,66 @@
 /**
  * Tests for parseSubagentMessages — verifies that tool result content is
- * correctly extracted from both string and array formats.
+ * correctly extracted from both string and array formats — and for the
+ * getSubagentDetail route handler's server-side resolution of the subagent's
+ * own conversation id.
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+
+// ---------------------------------------------------------------------------
+// Mocks — must be registered before importing the module under test
+// ---------------------------------------------------------------------------
+
+/** conversationId → messages, so a wrong id yields a visibly wrong transcript. */
+const conversations = new Map<string, MessageRow[]>();
+
+mock.module("../persistence/conversation-crud.js", () => ({
+  getMessages: (conversationId: string) =>
+    conversations.get(conversationId) ?? [],
+}));
+
+const usageByConversation = new Map<
+  string,
+  { inputTokens: number; outputTokens: number; estimatedCost: number }
+>();
+
+mock.module("../persistence/llm-usage-store.js", () => ({
+  getConversationUsageTotals: (conversationId: string) =>
+    usageByConversation.get(conversationId) ?? {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+    },
+}));
+
+/** Subagents the live manager still holds, keyed by subagent id. */
+const liveSubagents = new Map<
+  string,
+  { conversationId: string; status: string; config: { label: string } }
+>();
+
+mock.module("../subagent/index.js", () => ({
+  getSubagentManager: () => ({
+    getState: (id: string) => liveSubagents.get(id),
+  }),
+}));
+
+/** Subagents that survive only in durable records, keyed by subagent id. */
+const durableRecords = new Map<
+  string,
+  { conversationId: string; label: string; status: string }
+>();
+
+mock.module("../persistence/subagent-store.js", () => ({
+  getSubagentRecordById: (id: string) => durableRecords.get(id),
+}));
 
 import type { MessageRow } from "../persistence/conversation-crud.js";
-import { parseSubagentMessages } from "../runtime/routes/subagents-routes.js";
+import { BadRequestError } from "../runtime/routes/errors.js";
+import {
+  parseSubagentMessages,
+  ROUTES,
+} from "../runtime/routes/subagents-routes.js";
 
 let msgCounter = 0;
 function msg(role: string, content: unknown[]): MessageRow {
@@ -168,5 +222,137 @@ describe("parseSubagentMessages", () => {
     const textEvent = result.events.find((e) => e.type === "text");
     expect(textEvent).toBeDefined();
     expect(textEvent!.messageId).toBe(messages[1].id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getSubagentDetail route — server-side conversation resolution
+// ---------------------------------------------------------------------------
+
+const detailRoute = ROUTES.find((r) => r.operationId === "getSubagentDetail")!;
+
+interface DetailResponse {
+  events: Array<{ type: string; content: string }>;
+  usage?: { inputTokens: number; outputTokens: number; estimatedCost: number };
+  status?: string;
+  label?: string;
+  conversationId?: string;
+}
+
+function fetchDetail(id: string, conversationId?: string): DetailResponse {
+  return detailRoute.handler({
+    pathParams: { id },
+    queryParams: conversationId ? { conversationId } : {},
+  }) as DetailResponse;
+}
+
+function seedConversation(conversationId: string, text: string): void {
+  conversations.set(conversationId, [
+    msg("user", [{ type: "text", text: `objective for ${conversationId}` }]),
+    msg("assistant", [{ type: "text", text }]),
+  ]);
+}
+
+describe("getSubagentDetail route resolution", () => {
+  test("ignores a wrong conversationId param when the manager knows the subagent", () => {
+    seedConversation("parent-conv", "parent transcript");
+    seedConversation("child-conv", "child transcript");
+    usageByConversation.set("parent-conv", {
+      inputTokens: 999,
+      outputTokens: 999,
+      estimatedCost: 9.99,
+    });
+    usageByConversation.set("child-conv", {
+      inputTokens: 12,
+      outputTokens: 34,
+      estimatedCost: 0.5,
+    });
+    liveSubagents.set("sub-live", {
+      conversationId: "child-conv",
+      status: "running",
+      config: { label: "Live label" },
+    });
+
+    // The client sends the PARENT id — server-side resolution must win.
+    const result = fetchDetail("sub-live", "parent-conv");
+
+    expect(result.events.map((e) => e.content)).toContain("child transcript");
+    expect(result.usage).toEqual({
+      inputTokens: 12,
+      outputTokens: 34,
+      estimatedCost: 0.5,
+    });
+    expect(result.status).toBe("running");
+    expect(result.label).toBe("Live label");
+    expect(result.conversationId).toBe("child-conv");
+  });
+
+  test("falls back to the durable record when the manager has evicted the subagent", () => {
+    seedConversation("evicted-child-conv", "evicted transcript");
+    durableRecords.set("sub-evicted", {
+      conversationId: "evicted-child-conv",
+      label: "Recorded label",
+      status: "completed",
+    });
+
+    const result = fetchDetail("sub-evicted", "parent-conv");
+
+    expect(result.events.map((e) => e.content)).toContain("evicted transcript");
+    expect(result.status).toBe("completed");
+    expect(result.label).toBe("Recorded label");
+    expect(result.conversationId).toBe("evicted-child-conv");
+  });
+
+  test("serves the row the TTL sweep left behind, terminal status included", () => {
+    // The sweep frees in-memory metadata (`dispose(id, { keepRecord: true })`)
+    // but keeps the durable row, so the manager no longer knows this subagent
+    // while the record still answers for it.
+    seedConversation("swept-child-conv", "swept transcript");
+    durableRecords.set("sub-swept", {
+      conversationId: "swept-child-conv",
+      label: "Swept label",
+      status: "aborted",
+    });
+
+    // Client recovering from a missed spawn only knows the PARENT id.
+    const result = fetchDetail("sub-swept", "parent-conv");
+
+    expect(result.events.map((e) => e.content)).toContain("swept transcript");
+    expect(result.conversationId).toBe("swept-child-conv");
+    expect(result.label).toBe("Swept label");
+    // Without this the client keeps its stub marked running forever.
+    expect(result.status).toBe("aborted");
+  });
+
+  test("omits status when the durable record holds an out-of-enum value", () => {
+    seedConversation("odd-child-conv", "odd transcript");
+    durableRecords.set("sub-odd", {
+      conversationId: "odd-child-conv",
+      label: "Odd label",
+      status: "zombie",
+    });
+
+    const result = fetchDetail("sub-odd", "parent-conv");
+
+    // The row still resolves conversation and label; only the unparseable
+    // status is dropped, so the closed response enum stays honest.
+    expect(result.events.map((e) => e.content)).toContain("odd transcript");
+    expect(result.conversationId).toBe("odd-child-conv");
+    expect(result.label).toBe("Odd label");
+    expect(result.status).toBeUndefined();
+  });
+
+  test("uses the query param when the daemon knows nothing about the subagent", () => {
+    seedConversation("orphan-conv", "orphan transcript");
+
+    const result = fetchDetail("sub-orphan", "orphan-conv");
+
+    expect(result.events.map((e) => e.content)).toContain("orphan transcript");
+    expect(result.label).toBeUndefined();
+    expect(result.conversationId).toBe("orphan-conv");
+  });
+
+  test("throws BadRequestError when no conversation can be resolved", () => {
+    expect(() => fetchDetail("sub-unknown")).toThrow(BadRequestError);
   });
 });
