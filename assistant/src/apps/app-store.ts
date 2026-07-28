@@ -1269,7 +1269,19 @@ export function linkAppToConversationLineage(
   appId: string,
   conversationId: string,
 ): void {
-  for (const id of resolveConversationLineage(conversationId)) {
+  // Lineage resolution reaches the conversation store; an unexpected throw
+  // there degrades to the conversation itself rather than breaking the link.
+  let lineage: string[];
+  try {
+    lineage = resolveConversationLineage(conversationId);
+  } catch (err) {
+    log.warn(
+      { err, appId, conversationId },
+      "Failed to resolve conversation lineage for app association",
+    );
+    lineage = [conversationId];
+  }
+  for (const id of lineage) {
     try {
       addAppConversationId(appId, id);
     } catch (err) {

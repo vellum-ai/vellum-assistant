@@ -524,6 +524,16 @@ interface ActiveAssistantTurn {
   // that request's transcript, so the model can tell the user the work is
   // still running instead of appearing to have dropped it.
   handedOffRequest: string | null;
+  // The queued announcement this turn consumed alongside `continuationResult`
+  // — the two are routes for one answer, so launching consumes both. Held here
+  // so a rolled-back speculative dispatch can re-arm it (see
+  // restorePendingTurnContext). Null on the announcement turn itself, which
+  // owns its delivery outright.
+  consumedAnnouncement: ContinuationDelivery | null;
+  // `detachStopGeneration` at the moment this turn consumed the pending
+  // context. A bump since then means a stop/interrupt/supersede deliberately
+  // dropped the continuation, so a rollback must not resurrect it.
+  pendingContextStopGeneration: number;
   // The agent run started a definitive tool use this turn — tool use implies
   // a guaranteed-slow turn, so acknowledgment logic can key off this.
   toolUseStarted: boolean;
@@ -1206,8 +1216,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.turnDetector?.dispose();
     this.clearEndpointExtensionTimer();
     // There is no longer anyone on the call to speak to, so a queued
-    // announcement is dropped; a continuation that finishes after this point
-    // delivers into the conversation instead.
+    // announcement cannot be spoken — but the answer behind it is finished
+    // work the user asked for, so it takes the same conversation route a
+    // continuation finishing after this point takes. Then the queue is
+    // cleared: the announcement is dead either way.
+    await this.deliverPendingContinuationToConversation();
     this.clearContinuationAnnouncement();
     this.stopSessionTranscriber();
     // Deliberately NOT aborting detached continuations: outliving the call is
@@ -2073,6 +2086,49 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
+   * Hang-up delivery for a continuation that already finished: the call is
+   * ending, so neither route that was armed for its answer can still run — the
+   * announcement has nobody to speak to and the stash has no next voice turn to
+   * fold into. Deliver it into the conversation instead, exactly as a
+   * continuation finishing after the close does, because that thread is where
+   * the user goes looking for the work ("barge in, hear the answer, close the
+   * room, go look for the result").
+   *
+   * Best-effort and consume-once: the fields are emptied whether or not the
+   * injection lands, so a close cannot deliver twice.
+   */
+  private async deliverPendingContinuationToConversation(): Promise<void> {
+    const announcement = this.pendingAnnouncement;
+    const answer = announcement?.answer ?? this.pendingContinuationResult;
+    const request = announcement?.request ?? "";
+    this.pendingAnnouncement = null;
+    this.pendingContinuationResult = null;
+    if (answer === null || answer.length === 0) {
+      return;
+    }
+    try {
+      const { injectMessageIntoParent } = await import("../subagent/notify.js");
+      injectMessageIntoParent(
+        this.conversationId,
+        buildClosedSessionDeliveryPrompt(request, answer),
+      );
+      log.info(
+        {
+          conversationId: this.conversationId,
+          resultChars: answer.length,
+          resultDestination: "conversation",
+        },
+        "Voice duplex continuation delivered on session close",
+      );
+    } catch (err) {
+      log.warn(
+        { err, conversationId: this.conversationId },
+        "Voice duplex continuation delivery on session close failed",
+      );
+    }
+  }
+
+  /**
    * Live-voice is non-interactive (JARVIS-1291) and the session never starts a
    * turn on its own — with one narrow exception, this: a background
    * continuation the user asked for has finished, the call is still live, and
@@ -2201,11 +2257,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // landing while the turn starts owns the drop, and must not be undone by
     // the restore below.
     const stopGeneration = this.detachStopGeneration;
-    const started = await this.launchAssistantTurn(
-      createSyntheticUtterance(),
-      CONTINUATION_DELIVERY_CONTENT,
-      { continuationDelivery: pending },
-    );
+    let started: boolean;
+    try {
+      started = await this.launchAssistantTurn(
+        createSyntheticUtterance(),
+        CONTINUATION_DELIVERY_CONTENT,
+        { continuationDelivery: pending },
+      );
+    } catch (err) {
+      // A throw before the leg's own error handling (an outbound frame write
+      // rejecting, say) leaves the same state a false return does: nothing
+      // persisted, nothing spoken, and the stash already emptied above. Take
+      // the identical fallback rather than letting the answer die with the
+      // rejection.
+      started = false;
+      log.warn(
+        { err, conversationId: this.conversationId },
+        "Voice duplex continuation announcement threw while starting",
+      );
+    }
     if (started) {
       log.info(
         {
@@ -2445,15 +2515,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   /**
    * Abort a speculative leg and roll back everything it touched: the
    * persisted user message (via the handle's discard), the active-turn
-   * slot, and the utterance's turn-started latch, so the utterance can be
-   * re-dispatched (hold replay) or keep accumulating (speech resumed).
-   * Nothing was ever user-visible — no frames were sent for this turn.
+   * slot, the pending context it consumed, and the utterance's turn-started
+   * latch, so the utterance can be re-dispatched (hold replay) or keep
+   * accumulating (speech resumed). Nothing was ever user-visible — no frames
+   * were sent for this turn.
    */
   private discardSpeculativeTurn(
     turn: ActiveAssistantTurn,
     reason: string,
   ): void {
     turn.speculativePending = false;
+    // The dispatch is being unwound, so the barge-in merge note, the finished
+    // continuation's answer, and its queued announcement all go back to the
+    // session — the turn that would have delivered them is gone.
+    this.restorePendingTurnContext(turn);
     // Latched before the handle check: when the discard beats the bridge
     // handle's resolution (startVoiceTurn still persisting), the handle's
     // arrival in startAssistantLeg completes the rollback via discard().
@@ -3056,22 +3131,87 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    // Consume any pending barge-in merge context and completed-continuation
-    // context for this turn (each feeds exactly the next launched turn).
-    const interruptedRequest = this.pendingInterruptedRequest;
+    await this.launchAssistantTurn(utterance, content);
+  }
+
+  /**
+   * Take the barge-in merge context, the completed-continuation context, and
+   * the handoff note for the turn being launched — each feeds exactly the next
+   * launched turn — and cancel the queued announcement, because the turn this
+   * context rides delivers the same answer and would otherwise say it twice.
+   *
+   * Every real user turn consumes here, speculative or not: a speculative
+   * dispatch latches `assistantTurnStarted`, so a turn that skipped this would
+   * never pick the context up on any later pass. A rolled-back dispatch hands
+   * it all back (restorePendingTurnContext).
+   */
+  private consumePendingTurnContext(): {
+    interruptedRequest: string | null;
+    continuationResult: string | null;
+    handedOffRequest: string | null;
+    announcement: ContinuationDelivery | null;
+  } {
+    const consumed = {
+      interruptedRequest: this.pendingInterruptedRequest,
+      continuationResult: this.pendingContinuationResult,
+      handedOffRequest: this.pendingHandoffRequest,
+      announcement: this.pendingAnnouncement,
+    };
     this.pendingInterruptedRequest = null;
-    const continuationResult = this.pendingContinuationResult;
     this.pendingContinuationResult = null;
-    // The user spoke first, so this turn delivers the continuation's answer;
-    // a queued announcement would only say the same thing twice.
-    this.clearContinuationAnnouncement();
-    const handedOffRequest = this.pendingHandoffRequest;
     this.pendingHandoffRequest = null;
-    await this.launchAssistantTurn(utterance, content, {
-      interruptedRequest,
-      continuationResult,
-      handedOffRequest,
-    });
+    this.clearContinuationAnnouncement();
+    return consumed;
+  }
+
+  /**
+   * Hand a turn's consumed pending context back to the session because the
+   * turn never happened: a speculative dispatch was discarded or held, or the
+   * launch never reached the bridge. Without this a hold verdict would destroy
+   * a finished continuation's answer outright — the stash was already emptied
+   * and no later turn would ever see it.
+   *
+   * Restores are conservative. A hard stop (interrupt/close/supersede) bumps
+   * `detachStopGeneration`, and that drop is deliberate — never undone here.
+   * Anything newer already sitting in a slot wins over the older value being
+   * returned to it.
+   */
+  private restorePendingTurnContext(turn: ActiveAssistantTurn): void {
+    const interruptedRequest = turn.interruptedRequest;
+    const continuationResult = turn.continuationResult;
+    const handedOffRequest = turn.handedOffRequest;
+    const announcement = turn.consumedAnnouncement;
+    // One restore per turn: the rollback paths overlap (a discarded turn whose
+    // leg start also fails), and the second pass must be a no-op.
+    turn.interruptedRequest = null;
+    turn.continuationResult = null;
+    turn.handedOffRequest = null;
+    turn.consumedAnnouncement = null;
+    if (
+      this.isClosed ||
+      this.detachStopGeneration !== turn.pendingContextStopGeneration
+    ) {
+      return;
+    }
+    if (this.pendingInterruptedRequest === null) {
+      this.pendingInterruptedRequest = interruptedRequest;
+    }
+    if (this.pendingContinuationResult === null) {
+      this.pendingContinuationResult = continuationResult;
+    }
+    // "Still running" is stale the moment a result exists, which is why the
+    // detach clears the handoff note when it finishes — don't reinstate it
+    // against a continuation that has since completed.
+    if (
+      this.pendingHandoffRequest === null &&
+      this.pendingContinuationResult === null
+    ) {
+      this.pendingHandoffRequest = handedOffRequest;
+    }
+    if (announcement !== null && this.pendingAnnouncement === null) {
+      this.pendingAnnouncement = announcement;
+      this.scheduleContinuationAnnouncement();
+    }
   }
 
   // Build the ActiveAssistantTurn for a released utterance and drive its model
@@ -3083,15 +3223,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance: UtteranceCycle,
     content: string,
     opts?: {
-      // Set on a barge-in follow-up turn: the interrupted request's transcript,
-      // appended to the turn's control prompt so the model merges the two.
-      interruptedRequest?: string | null;
-      // Set when a background continuation finished the interrupted reply: its
-      // answer, appended to the turn's control prompt as context.
-      continuationResult?: string | null;
-      // Set when a barge-in handed this request's work to a background
-      // subagent, so the model can say it is still running.
-      handedOffRequest?: string | null;
       // Set on an announcement turn: the finished continuation this turn exists
       // to deliver. Its answer goes in the control prompt, not in `content`.
       continuationDelivery?: ContinuationDelivery | null;
@@ -3103,6 +3234,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     },
   ): Promise<boolean> {
     utterance.assistantTurnStarted = true;
+    // The announcement turn IS the delivery of the pending continuation, so it
+    // must not also consume the stash — feeding it both would deliver the same
+    // answer twice. Every other turn is a real user turn and takes the context.
+    const pending =
+      opts?.continuationDelivery == null
+        ? this.consumePendingTurnContext()
+        : null;
     const token = Symbol("live-voice-assistant-turn");
     const turnId = this.ensureTurnId(utterance);
     this.startMetricsTurnIfNeeded(utterance, turnId);
@@ -3143,9 +3281,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       verdictDeadlineTimer: null,
       discardRequested: false,
       speculativeBuffer: "",
-      interruptedRequest: opts?.interruptedRequest ?? null,
-      continuationResult: opts?.continuationResult ?? null,
-      handedOffRequest: opts?.handedOffRequest ?? null,
+      interruptedRequest: pending?.interruptedRequest ?? null,
+      continuationResult: pending?.continuationResult ?? null,
+      handedOffRequest: pending?.handedOffRequest ?? null,
+      consumedAnnouncement: pending?.announcement ?? null,
+      pendingContextStopGeneration: this.detachStopGeneration,
       continuationDelivery: opts?.continuationDelivery ?? null,
       toolUseStarted: false,
       firstDeltaSeen: false,
@@ -3170,6 +3310,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (!opts?.speculative) {
       await this.sendFrame({ type: "thinking", turnId });
       if (!this.isActiveAssistantTurn(token)) {
+        this.restorePendingTurnContext(activeTurn);
         return false;
       }
     } else {
@@ -3224,11 +3365,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Front-door leg: a fast model fronts every turn (the `voiceFrontDoor`
     // call site pins it) and may hand off to a quality leg on the escalate
     // verdict.
-    return await this.startAssistantLeg(activeTurn, {
+    const started = await this.startAssistantLeg(activeTurn, {
       content,
       routingLeg: "front-door",
       frontDoor: true,
     });
+    if (!started) {
+      // Nothing was persisted or spoken, so the context this turn consumed goes
+      // back to the session rather than dying with the failed dispatch.
+      this.restorePendingTurnContext(activeTurn);
+    }
+    return started;
   }
 
   /**
