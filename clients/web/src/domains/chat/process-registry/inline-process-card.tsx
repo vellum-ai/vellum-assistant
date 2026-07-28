@@ -55,7 +55,9 @@ export function InlineProcessCard({
   const handleOpenKeyDown = useCallback(
     (e: KeyboardEvent) => {
       // Ignore keydowns bubbled from children (e.g. the stop button).
-      if (e.target !== e.currentTarget) return;
+      if (e.target !== e.currentTarget) {
+        return;
+      }
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         onOpen?.();

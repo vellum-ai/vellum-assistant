@@ -63,7 +63,9 @@ function referenceMediaBlock(
   block: ImageContent | FileContent,
   position: number,
 ): ContentBlock | null {
-  if (block.source.type !== "base64") return block;
+  if (block.source.type !== "base64") {
+    return block;
+  }
   const { data, media_type } = block.source;
   const filename =
     block.source.filename ??
@@ -131,7 +133,9 @@ export function referenceMediaBlocksForPersist(
   let position = 0;
   const convert = (block: ContentBlock): ContentBlock => {
     if (block.type === "image" || block.type === "file") {
-      if (block.source.type !== "base64") return block;
+      if (block.source.type !== "base64") {
+        return block;
+      }
       return (
         referenceMediaBlock(
           conversationId,

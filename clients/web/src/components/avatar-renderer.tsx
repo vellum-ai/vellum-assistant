@@ -1,4 +1,3 @@
-
 import { useMemo } from "react";
 
 import { composeSvg } from "@/utils/avatar-svg-compositor";

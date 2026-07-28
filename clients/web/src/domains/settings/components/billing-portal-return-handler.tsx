@@ -4,14 +4,14 @@ import { useNavigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 
 import {
-    clearPortalReturnSnapshot,
-    formatGraceDate,
-    type PortalReturnSnapshot,
-    readPortalReturnSnapshot,
+  clearPortalReturnSnapshot,
+  formatGraceDate,
+  type PortalReturnSnapshot,
+  readPortalReturnSnapshot,
 } from "@/domains/settings/hooks/use-billing-portal-session";
 import {
-    organizationsBillingSubscriptionRetrieveOptions,
-    organizationsBillingSubscriptionRetrieveQueryKey,
+  organizationsBillingSubscriptionRetrieveOptions,
+  organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { routes } from "@/utils/routes";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -76,7 +76,9 @@ export function BillingPortalReturnHandler() {
   }, []);
 
   useEffect(() => {
-    if (searchParams.get("portal_return") !== "true") return;
+    if (searchParams.get("portal_return") !== "true") {
+      return;
+    }
 
     // Per-effect-run cancellation tracker. In React Strict Mode (dev) the
     // effect runs twice: the first run's cleanup flips this to true and the
@@ -108,7 +110,9 @@ export function BillingPortalReturnHandler() {
         Date.now() - start < POLL_TIMEOUT_MS
       ) {
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-        if (unmountedRef.current) break;
+        if (unmountedRef.current) {
+          break;
+        }
         latest = await fetchLatest();
       }
       return latest;
@@ -117,7 +121,9 @@ export function BillingPortalReturnHandler() {
     void (async () => {
       try {
         const current = await poll();
-        if (unmountedRef.current) return;
+        if (unmountedRef.current) {
+          return;
+        }
         const { kind, message } = pickPortalReturnToast(snapshot, current);
         if (kind === "success") {
           toast.success(message, { id: TOAST_ID });
@@ -125,7 +131,9 @@ export function BillingPortalReturnHandler() {
           toast.info(message, { id: TOAST_ID });
         }
       } catch {
-        if (unmountedRef.current) return;
+        if (unmountedRef.current) {
+          return;
+        }
         toast.info("Subscription updated.", { id: TOAST_ID });
       } finally {
         if (!unmountedRef.current) {
@@ -136,9 +144,7 @@ export function BillingPortalReturnHandler() {
             clearInterval(intervalRef.current);
           }
           intervalRef.current = setInterval(() => {
-            if (
-              Date.now() - backgroundStart >= BACKGROUND_POLL_TIMEOUT_MS
-            ) {
+            if (Date.now() - backgroundStart >= BACKGROUND_POLL_TIMEOUT_MS) {
               if (intervalRef.current !== null) {
                 clearInterval(intervalRef.current);
                 intervalRef.current = null;

@@ -33,7 +33,9 @@ export function validateSlackToken(
   label: string,
 ): string | null {
   const token = value.trim();
-  if (!token) {return null;}
+  if (!token) {
+    return null;
+  }
   if (!token.startsWith(prefix)) {
     return `${label} should start with "${prefix}".`;
   }
@@ -81,7 +83,8 @@ export function SlackSetupWizard({
   const { copy, copied } = useCopyToClipboard();
 
   const manifestJson = useMemo(
-    () => JSON.stringify(buildSlackManifest(slackAppName, description), null, 2),
+    () =>
+      JSON.stringify(buildSlackManifest(slackAppName, description), null, 2),
     [slackAppName, description],
   );
 
@@ -114,10 +117,11 @@ export function SlackSetupWizard({
   }, []);
 
   const handleSave = useCallback(() => {
-    if (!canSave) {return;}
+    if (!canSave) {
+      return;
+    }
     onSave?.(botToken.trim(), appToken.trim());
   }, [canSave, onSave, botToken, appToken]);
-
 
   return (
     <div data-slot="slack-setup-wizard">
@@ -231,8 +235,8 @@ export function SlackSetupWizard({
             variant="body-medium-lighter"
             className="text-[color:var(--content-default)]"
           >
-            Paste both tokens from Slack&apos;s <strong>Your app
-            credentials</strong> panel:
+            Paste both tokens from Slack&apos;s{" "}
+            <strong>Your app credentials</strong> panel:
           </Typography>
 
           <Input

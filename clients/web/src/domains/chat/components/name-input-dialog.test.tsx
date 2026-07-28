@@ -27,7 +27,9 @@ function getNameInput(): HTMLInputElement {
   // The Modal portals into document.body, so query against the document
   // rather than the render container.
   const input = document.querySelector<HTMLInputElement>("input");
-  if (!input) throw new Error("expected name input to be in the DOM");
+  if (!input) {
+    throw new Error("expected name input to be in the DOM");
+  }
   return input;
 }
 
@@ -173,7 +175,9 @@ describe("Edit + submit", () => {
     fireEvent.change(getNameInput(), { target: { value: "Paris trip" } });
 
     const form = getNameInput().closest("form");
-    if (!form) throw new Error("expected the input to be inside a <form>");
+    if (!form) {
+      throw new Error("expected the input to be inside a <form>");
+    }
     fireEvent.submit(form);
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -209,7 +213,9 @@ describe("Edit + submit", () => {
         onCancel={() => {}}
       />,
     );
-    fireEvent.change(getNameInput(), { target: { value: "  Trip planning  " } });
+    fireEvent.change(getNameInput(), {
+      target: { value: "  Trip planning  " },
+    });
     expect(getButton("Save").disabled).toBe(true);
   });
 });

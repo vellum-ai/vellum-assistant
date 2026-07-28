@@ -320,7 +320,9 @@ export class TwilioVoiceProvider implements VoiceProvider {
     // Constant-time comparison to prevent timing attacks
     const a = Buffer.from(computed);
     const b = Buffer.from(signature);
-    if (a.length !== b.length) return false;
+    if (a.length !== b.length) {
+      return false;
+    }
     return timingSafeEqual(a, b);
   }
 }

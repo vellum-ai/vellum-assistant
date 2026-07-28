@@ -94,7 +94,10 @@ function isChannelCell(
 }
 
 /** The selector for a channel-type default bucket: adapter-scope or channel_type:dm. */
-function bucketSelector(adapter: string, bucket: ChannelDefaultBucket): Selector {
+function bucketSelector(
+  adapter: string,
+  bucket: ChannelDefaultBucket,
+): Selector {
   return bucket === "channels"
     ? { scope: "adapter", adapter }
     : { scope: "channel_type", adapter, channelType: "dm" };
@@ -430,7 +433,8 @@ export function useChannelPermissionOverrides({
       }
       deleteMutation.mutate({ channelExternalId });
     },
-    onBucketChange: (bucket, tier) => bucketSetMutation.mutate({ bucket, tier }),
+    onBucketChange: (bucket, tier) =>
+      bucketSetMutation.mutate({ bucket, tier }),
     onBucketReset: (bucket) => {
       // Skip the round-trip when the bucket has no cell.
       if (bucketTiers?.[bucket] === undefined) {

@@ -44,7 +44,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   conversationsByIdGet: conversationsByIdGetSpy,
 }));
 
-const { useEffectiveChatPlugins } = await import("./use-effective-chat-plugins");
+const { useEffectiveChatPlugins } =
+  await import("./use-effective-chat-plugins");
 
 function installed(name: string): InstalledPlugin {
   return { id: name, name, enabled: true, description: null, version: null };
@@ -59,9 +60,9 @@ function installedOk(plugins: InstalledPlugin[]): InstalledResult {
  * `enabledPlugins` isn't on the generated conversation type yet (the sibling
  * daemon PR adds it), so cast through the response shape.
  */
-function conversationWith(
-  enabledPlugins: string[] | null,
-): { data: ConversationsByIdGetResponse } {
+function conversationWith(enabledPlugins: string[] | null): {
+  data: ConversationsByIdGetResponse;
+} {
   return {
     data: {
       conversation: { id: CONVERSATION_ID, enabledPlugins },
@@ -83,9 +84,12 @@ function renderEffective(conversationId: string | undefined = CONVERSATION_ID) {
     return createElement(QueryClientProvider, { client }, children);
   }
 
-  return renderHook(() => useEffectiveChatPlugins(ASSISTANT_ID, conversationId), {
-    wrapper,
-  });
+  return renderHook(
+    () => useEffectiveChatPlugins(ASSISTANT_ID, conversationId),
+    {
+      wrapper,
+    },
+  );
 }
 
 beforeEach(() => {

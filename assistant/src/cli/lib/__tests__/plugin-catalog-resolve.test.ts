@@ -16,7 +16,10 @@ import {
   resolvePluginSourceFromCatalog,
   resolveSourceFromMatch,
 } from "../plugin-catalog-resolve.js";
-import type { PluginSearchMatch, SearchPluginsDeps } from "../search-plugins.js";
+import type {
+  PluginSearchMatch,
+  SearchPluginsDeps,
+} from "../search-plugins.js";
 import { PluginCatalogUnavailableError } from "../search-plugins.js";
 
 const FULL_SHA = "63a91ecadbf4c4719a4602a5abb00883f9966034";
@@ -36,7 +39,9 @@ function match(
 describe("resolveSourceFromMatch", () => {
   test("returns owner/repo/path/ref for a full-SHA match", () => {
     expect(
-      resolveSourceFromMatch(match({ repo: "acme/widget", path: "pkg/plugin" })),
+      resolveSourceFromMatch(
+        match({ repo: "acme/widget", path: "pkg/plugin" }),
+      ),
     ).toEqual({
       owner: "acme",
       repo: "widget",
@@ -45,7 +50,7 @@ describe("resolveSourceFromMatch", () => {
     });
   });
 
-  test("defaults path to \"\" when the source declares none", () => {
+  test('defaults path to "" when the source declares none', () => {
     expect(resolveSourceFromMatch(match())).toEqual({
       owner: "acme",
       repo: "example",
@@ -57,7 +62,7 @@ describe("resolveSourceFromMatch", () => {
   test.each([
     ["absent", undefined],
     ["empty", ""],
-  ])("resolves a repo-root %s path to \"\"", (_label, path) => {
+  ])('resolves a repo-root %s path to ""', (_label, path) => {
     // A repo-root entry (`path: ""` or absent) is valid — the clean-path gate
     // only applies to a non-empty path, so it must not be rejected.
     expect(resolveSourceFromMatch(match({ path }))).toEqual({
@@ -88,9 +93,7 @@ describe("resolveSourceFromMatch", () => {
   });
 
   test("resolves a clean nested path", () => {
-    expect(
-      resolveSourceFromMatch(match({ path: "packages/plugin" })),
-    ).toEqual({
+    expect(resolveSourceFromMatch(match({ path: "packages/plugin" }))).toEqual({
       owner: "acme",
       repo: "example",
       path: "packages/plugin",
@@ -124,8 +127,11 @@ describe("catalog-backed resolvers (bundled, offline)", () => {
 
   afterEach(() => {
     for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
-      if (value === undefined) {delete process.env[key];}
-      else {process.env[key] = value;}
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
     }
   });
 
@@ -180,8 +186,11 @@ describe("catalog-backed resolvers (platform enabled)", () => {
   afterEach(() => {
     invalidatePluginCatalogCache();
     for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
-      if (value === undefined) {delete process.env[key];}
-      else {process.env[key] = value;}
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
     }
   });
 

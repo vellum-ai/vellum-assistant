@@ -36,7 +36,9 @@ import { SKILL_CARD_MESSAGE_KIND } from "./memory-retrospective-constants.js";
 
 /** True when a message row's metadata carries the skill-card kind. */
 export function isSkillCardMessage(row: { metadata: string | null }): boolean {
-  if (!row.metadata) return false;
+  if (!row.metadata) {
+    return false;
+  }
   try {
     const meta: unknown = JSON.parse(row.metadata);
     return (
@@ -76,7 +78,9 @@ export function countRetrospectiveMessagesAfter(
   afterMessageId: string | null,
 ): number {
   const total = countMessagesAfter(conversationId, afterMessageId);
-  if (total === 0) return 0;
+  if (total === 0) {
+    return 0;
+  }
   const cardCount = countSkillCardMessagesAfter(conversationId, afterMessageId);
   return Math.max(0, total - cardCount);
 }
@@ -114,7 +118,9 @@ function countSkillCardMessagesAfter(
       ),
     )
     .all();
-  if (candidates.length === 0) return 0;
+  if (candidates.length === 0) {
+    return 0;
+  }
 
   let ref: { createdAt: number } | undefined;
   if (cursorId !== null) {
@@ -125,17 +131,23 @@ function countSkillCardMessagesAfter(
       .get();
     // Vanished reference: `countMessagesAfter` reported 0, so there is
     // nothing to subtract from.
-    if (!ref) return 0;
+    if (!ref) {
+      return 0;
+    }
   }
 
   let count = 0;
   for (const row of candidates) {
-    if (!isSkillCardMessage(row)) continue;
+    if (!isSkillCardMessage(row)) {
+      continue;
+    }
     if (cursorId !== null && ref) {
       const after =
         row.createdAt > ref.createdAt ||
         (row.createdAt === ref.createdAt && row.id > cursorId);
-      if (!after) continue;
+      if (!after) {
+        continue;
+      }
     }
     count++;
   }

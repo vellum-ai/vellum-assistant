@@ -12,7 +12,9 @@ let ipcCallCount = 0;
 
 const ipcGetVelayStatusMock = mock(async () => {
   ipcCallCount += 1;
-  if (ipcError) throw ipcError;
+  if (ipcError) {
+    throw ipcError;
+  }
   return ipcResult;
 });
 

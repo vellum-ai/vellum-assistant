@@ -25,9 +25,9 @@ type WithSelectors<S> = S extends { getState: () => infer T }
   ? S & { use: { [K in keyof T]: () => T[K] } }
   : never;
 
-export function createSelectors<
-  S extends UseBoundStore<StoreApi<object>>,
->(_store: S) {
+export function createSelectors<S extends UseBoundStore<StoreApi<object>>>(
+  _store: S,
+) {
   const store = _store as WithSelectors<typeof _store>;
   store.use = new Proxy({} as typeof store.use, {
     get: (_target, prop: string) => () =>

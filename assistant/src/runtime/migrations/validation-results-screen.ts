@@ -456,7 +456,9 @@ export function groupFilesByAction(files: PreflightFileEntry[]): {
  * Format a byte size as a human-readable string.
  */
 export function formatFileSize(bytes: number): string {
-  if (bytes <= 0) return "0 B";
+  if (bytes <= 0) {
+    return "0 B";
+  }
   const units = ["B", "KB", "MB", "GB"];
   const exponent = Math.min(
     Math.max(0, Math.floor(Math.log(bytes) / Math.log(1024))),

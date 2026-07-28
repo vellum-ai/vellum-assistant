@@ -5,27 +5,40 @@ import { createElement, type ReactNode } from "react";
 
 import type { AssistantState } from "@/assistant/types";
 
-const sdkMock = mock(async (): Promise<{
-  data: Record<string, unknown> | null;
-  error: unknown;
-  response: Response;
-}> => ({
-  data: {
-    state: "active",
-    detail_state: "",
-    poll_after_ms: 5000,
-    updated_at: "2026-06-10T00:00:00Z",
-    state_started_at: null,
-    active_operation: null,
-    assistant: { id: "a-1", status: "active", machine_id: null, vembda_cluster_id: null },
-    pod: { phase: "Running", ready: true, container_state: "running", restart_count: 0, checked_at: null },
-    runtime: { version: "1.0.0", release_channel: "stable" },
-    storage: null,
-    detail: { reason: null, message: null },
-  },
-  error: undefined,
-  response: new Response(null, { status: 200 }),
-}));
+const sdkMock = mock(
+  async (): Promise<{
+    data: Record<string, unknown> | null;
+    error: unknown;
+    response: Response;
+  }> => ({
+    data: {
+      state: "active",
+      detail_state: "",
+      poll_after_ms: 5000,
+      updated_at: "2026-06-10T00:00:00Z",
+      state_started_at: null,
+      active_operation: null,
+      assistant: {
+        id: "a-1",
+        status: "active",
+        machine_id: null,
+        vembda_cluster_id: null,
+      },
+      pod: {
+        phase: "Running",
+        ready: true,
+        container_state: "running",
+        restart_count: 0,
+        checked_at: null,
+      },
+      runtime: { version: "1.0.0", release_channel: "stable" },
+      storage: null,
+      detail: { reason: null, message: null },
+    },
+    error: undefined,
+    response: new Response(null, { status: 200 }),
+  }),
+);
 const isLocalModeMock = mock(() => false);
 const isPlatformDisabledMock = mock(() => false);
 let isOrgReadyMock = true;
@@ -218,7 +231,11 @@ describe("useAssistantOperationalStatus", () => {
           max_restart_count: null,
           fatal_reason: null,
         },
-        runtime: { healthz_ok: false, assistant_version: null, checked_at: null },
+        runtime: {
+          healthz_ok: false,
+          assistant_version: null,
+          checked_at: null,
+        },
         storage: null,
         detail: {
           reason: "vembda_unreachable",

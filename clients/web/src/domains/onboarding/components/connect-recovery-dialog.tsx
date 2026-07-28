@@ -42,7 +42,9 @@ function ConnectRecoveryDialog({
   const [step, setStep] = useState<RecoveryStep>("menu");
 
   useEffect(() => {
-    if (open) setStep("menu");
+    if (open) {
+      setStep("menu");
+    }
   }, [open]);
 
   // A span (not <p>) so it can nest inside ConfirmDialog's <p> description.
@@ -59,9 +61,9 @@ function ConnectRecoveryDialog({
         title="Repair Assistant?"
         message={
           <>
-            Repairing re-provisions this assistant&rsquo;s authentication
-            token. Any other devices or browser sessions connected to it will
-            be signed out and need to reconnect.
+            Repairing re-provisions this assistant&rsquo;s authentication token.
+            Any other devices or browser sessions connected to it will be signed
+            out and need to reconnect.
             {errorLine}
           </>
         }
@@ -89,7 +91,9 @@ function ConnectRecoveryDialog({
     <Modal.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next && !isPending) onCancel();
+        if (!next && !isPending) {
+          onCancel();
+        }
       }}
     >
       <Modal.Content
@@ -98,7 +102,9 @@ function ConnectRecoveryDialog({
         onEscapeKeyDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          if (!isPending) onCancel();
+          if (!isPending) {
+            onCancel();
+          }
         }}
       >
         <Modal.Header>
@@ -107,8 +113,8 @@ function ConnectRecoveryDialog({
         <Modal.Body>
           <Modal.Description>
             The authentication token for {assistantName} is missing or can no
-            longer be refreshed, so this assistant can&rsquo;t be connected.
-            You can repair it, retire it, or pick a different assistant.
+            longer be refreshed, so this assistant can&rsquo;t be connected. You
+            can repair it, retire it, or pick a different assistant.
           </Modal.Description>
           {errorLine}
           <div className="mt-5 flex w-full flex-col gap-2">

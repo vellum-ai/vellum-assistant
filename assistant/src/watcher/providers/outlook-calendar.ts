@@ -339,7 +339,9 @@ export const outlookCalendarProvider: WatcherProvider = {
       // Filter out cancelled events and convert to watcher items
       const items: WatcherItem[] = [];
       for (const event of events) {
-        if (event.isCancelled) continue;
+        if (event.isCancelled) {
+          continue;
+        }
 
         const eventType =
           event.createdDateTime === event.lastModifiedDateTime

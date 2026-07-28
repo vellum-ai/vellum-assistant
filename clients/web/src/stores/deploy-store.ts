@@ -43,8 +43,17 @@ export interface DeployState {
 }
 
 export interface DeployActions {
-  shareApp: (assistantId: string, appId: string, appName: string) => Promise<void>;
-  deployApp: (assistantId: string, appId: string, appName: string, appHtml: string) => Promise<void>;
+  shareApp: (
+    assistantId: string,
+    appId: string,
+    appName: string,
+  ) => Promise<void>;
+  deployApp: (
+    assistantId: string,
+    appId: string,
+    appName: string,
+    appHtml: string,
+  ) => Promise<void>;
   deployAfterTokenSaved: (assistantId: string) => Promise<void>;
   showTokenDialog: (pendingAppId: string) => void;
   hideTokenDialog: () => void;
@@ -101,7 +110,9 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
   ...INITIAL_STATE,
 
   shareApp: async (assistantId, appId, appName) => {
-    if (get().isSharing) return;
+    if (get().isSharing) {
+      return;
+    }
     set({ isSharing: true });
     try {
       await shareAppApi(assistantId, appId, appName);
@@ -116,7 +127,9 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
   },
 
   deployApp: async (assistantId, appId, appName, appHtml) => {
-    if (get().isDeploying) return;
+    if (get().isDeploying) {
+      return;
+    }
     if (
       appHtml.includes("vellum.fetch") ||
       appHtml.includes("vellum.sendAction") ||
@@ -133,13 +146,21 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
         throwOnError: true,
       });
       if (!config.hasToken) {
-        set({ isTokenDialogOpen: true, pendingDeployAppId: appId, isDeploying: false });
+        set({
+          isTokenDialogOpen: true,
+          pendingDeployAppId: appId,
+          isDeploying: false,
+        });
         return;
       }
       const result = await publishApp(assistantId, appId);
       if (!result.success) {
         if (isCredentialError(result)) {
-          set({ isTokenDialogOpen: true, pendingDeployAppId: appId, isDeploying: false });
+          set({
+            isTokenDialogOpen: true,
+            pendingDeployAppId: appId,
+            isDeploying: false,
+          });
         } else {
           toast.error("Failed to deploy", { description: result.error });
         }
@@ -158,7 +179,9 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
   deployAfterTokenSaved: async (assistantId) => {
     const { pendingDeployAppId } = get();
     set({ isTokenDialogOpen: false });
-    if (!pendingDeployAppId) return;
+    if (!pendingDeployAppId) {
+      return;
+    }
     set({ isDeploying: true });
     try {
       const result = await publishApp(assistantId, pendingDeployAppId);

@@ -4,12 +4,7 @@
  * logic stays with each consumer.
  */
 
-import {
-  Check,
-  Copy,
-  Download,
-  Pencil,
-} from "lucide-react";
+import { Check, Copy, Download, Pencil } from "lucide-react";
 import {
   useCallback,
   useEffect,

@@ -28,7 +28,9 @@ function contentBlocksSizeKb(
   return Math.round((bytes / 1024) * 100) / 100;
 }
 
-export function summarizeDisplayMessage(message: DisplayMessage): Record<string, unknown> {
+export function summarizeDisplayMessage(
+  message: DisplayMessage,
+): Record<string, unknown> {
   return {
     id: message.id,
     role: message.role,
@@ -44,7 +46,9 @@ export function summarizeDisplayMessage(message: DisplayMessage): Record<string,
   };
 }
 
-export function summarizeRuntimeMessage(message: ConversationMessage): Record<string, unknown> {
+export function summarizeRuntimeMessage(
+  message: ConversationMessage,
+): Record<string, unknown> {
   return {
     id: message.id,
     role: message.role,
@@ -65,10 +69,16 @@ export function summarizeDisplayMessages(
   return {
     count: messages.length,
     roleCounts: roleCounts(messages),
-    queuedCount: messages.filter((message) => message.queueStatus === "queued").length,
-    processingCount: messages.filter((message) => message.queueStatus === "processing").length,
+    queuedCount: messages.filter((message) => message.queueStatus === "queued")
+      .length,
+    processingCount: messages.filter(
+      (message) => message.queueStatus === "processing",
+    ).length,
     first: messages[0] ? summarizeDisplayMessage(messages[0]) : null,
-    last: messages.length > 0 ? summarizeDisplayMessage(messages[messages.length - 1]!) : null,
+    last:
+      messages.length > 0
+        ? summarizeDisplayMessage(messages[messages.length - 1]!)
+        : null,
     tail: messages.slice(-tailCount).map(summarizeDisplayMessage),
   };
 }
@@ -81,7 +91,10 @@ export function summarizeRuntimeMessages(
     count: messages.length,
     roleCounts: roleCounts(messages),
     first: messages[0] ? summarizeRuntimeMessage(messages[0]) : null,
-    last: messages.length > 0 ? summarizeRuntimeMessage(messages[messages.length - 1]!) : null,
+    last:
+      messages.length > 0
+        ? summarizeRuntimeMessage(messages[messages.length - 1]!)
+        : null,
     tail: messages.slice(-tailCount).map(summarizeRuntimeMessage),
   };
 }

@@ -13,8 +13,8 @@ describe("onboardingDestinationAfterConsent", () => {
   });
 
   test("local hosting routes to hatching first (foreground local hatch → research)", () => {
-    expect(
-      onboardingDestinationAfterConsent({ isLocalHatch: true }),
-    ).toBe(routes.onboarding.hatching);
+    expect(onboardingDestinationAfterConsent({ isLocalHatch: true })).toBe(
+      routes.onboarding.hatching,
+    );
   });
 });

@@ -6,9 +6,11 @@ import { listPluginIngressApprovals } from "../db/plugin-ingress-approval-store.
 import { getLogger } from "../logger.js";
 import {
   discoverPluginIngress,
+  PluginIngressCache,
   type DiscoveredPluginIngress,
   type DiscoverPluginIngressOptions,
   type IngressRoute,
+  type PluginIngressDiscovery,
   type PluginIngressProblem,
 } from "./plugin-ingress.js";
 
@@ -17,15 +19,16 @@ const log = getLogger("plugin-ingress-approvals");
 /**
  * Digest of what a declaration asks for.
  *
- * Covers reach only — each route's transport and path, order-independent.
- * A `description` reword leaves the digest alone, so it does not revoke an
- * approval, while adding a route or changing one's transport does.
+ * Covers reach only — each route's transport, signer, and path,
+ * order-independent. A `description` reword leaves the digest alone, so it
+ * does not revoke an approval, while adding a route, changing one's
+ * transport, or changing whose signature opens it does.
  */
 export function ingressDeclarationDigest(
-  routes: readonly Pick<IngressRoute, "kind" | "path">[],
+  routes: readonly Pick<IngressRoute, "kind" | "path" | "signer">[],
 ): string {
   const canonical = routes
-    .map((route) => `${route.kind} ${route.path}`)
+    .map((route) => `${route.kind} ${route.signer} ${route.path}`)
     .sort()
     .join("\n");
   return createHash("sha256").update(canonical).digest("hex").slice(0, 32);
@@ -69,7 +72,32 @@ export interface PluginIngressResolution {
 export function resolvePluginIngress(
   opts: DiscoverPluginIngressOptions = {},
 ): PluginIngressResolution {
-  const { plugins, problems } = discoverPluginIngress(opts);
+  return resolveDiscoveredPluginIngress(discoverPluginIngress(opts));
+}
+
+/**
+ * Shared TTL cache behind {@link resolveCachedPluginIngress}. Module-global
+ * so every caller sees one snapshot and one refresh schedule.
+ */
+const ingressCache = new PluginIngressCache();
+
+/**
+ * Approved-ingress view for the request path.
+ *
+ * Reads through the TTL cache rather than re-walking the plugins directory
+ * per inbound webhook, while installs and toggles still take effect without
+ * a gateway restart. Approvals are read from the database each call — the
+ * table is small, and a stale grant is the one thing worth never caching.
+ */
+export function resolveCachedPluginIngress(): PluginIngressResolution {
+  return resolveDiscoveredPluginIngress(ingressCache.get());
+}
+
+/** Split an already-performed discovery by approval. */
+function resolveDiscoveredPluginIngress(
+  discovery: PluginIngressDiscovery,
+): PluginIngressResolution {
+  const { plugins, problems } = discovery;
   const approvedDigestByPlugin = new Map(
     listPluginIngressApprovals().map((a) => [a.plugin, a.digest]),
   );

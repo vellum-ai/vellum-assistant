@@ -25,7 +25,9 @@ import { __setWorkflowRoutesDeps, ROUTES } from "./workflow-routes.js";
 
 function route(operationId: string): RouteDefinition {
   const r = ROUTES.find((x) => x.operationId === operationId);
-  if (!r) throw new Error(`No route for ${operationId}`);
+  if (!r) {
+    throw new Error(`No route for ${operationId}`);
+  }
   return r;
 }
 
@@ -112,8 +114,12 @@ function setup(opts: {
     list: (o) => {
       listCalls.push({ limit: o?.limit, status: o?.status });
       let result = runs;
-      if (o?.status) result = result.filter((r) => r.status === o.status);
-      if (o?.limit !== undefined) result = result.slice(0, o.limit);
+      if (o?.status) {
+        result = result.filter((r) => r.status === o.status);
+      }
+      if (o?.limit !== undefined) {
+        result = result.slice(0, o.limit);
+      }
       return result;
     },
     status: (id) => runs.find((r) => r.id === id) ?? null,

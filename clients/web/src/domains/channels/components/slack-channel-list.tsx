@@ -240,7 +240,10 @@ export function SlackChannelList({
           Couldn’t load channels. Try reopening this page.
         </Typography>
       ) : allChannels.length === 0 ? (
-        <EmptyState icon={<Hash className="h-6 w-6" />} title="No channels yet" />
+        <EmptyState
+          icon={<Hash className="h-6 w-6" />}
+          title="No channels yet"
+        />
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-3">

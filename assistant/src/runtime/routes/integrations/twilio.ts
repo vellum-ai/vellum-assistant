@@ -146,7 +146,9 @@ export async function handleSetTwilioCredentials({
       );
     }
   } catch (err) {
-    if (err instanceof BadRequestError) throw err;
+    if (err instanceof BadRequestError) {
+      throw err;
+    }
     const message = err instanceof Error ? err.message : String(err);
     throw new BadRequestError(
       `Failed to validate Twilio credentials: ${message}`,

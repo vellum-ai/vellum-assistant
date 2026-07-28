@@ -151,9 +151,8 @@ mock.module("@/domains/chat/hooks/use-command-palette-sections", () => ({
   useCommandPaletteSections: useCommandPaletteSectionsMock,
 }));
 
-const { CommandPaletteWindowPage } = await import(
-  "@/components/command-palette/command-palette-window-page"
-);
+const { CommandPaletteWindowPage } =
+  await import("@/components/command-palette/command-palette-window-page");
 
 beforeEach(() => {
   authRef.sessionStatus = "authenticated";

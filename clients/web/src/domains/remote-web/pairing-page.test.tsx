@@ -368,9 +368,7 @@ describe("RemoteWebPairingPage", () => {
       });
       const href = link.getAttribute("href") ?? "";
       const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
-      expect(query.get("url")).toBe(
-        `${window.location.origin}/assistant-123`,
-      );
+      expect(query.get("url")).toBe(`${window.location.origin}/assistant-123`);
     } finally {
       window.history.pushState(null, "", "/");
     }

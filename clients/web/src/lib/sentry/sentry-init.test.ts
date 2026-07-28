@@ -129,8 +129,7 @@ describe("initSentry commit-pressure enrichment", () => {
     );
 
     const pressure = sent?.contexts?.commit_pressure as
-      | { updates: number; sources: Record<string, number> }
-      | undefined;
+      { updates: number; sources: Record<string, number> } | undefined;
     expect(pressure?.updates).toBe(3);
     expect(pressure?.sources["smooth-stream"]).toBe(2);
   });

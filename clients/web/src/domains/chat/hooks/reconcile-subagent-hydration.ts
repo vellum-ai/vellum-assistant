@@ -39,7 +39,9 @@ export function reconcileSubagentStoreFromNotifications(
     isActiveStatus(entry.status),
   );
 
-  if (!hasInFlight) store.reset();
+  if (!hasInFlight) {
+    store.reset();
+  }
 
   for (const n of notifications) {
     const status = (n.status as SubagentStatus) || "completed";

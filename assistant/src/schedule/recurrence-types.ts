@@ -7,9 +7,13 @@ export type ScheduleSyntax = "cron" | "rrule";
 export function detectScheduleSyntax(
   expression: string,
 ): ScheduleSyntax | null {
-  if (!expression || typeof expression !== "string") return null;
+  if (!expression || typeof expression !== "string") {
+    return null;
+  }
   const trimmed = expression.trim();
-  if (!trimmed) return null;
+  if (!trimmed) {
+    return null;
+  }
 
   // RRULE detection: starts with RRULE:, DTSTART, or contains FREQ=
   if (/^(RRULE:|DTSTART)/m.test(trimmed) || /FREQ=/i.test(trimmed)) {

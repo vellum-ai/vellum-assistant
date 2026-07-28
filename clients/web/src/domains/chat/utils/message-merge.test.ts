@@ -388,7 +388,10 @@ describe("mergeAdjacentAssistantMessages · skip predicates", () => {
   });
 
   test("does NOT fold when either side is a background-tool notification", () => {
-    const real = makeAssistant({ id: "a-1", ...textBody("backgrounded build") });
+    const real = makeAssistant({
+      id: "a-1",
+      ...textBody("backgrounded build"),
+    });
     const notification = makeAssistant({
       id: "a-2",
       ...textBody(""),

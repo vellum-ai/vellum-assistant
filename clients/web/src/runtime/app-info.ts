@@ -21,11 +21,15 @@ export interface AppVersionInfo {
 }
 
 export async function getAppVersionInfo(): Promise<AppVersionInfo | null> {
-  if (!isElectron()) return null;
+  if (!isElectron()) {
+    return null;
+  }
   return (await window.vellum?.app.versionInfo()) ?? null;
 }
 
 export async function openAppWebsite(): Promise<void> {
-  if (!isElectron()) return;
+  if (!isElectron()) {
+    return;
+  }
   await window.vellum?.app.openWebsite();
 }

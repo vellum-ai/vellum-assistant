@@ -95,7 +95,9 @@ export function findPluginRoot(startDir: string): string | null {
       return dir;
     }
     const parent = dirname(dir);
-    if (parent === dir) return null;
+    if (parent === dir) {
+      return null;
+    }
     dir = parent;
   }
 }
@@ -170,7 +172,9 @@ export function validatePluginForPublish(dir: string): PublishValidation {
   // Check for stale .js without matching .ts
   for (const d of surfaceDirs) {
     const dirPath = join(dir, d);
-    if (!existsSync(dirPath)) continue;
+    if (!existsSync(dirPath)) {
+      continue;
+    }
     for (const file of readdirSync(dirPath)) {
       if (file.endsWith(".js") && !file.endsWith(".d.ts")) {
         const tsFile = file.replace(/\.js$/, ".ts");
@@ -274,15 +278,23 @@ export function buildPublishPayload(
     category,
   };
 
-  if (pkg.description) payload.description = pkg.description;
-  if (pkg.license) payload.license = pkg.license;
-  if (homepage) payload.homepage = homepage;
+  if (pkg.description) {
+    payload.description = pkg.description;
+  }
+  if (pkg.license) {
+    payload.license = pkg.license;
+  }
+  if (homepage) {
+    payload.homepage = homepage;
+  }
 
   return payload;
 }
 
 function extractRepoUrl(pkg: ParsedPackageJson): string | undefined {
-  if (!pkg.repository) return undefined;
+  if (!pkg.repository) {
+    return undefined;
+  }
   if (typeof pkg.repository === "string") {
     // shorthand: "github:owner/repo" or URL
     const match = pkg.repository.match(
@@ -337,7 +349,9 @@ export async function postPublishRequest(
 export async function resolvePlatformDeps(): Promise<PublishDeps | null> {
   const { VellumPlatformClient } = await import("../../platform/client.js");
   const client = await VellumPlatformClient.create();
-  if (!client) return null;
+  if (!client) {
+    return null;
+  }
   // Use the client's authenticated fetch to extract base URL + API key
   // by making a dummy call. The client encapsulates the credentials
   // privately, so we use its fetch method directly.
@@ -374,7 +388,9 @@ export function formatValidationResult(validation: PublishValidation): string {
   }
 
   if (validation.warnings.length > 0) {
-    if (lines.length > 0) lines.push("");
+    if (lines.length > 0) {
+      lines.push("");
+    }
     lines.push("Warnings:");
     for (const warning of validation.warnings) {
       lines.push(`  ⚠ ${warning}`);

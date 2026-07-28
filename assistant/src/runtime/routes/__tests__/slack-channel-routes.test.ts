@@ -53,7 +53,9 @@ function resolveHandler(): RouteDefinition["handler"] {
   const route = ROUTES.find(
     (r) => r.operationId === "slack_channel_name_resolve",
   );
-  if (!route) throw new Error("slack_channel_name_resolve route not found");
+  if (!route) {
+    throw new Error("slack_channel_name_resolve route not found");
+  }
   return route.handler;
 }
 

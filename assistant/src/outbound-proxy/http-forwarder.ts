@@ -64,9 +64,15 @@ function filterHeaders(
   const out: Record<string, string | string[]> = {};
   for (const [key, value] of Object.entries(raw)) {
     const lower = key.toLowerCase();
-    if (HOP_BY_HOP.has(lower)) continue;
-    if (connectionTokens.has(lower)) continue;
-    if (value === undefined) continue;
+    if (HOP_BY_HOP.has(lower)) {
+      continue;
+    }
+    if (connectionTokens.has(lower)) {
+      continue;
+    }
+    if (value === undefined) {
+      continue;
+    }
     out[key] = value;
   }
   return out;

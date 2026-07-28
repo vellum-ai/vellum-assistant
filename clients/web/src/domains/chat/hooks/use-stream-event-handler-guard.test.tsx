@@ -8,38 +8,49 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 
 const handlerCalls: Array<{ kind: string; conversationId?: string }> = [];
 
-mock.module(
-  "@/domains/chat/utils/stream-handlers/message-handlers",
-  () => ({
-    handleAssistantTextDelta: (event: { conversationId?: string }) => {
-      handlerCalls.push({ kind: "assistant_text_delta", conversationId: event.conversationId });
-    },
-    handleAssistantThinkingDelta: (event: { conversationId?: string }) => {
-      handlerCalls.push({ kind: "assistant_thinking_delta", conversationId: event.conversationId });
-    },
-    handleAssistantTurnStart: (event: { conversationId?: string }) => {
-      handlerCalls.push({ kind: "assistant_turn_start", conversationId: event.conversationId });
-    },
-    handleAssistantActivityState: () => {
-      handlerCalls.push({ kind: "assistant_activity_state" });
-    },
-    handleMessageComplete: (event: { conversationId?: string }) => {
-      handlerCalls.push({ kind: "message_complete", conversationId: event.conversationId });
-    },
-    handleUserMessageEcho: (event: { conversationId?: string }) => {
-      handlerCalls.push({ kind: "user_message_echo", conversationId: event.conversationId });
-    },
-    handleGenerationHandoff: () => {
-      handlerCalls.push({ kind: "generation_handoff" });
-    },
-    handleGenerationCancelled: () => {
-      handlerCalls.push({ kind: "generation_cancelled" });
-    },
-  }),
-);
-const { useStreamEventHandler } = await import(
-  "@/domains/chat/hooks/use-stream-event-handler"
-);
+mock.module("@/domains/chat/utils/stream-handlers/message-handlers", () => ({
+  handleAssistantTextDelta: (event: { conversationId?: string }) => {
+    handlerCalls.push({
+      kind: "assistant_text_delta",
+      conversationId: event.conversationId,
+    });
+  },
+  handleAssistantThinkingDelta: (event: { conversationId?: string }) => {
+    handlerCalls.push({
+      kind: "assistant_thinking_delta",
+      conversationId: event.conversationId,
+    });
+  },
+  handleAssistantTurnStart: (event: { conversationId?: string }) => {
+    handlerCalls.push({
+      kind: "assistant_turn_start",
+      conversationId: event.conversationId,
+    });
+  },
+  handleAssistantActivityState: () => {
+    handlerCalls.push({ kind: "assistant_activity_state" });
+  },
+  handleMessageComplete: (event: { conversationId?: string }) => {
+    handlerCalls.push({
+      kind: "message_complete",
+      conversationId: event.conversationId,
+    });
+  },
+  handleUserMessageEcho: (event: { conversationId?: string }) => {
+    handlerCalls.push({
+      kind: "user_message_echo",
+      conversationId: event.conversationId,
+    });
+  },
+  handleGenerationHandoff: () => {
+    handlerCalls.push({ kind: "generation_handoff" });
+  },
+  handleGenerationCancelled: () => {
+    handlerCalls.push({ kind: "generation_cancelled" });
+  },
+}));
+const { useStreamEventHandler } =
+  await import("@/domains/chat/hooks/use-stream-event-handler");
 
 function setupStreamStore(overrides?: {
   streamEpoch?: number;
@@ -51,7 +62,10 @@ function setupStreamStore(overrides?: {
       overrides?.streamConversationId === null
         ? null
         : overrides?.streamConversationId !== undefined
-          ? { assistantId: "asst-1", conversationId: overrides.streamConversationId }
+          ? {
+              assistantId: "asst-1",
+              conversationId: overrides.streamConversationId,
+            }
           : { assistantId: "asst-1", conversationId: "conv-A" },
   });
 }
@@ -63,13 +77,11 @@ function wrapper({ children }: { children: ReactNode }) {
   return createElement(QueryClientProvider, { client }, children);
 }
 
-function renderHandler(
-  overrides?: {
-    streamEpoch?: number;
-    streamConversationId?: string | null;
-    activeConversationId?: string | null;
-  },
-) {
+function renderHandler(overrides?: {
+  streamEpoch?: number;
+  streamConversationId?: string | null;
+  activeConversationId?: string | null;
+}) {
   setupStreamStore(overrides);
   const { result } = renderHook(
     () =>
@@ -106,7 +118,9 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
       0,
     );
     expect(handlerCalls.length).toBeGreaterThan(0);
-    expect(handlerCalls[handlerCalls.length - 1]?.conversationId).toBe("conv-A");
+    expect(handlerCalls[handlerCalls.length - 1]?.conversationId).toBe(
+      "conv-A",
+    );
   });
 
   test("rejects a conversation-scoped event whose key does NOT match the stream context", () => {
@@ -185,7 +199,9 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
     );
     // home_feed_updated is now handled by useAssistantResourceSync (bus
     // subscriber), not the monolithic handler. The switch case is a no-op.
-    const homeFeedCalls = handlerCalls.filter((c) => c.kind === "home_feed_updated");
+    const homeFeedCalls = handlerCalls.filter(
+      (c) => c.kind === "home_feed_updated",
+    );
     expect(homeFeedCalls).toHaveLength(0);
   });
 

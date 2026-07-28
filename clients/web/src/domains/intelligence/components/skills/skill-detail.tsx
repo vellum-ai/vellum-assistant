@@ -1,28 +1,28 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
-    ArrowDownToLine,
-    ArrowLeft,
-    ExternalLink,
-    FileText,
-    Folder,
-    Loader2,
-    Trash2,
+  ArrowDownToLine,
+  ArrowLeft,
+  ExternalLink,
+  FileText,
+  Folder,
+  Loader2,
+  Trash2,
 } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import {
-    ContentActionBar,
-    EditFooter,
-    FileTextarea,
-    SourcePre,
+  ContentActionBar,
+  EditFooter,
+  FileTextarea,
+  SourcePre,
 } from "@/components/file-editor";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { SkillLineageLink } from "@/components/skill-lineage-link";
 import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
-    isAvailableSkill,
-    type SkillInfo,
+  isAvailableSkill,
+  type SkillInfo,
 } from "@/domains/intelligence/skills/types";
 import { useWorkspaceWritePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useSkillDetailFiles } from "@/hooks/use-skill-detail-files";
@@ -150,89 +150,91 @@ export function SkillDetail({
             gridTemplateColumns: "240px 1fr",
           }}
         >
-        <div
-          className="max-h-40 shrink-0 overflow-y-auto border-b p-2 sm:max-h-none sm:border-b-0 sm:border-r"
-          style={{ borderColor: "var(--border-base)" }}
-        >
-          {isFilesLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2
-                className="h-4 w-4 animate-spin"
+          <div
+            className="max-h-40 shrink-0 overflow-y-auto border-b p-2 sm:max-h-none sm:border-b-0 sm:border-r"
+            style={{ borderColor: "var(--border-base)" }}
+          >
+            {isFilesLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2
+                  className="h-4 w-4 animate-spin"
+                  style={{ color: "var(--content-tertiary)" }}
+                />
+              </div>
+            ) : fileEntries.length === 0 ? (
+              <p
+                className="px-3 py-4 text-center text-body-medium-lighter"
                 style={{ color: "var(--content-tertiary)" }}
-              />
-            </div>
-          ) : fileEntries.length === 0 ? (
-            <p
-              className="px-3 py-4 text-center text-body-medium-lighter"
-              style={{ color: "var(--content-tertiary)" }}
-            >
-              No files available.
-            </p>
-          ) : (
-            fileEntries.map((entry) => {
-              const isActive = activePath === entry.path;
-              const isDirectory = (entry.mimeType ?? "").endsWith("/directory");
-              return (
-                <button
-                  key={entry.path}
-                  type="button"
-                  onClick={() => setSelectedPath(entry.path)}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
-                  style={{
-                    color: isActive
-                      ? "var(--primary-base)"
-                      : "var(--content-default)",
-                    backgroundColor: isActive
-                      ? "color-mix(in oklab, var(--primary-base) 10%, transparent)"
-                      : undefined,
-                  }}
-                >
-                  {isDirectory ? (
-                    <Folder
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--system-mid-strong)" }}
-                    />
-                  ) : (
-                    <FileText
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
-                    />
-                  )}
-                  <span className="truncate">{entry.name}</span>
-                </button>
-              );
-            })
-          )}
-        </div>
+              >
+                No files available.
+              </p>
+            ) : (
+              fileEntries.map((entry) => {
+                const isActive = activePath === entry.path;
+                const isDirectory = (entry.mimeType ?? "").endsWith(
+                  "/directory",
+                );
+                return (
+                  <button
+                    key={entry.path}
+                    type="button"
+                    onClick={() => setSelectedPath(entry.path)}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
+                    style={{
+                      color: isActive
+                        ? "var(--primary-base)"
+                        : "var(--content-default)",
+                      backgroundColor: isActive
+                        ? "color-mix(in oklab, var(--primary-base) 10%, transparent)"
+                        : undefined,
+                    }}
+                  >
+                    {isDirectory ? (
+                      <Folder
+                        className="h-4 w-4 shrink-0"
+                        style={{ color: "var(--system-mid-strong)" }}
+                      />
+                    ) : (
+                      <FileText
+                        className="h-4 w-4 shrink-0"
+                        style={{ color: "var(--content-secondary)" }}
+                      />
+                    )}
+                    <span className="truncate">{entry.name}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
 
-        <div className="min-h-0 flex-1 overflow-hidden">
-          {isContentLoading ? (
-            <div className="flex h-full items-center justify-center">
-              <Loader2
-                className="h-6 w-6 animate-spin"
-                style={{ color: "var(--content-tertiary)" }}
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {isContentLoading ? (
+              <div className="flex h-full items-center justify-center">
+                <Loader2
+                  className="h-6 w-6 animate-spin"
+                  style={{ color: "var(--content-tertiary)" }}
+                />
+              </div>
+            ) : activeFile ? (
+              <SkillFileContent
+                key={`${skill.id}/${activeFile.path}`}
+                assistantId={assistantId}
+                skillId={skill.id}
+                fileName={activeFile.name}
+                filePath={activeFile.path}
+                content={fileContent}
+                isBinary={isBinary}
+                editable={skill.kind === "installed"}
               />
-            </div>
-          ) : activeFile ? (
-            <SkillFileContent
-              key={`${skill.id}/${activeFile.path}`}
-              assistantId={assistantId}
-              skillId={skill.id}
-              fileName={activeFile.name}
-              filePath={activeFile.path}
-              content={fileContent}
-              isBinary={isBinary}
-              editable={skill.kind === "installed"}
-            />
-          ) : (
-            <p
-              className="flex h-full items-center justify-center text-body-medium-lighter"
-              style={{ color: "var(--content-tertiary)" }}
-            >
-              Select a file to view its contents.
-            </p>
-          )}
-        </div>
+            ) : (
+              <p
+                className="flex h-full items-center justify-center text-body-medium-lighter"
+                style={{ color: "var(--content-tertiary)" }}
+              >
+                Select a file to view its contents.
+              </p>
+            )}
+          </div>
         </div>
       </Card.Root>
     </div>
@@ -285,7 +287,9 @@ function SkillFileContent({
   const isDirty = isEditing && editableContent !== (content ?? "");
 
   const handleSave = useCallback(() => {
-    if (!isDirty || saveMutation.isPending) return;
+    if (!isDirty || saveMutation.isPending) {
+      return;
+    }
     saveMutation.mutate({
       path: { assistant_id: assistantId },
       body: { path: workspacePath, content: editableContent, encoding: "utf8" },

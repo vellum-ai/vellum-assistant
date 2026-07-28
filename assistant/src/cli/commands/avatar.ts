@@ -33,11 +33,12 @@ export function registerAvatarCommand(program: Command): void {
             "avatar_generate",
             { body: { description: opts.description } },
           );
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
           log.info(r.result!.message);
         },
       );
@@ -62,11 +63,12 @@ export function registerAvatarCommand(program: Command): void {
           const r = await cliIpcCall<{ ok: boolean }>("avatar_set", {
             body: { imagePath: resolvedSource },
           });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
           log.info(`Avatar set from: ${resolvedSource}`);
         },
       );
@@ -77,11 +79,12 @@ export function registerAvatarCommand(program: Command): void {
           const r = await cliIpcCall<{ ok: boolean; hadAvatar: boolean }>(
             "avatar_remove",
           );
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
           if (!r.result!.hadAvatar) {
             log.info("No custom avatar to remove — already using the default.");
           } else {
@@ -106,11 +109,12 @@ export function registerAvatarCommand(program: Command): void {
             path?: string;
             base64?: string;
           }>("avatar_get", { body: { format: opts.format } });
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
 
           if (!r.result!.exists) {
             log.info(
@@ -145,11 +149,12 @@ export function registerAvatarCommand(program: Command): void {
               },
             },
           );
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
           log.info(
             `Avatar updated: ${opts.bodyShape} body, ${opts.eyeStyle} eyes, ${opts.color} color`,
           );
@@ -161,11 +166,12 @@ export function registerAvatarCommand(program: Command): void {
           const r = await cliIpcCall<CharacterComponents>(
             "avatar_character_components",
           );
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
 
           if (opts.json) {
             writeOutput(cmd, r.result);
@@ -214,11 +220,12 @@ export function registerAvatarCommand(program: Command): void {
             "avatar_character_ascii",
             { body: { width: opts.width } },
           );
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
           process.stdout.write(r.result!.ascii + "\n");
         },
       );

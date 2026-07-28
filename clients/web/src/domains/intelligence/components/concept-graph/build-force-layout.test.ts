@@ -49,7 +49,11 @@ describe("buildForceLayout", () => {
       }),
     );
     expect(layout.edges).toHaveLength(1);
-    expect(layout.edges[0]).toMatchObject({ fromId: "a", toId: "b", kind: "link" });
+    expect(layout.edges[0]).toMatchObject({
+      fromId: "a",
+      toId: "b",
+      kind: "link",
+    });
   });
 
   test("carries kind/degree and sizes higher-degree nodes larger", () => {

@@ -261,7 +261,11 @@ export function AssistantChannelsList({
             wrapper. Both scroll as a whole when the stacked content overflows —
             the per-channel list self-bounds its own rows within that. */}
         <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {selected.key === "slack" ? detail : <DetailCard>{detail}</DetailCard>}
+          {selected.key === "slack" ? (
+            detail
+          ) : (
+            <DetailCard>{detail}</DetailCard>
+          )}
         </section>
       </div>
 

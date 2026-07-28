@@ -59,11 +59,17 @@ export async function reconcileAttentionKeys(
 
   if (opts.pruneStale) {
     for (const key of state.attentionConversationIds) {
-      if (key === activeConversationId) continue;
-      if (!pendingKeys.has(key)) state.removeAttentionConversationId(key);
+      if (key === activeConversationId) {
+        continue;
+      }
+      if (!pendingKeys.has(key)) {
+        state.removeAttentionConversationId(key);
+      }
     }
     for (const key of state.processingConversationIds) {
-      if (key === activeConversationId) continue;
+      if (key === activeConversationId) {
+        continue;
+      }
       if (pendingKeys.has(key)) {
         state.addAttentionConversationId(key);
         state.removeProcessingConversationId(key);
@@ -72,8 +78,13 @@ export async function reconcileAttentionKeys(
   }
 
   for (const key of pendingKeys) {
-    if (key === activeConversationId) continue;
-    if (!state.attentionConversationIds.has(key) && !state.processingConversationIds.has(key)) {
+    if (key === activeConversationId) {
+      continue;
+    }
+    if (
+      !state.attentionConversationIds.has(key) &&
+      !state.processingConversationIds.has(key)
+    ) {
       state.addAttentionConversationId(key);
     }
   }

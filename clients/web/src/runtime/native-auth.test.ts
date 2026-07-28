@@ -32,7 +32,10 @@ describe("resolveNativePostAuthDestination", () => {
   });
 
   test("native signup with a non-checkout destination stashes nothing", () => {
-    const destination = resolveNativePostAuthDestination("signup", "/assistant/home");
+    const destination = resolveNativePostAuthDestination(
+      "signup",
+      "/assistant/home",
+    );
 
     expect(destination).toBe("/assistant/onboarding/privacy");
     expect(readCheckoutIntent()).toBeNull();
@@ -58,7 +61,10 @@ describe("resolveNativePostAuthDestination", () => {
   test("native non-checkout signup clears a stale stash from an abandoned attempt", () => {
     saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
 
-    const destination = resolveNativePostAuthDestination("signup", "/assistant/home");
+    const destination = resolveNativePostAuthDestination(
+      "signup",
+      "/assistant/home",
+    );
 
     expect(destination).toBe("/assistant/onboarding/privacy");
     expect(readCheckoutIntent()).toBeNull();
@@ -67,7 +73,10 @@ describe("resolveNativePostAuthDestination", () => {
   test("native non-checkout login clears a stale stash from an abandoned attempt", () => {
     saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
 
-    const destination = resolveNativePostAuthDestination("login", "/assistant/home");
+    const destination = resolveNativePostAuthDestination(
+      "login",
+      "/assistant/home",
+    );
 
     expect(destination).toBe("/assistant/home");
     expect(readCheckoutIntent()).toBeNull();
@@ -92,7 +101,10 @@ describe("clearStaleNativeCheckoutStash", () => {
   test("a native login onto a checkout deep link leaves an existing stash in place", () => {
     saveCheckoutIntent({ kind: "package", packageKey: "existing" });
 
-    clearStaleNativeCheckoutStash(undefined, "/assistant/checkout?package=super");
+    clearStaleNativeCheckoutStash(
+      undefined,
+      "/assistant/checkout?package=super",
+    );
 
     expect(readCheckoutIntent()).toMatchObject({
       kind: "package",

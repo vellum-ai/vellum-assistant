@@ -91,7 +91,9 @@ export function updateSurfaceData(
     const msg = prev[i]!;
     const surfIdx =
       msg.surfaces?.findIndex((s) => s.surfaceId === surfaceId) ?? -1;
-    if (surfIdx === -1) continue;
+    if (surfIdx === -1) {
+      continue;
+    }
 
     const surface = msg.surfaces![surfIdx]!;
     const mergedData = { ...surface.data, ...data };
@@ -130,7 +132,9 @@ export function dismissSurface(
   surfaceId: string,
 ): DisplayMessage[] {
   for (let i = prev.length - 1; i >= 0; i--) {
-    if (!prev[i]!.surfaces?.some((s) => s.surfaceId === surfaceId)) continue;
+    if (!prev[i]!.surfaces?.some((s) => s.surfaceId === surfaceId)) {
+      continue;
+    }
     const updated = [...prev];
     updated[i] = {
       ...prev[i]!,
@@ -157,7 +161,9 @@ export function completeSurface(
 ): DisplayMessage[] {
   for (let i = prev.length - 1; i >= 0; i--) {
     const surface = prev[i]!.surfaces?.find((s) => s.surfaceId === surfaceId);
-    if (!surface) continue;
+    if (!surface) {
+      continue;
+    }
     const completedSurface: Surface = {
       ...surface,
       completed: true,
@@ -169,7 +175,10 @@ export function completeSurface(
       surfaces: prev[i]!.surfaces?.map((s) =>
         s.surfaceId === surfaceId ? completedSurface : s,
       ),
-      contentBlocks: upsertSurfaceBlock(prev[i]!.contentBlocks, completedSurface),
+      contentBlocks: upsertSurfaceBlock(
+        prev[i]!.contentBlocks,
+        completedSurface,
+      ),
     };
     return updated;
   }

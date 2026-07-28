@@ -22,20 +22,30 @@ function event(overrides: Partial<AcpRunRawEvent>): AcpRunRawEvent {
   };
 }
 
-function toolStep(step: AcpTimelineStep): Extract<AcpTimelineStep, { kind: "tool" }> {
-  if (step.kind !== "tool") throw new Error(`expected tool, got ${step.kind}`);
+function toolStep(
+  step: AcpTimelineStep,
+): Extract<AcpTimelineStep, { kind: "tool" }> {
+  if (step.kind !== "tool") {
+    throw new Error(`expected tool, got ${step.kind}`);
+  }
   return step;
 }
 
 function messageStep(
   step: AcpTimelineStep,
 ): Extract<AcpTimelineStep, { kind: "message" }> {
-  if (step.kind !== "message") throw new Error(`expected message, got ${step.kind}`);
+  if (step.kind !== "message") {
+    throw new Error(`expected message, got ${step.kind}`);
+  }
   return step;
 }
 
-function planStep(step: AcpTimelineStep): Extract<AcpTimelineStep, { kind: "plan" }> {
-  if (step.kind !== "plan") throw new Error(`expected plan, got ${step.kind}`);
+function planStep(
+  step: AcpTimelineStep,
+): Extract<AcpTimelineStep, { kind: "plan" }> {
+  if (step.kind !== "plan") {
+    throw new Error(`expected plan, got ${step.kind}`);
+  }
   return step;
 }
 
@@ -66,9 +76,21 @@ describe("computeAcpRunSteps — folding rules", () => {
   test("tool_call_update correlates by toolCallId: replaces output + status", () => {
     const steps = computeAcpRunSteps([
       event({ updateType: "tool_call", toolCallId: "t1", toolTitle: "Run" }),
-      event({ updateType: "tool_call_update", toolCallId: "t1", content: "out-a" }),
-      event({ updateType: "tool_call_update", toolCallId: "t1", content: "out-b" }),
-      event({ updateType: "tool_call_update", toolCallId: "t1", toolStatus: "complete" }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "t1",
+        content: "out-a",
+      }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "t1",
+        content: "out-b",
+      }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "t1",
+        toolStatus: "complete",
+      }),
     ]);
     expect(steps).toHaveLength(1);
     const tool = toolStep(steps[0]!);
@@ -80,8 +102,16 @@ describe("computeAcpRunSteps — folding rules", () => {
   test("tool_call_update content replaces (latest snapshot), not appends", () => {
     const steps = computeAcpRunSteps([
       event({ updateType: "tool_call", toolCallId: "t1", toolTitle: "Run" }),
-      event({ updateType: "tool_call_update", toolCallId: "t1", content: "[A]" }),
-      event({ updateType: "tool_call_update", toolCallId: "t1", content: "[A, B]" }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "t1",
+        content: "[A]",
+      }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "t1",
+        content: "[A, B]",
+      }),
     ]);
     const tool = toolStep(steps[0]!);
     expect(tool.outputChunks.join("")).toBe("[A, B]");
@@ -90,8 +120,16 @@ describe("computeAcpRunSteps — folding rules", () => {
   test("tool_call_update without content leaves the prior snapshot intact", () => {
     const steps = computeAcpRunSteps([
       event({ updateType: "tool_call", toolCallId: "t1" }),
-      event({ updateType: "tool_call_update", toolCallId: "t1", content: "[A]" }),
-      event({ updateType: "tool_call_update", toolCallId: "t1", toolStatus: "complete" }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "t1",
+        content: "[A]",
+      }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "t1",
+        toolStatus: "complete",
+      }),
     ]);
     const tool = toolStep(steps[0]!);
     expect(tool.outputChunks).toEqual(["[A]"]);
@@ -101,7 +139,11 @@ describe("computeAcpRunSteps — folding rules", () => {
   test("tool_call carrying initial content seeds it as the first snapshot", () => {
     const steps = computeAcpRunSteps([
       event({ updateType: "tool_call", toolCallId: "t1", content: "[A]" }),
-      event({ updateType: "tool_call_update", toolCallId: "t1", content: "[A, B]" }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "t1",
+        content: "[A, B]",
+      }),
     ]);
     expect(toolStep(steps[0]!).outputChunks).toEqual(["[A, B]"]);
   });
@@ -109,13 +151,21 @@ describe("computeAcpRunSteps — folding rules", () => {
   test("tool_call_update maps failed/error to error status", () => {
     const failed = computeAcpRunSteps([
       event({ updateType: "tool_call", toolCallId: "t1" }),
-      event({ updateType: "tool_call_update", toolCallId: "t1", toolStatus: "failed" }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "t1",
+        toolStatus: "failed",
+      }),
     ]);
     expect(toolStep(failed[0]!).status).toBe("error");
 
     const errored = computeAcpRunSteps([
       event({ updateType: "tool_call", toolCallId: "t2" }),
-      event({ updateType: "tool_call_update", toolCallId: "t2", toolStatus: "error" }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "t2",
+        toolStatus: "error",
+      }),
     ]);
     expect(toolStep(errored[0]!).status).toBe("error");
   });
@@ -130,9 +180,18 @@ describe("computeAcpRunSteps — folding rules", () => {
 
   test("tool_call_update only overrides title/kind when carried", () => {
     const steps = computeAcpRunSteps([
-      event({ updateType: "tool_call", toolCallId: "t1", toolTitle: "Orig", toolKind: "read" }),
+      event({
+        updateType: "tool_call",
+        toolCallId: "t1",
+        toolTitle: "Orig",
+        toolKind: "read",
+      }),
       event({ updateType: "tool_call_update", toolCallId: "t1", content: "x" }),
-      event({ updateType: "tool_call_update", toolCallId: "t1", toolTitle: "New" }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "t1",
+        toolTitle: "New",
+      }),
     ]);
     const tool = toolStep(steps[0]!);
     expect(tool.title).toBe("New");
@@ -141,15 +200,27 @@ describe("computeAcpRunSteps — folding rules", () => {
 
   test("tool_call_update for an unknown toolCallId is ignored", () => {
     const steps = computeAcpRunSteps([
-      event({ updateType: "tool_call_update", toolCallId: "ghost", content: "x" }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "ghost",
+        content: "x",
+      }),
     ]);
     expect(steps).toHaveLength(0);
   });
 
   test("agent_message_chunk accumulates within one messageId", () => {
     const steps = computeAcpRunSteps([
-      event({ updateType: "agent_message_chunk", messageId: "m1", content: "Hel" }),
-      event({ updateType: "agent_message_chunk", messageId: "m1", content: "lo" }),
+      event({
+        updateType: "agent_message_chunk",
+        messageId: "m1",
+        content: "Hel",
+      }),
+      event({
+        updateType: "agent_message_chunk",
+        messageId: "m1",
+        content: "lo",
+      }),
     ]);
     expect(steps).toHaveLength(1);
     const msg = messageStep(steps[0]!);
@@ -160,8 +231,16 @@ describe("computeAcpRunSteps — folding rules", () => {
 
   test("message boundary by messageId: distinct ids split steps", () => {
     const steps = computeAcpRunSteps([
-      event({ updateType: "agent_message_chunk", messageId: "m1", content: "a" }),
-      event({ updateType: "agent_message_chunk", messageId: "m2", content: "b" }),
+      event({
+        updateType: "agent_message_chunk",
+        messageId: "m1",
+        content: "a",
+      }),
+      event({
+        updateType: "agent_message_chunk",
+        messageId: "m2",
+        content: "b",
+      }),
     ]);
     expect(steps).toHaveLength(2);
     expect(messageStep(steps[0]!).content).toBe("a");
@@ -221,9 +300,21 @@ describe("computeAcpRunSteps — folding rules", () => {
 
   test("agent_thought_chunk accumulates and splits by messageId", () => {
     const steps = computeAcpRunSteps([
-      event({ updateType: "agent_thought_chunk", messageId: "th1", content: "Pon" }),
-      event({ updateType: "agent_thought_chunk", messageId: "th1", content: "der" }),
-      event({ updateType: "agent_thought_chunk", messageId: "th2", content: "more" }),
+      event({
+        updateType: "agent_thought_chunk",
+        messageId: "th1",
+        content: "Pon",
+      }),
+      event({
+        updateType: "agent_thought_chunk",
+        messageId: "th1",
+        content: "der",
+      }),
+      event({
+        updateType: "agent_thought_chunk",
+        messageId: "th2",
+        content: "more",
+      }),
     ]);
     expect(steps).toHaveLength(2);
     expect(steps[0]!.kind).toBe("thought");
@@ -231,7 +322,9 @@ describe("computeAcpRunSteps — folding rules", () => {
       expect(steps[0]!.content).toBe("Ponder");
       expect(steps[0]!.detailKey).toBe("thought:th1");
     }
-    if (steps[1]!.kind === "thought") expect(steps[1]!.content).toBe("more");
+    if (steps[1]!.kind === "thought") {
+      expect(steps[1]!.content).toBe("more");
+    }
   });
 
   test("plan parses entries and replaces in place (no duplicate plan steps)", () => {
@@ -242,17 +335,27 @@ describe("computeAcpRunSteps — folding rules", () => {
     const second = JSON.stringify([{ label: "Only", checked: true }]);
     const steps = computeAcpRunSteps([
       event({ updateType: "plan", content: first }),
-      event({ updateType: "agent_message_chunk", messageId: "m1", content: "x" }),
+      event({
+        updateType: "agent_message_chunk",
+        messageId: "m1",
+        content: "x",
+      }),
       event({ updateType: "plan", content: second }),
     ]);
     const plans = steps.filter((s) => s.kind === "plan");
     expect(plans).toHaveLength(1);
-    expect(planStep(plans[0]!).entries).toEqual([{ label: "Only", checked: true }]);
+    expect(planStep(plans[0]!).entries).toEqual([
+      { label: "Only", checked: true },
+    ]);
   });
 
   test("plan after a message closes the trailing message step", () => {
     const steps = computeAcpRunSteps([
-      event({ updateType: "agent_message_chunk", messageId: "m1", content: "hi" }),
+      event({
+        updateType: "agent_message_chunk",
+        messageId: "m1",
+        content: "hi",
+      }),
       event({
         updateType: "plan",
         content: JSON.stringify([{ label: "Step 1", checked: false }]),
@@ -275,9 +378,13 @@ describe("computeAcpRunSteps — folding rules", () => {
   });
 
   test("plan tolerates entries wrapped in an object", () => {
-    const content = JSON.stringify({ entries: [{ label: "A", status: "completed" }] });
+    const content = JSON.stringify({
+      entries: [{ label: "A", status: "completed" }],
+    });
     const steps = computeAcpRunSteps([event({ updateType: "plan", content })]);
-    expect(planStep(steps[0]!).entries).toEqual([{ label: "A", checked: true }]);
+    expect(planStep(steps[0]!).entries).toEqual([
+      { label: "A", checked: true },
+    ]);
   });
 
   test("plan with malformed JSON is skipped", () => {
@@ -302,9 +409,7 @@ describe("computeAcpRunSteps — folding rules", () => {
 describe("createAcpRunStepProjection — incremental", () => {
   test("returns stable reference on identity (no-op) input", () => {
     const projector = createAcpRunStepProjection();
-    const events = [
-      event({ updateType: "tool_call", toolCallId: "t1" }),
-    ];
+    const events = [event({ updateType: "tool_call", toolCallId: "t1" })];
     const a = projector.project(events);
     const b = projector.project(events);
     expect(a).toBe(b);
@@ -312,12 +417,24 @@ describe("createAcpRunStepProjection — incremental", () => {
 
   test("append path matches full rebuild", () => {
     const projector = createAcpRunStepProjection();
-    const e1 = event({ updateType: "tool_call", toolCallId: "t1", toolTitle: "Run" });
+    const e1 = event({
+      updateType: "tool_call",
+      toolCallId: "t1",
+      toolTitle: "Run",
+    });
     const events1 = [e1];
     projector.project(events1);
 
-    const e2 = event({ updateType: "tool_call_update", toolCallId: "t1", content: "out" });
-    const e3 = event({ updateType: "agent_message_chunk", messageId: "m1", content: "hi" });
+    const e2 = event({
+      updateType: "tool_call_update",
+      toolCallId: "t1",
+      content: "out",
+    });
+    const e3 = event({
+      updateType: "agent_message_chunk",
+      messageId: "m1",
+      content: "hi",
+    });
     const events2 = [e1, e2, e3];
     const incremental = projector.project(events2);
 
@@ -326,7 +443,11 @@ describe("createAcpRunStepProjection — incremental", () => {
 
   test("a grown-last-element diff falls back to a correct full rebuild", () => {
     const projector = createAcpRunStepProjection();
-    const c1 = event({ updateType: "agent_message_chunk", messageId: "m1", content: "Hel" });
+    const c1 = event({
+      updateType: "agent_message_chunk",
+      messageId: "m1",
+      content: "Hel",
+    });
     projector.project([c1]);
 
     // The raw buffer no longer coalesces, but the projector still defends
@@ -344,7 +465,11 @@ describe("createAcpRunStepProjection — incremental", () => {
 
     const hydrated = [
       event({ updateType: "tool_call", toolCallId: "h1", toolTitle: "Hist" }),
-      event({ updateType: "tool_call_update", toolCallId: "h1", toolStatus: "complete" }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "h1",
+        toolStatus: "complete",
+      }),
     ];
     const result = projector.project(hydrated);
     expect(result).toEqual(computeAcpRunSteps(hydrated));
@@ -356,8 +481,16 @@ describe("createAcpRunStepProjection — incremental", () => {
     // naturally idempotent.
     const events = [
       event({ updateType: "tool_call", toolCallId: "t1", toolTitle: "Run" }),
-      event({ updateType: "tool_call", toolCallId: "t1", toolTitle: "Run-dup" }),
-      event({ updateType: "tool_call_update", toolCallId: "t1", toolStatus: "complete" }),
+      event({
+        updateType: "tool_call",
+        toolCallId: "t1",
+        toolTitle: "Run-dup",
+      }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "t1",
+        toolStatus: "complete",
+      }),
     ];
     const steps = computeAcpRunSteps(events);
     // A duplicate tool_call for the same id appends a second step (best-effort);
@@ -375,10 +508,22 @@ describe("createAcpRunStepProjection — incremental", () => {
 describe("acpStepsToCarousel", () => {
   test("derives last-N items with labels + statuses", () => {
     const steps = computeAcpRunSteps([
-      event({ updateType: "agent_thought_chunk", messageId: "th1", content: "x" }),
+      event({
+        updateType: "agent_thought_chunk",
+        messageId: "th1",
+        content: "x",
+      }),
       event({ updateType: "tool_call", toolCallId: "t1", toolTitle: "Read" }),
-      event({ updateType: "tool_call_update", toolCallId: "t1", toolStatus: "complete" }),
-      event({ updateType: "agent_message_chunk", messageId: "m1", content: "hi" }),
+      event({
+        updateType: "tool_call_update",
+        toolCallId: "t1",
+        toolStatus: "complete",
+      }),
+      event({
+        updateType: "agent_message_chunk",
+        messageId: "m1",
+        content: "hi",
+      }),
     ]);
     const carousel = acpStepsToCarousel(steps, 2);
     expect(carousel).toHaveLength(2);

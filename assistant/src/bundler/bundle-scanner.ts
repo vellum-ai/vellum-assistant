@@ -157,12 +157,15 @@ async function scanArchiveStructure(
     const entry = zip.files[name];
     const data = await entry.async("uint8array");
     totalDecompressed += data.byteLength;
-    if (totalDecompressed > MAX_DECOMPRESSED_SIZE) break;
+    if (totalDecompressed > MAX_DECOMPRESSED_SIZE) {
+      break;
+    }
     if (
       compressedSize > 0 &&
       totalDecompressed / compressedSize > MAX_COMPRESSION_RATIO
-    )
+    ) {
       break;
+    }
   }
 
   if (totalDecompressed > MAX_DECOMPRESSED_SIZE) {
@@ -266,7 +269,9 @@ async function scanHtmlEntry(
   findings: ScanFinding[],
 ): Promise<void> {
   const entryFile = zip.file(entryName);
-  if (!entryFile) return;
+  if (!entryFile) {
+    return;
+  }
 
   const html = await entryFile.async("text");
 
@@ -512,7 +517,9 @@ async function scanAssets(
   }
 
   for (const [name, entry] of Object.entries(zip.files)) {
-    if (entry.dir) continue;
+    if (entry.dir) {
+      continue;
+    }
 
     // Double extension check — only flag when a known content/media extension
     // appears before the final extension (e.g. file.jpg.exe, file.png.sh),
@@ -624,27 +631,39 @@ async function scanAssets(
 
 function getExtension(name: string): string {
   const dot = name.lastIndexOf(".");
-  if (dot === -1) return "";
+  if (dot === -1) {
+    return "";
+  }
   return name.slice(dot).toLowerCase();
 }
 
 function validateImageMagicBytes(data: Uint8Array, ext: string): boolean {
   const sigs = IMAGE_SIGNATURES[ext];
-  if (!sigs) return true;
+  if (!sigs) {
+    return true;
+  }
 
   // Check primary signature
   const primary = sigs[0];
-  if (data.length < primary.bytes.length) return false;
+  if (data.length < primary.bytes.length) {
+    return false;
+  }
   for (let i = 0; i < primary.bytes.length; i++) {
-    if (data[i] !== primary.bytes[i]) return false;
+    if (data[i] !== primary.bytes[i]) {
+      return false;
+    }
   }
 
   // WebP needs additional check: bytes 8-11 should be "WEBP"
   if (ext === ".webp") {
-    if (data.length < 12) return false;
+    if (data.length < 12) {
+      return false;
+    }
     const webp = [0x57, 0x45, 0x42, 0x50]; // WEBP
     for (let i = 0; i < 4; i++) {
-      if (data[8 + i] !== webp[i]) return false;
+      if (data[8 + i] !== webp[i]) {
+        return false;
+      }
     }
   }
 

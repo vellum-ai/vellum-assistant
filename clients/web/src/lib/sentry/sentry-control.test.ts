@@ -38,8 +38,14 @@ const watchedNames: string[] = [];
 let deviceWatchCallback: (() => void) | null = null;
 let authSubscriber:
   | ((
-      state: { platformSession: string; platformSessionRestoredOffline: boolean },
-      prev: { platformSession: string; platformSessionRestoredOffline: boolean },
+      state: {
+        platformSession: string;
+        platformSessionRestoredOffline: boolean;
+      },
+      prev: {
+        platformSession: string;
+        platformSessionRestoredOffline: boolean;
+      },
     ) => void)
   | null = null;
 
@@ -89,9 +95,8 @@ mock.module("@/stores/auth-store", () => ({
   },
 }));
 
-const { syncSentryClient, installSentryControlListeners } = await import(
-  "@/lib/sentry/sentry-control"
-);
+const { syncSentryClient, installSentryControlListeners } =
+  await import("@/lib/sentry/sentry-control");
 const { diagnosticsConsentGranted } = await import("@/lib/sentry/consent-gate");
 
 const OPTIONS: BrowserOptions = { dsn: "https://public@example.test/1" };

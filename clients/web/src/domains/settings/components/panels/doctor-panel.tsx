@@ -1,4 +1,12 @@
-import { ArrowUp, Check, ChevronDown, ClipboardCopy, Loader2, Play, Square } from "lucide-react";
+import {
+  ArrowUp,
+  Check,
+  ChevronDown,
+  ClipboardCopy,
+  Loader2,
+  Play,
+  Square,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -118,8 +126,7 @@ function CopySessionButton({ entries }: { entries: ChatEntry[] }) {
 // ---------------------------------------------------------------------------
 
 export function DoctorPanel() {
-  const assistantId =
-    useResolvedAssistantsStore.use.activeAssistantId() ?? "";
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId() ?? "";
 
   // Store state — client-owned values only
   const storeEntries = useDoctorPanelStore.use.entries();
@@ -157,7 +164,10 @@ export function DoctorPanel() {
   // ---------------------------------------------------------------------------
 
   const historyListEnabled =
-    !!assistantId && sessionId === null && !historyDismissed && storeEntries.length === 0;
+    !!assistantId &&
+    sessionId === null &&
+    !historyDismissed &&
+    storeEntries.length === 0;
 
   const historyListQuery = useQuery({
     ...assistantsDoctorHistoryListOptions({
@@ -180,7 +190,11 @@ export function DoctorPanel() {
       },
     }),
     enabled:
-      !!assistantId && !!latestHistorySessionId && !historyDismissed && sessionId === null && storeEntries.length === 0,
+      !!assistantId &&
+      !!latestHistorySessionId &&
+      !historyDismissed &&
+      sessionId === null &&
+      storeEntries.length === 0,
   });
 
   // Derive history entries from query cache (no store copy for completed sessions).
@@ -256,7 +270,9 @@ export function DoctorPanel() {
 
   useEffect(() => {
     if (historyDetailQuery.error) {
-      captureError(historyDetailQuery.error, { context: "doctor_history_detail" });
+      captureError(historyDetailQuery.error, {
+        context: "doctor_history_detail",
+      });
     }
   }, [historyDetailQuery.error]);
 
@@ -290,7 +306,12 @@ export function DoctorPanel() {
       store.setSessionId(data.session_id);
       store.setSessionStatus("active");
       store.setEntries([
-        { kind: "assistant", content: DOCTOR_GREETING, id: "greeting", timestamp: Date.now() },
+        {
+          kind: "assistant",
+          content: DOCTOR_GREETING,
+          id: "greeting",
+          timestamp: Date.now(),
+        },
       ]);
       connectSSE(assistantId, data.session_id);
     },
@@ -302,9 +323,14 @@ export function DoctorPanel() {
       store.setSessionStatus("error");
       store.appendEntry({
         kind: "error",
-        content: error instanceof ApiError
-          ? error.message
-          : extractErrorMessage(error, undefined, "Failed to start doctor session"),
+        content:
+          error instanceof ApiError
+            ? error.message
+            : extractErrorMessage(
+                error,
+                undefined,
+                "Failed to start doctor session",
+              ),
       });
     },
   });
@@ -328,7 +354,11 @@ export function DoctorPanel() {
       useDoctorPanelStore.getState().setThinking(false);
       useDoctorPanelStore.getState().appendEntry({
         kind: "error",
-        content: extractErrorMessage(error, undefined, "Failed to send message"),
+        content: extractErrorMessage(
+          error,
+          undefined,
+          "Failed to send message",
+        ),
       });
     },
   });
@@ -355,14 +385,14 @@ export function DoctorPanel() {
     });
   };
 
-  const handleOpenFeedback = useCallback((draft?: {
-    message?: string;
-    reason?: FeedbackReason;
-  }) => {
-    const initialMessage = draft?.message?.trim() || undefined;
-    setFeedbackDraft({ message: initialMessage, reason: draft?.reason });
-    setFeedbackOpen(true);
-  }, []);
+  const handleOpenFeedback = useCallback(
+    (draft?: { message?: string; reason?: FeedbackReason }) => {
+      const initialMessage = draft?.message?.trim() || undefined;
+      setFeedbackDraft({ message: initialMessage, reason: draft?.reason });
+      setFeedbackOpen(true);
+    },
+    [],
+  );
 
   const handleCloseFeedback = useCallback(() => {
     setFeedbackOpen(false);
@@ -431,7 +461,12 @@ export function DoctorPanel() {
         });
       }
     },
-    [assistantId, latestHistorySessionId, handleOpenFeedback, refetchHistoryDetail],
+    [
+      assistantId,
+      latestHistorySessionId,
+      handleOpenFeedback,
+      refetchHistoryDetail,
+    ],
   );
 
   const handleEndSession = () => {
@@ -461,10 +496,16 @@ export function DoctorPanel() {
   // user dismissed it). The array identity changes on every store
   // append/update, which is what re-fires the scroll coordinator.
   const entries = useMemo(
-    () => (sessionId || storeEntries.length > 0 ? storeEntries : (!historyDismissed ? historyEntries : [])),
+    () =>
+      sessionId || storeEntries.length > 0
+        ? storeEntries
+        : !historyDismissed
+          ? historyEntries
+          : [],
     [sessionId, storeEntries, historyDismissed, historyEntries],
   );
-  const visibleDoctorSessionId = sessionId ?? (!historyDismissed ? latestHistorySessionId : null);
+  const visibleDoctorSessionId =
+    sessionId ?? (!historyDismissed ? latestHistorySessionId : null);
   const doctorSessionLog = useMemo(
     () => serializeSessionToText(entries),
     [entries],
@@ -497,7 +538,10 @@ export function DoctorPanel() {
         continue;
       }
       if (candidate.meta.toolName === "list_assistant_backups") {
-        return { entryId: candidate.id, refreshKey: refreshKey ?? candidate.id };
+        return {
+          entryId: candidate.id,
+          refreshKey: refreshKey ?? candidate.id,
+        };
       }
       if (
         refreshKey === null &&
@@ -602,15 +646,18 @@ export function DoctorPanel() {
   // ---------------------------------------------------------------------------
 
   const isSessionActive = sessionId !== null && storeSessionStatus === "active";
-  const isSessionEnded = !isSessionActive && storeEntries.length > 0 &&
+  const isSessionEnded =
+    !isSessionActive &&
+    storeEntries.length > 0 &&
     (storeSessionStatus === "completed" || storeSessionStatus === "error");
-  const sessionStatus = (isSessionActive || isSessionEnded)
-    ? storeSessionStatus
-    : (historyStatus ?? "idle");
-  const isLoadingHistory = historyListEnabled && (
-    historyListQuery.isLoading ||
-    (!!latestHistorySessionId && historyDetailQuery.isLoading)
-  );
+  const sessionStatus =
+    isSessionActive || isSessionEnded
+      ? storeSessionStatus
+      : (historyStatus ?? "idle");
+  const isLoadingHistory =
+    historyListEnabled &&
+    (historyListQuery.isLoading ||
+      (!!latestHistorySessionId && historyDetailQuery.isLoading));
 
   // Once the auto-started session is active, send the stashed first message.
   useEffect(() => {
@@ -721,129 +768,132 @@ export function DoctorPanel() {
         <>
           {/* Messages area */}
           <div className="relative min-h-0 flex-1">
-          <div ref={scrollContainerRef} className="h-full overflow-y-auto">
-            <div className="mx-auto max-w-3xl space-y-3">
-              {entries.map((entry) => {
-                switch (entry.kind) {
-                  case "user":
-                    return <UserMessage key={entry.id} entry={entry} />;
-                  case "assistant":
-                    return <AssistantMessage key={entry.id} entry={entry} />;
-                  case "tool_call":
-                    return (
-                      <div key={entry.id} className="flex justify-start">
-                        <div className="w-full">
-                          <ToolCallBlock entry={entry} />
-                          {entry.id === backupsPanel?.entryId && assistantId && (
-                            <div className="mt-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-4">
-                              <AssistantBackups
-                                key={backupsPanel.refreshKey}
-                                assistantId={assistantId}
-                              />
-                            </div>
-                          )}
+            <div ref={scrollContainerRef} className="h-full overflow-y-auto">
+              <div className="mx-auto max-w-3xl space-y-3">
+                {entries.map((entry) => {
+                  switch (entry.kind) {
+                    case "user":
+                      return <UserMessage key={entry.id} entry={entry} />;
+                    case "assistant":
+                      return <AssistantMessage key={entry.id} entry={entry} />;
+                    case "tool_call":
+                      return (
+                        <div key={entry.id} className="flex justify-start">
+                          <div className="w-full">
+                            <ToolCallBlock entry={entry} />
+                            {entry.id === backupsPanel?.entryId &&
+                              assistantId && (
+                                <div className="mt-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-4">
+                                  <AssistantBackups
+                                    key={backupsPanel.refreshKey}
+                                    assistantId={assistantId}
+                                  />
+                                </div>
+                              )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  case "approval":
-                    return (
-                      <div key={entry.id} className="max-w-[90%]">
-                        <ApprovalBlock
-                          entry={entry}
-                          onRespond={handleSend}
-                          disabled={!pendingApproval || sending}
-                        />
-                      </div>
-                    );
-                  case "backup_prompt":
-                    return (
-                      <div key={entry.id} className="max-w-[90%]">
-                        <BackupPromptBlock
-                          entry={entry}
-                          onRespond={(response) => {
-                            useDoctorPanelStore.getState().setPendingBackup(false);
-                            handleSend(response);
+                      );
+                    case "approval":
+                      return (
+                        <div key={entry.id} className="max-w-[90%]">
+                          <ApprovalBlock
+                            entry={entry}
+                            onRespond={handleSend}
+                            disabled={!pendingApproval || sending}
+                          />
+                        </div>
+                      );
+                    case "backup_prompt":
+                      return (
+                        <div key={entry.id} className="max-w-[90%]">
+                          <BackupPromptBlock
+                            entry={entry}
+                            onRespond={(response) => {
+                              useDoctorPanelStore
+                                .getState()
+                                .setPendingBackup(false);
+                              handleSend(response);
+                            }}
+                            disabled={!pendingBackup || sending}
+                          />
+                        </div>
+                      );
+                    case "feedback_prompt":
+                      return (
+                        <div key={entry.id} className="max-w-[90%]">
+                          <FeedbackPromptBlock
+                            onOpenFeedback={() =>
+                              handleOpenFeedback({
+                                message:
+                                  entry.content === "Share feedback"
+                                    ? undefined
+                                    : entry.content,
+                                reason: entry.meta?.reason,
+                              })
+                            }
+                          />
+                        </div>
+                      );
+                    case "user_outcome_prompt":
+                      return (
+                        <div key={entry.id} className="max-w-[90%]">
+                          <UserOutcomePromptBlock
+                            question={entry.content}
+                            answer={entry.meta?.answer}
+                            onRespond={(resolved) =>
+                              handleUserOutcomeRespond(entry.id, resolved)
+                            }
+                          />
+                        </div>
+                      );
+                    case "error":
+                      return <ErrorMessage key={entry.id} entry={entry} />;
+                    case "status":
+                      return <StatusMessage key={entry.id} entry={entry} />;
+                    default:
+                      return null;
+                  }
+                })}
+
+                {thinking && (
+                  <div className="flex justify-start">
+                    <div className="flex items-center gap-[5px] rounded-[var(--radius-lg)] bg-[var(--surface-overlay)] px-4 py-3">
+                      {([-0.333, 0, -0.667] as const).map((delay, i) => (
+                        <span
+                          key={i}
+                          aria-hidden
+                          className="typing-dot block h-2 w-2 rounded-full bg-[var(--content-tertiary)]"
+                          style={{
+                            animation:
+                              "typing-dot-pulse 1s ease-in-out infinite",
+                            animationDelay: `${delay}s`,
                           }}
-                          disabled={!pendingBackup || sending}
                         />
-                      </div>
-                    );
-                  case "feedback_prompt":
-                    return (
-                      <div key={entry.id} className="max-w-[90%]">
-                        <FeedbackPromptBlock
-                          onOpenFeedback={() =>
-                            handleOpenFeedback({
-                              message:
-                                entry.content === "Share feedback"
-                                  ? undefined
-                                  : entry.content,
-                              reason: entry.meta?.reason,
-                            })
-                          }
-                        />
-                      </div>
-                    );
-                  case "user_outcome_prompt":
-                    return (
-                      <div key={entry.id} className="max-w-[90%]">
-                        <UserOutcomePromptBlock
-                          question={entry.content}
-                          answer={entry.meta?.answer}
-                          onRespond={(resolved) =>
-                            handleUserOutcomeRespond(entry.id, resolved)
-                          }
-                        />
-                      </div>
-                    );
-                  case "error":
-                    return <ErrorMessage key={entry.id} entry={entry} />;
-                  case "status":
-                    return <StatusMessage key={entry.id} entry={entry} />;
-                  default:
-                    return null;
-                }
-              })}
-
-              {thinking && (
-                <div className="flex justify-start">
-                  <div className="flex items-center gap-[5px] rounded-[var(--radius-lg)] bg-[var(--surface-overlay)] px-4 py-3">
-                    {([-0.333, 0, -0.667] as const).map((delay, i) => (
-                      <span
-                        key={i}
-                        aria-hidden
-                        className="typing-dot block h-2 w-2 rounded-full bg-[var(--content-tertiary)]"
-                        style={{
-                          animation:
-                            "typing-dot-pulse 1s ease-in-out infinite",
-                          animationDelay: `${delay}s`,
-                        }}
-                      />
-                    ))}
-                    <span className="sr-only">Thinking&hellip;</span>
+                      ))}
+                      <span className="sr-only">Thinking&hellip;</span>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {isSessionActive && !entries.length && (
-                <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-disabled)]">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Connecting...
-                </div>
-              )}
+                {isSessionActive && !entries.length && (
+                  <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-disabled)]">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Connecting...
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-          {showScrollToLatest && (
-            <button
-              type="button"
-              onClick={scrollToLatest}
-              aria-label="Go to newest message"
-              className="pointer-events-auto absolute bottom-3 left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-1 rounded-full bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-emphasised)] shadow-md transition-colors hover:text-[var(--content-default)]"
-            >
-              Go to Newest
-              <ChevronDown className="h-3 w-3" />
-            </button>
-          )}
+            {showScrollToLatest && (
+              <button
+                type="button"
+                onClick={scrollToLatest}
+                aria-label="Go to newest message"
+                className="pointer-events-auto absolute bottom-3 left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-1 rounded-full bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-emphasised)] shadow-md transition-colors hover:text-[var(--content-default)]"
+              >
+                Go to Newest
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            )}
           </div>
 
           {/* Input area */}
@@ -898,9 +948,7 @@ export function DoctorPanel() {
               <div className="flex items-center justify-end px-3 pb-2">
                 <Button
                   variant="primary"
-                  iconOnly={
-                    <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
-                  }
+                  iconOnly={<ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
                   type="submit"
                   disabled={!inputValue.trim() || sending}
                   aria-label="Send message"
@@ -910,7 +958,10 @@ export function DoctorPanel() {
           )}
 
           {/* Session ended — option to restart */}
-          {(isSessionEnded || (!isSessionActive && historyStatus && historyStatus !== "active")) && (
+          {(isSessionEnded ||
+            (!isSessionActive &&
+              historyStatus &&
+              historyStatus !== "active")) && (
             <div className="flex shrink-0 items-center justify-center gap-3 py-2">
               <button
                 type="button"

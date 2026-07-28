@@ -55,7 +55,9 @@ export function useAutoGreetGate(
 
   // 2. Clear gate once assistant output appears.
   useEffect(() => {
-    if (!autoGreetPending) return;
+    if (!autoGreetPending) {
+      return;
+    }
     if (firstAssistantMessageArrived) {
       setTimedOut(false);
       lifecycleService.clearExpectingFirstMessage();
@@ -78,7 +80,9 @@ export function useAutoGreetGate(
   // onboarding draft → real conversation handoff until assistant output exists.
   const lastSeenConvIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (activeConversationId == null) return;
+    if (activeConversationId == null) {
+      return;
+    }
     const previous = lastSeenConvIdRef.current;
     lastSeenConvIdRef.current = activeConversationId;
     if (

@@ -40,7 +40,9 @@ let mockFileContents: Record<string, Buffer> = {};
 
 mock.module("node:fs/promises", () => ({
   access: async (p: string) => {
-    if (!accessiblePaths.has(p)) throw new Error(`ENOENT: no such file: ${p}`);
+    if (!accessiblePaths.has(p)) {
+      throw new Error(`ENOENT: no such file: ${p}`);
+    }
   },
   readFile: async (p: string) => {
     return mockFileContents[p] ?? Buffer.alloc(0);

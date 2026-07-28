@@ -267,14 +267,18 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
       // is sticky — retry is silently dead. Detaching the handlers
       // before `forceClose()` closes that window.
       const settleResolve = () => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         clearTimeout(handshakeTimer);
         resolve();
       };
 
       const settleReject = (err: Error) => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         clearTimeout(handshakeTimer);
         // Detach listeners BEFORE `forceClose()` so stray close/error
@@ -349,7 +353,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
       };
 
       const handshakeTimer = setTimeout(() => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         detachHandshakeListeners();
         this.forceClose();
@@ -368,10 +374,14 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
   }
 
   sendAudio(audio: Buffer, _mimeType: string): void {
-    if (this.closed || this.stopping) return;
+    if (this.closed || this.stopping) {
+      return;
+    }
 
     const ws = this.ws;
-    if (!ws || ws.readyState !== WS_OPEN) return;
+    if (!ws || ws.readyState !== WS_OPEN) {
+      return;
+    }
 
     // Backpressure check — drop frames if the outbound buffer is too
     // full to prevent unbounded memory growth.
@@ -389,7 +399,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
   }
 
   stop(): void {
-    if (this.closed || this.stopping) return;
+    if (this.closed || this.stopping) {
+      return;
+    }
     this.stopping = true;
 
     // Cancel the inactivity timer immediately. If it were left running,
@@ -465,7 +477,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
    * Parse and normalize an xAI streaming response into daemon events.
    */
   private handleProviderMessage(data: unknown): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
 
     this.resetInactivityTimer();
 
@@ -487,7 +501,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
       return;
     }
 
-    if (!frame || typeof frame !== "object") return;
+    if (!frame || typeof frame !== "object") {
+      return;
+    }
 
     switch (frame.type) {
       case "transcript.created":
@@ -585,7 +601,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
    * Handle provider-side WebSocket close.
    */
   private handleProviderClose(code: number, reason: string): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
 
     // Normal close (1000) or going-away (1001) after stop() is expected.
     if (this.stopping && (code === 1000 || code === 1001)) {
@@ -616,7 +634,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
    * Handle provider-side WebSocket error (transport-level failure).
    */
   private handleProviderError(ev: unknown): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
 
     const message =
       ev instanceof Error
@@ -642,7 +662,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
    * errors to prevent tearing down the adapter.
    */
   private emitEvent(event: SttStreamServerEvent): void {
-    if (!this.onEvent) return;
+    if (!this.onEvent) {
+      return;
+    }
     try {
       this.onEvent(event);
     } catch (err) {
@@ -655,7 +677,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
    * Idempotent — safe to call multiple times.
    */
   private emitClosedAndCleanup(): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
     this.closed = true;
 
     this.clearTimers();
@@ -672,7 +696,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
   private forceClose(): void {
     const ws = this.ws;
     this.ws = null;
-    if (!ws) return;
+    if (!ws) {
+      return;
+    }
 
     try {
       ws.close();
@@ -701,7 +727,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
    * continuous audio from the caller must not mask a silent provider.
    */
   private resetInactivityTimer(): void {
-    if (this.closed || this.stopping) return;
+    if (this.closed || this.stopping) {
+      return;
+    }
 
     if (this.inactivityTimer !== null) {
       clearTimeout(this.inactivityTimer);
@@ -712,7 +740,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
       // CLOSE_GRACE window starts, but if a future refactor re-arms it
       // or forgets to clear it, this check prevents the inactivity
       // callback from emitting a timeout error during an intentional stop.
-      if (this.closed || this.stopping) return;
+      if (this.closed || this.stopping) {
+        return;
+      }
 
       log.warn("xAI realtime inactivity timeout");
       this.emitEvent({
@@ -771,7 +801,9 @@ function tryParseHandshakeFrame(data: unknown): XAIStreamFrame | undefined {
   }
   try {
     const frame = JSON.parse(raw) as XAIStreamFrame;
-    if (frame && typeof frame === "object") return frame;
+    if (frame && typeof frame === "object") {
+      return frame;
+    }
   } catch {
     // fall through
   }
@@ -798,15 +830,23 @@ function tryParseHandshakeFrame(data: unknown): XAIStreamFrame | undefined {
 function extractSpeakerLabel(
   words: XAIStreamWord[] | undefined,
 ): string | undefined {
-  if (!Array.isArray(words) || words.length === 0) return undefined;
+  if (!Array.isArray(words) || words.length === 0) {
+    return undefined;
+  }
   const counts = new Map<number, number>();
   let firstSpeaker: number | undefined;
   for (const word of words) {
-    if (typeof word.speaker !== "number") continue;
-    if (firstSpeaker === undefined) firstSpeaker = word.speaker;
+    if (typeof word.speaker !== "number") {
+      continue;
+    }
+    if (firstSpeaker === undefined) {
+      firstSpeaker = word.speaker;
+    }
     counts.set(word.speaker, (counts.get(word.speaker) ?? 0) + 1);
   }
-  if (counts.size === 0 || firstSpeaker === undefined) return undefined;
+  if (counts.size === 0 || firstSpeaker === undefined) {
+    return undefined;
+  }
   // Pick the most common speaker; on ties, prefer the first-word
   // speaker.
   let bestSpeaker = firstSpeaker;

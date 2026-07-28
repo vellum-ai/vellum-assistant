@@ -25,13 +25,18 @@ afterEach(() => {
 
 describe("WizardCardHeading", () => {
   test("renders the title", () => {
-    const { getByText } = render(<WizardCardHeading title="Confirm your email" />);
+    const { getByText } = render(
+      <WizardCardHeading title="Confirm your email" />,
+    );
     expect(getByText("Confirm your email")).toBeTruthy();
   });
 
   test("renders the subtitle when provided", () => {
     const { getByText } = render(
-      <WizardCardHeading title="Confirm your email" subtitle="We'll send a code" />,
+      <WizardCardHeading
+        title="Confirm your email"
+        subtitle="We'll send a code"
+      />,
     );
     expect(getByText("Confirm your email")).toBeTruthy();
     expect(getByText("We'll send a code")).toBeTruthy();

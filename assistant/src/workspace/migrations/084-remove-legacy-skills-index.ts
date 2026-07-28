@@ -35,7 +35,9 @@ function isInsideDirectory(rootDir: string, candidatePath: string): boolean {
 
 function parseLegacySkillIndexEntry(line: string): string | null {
   const match = line.match(/^\s*[-*]\s+(.+?)\s*$/);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
 
   let entry = match[1].trim();
   const markdownLink = entry.match(/^\[.+?\]\((.+?)\)$/);
@@ -46,7 +48,9 @@ function parseLegacySkillIndexEntry(line: string): string | null {
   }
 
   entry = entry.replace(/^`|`$/g, "");
-  if (!entry || entry.includes("\0") || isAbsolute(entry)) return null;
+  if (!entry || entry.includes("\0") || isAbsolute(entry)) {
+    return null;
+  }
 
   const normalized = normalize(entry);
   if (
@@ -69,7 +73,9 @@ function parseLegacySkillIndexEntries(contents: string): string[] {
   const entries = new Set<string>();
   for (const line of contents.split(/\r?\n/)) {
     const entry = parseLegacySkillIndexEntry(line);
-    if (entry) entries.add(entry);
+    if (entry) {
+      entries.add(entry);
+    }
   }
   return [...entries];
 }
@@ -101,7 +107,9 @@ function getPreservationDestinationDir(
   relativeSkillDir: string,
 ): string | null {
   const skillName = basename(relativeSkillDir);
-  if (!skillName || skillName === relativeSkillDir) return null;
+  if (!skillName || skillName === relativeSkillDir) {
+    return null;
+  }
 
   const alternateName = topLevelPreservationName(relativeSkillDir);
   const candidateNames = [
@@ -111,7 +119,9 @@ function getPreservationDestinationDir(
 
   for (const candidateName of candidateNames) {
     const destinationDir = join(skillsDir, candidateName);
-    if (!fs.existsSync(destinationDir)) return destinationDir;
+    if (!fs.existsSync(destinationDir)) {
+      return destinationDir;
+    }
     if (skillFileContentsMatch(sourceDir, destinationDir)) {
       log.info(
         { destinationDir, sourceDir },
@@ -127,7 +137,9 @@ function getPreservationDestinationDir(
       : `legacy__${skillName}`;
   for (let suffix = 2; ; suffix += 1) {
     const destinationDir = join(skillsDir, `${baseName}-${suffix}`);
-    if (!fs.existsSync(destinationDir)) return destinationDir;
+    if (!fs.existsSync(destinationDir)) {
+      return destinationDir;
+    }
     if (skillFileContentsMatch(sourceDir, destinationDir)) {
       log.info(
         { destinationDir, sourceDir },
@@ -147,7 +159,9 @@ function preserveNestedIndexedSkill(
   let destinationDir: string | null = null;
 
   try {
-    if (!fs.existsSync(sourceDir)) return;
+    if (!fs.existsSync(sourceDir)) {
+      return;
+    }
     if (!isInsideDirectory(skillsDir, sourceDir)) {
       log.warn(
         { relativeSkillDir, sourceDir },
@@ -157,10 +171,14 @@ function preserveNestedIndexedSkill(
     }
 
     const sourceStat = fs.lstatSync(sourceDir);
-    if (!sourceStat.isDirectory()) return;
+    if (!sourceStat.isDirectory()) {
+      return;
+    }
 
     const skillFilePath = join(sourceDir, "SKILL.md");
-    if (!fs.existsSync(skillFilePath)) return;
+    if (!fs.existsSync(skillFilePath)) {
+      return;
+    }
     if (!isInsideDirectory(sourceDir, skillFilePath)) {
       log.warn(
         { skillFilePath, sourceDir },
@@ -170,14 +188,18 @@ function preserveNestedIndexedSkill(
     }
 
     const skillFileStat = fs.lstatSync(skillFilePath);
-    if (!skillFileStat.isFile()) return;
+    if (!skillFileStat.isFile()) {
+      return;
+    }
 
     destinationDir = getPreservationDestinationDir(
       skillsDir,
       sourceDir,
       relativeSkillDir,
     );
-    if (!destinationDir) return;
+    if (!destinationDir) {
+      return;
+    }
 
     fs.mkdirSync(tempRootDir, { recursive: true });
     const tempDir = join(tempRootDir, basename(destinationDir));
@@ -194,7 +216,9 @@ function preserveNestedIndexedSkill(
 
     if (fs.existsSync(destinationDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
-      if (skillFileContentsMatch(sourceDir, destinationDir)) return;
+      if (skillFileContentsMatch(sourceDir, destinationDir)) {
+        return;
+      }
       log.warn(
         { destinationDir, sourceDir },
         "Skipping nested indexed skill preservation because destination appeared during copy",
@@ -208,7 +232,9 @@ function preserveNestedIndexedSkill(
       "Preserved nested indexed skill at top-level skills directory",
     );
   } catch (err) {
-    if (isNotFoundError(err)) return;
+    if (isNotFoundError(err)) {
+      return;
+    }
     log.warn(
       { err, relativeSkillDir, sourceDir, destinationDir },
       "Failed to preserve nested indexed skill",
@@ -261,7 +287,9 @@ export const removeLegacySkillsIndexMigration: WorkspaceMigration = {
       fs.unlinkSync(indexPath);
       log.info({ path: indexPath }, "Removed legacy skills index file");
     } catch (err) {
-      if (isNotFoundError(err)) return;
+      if (isNotFoundError(err)) {
+        return;
+      }
       log.warn(
         { err, path: indexPath },
         "Failed to remove legacy skills index file",

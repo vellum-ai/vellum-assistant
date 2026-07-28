@@ -102,7 +102,9 @@ export function SlackChannelTypeDefaults({
             <ListRow
               key={bucket}
               className="[&+&]:border-t [&+&]:border-[var(--border-base)]"
-              leading={<Icon className="h-4 w-4 text-[var(--content-tertiary)]" />}
+              leading={
+                <Icon className="h-4 w-4 text-[var(--content-tertiary)]" />
+              }
               title={title}
               subtitle={description}
               trailing={

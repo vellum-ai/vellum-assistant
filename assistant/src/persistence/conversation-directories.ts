@@ -41,12 +41,18 @@ export function parseConversationDirName(
   const match = name.match(
     /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2}\.\d{1,9}Z)_(.+)$/,
   );
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   const [, datePart, hh, mm, ssAndMs, conversationId] = match;
   const iso = `${datePart}T${hh}:${mm}:${ssAndMs}`;
   const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return null;
-  if (!conversationId) return null;
+  if (Number.isNaN(ms)) {
+    return null;
+  }
+  if (!conversationId) {
+    return null;
+  }
   // Reject conversation IDs that are path-traversal-shaped or contain
   // path separators. These are never valid conversation IDs and would
   // be a defense-in-depth concern if parsed.conversationId is later used

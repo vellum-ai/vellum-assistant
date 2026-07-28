@@ -16,9 +16,7 @@ import { Command } from "commander";
 // Mock state
 // ---------------------------------------------------------------------------
 
-let mockIpcCallFn = mock(() =>
-  Promise.resolve({ ok: true, result: {} }),
-);
+let mockIpcCallFn = mock(() => Promise.resolve({ ok: true, result: {} }));
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before importing the module under test

@@ -49,9 +49,13 @@ function isElement(node: HastNode): node is HastElement {
 }
 
 function wrapWords(node: HastNode): void {
-  if (isElement(node) && SKIPPED_TAGS.has(node.tagName)) return;
+  if (isElement(node) && SKIPPED_TAGS.has(node.tagName)) {
+    return;
+  }
   const children = node.children;
-  if (!children) return;
+  if (!children) {
+    return;
+  }
   for (let i = children.length - 1; i >= 0; i--) {
     const child = children[i];
     if (child.type !== "text") {
@@ -62,7 +66,9 @@ function wrapWords(node: HastNode): void {
     // Split into alternating word / whitespace runs; whitespace stays a bare
     // text node so wrapped words never change inter-word spacing.
     const runs = value.match(/\S+|\s+/g);
-    if (!runs || (runs.length === 1 && /^\s+$/.test(runs[0]))) continue;
+    if (!runs || (runs.length === 1 && /^\s+$/.test(runs[0]))) {
+      continue;
+    }
     const replacement: HastNode[] = runs.map((run) =>
       /^\s+$/.test(run)
         ? ({ type: "text", value: run } satisfies HastText)
@@ -88,7 +94,9 @@ function collectSpans(node: HastNode, out: HastElement[]): void {
     }
   }
   if (node.children) {
-    for (const child of node.children) collectSpans(child, out);
+    for (const child of node.children) {
+      collectSpans(child, out);
+    }
   }
 }
 
@@ -105,7 +113,9 @@ export function rehypeStreamWordFade(options?: RehypeStreamWordFadeOptions) {
   const caughtUp = options?.caughtUp ?? false;
   return (tree: HastNode) => {
     wrapWords(tree);
-    if (caughtUp) return;
+    if (caughtUp) {
+      return;
+    }
     const spans: HastElement[] = [];
     collectSpans(tree, spans);
     const tail = Math.min(TAIL_WORDS, spans.length);

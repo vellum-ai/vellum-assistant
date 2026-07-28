@@ -116,9 +116,8 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
     assistantsHydrated: false,
 
     setFromLockfile: (lockfile) => {
-      const activeLockfileAssistantId = getEffectiveActiveLockfileAssistantId(
-        lockfile,
-      );
+      const activeLockfileAssistantId =
+        getEffectiveActiveLockfileAssistantId(lockfile);
       const existingById = new Map(
         get().assistants.map((assistant) => [assistant.id, assistant]),
       );
@@ -160,8 +159,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
             runtimeVersion: lockfileFields.runtimeVersion,
             currentReleaseVersion: a.current_release_version,
             releaseChannel: a.release_channel,
-            isActiveLockfileAssistant:
-              lockfileFields.isActiveLockfileAssistant,
+            isActiveLockfileAssistant: lockfileFields.isActiveLockfileAssistant,
             isLocal: a.is_local,
             isPlatformHosted: !a.is_local,
           };
@@ -254,8 +252,12 @@ function reconcileSelection(
   set: (partial: Partial<ResolvedAssistantsState>) => void,
 ): void {
   const { assistants, selectedAssistantId, assistantsHydrated } = get();
-  if (!assistantsHydrated || selectedAssistantId == null) return;
-  if (assistants.some((a) => a.id === selectedAssistantId)) return;
+  if (!assistantsHydrated || selectedAssistantId == null) {
+    return;
+  }
+  if (assistants.some((a) => a.id === selectedAssistantId)) {
+    return;
+  }
   clearSelectedAssistantId();
   set({ selectedAssistantId: null });
 }

@@ -44,7 +44,8 @@ export type PlatformSessionStatus = "unknown" | "absent" | "present";
  * isLoading: true)` state — "logged in but still loading" — unrepresentable,
  * the same illegal-state-elimination this store applies to `platformSession`.
  */
-export type SessionStatus = "initializing" | "authenticated" | "unauthenticated";
+export type SessionStatus =
+  "initializing" | "authenticated" | "unauthenticated";
 
 /**
  * Read predicates — the single place each session-state question is answered.

@@ -52,9 +52,7 @@ describe("pending message consumption", () => {
   });
 
   test("preserves in-progress typing — drops with a Sentry breadcrumb", () => {
-    usePendingDeepLinkStore
-      .getState()
-      .setPendingComposerMessage("from link");
+    usePendingDeepLinkStore.getState().setPendingComposerMessage("from link");
 
     renderConsumer("user already typing");
 

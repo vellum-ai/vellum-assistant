@@ -54,7 +54,9 @@ export const seedDeviceIdMigration: WorkspaceMigration = {
 
     let lockData: Record<string, unknown> | undefined;
     for (const lockPath of lockCandidates) {
-      if (!existsSync(lockPath)) continue;
+      if (!existsSync(lockPath)) {
+        continue;
+      }
       try {
         const raw = JSON.parse(readFileSync(lockPath, "utf-8"));
         if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -65,18 +67,24 @@ export const seedDeviceIdMigration: WorkspaceMigration = {
         // Malformed — try next candidate.
       }
     }
-    if (!lockData) return;
+    if (!lockData) {
+      return;
+    }
 
     const assistants = lockData.assistants as
       | Array<Record<string, unknown>>
       | undefined;
-    if (!Array.isArray(assistants) || assistants.length === 0) return;
+    if (!Array.isArray(assistants) || assistants.length === 0) {
+      return;
+    }
 
     // c. Find the most recently hatched entry with an installationId.
     const withInstallId = assistants.filter(
       (a) => typeof a.installationId === "string" && a.installationId,
     );
-    if (withInstallId.length === 0) return;
+    if (withInstallId.length === 0) {
+      return;
+    }
 
     withInstallId.sort((a, b) => {
       const ta =

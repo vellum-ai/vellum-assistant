@@ -231,8 +231,12 @@ describe("Slack messaging token resolution", () => {
       // Telegram has isConnected but no resolveConnection.
       // When isConnected returns true, getProviderConnection returns undefined
       getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-        if (key === "credential/telegram/bot_token") return "bot-token";
-        if (key === "credential/telegram/webhook_secret") return "secret";
+        if (key === "credential/telegram/bot_token") {
+          return "bot-token";
+        }
+        if (key === "credential/telegram/webhook_secret") {
+          return "secret";
+        }
         return null;
       });
       getConnectionByProviderMock.mockImplementation((provider: string) =>

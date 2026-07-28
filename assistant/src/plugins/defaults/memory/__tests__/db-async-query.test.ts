@@ -159,7 +159,9 @@ describe("runAsyncSqlite", () => {
       let tickCount = 0;
       let probing = true;
       const tick = (): void => {
-        if (!probing) return;
+        if (!probing) {
+          return;
+        }
         tickCount += 1;
         setImmediate(tick);
       };

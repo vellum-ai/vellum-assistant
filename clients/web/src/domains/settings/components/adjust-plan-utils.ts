@@ -1,10 +1,10 @@
 import type {
-    CreditTier,
-    CreditTierEnum,
-    MachineTier,
-    StorageTier,
-    SubscriptionResponse,
-    SubscriptionStatusEnum,
+  CreditTier,
+  CreditTierEnum,
+  MachineTier,
+  StorageTier,
+  SubscriptionResponse,
+  SubscriptionStatusEnum,
 } from "@/generated/api/types.gen";
 import { isTierDisabled } from "./tier-picker";
 
@@ -133,7 +133,10 @@ export function resolveCreditTierSelection(
   if (prev === undefined) {
     return current;
   }
-  if (prev !== null && (prev === current || tiers.some((t) => t.tier === prev))) {
+  if (
+    prev !== null &&
+    (prev === current || tiers.some((t) => t.tier === prev))
+  ) {
     return prev;
   }
   return null;
@@ -145,6 +148,8 @@ export function resolveCreditTierSelection(
  * "From $Infinity"). Production plans always carry populated tier arrays, so
  * this only matters defensively.
  */
-export function minTierPriceCents(tiers: (MachineTier | StorageTier)[]): number {
+export function minTierPriceCents(
+  tiers: (MachineTier | StorageTier)[],
+): number {
   return tiers.length ? Math.min(...tiers.map((t) => t.price_cents)) : 0;
 }

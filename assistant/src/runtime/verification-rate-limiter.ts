@@ -30,7 +30,9 @@ class VerificationRateLimiter {
         this.evictStale(now);
         if (this.failures.size >= MAX_TRACKED_IDENTITIES) {
           const oldest = this.failures.keys().next().value;
-          if (oldest !== undefined) this.failures.delete(oldest);
+          if (oldest !== undefined) {
+            this.failures.delete(oldest);
+          }
         }
       }
       timestamps = [];
@@ -43,7 +45,9 @@ class VerificationRateLimiter {
   /** Returns true if the identity has exceeded the failure threshold. */
   isBlocked(identity: string): boolean {
     const timestamps = this.failures.get(identity);
-    if (!timestamps) return false;
+    if (!timestamps) {
+      return false;
+    }
 
     const now = Date.now();
     const cutoff = now - this.windowMs;

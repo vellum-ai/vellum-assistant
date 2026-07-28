@@ -12,15 +12,16 @@ import { describe, expect, test } from "bun:test";
  */
 const INDEX_HTML = readFileSync(
   path.join(import.meta.dir, "..", "index.html"),
-  "utf8"
+  "utf8",
 );
 
 const doc = new DOMParser().parseFromString(INDEX_HTML, "text/html");
 
 function ogTag(property: string): string | null {
   return (
-    doc.querySelector(`meta[property="${property}"]`)?.getAttribute("content") ??
-    null
+    doc
+      .querySelector(`meta[property="${property}"]`)
+      ?.getAttribute("content") ?? null
   );
 }
 

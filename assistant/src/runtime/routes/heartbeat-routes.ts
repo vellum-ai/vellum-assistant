@@ -277,24 +277,30 @@ export const ROUTES: RouteDefinition[] = [
       // defaults onto disk, masking later schema changes from the user.
       // Use "key in body" checks for nullable fields so explicit null clears them.
       const heartbeatPatch: Record<string, unknown> = {};
-      if ("enabled" in body && typeof body.enabled === "boolean")
+      if ("enabled" in body && typeof body.enabled === "boolean") {
         heartbeatPatch.enabled = body.enabled;
-      if ("intervalMs" in body && typeof body.intervalMs === "number")
+      }
+      if ("intervalMs" in body && typeof body.intervalMs === "number") {
         heartbeatPatch.intervalMs = body.intervalMs;
-      if ("activeHoursStart" in body)
+      }
+      if ("activeHoursStart" in body) {
         heartbeatPatch.activeHoursStart =
           typeof body.activeHoursStart === "number"
             ? body.activeHoursStart
             : null;
-      if ("activeHoursEnd" in body)
+      }
+      if ("activeHoursEnd" in body) {
         heartbeatPatch.activeHoursEnd =
           typeof body.activeHoursEnd === "number" ? body.activeHoursEnd : null;
-      if ("cronExpression" in body)
+      }
+      if ("cronExpression" in body) {
         heartbeatPatch.cronExpression =
           typeof body.cronExpression === "string" ? body.cronExpression : null;
-      if ("timezone" in body)
+      }
+      if ("timezone" in body) {
         heartbeatPatch.timezone =
           typeof body.timezone === "string" ? body.timezone : null;
+      }
 
       try {
         const raw = loadRawConfig();

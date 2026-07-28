@@ -96,9 +96,15 @@ const botUserIdByBotIdCache = new Map<string, string>();
  * getReadAuth() / getWriteAuth() directly.
  */
 function getSlackAuth(connection?: OAuthConnection): OAuthConnection | string {
-  if (connection) return connection;
-  if (_cachedSlackWriteAuth) return _cachedSlackWriteAuth;
-  if (_cachedSlackReadAuth) return _cachedSlackReadAuth;
+  if (connection) {
+    return connection;
+  }
+  if (_cachedSlackWriteAuth) {
+    return _cachedSlackWriteAuth;
+  }
+  if (_cachedSlackReadAuth) {
+    return _cachedSlackReadAuth;
+  }
   throw new Error(
     "Slack: no connection or cached token available. Was resolveConnection() called?",
   );
@@ -109,8 +115,12 @@ function getSlackAuth(connection?: OAuthConnection): OAuthConnection | string {
  * conversation replies, search, users.info lookups).
  */
 function getReadAuth(connection?: OAuthConnection): OAuthConnection | string {
-  if (connection) return connection;
-  if (_cachedSlackReadAuth) return _cachedSlackReadAuth;
+  if (connection) {
+    return connection;
+  }
+  if (_cachedSlackReadAuth) {
+    return _cachedSlackReadAuth;
+  }
   return getSlackAuth(connection);
 }
 
@@ -124,8 +134,12 @@ function getReadAuth(connection?: OAuthConnection): OAuthConnection | string {
  * future reactions, joins, leaves, updates, or deletes).
  */
 function getWriteAuth(connection?: OAuthConnection): OAuthConnection | string {
-  if (connection) return connection;
-  if (_cachedSlackWriteAuth) return _cachedSlackWriteAuth;
+  if (connection) {
+    return connection;
+  }
+  if (_cachedSlackWriteAuth) {
+    return _cachedSlackWriteAuth;
+  }
   return getSlackAuth(connection);
 }
 
@@ -148,8 +162,12 @@ export async function withSlackBotToken<T>(
   // directly instead of accepting any previously cached workspace token.
   const resolvedAuth = await slackProvider.resolveConnection?.(account);
   const auth = resolvedAuth ?? _cachedSlackWriteAuth;
-  if (!auth) return null;
-  if (typeof auth === "string") return fn(auth);
+  if (!auth) {
+    return null;
+  }
+  if (typeof auth === "string") {
+    return fn(auth);
+  }
   return auth.withToken(fn);
 }
 
@@ -158,7 +176,9 @@ export async function resolveSlackBotUserId(
   botId: string,
 ): Promise<string | null> {
   const trimmedBotId = botId.trim();
-  if (!trimmedBotId) return null;
+  if (!trimmedBotId) {
+    return null;
+  }
 
   const cacheKey = account ? `${account}:${trimmedBotId}` : null;
   if (cacheKey && botUserIdByBotIdCache.has(cacheKey)) {
@@ -190,7 +210,9 @@ async function runReadWithFallback<T>(
   connection: OAuthConnection | undefined,
   call: (auth: OAuthConnection | string) => Promise<T>,
 ): Promise<T> {
-  if (connection) return call(connection);
+  if (connection) {
+    return call(connection);
+  }
   const auth = getReadAuth(undefined);
   const usingUserToken =
     _cachedSlackWriteAuth !== null &&
@@ -222,10 +244,14 @@ async function resolveUserInfo(
   auth: OAuthConnection | string,
   userId: string,
 ): Promise<NormalizedSlackUserInfo> {
-  if (!userId) return { displayName: "unknown" };
+  if (!userId) {
+    return { displayName: "unknown" };
+  }
   const cacheKey = slackUserInfoCacheKey(auth, userId);
   const cached = userInfoCache.get(cacheKey);
-  if (cached) return (await cached).info;
+  if (cached) {
+    return (await cached).info;
+  }
 
   const resolved = resolveUserInfoUncached(auth, userId).then(
     (result) => {
@@ -313,7 +339,9 @@ function normalizeSlackUserInfo(
 }
 
 function trimNonEmpty(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
+  if (typeof value !== "string") {
+    return undefined;
+  }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
@@ -325,7 +353,9 @@ export function __resetSlackUserInfoCacheForTests(): void {
 function slackUserInfoMetadata(
   userInfo: NormalizedSlackUserInfo | undefined,
 ): Record<string, unknown> {
-  if (!userInfo) return {};
+  if (!userInfo) {
+    return {};
+  }
   return {
     ...(userInfo.timezone ? { actorTimezone: userInfo.timezone } : {}),
     ...(userInfo.timezoneLabel
@@ -369,7 +399,9 @@ function mapSlackFiles(files: SlackMessage["files"]):
       urlPrivate?: string;
     }>
   | undefined {
-  if (!files || files.length === 0) return undefined;
+  if (!files || files.length === 0) {
+    return undefined;
+  }
   const mapped = files
     .map((file) => ({
       ...(file.id ? { id: file.id } : {}),
@@ -504,7 +536,9 @@ export const slackProvider: MessagingProvider = {
     const botToken = await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
     );
-    if (botToken) return true;
+    if (botToken) {
+      return true;
+    }
     // Preserve existing OAuth path for backwards compat.
     return isProviderConnected("slack");
   },

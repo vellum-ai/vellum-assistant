@@ -97,7 +97,9 @@ export class WorkspaceHeartbeatService {
    * Idempotent -- calling start() when already running is a no-op.
    */
   start(): void {
-    if (this.timer) return;
+    if (this.timer) {
+      return;
+    }
     log.info(
       {
         intervalMs: this.intervalMs,

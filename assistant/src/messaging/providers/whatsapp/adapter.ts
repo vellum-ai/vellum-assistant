@@ -28,7 +28,9 @@ async function hasWhatsAppCredentials(): Promise<boolean> {
   const phoneNumberId = await getSecureKeyAsync(
     credentialKey("whatsapp", "phone_number_id"),
   );
-  if (!phoneNumberId) return false;
+  if (!phoneNumberId) {
+    return false;
+  }
   const accessToken = await getSecureKeyAsync(
     credentialKey("whatsapp", "access_token"),
   );

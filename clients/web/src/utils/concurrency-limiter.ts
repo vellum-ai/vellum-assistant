@@ -16,7 +16,9 @@ export function createConcurrencyLimiter<Args extends unknown[]>(
   let active = 0;
 
   return async (...args: Args): Promise<void> => {
-    if (active >= limit) return;
+    if (active >= limit) {
+      return;
+    }
     active++;
     try {
       await fn(...args);

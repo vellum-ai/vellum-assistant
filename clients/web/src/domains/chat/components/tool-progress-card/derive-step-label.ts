@@ -54,10 +54,7 @@ export interface StepLabel {
 const INFO_MAX_LENGTH = 80;
 
 /** Read a string property from a tool input bag, returning `""` when absent. */
-function readString(
-  input: Record<string, unknown>,
-  ...keys: string[]
-): string {
+function readString(input: Record<string, unknown>, ...keys: string[]): string {
   for (const key of keys) {
     const value = input[key];
     if (typeof value === "string" && value.trim().length > 0) {
@@ -69,10 +66,14 @@ function readString(
 
 /** Extract the trailing path segment from a file path. Returns `""` if empty. */
 function basename(path: string): string {
-  if (!path) return "";
+  if (!path) {
+    return "";
+  }
   const trimmed = path.replace(/\/+$/, "");
   const idx = trimmed.lastIndexOf("/");
-  if (idx === -1) return trimmed;
+  if (idx === -1) {
+    return trimmed;
+  }
   return trimmed.slice(idx + 1);
 }
 
@@ -85,13 +86,19 @@ function basename(path: string): string {
 function parseMcpToolName(
   toolName: string,
 ): { serverName: string; toolMethod: string } | null {
-  if (!toolName.startsWith("mcp__")) return null;
+  if (!toolName.startsWith("mcp__")) {
+    return null;
+  }
   const rest = toolName.slice("mcp__".length);
   const sep = rest.indexOf("__");
-  if (sep === -1) return null;
+  if (sep === -1) {
+    return null;
+  }
   const serverName = rest.slice(0, sep);
   const toolMethod = rest.slice(sep + 2);
-  if (!serverName || !toolMethod) return null;
+  if (!serverName || !toolMethod) {
+    return null;
+  }
   return { serverName, toolMethod };
 }
 
@@ -107,7 +114,9 @@ export function deriveStepLabelFromName(
   input?: unknown,
 ): StepLabel {
   const inputBag: Record<string, unknown> =
-    input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+    input && typeof input === "object"
+      ? (input as Record<string, unknown>)
+      : {};
   const name = toolName.toLowerCase();
 
   // Rich activity sentence the daemon attaches to the input. Computed once and
@@ -210,7 +219,9 @@ export function deriveStepLabelFromName(
 
     default:
       return {
-        title: toolName ? `Running ${titleCaseToolName(toolName)}` : "Running tool",
+        title: toolName
+          ? `Running ${titleCaseToolName(toolName)}`
+          : "Running tool",
         info: "",
         activity,
         iconName: "bolt",

@@ -137,7 +137,9 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
     Boolean(messageId),
   );
   const callNumbers = useMemo<ReadonlyMap<string, number> | undefined>(() => {
-    if (!messageId || !conversationLogs?.length) return undefined;
+    if (!messageId || !conversationLogs?.length) {
+      return undefined;
+    }
     return new Map(conversationLogs.map((log, index) => [log.id, index + 1]));
   }, [messageId, conversationLogs]);
   const conversationCallCount =
@@ -149,7 +151,9 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
   // when it still exists in the latest log set; otherwise we fall back
   // to the most recent call so the page never renders empty.
   const selectedLogId = useMemo<string | undefined>(() => {
-    if (!logs.length) return undefined;
+    if (!logs.length) {
+      return undefined;
+    }
     if (callIdParam && logs.some((log) => log.id === callIdParam)) {
       return callIdParam;
     }
@@ -168,11 +172,15 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
   // keeps the first call of a scoped turn diffing against the prior
   // turn instead of a same-turn sibling (or nothing at all).
   const previousLog = useMemo<LLMRequestLogEntry | null>(() => {
-    if (!selectedLogId) return null;
+    if (!selectedLogId) {
+      return null;
+    }
     const ordered =
       messageId && conversationLogs?.length ? conversationLogs : logs;
     const index = ordered.findIndex((log) => log.id === selectedLogId);
-    if (index > 0) return ordered[index - 1] ?? null;
+    if (index > 0) {
+      return ordered[index - 1] ?? null;
+    }
     if (index === -1 && ordered !== logs) {
       const scopedIndex = logs.findIndex((log) => log.id === selectedLogId);
       return scopedIndex > 0 ? (logs[scopedIndex - 1] ?? null) : null;
@@ -184,7 +192,9 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
     () =>
       (logId: string): string => {
         const params = new URLSearchParams();
-        if (messageId) params.set("messageId", messageId);
+        if (messageId) {
+          params.set("messageId", messageId);
+        }
         params.set("callId", logId);
         return `${routes.inspect(conversationId)}?${params.toString()}`;
       },
@@ -286,7 +296,9 @@ function Header({
   const canExport = Boolean(assistantId && context && context.logs.length > 0);
 
   async function handleExport(): Promise<void> {
-    if (!assistantId || !context || isExporting) return;
+    if (!assistantId || !context || isExporting) {
+      return;
+    }
 
     const controller = new AbortController();
     exportAbortRef.current = controller;
@@ -318,7 +330,9 @@ function Header({
           ),
         signal: controller.signal,
       });
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) {
+        return;
+      }
       const { saveFile } = await import("@/runtime/native-file");
       await saveFile(
         blob,
@@ -326,7 +340,9 @@ function Header({
       );
       setExportRun((prev) => (prev ? { ...prev, phase: "done" } : prev));
     } catch (err) {
-      if (controller.signal.aborted) return; // user cancelled
+      if (controller.signal.aborted) {
+        return;
+      } // user cancelled
       setExportRun((prev) => ({
         phase: "error",
         completed: prev?.completed ?? 0,
@@ -500,7 +516,9 @@ function ScopeControls({
 
   const navigateToScope = (nextMessageId: string | null) => {
     const params = new URLSearchParams();
-    if (nextMessageId) params.set("messageId", nextMessageId);
+    if (nextMessageId) {
+      params.set("messageId", nextMessageId);
+    }
     const qs = params.toString();
     const base = routes.inspect(conversationId);
     navigate(qs ? `${base}?${qs}` : base);
@@ -561,7 +579,9 @@ function buildMessageScopeOptions(
   let index = 1;
   for (const m of messages) {
     const id = m.id;
-    if (!id || seen.has(id) || m.role !== "user") continue;
+    if (!id || seen.has(id) || m.role !== "user") {
+      continue;
+    }
     seen.add(id);
     const firstTextBlock = normalizeContentBlocks(m)?.find(
       (b): b is ConversationTextBlock => b.type === "text",
@@ -575,9 +595,13 @@ function buildMessageScopeOptions(
 }
 
 function previewContent(content: string | undefined | null): string {
-  if (!content) return "";
+  if (!content) {
+    return "";
+  }
   const collapsed = content.replace(/\s+/g, " ").trim();
-  if (collapsed.length <= 60) return collapsed;
+  if (collapsed.length <= 60) {
+    return collapsed;
+  }
   return `${collapsed.slice(0, 57)}…`;
 }
 
@@ -611,7 +635,9 @@ function findTurnPosition(
       headId = m.role === "user" ? id : (userIds[userIds.length - 1] ?? null);
     }
   }
-  if (!headId) return null;
+  if (!headId) {
+    return null;
+  }
   const index = userIds.indexOf(headId);
   return index === -1 ? null : { index: index + 1, count: userIds.length };
 }
@@ -662,8 +688,12 @@ function Loaded({
     selectedLogId,
   );
   const selectedEntry = useMemo<LLMRequestLogEntry | null>(() => {
-    if (!selectedLog) return null;
-    if (!shouldFetchDetail || !detail) return selectedLog;
+    if (!selectedLog) {
+      return null;
+    }
+    if (!shouldFetchDetail || !detail) {
+      return selectedLog;
+    }
     return {
       ...selectedLog,
       requestSections: detail.requestSections,
@@ -888,7 +918,9 @@ function LoggingDisabledState({
 
   async function handleEnable(next: boolean): Promise<void> {
     // The toggle starts off; only act on the off → on transition.
-    if (!next || enabling || !assistantId) return;
+    if (!next || enabling || !assistantId) {
+      return;
+    }
     setEnabling(true);
     try {
       const { response } = await configPatch({

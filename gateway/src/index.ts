@@ -142,6 +142,12 @@ import {
   createChannelAdmissionPolicyDeleteHandler,
 } from "./http/routes/channel-admission-policy.js";
 import {
+  createChannelIngressApproveHandler,
+  createChannelIngressRevokeHandler,
+} from "./http/routes/channel-ingress.js";
+import { createPluginWebhookHandler } from "./http/routes/plugin-webhook.js";
+import { resolveCachedPluginIngress } from "./channels/plugin-ingress-approvals.js";
+import {
   createChannelPermissionOverridesListHandler,
   createChannelPermissionOverrideSetHandler,
   createChannelPermissionOverrideDeleteHandler,
@@ -599,6 +605,13 @@ async function main() {
     createChannelAdmissionPolicySetHandler();
   const handleChannelAdmissionPolicyDelete =
     createChannelAdmissionPolicyDeleteHandler();
+  const handleChannelIngressApprove = createChannelIngressApproveHandler();
+  const handleChannelIngressRevoke = createChannelIngressRevokeHandler();
+  const handlePluginWebhook = createPluginWebhookHandler({
+    config,
+    resolve: resolveCachedPluginIngress,
+    credentials: credentialCache,
+  });
   const handleChannelPermissionOverridesList =
     createChannelPermissionOverridesListHandler();
   const handleChannelPermissionOverrideSet =
@@ -689,6 +702,15 @@ async function main() {
     {
       path: "/webhooks/mailgun",
       handler: (req) => handleMailgunWebhook(req),
+    },
+    // Plugin-declared webhooks. Unauthenticated like their neighbours above;
+    // what makes them safe is that only a guardian-approved declaration
+    // creates one, and every other path here 404s. Any method — the plugin's
+    // route module decides which verbs it answers.
+    {
+      path: /^\/webhooks\/plugins\/([^/]+)\/(.+)$/,
+      handler: (req, params) =>
+        handlePluginWebhook(req, params[0]!, params[1]!),
     },
 
     // ── BYO provider registration (auto-verify guardian email) ──
@@ -1551,6 +1573,27 @@ async function main() {
       scope: "settings.write",
       handler: (req, params) =>
         handleChannelAdmissionPolicyDelete(req, params[0]),
+    },
+
+    // ── Channel ingress approval ──
+    // Same shape as channel-permission-overrides below, with two differences:
+    // auth is edge-guardian rather than edge-scoped, because approving ingress
+    // is the decision the assistant must not make for itself; and there are no
+    // assistant-scoped variants, because the guardian reaches these directly
+    // rather than through the platform proxy. Deliberately absent from the IPC
+    // surface for the same reason as the auth choice. POST verb paths — a
+    // grant has no id of its own until a guardian creates one.
+    {
+      path: /^\/v1\/channel-ingress\/([^/]+)\/approve\/?$/,
+      method: "POST",
+      auth: "edge-guardian",
+      handler: (req, params) => handleChannelIngressApprove(req, params[0]!),
+    },
+    {
+      path: /^\/v1\/channel-ingress\/([^/]+)\/revoke\/?$/,
+      method: "POST",
+      auth: "edge-guardian",
+      handler: (req, params) => handleChannelIngressRevoke(req, params[0]!),
     },
 
     // ── Channel permission overrides (matrix cells) — flat routes ──

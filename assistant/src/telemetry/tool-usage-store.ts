@@ -75,7 +75,9 @@ const log = getLogger("audit-log");
 export async function rotateToolInvocations(
   retentionDays: number,
 ): Promise<number> {
-  if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
+  if (!Number.isFinite(retentionDays) || retentionDays <= 0) {
+    return 0;
+  }
 
   // Math.floor guarantees a plain integer literal in the inlined SQL
   // below; no decimal, no exponent, no surprise characters.
@@ -90,7 +92,9 @@ export async function rotateToolInvocations(
     .where(lt(toolInvocations.createdAt, cutoffMs))
     .all();
   const toDelete = countRow?.value ?? 0;
-  if (toDelete === 0) return 0;
+  if (toDelete === 0) {
+    return 0;
+  }
 
   // `runAsyncSqlite` takes a raw SQL string — sqlite3 CLI subprocesses
   // see SQL on stdin without a binding layer. `cutoffMs` is a plain

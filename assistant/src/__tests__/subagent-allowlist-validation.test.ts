@@ -7,7 +7,9 @@ import { findUnknownAllowlistTools } from "../subagent/validate-allowlists.js";
 function allReferencedToolNames(): Set<string> {
   const names = new Set<string>();
   for (const config of Object.values(SUBAGENT_ROLE_REGISTRY)) {
-    for (const tool of config.allowedTools ?? []) names.add(tool);
+    for (const tool of config.allowedTools ?? []) {
+      names.add(tool);
+    }
   }
   return names;
 }

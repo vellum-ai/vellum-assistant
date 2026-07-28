@@ -8,17 +8,12 @@ import type { Conversation } from "@/types/conversation-types";
 import { groupsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
-import {
-  __resetForTesting,
-  publish,
-} from "@/lib/event-bus";
+import { __resetForTesting, publish } from "@/lib/event-bus";
 
 // ---------------------------------------------------------------------------
 // Module mock — `@/utils/fetch-conversation-detail`.
 // ---------------------------------------------------------------------------
-const realFetchDetailModule = await import(
-  "@/utils/fetch-conversation-detail"
-);
+const realFetchDetailModule = await import("@/utils/fetch-conversation-detail");
 const { ConversationNotFoundError } = realFetchDetailModule;
 
 let fetchConversationDetailImpl: (
@@ -38,18 +33,25 @@ const fetchConversationDetailCalls: Array<{
 
 mock.module("@/utils/fetch-conversation-detail", () => ({
   ...realFetchDetailModule,
-  fetchConversationDetail: (queryClient: QueryClient, assistantId: string, conversationId: string) => {
+  fetchConversationDetail: (
+    queryClient: QueryClient,
+    assistantId: string,
+    conversationId: string,
+  ) => {
     fetchConversationDetailCalls.push({ assistantId, conversationId });
-    return fetchConversationDetailImpl(queryClient, assistantId, conversationId);
+    return fetchConversationDetailImpl(
+      queryClient,
+      assistantId,
+      conversationId,
+    );
   },
 }));
 
 // ---------------------------------------------------------------------------
 // Module mock — `@/utils/conversation-list-fetchers`.
 // ---------------------------------------------------------------------------
-const realListFetchersModule = await import(
-  "@/utils/conversation-list-fetchers"
-);
+const realListFetchersModule =
+  await import("@/utils/conversation-list-fetchers");
 type ListFirstPage = Awaited<
   ReturnType<typeof realListFetchersModule.listConversationsFirstPage>
 >;
@@ -77,9 +79,7 @@ mock.module("@/utils/conversation-list-fetchers", () => ({
   listScheduledConversationsFirstPage: recordFirstPage("scheduled"),
 }));
 
-const { useConversationSync } = await import(
-  "@/hooks/use-conversation-sync"
-);
+const { useConversationSync } = await import("@/hooks/use-conversation-sync");
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -176,12 +176,12 @@ describe("useConversationSync", () => {
     // The foreground list is NOT directly invalidated — it uses the window
     // merge approach. Only non-paginated caches (archived, channel) get
     // invalidateQueries calls.
-    const foregroundCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
-      (call) => {
-        const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-        return arg?.queryKey?.[2] === "foreground";
-      },
-    );
+    const foregroundCalls = (
+      spy.mock.calls as unknown as Array<[unknown]>
+    ).filter((call) => {
+      const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
+      return arg?.queryKey?.[2] === "foreground";
+    });
     expect(foregroundCalls.length).toBe(0);
   });
 
@@ -191,15 +191,31 @@ describe("useConversationSync", () => {
       { conversationId: "conv-new", title: "Recent", lastMessageAt: 5000 },
       // Inside the fresh window (>= its oldest row) but missing from the
       // page — deleted or archived by another client.
-      { conversationId: "conv-gone", title: "Removed elsewhere", lastMessageAt: 4950 },
+      {
+        conversationId: "conv-gone",
+        title: "Removed elsewhere",
+        lastMessageAt: 4950,
+      },
       // Below the fresh window — untouched deep history survives.
-      { conversationId: "conv-old", title: "Deep history", lastMessageAt: 1000 },
+      {
+        conversationId: "conv-old",
+        title: "Deep history",
+        lastMessageAt: 1000,
+      },
     ]);
     listFirstPageImpl = async () =>
       ({
         conversations: [
-          { conversationId: "conv-new", title: "Recent (renamed)", lastMessageAt: 5000 },
-          { conversationId: "conv-created", title: "Created elsewhere", lastMessageAt: 4900 },
+          {
+            conversationId: "conv-new",
+            title: "Recent (renamed)",
+            lastMessageAt: 5000,
+          },
+          {
+            conversationId: "conv-created",
+            title: "Created elsewhere",
+            lastMessageAt: 4900,
+          },
         ],
         hasMore: true,
       }) as ListFirstPage;
@@ -235,7 +251,11 @@ describe("useConversationSync", () => {
         hasUnseenLatestAssistantMessage: true,
       },
     ]);
-    fetchConversationDetailImpl = async (_queryClient, _assistantId, conversationId) => ({
+    fetchConversationDetailImpl = async (
+      _queryClient,
+      _assistantId,
+      conversationId,
+    ) => ({
       conversationId,
       title: "Old title",
       hasUnseenLatestAssistantMessage: false,
@@ -250,14 +270,14 @@ describe("useConversationSync", () => {
     emit(syncEvent(["conversation:conv-1:metadata"]));
 
     await waitFor(() => {
-      const list = queryClient.getQueryData(conversationsQueryKey("asst-1")) as Array<{
+      const list = queryClient.getQueryData(
+        conversationsQueryKey("asst-1"),
+      ) as Array<{
         conversationId: string;
         hasUnseenLatestAssistantMessage?: boolean;
         lastSeenAssistantMessageAt?: number;
       }>;
-      const conv1 = list.find(
-        (c) => c.conversationId === "conv-1",
-      );
+      const conv1 = list.find((c) => c.conversationId === "conv-1");
       expect(conv1?.hasUnseenLatestAssistantMessage).toBe(false);
       expect(conv1?.lastSeenAssistantMessageAt).toBe(1779710400000);
     });
@@ -274,9 +294,7 @@ describe("useConversationSync", () => {
       conversationId: string;
       hasUnseenLatestAssistantMessage?: boolean;
     }>;
-    const conv2 = listAfter.find(
-      (c) => c.conversationId === "conv-2",
-    );
+    const conv2 = listAfter.find((c) => c.conversationId === "conv-2");
     expect(conv2?.hasUnseenLatestAssistantMessage).toBe(true);
 
     // No list-level invalidation fires.
@@ -305,13 +323,11 @@ describe("useConversationSync", () => {
     emit(syncEvent(["conversation:conv-1:metadata"]));
 
     await waitFor(() => {
-      const list = queryClient.getQueryData(conversationsQueryKey("asst-1")) as Array<{ conversationId: string }>;
-      expect(
-        list.some((c) => c.conversationId === "conv-1"),
-      ).toBe(false);
-      expect(
-        list.some((c) => c.conversationId === "conv-2"),
-      ).toBe(true);
+      const list = queryClient.getQueryData(
+        conversationsQueryKey("asst-1"),
+      ) as Array<{ conversationId: string }>;
+      expect(list.some((c) => c.conversationId === "conv-1")).toBe(false);
+      expect(list.some((c) => c.conversationId === "conv-2")).toBe(true);
     });
   });
 
@@ -349,7 +365,9 @@ describe("useConversationSync", () => {
     expect(listFirstPageCalls).toEqual([
       { bucket: "foreground", assistantId: "asst-1" },
     ]);
-    const expectedGroupsKey = groupsGetQueryKey({ path: { assistant_id: "asst-1" } })[0];
+    const expectedGroupsKey = groupsGetQueryKey({
+      path: { assistant_id: "asst-1" },
+    })[0];
     const groupsCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
       (call) => {
         const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
@@ -383,10 +401,9 @@ describe("useConversationSync", () => {
 
   test("patches conversation title in cache on conversation_title_updated", async () => {
     const queryClient = freshQueryClient();
-    queryClient.setQueryData<Conversation[]>(
-      conversationsQueryKey("asst-1"),
-      [{ conversationId: "conv-1", title: "Old Title" } as Conversation],
-    );
+    queryClient.setQueryData<Conversation[]>(conversationsQueryKey("asst-1"), [
+      { conversationId: "conv-1", title: "Old Title" } as Conversation,
+    ]);
     renderHook(() => useConversationSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });

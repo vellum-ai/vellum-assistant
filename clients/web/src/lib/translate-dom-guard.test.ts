@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, describe, expect, mock, spyOn, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 import { installTranslateDomGuard } from "@/lib/translate-dom-guard";
 
@@ -11,7 +19,11 @@ const originalInsertBefore = Node.prototype.insertBefore;
  * the original parent and the text node lives one level down. React still holds
  * the original text-node reference.
  */
-function wrappedInPlace(): { parent: HTMLElement; text: Text; wrapper: HTMLElement } {
+function wrappedInPlace(): {
+  parent: HTMLElement;
+  text: Text;
+  wrapper: HTMLElement;
+} {
   const parent = document.createElement("div");
   const text = document.createTextNode("translated");
   parent.appendChild(text);

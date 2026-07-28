@@ -68,10 +68,14 @@ export function classifyEventsDiff(
 ): EventsDiff {
   // Identity — also covers events-stable status/usage updates (the entry object
   // changes but its events array reference does not).
-  if (events === prevEvents) return { kind: "identity" };
+  if (events === prevEvents) {
+    return { kind: "identity" };
+  }
 
   // First call / empty cache.
-  if (prevEvents == null) return { kind: "first" };
+  if (prevEvents == null) {
+    return { kind: "first" };
+  }
 
   const prevLen = prevEvents.length;
   const len = events.length;

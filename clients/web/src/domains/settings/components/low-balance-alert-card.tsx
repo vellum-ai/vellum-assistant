@@ -2,10 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ChangeEvent } from "react";
 
 import {
-    organizationsBillingLowBalanceAlertRetrieveOptions,
-    organizationsBillingLowBalanceAlertRetrieveQueryKey,
-    organizationsBillingLowBalanceAlertRetrieveSetQueryData,
-    organizationsBillingLowBalanceAlertUpdateMutation,
+  organizationsBillingLowBalanceAlertRetrieveOptions,
+  organizationsBillingLowBalanceAlertRetrieveQueryKey,
+  organizationsBillingLowBalanceAlertRetrieveSetQueryData,
+  organizationsBillingLowBalanceAlertUpdateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
@@ -81,7 +81,7 @@ export function LowBalanceAlertCard() {
   const config = alertQuery.data;
   // `draft === null` → user hasn't edited; show the current override (or empty
   // when unset so the placeholder/default copy shows through).
-  const value = draft ?? (config.threshold_usd ?? "");
+  const value = draft ?? config.threshold_usd ?? "";
   const clientError = validateThreshold(value);
 
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {

@@ -4371,6 +4371,7 @@ paths:
       - VellumAPIKey: []
       - cookieAuth: []
       - XSessionTokenAuth: []
+      - AssistantAPIKey: []
       responses:
         '200':
           content:
@@ -6030,11 +6031,17 @@ components:
       - initializing
       - active
       - to_be_deleted
+      - archiving
+      - archived
+      - restoring
       type: string
       description: |-
         * `initializing` - Initializing
         * `active` - Active
         * `to_be_deleted` - To be deleted
+        * `archiving` - Archiving
+        * `archived` - Archived
+        * `restoring` - Restoring
     AssistantSystemEvent:
       type: object
       description: |-

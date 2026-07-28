@@ -3,16 +3,16 @@ import { type ReactNode, type Ref } from "react";
 
 import { BottomSheet, ContextMenu } from "@vellumai/design-library";
 import {
-    Collapsible,
-    type CollapsibleItemProps,
-    type CollapsibleRootProps,
+  Collapsible,
+  type CollapsibleItemProps,
+  type CollapsibleRootProps,
 } from "@vellumai/design-library/components/collapsible";
 import { cn } from "@vellumai/design-library/utils/cn";
 
 import {
-    SIDEBAR_CHIP_GAP,
-    SIDEBAR_CHIP_SIZE,
-    SIDEBAR_ROW_PADDING_X,
+  SIDEBAR_CHIP_GAP,
+  SIDEBAR_CHIP_SIZE,
+  SIDEBAR_ROW_PADDING_X,
 } from "@/components/sidebar-nav-geometry";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -59,11 +59,7 @@ function CollapsibleNavSectionRoot({
   ...props
 }: CollapsibleRootProps) {
   return (
-    <Collapsible.Root
-      ref={ref}
-      className={cn("gap-2", className)}
-      {...props}
-    />
+    <Collapsible.Root ref={ref} className={cn("gap-2", className)} {...props} />
   );
 }
 
@@ -115,8 +111,10 @@ function LongPressHeaderMenu({
 // Section
 // ---------------------------------------------------------------------------
 
-export interface CollapsibleNavSectionSectionProps
-  extends Omit<CollapsibleItemProps, "children"> {
+export interface CollapsibleNavSectionSectionProps extends Omit<
+  CollapsibleItemProps,
+  "children"
+> {
   value: string;
   icon?: LucideIcon;
   label: string;
@@ -154,7 +152,10 @@ function CollapsibleNavSectionSection({
   ...itemProps
 }: CollapsibleNavSectionSectionProps) {
   const headerEl = (
-    <div data-slot="collapsible-nav-section-header" className="flex items-center justify-between">
+    <div
+      data-slot="collapsible-nav-section-header"
+      className="flex items-center justify-between"
+    >
       {/* The horizontal geometry (padding, chip width, gap) is inline from
           sidebar-nav-geometry at every breakpoint — the assistant cluster
           shares it, so section icons and labels sit on the same axes as

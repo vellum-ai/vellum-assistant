@@ -69,17 +69,23 @@ export function useEdgeSwipeDrawer({
     const timers = timersRef.current;
     return () => {
       cancelledRef.current = true;
-      for (const id of timers) {clearTimeout(id);}
+      for (const id of timers) {
+        clearTimeout(id);
+      }
       timers.clear();
       const el = panelRef.current;
-      if (el) {resetTransientStyles(el);}
+      if (el) {
+        resetTransientStyles(el);
+      }
     };
   }, [panelRef]);
 
   const scheduleTimeout = (fn: () => void, ms: number) => {
     const id = setTimeout(() => {
       timersRef.current.delete(id);
-      if (!cancelledRef.current) {fn();}
+      if (!cancelledRef.current) {
+        fn();
+      }
     }, ms);
     timersRef.current.add(id);
   };
@@ -91,7 +97,9 @@ export function useEdgeSwipeDrawer({
     },
     onMove: (_dx, _threshold, x) => {
       const el = panelRef.current;
-      if (!el) {return;}
+      if (!el) {
+        return;
+      }
       // The panel's right edge tracks the finger's absolute position toward
       // fully open at translateX(0), so it stays under the finger wherever in
       // the activation band the swipe began.
@@ -109,7 +117,9 @@ export function useEdgeSwipeDrawer({
         el.style.transform = "translateX(0)";
         const finish = () => {
           el.removeEventListener("transitionend", finish);
-          if (!cancelledRef.current) {resetTransientStyles(el);}
+          if (!cancelledRef.current) {
+            resetTransientStyles(el);
+          }
         };
         el.addEventListener("transitionend", finish, { once: true });
         scheduleTimeout(finish, DRAWER_SLIDE_MS + ANIMATION_FALLBACK_SLACK_MS);
@@ -127,7 +137,9 @@ export function useEdgeSwipeDrawer({
       el.style.transform = "translateX(-100%)";
       let done = false;
       const finish = () => {
-        if (done || cancelledRef.current) {return;}
+        if (done || cancelledRef.current) {
+          return;
+        }
         done = true;
         el.removeEventListener("transitionend", finish);
         resetTransientStyles(el);

@@ -227,9 +227,13 @@ function checkDedupe(
     // re-evaluating a signal that was previously stored).
     for (const row of existing) {
       // The current signal's own event row should not count as a duplicate
-      if (row.id === signal.signalId) continue;
+      if (row.id === signal.signalId) {
+        continue;
+      }
       // Only consider events within the dedupe window
-      if (row.createdAt < cutoff) continue;
+      if (row.createdAt < cutoff) {
+        continue;
+      }
       // If any other event with the same dedupeKey exists within the window, suppress
       return {
         passed: false,

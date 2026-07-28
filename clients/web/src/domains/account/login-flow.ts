@@ -106,7 +106,11 @@ export function resolvePostLoginDestination(
   destination: string;
   requiresFullPageNavigation: boolean;
 } {
-  return resolvePostAuthDestination({ returnTo, fallback, authIntent: "login" });
+  return resolvePostAuthDestination({
+    returnTo,
+    fallback,
+    authIntent: "login",
+  });
 }
 
 export function resolvePostAuthDestination({

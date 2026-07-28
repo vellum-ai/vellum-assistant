@@ -6,7 +6,9 @@
 // navigable when storage is unavailable.
 
 export function getLocalSetting(key: string, fallback: string): string {
-  if (typeof window === "undefined") return fallback;
+  if (typeof window === "undefined") {
+    return fallback;
+  }
   try {
     return localStorage.getItem(key) ?? fallback;
   } catch {
@@ -15,7 +17,9 @@ export function getLocalSetting(key: string, fallback: string): string {
 }
 
 export function setLocalSetting(key: string, value: string): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   try {
     localStorage.setItem(key, value);
   } catch {
@@ -25,7 +29,9 @@ export function setLocalSetting(key: string, value: string): void {
 }
 
 export function removeLocalSetting(key: string): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   try {
     localStorage.removeItem(key);
   } catch {
@@ -39,11 +45,17 @@ export function removeLocalSetting(key: string): void {
 // ---------------------------------------------------------------------------
 
 export function getLocalBool(key: string, fallback: boolean): boolean {
-  if (typeof window === "undefined") return fallback;
+  if (typeof window === "undefined") {
+    return fallback;
+  }
   try {
     const raw = localStorage.getItem(key);
-    if (raw === "true") return true;
-    if (raw === "false") return false;
+    if (raw === "true") {
+      return true;
+    }
+    if (raw === "false") {
+      return false;
+    }
     return fallback;
   } catch {
     return fallback;
@@ -60,11 +72,17 @@ export function setLocalBool(key: string, value: boolean): void {
  * "never chosen" from an explicit choice.
  */
 export function getLocalBoolOrNull(key: string): boolean | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined") {
+    return null;
+  }
   try {
     const raw = localStorage.getItem(key);
-    if (raw === "true") return true;
-    if (raw === "false") return false;
+    if (raw === "true") {
+      return true;
+    }
+    if (raw === "false") {
+      return false;
+    }
     return null;
   } catch {
     return null;
@@ -72,10 +90,14 @@ export function getLocalBoolOrNull(key: string): boolean | null {
 }
 
 export function getLocalNumber(key: string, fallback: number): number {
-  if (typeof window === "undefined") return fallback;
+  if (typeof window === "undefined") {
+    return fallback;
+  }
   try {
     const raw = localStorage.getItem(key);
-    if (raw === null) return fallback;
+    if (raw === null) {
+      return fallback;
+    }
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? parsed : fallback;
   } catch {
@@ -97,17 +119,20 @@ interface PrefChangedDetail {
   value: string | null;
 }
 
-export function watchSetting(
-  key: string,
-  callback: () => void,
-): () => void {
-  if (typeof window === "undefined") return () => {};
+export function watchSetting(key: string, callback: () => void): () => void {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
   const onStorage = (event: StorageEvent) => {
-    if (event.key === key) callback();
+    if (event.key === key) {
+      callback();
+    }
   };
   const onPrefChanged = (event: Event) => {
     const detail = (event as CustomEvent<PrefChangedDetail>).detail;
-    if (detail?.key === key) callback();
+    if (detail?.key === key) {
+      callback();
+    }
   };
   window.addEventListener("storage", onStorage);
   window.addEventListener(PREF_CHANGED_EVENT, onPrefChanged);

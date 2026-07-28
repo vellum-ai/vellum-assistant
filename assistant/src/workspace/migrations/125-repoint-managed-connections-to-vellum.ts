@@ -34,31 +34,41 @@ export const repointManagedConnectionsToVellumMigration: WorkspaceMigration = {
     "Repoint provider_connection from the per-provider *-managed connections to the single vellum connection",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     let changed = false;
 
     // llm.default
-    if (repointEntry(readObject(llm.default))) changed = true;
+    if (repointEntry(readObject(llm.default))) {
+      changed = true;
+    }
 
     // llm.profiles.* (managed and user-owned alike — a repointed reference is
     // correct regardless of who owns the profile)
     const profiles = readObject(llm.profiles);
     if (profiles !== null) {
       for (const key of Object.keys(profiles)) {
-        if (repointEntry(readObject(profiles[key]))) changed = true;
+        if (repointEntry(readObject(profiles[key]))) {
+          changed = true;
+        }
       }
     }
 
@@ -66,7 +76,9 @@ export const repointManagedConnectionsToVellumMigration: WorkspaceMigration = {
     const callSites = readObject(llm.callSites);
     if (callSites !== null) {
       for (const key of Object.keys(callSites)) {
-        if (repointEntry(readObject(callSites[key]))) changed = true;
+        if (repointEntry(readObject(callSites[key]))) {
+          changed = true;
+        }
       }
     }
 
@@ -82,7 +94,9 @@ export const repointManagedConnectionsToVellumMigration: WorkspaceMigration = {
 
 /** Rewrite a single entry's provider_connection in place. Returns true if changed. */
 function repointEntry(entry: Record<string, unknown> | null): boolean {
-  if (entry === null) return false;
+  if (entry === null) {
+    return false;
+  }
   const current = entry.provider_connection;
   if (typeof current !== "string" || !LEGACY_MANAGED_CONNECTIONS.has(current)) {
     return false;

@@ -120,12 +120,7 @@ export const sseService: SseService = {
     let lastAppResumeAt = 0;
     let lastPowerActionAt = 0;
     let nextOpenCause:
-      | "fresh"
-      | "error"
-      | "watchdog"
-      | "resume"
-      | "debug"
-      | "anchor" = "fresh";
+      "fresh" | "error" | "watchdog" | "resume" | "debug" | "anchor" = "fresh";
     // Pending timer for a delayed debug-triggered reconnect, so detach
     // can cancel a reconnect that hasn't fired yet.
     let debugReconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -140,7 +135,9 @@ export const sseService: SseService = {
     };
 
     const openConnection = () => {
-      if (cancelled || current) return;
+      if (cancelled || current) {
+        return;
+      }
       const causeAtOpen = nextOpenCause;
       nextOpenCause = "resume";
       // Did THIS stream ever genuinely establish (a frame arrived)? A transport
@@ -238,7 +235,9 @@ export const sseService: SseService = {
       // App-resume means the renderer became visible; if a
       // connection is already live, it was either never torn down
       // or just opened moments ago — either way, leave it alone.
-      if (current) return;
+      if (current) {
+        return;
+      }
       openConnection();
     };
 
@@ -273,7 +272,9 @@ export const sseService: SseService = {
     // bounce — half-dead sockets persist otherwise.
     const handlePowerResume = () => {
       const now = Date.now();
-      if (now - lastPowerActionAt < RESUME_DEDUP_WINDOW_MS) return;
+      if (now - lastPowerActionAt < RESUME_DEDUP_WINDOW_MS) {
+        return;
+      }
       lastPowerActionAt = now;
       void lifecycleService.checkAssistant();
       teardown();
@@ -281,7 +282,9 @@ export const sseService: SseService = {
     };
 
     const teardownIfOpen = () => {
-      if (!current) return;
+      if (!current) {
+        return;
+      }
       teardown();
     };
 

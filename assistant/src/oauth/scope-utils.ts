@@ -31,7 +31,9 @@ function grantedScopeCoversRequiredScope(
   grantedScope: string,
   requiredScope: string,
 ): boolean {
-  if (grantedScope === requiredScope) return true;
+  if (grantedScope === requiredScope) {
+    return true;
+  }
   return (
     grantedScope === GMAIL_FULL_ACCESS_SCOPE &&
     requiredScope === GMAIL_READONLY_SCOPE

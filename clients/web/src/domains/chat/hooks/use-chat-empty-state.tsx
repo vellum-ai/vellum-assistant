@@ -21,7 +21,10 @@ import {
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
 import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
 import { useThreadSuggestions } from "@/domains/chat/hooks/use-thread-suggestions";
-import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state";
+import {
+  buildEditAppGreeting,
+  buildEditAppStarters,
+} from "@/domains/chat/utils/edit-app-empty-state";
 import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants";
 import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters";
 import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
@@ -93,7 +96,11 @@ export function useChatEmptyState({
   onSelectStarter,
   onSelectSuggestion,
 }: UseChatEmptyStateParams): ChatEmptyStateResult {
-  const { components: avatarComponents, traits: avatarTraits, customImageUrl: avatarImageUrl } = avatar;
+  const {
+    components: avatarComponents,
+    traits: avatarTraits,
+    customImageUrl: avatarImageUrl,
+  } = avatar;
 
   const newThreadSuggestionsEnabled =
     useClientFeatureFlagStore.use.newThreadSuggestions();
@@ -140,7 +147,9 @@ export function useChatEmptyState({
   );
 
   const emptyStateProps: ChatEmptyStateProps = {
-    greeting: editingApp ? buildEditAppGreeting(editingApp) : emptyStateGreeting,
+    greeting: editingApp
+      ? buildEditAppGreeting(editingApp)
+      : emptyStateGreeting,
     isGenerating: editingApp ? false : greetingIsGenerating,
   };
 
@@ -154,7 +163,10 @@ export function useChatEmptyState({
     // `onSelectSuggestion` is non-null here (it's part of the
     // `showSuggestionLibrary` predicate above).
     startersSlot = (
-      <SuggestionFeaturedRow featured={featured} onSelect={onSelectSuggestion} />
+      <SuggestionFeaturedRow
+        featured={featured}
+        onSelect={onSelectSuggestion}
+      />
     );
     belowFoldSlot = (
       <SuggestionGroups groups={groups} onSelect={onSelectSuggestion} />
@@ -213,12 +225,7 @@ export function useChatEmptyState({
             />
           )
         : undefined,
-    [
-      avatarComponents,
-      avatarImageUrl,
-      avatarTraits,
-      isAssistantBusy,
-    ],
+    [avatarComponents, avatarImageUrl, avatarTraits, isAssistantBusy],
   );
 
   // Portal component — mounting location doesn't matter, but it only runs

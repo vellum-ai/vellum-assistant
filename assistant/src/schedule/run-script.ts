@@ -93,7 +93,9 @@ export async function runScript(
   try {
     exitCode = await Promise.race([proc.exited, timeoutPromise]);
   } catch (err) {
-    if (!timedOut) throw err;
+    if (!timedOut) {
+      throw err;
+    }
     // Collect whatever the process wrote before the group was killed.
     const [stdoutStr, stderrStr] = await drainStreams(
       stdoutCollector,
@@ -203,7 +205,9 @@ async function drainStreams(
 }
 
 function truncate(text: string): string {
-  if (text.length <= MAX_OUTPUT_BYTES) return text;
+  if (text.length <= MAX_OUTPUT_BYTES) {
+    return text;
+  }
   return text.slice(0, MAX_OUTPUT_BYTES) + "\n... (truncated)";
 }
 

@@ -80,7 +80,9 @@ async function seedPkbAndHash(
   }
   const entries = await scanPkbFiles(root);
   const byPath = new Map<string, string>();
-  for (const e of entries ?? []) byPath.set(e.path, e.contentHash);
+  for (const e of entries ?? []) {
+    byPath.set(e.path, e.contentHash);
+  }
   return byPath;
 }
 

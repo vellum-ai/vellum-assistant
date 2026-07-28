@@ -151,9 +151,7 @@ describe("foreground/background/scheduled cache split", () => {
     // GIVEN a foreground list and a separate background list
     const qc = new QueryClient();
     seedConversations(qc, [makeConversation("fg")]);
-    seedBackgroundConversations(qc, [
-      makeConversation("bg", { title: "old" }),
-    ]);
+    seedBackgroundConversations(qc, [makeConversation("bg", { title: "old" })]);
 
     // WHEN we patch a conversation that only exists in the background cache
     patchConversation(qc, ASSISTANT_ID, "bg", { title: "new" });

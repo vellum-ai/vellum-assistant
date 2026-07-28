@@ -25,14 +25,7 @@
  *   4. Assert the post-resolution state (or rollback, for error tests).
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
@@ -51,17 +44,30 @@ import {
 // working — we only override the functions whose timing the hook controls.
 // ---------------------------------------------------------------------------
 
-type ArchiveImpl = (opts: { path: { assistant_id: string; id: string }; throwOnError: boolean }) => Promise<{ data: undefined; response: { ok: boolean } }>;
+type ArchiveImpl = (opts: {
+  path: { assistant_id: string; id: string };
+  throwOnError: boolean;
+}) => Promise<{ data: undefined; response: { ok: boolean } }>;
 
-let archiveImpl: ArchiveImpl = async () => ({ data: undefined, response: { ok: true } });
-let unarchiveImpl: ArchiveImpl = async () => ({ data: undefined, response: { ok: true } });
+let archiveImpl: ArchiveImpl = async () => ({
+  data: undefined,
+  response: { ok: true },
+});
+let unarchiveImpl: ArchiveImpl = async () => ({
+  data: undefined,
+  response: { ok: true },
+});
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
-  conversationsByIdArchivePost: (opts: { path: { assistant_id: string; id: string }; throwOnError: boolean }) =>
-    archiveImpl(opts),
-  conversationsByIdUnarchivePost: (opts: { path: { assistant_id: string; id: string }; throwOnError: boolean }) =>
-    unarchiveImpl(opts),
+  conversationsByIdArchivePost: (opts: {
+    path: { assistant_id: string; id: string };
+    throwOnError: boolean;
+  }) => archiveImpl(opts),
+  conversationsByIdUnarchivePost: (opts: {
+    path: { assistant_id: string; id: string };
+    throwOnError: boolean;
+  }) => unarchiveImpl(opts),
 }));
 
 // Stub haptics — Capacitor's web shim works fine in a node test environment,
@@ -78,9 +84,8 @@ mock.module("@sentry/react", () => ({
   addBreadcrumb: () => {},
 }));
 
-const { useConversationActions } = await import(
-  "@/domains/chat/hooks/use-conversation-actions"
-);
+const { useConversationActions } =
+  await import("@/domains/chat/hooks/use-conversation-actions");
 
 // ---------------------------------------------------------------------------
 // Helpers

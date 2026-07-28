@@ -229,7 +229,9 @@ export async function bootstrapFromJournal(): Promise<{
   let extracted = 0;
   let errors = 0;
 
-  if (!existsSync(journalDir)) return { extracted, errors };
+  if (!existsSync(journalDir)) {
+    return { extracted, errors };
+  }
 
   // Iterate user slug directories
   for (const slug of readdirSync(journalDir)) {
@@ -249,7 +251,9 @@ export async function bootstrapFromJournal(): Promise<{
     for (const file of files) {
       try {
         const content = readFileSync(join(slugDir, file), "utf-8");
-        if (content.trim().length < 50) continue;
+        if (content.trim().length < 50) {
+          continue;
+        }
 
         const transcript = `[journal entry: ${file}]\n\n${content}`;
         const journalTimestamp = parseJournalDate(file);
@@ -279,7 +283,9 @@ export async function bootstrapFromJournal(): Promise<{
  */
 function parseJournalDate(filename: string): number {
   const match = filename.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return Date.now();
+  if (!match) {
+    return Date.now();
+  }
 
   const [, year, month, day] = match;
   // Check for a time-like suffix (e.g. "0045" → 00:45)
@@ -422,8 +428,12 @@ const KIND_TO_PREFIX: Record<string, string> = {
  * including them would couple this migration to those later schema changes.
  */
 export function migrateToolCreatedItems(): void {
-  if (getMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT)) return;
-  if (!isMemoryEnabled()) return;
+  if (getMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT)) {
+    return;
+  }
+  if (!isMemoryEnabled()) {
+    return;
+  }
 
   const kinds = Object.keys(KIND_TO_PREFIX);
   const placeholders = kinds.map(() => "?").join(", ");
@@ -455,7 +465,9 @@ export function migrateToolCreatedItems(): void {
 
   for (const row of rows) {
     const prefix = KIND_TO_PREFIX[row.kind];
-    if (!prefix) continue;
+    if (!prefix) {
+      continue;
+    }
 
     // Build content in the format the new tools expect
     const content = `${row.subject}\n${row.statement}`;
@@ -467,7 +479,9 @@ export function migrateToolCreatedItems(): void {
       `SELECT id FROM memory_graph_nodes WHERE source_conversations LIKE ?`,
       `%${sourceKey}%`,
     );
-    if (existing) continue;
+    if (existing) {
+      continue;
+    }
 
     const now = Date.now();
     const id = uuid();
@@ -537,7 +551,9 @@ const CLEANUP_ITEM_VECTORS_CHECKPOINT = "graph_bootstrap:cleaned_item_vectors";
  * Checkpoint-gated: runs exactly once per workspace.
  */
 export async function cleanupStaleItemVectors(): Promise<void> {
-  if (getMemoryCheckpoint(CLEANUP_ITEM_VECTORS_CHECKPOINT)) return;
+  if (getMemoryCheckpoint(CLEANUP_ITEM_VECTORS_CHECKPOINT)) {
+    return;
+  }
 
   let qdrant;
   try {

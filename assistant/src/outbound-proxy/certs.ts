@@ -39,7 +39,9 @@ export async function ensureLocalCA(dataDir: string): Promise<void> {
     ),
   ]);
 
-  if (certExists && keyExists) return;
+  if (certExists && keyExists) {
+    return;
+  }
 
   await mkdir(caDir, { recursive: true });
 
@@ -238,7 +240,9 @@ export async function ensureCombinedCABundle(
       // not found, try next
     }
   }
-  if (!systemBundlePath) return null;
+  if (!systemBundlePath) {
+    return null;
+  }
 
   // Check if combined bundle already exists and is newer than both sources
   try {

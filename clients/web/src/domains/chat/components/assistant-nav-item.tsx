@@ -31,9 +31,9 @@ import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 import { cn } from "@vellumai/design-library";
 
 import {
-    SIDEBAR_CHIP_GAP,
-    SIDEBAR_CHIP_SIZE as CHIP_SIZE,
-    SIDEBAR_ROW_PADDING_X as ROW_PADDING_X,
+  SIDEBAR_CHIP_GAP,
+  SIDEBAR_CHIP_SIZE as CHIP_SIZE,
+  SIDEBAR_ROW_PADDING_X as ROW_PADDING_X,
 } from "@/components/sidebar-nav-geometry";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -327,7 +327,9 @@ export function AssistantNavItem({
                 active
                   ? "text-[color:var(--content-emphasised)]"
                   : "text-[color:var(--content-secondary)]",
-                isMobile ? "text-body-large-default" : "text-body-medium-lighter",
+                isMobile
+                  ? "text-body-large-default"
+                  : "text-body-medium-lighter",
               )}
             >
               {label}

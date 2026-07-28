@@ -36,7 +36,9 @@ import { findVisionProfile } from "../src/vision-caption.js";
 
 const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   // If the turn's model already supports vision, nothing to do.
-  if (!needsImageFallback(ctx.modelProfileKey)) return;
+  if (!needsImageFallback(ctx.modelProfileKey)) {
+    return;
+  }
 
   // Find a vision-capable profile for captioning.
   const visionProfileKey = findVisionProfile();

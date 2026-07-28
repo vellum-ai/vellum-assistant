@@ -43,7 +43,9 @@ import { parseMarkdown } from "../../content/parse.js";
  * path entirely.
  */
 export function renderTelegramHtml(text: string): string | undefined {
-  if (!text || text.trim().length === 0) return undefined;
+  if (!text || text.trim().length === 0) {
+    return undefined;
+  }
 
   const hast = toHast(parseMarkdown(text), {
     handlers: {
@@ -61,7 +63,9 @@ export function renderTelegramHtml(text: string): string | undefined {
 
   // `toHast` is typed to return any hast node, but a root input always yields a
   // root; the guard narrows the type without changing behaviour.
-  if (hast.type !== "root") return undefined;
+  if (hast.type !== "root") {
+    return undefined;
+  }
 
   telegramizeHast(hast);
 
@@ -116,7 +120,9 @@ function telegramizeHast(root: Root): void {
 
 function processNode(node: Root | Element): void {
   for (const child of node.children) {
-    if (child.type === "element") processNode(child);
+    if (child.type === "element") {
+      processNode(child);
+    }
   }
 
   if (node.type === "element") {
@@ -128,7 +134,9 @@ function processNode(node: Root | Element): void {
         normalizeCodeBlock(node);
         break;
       case "input":
-        if (node.properties) delete node.properties.disabled;
+        if (node.properties) {
+          delete node.properties.disabled;
+        }
         break;
       case "ul":
       case "ol":
@@ -166,7 +174,9 @@ function normalizeCodeBlock(pre: Element): void {
     (child): child is Element =>
       child.type === "element" && child.tagName === "code",
   );
-  if (!code) return;
+  if (!code) {
+    return;
+  }
 
   const last = code.children[code.children.length - 1];
   if (last?.type === "text" && last.value.endsWith("\n")) {
@@ -189,7 +199,9 @@ function normalizeCodeBlock(pre: Element): void {
 
 function stripTaskListClasses(element: Element): void {
   const className = element.properties?.className;
-  if (!Array.isArray(className) || !element.properties) return;
+  if (!Array.isArray(className) || !element.properties) {
+    return;
+  }
   const kept = className.filter(
     (name) => name !== "contains-task-list" && name !== "task-list-item",
   );
@@ -250,7 +262,9 @@ function isImageOnlyParagraph(paragraph: Element): boolean {
   let hasImage = false;
   for (const child of paragraph.children) {
     if (child.type === "text") {
-      if (child.value.trim().length > 0) return false;
+      if (child.value.trim().length > 0) {
+        return false;
+      }
     } else if (child.type === "element" && child.tagName === "img") {
       hasImage = true;
     } else {
@@ -269,11 +283,15 @@ function isImageOnlyParagraph(paragraph: Element): boolean {
  * always left untouched.
  */
 function stripStructuralWhitespace(node: Root | Element): void {
-  if (node.type === "element" && PREFORMATTED_TAGS.has(node.tagName)) return;
+  if (node.type === "element" && PREFORMATTED_TAGS.has(node.tagName)) {
+    return;
+  }
 
   const children = node.children;
   node.children = children.filter((child, index) => {
-    if (child.type !== "text" || child.value.trim().length > 0) return true;
+    if (child.type !== "text" || child.value.trim().length > 0) {
+      return true;
+    }
     const prev = children[index - 1];
     const next = children[index + 1];
     return (
@@ -286,7 +304,11 @@ function stripStructuralWhitespace(node: Root | Element): void {
 }
 
 function isInlineContent(node: RootContent | ElementContent): boolean {
-  if (node.type === "text") return node.value.trim().length > 0;
-  if (node.type === "element") return !BLOCK_TAGS.has(node.tagName);
+  if (node.type === "text") {
+    return node.value.trim().length > 0;
+  }
+  if (node.type === "element") {
+    return !BLOCK_TAGS.has(node.tagName);
+  }
   return false;
 }

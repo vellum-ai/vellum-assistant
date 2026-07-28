@@ -18,14 +18,18 @@ export function isDeniedNumber(phoneNumber: string): boolean {
     : phoneNumber;
 
   // Exact match (covers bare short codes like "911", "112")
-  if (DENIED_NUMBERS.has(digits)) return true;
+  if (DENIED_NUMBERS.has(digits)) {
+    return true;
+  }
 
   // Try splitting off 1-, 2-, or 3-digit country codes and check if the
   // remainder is a denied number. This catches patterns like +1911, +44999.
   for (let ccLen = 1; ccLen <= 3; ccLen++) {
     if (digits.length > ccLen) {
       const remainder = digits.slice(ccLen);
-      if (DENIED_NUMBERS.has(remainder)) return true;
+      if (DENIED_NUMBERS.has(remainder)) {
+        return true;
+      }
     }
   }
 

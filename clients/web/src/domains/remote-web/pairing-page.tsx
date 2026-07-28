@@ -222,8 +222,12 @@ export function RemoteWebPairingPage() {
   });
 
   useEffect(() => {
-    if (!enabled) return;
-    if (pairing) return;
+    if (!enabled) {
+      return;
+    }
+    if (pairing) {
+      return;
+    }
 
     const controller = new AbortController();
 
@@ -238,7 +242,9 @@ export function RemoteWebPairingPage() {
         });
         setState({ kind: "polling", expiresAt: challenge.expiresAt });
       } catch {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) {
+          return;
+        }
         setState({
           kind: "error",
           message:
@@ -255,7 +261,9 @@ export function RemoteWebPairingPage() {
   }, [enabled, pairing]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      return;
+    }
     if (!pairing?.deviceCode) {
       return;
     }
@@ -289,7 +297,9 @@ export function RemoteWebPairingPage() {
         setState({ kind: "approved" });
         timeout = setTimeout(() => navigate(returnTo, { replace: true }), 250);
       } catch (err) {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) {
+          return;
+        }
         if (err instanceof RemoteWebPairingError && err.status === 401) {
           setState({ kind: "expired" });
           return;
@@ -319,7 +329,9 @@ export function RemoteWebPairingPage() {
 
     return () => {
       controller.abort();
-      if (timeout) clearTimeout(timeout);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
     };
   }, [
     enabled,

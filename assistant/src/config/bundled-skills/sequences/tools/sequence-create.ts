@@ -16,10 +16,15 @@ export async function run(
   const description = input.description as string | undefined;
   const exitOnReply = input.exit_on_reply as boolean | undefined;
 
-  if (!name) return err("name is required.");
-  if (!channel) return err("channel is required.");
-  if (!stepsRaw || stepsRaw.length === 0)
+  if (!name) {
+    return err("name is required.");
+  }
+  if (!channel) {
+    return err("channel is required.");
+  }
+  if (!stepsRaw || stepsRaw.length === 0) {
     return err("steps array is required and must have at least one step.");
+  }
 
   try {
     const steps: SequenceStep[] = stepsRaw.map((s, i) => ({

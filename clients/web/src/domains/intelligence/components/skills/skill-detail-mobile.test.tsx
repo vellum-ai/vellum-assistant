@@ -82,9 +82,8 @@ mock.module("@/hooks/use-skill-detail-files", () => ({
   }),
 }));
 
-const { SkillDetailMobile } = await import(
-  "@/domains/intelligence/components/skills/skill-detail-mobile.js"
-);
+const { SkillDetailMobile } =
+  await import("@/domains/intelligence/components/skills/skill-detail-mobile.js");
 
 afterEach(() => {
   cleanup();
@@ -119,7 +118,13 @@ describe("SkillDetailMobile", () => {
   test("back button calls onBack", () => {
     const onBack = mock(() => {});
 
-    render(<SkillDetailMobile assistantId="asst-1" skill={makeSkill()} onBack={onBack} />);
+    render(
+      <SkillDetailMobile
+        assistantId="asst-1"
+        skill={makeSkill()}
+        onBack={onBack}
+      />,
+    );
 
     fireEvent.click(getButton("Back to skills"));
 
@@ -164,7 +169,11 @@ describe("SkillDetailMobile", () => {
 
   test("file dropdown lists the provided file names", () => {
     render(
-      <SkillDetailMobile assistantId="asst-1" skill={makeSkill()} onBack={() => {}} />,
+      <SkillDetailMobile
+        assistantId="asst-1"
+        skill={makeSkill()}
+        onBack={() => {}}
+      />,
     );
 
     // Open the inline file menu via its trigger (shows the active file name).
@@ -181,7 +190,11 @@ describe("SkillDetailMobile", () => {
 
   test("markdown file: toggles between rendered preview and raw source", () => {
     render(
-      <SkillDetailMobile assistantId="asst-1" skill={makeSkill()} onBack={() => {}} />,
+      <SkillDetailMobile
+        assistantId="asst-1"
+        skill={makeSkill()}
+        onBack={() => {}}
+      />,
     );
 
     // Default is preview: rendered markdown (no raw <pre>, heading text shown).
@@ -204,7 +217,11 @@ describe("SkillDetailMobile", () => {
     setActiveFile(JSON_FILE);
 
     render(
-      <SkillDetailMobile assistantId="asst-1" skill={makeSkill()} onBack={() => {}} />,
+      <SkillDetailMobile
+        assistantId="asst-1"
+        skill={makeSkill()}
+        onBack={() => {}}
+      />,
     );
 
     expect(getButton("Preview").disabled).toBe(true);

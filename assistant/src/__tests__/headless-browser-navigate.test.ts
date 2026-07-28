@@ -180,7 +180,9 @@ function defaultCdpHandler(
   method: string,
   params?: Record<string, unknown>,
 ): unknown {
-  if (method === "Page.navigate") return { frameId: "f1" };
+  if (method === "Page.navigate") {
+    return { frameId: "f1" };
+  }
   if (method === "Runtime.evaluate") {
     const expression = String(params?.["expression"] ?? "");
     if (expression === "document.location.href") {
@@ -349,7 +351,9 @@ describe("executeBrowserNavigate", () => {
     // first poll. The combined poll returns a different href than
     // the requested URL — that's what triggers the "redirected" note.
     cdpSendHandler = (method, params) => {
-      if (method === "Page.navigate") return { frameId: "f1" };
+      if (method === "Page.navigate") {
+        return { frameId: "f1" };
+      }
       if (method === "Runtime.evaluate") {
         const expression = String(params?.["expression"] ?? "");
         if (expression === "document.location.href") {
@@ -389,7 +393,9 @@ describe("executeBrowserNavigate", () => {
   test("reports a timeout note when document.readyState never completes", async () => {
     parseUrlResult = new URL("https://example.com/slow");
     cdpSendHandler = (method, params) => {
-      if (method === "Page.navigate") return { frameId: "f1" };
+      if (method === "Page.navigate") {
+        return { frameId: "f1" };
+      }
       if (method === "Runtime.evaluate") {
         const expression = String(params?.["expression"] ?? "");
         if (expression === "document.location.href") {
@@ -517,7 +523,9 @@ describe("executeBrowserNavigate", () => {
     // wait loop ran. navigateAndWait combines readyState + href into a
     // single evaluate, so we look for any expression containing both.
     const readyStateCalls = cdpSendCalls.filter((c) => {
-      if (c.method !== "Runtime.evaluate") return false;
+      if (c.method !== "Runtime.evaluate") {
+        return false;
+      }
       const expr = (c.params as { expression?: string } | undefined)
         ?.expression;
       return (
@@ -635,7 +643,9 @@ describe("executeBrowserNavigate", () => {
     // navigateAndWait returns a private final URL (simulating a
     // server-side redirect).
     cdpSendHandler = (method, params) => {
-      if (method === "Page.navigate") return { frameId: "f1" };
+      if (method === "Page.navigate") {
+        return { frameId: "f1" };
+      }
       if (method === "Runtime.evaluate") {
         const expression = String(params?.["expression"] ?? "");
         if (expression === "document.location.href") {
@@ -679,7 +689,9 @@ describe("executeBrowserNavigate", () => {
     mockExtensionAvailable = true;
 
     cdpSendHandler = (method, params) => {
-      if (method === "Vellum.createTab") return { tabId: "999" };
+      if (method === "Vellum.createTab") {
+        return { tabId: "999" };
+      }
       return defaultCdpHandler(method, params);
     };
 
@@ -744,7 +756,9 @@ describe("executeBrowserNavigate", () => {
     mockExtensionAvailable = true;
 
     cdpSendHandler = (method, params) => {
-      if (method === "Vellum.createTab") return {}; // no tabId
+      if (method === "Vellum.createTab") {
+        return {};
+      } // no tabId
       return defaultCdpHandler(method, params);
     };
 
@@ -781,7 +795,9 @@ describe("executeBrowserNavigate", () => {
     mockExtensionAvailable = true;
 
     cdpSendHandler = (method, params) => {
-      if (method === "Vellum.createTab") return {}; // no tabId
+      if (method === "Vellum.createTab") {
+        return {};
+      } // no tabId
       return defaultCdpHandler(method, params);
     };
 
@@ -822,7 +838,9 @@ describe("executeBrowserNavigate", () => {
     mockExtensionAvailable = true;
 
     cdpSendHandler = (method, params) => {
-      if (method === "Vellum.createTab") return { tabId: "999" };
+      if (method === "Vellum.createTab") {
+        return { tabId: "999" };
+      }
       return defaultCdpHandler(method, params);
     };
 
@@ -876,7 +894,9 @@ describe("executeBrowserNavigate", () => {
     mockExtensionAvailable = true;
 
     cdpSendHandler = (method, params) => {
-      if (method === "Vellum.createTab") return { tabId: "1001" };
+      if (method === "Vellum.createTab") {
+        return { tabId: "1001" };
+      }
       return defaultCdpHandler(method, params);
     };
 
@@ -944,7 +964,9 @@ describe("executeBrowserNavigate", () => {
     // navigateAndWait returns a private final URL (simulating a
     // server-side redirect that the route handler didn't catch).
     cdpSendHandler = (method, params) => {
-      if (method === "Page.navigate") return { frameId: "f1" };
+      if (method === "Page.navigate") {
+        return { frameId: "f1" };
+      }
       if (method === "Runtime.evaluate") {
         const expression = String(params?.["expression"] ?? "");
         if (expression === "document.location.href") {

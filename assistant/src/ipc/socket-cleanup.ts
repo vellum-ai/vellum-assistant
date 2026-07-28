@@ -44,12 +44,16 @@ function makeAddrInUseError(message: string): NodeJS.ErrnoException {
  *   - Any other socket error → propagate.
  */
 export async function ensureSocketPathFree(socketPath: string): Promise<void> {
-  if (!existsSync(socketPath)) return;
+  if (!existsSync(socketPath)) {
+    return;
+  }
   await new Promise<void>((resolve, reject) => {
     const client = connect(socketPath);
     let settled = false;
     const settle = (action: () => void): void => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       client.removeAllListeners();

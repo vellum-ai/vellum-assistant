@@ -11,7 +11,9 @@ import type { GuardianDelivery } from "@vellumai/gateway-client";
 
 import { resolveAnchoredGuardian } from "./anchored-guardian.js";
 
-function gw(g: Partial<GuardianDelivery> & { channelType: string; address: string }): GuardianDelivery {
+function gw(
+  g: Partial<GuardianDelivery> & { channelType: string; address: string },
+): GuardianDelivery {
   return {
     contactId: `c-${g.channelType}`,
     status: "active",
@@ -23,8 +25,18 @@ describe("resolveAnchoredGuardian — gateway arm", () => {
   test("source-channel guardian matching the anchor wins", () => {
     const result = resolveAnchoredGuardian({
       guardians: [
-        gw({ channelType: "vellum", address: "v-addr", principalId: "p-anchor", displayName: "Vellum" }),
-        gw({ channelType: "telegram", address: "tg-addr", principalId: "p-anchor", displayName: "Alice" }),
+        gw({
+          channelType: "vellum",
+          address: "v-addr",
+          principalId: "p-anchor",
+          displayName: "Vellum",
+        }),
+        gw({
+          channelType: "telegram",
+          address: "tg-addr",
+          principalId: "p-anchor",
+          displayName: "Alice",
+        }),
       ],
       sourceChannel: "telegram",
     });
@@ -40,8 +52,18 @@ describe("resolveAnchoredGuardian — gateway arm", () => {
   test("source-channel guardian NOT matching the anchor falls back to vellum-anchor", () => {
     const result = resolveAnchoredGuardian({
       guardians: [
-        gw({ channelType: "vellum", address: "v-addr", principalId: "p-anchor", displayName: "Vellum" }),
-        gw({ channelType: "telegram", address: "tg-addr", principalId: "p-other", displayName: "Stale" }),
+        gw({
+          channelType: "vellum",
+          address: "v-addr",
+          principalId: "p-anchor",
+          displayName: "Vellum",
+        }),
+        gw({
+          channelType: "telegram",
+          address: "tg-addr",
+          principalId: "p-other",
+          displayName: "Stale",
+        }),
       ],
       sourceChannel: "telegram",
     });
@@ -57,7 +79,12 @@ describe("resolveAnchoredGuardian — gateway arm", () => {
   test("no source-channel guardian falls back to vellum-anchor", () => {
     const result = resolveAnchoredGuardian({
       guardians: [
-        gw({ channelType: "vellum", address: "v-addr", principalId: "p-anchor", displayName: "Vellum" }),
+        gw({
+          channelType: "vellum",
+          address: "v-addr",
+          principalId: "p-anchor",
+          displayName: "Vellum",
+        }),
       ],
       sourceChannel: "telegram",
     });
@@ -88,7 +115,12 @@ describe("resolveAnchoredGuardian — requireAnchorPrincipal (cosmetic label)", 
   test("vellum guardian with a null principal degrades to null", () => {
     const result = resolveAnchoredGuardian({
       guardians: [
-        gw({ channelType: "vellum", address: "v-addr", principalId: null, displayName: "Vellum" }),
+        gw({
+          channelType: "vellum",
+          address: "v-addr",
+          principalId: null,
+          displayName: "Vellum",
+        }),
       ],
       sourceChannel: "telegram",
       requireAnchorPrincipal: true,
@@ -99,7 +131,12 @@ describe("resolveAnchoredGuardian — requireAnchorPrincipal (cosmetic label)", 
   test("without requireAnchorPrincipal a null-principal vellum still resolves", () => {
     const result = resolveAnchoredGuardian({
       guardians: [
-        gw({ channelType: "vellum", address: "v-addr", principalId: null, displayName: "Vellum" }),
+        gw({
+          channelType: "vellum",
+          address: "v-addr",
+          principalId: null,
+          displayName: "Vellum",
+        }),
       ],
       sourceChannel: "telegram",
     });

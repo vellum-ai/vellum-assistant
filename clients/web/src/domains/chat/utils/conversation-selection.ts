@@ -33,11 +33,15 @@ function isStoredConversationSelectable(
   const conversation = conversations.find(
     (item) => item.conversationId === key,
   );
-  if (!conversation) return false;
+  if (!conversation) {
+    return false;
+  }
   // Surfaced conversations (`surfacedAt != null`) render in Recents even
   // when their underlying type is background/scheduled, so restoring them
   // on reload is expected — the user can see and select them in the sidebar.
-  if (conversation.surfacedAt != null) return true;
+  if (conversation.surfacedAt != null) {
+    return true;
+  }
   return (
     conversation.conversationType !== "background" &&
     conversation.conversationType !== "scheduled" &&

@@ -21,24 +21,32 @@ export const speechModeToProviderMigration: WorkspaceMigration = {
     "Fold services.stt/tts mode into provider (managed -> provider: vellum)",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return; // Malformed JSON — skip
     }
 
     const services = readObj(config, "services");
-    if (!services) return;
+    if (!services) {
+      return;
+    }
 
     let changed = false;
     for (const key of ["stt", "tts"]) {
       const service = readObj(services, key);
-      if (!service || !("mode" in service)) continue;
+      if (!service || !("mode" in service)) {
+        continue;
+      }
 
       if (service.mode === "managed") {
         service.provider = "vellum";
@@ -53,24 +61,32 @@ export const speechModeToProviderMigration: WorkspaceMigration = {
   },
   down(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const services = readObj(config, "services");
-    if (!services) return;
+    if (!services) {
+      return;
+    }
 
     let changed = false;
     for (const key of ["stt", "tts"]) {
       const service = readObj(services, key);
-      if (!service || "mode" in service) continue;
+      if (!service || "mode" in service) {
+        continue;
+      }
 
       // The pre-migration schema accepts provider "vellum" alongside mode
       // "managed", so the managed pair round-trips exactly. What a managed

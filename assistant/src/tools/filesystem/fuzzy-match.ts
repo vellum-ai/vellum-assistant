@@ -20,8 +20,12 @@ export function levenshtein(a: string, b: string): number {
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
     Array(n + 1).fill(0),
   );
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 0; i <= m; i++) {
+    dp[i][0] = i;
+  }
+  for (let j = 0; j <= n; j++) {
+    dp[0][j] = j;
+  }
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
       dp[i][j] =
@@ -35,7 +39,9 @@ export function levenshtein(a: string, b: string): number {
 
 function lineSimilarity(a: string, b: string): number {
   const maxLen = Math.max(a.length, b.length);
-  if (maxLen === 0) return 1;
+  if (maxLen === 0) {
+    return 1;
+  }
   return 1 - levenshtein(a, b) / maxLen;
 }
 
@@ -55,7 +61,9 @@ function indexLines(content: string): IndexedLine[] {
 
 function tryExactMatch(content: string, target: string): MatchResult | null {
   const idx = content.indexOf(target);
-  if (idx === -1) return null;
+  if (idx === -1) {
+    return null;
+  }
   return {
     start: idx,
     end: idx + target.length,
@@ -87,7 +95,9 @@ function tryWhitespaceMatch(
 ): MatchResult[] {
   const results: MatchResult[] = [];
   const windowSize = targetNorm.length;
-  if (windowSize === 0 || contentLines.length < windowSize) return results;
+  if (windowSize === 0 || contentLines.length < windowSize) {
+    return results;
+  }
 
   for (let i = 0; i <= contentLines.length - windowSize; i++) {
     let allMatch = true;
@@ -123,7 +133,9 @@ function tryFuzzyMatch(
 ): MatchResult[] {
   const results: MatchResult[] = [];
   const windowSize = targetNorm.length;
-  if (windowSize === 0 || contentLines.length < windowSize) return results;
+  if (windowSize === 0 || contentLines.length < windowSize) {
+    return results;
+  }
 
   for (let i = 0; i <= contentLines.length - windowSize; i++) {
     let totalSimilarity = 0;
@@ -156,36 +168,52 @@ function tryFuzzyMatch(
 const FUZZY_THRESHOLD = 0.8;
 
 export function findMatch(content: string, target: string): MatchResult | null {
-  if (target.length === 0) return null;
+  if (target.length === 0) {
+    return null;
+  }
 
   const exact = tryExactMatch(content, target);
-  if (exact) return exact;
+  if (exact) {
+    return exact;
+  }
 
   const contentLines = indexLines(content);
   const targetNorm = normalizeLines(target);
 
   const wsMatches = tryWhitespaceMatch(contentLines, targetNorm);
-  if (wsMatches.length === 1) return wsMatches[0];
-  if (wsMatches.length > 1) return wsMatches[0]; // findAllMatches handles ambiguity
+  if (wsMatches.length === 1) {
+    return wsMatches[0];
+  }
+  if (wsMatches.length > 1) {
+    return wsMatches[0];
+  } // findAllMatches handles ambiguity
 
   const fuzzyMatches = tryFuzzyMatch(contentLines, targetNorm, FUZZY_THRESHOLD);
-  if (fuzzyMatches.length === 0) return null;
+  if (fuzzyMatches.length === 0) {
+    return null;
+  }
 
   fuzzyMatches.sort((a, b) => b.similarity - a.similarity);
   return fuzzyMatches[0];
 }
 
 export function findAllMatches(content: string, target: string): MatchResult[] {
-  if (target.length === 0) return [];
+  if (target.length === 0) {
+    return [];
+  }
 
   const exactMatches = findAllExactMatches(content, target);
-  if (exactMatches.length > 0) return exactMatches;
+  if (exactMatches.length > 0) {
+    return exactMatches;
+  }
 
   const contentLines = indexLines(content);
   const targetNorm = normalizeLines(target);
 
   const wsMatches = tryWhitespaceMatch(contentLines, targetNorm);
-  if (wsMatches.length > 0) return wsMatches;
+  if (wsMatches.length > 0) {
+    return wsMatches;
+  }
 
   const fuzzyMatches = tryFuzzyMatch(contentLines, targetNorm, FUZZY_THRESHOLD);
   fuzzyMatches.sort((a, b) => b.similarity - a.similarity);
@@ -199,7 +227,9 @@ function getLeadingWhitespace(line: string): string {
 
 function findFirstNonEmptyLine(str: string): string | null {
   for (const line of str.split("\n")) {
-    if (line.trim().length > 0) return line;
+    if (line.trim().length > 0) {
+      return line;
+    }
   }
   return null;
 }
@@ -211,11 +241,15 @@ export function adjustIndentation(
 ): string {
   const oldLine = findFirstNonEmptyLine(oldString);
   const matchedLine = findFirstNonEmptyLine(matched);
-  if (!oldLine || !matchedLine) return newString;
+  if (!oldLine || !matchedLine) {
+    return newString;
+  }
 
   const oldIndent = getLeadingWhitespace(oldLine);
   const matchedIndent = getLeadingWhitespace(matchedLine);
-  if (oldIndent === matchedIndent) return newString;
+  if (oldIndent === matchedIndent) {
+    return newString;
+  }
 
   const oldLen = oldIndent.length;
   const matchedLen = matchedIndent.length;
@@ -223,7 +257,9 @@ export function adjustIndentation(
   return newString
     .split("\n")
     .map((line) => {
-      if (line.trim().length === 0) return line;
+      if (line.trim().length === 0) {
+        return line;
+      }
       const currentIndent = getLeadingWhitespace(line);
       if (matchedLen > oldLen) {
         const diff = matchedIndent.slice(0, matchedLen - oldLen);

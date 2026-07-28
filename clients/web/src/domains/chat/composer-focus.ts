@@ -64,14 +64,24 @@ export function shouldFocusComposerForTyping(
   event: ComposerTypingKeyEvent,
   activeElement: Element | null,
 ): boolean {
-  if (event.defaultPrevented) return false;
-  if (event.metaKey || event.ctrlKey || event.altKey) return false;
-  if (event.isComposing || event.keyCode === 229) return false;
+  if (event.defaultPrevented) {
+    return false;
+  }
+  if (event.metaKey || event.ctrlKey || event.altKey) {
+    return false;
+  }
+  if (event.isComposing || event.keyCode === 229) {
+    return false;
+  }
   // `event.key` is typed as `string` but synthetic / extension-dispatched
   // KeyboardEvents observed in production have arrived with no `key`
   // property at all. Guard before reading `.length`.
-  if (typeof event.key !== "string" || event.key.length !== 1) return false;
-  if (isTextEntryElement(activeElement)) return false;
+  if (typeof event.key !== "string" || event.key.length !== 1) {
+    return false;
+  }
+  if (isTextEntryElement(activeElement)) {
+    return false;
+  }
   if (event.key === " " && isKeyboardActivationElement(activeElement)) {
     return false;
   }
@@ -93,10 +103,7 @@ export function insertTextAtSelection({
     0,
     Math.min(selectionStart ?? value.length, value.length),
   );
-  const end = Math.max(
-    start,
-    Math.min(selectionEnd ?? start, value.length),
-  );
+  const end = Math.max(start, Math.min(selectionEnd ?? start, value.length));
   const nextValue = value.slice(0, start) + text + value.slice(end);
   return { value: nextValue, cursor: start + text.length };
 }

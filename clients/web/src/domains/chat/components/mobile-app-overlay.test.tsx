@@ -17,9 +17,8 @@ mock.module("@/hooks/use-mobile-overlay-viewport-style", () => ({
   useMobileOverlayViewportStyle: () => ({}),
 }));
 
-const { MobileAppOverlay } = await import(
-  "@/domains/chat/components/mobile-app-overlay"
-);
+const { MobileAppOverlay } =
+  await import("@/domains/chat/components/mobile-app-overlay");
 
 function renderOverlay(isAppMinimized: boolean): string {
   return renderToStaticMarkup(

@@ -211,11 +211,7 @@ describe("shouldAttachHostProxyForCapability", () => {
     test("returns false for web source when only a different actor is capable", () => {
       setCapableClient("host_app_control", true, "user-other");
       expect(
-        shouldAttachHostProxyForCapability(
-          "host_app_control",
-          "web",
-          "user-1",
-        ),
+        shouldAttachHostProxyForCapability("host_app_control", "web", "user-1"),
       ).toBe(false);
     });
 

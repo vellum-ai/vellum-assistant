@@ -22,7 +22,9 @@ export async function retryForResult<T>(
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const result = await attempt();
-      if (result !== null) return result;
+      if (result !== null) {
+        return result;
+      }
     } catch {
       // Treat a throw like an unusable result and retry. The provider layer has
       // already backed off transient errors, so there is nothing to wait for.

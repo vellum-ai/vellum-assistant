@@ -25,7 +25,9 @@ describe("FileMarkdown", () => {
   test("forwards sanitized presentational attributes (align/width)", () => {
     const html = renderToStaticMarkup(
       <FileMarkdown
-        content={'<h1 align="center">caveman</h1>\n\n<img src="https://example.com/x.png" width="120" alt="x" />'}
+        content={
+          '<h1 align="center">caveman</h1>\n\n<img src="https://example.com/x.png" width="120" alt="x" />'
+        }
       />,
     );
 
@@ -37,9 +39,7 @@ describe("FileMarkdown", () => {
   test("strips unsafe HTML (scripts and event handlers)", () => {
     const html = renderToStaticMarkup(
       <FileMarkdown
-        content={
-          '<p onclick="steal()">click</p>\n\n<script>alert(1)</script>'
-        }
+        content={'<p onclick="steal()">click</p>\n\n<script>alert(1)</script>'}
       />,
     );
 

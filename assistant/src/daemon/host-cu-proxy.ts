@@ -84,10 +84,15 @@ function canonicalizeKeyCombo(key: string): string {
   let base = "";
   for (const raw of key.toLowerCase().split("+")) {
     const part = raw.trim();
-    if (part.length === 0) continue;
+    if (part.length === 0) {
+      continue;
+    }
     const mod = KEY_MODIFIER_ALIASES[part];
-    if (mod) mods.add(mod);
-    else base = part; // last non-modifier wins, matching the executor
+    if (mod) {
+      mods.add(mod);
+    } else {
+      base = part;
+    } // last non-modifier wins, matching the executor
   }
   return [...KEY_MODIFIER_ORDER.filter((m) => mods.has(m)), base]
     .filter((s) => s.length > 0)
@@ -125,7 +130,9 @@ export interface ActionRecord {
  * an empty diff is expected rather than a sign the action did nothing.
  */
 function isNoDiffKeyAction(action: ActionRecord | undefined): boolean {
-  if (action?.toolName !== "computer_use_key") return false;
+  if (action?.toolName !== "computer_use_key") {
+    return false;
+  }
   const key = action.input.key;
   return (
     typeof key === "string" &&
@@ -291,7 +298,9 @@ export class HostCuProxy {
         targetClientId: resolvedTargetClientId,
         op: "host_cu",
       });
-      if (rejection) return Promise.resolve(rejection);
+      if (rejection) {
+        return Promise.resolve(rejection);
+      }
     }
 
     const requestId = uuid();
@@ -559,7 +568,9 @@ export class HostCuProxy {
   dispose(): void {
     for (const requestId of this._ownedRequests) {
       const entry = pendingInteractions.resolve(requestId, "cancelled");
-      if (!entry) continue;
+      if (!entry) {
+        continue;
+      }
       const { conversationId } = entry;
       try {
         if (conversationId !== undefined) {
@@ -613,7 +624,9 @@ export class HostCuProxy {
   }
 
   private formatScreenshotMetadata(obs: CuObservationResult): string[] {
-    if (!obs.screenshot) return [];
+    if (!obs.screenshot) {
+      return [];
+    }
 
     const lines: string[] = [];
     if (obs.screenshotWidthPx != null && obs.screenshotHeightPx != null) {

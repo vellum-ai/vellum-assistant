@@ -22,7 +22,9 @@ const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   // Hidden machine signals (e.g. the channel-setup wizard-close marker) are
   // not user speech — a title minted from one would surface invisible
   // scaffolding text in the sidebar, and the LLM call is wasted.
-  if (ctx.isHiddenPrompt) return;
+  if (ctx.isHiddenPrompt) {
+    return;
+  }
 
   // System conversations (background/scheduled) carry a deterministic title
   // from bootstrap. Their own job prompts arrive as non-interactive turns and
@@ -33,7 +35,9 @@ const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   if (ctx.isNonInteractive) {
     try {
       const conversation = getConversation(ctx.conversationId);
-      if (conversation && conversation.conversationType !== "standard") return;
+      if (conversation && conversation.conversationType !== "standard") {
+        return;
+      }
     } catch {
       // Fall through to queueing.
     }

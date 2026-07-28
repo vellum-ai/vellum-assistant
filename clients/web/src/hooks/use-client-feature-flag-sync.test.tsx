@@ -36,15 +36,12 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReadinessValue === "ready",
 }));
 
-const { useClientFeatureFlagSync } = await import(
-  "@/hooks/use-client-feature-flag-sync"
-);
-const { useClientFeatureFlagStore } = await import(
-  "@/stores/client-feature-flag-store"
-);
-const { featureFlagsClientFlagValuesRetrieveQueryKey } = await import(
-  "@/generated/api/@tanstack/react-query.gen"
-);
+const { useClientFeatureFlagSync } =
+  await import("@/hooks/use-client-feature-flag-sync");
+const { useClientFeatureFlagStore } =
+  await import("@/stores/client-feature-flag-store");
+const { featureFlagsClientFlagValuesRetrieveQueryKey } =
+  await import("@/generated/api/@tanstack/react-query.gen");
 
 const FLAG_QUERY_KEY = featureFlagsClientFlagValuesRetrieveQueryKey();
 const initialFlagState = useClientFeatureFlagStore.getState();
@@ -238,9 +235,9 @@ describe("useClientFeatureFlagSync", () => {
     await waitFor(() => {
       expect(useClientFeatureFlagStore.getState().hydrated).toBe(true);
     });
-    expect(
-      useClientFeatureFlagStore.getState().marketingPricingTakeover,
-    ).toBe(true);
+    expect(useClientFeatureFlagStore.getState().marketingPricingTakeover).toBe(
+      true,
+    );
   });
 
   test("drops a response whose scope was superseded before it applied", async () => {

@@ -26,7 +26,9 @@ export function vellumRoot(): string {
   const override = getWorkspaceDirOverride();
   if (override) {
     const parent = dirname(override);
-    if (parent !== "/") return parent;
+    if (parent !== "/") {
+      return parent;
+    }
   }
   return VELLUM_ROOT;
 }
@@ -63,10 +65,14 @@ export function getPlatformName(): string {
  * so both sides use a consistent DB key.
  */
 export function normalizeAssistantId(assistantId: string): string {
-  if (assistantId === "self") return "self";
+  if (assistantId === "self") {
+    return "self";
+  }
 
   const ownName = process.env.VELLUM_ASSISTANT_NAME;
-  if (ownName && assistantId === ownName) return "self";
+  if (ownName && assistantId === ownName) {
+    return "self";
+  }
 
   return assistantId;
 }
@@ -183,8 +189,12 @@ const KNOWN_ENVIRONMENTS: ReadonlySet<string> = new Set(Object.keys(SEEDS));
  */
 export function getXdgVellumConfigDirName(): string {
   const raw = process.env.VELLUM_ENVIRONMENT?.trim();
-  if (!raw || raw === "production") return "vellum";
-  if (!KNOWN_ENVIRONMENTS.has(raw)) return "vellum";
+  if (!raw || raw === "production") {
+    return "vellum";
+  }
+  if (!KNOWN_ENVIRONMENTS.has(raw)) {
+    return "vellum";
+  }
   return `vellum-${raw}`;
 }
 
@@ -333,7 +343,9 @@ export function getProcPidPath(name: string): string {
  */
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();
-  if (override) return override;
+  if (override) {
+    return override;
+  }
   return join(VELLUM_ROOT, "workspace");
 }
 

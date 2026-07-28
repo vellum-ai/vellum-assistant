@@ -84,11 +84,7 @@ describe("CollapsibleNavSection", () => {
             value: "pinned",
             icon: Clock,
             label: "Pinned",
-            trailing: createElement(
-              "button",
-              { type: "button" },
-              "action",
-            ),
+            trailing: createElement("button", { type: "button" }, "action"),
           },
           null,
         ),

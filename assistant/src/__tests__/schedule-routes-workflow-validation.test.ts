@@ -46,7 +46,9 @@ function patchRoute(): RouteDefinition {
   const route = SCHEDULE_ROUTES.find(
     (r) => r.endpoint === "schedules/:id" && r.method === "PATCH",
   );
-  if (!route) throw new Error("PATCH schedules/:id route not found");
+  if (!route) {
+    throw new Error("PATCH schedules/:id route not found");
+  }
   return route;
 }
 
@@ -54,7 +56,9 @@ function createRoute(): RouteDefinition {
   const route = SCHEDULE_ROUTES.find(
     (r) => r.endpoint === "schedules" && r.method === "POST",
   );
-  if (!route) throw new Error("POST schedules route not found");
+  if (!route) {
+    throw new Error("POST schedules route not found");
+  }
   return route;
 }
 
@@ -62,7 +66,9 @@ function runNowRoute(): RouteDefinition {
   const route = SCHEDULE_ROUTES.find(
     (r) => r.endpoint === "schedules/:id/run" && r.method === "POST",
   );
-  if (!route) throw new Error("POST schedules/:id/run route not found");
+  if (!route) {
+    throw new Error("POST schedules/:id/run route not found");
+  }
   return route;
 }
 

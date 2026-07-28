@@ -1,6 +1,12 @@
 import { useState } from "react";
 
-import { ArrowLeft, AudioLines, Captions, MicOff, Settings } from "lucide-react";
+import {
+  ArrowLeft,
+  AudioLines,
+  Captions,
+  MicOff,
+  Settings,
+} from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -147,7 +153,9 @@ export function VoiceFirstRunCard({
                   />
                 </span>
                 <div className="flex min-w-0 flex-col">
-                  <Modal.Title className="leading-tight">Voice mode</Modal.Title>
+                  <Modal.Title className="leading-tight">
+                    Voice mode
+                  </Modal.Title>
                   <Modal.Description>
                     A hands-free, spoken conversation with{" "}
                     {assistantName ?? "your assistant"}.
@@ -254,7 +262,9 @@ function VoiceSettingsView({
           <div className="flex min-w-0 flex-col">
             <Modal.Title className="leading-tight">Voices</Modal.Title>
             {available && (
-              <Modal.Description>{MANAGED_VOICE_CREDITS_NOTE}</Modal.Description>
+              <Modal.Description>
+                {MANAGED_VOICE_CREDITS_NOTE}
+              </Modal.Description>
             )}
           </div>
         </div>

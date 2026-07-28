@@ -5,14 +5,7 @@
  * background backlog.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -55,9 +48,8 @@ mock.module("@/utils/conversation-cache-mutations", () => ({
   resolveDraftKey: () => {},
 }));
 
-const { useActiveConversation } = await import(
-  "@/domains/chat/hooks/use-active-conversation"
-);
+const { useActiveConversation } =
+  await import("@/domains/chat/hooks/use-active-conversation");
 
 function makeConversation(conversationId: string): Conversation {
   return { conversationId } as Conversation;
@@ -185,10 +177,9 @@ describe("useActiveConversation", () => {
     backgroundImpl = [];
 
     // WHEN the hook runs with org not ready
-    renderHook(
-      () => useActiveConversation("asst-1", "bg-unloaded", true),
-      { wrapper },
-    );
+    renderHook(() => useActiveConversation("asst-1", "bg-unloaded", true), {
+      wrapper,
+    });
 
     // THEN no fetch is issued (prevents 400 org-header errors)
     await Promise.resolve();

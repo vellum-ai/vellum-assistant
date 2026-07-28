@@ -56,7 +56,9 @@ for (const [path, methods] of Object.entries(sourcePaths)) {
   const newPath = `/v1/assistants/{assistant_id}/${rest}`;
 
   for (const [key, value] of Object.entries(methods)) {
-    if (key === "parameters") continue;
+    if (key === "parameters") {
+      continue;
+    }
     const operation = value as Record<string, unknown>;
     const params = (operation.parameters ?? []) as Array<
       Record<string, unknown>

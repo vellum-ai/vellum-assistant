@@ -260,8 +260,7 @@ export function AvatarTour({
   const goTo = useCallback(
     async (index: number) => {
       const epoch = ++epochRef.current;
-      const superseded = () =>
-        epochRef.current !== epoch || !activeRef.current;
+      const superseded = () => epochRef.current !== epoch || !activeRef.current;
       const beats = beatsRef.current;
       if (index < 0) {
         return;

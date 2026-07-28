@@ -20,7 +20,9 @@ export class Spinner {
   }
 
   start(message: string): void {
-    if (!process.stderr.isTTY) return;
+    if (!process.stderr.isTTY) {
+      return;
+    }
     this.stop();
     this.message = message;
     this.startTime = Date.now();
@@ -31,7 +33,9 @@ export class Spinner {
   }
 
   stop(): void {
-    if (!this.active) return;
+    if (!this.active) {
+      return;
+    }
     this.active = false;
     if (this.timer) {
       clearInterval(this.timer);

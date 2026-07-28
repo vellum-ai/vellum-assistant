@@ -35,9 +35,13 @@ export function findUnknownAllowlistTools(
 ): UnknownAllowlistTool[] {
   const unknown: UnknownAllowlistTool[] = [];
   for (const [role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
-    if (!config.allowedTools) continue;
+    if (!config.allowedTools) {
+      continue;
+    }
     for (const tool of config.allowedTools) {
-      if (!registeredToolNames.has(tool)) unknown.push({ role, tool });
+      if (!registeredToolNames.has(tool)) {
+        unknown.push({ role, tool });
+      }
     }
   }
   return unknown;

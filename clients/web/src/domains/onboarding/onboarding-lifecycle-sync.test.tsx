@@ -437,7 +437,9 @@ describe("onboarding lifecycle sync", () => {
     let assistantCalls = 0;
     getAssistantImpl = async () => {
       assistantCalls += 1;
-      if (assistantCalls === 1) throw new Error("transient pre-flight failure");
+      if (assistantCalls === 1) {
+        throw new Error("transient pre-flight failure");
+      }
       return assistantResult("active");
     };
     hatchAssistantMock.mockResolvedValueOnce(assistantResult("active"));
@@ -460,7 +462,9 @@ describe("onboarding lifecycle sync", () => {
     let assistantCalls = 0;
     getAssistantImpl = async () => {
       assistantCalls += 1;
-      if (assistantCalls === 1) return { ok: false, status: 404, error: {} };
+      if (assistantCalls === 1) {
+        return { ok: false, status: 404, error: {} };
+      }
       return assistantResult("active");
     };
     hatchAssistantMock.mockImplementationOnce(async () => {

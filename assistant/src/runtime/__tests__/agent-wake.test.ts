@@ -187,7 +187,9 @@ mock.module("../assistant-event-hub.js", () => ({
     const probe = frame.conversationId
       ? wakeConvRegistry.get(frame.conversationId)
       : undefined;
-    if (!probe) return;
+    if (!probe) {
+      return;
+    }
     if (frame.type === "ui_surface_show") {
       const source = (
         frame.data as

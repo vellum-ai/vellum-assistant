@@ -30,7 +30,9 @@ function makeSurface(overrides: Partial<Surface> = {}): Surface {
 
 describe("SurfaceRouter error boundary", () => {
   test("contains a surface render failure behind an inline fallback", () => {
-    const { getByRole } = render(<SurfaceRouter surface={makeSurface()} onAction={() => {}} />);
+    const { getByRole } = render(
+      <SurfaceRouter surface={makeSurface()} onAction={() => {}} />,
+    );
 
     const alert = getByRole("alert");
     expect(alert.textContent).toContain("My App");

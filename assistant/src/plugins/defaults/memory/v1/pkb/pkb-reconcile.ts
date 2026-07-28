@@ -82,7 +82,9 @@ export async function reconcilePkbIndex(
       typeof payload.content_hash === "string"
         ? payload.content_hash
         : undefined;
-    if (!path || !contentHash) continue;
+    if (!path || !contentHash) {
+      continue;
+    }
     const existing = indexedByPath.get(path);
     if (!existing) {
       indexedByPath.set(path, { contentHash, mixed: false });

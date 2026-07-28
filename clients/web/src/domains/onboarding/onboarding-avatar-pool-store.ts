@@ -63,7 +63,9 @@ const useOnboardingAvatarPoolStoreBase = create<OnboardingAvatarPoolState>(
     characters: [],
     selectedIndex: 0,
     ensureGenerated: () => {
-      if (get().characters.length > 0) return;
+      if (get().characters.length > 0) {
+        return;
+      }
       set({ characters: HARDCODED_POOL, selectedIndex: 0 });
     },
     setSelectedIndex: (index) => set({ selectedIndex: index }),

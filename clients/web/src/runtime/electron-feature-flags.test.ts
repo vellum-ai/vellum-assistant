@@ -37,9 +37,8 @@ mock.module("@/lib/feature-flags/feature-flag-catalog", () => ({
   storeKeyToFlagKey: (key: string) => key,
 }));
 
-const { useElectronFeatureFlagBridge } = await import(
-  "./electron-feature-flags"
-);
+const { useElectronFeatureFlagBridge } =
+  await import("./electron-feature-flags");
 
 afterEach(() => {
   cleanup();

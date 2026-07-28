@@ -62,7 +62,9 @@ export async function elevatePointerConversationToGuardian(
     isOwnerContext &&
     !resolveCapabilities(priorTrustClass).canAccessMemory &&
     !conversation.isProcessing();
-  if (!shouldElevate) return () => {};
+  if (!shouldElevate) {
+    return () => {};
+  }
 
   conversation.setTrustContext(INTERNAL_GUARDIAN_TRUST_CONTEXT);
   await conversation.ensureActorScopedHistory();

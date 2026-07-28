@@ -10,7 +10,8 @@ const TRUST_BADGE: Record<
 > = {
   verified: {
     label: "Verified",
-    className: "bg-[var(--system-positive-weak)] text-[var(--system-positive-strong)]",
+    className:
+      "bg-[var(--system-positive-weak)] text-[var(--system-positive-strong)]",
   },
   signed: {
     label: "Signed",
@@ -22,7 +23,8 @@ const TRUST_BADGE: Record<
   },
   tampered: {
     label: "Tampered — signature invalid",
-    className: "bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]",
+    className:
+      "bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]",
   },
 };
 
@@ -32,7 +34,9 @@ export function BundleConfirmPage() {
 
   useEffect(() => {
     void window.vellum?.bundleConfirm?.getData().then((d) => {
-      if (d) setData(d);
+      if (d) {
+        setData(d);
+      }
     });
   }, []);
 

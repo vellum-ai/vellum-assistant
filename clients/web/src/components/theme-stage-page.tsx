@@ -56,7 +56,11 @@ export function parseThemeStageTokens(
   }
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
       return undefined;
     }
     const tokens: Record<string, string> = {};
@@ -264,8 +268,8 @@ function ChatView() {
           Perfect. Send it to the team in the morning.
         </StageUserMessage>
         <StageAssistantMessage>
-          Scheduled for 9am. I'll include the charts and a one-paragraph
-          version for anyone skimming on their phone.
+          Scheduled for 9am. I'll include the charts and a one-paragraph version
+          for anyone skimming on their phone.
         </StageAssistantMessage>
       </div>
       <div className="flex items-end gap-2 border-t border-[var(--border-base)] px-5 py-4">

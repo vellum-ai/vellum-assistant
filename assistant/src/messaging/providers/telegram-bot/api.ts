@@ -88,7 +88,9 @@ function computeDelay(
     const targetTime = new Date(retryAfterHeader).getTime();
     if (Number.isFinite(targetTime)) {
       const delayMs = targetTime - Date.now();
-      if (delayMs > 0) return Math.min(delayMs, 2_147_483_647);
+      if (delayMs > 0) {
+        return Math.min(delayMs, 2_147_483_647);
+      }
     }
   }
   const exponential = initialBackoffMs * Math.pow(2, attempt - 1);

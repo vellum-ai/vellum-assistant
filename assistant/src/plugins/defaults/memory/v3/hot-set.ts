@@ -51,7 +51,9 @@ interface SelectionAgeRow {
  */
 export function computeHotSet(opts: HotSetOptions): HotSetEntry[] {
   const { k, halfLifeMs, now, excludeSlugs } = opts;
-  if (k <= 0) return [];
+  if (k <= 0) {
+    return [];
+  }
 
   const raw = memorySqliteOrNull("computeHotSet");
   if (!raw) {
@@ -68,7 +70,9 @@ export function computeHotSet(opts: HotSetOptions): HotSetEntry[] {
 
   const scores = new Map<Slug, number>();
   for (const row of rows) {
-    if (excludeSlugs.has(row.slug)) continue;
+    if (excludeSlugs.has(row.slug)) {
+      continue;
+    }
     // Clamp future-dated rows (clock skew) to "now" rather than letting them
     // score above 1 per selection.
     const age = Math.max(0, now - row.created_at);

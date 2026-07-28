@@ -47,11 +47,7 @@ function createQueryClient(): QueryClient {
   });
 }
 
-function AuthScopedQueryClientProvider({
-  children,
-}: {
-  children: ReactNode;
-}) {
+function AuthScopedQueryClientProvider({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => createQueryClient());
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -75,11 +71,7 @@ function RequestScopedQueryClientProvider({
   );
 }
 
-function ScopeKeyedQueryClientProvider({
-  children,
-}: {
-  children: ReactNode;
-}) {
+function ScopeKeyedQueryClientProvider({ children }: { children: ReactNode }) {
   const isAuthenticated = useIsAuthenticated();
   const user = useAuthStore.use.user();
   // The organization is the one requests carry, which is the store's resolved

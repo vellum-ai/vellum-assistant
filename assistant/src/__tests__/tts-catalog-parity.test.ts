@@ -193,7 +193,9 @@ describe("TTS catalog parity: daemon vs client", () => {
     const violations: string[] = [];
 
     for (const clientEntry of clientCatalog.providers) {
-      if (clientEntry.credentialMode !== "api-key") continue;
+      if (clientEntry.credentialMode !== "api-key") {
+        continue;
+      }
 
       try {
         const daemonEntry = getCatalogProvider(clientEntry.id as TtsProviderId);
@@ -227,7 +229,9 @@ describe("TTS catalog parity: daemon vs client", () => {
     const violations: string[] = [];
 
     for (const clientEntry of clientCatalog.providers) {
-      if (clientEntry.credentialMode !== "credential") continue;
+      if (clientEntry.credentialMode !== "credential") {
+        continue;
+      }
 
       try {
         const daemonEntry = getCatalogProvider(clientEntry.id as TtsProviderId);

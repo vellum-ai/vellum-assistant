@@ -157,9 +157,10 @@ describe("postChatMessage — enabledPlugins wire format", () => {
       enabledPlugins: ["alpha", "zeta"],
     });
 
-    expect(
-      (capturedBody as Record<string, unknown>).enabledPlugins,
-    ).toEqual(["alpha", "zeta"]);
+    expect((capturedBody as Record<string, unknown>).enabledPlugins).toEqual([
+      "alpha",
+      "zeta",
+    ]);
   });
 
   test("includes an explicit empty selection (user disabled every plugin)", async () => {
@@ -199,9 +200,9 @@ describe("postChatMessage — bypassSecretCheck wire format", () => {
       bypassSecretCheck: true,
     });
 
-    expect(
-      (capturedBody as Record<string, unknown>).bypassSecretCheck,
-    ).toBe(true);
+    expect((capturedBody as Record<string, unknown>).bypassSecretCheck).toBe(
+      true,
+    );
   });
 
   test("omits bypassSecretCheck on an ordinary send", async () => {
@@ -236,9 +237,9 @@ describe("queued message request context", () => {
   });
 
   test("sends conversation context in both the query and header when steering", async () => {
-    expect(
-      await steerToMessage("assistant-1", "conv-1", "request-1"),
-    ).toBe("steered");
+    expect(await steerToMessage("assistant-1", "conv-1", "request-1")).toBe(
+      "steered",
+    );
 
     expect(capturedPostOptions?.query).toEqual({ conversationId: "conv-1" });
     expect(capturedPostOptions?.headers).toEqual({
@@ -253,9 +254,9 @@ describe("queued message request context", () => {
       response: new Response(null, { status: 404 }),
     };
 
-    expect(
-      await steerToMessage("assistant-1", "conv-1", "request-1"),
-    ).toBe("not_steerable");
+    expect(await steerToMessage("assistant-1", "conv-1", "request-1")).toBe(
+      "not_steerable",
+    );
   });
 
   test("restores queue state when the conversation stopped processing", async () => {
@@ -265,9 +266,9 @@ describe("queued message request context", () => {
       response: new Response(null, { status: 400 }),
     };
 
-    expect(
-      await steerToMessage("assistant-1", "conv-1", "request-1"),
-    ).toBe("request_failed");
+    expect(await steerToMessage("assistant-1", "conv-1", "request-1")).toBe(
+      "request_failed",
+    );
   });
 
   test("classifies server steer failures as retryable request failures", async () => {
@@ -277,9 +278,9 @@ describe("queued message request context", () => {
       response: new Response(null, { status: 500 }),
     };
 
-    expect(
-      await steerToMessage("assistant-1", "conv-1", "request-1"),
-    ).toBe("request_failed");
+    expect(await steerToMessage("assistant-1", "conv-1", "request-1")).toBe(
+      "request_failed",
+    );
   });
 });
 
@@ -448,8 +449,14 @@ describe("normalizeContentBlocks", () => {
     // `mapRuntimeToolCalls` path synthesizes, so the block-native renderer can
     // key it instead of dropping it
     expect(result).toEqual([
-      { type: "tool_use", toolCall: { name: "bash", input: {}, id: "tool-history-msg-7-0" } },
-      { type: "tool_use", toolCall: { name: "edit", input: {}, id: "tool-history-msg-7-1" } },
+      {
+        type: "tool_use",
+        toolCall: { name: "bash", input: {}, id: "tool-history-msg-7-0" },
+      },
+      {
+        type: "tool_use",
+        toolCall: { name: "edit", input: {}, id: "tool-history-msg-7-1" },
+      },
     ]);
   });
 
@@ -614,7 +621,9 @@ describe("postChatMessage — daemon error envelope handling", () => {
     const result = await postChatMessage("asst-1", "conv-key", "secret token");
 
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected failure result");
+    if (result.ok) {
+      throw new Error("expected failure result");
+    }
     expect(result.status).toBe(422);
     expect(result.error.code).toBe("secret_blocked");
     expect(result.error.detail).toBe(
@@ -632,7 +641,9 @@ describe("postChatMessage — daemon error envelope handling", () => {
     const result = await postChatMessage("asst-1", "conv-key", "hi");
 
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected failure result");
+    if (result.ok) {
+      throw new Error("expected failure result");
+    }
     expect(result.status).toBe(429);
     expect(result.error.detail).toBe("Rate limited. Try again shortly.");
     expect(result.error.code).toBeUndefined();
@@ -652,7 +663,9 @@ describe("postChatMessage — daemon error envelope handling", () => {
     const result = await postChatMessage("asst-1", "conv-key", "hi");
 
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected failure result");
+    if (result.ok) {
+      throw new Error("expected failure result");
+    }
     expect(result.error.code).toBe("RATE_LIMITED");
     expect(result.error.detail).toBe("Slow down.");
   });
@@ -667,7 +680,9 @@ describe("postChatMessage — daemon error envelope handling", () => {
     const result = await postChatMessage("asst-1", "conv-key", "hi");
 
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected failure result");
+    if (result.ok) {
+      throw new Error("expected failure result");
+    }
     expect(result.error.detail).toBe("HTTP 503");
   });
 });

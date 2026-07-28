@@ -12,7 +12,9 @@ export function cleanupBootstrapFiles(reason: string): boolean {
 
   for (const file of BOOTSTRAP_FILES) {
     const path = getWorkspacePromptPath(file);
-    if (!existsSync(path)) continue;
+    if (!existsSync(path)) {
+      continue;
+    }
 
     try {
       unlinkSync(path);

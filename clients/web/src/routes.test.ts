@@ -19,9 +19,8 @@ console.warn = (...args: Parameters<typeof console.warn>) => {
 
 const { getRouterBasename, routeTree } = await import("@/routes");
 const { authMiddleware } = await import("@/lib/auth/auth-middleware");
-const { onboardingCompletedMiddleware } = await import(
-  "@/lib/onboarding-middleware"
-);
+const { onboardingCompletedMiddleware } =
+  await import("@/lib/onboarding-middleware");
 
 afterAll(() => {
   console.warn = originalWarn;
@@ -65,8 +64,7 @@ function middlewareExecutionOrder(path: string): unknown[] {
 function leafRouteComponentName(path: string): string | undefined {
   const matches = matchRoutes(routeTree as never, path) ?? [];
   const leaf = matches.at(-1)?.route as
-    | { Component?: { name?: string } }
-    | undefined;
+    { Component?: { name?: string } } | undefined;
   return leaf?.Component?.name;
 }
 
@@ -158,18 +156,19 @@ describe("schedules routes", () => {
   // The Schedules page and per-schedule deep links render the same lazy
   // SchedulesPage (under IntelligenceLayout), inside the auth-protected
   // assistant tree.
-  test.each([
-    "/assistant/schedules",
-    "/assistant/schedules/sch_123",
-  ])("%s matches inside the auth-protected app tree", (path) => {
-    const matches = matchRoutes(routeTree as never, path) ?? [];
-    expect(matches.length).toBeGreaterThan(0);
-    expect(matches.at(-1)?.pathname).toBe(path);
-    expect(hasRouteMiddleware(path)).toBe(true);
-  });
+  test.each(["/assistant/schedules", "/assistant/schedules/sch_123"])(
+    "%s matches inside the auth-protected app tree",
+    (path) => {
+      const matches = matchRoutes(routeTree as never, path) ?? [];
+      expect(matches.length).toBeGreaterThan(0);
+      expect(matches.at(-1)?.pathname).toBe(path);
+      expect(hasRouteMiddleware(path)).toBe(true);
+    },
+  );
 
   test("captures the schedule id as a route param", () => {
-    const matches = matchRoutes(routeTree as never, "/assistant/schedules/sch_123") ?? [];
+    const matches =
+      matchRoutes(routeTree as never, "/assistant/schedules/sch_123") ?? [];
     expect(matches.at(-1)?.params.scheduleId).toBe("sch_123");
   });
 });
@@ -260,10 +259,12 @@ describe("settings route compatibility", () => {
   });
 
   test("the Debug settings URL renders the page rather than redirecting", () => {
-    const matches = matchRoutes(routeTree as never, "/assistant/settings/debug");
+    const matches = matchRoutes(
+      routeTree as never,
+      "/assistant/settings/debug",
+    );
     const leaf = matches?.at(-1)?.route as
-      | { lazy?: unknown; Component?: { name?: string } }
-      | undefined;
+      { lazy?: unknown; Component?: { name?: string } } | undefined;
     // `lazy` is the page itself; a redirect route would carry a named
     // `Component` instead.
     expect(leaf?.lazy).toBeDefined();

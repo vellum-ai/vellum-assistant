@@ -54,7 +54,9 @@ function findRoute() {
   const route = ROUTES.find(
     (r) => r.operationId === "playgroundGetCompactionState",
   );
-  if (!route) throw new Error("compaction-state route not registered");
+  if (!route) {
+    throw new Error("compaction-state route not registered");
+  }
   return route;
 }
 

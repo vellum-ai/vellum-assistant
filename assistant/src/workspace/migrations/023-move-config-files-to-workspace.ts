@@ -31,7 +31,9 @@ export const moveConfigFilesToWorkspaceMigration: WorkspaceMigration = {
       const oldPath = join(rootDir, file);
       const newPath = join(workspaceDir, file);
 
-      if (!existsSync(oldPath)) continue;
+      if (!existsSync(oldPath)) {
+        continue;
+      }
       // Don't overwrite if the destination already exists (e.g. partial
       // previous run or user-created file).
       if (existsSync(newPath)) {
@@ -59,7 +61,9 @@ export const moveConfigFilesToWorkspaceMigration: WorkspaceMigration = {
       const newPath = join(workspaceDir, file);
       const oldPath = join(rootDir, file);
 
-      if (!existsSync(newPath)) continue;
+      if (!existsSync(newPath)) {
+        continue;
+      }
       if (existsSync(oldPath)) {
         try {
           unlinkSync(newPath);

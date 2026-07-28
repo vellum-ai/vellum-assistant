@@ -51,15 +51,23 @@ export function repairMemoryGraphEventDate(
 
   const createdYear = utcYear(createdMs);
   const eventYear = utcYear(eventDateMs);
-  if (createdYear !== REPAIR_CREATED_YEAR) return null;
-  if (!CORRUPT_EVENT_YEARS.includes(eventYear as 2024 | 2025)) return null;
+  if (createdYear !== REPAIR_CREATED_YEAR) {
+    return null;
+  }
+  if (!CORRUPT_EVENT_YEARS.includes(eventYear as 2024 | 2025)) {
+    return null;
+  }
 
   // If the memory's prose explicitly mentions the prior year, the date is
   // user-anchored history — not the partial-date inference bug — so leave it.
-  if (contentMentionsYear(content, eventYear)) return null;
+  if (contentMentionsYear(content, eventYear)) {
+    return null;
+  }
 
   const corrected = replaceUtcYear(eventDateMs, createdYear);
-  if (corrected === eventDateMs) return null;
+  if (corrected === eventDateMs) {
+    return null;
+  }
 
   // This targets the observed extractor failure: a recent or near-future
   // month/day was anchored to a prior year. Leave distant historical dates
@@ -97,7 +105,9 @@ export function migrate231RepairMemoryGraphEventDates(
       row.event_date,
       row.content ?? "",
     );
-    if (corrected == null) continue;
+    if (corrected == null) {
+      continue;
+    }
     repairs.push({
       id: row.id,
       oldEventDate: row.event_date,
@@ -105,7 +115,9 @@ export function migrate231RepairMemoryGraphEventDates(
     });
   }
 
-  if (repairs.length === 0) return;
+  if (repairs.length === 0) {
+    return;
+  }
 
   const updateNode = raw.prepare(/*sql*/ `
       UPDATE memory_graph_nodes

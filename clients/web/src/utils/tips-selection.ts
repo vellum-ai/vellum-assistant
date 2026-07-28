@@ -19,7 +19,9 @@ function isWithinRotationWindow(
   lastShownAt: number | undefined,
   now: number,
 ): boolean {
-  return lastShownAt !== undefined && now - lastShownAt < TIP_ROTATION_INTERVAL_MS;
+  return (
+    lastShownAt !== undefined && now - lastShownAt < TIP_ROTATION_INTERVAL_MS
+  );
 }
 
 /**

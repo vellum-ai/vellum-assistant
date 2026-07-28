@@ -20,7 +20,10 @@ describe("search-provider-catalog", () => {
 
   test("every BYOK provider has the full set of required fields", () => {
     for (const provider of BYOK_SEARCH_PROVIDERS) {
-      expect(provider.apiKeyPrefix, `${provider.id}.apiKeyPrefix`).toBeDefined();
+      expect(
+        provider.apiKeyPrefix,
+        `${provider.id}.apiKeyPrefix`,
+      ).toBeDefined();
       expect(provider.envVar, `${provider.id}.envVar`).toBeDefined();
       expect(provider.secretKey, `${provider.id}.secretKey`).toBeDefined();
       expect(

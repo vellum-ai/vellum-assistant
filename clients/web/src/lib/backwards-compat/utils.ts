@@ -107,17 +107,23 @@ function supportsVersion(
   version: string | null | undefined,
   minVersion: string,
 ): boolean {
-  if (!version) return false;
+  if (!version) {
+    return false;
+  }
   const parsed = parseSemver(version);
   const min = parseSemver(minVersion);
-  if (!parsed || !min) return false;
+  if (!parsed || !min) {
+    return false;
+  }
   // Compare base versions (major.minor.patch) first, ignoring
   // pre-release suffixes. If the bases differ, the higher base wins.
   const baseCmp = compareParsed(
     { ...parsed, pre: null },
     { ...min, pre: null },
   );
-  if (baseCmp !== 0) return baseCmp > 0;
+  if (baseCmp !== 0) {
+    return baseCmp > 0;
+  }
   // Base versions are equal. Dev pre-releases (e.g.
   // `0.10.0-dev.202606211252.5cf8576`) are development builds AHEAD of
   // the stable release with the same base — they contain unreleased

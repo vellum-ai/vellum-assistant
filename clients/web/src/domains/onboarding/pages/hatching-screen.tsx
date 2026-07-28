@@ -4,33 +4,44 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { getAssistant, getAssistantHealthz, hatchAssistant, type Assistant } from "@/assistant/api";
+import {
+  getAssistant,
+  getAssistantHealthz,
+  hatchAssistant,
+  type Assistant,
+} from "@/assistant/api";
 import { seedHatchAvatar } from "@/assistant/seed-hatch-avatar";
 import {
-    isPlatformHostedDisabled,
-    PLATFORM_HOSTED_DISABLED_MESSAGE,
-    resolveAssistantLifecycleState,
-    shouldRecoverFromHatchFailure,
+  isPlatformHostedDisabled,
+  PLATFORM_HOSTED_DISABLED_MESSAGE,
+  resolveAssistantLifecycleState,
+  shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
-    readSelectedVersion,
-    writeSelectedVersion,
+  readSelectedVersion,
+  writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import {
-    awaitPurchasedProvisioning,
-    MAX_HATCH_WAIT_MS,
-    POLL_INTERVAL_MS,
+  awaitPurchasedProvisioning,
+  MAX_HATCH_WAIT_MS,
+  POLL_INTERVAL_MS,
 } from "@/domains/onboarding/purchased-provisioning";
-import { isLocalMode, loadLockfile, primeLocalGatewayConnection, probeLocalGatewayReady, saveManagedLockfileAssistant } from "@/lib/local-mode";
+import {
+  isLocalMode,
+  loadLockfile,
+  primeLocalGatewayConnection,
+  probeLocalGatewayReady,
+  saveManagedLockfileAssistant,
+} from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import {
-    POST_CHECKOUT_HATCH_PARAM,
-    resolveNavigation,
+  POST_CHECKOUT_HATCH_PARAM,
+  resolveNavigation,
 } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
@@ -61,8 +72,12 @@ const COMPLETION_NAVIGATE_DELAY_MS = 800;
 // start over. These guards are released only on failure (so retry re-hatches)
 // and on genuine completion (so a later onboarding hatches fresh), never in the
 // window between the hatch resolving and the screen navigating away.
-let localHatchPromise: Promise<import("@/runtime/local-mode-host").LocalHatchResult> | null = null;
-let platformHatchPromise: Promise<import("@/assistant/api").HatchResult> | null = null;
+let localHatchPromise: Promise<
+  import("@/runtime/local-mode-host").LocalHatchResult
+> | null = null;
+let platformHatchPromise: Promise<
+  import("@/assistant/api").HatchResult
+> | null = null;
 let hatchTraitsCache: CharacterTraits | null = null;
 
 function releaseHatchGuards(): void {
@@ -72,11 +87,7 @@ function releaseHatchGuards(): void {
 }
 
 type HatchPhase =
-  | "initializing"
-  | "provisioning"
-  | "connecting"
-  | "resizing"
-  | "ready";
+  "initializing" | "provisioning" | "connecting" | "resizing" | "ready";
 
 const PHASE_TARGET: Record<HatchPhase, number> = {
   initializing: 0,
@@ -101,24 +112,27 @@ export function interpolateSegmentProgress(
   target: number,
   elapsedMs: number,
 ): number {
-  if (segmentStart >= target) return target;
+  if (segmentStart >= target) {
+    return target;
+  }
   const t = Math.min(1.0, elapsedMs / SEGMENT_DURATION_MS);
   const eased = 1.0 - Math.pow(1.0 - t, 3.0);
   return segmentStart + (target - segmentStart) * eased;
 }
 
 export type HatchGateDecision =
-  | { kind: "proceed" }
-  | { kind: "wait" }
-  | { kind: "redirect"; to: string };
+  { kind: "proceed" } | { kind: "wait" } | { kind: "redirect"; to: string };
 
 export function decideHatchGate(): HatchGateDecision {
-  const decision = resolveNavigation(
-    buildNavigationState(),
-    { kind: "hatch-gate" },
-  );
-  if (decision.action === "redirect") return { kind: "redirect", to: decision.to };
-  if (decision.action === "wait") return { kind: "wait" };
+  const decision = resolveNavigation(buildNavigationState(), {
+    kind: "hatch-gate",
+  });
+  if (decision.action === "redirect") {
+    return { kind: "redirect", to: decision.to };
+  }
+  if (decision.action === "wait") {
+    return { kind: "wait" };
+  }
   return { kind: "proceed" };
 }
 
@@ -133,7 +147,8 @@ export function HatchingScreen() {
   // (see `plugin-attribution`) — otherwise a local/Docker onboarding drops it.
   const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
   const electron = isElectron();
-  const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+  const useLocalHatch =
+    isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   // `hosting=vellum-cloud` names a managed hatch even in a local-mode build
   // (see `adopt-existing-assistant`): the assistant is provisioned on the
   // platform, so its purchased machine and storage are waited for.
@@ -185,7 +200,6 @@ export function HatchingScreen() {
     setAnimationEpoch((n) => n + 1);
   }, []);
 
-
   useEffect(() => {
     // Developer "Replay Hatch Failure" tool: when opened with `?fail`, skip the
     // gate and the real hatch flow and render the error UI directly so the
@@ -201,7 +215,9 @@ export function HatchingScreen() {
       void navigate(decision.to, { replace: true });
       return;
     }
-    if (decision.kind === "wait") return;
+    if (decision.kind === "wait") {
+      return;
+    }
 
     // A managed hatch in a local-mode build must address the platform, not the
     // machine's own gateway: `getAssistant()` answers from the selected
@@ -291,10 +307,7 @@ export function HatchingScreen() {
             );
             return;
           }
-          void navigate(
-            routes.onboarding.research,
-            { replace: true },
-          );
+          void navigate(routes.onboarding.research, { replace: true });
         })();
       }, COMPLETION_NAVIGATE_DELAY_MS);
     };
@@ -320,8 +333,7 @@ export function HatchingScreen() {
               void saveManagedLockfileAssistant(
                 existing.data.id,
                 existing.data.name,
-                getActiveOrganizationIdForRequests() ??
-                  undefined,
+                getActiveOrganizationIdForRequests() ?? undefined,
               );
             }
             // Route the reload path through the same provisioning wait as the
@@ -338,7 +350,9 @@ export function HatchingScreen() {
         } catch {
           // Fall through to normal hatch
         }
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
       }
 
       // Local/Docker hatch lifecycle:
@@ -359,7 +373,9 @@ export function HatchingScreen() {
           // resolved promise instead of starting a second hatch. Released only
           // on failure (below / catch) and on completion (handleHatchReady).
           const result = await localHatchPromise;
-          if (cancelled) return;
+          if (cancelled) {
+            return;
+          }
           if (!result.ok) {
             releaseHatchGuards();
             setError(result.error ?? "Failed to hatch local assistant.");
@@ -394,15 +410,19 @@ export function HatchingScreen() {
               // reached connectLocalAssistant(), so no remount occurred — release
               // the guards so "Try again" runs a genuinely fresh hatch.
               releaseHatchGuards();
-              setError("Your assistant is taking longer than expected. Please try again.");
+              setError(
+                "Your assistant is taking longer than expected. Please try again.",
+              );
               return;
             }
-            await new Promise<void>(resolve => {
+            await new Promise<void>((resolve) => {
               readyPollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
             });
             readyPollTimer = null;
           }
-          if (cancelled) return;
+          if (cancelled) {
+            return;
+          }
 
           // Apply the model-provider key collected on the API-key step to
           // the freshly hatched assistant. Runs BEFORE connectLocalAssistant
@@ -444,8 +464,12 @@ export function HatchingScreen() {
           handleHatchReady(result.assistantId);
         } catch {
           releaseHatchGuards();
-          if (cancelled) return;
-          setError("Failed to hatch local assistant. Check CLI logs for details.");
+          if (cancelled) {
+            return;
+          }
+          setError(
+            "Failed to hatch local assistant. Check CLI logs for details.",
+          );
         }
         return;
       }
@@ -458,7 +482,9 @@ export function HatchingScreen() {
         }
         const result = await platformHatchPromise;
         platformHatchPromise = null;
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         if (result.ok) {
           hatchedAssistantId = result.data.id;
         }
@@ -490,14 +516,18 @@ export function HatchingScreen() {
       } catch (err) {
         platformHatchPromise = null;
         captureError(err, { context: "onboarding_hatch_assistant" });
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
       }
 
       scheduleNextPoll(0);
     };
 
     const scheduleNextPoll = (delay: number) => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       pollTimer = setTimeout(runPoll, delay);
     };
 
@@ -565,7 +595,9 @@ export function HatchingScreen() {
     };
 
     const runPoll = async () => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
         Sentry.captureMessage("Onboarding hatch wait exceeded timeout", {
           level: "warning",
@@ -578,13 +610,17 @@ export function HatchingScreen() {
       }
       try {
         let result = await getAssistant(hatchedAssistantId);
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         // If the hatched ID 404s (e.g. stale after refresh, or backend
         // assigned a different ID), fall back to list-based discovery.
         if (hatchedAssistantId && !result.ok && result.status === 404) {
           hatchedAssistantId = undefined;
           result = await getAssistant();
-          if (cancelled) return;
+          if (cancelled) {
+            return;
+          }
         }
         const next = resolveAssistantLifecycleState(result);
         if (next.kind === "active") {
@@ -599,8 +635,7 @@ export function HatchingScreen() {
               void saveManagedLockfileAssistant(
                 assistantId,
                 result.data.name,
-                getActiveOrganizationIdForRequests() ??
-                  undefined,
+                getActiveOrganizationIdForRequests() ?? undefined,
               );
             }
 
@@ -624,7 +659,9 @@ export function HatchingScreen() {
         scheduleNextPoll(POLL_INTERVAL_MS);
       } catch (err) {
         captureError(err, { context: "onboarding_poll_assistant" });
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         scheduleNextPoll(POLL_INTERVAL_MS);
       }
     };
@@ -633,9 +670,15 @@ export function HatchingScreen() {
 
     return () => {
       cancelled = true;
-      if (pollTimer) clearTimeout(pollTimer);
-      if (navigateTimer) clearTimeout(navigateTimer);
-      if (readyPollTimer) clearTimeout(readyPollTimer);
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+      }
+      if (navigateTimer) {
+        clearTimeout(navigateTimer);
+      }
+      if (readyPollTimer) {
+        clearTimeout(readyPollTimer);
+      }
     };
   }, [
     attempt,
@@ -680,10 +723,18 @@ export function HatchingScreen() {
           role="alert"
           className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center px-6 pb-40"} text-center text-[var(--content-default)]`}
         >
-          <h1 className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}>
+          <h1
+            className={
+              electron
+                ? "text-title-large"
+                : "text-3xl font-semibold tracking-tight"
+            }
+          >
             Something went wrong
           </h1>
-          <p className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}>
+          <p
+            className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}
+          >
             {error}
           </p>
           {platformHostedDisabled && (
@@ -711,7 +762,9 @@ export function HatchingScreen() {
             height={160}
             className={`${electron ? "my-auto py-8" : "my-16"} onboarding-avatar-failed`}
           />
-          <div className={`flex w-full flex-col ${electron ? "gap-2.5 max-w-[280px]" : "gap-2 max-w-sm"}`}>
+          <div
+            className={`flex w-full flex-col ${electron ? "gap-2.5 max-w-[280px]" : "gap-2 max-w-sm"}`}
+          >
             <Button
               variant="primary"
               size="regular"
@@ -762,12 +815,22 @@ export function HatchingScreen() {
           it clear of the fixed CreatureFooter art below the progress bar. The
           bar caps at 200px with a 10px label. Web/iOS keep the centered
           layout. */}
-      <div className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center px-6 pb-40"} text-center text-[var(--content-default)]`}>
-        <h1 className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}>
+      <div
+        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center px-6 pb-40"} text-center text-[var(--content-default)]`}
+      >
+        <h1
+          className={
+            electron
+              ? "text-title-large"
+              : "text-3xl font-semibold tracking-tight"
+          }
+        >
           {phase === "ready" ? "Your assistant is ready!" : "Waking up…"}
         </h1>
         {phase !== "ready" && (
-          <p className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}>
+          <p
+            className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}
+          >
             Hang tight — your assistant will have a few questions for you once
             it&apos;s up.
           </p>
@@ -785,7 +848,9 @@ export function HatchingScreen() {
           className={`w-full ${electron ? "max-w-[200px]" : "max-w-sm"}`}
           aria-label="Assistant startup progress"
         />
-        <p className={`text-[var(--content-tertiary)] ${electron ? "mt-4 text-label-small-default" : "mt-3 text-body-small-default"}`}>
+        <p
+          className={`text-[var(--content-tertiary)] ${electron ? "mt-4 text-label-small-default" : "mt-3 text-body-small-default"}`}
+        >
           {PHASE_LABEL[phase]}
         </p>
       </div>

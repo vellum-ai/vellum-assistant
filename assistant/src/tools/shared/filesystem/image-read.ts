@@ -20,7 +20,9 @@ const MAX_SOURCE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB — pre-optimization 
  * Returns the MIME type, or null if unrecognised.
  */
 export function detectMediaType(buf: Buffer): string | null {
-  if (buf.length < 12) return null;
+  if (buf.length < 12) {
+    return null;
+  }
 
   // JPEG: FF D8 FF
   if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {

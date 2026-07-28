@@ -9,8 +9,7 @@ export const RUNTIME_RELEASES_REFETCH_INTERVAL_MS = 20 * 60 * 1000;
 export const LOCAL_RUNTIME_RELEASES_FETCH_LIMIT = 100;
 
 const DISMISSED_KEY_PREFIX = "vellum:runtimeUpgradeDismissed";
-const LEGACY_LOCAL_DISMISSED_KEY_PREFIX =
-  "vellum:localRuntimeUpgradeDismissed";
+const LEGACY_LOCAL_DISMISSED_KEY_PREFIX = "vellum:localRuntimeUpgradeDismissed";
 
 export function isLocalBuildVersion(
   version: string | null | undefined,
@@ -34,10 +33,14 @@ export function isRuntimeUpgradeAvailable(
   currentVersion: string | null | undefined,
   targetVersion: string | null | undefined,
 ): boolean {
-  if (!currentVersion || !targetVersion) return false;
+  if (!currentVersion || !targetVersion) {
+    return false;
+  }
   const target = parseSemver(targetVersion);
   const current = parseSemver(currentVersion);
-  if (!target || !current) return targetVersion !== currentVersion;
+  if (!target || !current) {
+    return targetVersion !== currentVersion;
+  }
   return compareParsed(target, current) > 0;
 }
 
@@ -68,7 +71,11 @@ export function isRuntimeUpgradeDismissed(
       "",
     ) === "true" ||
     getLocalSetting(
-      dismissedKey(LEGACY_LOCAL_DISMISSED_KEY_PREFIX, assistantId, targetVersion),
+      dismissedKey(
+        LEGACY_LOCAL_DISMISSED_KEY_PREFIX,
+        assistantId,
+        targetVersion,
+      ),
       "",
     ) === "true"
   );

@@ -53,8 +53,7 @@ interface RemoteGatewaySessionCredentials {
 }
 
 export type RemoteWebPairingTokenResult =
-  | RemoteWebPairingTokenPendingResponse
-  | RemoteWebPairingTokenApprovedResponse;
+  RemoteWebPairingTokenPendingResponse | RemoteWebPairingTokenApprovedResponse;
 
 export class RemoteWebPairingError extends Error {
   readonly status: number;
@@ -79,7 +78,9 @@ function stringParam(
 ): string | null {
   for (const name of names) {
     const value = params.get(name)?.trim();
-    if (value) return value;
+    if (value) {
+      return value;
+    }
   }
   return null;
 }
@@ -90,7 +91,9 @@ function paramsFromUrl(url: URL): URLSearchParams {
   if (hash) {
     const hashParams = new URLSearchParams(hash);
     for (const [key, value] of hashParams) {
-      if (!merged.has(key)) merged.set(key, value);
+      if (!merged.has(key)) {
+        merged.set(key, value);
+      }
     }
   }
   return merged;
@@ -144,8 +147,12 @@ function toEpochMilliseconds(value: string | number): number {
 }
 
 function shouldRefreshRemoteGatewaySession(): boolean {
-  if (!getGatewayToken()) return true;
-  if (remoteGatewayRefreshAfterMs <= 0) return true;
+  if (!getGatewayToken()) {
+    return true;
+  }
+  if (remoteGatewayRefreshAfterMs <= 0) {
+    return true;
+  }
   return Date.now() >= remoteGatewayRefreshAfterMs - REFRESH_EARLY_MS;
 }
 
@@ -184,7 +191,9 @@ function sleep(ms: number): Promise<void> {
 function readRefreshLock(): RefreshLockRecord | null {
   try {
     const raw = localStorage.getItem(REFRESH_LOCK_KEY);
-    if (!raw) return null;
+    if (!raw) {
+      return null;
+    }
     const parsed = JSON.parse(raw) as Partial<RefreshLockRecord>;
     if (
       typeof parsed.owner !== "string" ||
@@ -201,7 +210,9 @@ function readRefreshLock(): RefreshLockRecord | null {
 function tryAcquireRefreshLock(owner: string): boolean {
   try {
     const current = readRefreshLock();
-    if (current && current.expiresAt > Date.now()) return false;
+    if (current && current.expiresAt > Date.now()) {
+      return false;
+    }
     localStorage.setItem(
       REFRESH_LOCK_KEY,
       JSON.stringify({ owner, expiresAt: Date.now() + REFRESH_LOCK_TTL_MS }),
@@ -229,7 +240,9 @@ async function withLocalStorageRefreshLock<T>(
   const waitUntil = Date.now() + REFRESH_LOCK_WAIT_MS;
 
   while (!tryAcquireRefreshLock(owner)) {
-    if (Date.now() >= waitUntil) return fn();
+    if (Date.now() >= waitUntil) {
+      return fn();
+    }
     await sleep(REFRESH_LOCK_POLL_MS);
   }
 
@@ -247,7 +260,9 @@ async function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
     typeof navigator !== "undefined"
       ? ((navigator as Navigator & { locks?: BrowserLocks }).locks ?? null)
       : null;
-  if (locks) return locks.request(REFRESH_LOCK_NAME, fn);
+  if (locks) {
+    return locks.request(REFRESH_LOCK_NAME, fn);
+  }
   return withLocalStorageRefreshLock(fn);
 }
 
@@ -344,7 +359,9 @@ export async function createRemoteWebPairingChallenge(
 }
 
 async function refreshRemoteGatewaySessionOnce(): Promise<boolean> {
-  if (!shouldRefreshRemoteGatewaySession()) return true;
+  if (!shouldRefreshRemoteGatewaySession()) {
+    return true;
+  }
 
   const response = await fetch(remoteGatewayApiPath(GUARDIAN_REFRESH_PATH), {
     method: "POST",
@@ -353,7 +370,9 @@ async function refreshRemoteGatewaySessionOnce(): Promise<boolean> {
     body: "{}",
   });
 
-  if (!response.ok) return false;
+  if (!response.ok) {
+    return false;
+  }
   const body = (await response.json().catch(() => null)) as unknown;
   if (!isApprovedPayload({ ...(body as object), status: "approved" })) {
     return false;
@@ -366,7 +385,9 @@ async function refreshRemoteGatewaySessionOnce(): Promise<boolean> {
 }
 
 export async function refreshRemoteGatewaySession(): Promise<boolean> {
-  if (!shouldRefreshRemoteGatewaySession()) return true;
+  if (!shouldRefreshRemoteGatewaySession()) {
+    return true;
+  }
 
   refreshRemoteGatewaySessionPromise ??= withRefreshLock(
     refreshRemoteGatewaySessionOnce,

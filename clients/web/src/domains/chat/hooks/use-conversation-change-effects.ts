@@ -81,9 +81,7 @@ export function useConversationChangeEffects(
           return;
         }
         const store = useSubagentStore.getState();
-        for (const [subagentId, info] of Object.entries(
-          data.subagents ?? {},
-        )) {
+        for (const [subagentId, info] of Object.entries(data.subagents ?? {})) {
           if (store.byId[subagentId]) {
             continue;
           }
@@ -114,15 +112,19 @@ export function useConversationChangeEffects(
         ids.push(entry.subagentId);
       }
     }
-    return ids.sort().join(',');
+    return ids.sort().join(",");
   });
 
   // Auto-fetch details for subagents reconstructed from history
   useEffect(() => {
-    if (!assistantId || !unfetchedSubagentKey) return;
+    if (!assistantId || !unfetchedSubagentKey) {
+      return;
+    }
     for (const entry of Object.values(useSubagentStore.getState().byId)) {
       if (entry.conversationId && entry.events.length === 0) {
-        void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, entry.subagentId);
+        void useSubagentStore
+          .getState()
+          .fetchDetailIfNeeded(assistantId, entry.subagentId);
       }
     }
   }, [assistantId, unfetchedSubagentKey]);

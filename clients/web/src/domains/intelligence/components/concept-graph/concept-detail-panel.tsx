@@ -64,7 +64,9 @@ function buildCrumbs(trail: ConceptDetailNode[]): (Crumb | "ellipsis")[] {
 }
 
 function formatUpdated(ms: number | undefined): string | null {
-  if (!ms) {return null;}
+  if (!ms) {
+    return null;
+  }
   return new Date(ms).toLocaleDateString("en-GB", {
     day: "numeric",
     month: "short",
@@ -156,7 +158,9 @@ export function ConceptDetailPanel({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {onClose();}
+      if (e.key === "Escape") {
+        onClose();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -176,7 +180,10 @@ export function ConceptDetailPanel({
           canvas beside the drawer instead of being blacked out. */}
       <div
         className="absolute inset-0"
-        style={{ backgroundColor: "color-mix(in srgb, var(--surface-base) 16%, transparent)" }}
+        style={{
+          backgroundColor:
+            "color-mix(in srgb, var(--surface-base) 16%, transparent)",
+        }}
         onClick={onClose}
       />
       <aside
@@ -193,7 +200,10 @@ export function ConceptDetailPanel({
           <nav
             aria-label="Concept trail"
             className="flex shrink-0 items-center gap-1 overflow-hidden border-b px-5 py-2 text-body-small-default"
-            style={{ borderColor: "var(--border-base)", color: "var(--content-tertiary)" }}
+            style={{
+              borderColor: "var(--border-base)",
+              color: "var(--content-tertiary)",
+            }}
           >
             <button
               type="button"
@@ -282,7 +292,10 @@ export function ConceptDetailPanel({
               />
             </div>
           ) : query.isError ? (
-            <p className="text-body-medium-lighter" style={{ color: "var(--content-tertiary)" }}>
+            <p
+              className="text-body-medium-lighter"
+              style={{ color: "var(--content-tertiary)" }}
+            >
               Couldn't load this concept. Try again in a moment.
             </p>
           ) : detail?.found && detail.content?.trim() ? (
@@ -290,9 +303,12 @@ export function ConceptDetailPanel({
             // and starts it collapsed again.
             <ConceptNote key={node.id} content={detail.content} />
           ) : (
-            <p className="text-body-medium-lighter" style={{ color: "var(--content-tertiary)" }}>
-              This concept doesn't have written content yet — it exists as a link
-              in the graph, but its page is empty.
+            <p
+              className="text-body-medium-lighter"
+              style={{ color: "var(--content-tertiary)" }}
+            >
+              This concept doesn't have written content yet — it exists as a
+              link in the graph, but its page is empty.
             </p>
           )}
 
@@ -315,7 +331,8 @@ export function ConceptDetailPanel({
                   className="text-body-small-default tabular-nums"
                   style={{ color: "var(--content-tertiary)" }}
                 >
-                  {neighbors.length} connection{neighbors.length === 1 ? "" : "s"}
+                  {neighbors.length} connection
+                  {neighbors.length === 1 ? "" : "s"}
                 </span>
               </div>
               <ul className="flex list-none flex-col gap-0.5">

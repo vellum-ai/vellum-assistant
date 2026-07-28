@@ -55,8 +55,12 @@ export class UsageTrackingProvider implements Provider {
     options?: SendMessageOptions,
   ): void {
     const config = options?.config;
-    if (!config?.callSite) return;
-    if (config.usageTracking === "manual") return;
+    if (!config?.callSite) {
+      return;
+    }
+    if (config.usageTracking === "manual") {
+      return;
+    }
     if (response.usage.inputTokens <= 0 && response.usage.outputTokens <= 0) {
       return;
     }

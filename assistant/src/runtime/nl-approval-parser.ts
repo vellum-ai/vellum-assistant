@@ -66,7 +66,6 @@ const REJECT_EXACT: ReadonlySet<string> = new Set([
   "\u{1F44E}", // 👎
 ]);
 
-
 // ---------------------------------------------------------------------------
 // Normalization
 // ---------------------------------------------------------------------------
@@ -100,11 +99,15 @@ function normalize(text: string): string {
 export function parseApprovalIntent(text: string): ApprovalIntent | null {
   const normalized = normalize(text);
 
-  if (normalized.length === 0) return null;
+  if (normalized.length === 0) {
+    return null;
+  }
 
   // Reject messages that are too long to be a simple decision phrase.
   // This prevents matching approval words buried inside longer messages.
-  if (normalized.length > 40) return null;
+  if (normalized.length > 40) {
+    return null;
+  }
 
   // Exact approval match.
   if (APPROVE_EXACT.has(normalized)) {

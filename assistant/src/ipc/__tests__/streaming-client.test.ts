@@ -56,10 +56,20 @@ const SLOW_STREAM_FIXTURE_ROUTE = {
   handler: async (params: Record<string, unknown> | undefined) => {
     slowStreamAborted = false;
     const signal = (params as { abortSignal?: AbortSignal })?.abortSignal;
-    signal?.addEventListener("abort", () => { slowStreamAborted = true; }, { once: true });
+    signal?.addEventListener(
+      "abort",
+      () => {
+        slowStreamAborted = true;
+      },
+      { once: true },
+    );
     await new Promise((r) => setTimeout(r, 50));
     return {
-      stream: new ReadableStream<Uint8Array>({ start(ctrl) { ctrl.close(); } }),
+      stream: new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          ctrl.close();
+        },
+      }),
       headers: {} as Record<string, string>,
     };
   },
@@ -84,10 +94,14 @@ const CANCEL_FIXTURE_ROUTE = {
             ctrl.error(new DOMException("Aborted", "AbortError"));
             return;
           }
-          signal?.addEventListener("abort", () => {
-            cancelAborted = true;
-            ctrl.error(new DOMException("Aborted", "AbortError"));
-          }, { once: true });
+          signal?.addEventListener(
+            "abort",
+            () => {
+              cancelAborted = true;
+              ctrl.error(new DOMException("Aborted", "AbortError"));
+            },
+            { once: true },
+          );
           // Hold open — no close() until aborted
         },
       }),
@@ -97,7 +111,12 @@ const CANCEL_FIXTURE_ROUTE = {
 };
 
 mock.module("../../runtime/routes/index.js", () => ({
-  ROUTES: [STREAM_FIXTURE_ROUTE, BINARY_FIXTURE_ROUTE, CANCEL_FIXTURE_ROUTE, SLOW_STREAM_FIXTURE_ROUTE],
+  ROUTES: [
+    STREAM_FIXTURE_ROUTE,
+    BINARY_FIXTURE_ROUTE,
+    CANCEL_FIXTURE_ROUTE,
+    SLOW_STREAM_FIXTURE_ROUTE,
+  ],
 }));
 
 // ---------------------------------------------------------------------------
@@ -128,13 +147,17 @@ describe("cliIpcCallStream", () => {
     await startServer();
     const r = await cliIpcCallStream("stream_fixture");
     expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    if (!r.ok) {
+      return;
+    }
     expect(r.headers["x-fixture"]).toBe("streaming");
     // Drain the body to avoid resource leaks
     const reader = r.body.getReader();
     while (true) {
       const { done } = await reader.read();
-      if (done) break;
+      if (done) {
+        break;
+      }
     }
   });
 
@@ -142,14 +165,18 @@ describe("cliIpcCallStream", () => {
     await startServer();
     const r = await cliIpcCallStream("stream_fixture");
     expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    if (!r.ok) {
+      return;
+    }
 
     const chunks: string[] = [];
     const reader = r.body.getReader();
     const dec = new TextDecoder();
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        break;
+      }
       chunks.push(dec.decode(value));
     }
     expect(chunks.join("")).toBe("chunk1chunk2");
@@ -159,7 +186,9 @@ describe("cliIpcCallStream", () => {
     await startServer();
     const r = await cliIpcCallStream("cancel_fixture");
     expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    if (!r.ok) {
+      return;
+    }
 
     const bodyReader = r.body.getReader();
     r.abort();
@@ -185,7 +214,9 @@ describe("cliIpcCallStream", () => {
     await startServer();
     const r = await cliIpcCallStream("cancel_fixture");
     expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    if (!r.ok) {
+      return;
+    }
 
     // Cancel the ReadableStream body — the cancel() callback should call abort()
     // which sends $cancel on the wire and ends the socket.
@@ -204,7 +235,11 @@ describe("cliIpcCallStream", () => {
     // request, before slow_stream_fixture's 50ms handler delay expires.
     const rawSocket = new Socket();
     await new Promise<void>((res) => rawSocket.connect(socketPath, res));
-    writeMessage(rawSocket, { id: crypto.randomUUID(), method: "slow_stream_fixture", params: {} });
+    writeMessage(rawSocket, {
+      id: crypto.randomUUID(),
+      method: "slow_stream_fixture",
+      params: {},
+    });
     rawSocket.destroy();
 
     // Wait for the handler to complete and sendStreamingResponse to run
@@ -225,7 +260,9 @@ describe("cliIpcCallBinary", () => {
     await startServer();
     const r = await cliIpcCallBinary("binary_fixture");
     expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    if (!r.ok) {
+      return;
+    }
     expect(new TextDecoder().decode(r.bytes)).toBe("hello");
     expect(r.headers["content-type"]).toBe("application/octet-stream");
   });
