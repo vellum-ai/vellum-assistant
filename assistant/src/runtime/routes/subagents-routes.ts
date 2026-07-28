@@ -24,7 +24,7 @@ import {
   type SubagentRecord,
 } from "../../persistence/subagent-store.js";
 import { getSubagentManager } from "../../subagent/index.js";
-import { TERMINAL_STATUSES } from "../../subagent/types.js";
+import { type SubagentState, TERMINAL_STATUSES } from "../../subagent/types.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
@@ -271,7 +271,10 @@ function settledDurableStatus(status: SubagentStatus): SubagentStatus {
  * parse is dropped rather than widening the wire type; anything that does parse
  * is settled by `settledDurableStatus`.
  *
- * Only ever called for a row no live manager entry answers for.
+ * The result is only ever OBSERVED for a row no live manager entry answers
+ * for: the detail route reads the record solely when `getState` came back
+ * empty, and the reconcile route calls this for every durable row but lets its
+ * live pass overwrite the ids memory still holds.
  */
 function settledRecordStatus(
   record: SubagentRecord,
@@ -281,13 +284,35 @@ function settledRecordStatus(
 }
 
 /**
- * Cap on the terminal durable rows the reconcile snapshot carries per parent.
- * Rows live as long as the conversation, so an old chat holds every subagent it
- * ever spawned; a client rebuilding its list needs the recent ones, not the
- * full history. Rows that are not terminal are never capped — a client's
+ * Cap on the terminal subagents the reconcile snapshot carries per parent,
+ * applied to the durable pass and the live pass alike. Rows live as long as the
+ * conversation and `SubagentManager.rehydrateFromDb()` loads every one of them
+ * back into memory, so both sides of an old chat hold every subagent it ever
+ * spawned; a client rebuilding its list needs the recent ones, not the full
+ * history. Subagents that are not terminal are never capped — a client's
  * stuck-active entry has to be settled at any age.
  */
 const MAX_RECONCILED_TERMINAL_RECORDS = 20;
+
+/** Recency key shared with the durable query's `COALESCE(completed_at, created_at)`. */
+function settledAt(child: SubagentState): number {
+  return child.completedAt ?? child.createdAt;
+}
+
+function liveReconciledEntry(
+  child: SubagentState,
+): z.infer<typeof ReconciledSubagentSchema> {
+  return {
+    status: child.status,
+    conversationId: child.conversationId,
+    label: child.config.label,
+    objective: child.config.objective,
+    isFork: child.isFork,
+    parentToolUseId: child.config.parentToolUseId,
+    usage: child.usage ? reportableUsage(child.usage) : undefined,
+    error: child.error,
+  };
+}
 
 export const ROUTES: RouteDefinition[] = [
   {
@@ -300,7 +325,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Reconcile subagent live status",
     description:
-      "Returns the subagents the assistant knows for a given parent conversation — live, rehydrated, and durably recorded, including recently finished runs whose in-memory metadata the retention sweep has already evicted. Durable records live as long as the conversation, so the recorded pass is bounded: every record not in a terminal state is always returned, plus the 20 most recently finished ones. Each entry carries enough detail (child conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from scratch, not just refresh statuses. A subagent absent from the response is one the assistant no longer reports, so a client may settle its own stuck-active entries against this snapshot. Only `status` is guaranteed to be present; every other field is optional.",
+      "Returns the subagents the assistant knows for a given parent conversation — live, rehydrated, and durably recorded, including recently finished runs whose in-memory metadata the retention sweep has already evicted. Durable records live as long as the conversation, so the snapshot is bounded: every subagent not in a terminal state is always returned, plus the 20 most recently finished ones. Each entry carries enough detail (child conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from scratch, not just refresh statuses. A subagent absent from the response is one the assistant no longer reports, so a client may settle its own stuck-active entries against this snapshot. Only `status` is guaranteed to be present; every other field is optional.",
     tags: ["subagents"],
     queryParams: [
       {
@@ -328,7 +353,11 @@ export const ROUTES: RouteDefinition[] = [
       // holds. The retention sweep evicts terminal in-memory metadata while
       // deliberately keeping the row, so a run that completed more than a TTL
       // ago is absent from memory — and a client settling orphans by absence
-      // would rewrite its `completed` entry to `interrupted`.
+      // would rewrite its `completed` entry to `interrupted`. That cover is
+      // bounded rather than total: a completion older than the recent-terminal
+      // window appears in neither pass, so a client settling by absence can
+      // still re-mark it `interrupted`. Acceptable — a run that far back is no
+      // longer surfaced anywhere else either.
       const records = getSubagentRecordsByParent(parentConversationId, {
         terminalStatuses: [...TERMINAL_STATUSES],
         maxTerminal: MAX_RECONCILED_TERMINAL_RECORDS,
@@ -350,17 +379,32 @@ export const ROUTES: RouteDefinition[] = [
         };
       }
 
+      // The live pass carries the same bound. `rehydrateFromDb()` loads every
+      // durable row — terminal ones included — back into the manager, so for a
+      // whole retention window after a restart the in-memory children of an old
+      // parent are exactly as unbounded as the table the query above capped.
+      const liveTerminal: SubagentState[] = [];
       for (const child of manager.getChildrenOf(parentConversationId)) {
-        subagents[child.config.id] = {
-          status: child.status,
-          conversationId: child.conversationId,
-          label: child.config.label,
-          objective: child.config.objective,
-          isFork: child.isFork,
-          parentToolUseId: child.config.parentToolUseId,
-          usage: child.usage ? reportableUsage(child.usage) : undefined,
-          error: child.error,
-        };
+        if (TERMINAL_STATUSES.has(child.status)) {
+          liveTerminal.push(child);
+          continue;
+        }
+        subagents[child.config.id] = liveReconciledEntry(child);
+      }
+      liveTerminal.sort((a, b) => settledAt(b) - settledAt(a));
+      const recentLiveTerminal = new Set(
+        liveTerminal
+          .slice(0, MAX_RECONCILED_TERMINAL_RECORDS)
+          .map((child) => child.config.id),
+      );
+      for (const child of liveTerminal) {
+        const id = child.config.id;
+        // An id the durable pass already surfaced costs nothing to overwrite
+        // with the fresher live state — it is in the payload either way.
+        if (!recentLiveTerminal.has(id) && subagents[id] === undefined) {
+          continue;
+        }
+        subagents[id] = liveReconciledEntry(child);
       }
       return { subagents };
     },

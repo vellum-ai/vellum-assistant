@@ -5,7 +5,7 @@ import { migrateCreateSubagentsTable } from "../persistence/migrations/311-creat
 import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/354-add-subagent-parent-tool-use-id.js";
 import { resetTestTables } from "../persistence/raw-query.js";
 import {
-  deleteSubagentRecord,
+  deleteSubagentRecordsByParent,
   loadAllSubagentRecords,
   type SubagentRecord,
   upsertSubagentRecord,
@@ -85,10 +85,15 @@ describe("subagent-store", () => {
     expect(rows[0].outputTokens).toBe(99);
   });
 
-  test("delete removes the record", () => {
+  test("delete by parent removes only that parent's records", () => {
     upsertSubagentRecord(record());
-    deleteSubagentRecord("s1");
-    expect(loadAllSubagentRecords()).toHaveLength(0);
+    upsertSubagentRecord(
+      record({ id: "s2", parentConversationId: "parent-2", label: "other" }),
+    );
+
+    deleteSubagentRecordsByParent("parent-1");
+
+    expect(loadAllSubagentRecords().map((r) => r.id)).toEqual(["s2"]);
   });
 });
 

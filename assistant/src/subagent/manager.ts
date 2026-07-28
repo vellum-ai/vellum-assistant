@@ -22,7 +22,6 @@ import {
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import {
   deleteAllSubagentRecords,
-  deleteSubagentRecord,
   deleteSubagentRecordsByParent,
   loadAllSubagentRecords,
   upsertSubagentRecord,
@@ -1032,10 +1031,17 @@ export class SubagentManager {
    * Abort and fully dispose all subagents belonging to a parent conversation,
    * deleting their durable records. Only for parents whose conversation data is
    * going away (deletion, clear-all) — nobody will call subagent_read.
+   *
+   * `keepRecords` tears down the in-memory side only, leaving the rows for the
+   * caller to delete itself. For a caller that has destructive work of its own
+   * still to do: the rows are a subagent's only durable metadata, so dropping
+   * them before that work commits loses them for good if it throws, while the
+   * conversation they describe survives for a retried delete.
    */
   disposeAllForParent(
     parentConversationId: string,
     parentSendToClient?: (msg: AssistantEvent) => void,
+    opts?: { keepRecords?: boolean },
   ): number {
     const count = this.abortAllForParent(
       parentConversationId,
@@ -1050,9 +1056,12 @@ export class SubagentManager {
       }
     }
 
-    // A child the TTL sweep already evicted has no in-memory entry left to
-    // dispose, so its row is only reachable by parent.
-    if (!this.shuttingDown) {
+    // The durable rows are dropped here rather than per child: a subagent's row
+    // lives as long as its parent conversation, and one the TTL sweep already
+    // evicted has no in-memory entry left to dispose, so its row is only
+    // reachable by parent. Shutdown keeps every row so in-flight children can
+    // rehydrate as `interrupted` on the next boot.
+    if (!this.shuttingDown && !opts?.keepRecords) {
       try {
         deleteSubagentRecordsByParent(parentConversationId);
       } catch (err) {
@@ -1215,15 +1224,12 @@ export class SubagentManager {
    * Should be called after the subagent reaches a terminal state
    * and its data is no longer needed.
    *
-   * Durable-row invariant: a subagent's row in the `subagents` table lives as
-   * long as its parent conversation. Only disposals that mean "the parent's
-   * data is going away" (`disposeAllForParent` / `disposeAllForAllParents`)
-   * delete it. The TTL sweep passes `keepRecord` so it frees in-memory
-   * metadata only, leaving the row to answer `getSubagentDetail` for a client
-   * that missed the spawn event; shutdown likewise keeps rows (`shuttingDown`)
-   * so an in-flight subagent can rehydrate as `interrupted` on the next boot.
+   * In-memory only: a subagent's row in the `subagents` table lives as long as
+   * its parent conversation, so it survives this and keeps answering
+   * `getSubagentDetail` for a client that missed the spawn event. Rows are
+   * deleted by parent, from `disposeAllForParent` / `disposeAllForAllParents`.
    */
-  dispose(subagentId: string, opts?: { keepRecord?: boolean }): void {
+  dispose(subagentId: string): void {
     const managed = this.subagents.get(subagentId);
     if (!managed) {
       return;
@@ -1245,17 +1251,6 @@ export class SubagentManager {
       managed.conversation = null;
     }
     this.subagents.delete(subagentId);
-
-    // Drop the durable record only when the caller owns its lifetime — the
-    // parent conversation is going away. The TTL sweep (`keepRecord`) and
-    // shutdown both evict in-memory metadata while leaving the row.
-    if (!this.shuttingDown && !opts?.keepRecord) {
-      try {
-        deleteSubagentRecord(subagentId);
-      } catch (err) {
-        log.warn({ subagentId, err }, "Failed to delete subagent record");
-      }
-    }
 
     // Remove from label index only if it still maps to this subagent
     // (guards against stale delete when a newer subagent reused the label).
@@ -1459,7 +1454,7 @@ export class SubagentManager {
       );
       // Metadata only — the durable row outlives the sweep so a client that
       // missed `subagent_spawned` can still resolve the child conversation.
-      this.dispose(id, { keepRecord: true });
+      this.dispose(id);
     }
     // Stop the timer if there are no more entries to sweep.
     const hasTerminal = [...this.subagents.values()].some(

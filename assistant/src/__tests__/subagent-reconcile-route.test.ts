@@ -290,6 +290,64 @@ describe("reconcileSubagents route", () => {
     );
   });
 
+  test("bounds the live pass after a restart rehydrates every row", () => {
+    for (let i = 0; i < 25; i++) {
+      upsertSubagentRecord(
+        record({
+          id: `sub-done-${i}`,
+          conversationId: `child-conv-done-${i}`,
+          label: `done-${i}`,
+          status: "completed",
+          completedAt: 10_000 + i,
+        }),
+      );
+    }
+    // Rehydration loads every durable row back into memory, terminal ones
+    // included, so for a whole retention window after a restart the live pass
+    // sees exactly the history the durable query bounded.
+    getSubagentManager().rehydrateFromDb();
+
+    const { subagents } = reconcile(PARENT_ID);
+
+    expect(Object.keys(subagents).sort()).toEqual(
+      Array.from({ length: 20 }, (_, i) => `sub-done-${i + 5}`).sort(),
+    );
+  });
+
+  test("never caps out an active child, however old", () => {
+    for (let i = 0; i < 25; i++) {
+      upsertSubagentRecord(
+        record({
+          id: `sub-done-${i}`,
+          conversationId: `child-conv-done-${i}`,
+          label: `done-${i}`,
+          status: "completed",
+          completedAt: 10_000 + i,
+        }),
+      );
+    }
+    upsertSubagentRecord(
+      record({
+        id: "sub-old-active",
+        conversationId: "child-conv-old-active",
+        label: "old-active",
+        status: "running",
+        createdAt: 1,
+        completedAt: null,
+      }),
+    );
+    const manager = getSubagentManager();
+    manager.rehydrateFromDb();
+    // Something is driving this run again, so the live entry is authoritative —
+    // and the oldest child of the parent, which the recency cap must not reach.
+    manager.getState("sub-old-active")!.status = "running";
+
+    const { subagents } = reconcile(PARENT_ID);
+
+    expect(subagents["sub-old-active"].status).toBe("running");
+    expect(Object.keys(subagents)).toHaveLength(21);
+  });
+
   test("omits a durable row whose status is out of enum", () => {
     upsertSubagentRecord(record({ status: "zombie" }));
 
