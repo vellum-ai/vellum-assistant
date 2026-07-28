@@ -14807,6 +14807,25 @@ paths:
                     properties:
                       resolved_endpoint:
                         type: string
+                      resolved_url:
+                        type: string
+                      model_id:
+                        type: string
+                      connection_name:
+                        type: string
+                      http_status:
+                        type: number
+                      upstream_error_body:
+                        type: string
+                      upstream_error_body_state:
+                        type: string
+                        enum:
+                          - captured
+                          - empty
+                          - truncated
+                          - unavailable
+                      upstream_error_body_bytes:
+                        type: number
                     additionalProperties: false
                 required:
                   - response

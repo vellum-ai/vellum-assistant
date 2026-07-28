@@ -24,6 +24,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 let nextResponse: ProviderResponse;
+let sendMessageImpl: (() => Promise<ProviderResponse>) | undefined;
 let getConfiguredProviderOptions: ConfiguredProviderOptions | undefined;
 let sendMessageOptions: SendMessageOptions | undefined;
 
@@ -37,7 +38,7 @@ mock.module("../../../providers/provider-send-message.js", () => ({
       name: "stub",
       sendMessage: async (_messages: unknown, options: SendMessageOptions) => {
         sendMessageOptions = options;
-        return nextResponse;
+        return sendMessageImpl ? sendMessageImpl() : nextResponse;
       },
     };
   },
@@ -58,7 +59,9 @@ mock.module("../../../config/loader.js", () => ({
 }));
 
 const { ROUTES } = await import("../inference-send-routes.js");
-const { BadRequestError } = await import("../errors.js");
+const { BadRequestError, UpstreamProviderError } = await import("../errors.js");
+const { recordProviderRequestDiagnostics } =
+  await import("../../../providers/request-diagnostics.js");
 
 function inferenceSendHandler() {
   const route = ROUTES.find((r) => r.operationId === "inference_send");
@@ -81,6 +84,7 @@ function baseResponse(overrides: Partial<ProviderResponse>): ProviderResponse {
 beforeEach(() => {
   configuredLlm = LLMSchema.parse({});
   nextResponse = baseResponse({});
+  sendMessageImpl = undefined;
   getConfiguredProviderOptions = undefined;
   sendMessageOptions = undefined;
 });
@@ -142,6 +146,50 @@ describe("inference_send evidence", () => {
 
     // THEN no evidence object is fabricated — the endpoint stays unknown
     expect(result.evidence).toBeUndefined();
+  });
+
+  test("reports the outbound request and verbatim upstream body when the send fails", async () => {
+    // GIVEN a provider call that reaches the upstream and fails there
+    sendMessageImpl = async () => {
+      recordProviderRequestDiagnostics({
+        resolved_url:
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro:streamGenerateContent?key=REDACTED",
+        model_id: "gemini-3-pro",
+        connection_name: "gemini-personal",
+        http_status: 404,
+        upstream_error_body: '{"error":{"code":404}}',
+        upstream_error_body_state: "captured",
+        upstream_error_body_bytes: 22,
+      });
+      throw new Error("Gemini API error (404): Not Found");
+    };
+
+    // WHEN the inference_send handler processes a request
+    const error = await Promise.resolve(
+      inferenceSendHandler()({ body: { message: "hi" } }),
+    ).then(
+      () => new Error("expected the request to fail"),
+      (err: unknown) => err,
+    );
+
+    // THEN the failure carries the evidence needed to diagnose it
+    expect(error).toBeInstanceOf(UpstreamProviderError);
+    expect(
+      (error as InstanceType<typeof UpstreamProviderError>).details,
+    ).toEqual({
+      error_class: "Error",
+      error_stack_head: expect.any(String),
+      evidence: {
+        resolved_url:
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro:streamGenerateContent?key=REDACTED",
+        model_id: "gemini-3-pro",
+        connection_name: "gemini-personal",
+        http_status: 404,
+        upstream_error_body: '{"error":{"code":404}}',
+        upstream_error_body_state: "captured",
+        upstream_error_body_bytes: 22,
+      },
+    });
   });
 });
 

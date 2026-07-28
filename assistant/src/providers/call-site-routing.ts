@@ -37,6 +37,7 @@ import {
 import { listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
 import { shouldUseNativeWebSearch } from "./registry.js";
+import { recordProviderRequestDiagnostics } from "./request-diagnostics.js";
 import type {
   Message,
   Provider,
@@ -260,6 +261,10 @@ export class CallSiteRoutingProvider implements Provider {
     }
 
     if (connectionName) {
+      // The connection whose credential the call will authenticate with is only
+      // known here; diagnostics for a failed request are unactionable without
+      // it ("which key was this?").
+      recordProviderRequestDiagnostics({ connection_name: connectionName });
       const connectionProvider = await this.resolveByConnection(
         connectionName,
         resolved.provider,
