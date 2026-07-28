@@ -59,6 +59,8 @@ const deleteRoute = ROUTES.find((r) => r.operationId === "deleteConversation")!;
 // Deferred until after the mocks so the manager and its transitive deps load
 // against the same module registry the routes above use.
 const { SubagentManager } = await import("../subagent/manager.js");
+const { deleteConversationById } =
+  await import("../runtime/routes/playground/helpers.js");
 
 function seedRow(id: string, parentConversationId: string): void {
   const rec: SubagentRecord = {
@@ -194,6 +196,42 @@ describe("deleteConversation purges subagent rows transactionally", () => {
 
     expect(getConversation(conv.id)).not.toBeNull();
     expect(getSubagentRecordById("child-purge-failure")).toBeDefined();
+  });
+});
+
+describe("playground delete leaves the rows to the conversation transaction", () => {
+  beforeEach(() => {
+    migrateCreateSubagentsTable();
+    migrateAddSubagentParentToolUseId(getDb());
+    resetTestTables("subagents");
+    failNextDelete = false;
+  });
+
+  test("a failed delete keeps the conversation and its rows for a retry", () => {
+    const conv = createConversation("playground-parent");
+    const other = createConversation("playground-unrelated-parent");
+    seedRow("child-playground", conv.id);
+    seedRow("child-playground-other", other.id);
+
+    // Abort the conversation transaction, so an in-memory teardown that
+    // deleted the rows eagerly would have committed that delete already.
+    getSqlite().exec(
+      "CREATE TRIGGER t_pg_fail BEFORE DELETE ON conversations BEGIN SELECT RAISE(ABORT, 'boom'); END",
+    );
+    try {
+      expect(() => deleteConversationById(conv.id)).toThrow();
+    } finally {
+      getSqlite().exec("DROP TRIGGER t_pg_fail");
+    }
+
+    expect(getConversation(conv.id)).not.toBeNull();
+    expect(getSubagentRecordById("child-playground")).toBeDefined();
+
+    expect(deleteConversationById(conv.id)).toBe(true);
+
+    expect(getConversation(conv.id)).toBeNull();
+    expect(getSubagentRecordById("child-playground")).toBeUndefined();
+    expect(getSubagentRecordById("child-playground-other")).toBeDefined();
   });
 });
 
