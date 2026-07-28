@@ -30,6 +30,7 @@ import {
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import { isActiveStatus } from "@/utils/subagent-status";
 import { supportsSubagentDetailSelfLookup } from "@/lib/backwards-compat/subagent-detail-self-lookup";
+import { supportsSubagentsReconcile } from "@/lib/backwards-compat/subagents-reconcile";
 import { fetchSubagentDetail } from "./fetch-subagent-detail";
 import { mapDetailEvents } from "./map-detail-events";
 import { setToolUseAnchor } from "./store-helpers/by-tool-use-id-index";
@@ -1065,6 +1066,12 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   },
 
   reconcileFromDaemon: (assistantId, parentConversationId) => {
+    // Single choke point for every trigger (mount, SSE reopen, unknown-id
+    // kick): assistants older than 0.10.0 don't serve the route, and the
+    // triggers re-fire on every reopen — gate rather than 404 repeatedly.
+    if (!supportsSubagentsReconcile()) {
+      return Promise.resolve();
+    }
     const inFlight = reconcileInFlight.get(parentConversationId);
     if (inFlight) {
       return inFlight;

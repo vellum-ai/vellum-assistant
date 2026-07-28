@@ -6,6 +6,11 @@ mock.module("@/lib/backwards-compat/subagent-detail-self-lookup", () => ({
   supportsSubagentDetailSelfLookup: () => selfLookupSupported,
 }));
 
+let reconcileSupported = true;
+mock.module("@/lib/backwards-compat/subagents-reconcile", () => ({
+  supportsSubagentsReconcile: () => reconcileSupported,
+}));
+
 const fetchSubagentDetail = mock(
   async (
     _assistantId: string,
@@ -66,6 +71,7 @@ const NOW = 1700000000000;
 beforeEach(() => {
   getState().reset();
   selfLookupSupported = true;
+  reconcileSupported = true;
   fetchSubagentDetail.mockClear();
   subagentsReconcileGet.mockClear();
   reconcileRequests.length = 0;
@@ -1817,6 +1823,12 @@ describe("loadDetail conversation id", () => {
 // ---------------------------------------------------------------------------
 
 describe("reconcileFromDaemon", () => {
+  it("does not call the route when the assistant predates it", async () => {
+    reconcileSupported = false;
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    expect(subagentsReconcileGet).not.toHaveBeenCalled();
+  });
+
   it("queries the reconcile route scoped to the parent conversation", async () => {
     await getState().reconcileFromDaemon("assistant-1", "conv-parent");
 

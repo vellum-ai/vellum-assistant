@@ -1,6 +1,7 @@
 import { SubagentStatusSchema } from "@vellumai/assistant-api";
 
 import type { SubagentStore } from "@/domains/chat/subagent-store";
+import { isActiveStatus } from "@/utils/subagent-status";
 
 type SubagentStoreSlice = Pick<
   SubagentStore,
@@ -51,11 +52,20 @@ export function reconcileSubagentStoreFromNotifications(
 
   for (const n of notifications) {
     const parsed = SubagentStatusSchema.safeParse(n.status);
-    if (priorById[n.subagentId]) {
+    const existing = priorById[n.subagentId];
+    if (existing) {
       // An unparseable status carries no information about an entry we
       // already hold — keep what SSE or reconcile told us rather than
-      // flipping it terminal.
-      if (parsed.success) {
+      // flipping it terminal. A settled entry likewise never regresses to an
+      // active status on the say-so of a historical notification: reconcile
+      // may have just settled a run whose mid-run "running" notification
+      // still sits in history, and an interrupted run emits no further
+      // terminal event to re-correct the regression.
+      const regressesTerminal =
+        parsed.success &&
+        !isActiveStatus(existing.status) &&
+        isActiveStatus(parsed.data);
+      if (parsed.success && !regressesTerminal) {
         store.changeStatus({ subagentId: n.subagentId, status: parsed.data });
       }
       if (n.conversationId) {
