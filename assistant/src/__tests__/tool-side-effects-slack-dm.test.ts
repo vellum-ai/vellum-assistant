@@ -54,6 +54,7 @@ mock.module("../apps/app-store.js", () => ({
   editAppFile: mock(() => ({})),
   inlineDistAssets: mock((_, html: string) => html),
   addAppConversationId: mock(() => false),
+  linkAppToConversationLineage: mock(() => {}),
 }));
 mock.module("../services/published-app-updater.js", () => ({
   updatePublishedAppDeployment: mock(() => Promise.resolve()),

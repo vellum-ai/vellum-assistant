@@ -149,6 +149,11 @@ export interface ConversationMenuItemsProps {
   onInspect?: () => void;
   /** Copy the full conversation as markdown to the clipboard. */
   onCopyConversation?: () => void;
+  /**
+   * Copy the conversation's id to the clipboard. Lets users paste a precise
+   * reference into chat (the assistant resolves conversation ids directly).
+   */
+  onCopyConversationId?: () => void;
   /** Re-fetch the chat context and reload the current conversation. */
   onRefresh?: () => void;
   /**
@@ -190,6 +195,7 @@ export function renderConversationMenuItems({
   onShareFeedback,
   onInspect,
   onCopyConversation,
+  onCopyConversationId,
   onRefresh,
   channelSourceLink,
   variant = "sidebar",
@@ -302,6 +308,15 @@ export function renderConversationMenuItems({
     </Primitive.Item>
   ) : null;
 
+  const copyConversationIdItem = onCopyConversationId ? (
+    <Primitive.Item
+      leftIcon={<Copy size={14} />}
+      onSelect={onCopyConversationId}
+    >
+      Copy conversation ID
+    </Primitive.Item>
+  ) : null;
+
   if (variant === "header") {
     return (
       <>
@@ -339,6 +354,7 @@ export function renderConversationMenuItems({
         {renameItem}
         {moveToGroupItem}
         {archiveItem}
+        {copyConversationIdItem}
         {inspectItem}
       </>
     );
@@ -367,9 +383,10 @@ export function renderConversationMenuItems({
         </>
       ) : null}
 
-      {inspectItem ? (
+      {copyConversationIdItem || inspectItem ? (
         <>
           <Primitive.Separator />
+          {copyConversationIdItem}
           {inspectItem}
         </>
       ) : null}
@@ -402,6 +419,7 @@ export function renderConversationMenuItemsAsPanelItems({
   onShareFeedback,
   onInspect,
   onCopyConversation,
+  onCopyConversationId,
   onRefresh,
   channelSourceLink,
   variant = "sidebar",
@@ -540,6 +558,16 @@ export function renderConversationMenuItemsAsPanelItems({
       })
     : null;
 
+  const copyConversationIdItem = onCopyConversationId
+    ? buildPanelMenuItem({
+        key: "copy-conversation-id",
+        icon: Copy,
+        label: "Copy conversation ID",
+        run: onCopyConversationId,
+        onClose,
+      })
+    : null;
+
   if (variant === "header") {
     return (
       <>
@@ -580,6 +608,7 @@ export function renderConversationMenuItemsAsPanelItems({
         {renameItem}
         {archiveItem}
         {moveToGroupBlock}
+        {copyConversationIdItem}
         {inspectItem}
       </>
     );
@@ -608,9 +637,10 @@ export function renderConversationMenuItemsAsPanelItems({
         </>
       ) : null}
 
-      {inspectItem ? (
+      {copyConversationIdItem || inspectItem ? (
         <>
           <PanelMenuDivider />
+          {copyConversationIdItem}
           {inspectItem}
         </>
       ) : null}

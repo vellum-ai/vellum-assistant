@@ -4,25 +4,27 @@ import { ShortcutsSections } from "@/domains/settings/keyboard-shortcuts/shortcu
 import { isElectron } from "@/runtime/is-electron";
 import { getLaunchAtLogin, setLaunchAtLogin } from "@/runtime/launch-at-login";
 import { isMacOSBrowser } from "@/runtime/platform-detection";
-import { cmdEnterToSend } from "@/utils/composer-settings";
+import {
+  cmdEnterToSend,
+  showContextWindowIndicator,
+} from "@/utils/composer-settings";
 import { isPointerCoarse } from "@/utils/pointer";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 /**
- * Preferences section for the composer's Enter-key behavior, at parity with
- * the macOS app's "Send with Cmd+Enter" toggle.
+ * Preferences section for composer behavior: the Enter-key mode (at parity
+ * with the macOS app's "Send with Cmd+Enter" toggle) and the opt-in
+ * context-window indicator.
  */
-function ComposerSendSection() {
-  const enabled = cmdEnterToSend.useValue();
+function ComposerSection() {
+  const sendWithModifier = cmdEnterToSend.useValue();
+  const showContextWindow = showContextWindowIndicator.useValue();
 
   // On touch devices the composer never submits on Enter (it always inserts
-  // a newline; sending happens via the send button), so the toggle would be
-  // a no-op control.
-  if (isPointerCoarse()) {
-    return null;
-  }
-
+  // a newline; sending happens via the send button), so that toggle would be
+  // a no-op control. The context-window toggle applies on every surface.
+  const showSendToggle = !isPointerCoarse();
   const modifier = isMacOSBrowser() ? "Cmd" : "Ctrl";
 
   return (
@@ -30,12 +32,20 @@ function ComposerSendSection() {
       <h3 className="text-title-small text-[var(--content-emphasised)]">
         Composer
       </h3>
-      <div className="mt-2">
+      <div className="mt-2 space-y-4">
+        {showSendToggle && (
+          <Toggle
+            checked={sendWithModifier}
+            onChange={cmdEnterToSend.save}
+            label={`Send with ${modifier}+Enter`}
+            helperText={`When enabled, Enter inserts a new line and ${modifier}+Enter sends.`}
+          />
+        )}
         <Toggle
-          checked={enabled}
-          onChange={cmdEnterToSend.save}
-          label={`Send with ${modifier}+Enter`}
-          helperText={`When enabled, Enter inserts a new line and ${modifier}+Enter sends.`}
+          checked={showContextWindow}
+          onChange={showContextWindowIndicator.save}
+          label="Show context window usage"
+          helperText="Adds a ring to the composer tracking how full the context window is. Your assistant compacts its context automatically either way."
         />
       </div>
     </section>
@@ -87,7 +97,7 @@ export interface PreferencesModalProps {
  * Preferences editor opened from the Preferences card on Settings → General.
  * Hosts the shortcut rebinding sections (Electron only — hotkeys drive Electron
  * globalShortcut + menu accelerators with no web/iOS analogue), the composer
- * send toggle, and the Launch at Login toggle. The theme picker is a separate
+ * section, and the Launch at Login toggle. The theme picker is a separate
  * Appearance card on Settings → General.
  */
 export function PreferencesModal({ open, onClose }: PreferencesModalProps) {
@@ -122,7 +132,7 @@ export function PreferencesModal({ open, onClose }: PreferencesModalProps) {
                 </div>
               </section>
             )}
-            <ComposerSendSection />
+            <ComposerSection />
             {isElectron() && <LaunchAtLoginSection />}
           </div>
         </Modal.Body>

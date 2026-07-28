@@ -25,26 +25,26 @@ describe("useSupportsGroupIcons", () => {
     expect(check("")).toBe(false);
   });
 
-  test("returns true at exactly MIN_VERSION (0.11.0)", () => {
-    expect(check("0.11.0")).toBe(true);
+  test("returns true at exactly MIN_VERSION (0.12.0)", () => {
+    expect(check("0.12.0")).toBe(true);
   });
 
   test("returns true for dev builds ahead of MIN_VERSION", () => {
-    expect(check("0.11.0-dev.202607281200.abc1234")).toBe(true);
+    expect(check("0.12.0-dev.202607281200.abc1234")).toBe(true);
   });
 
   test("returns true for versions above MIN_VERSION", () => {
-    expect(check("0.11.1")).toBe(true);
+    expect(check("0.12.1")).toBe(true);
     expect(check("1.0.0")).toBe(true);
   });
 
   test("returns false for versions below MIN_VERSION", () => {
+    expect(check("0.11.0")).toBe(false);
     expect(check("0.10.12")).toBe(false);
-    expect(check("0.9.0")).toBe(false);
   });
 
   test("returns false for unparseable versions", () => {
     expect(check("not-a-version")).toBe(false);
-    expect(check("0.11")).toBe(false);
+    expect(check("0.12")).toBe(false);
   });
 });

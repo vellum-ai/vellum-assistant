@@ -13646,6 +13646,7 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending app-control request ID
                 state:
                   type: string
@@ -31574,7 +31575,8 @@ paths:
       summary: Register a webhook callback URL
       description:
         Resolves a stable callback URL for a webhook type. On platform-managed assistants, registers the route with
-        the platform gateway. On self-hosted assistants, uses the configured ingress.publicBaseUrl.
+        the platform gateway. Otherwise uses the configured ingress.publicBaseUrl, falling back to the platform gateway
+        when no ingress is configured and the assistant is connected to the platform.
       tags:
         - webhooks
       requestBody:

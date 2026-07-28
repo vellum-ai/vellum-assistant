@@ -241,7 +241,10 @@ export interface VoiceTurnCallbacks {
   persisted_user_message_id?: (messageId: string) => void;
   persisted_assistant_message_id?: (messageId: string) => void;
   /** Fired when the agent run starts a definitive tool use this turn. */
-  tool_use_start?: (toolName: string, detail?: { toolUseId?: string }) => void;
+  tool_use_start?: (
+    toolName: string,
+    detail?: { toolUseId?: string; input?: Record<string, unknown> },
+  ) => void;
   /** Fired when a tool invocation finishes. */
   tool_result?: (event: VoiceToolResultEvent) => void;
 }
@@ -308,6 +311,14 @@ export interface VoiceTurnOptions {
    * Only meaningful with `routingLeg: "escalated"`.
    */
   spokenEscalationBridge?: string;
+  /**
+   * Marks this turn's `content` as an internal instruction rather than user
+   * speech: it persists `hidden` so `/messages` filters it after a reload,
+   * its echo is suppressed, and prompt-as-user-speech consumers (title
+   * generation) skip it. Set by callers whose synthetic prompt text is not a
+   * fixed sentinel.
+   */
+  hiddenSyntheticPrompt?: boolean;
   /**
    * Unified front-door: this leg was dispatched speculatively at a silence
    * boundary, so its decision rule includes the hold branch (leading token
@@ -644,7 +655,7 @@ export async function startVoiceTurn(
     },
     onToolUse: (toolName, input, toolUseId) => {
       log.debug({ toolName, input }, "Voice turn tool_use event");
-      opts.callbacks?.tool_use_start?.(toolName, { toolUseId });
+      opts.callbacks?.tool_use_start?.(toolName, { toolUseId, input });
     },
     onToolResult: (event) => {
       opts.callbacks?.tool_result?.(event);
@@ -680,11 +691,13 @@ export async function startVoiceTurn(
         ? "(verification completed — transitioning into conversation)"
         : opts.content;
 
-  // Opener / verification / escalation-continuation prompts are internal
-  // scaffolding: they persist a row so the model wakes, but they are not user
-  // speech and must not render as a live user bubble. Their echo is suppressed
-  // below (parity with `isEchoSuppressedUserMessage` on the text path).
+  // Opener / verification / escalation-continuation prompts, plus any turn a
+  // caller declares hidden, are internal scaffolding: they persist a row so the
+  // model wakes, but they are not user speech and must not render as a live
+  // user bubble. Their echo is suppressed below (parity with
+  // `isEchoSuppressedUserMessage` on the text path).
   const isSyntheticVoicePrompt =
+    opts.hiddenSyntheticPrompt === true ||
     opts.content === CALL_OPENING_MARKER ||
     opts.content === CALL_VERIFICATION_COMPLETE_MARKER ||
     opts.content === ESCALATION_CONTINUATION_CONTENT;
@@ -696,8 +709,10 @@ export async function startVoiceTurn(
   // `/messages` filters it out after a refetch/reload, and flag the turn as a
   // hidden prompt so prompt-as-user-speech consumers (e.g. title generation)
   // skip it. The escalated model still sees the row in context — `hidden` only
-  // affects client display.
+  // affects client display. A caller whose prompt text is not a fixed sentinel
+  // opts into the same treatment with `hiddenSyntheticPrompt`.
   const isHiddenSyntheticPrompt =
+    opts.hiddenSyntheticPrompt === true ||
     opts.content === ESCALATION_CONTINUATION_CONTENT;
 
   // Build the call-control protocol prompt so the model knows how to emit

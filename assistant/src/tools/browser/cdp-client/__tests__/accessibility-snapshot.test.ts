@@ -204,6 +204,33 @@ describe("transformAxTree", () => {
     expect(result.elements[0]?.name.length).toBe(80);
   });
 
+  it("truncates values and attribute values longer than 120 chars", () => {
+    // `url` and `placeholder` carry page-authored strings of arbitrary
+    // length, so element count alone would not bound a snapshot.
+    const longHref = `https://example.com/${"x".repeat(5_000)}`;
+    const fixture = {
+      nodes: [
+        {
+          nodeId: "1",
+          role: { value: "link" },
+          name: { value: "Somewhere" },
+          value: { value: longHref },
+          properties: [
+            { name: "url", value: { value: longHref } },
+            { name: "placeholder", value: { value: longHref } },
+          ],
+          backendDOMNodeId: 1,
+          childIds: [],
+          ignored: false,
+        },
+      ],
+    };
+    const result = transformAxTree(fixture);
+    expect(result.elements[0]?.value?.length).toBe(120);
+    expect(result.elements[0]?.attrs.url?.length).toBe(120);
+    expect(result.elements[0]?.attrs.placeholder?.length).toBe(120);
+  });
+
   it("returns an empty result for malformed input", () => {
     expect(transformAxTree(null)).toEqual({
       elements: [],
