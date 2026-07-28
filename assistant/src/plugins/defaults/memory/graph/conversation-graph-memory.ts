@@ -73,6 +73,15 @@ const log = getLogger("graph-conversation-memory");
 
 const ESTIMATED_IMAGE_TOKENS = 1000;
 
+/**
+ * Page size for {@link ConversationGraphMemory.fetchRecentSummaries}. It reads
+ * candidate summaries a page at a time and stops once three user summaries are
+ * found, so the common case (recent conversations are user ones) touches a
+ * single page regardless of history size. Also bounds the per-page conversation
+ * lookup below SQLite's bound-parameter limit.
+ */
+const RECENT_SUMMARY_PAGE_SIZE = 200;
+
 // ---------------------------------------------------------------------------
 // Per-conversation state
 // ---------------------------------------------------------------------------
@@ -226,74 +235,76 @@ export class ConversationGraphMemory {
     try {
       const db = getDb();
 
-      // Read the candidate conversation summaries' keys, most-recent first. Only
-      // ids/timestamps are read here so the full summary text is fetched for
-      // just the few rows actually returned. The conversationType filter is a
-      // separate lookup rather than a JOIN, so summaries and conversations need
-      // not share a database connection.
-      const candidateKeys = db
-        .select({ scopeKey: memorySummaries.scopeKey })
-        .from(memorySummaries)
-        .where(
-          and(
-            eq(memorySummaries.scope, "conversation"),
-            ne(memorySummaries.scopeKey, this.conversationId),
-          ),
-        )
-        .orderBy(desc(memorySummaries.updatedAt))
-        .all()
-        .map((r) => r.scopeKey);
+      // Page through candidate summary keys most-recent first, resolving each
+      // page's conversation types before moving on, and stop as soon as 3 user
+      // summaries are found. Only keys are read here so the full text is fetched
+      // for just the rows returned. conversationType is a separate lookup rather
+      // than a JOIN, so summaries and conversations need not share a database
+      // connection; keeping it per-page bounds both the scan and the lookup to
+      // the pages actually needed, rather than the user's entire history. A
+      // summary whose conversation row is gone is skipped, and at most 1
+      // background/scheduled summary fills a remaining slot.
+      const selectedKeys: string[] = [];
+      let backgroundKey: string | null = null;
+      for (
+        let offset = 0;
+        selectedKeys.length < 3;
+        offset += RECENT_SUMMARY_PAGE_SIZE
+      ) {
+        const page = db
+          .select({ scopeKey: memorySummaries.scopeKey })
+          .from(memorySummaries)
+          .where(
+            and(
+              eq(memorySummaries.scope, "conversation"),
+              ne(memorySummaries.scopeKey, this.conversationId),
+            ),
+          )
+          .orderBy(desc(memorySummaries.updatedAt))
+          .limit(RECENT_SUMMARY_PAGE_SIZE)
+          .offset(offset)
+          .all()
+          .map((r) => r.scopeKey);
+        if (page.length === 0) {
+          break;
+        }
 
-      if (candidateKeys.length === 0) {
-        return [];
-      }
-
-      // Resolve each candidate conversation's type. A summary whose conversation
-      // row is gone is skipped (only summaries for a live conversation count).
-      // Chunk the id list under SQLite's bound-parameter limit.
-      const typeByConversation = new Map<string, string>();
-      const CHUNK = 500;
-      for (let i = 0; i < candidateKeys.length; i += CHUNK) {
+        const typeByConversation = new Map<string, string>();
         const rows = db
           .select({
             id: conversations.id,
             type: conversations.conversationType,
           })
           .from(conversations)
-          .where(inArray(conversations.id, candidateKeys.slice(i, i + CHUNK)))
+          .where(inArray(conversations.id, page))
           .all();
         for (const r of rows) {
           typeByConversation.set(r.id, r.type);
         }
-      }
 
-      // Walk every candidate in most-recent-first order (not a fixed window, so
-      // the 3 most-recent user summaries are still found behind any number of
-      // newer background rows) and pick up to 3 user keys, then at most 1
-      // background/scheduled to fill — exactly the two limited queries this
-      // replaces.
-      const selectedKeys: string[] = [];
-      const backgroundKeys: string[] = [];
-      for (const scopeKey of candidateKeys) {
-        const type = typeByConversation.get(scopeKey);
-        if (type === undefined) {
-          continue; // its conversation row is gone — skip it
-        }
-        if (type === "background" || type === "scheduled") {
-          if (backgroundKeys.length < 1) {
-            backgroundKeys.push(scopeKey);
+        for (const scopeKey of page) {
+          const type = typeByConversation.get(scopeKey);
+          if (type === undefined) {
+            continue; // its conversation row is gone — skip it
           }
-        } else if (selectedKeys.length < 3) {
-          selectedKeys.push(scopeKey);
+          if (type === "background" || type === "scheduled") {
+            if (backgroundKey === null) {
+              backgroundKey = scopeKey;
+            }
+          } else if (selectedKeys.length < 3) {
+            selectedKeys.push(scopeKey);
+            if (selectedKeys.length >= 3) {
+              break;
+            }
+          }
         }
-        if (selectedKeys.length >= 3) {
-          break;
+
+        if (page.length < RECENT_SUMMARY_PAGE_SIZE) {
+          break; // last page reached
         }
       }
-      if (selectedKeys.length < 3) {
-        selectedKeys.push(
-          ...backgroundKeys.slice(0, Math.min(1, 3 - selectedKeys.length)),
-        );
+      if (selectedKeys.length < 3 && backgroundKey !== null) {
+        selectedKeys.push(backgroundKey);
       }
       if (selectedKeys.length === 0) {
         return [];
@@ -316,7 +327,9 @@ export class ConversationGraphMemory {
           ),
         )
         .all();
-      for (const r of selectedRows) textByKey.set(r.scopeKey, r.summary);
+      for (const r of selectedRows) {
+        textByKey.set(r.scopeKey, r.summary);
+      }
       return selectedKeys
         .map((k) => textByKey.get(k))
         .filter((s): s is string => s !== undefined);

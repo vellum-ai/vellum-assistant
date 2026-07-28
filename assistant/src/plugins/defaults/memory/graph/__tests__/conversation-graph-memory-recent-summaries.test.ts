@@ -1,10 +1,11 @@
 /**
- * Tests for `ConversationGraphMemory.fetchRecentSummaries` — the cross-DB-ready
- * two-step that replaced the `memory_summaries × conversations` JOIN. It reads
- * candidate summaries, resolves each conversation's type separately, and
- * partitions in JS: up to 3 user summaries (most recent first), then at most 1
- * background/scheduled to fill, excluding the current conversation and any
- * summary whose conversation row is gone (the old innerJoin's drop).
+ * Tests for `ConversationGraphMemory.fetchRecentSummaries`. It pages through
+ * candidate conversation summaries most-recent first, resolves each
+ * conversation's type with a separate lookup rather than a JOIN (so the two
+ * tables need not share a connection), and partitions in JS: up to 3 user
+ * summaries (most recent first), then at most 1 background/scheduled to fill. It
+ * excludes the current conversation and any summary whose conversation row is
+ * gone.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
@@ -119,17 +120,17 @@ describe("fetchRecentSummaries", () => {
     expect(recentSummaries()).toEqual([]);
   });
 
-  test("finds user summaries even behind 100+ newer background summaries", () => {
-    // 3 (older) user summaries, then many newer background summaries. A
-    // fixed-window scan would cut the user rows off; the full scan must still
-    // return them.
+  test("pages past a full page of newer background summaries to find users", () => {
+    // 3 (older) user summaries, then more than one page of newer background
+    // summaries. A single fixed window would cut the user rows off; paging must
+    // walk past the first background-only page to return them.
     seedConversation("u1", "standard");
     seedSummary("u1", "user u1", 1);
     seedConversation("u2", "standard");
     seedSummary("u2", "user u2", 2);
     seedConversation("u3", "standard");
     seedSummary("u3", "user u3", 3);
-    for (let i = 0; i < 110; i++) {
+    for (let i = 0; i < 250; i++) {
       seedConversation(`bg${i}`, "background");
       seedSummary(`bg${i}`, `bg ${i}`, 100 + i); // all newer than the users
     }
