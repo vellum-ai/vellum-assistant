@@ -31,8 +31,12 @@ import {
 } from "@/lib/billing/provisioning-targets";
 import { isLocalMode } from "@/lib/local-mode";
 
-const POLL_INTERVAL_MS = 3000;
-const MAX_HATCH_WAIT_MS = 300_000;
+// The single source for the hatch poll cadence and the overall wait ceiling,
+// shared by every hatch entry point. `MAX_HATCH_WAIT_MS` decides the
+// `health_timeout` outcome below, so a caller reporting its own copy in
+// telemetry would be reporting a number that didn't make the decision.
+export const POLL_INTERVAL_MS = 3000;
+export const MAX_HATCH_WAIT_MS = 300_000;
 // Hard cap on the post-payment resize wait, mirroring PROVISION_STALL_MS in the
 // pro-onboarding takeover. On expiry the assistant completes at baseline and the
 // server reconciles the purchased specs later — the user is never trapped.

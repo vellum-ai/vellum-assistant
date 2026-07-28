@@ -20,7 +20,11 @@ import {
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
-import { awaitPurchasedProvisioning } from "@/domains/onboarding/purchased-provisioning";
+import {
+    awaitPurchasedProvisioning,
+    MAX_HATCH_WAIT_MS,
+    POLL_INTERVAL_MS,
+} from "@/domains/onboarding/purchased-provisioning";
 import { getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, probeLocalGatewayReady, saveLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
@@ -46,9 +50,7 @@ import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 
-const POLL_INTERVAL_MS = 3000;
 const COMPLETION_NAVIGATE_DELAY_MS = 800;
-const MAX_HATCH_WAIT_MS = 300_000;
 
 // Module-level state so HMR remounts, StrictMode double-mounts, and — critically
 // — the auth-driven provider remount survive without spawning duplicate hatches.

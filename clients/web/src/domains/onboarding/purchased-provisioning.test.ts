@@ -60,9 +60,9 @@ mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => localMode,
 }));
 
-const { awaitPurchasedProvisioning } = await import("./purchased-provisioning");
-
-const MAX_HATCH_WAIT_MS = 300_000;
+const { awaitPurchasedProvisioning, MAX_HATCH_WAIT_MS } = await import(
+  "./purchased-provisioning"
+);
 
 /** Poll a predicate without depending on the wait's own 3s poll interval. */
 async function until(
