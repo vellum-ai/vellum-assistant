@@ -170,6 +170,17 @@ export const EMPTY_SUBAGENT_ENTRIES: readonly SubagentEntry[] = [];
 // Actions
 // ---------------------------------------------------------------------------
 
+/**
+ * What asked for a reconcile. Decides whether the call is throttled and rides
+ * along on the `subagent_reconcile_kick` diagnostic so the field tells which
+ * trigger is actually recovering runs.
+ *
+ * - `"mount"` — conversation load (or the version gate resolving after it).
+ * - `"reopen"` — an SSE stream replaced after a drop; never throttled.
+ * - `"unknown_id"` — a stream event named a subagent the store doesn't hold.
+ */
+export type SubagentReconcileTrigger = "mount" | "reopen" | "unknown_id";
+
 export interface SubagentActions {
   spawnSubagent: (params: {
     subagentId: string;
@@ -357,16 +368,20 @@ export interface SubagentActions {
    * out. Timeline backfill stays with that fetch — this never touches
    * `events`.
    *
-   * Concurrent calls for the same parent conversation share one request, and
-   * every trigger — mount, SSE reopen, unknown-id kick — shares one throttle
-   * window per parent, so an SSE flap loop costs a single round-trip. A
-   * `reset()` while a request is in flight invalidates it (the snapshot
-   * describes the conversation the user just left) and reopens the window for
-   * the conversation now on screen.
+   * Concurrent calls for the same parent conversation always share one
+   * request. Beyond that, `"mount"` and `"unknown_id"` share one throttle
+   * window per parent; `"reopen"` bypasses it. A reopen replaces a stream that
+   * may have dropped a terminal status, so throttling it away is how a row
+   * stays `running` forever — the miss is unrecoverable, whereas a throttled
+   * mount pass has already been covered by the round-trip that took the
+   * window. A `reset()` while a request is in flight invalidates it (the
+   * snapshot describes the conversation the user just left) and reopens the
+   * window for the conversation now on screen.
    */
   reconcileFromDaemon: (
     assistantId: string,
     parentConversationId: string,
+    trigger?: SubagentReconcileTrigger,
   ) => Promise<void>;
 
   /**
@@ -573,7 +588,7 @@ const reconcileInFlight = new Map<string, Promise<void>>();
  */
 let resetGeneration = 0;
 
-/** Minimum spacing between reconcile round-trips for one parent. */
+/** Minimum spacing between one parent's throttled reconcile round-trips. */
 const RECONCILE_KICK_INTERVAL_MS = 5_000;
 
 /**
@@ -585,17 +600,25 @@ const RECONCILE_KICK_INTERVAL_MS = 5_000;
 const lastReconcileKickAt = new Map<string, number>();
 
 /**
+ * Open a fresh window for `parentConversationId` without testing the current
+ * one — for a trigger that issues its round-trip regardless, so the throttled
+ * triggers still measure their spacing from the last real request.
+ */
+function stampReconcileWindow(parentConversationId: string): void {
+  lastReconcileKickAt.set(parentConversationId, Date.now());
+}
+
+/**
  * Take `parentConversationId`'s reconcile slot for this window, reporting
  * whether it was free. Claiming and testing are one step so two triggers
  * firing in the same tick can't both pass.
  */
 function claimReconcileWindow(parentConversationId: string): boolean {
-  const now = Date.now();
   const lastKickAt = lastReconcileKickAt.get(parentConversationId) ?? 0;
-  if (now - lastKickAt < RECONCILE_KICK_INTERVAL_MS) {
+  if (Date.now() - lastKickAt < RECONCILE_KICK_INTERVAL_MS) {
     return false;
   }
-  lastReconcileKickAt.set(parentConversationId, now);
+  stampReconcileWindow(parentConversationId);
   return true;
 }
 
@@ -737,12 +760,16 @@ async function runReconcile(
   // Settle this conversation's orphans: a candidate the daemon didn't report
   // died with it, and no terminal event is ever coming. Re-checked against the
   // store as it stands now — a terminal event that landed during the
-  // round-trip already settled the row truthfully.
+  // round-trip already settled the row truthfully, and ownership is re-tested
+  // because a stub `ensureEntry` attributed to the conversation on screen can
+  // be re-parented by a later `subagent_event`. This response says nothing
+  // about a row that now belongs to a different conversation.
   const { byId, changeStatus } = get();
   for (const subagentId of candidateIds) {
     const entry = byId[subagentId];
     if (
       !entry ||
+      entry.parentConversationId !== parentConversationId ||
       !isActiveStatus(entry.status) ||
       Object.hasOwn(snapshot, subagentId)
     ) {
@@ -1240,7 +1267,11 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     });
   },
 
-  reconcileFromDaemon: (assistantId, parentConversationId) => {
+  reconcileFromDaemon: (
+    assistantId,
+    parentConversationId,
+    trigger = "mount",
+  ) => {
     // Single choke point for every trigger (mount, SSE reopen, unknown-id
     // kick): assistants older than 0.10.0 don't serve the route, and the
     // triggers re-fire on every reopen — gate rather than 404 repeatedly.
@@ -1251,13 +1282,24 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     if (inFlight) {
       return inFlight;
     }
-    // Throttled here rather than at the kick call site so a reconnect loop —
-    // which re-fires the mount and `sse.opened` triggers, not the kick — is
-    // bounded too.
-    if (!claimReconcileWindow(parentConversationId)) {
+    // Throttled here rather than at the kick call site so a mount pass that
+    // re-runs when the version gate resolves is bounded too. A reopen is
+    // exempt: the stream it replaces may have dropped the terminal status this
+    // pass exists to recover, and a dropped reopen is never retried. It still
+    // stamps the window, so the reconnect's own mount pass doesn't double-fire,
+    // and single-flight above still collapses a burst of reopens into one
+    // request. `sse.opened` only publishes for a stream that genuinely
+    // established, so this is bounded by the transport's reconnect backoff.
+    if (trigger === "reopen") {
+      stampReconcileWindow(parentConversationId);
+    } else if (!claimReconcileWindow(parentConversationId)) {
       return Promise.resolve();
     }
 
+    // Recorded here rather than at the kick call site so the count tracks
+    // round-trips actually issued — not calls the version gate, the window or
+    // single-flight turned into a no-op.
+    recordDiagnostic("subagent_reconcile_kick", { trigger });
     const run: Promise<void> = runReconcile(
       get,
       assistantId,
@@ -1335,10 +1377,7 @@ export function requestSubagentReconcile(parentConversationId?: string): void {
     return;
   }
 
-  recordDiagnostic("subagent_reconcile_kick", {
-    reason: "unknown_subagent_id",
-  });
   void useSubagentStoreBase
     .getState()
-    .reconcileFromDaemon(assistantId, targetConversationId);
+    .reconcileFromDaemon(assistantId, targetConversationId, "unknown_id");
 }
