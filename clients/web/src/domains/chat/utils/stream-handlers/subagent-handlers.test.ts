@@ -27,6 +27,10 @@ mock.module("@/lib/backwards-compat/subagent-detail-self-lookup", () => ({
   supportsSubagentDetailSelfLookup: () => selfLookupSupported,
 }));
 
+mock.module("@/lib/backwards-compat/subagents-reconcile", () => ({
+  supportsSubagentsReconcile: () => true,
+}));
+
 let reconcileCalls = 0;
 const reconciledParents: string[] = [];
 mock.module("@/generated/daemon/sdk.gen", () => ({
