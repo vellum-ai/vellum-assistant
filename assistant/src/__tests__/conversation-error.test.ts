@@ -1349,7 +1349,7 @@ describe("ConnectionResolutionError classification", () => {
     expect(result.profileName).toBe("custom-fast");
   });
 
-  it("classifies missing_connection with an add-a-key fix and no sentinel name", () => {
+  it("classifies missing_connection offering inline recovery and no sentinel name", () => {
     const err = new ConnectionResolutionError(
       "<llm.default>",
       "missing_connection",
@@ -1359,7 +1359,10 @@ describe("ConnectionResolutionError classification", () => {
     expect(result.userMessage).toContain(
       "No provider connection is configured",
     );
-    expect(result.userMessage).toContain("Add an API key or log in");
+    // The user is locked out of chat here, so the copy must offer recovery in
+    // the conversation itself, not only a settings detour.
+    expect(result.userMessage).toContain("Ask me to set one up right here");
+    expect(result.userMessage).toContain("Settings → Models & Services");
     expect(result.userMessage).not.toContain("<llm.default>");
     expect(result.connectionName).toBeUndefined();
   });

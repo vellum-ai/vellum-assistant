@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
+import { badRequestMessage } from "@/utils/api-errors";
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -141,8 +142,15 @@ export function LanguageModelCard() {
       });
       toast.success("Saved.");
     } catch (error) {
-      toast.error("Failed to save. Please try again.");
-      captureError(error, { context: "settings-ai-language-model-save" });
+      // A 400 is the server's verdict on the selection itself — e.g. a profile
+      // whose provider has no connection or key, so it could never dispatch.
+      // Show that verbatim and skip the Sentry report: it's a config problem
+      // the user can fix, not an app fault.
+      const serverMessage = badRequestMessage(error);
+      toast.error(serverMessage ?? "Failed to save. Please try again.");
+      if (!serverMessage) {
+        captureError(error, { context: "settings-ai-language-model-save" });
+      }
     }
   }, [
     isProfileDirty,

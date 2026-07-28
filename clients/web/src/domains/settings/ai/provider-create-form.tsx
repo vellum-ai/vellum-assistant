@@ -34,6 +34,7 @@ import type {
 } from "@/generated/daemon/types.gen";
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
+  connectionAuthTypeForProvider,
   connectionSaveErrorMessage,
   parseCredentialRef,
   validationErrorMessage,
@@ -104,13 +105,12 @@ export function ProviderCreateForm({
   );
   const isChatgpt = selected === "chatgpt";
   const provider: ConnectionProvider = isChatgpt ? "openai" : selected;
-  // Auth is derived from the provider, never user-chosen: ollama is keyless,
-  // ChatGPT is subscription (OAuth), everything else authenticates by API key.
+  // Auth is derived from the provider, never user-chosen: ChatGPT is
+  // subscription (OAuth), everything else follows the provider's connection
+  // auth (ollama keyless, the rest API key).
   const authType: Auth["type"] = isChatgpt
     ? "oauth_subscription"
-    : provider === "ollama"
-      ? "none"
-      : "api_key";
+    : connectionAuthTypeForProvider(provider);
   // Custom providers get per-connection credential slots: keying the ref by
   // the provider type would share ONE vault slot across every custom
   // endpoint, so saving any endpoint's key overwrites the others'.

@@ -73,7 +73,8 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Open an inference-profile session",
     description:
       "Open (or replace) a session-backed inference-profile override for a conversation. " +
-      "Supports an optional TTL — omit for a sticky (non-expiring) override.",
+      "Supports an optional TTL — omit for a sticky (non-expiring) override. " +
+      "A profile that provably cannot dispatch is rejected rather than pinned.",
     tags: ["conversations"],
     requestBody: z.object({
       conversationId: z.string().min(1),

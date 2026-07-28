@@ -72,6 +72,20 @@ describe("models list", () => {
     });
   });
 
+  test("bare `models` runs list", async () => {
+    await run(["models"]);
+    expect(lastIpcCall?.method).toBe("inference_models_list");
+    expect(lastIpcCall?.params).toEqual({ queryParams: {} });
+  });
+
+  test("bare `models --provider` runs list with the filter", async () => {
+    await run(["models", "--provider", "gemini"]);
+    expect(lastIpcCall?.method).toBe("inference_models_list");
+    expect(lastIpcCall?.params).toEqual({
+      queryParams: { provider: "gemini" },
+    });
+  });
+
   test("--json emits structured output", async () => {
     mockIpcResult = {
       ok: true,

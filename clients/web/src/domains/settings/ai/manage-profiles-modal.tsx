@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 
 import { captureError } from "@/lib/sentry/capture-error";
+import { badRequestMessage } from "@/utils/api-errors";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -343,9 +344,16 @@ function ManageProfilesModalInner({
       });
       return true;
     } catch (error) {
-      captureError(error, { context: "settings-ai-profile-toggle" });
+      // Enabling a profile the daemon can't dispatch through is rejected with
+      // a 400 naming what's missing; that beats generic retry copy, and it is
+      // a config problem rather than an app fault, so it skips Sentry.
+      const serverMessage = badRequestMessage(error);
+      if (!serverMessage) {
+        captureError(error, { context: "settings-ai-profile-toggle" });
+      }
       setToggleError(
-        `Couldn't update "${profile.label ?? profile.name}". Please try again.`,
+        serverMessage ??
+          `Couldn't update "${profile.label ?? profile.name}". Please try again.`,
       );
       return false;
     } finally {

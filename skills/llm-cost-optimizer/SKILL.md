@@ -66,7 +66,7 @@ assistant inference profiles list      # effective profiles: managed + user, wit
 assistant inference profiles active    # the chat-model selection
 assistant inference providers default  # default provider + availability
 assistant inference session list
-assistant inference providers connections list
+assistant inference providers list
 assistant schedules list
 ```
 
@@ -82,10 +82,10 @@ For each recurring schedule, check which profile its runs use — `assistant sch
 
 ## Step 4 — Optimize
 
-- **Chat model**: if the user is happy to reduce chat cost, set the active profile — this is the same thing the model picker in the UI writes:
+- **Chat model**: if the user is happy to reduce chat cost, set the active profile — this is the same thing the model picker in the UI writes. Use the dedicated verb, not a raw `config set`: it validates the profile and refuses one that cannot dispatch, so a typo or an uncredentialed profile can't lock the user out of chat.
 
   ```bash
-  assistant config set llm.activeProfile balanced
+  assistant inference profiles active balanced
   ```
 
 - **Downgrade one specific site** that the breakdown shows is expensive and quality-insensitive (leaf path, see Step 5):
@@ -136,7 +136,7 @@ For the full setup procedure (managed-first, secure key collection, model discov
 
 If the user wants a custom profile on a specific provider, work down this ladder — do not start by asking for a key:
 
-1. **Check for a managed connection first.** `assistant inference providers connections list` — managed entries (`auth=platform`, e.g. `anthropic-managed`) need no API key. If one covers the target provider, create the profile against it and skip the rest of this ladder.
+1. **Check for a managed route first.** `assistant inference providers list` — managed entries (`auth=platform`, e.g. `anthropic-managed`) need no API key, and when the user is signed in to Vellum a profile built as `--provider vellum --model <model-id>` (no `--connection`) routes through the platform proxy. If either covers the target model, create the profile that way and skip the rest of this ladder.
 2. **Check for an existing stored key.** `assistant credentials list` — if a suitable credential is already in the vault, reference it by vault path instead of prompting for a new one.
 3. **Only then collect a new key — securely, never in chat:**
 
@@ -144,7 +144,7 @@ If the user wants a custom profile on a specific provider, work down this ladder
 assistant credentials prompt --service anthropic --field api_key \
   --label "Anthropic API Key" --placeholder "sk-ant-..."
 
-assistant inference providers connections create my-anthropic-key \
+assistant inference providers create my-anthropic-key \
   --provider anthropic \
   --auth api_key \
   --credential credential/anthropic/api_key
@@ -181,11 +181,11 @@ assistant config set llm.callSites.memoryExtraction.profile balanced
 ## Reference: provider connections
 
 ```bash
-assistant inference providers connections list
-assistant inference providers connections get <name>
-assistant inference providers connections create <name> --provider <p> --auth api_key --credential <vault-key>
-assistant inference providers connections update <name> --auth platform
-assistant inference providers connections delete <name>
+assistant inference providers list
+assistant inference providers get <name>
+assistant inference providers create <name> --provider <p> --auth api_key --credential <vault-key>
+assistant inference providers update <name> --auth platform
+assistant inference providers delete <name>
 ```
 
 Canonical managed connections are seeded automatically (auth=platform, no key needed).

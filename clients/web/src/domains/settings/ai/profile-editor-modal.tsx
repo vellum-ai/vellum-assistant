@@ -55,7 +55,9 @@ import {
   expandEndpointEntries,
   parseEndpointPickerValue,
   providersServedByConnections,
+  unconnectedSelectableProviders,
 } from "@/domains/settings/ai/provider-availability";
+import { connectionAuthTypeForProvider } from "@/domains/settings/ai/provider-editor-constants";
 import type {
   ConnectionProvider,
   ProviderConnection,
@@ -63,11 +65,24 @@ import type {
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
+import { badRequestMessage } from "@/utils/api-errors";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
 // of selecting a provider.
 const CREATE_NEW_PROVIDER_SENTINEL = "__create_new_provider__";
+
+/**
+ * Right-aligned annotation on a supported-but-unconnected provider row. It
+ * names the one thing standing between the user and that provider, so picking
+ * the row and landing on the create form reads as the same action.
+ */
+function unconnectedProviderMeta(provider: ConnectionProvider): string {
+  return connectionAuthTypeForProvider(provider) === "api_key"
+    ? "Add API key"
+    : "Set up";
+}
+
 type EffortSelection = "inherit" | NonNullable<ProfileEntry["effort"]>;
 
 /**
@@ -429,6 +444,14 @@ function ProfileEditorModalInner({
   // Create-mode-only UI: whether the inline "+ Create new provider" sub-form
   // is mounted, and whether the Advanced disclosure is expanded.
   const [creatingProvider, setCreatingProvider] = useState(false);
+  // The supported-but-unconnected provider the inline sub-form was opened for,
+  // or null when it was opened from the generic create entry. It preselects the
+  // sub-form's own Provider picker and keeps the outer trigger showing the
+  // provider the user actually picked while the form is open. The profile's
+  // `provider` is deliberately NOT set until the connection exists — cancelling
+  // must not strand the profile on a route the daemon can't dispatch through.
+  const [pendingCreateProvider, setPendingCreateProvider] =
+    useState<ConnectionProvider | null>(null);
   const [advancedExpanded, setAdvancedExpanded] = useState(false);
   // One-time helper note shown after an inline provider create succeeds.
   const [newProviderNote, setNewProviderNote] = useState(false);
@@ -457,6 +480,7 @@ function ProfileEditorModalInner({
   useEffect(() => {
     resetDirty();
     setCreatingProvider(false);
+    setPendingCreateProvider(null);
     setAdvancedExpanded(false);
     setNewProviderNote(false);
     setLocallyCreatedConnections([]);
@@ -582,6 +606,7 @@ function ProfileEditorModalInner({
     setProviderConnection(connection.name);
     setModel("");
     setCreatingProvider(false);
+    setPendingCreateProvider(null);
     setNewProviderNote(true);
     void queryClient.invalidateQueries({
       queryKey: inferenceProviderconnectionsGetQueryKey({
@@ -633,8 +658,13 @@ function ProfileEditorModalInner({
       setSaveError(null);
       try {
         await onSave(keyTrimmed, { status: "active" }, { mode: "merge" });
-      } catch {
-        setSaveError("Failed to save profile. Please try again.");
+      } catch (error) {
+        // A 400 names why the profile can't be enabled (no connection or key
+        // for its provider); anything else is opaque, so keep the retry copy.
+        setSaveError(
+          badRequestMessage(error) ??
+            "Failed to save profile. Please try again.",
+        );
       } finally {
         setSaving(false);
       }
@@ -770,8 +800,10 @@ function ProfileEditorModalInner({
       }
       // Do NOT include source or name
       await onSave(keyTrimmed, entry);
-    } catch {
-      setSaveError("Failed to save profile. Please try again.");
+    } catch (error) {
+      setSaveError(
+        badRequestMessage(error) ?? "Failed to save profile. Please try again.",
+      );
     } finally {
       setSaving(false);
     }
@@ -909,8 +941,21 @@ function ProfileEditorModalInner({
 
   // ---- Create-mode-only: provider-first picker with inline create ----
 
-  // Providers with at least one connection, plus the always-present "+ Create
-  // new provider" sentinel. First-run empty state shows ONLY the sentinel.
+  // Supported providers with no connection yet. Listed after the connected
+  // entries so a ready-to-use provider is never buried, and routed into the
+  // inline create form on selection.
+  const unconnectedProviders = useMemo(
+    () =>
+      unconnectedSelectableProviders(
+        effectiveConnections,
+        activeAssistantIsSelfHosted,
+      ),
+    [effectiveConnections, activeAssistantIsSelfHosted],
+  );
+
+  // Every provider this assistant can dispatch through, connected ones first,
+  // then the rest annotated with what they still need, then the always-present
+  // "+ Create new provider" sentinel for custom endpoints.
   const createModeProviderOptions = useMemo(() => {
     const opts: { value: string; label: string; suffix?: ReactNode }[] =
       expandEndpointEntries(
@@ -925,12 +970,19 @@ function ProfileEditorModalInner({
         label,
         suffix: meta ? <PickerMeta text={meta} /> : undefined,
       }));
+    for (const provider of unconnectedProviders) {
+      opts.push({
+        value: provider,
+        label: PROVIDER_DISPLAY_NAMES[provider] ?? provider,
+        suffix: <PickerMeta text={unconnectedProviderMeta(provider)} />,
+      });
+    }
     opts.push({
       value: CREATE_NEW_PROVIDER_SENTINEL,
       label: "+ Create new provider",
     });
     return opts;
-  }, [activeAssistantIsSelfHosted, effectiveConnections]);
+  }, [activeAssistantIsSelfHosted, effectiveConnections, unconnectedProviders]);
 
   const createProviderSection = (
     <div className="space-y-4">
@@ -944,7 +996,7 @@ function ProfileEditorModalInner({
         <Dropdown
           value={
             creatingProvider
-              ? CREATE_NEW_PROVIDER_SENTINEL
+              ? (pendingCreateProvider ?? CREATE_NEW_PROVIDER_SENTINEL)
               : provider === OPENAI_COMPATIBLE_PROVIDER && providerConnection
                 ? endpointPickerValue(providerConnection)
                 : provider
@@ -952,17 +1004,19 @@ function ProfileEditorModalInner({
           onChange={(next) => {
             if (next === CREATE_NEW_PROVIDER_SENTINEL) {
               setCreatingProvider(true);
+              setPendingCreateProvider(null);
               setNewProviderNote(false);
               return;
             }
             if (!next) {
               return;
             }
-            setCreatingProvider(false);
             const endpoint = parseEndpointPickerValue(next);
             if (endpoint) {
               // Each endpoint entry implies the openai-compatible provider
               // plus its binding; switching endpoints re-picks the model.
+              setCreatingProvider(false);
+              setPendingCreateProvider(null);
               if (provider !== OPENAI_COMPATIBLE_PROVIDER) {
                 handleProviderChange(OPENAI_COMPATIBLE_PROVIDER);
               } else {
@@ -971,7 +1025,18 @@ function ProfileEditorModalInner({
               setProviderConnection(endpoint);
               return;
             }
-            handleProviderChange(next as ConnectionProvider);
+            const picked = next as ConnectionProvider;
+            if (unconnectedProviders.includes(picked)) {
+              // Nothing to dispatch through yet — hand the user straight to
+              // the create form for that provider instead of a dead selection.
+              setCreatingProvider(true);
+              setPendingCreateProvider(picked);
+              setNewProviderNote(false);
+              return;
+            }
+            setCreatingProvider(false);
+            setPendingCreateProvider(null);
+            handleProviderChange(picked);
           }}
           placeholder="Select a provider…"
           aria-labelledby="profile-editor-provider-label"
@@ -989,14 +1054,21 @@ function ProfileEditorModalInner({
       </div>
 
       {creatingProvider ? (
+        // Keyed by the preselected provider: the sub-form seeds its provider,
+        // label, and credential ref from props at mount, so switching the
+        // outer picker to another unconnected provider must remount it.
         <ProviderCreateForm
+          key={pendingCreateProvider ?? "any"}
           variant="inline"
           assistantId={assistantId}
           existingNames={effectiveConnections.map((c) => c.name)}
           connections={effectiveConnections}
-          defaultProviderType={provider || undefined}
+          defaultProviderType={(pendingCreateProvider ?? provider) || undefined}
           onCreated={handleProviderCreated}
-          onCancel={() => setCreatingProvider(false)}
+          onCancel={() => {
+            setCreatingProvider(false);
+            setPendingCreateProvider(null);
+          }}
         />
       ) : (
         <ProfileEditorProviderSection

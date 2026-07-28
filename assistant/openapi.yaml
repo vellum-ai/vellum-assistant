@@ -8362,7 +8362,8 @@ paths:
       summary: Open an inference-profile session
       description:
         Open (or replace) a session-backed inference-profile override for a conversation. Supports an optional TTL
-        — omit for a sticky (non-expiring) override.
+        — omit for a sticky (non-expiring) override. A profile that provably cannot dispatch is rejected rather than
+        pinned.
       tags:
         - conversations
       requestBody:
@@ -14176,7 +14177,8 @@ paths:
       description:
         Set llm.activeProfile after validating the name against the effective profile catalog (provider-aware
         default expansion included). Unknown or disabled profiles are rejected so the chat-model selection cannot be
-        silently stripped on the next config load.
+        silently stripped on the next config load. A profile that provably cannot dispatch is also rejected — there is
+        no escape hatch, because an unusable active profile locks the user out of chat.
       tags:
         - inference
       requestBody:
@@ -14209,7 +14211,7 @@ paths:
                   - activeProfile
                 additionalProperties: false
         "400":
-          description: Unknown or disabled profile name
+          description: Unknown or disabled profile name, or a profile that cannot serve requests
   /v1/inference/callsites:
     get:
       operationId: inference_callsites_get
@@ -14384,7 +14386,9 @@ paths:
       summary: Create an inference profile
       description:
         Create a validated custom profile. The provider must be a known LLM provider, the model must be in the
-        catalog (unless allowUnlisted), and a referenced connection must exist. Managed default names cannot be created.
+        catalog (unless allowUnlisted), a referenced connection must exist, and the profile must be able to dispatch — a
+        valid provider id with no credentialed connection behind it is rejected unless allowUnavailable is set, in which
+        case it is created with a warning.
       tags:
         - inference
       requestBody:
@@ -14423,6 +14427,8 @@ paths:
                   type: string
                 allowUnlisted:
                   type: boolean
+                allowUnavailable:
+                  type: boolean
               required:
                 - name
                 - provider
@@ -14435,7 +14441,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InferenceProfileWriteResult"
         "400":
-          description: Invalid provider, uncataloged model, or missing connection
+          description: Invalid provider, uncataloged model, missing connection, or a profile that cannot serve requests
         "409":
           description: A profile with this name already exists
   /v1/inference/profiles/{name}:
@@ -14499,8 +14505,8 @@ paths:
       operationId: inference_profiles_by_name_patch
       summary: Update an inference profile
       description:
-        Partial update of a custom profile with the same write-time validation as create. Managed default profiles
-        are read-only.
+        Partial update of a custom profile with the same write-time validation as create, including the
+        dispatch-availability guard and its allowUnavailable escape hatch. Managed default profiles are read-only.
       tags:
         - inference
       parameters:
@@ -14542,6 +14548,8 @@ paths:
                   type: string
                 allowUnlisted:
                   type: boolean
+                allowUnavailable:
+                  type: boolean
       responses:
         "200":
           description: Successful response
@@ -14550,7 +14558,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/InferenceProfileWriteResult"
         "400":
-          description: Invalid fields, or attempt to edit a managed profile
+          description: Invalid fields, a profile that cannot serve requests, or attempt to edit a managed profile
         "404":
           description: Profile not found
   /v1/inference/provider-connections:
@@ -33961,11 +33969,14 @@ components:
           type: array
           items:
             type: string
+        verify:
+          type: string
       required:
         - ok
         - name
         - entry
         - warnings
+        - verify
       additionalProperties: false
     InferenceProfileDetail:
       type: object

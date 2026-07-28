@@ -324,7 +324,7 @@ function connectionResolutionUserMessage(
     case "provider_mismatch":
       return `${connection}${usedBy} is bound to a different provider than the profile declares. Update the profile's connection in ${fixPath}.`;
     case "missing_connection":
-      return `No provider connection is configured${usedBy}. Add an API key or log in via ${fixPath}.`;
+      return `No provider connection is configured${usedBy}. Ask me to set one up right here, or add an API key in ${fixPath}.`;
     case "unroutable_managed_model":
       return `The model "${error.model ?? "<unset>"}"${usedBy} isn't served by the Vellum managed route. Pick a model from the Vellum catalog, or choose a concrete provider in ${fixPath}.`;
     case "missing_credential":

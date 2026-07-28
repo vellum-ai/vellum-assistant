@@ -16,6 +16,17 @@ mock.module("../runtime/assistant-event.js", () => ({
   buildAssistantEvent: (event: unknown) => event,
 }));
 
+// "balanced"/"cost-optimized" route through the Vellum-managed connection, and
+// the open handler's availability guard judges that route for real. Stand in
+// for a signed-in platform session so these tests exercise the healthy path.
+mock.module("../providers/platform-proxy/context.js", () => ({
+  resolveManagedProxyContext: async () => ({
+    enabled: true,
+    platformBaseUrl: "https://platform.example",
+    assistantApiKey: "key",
+  }),
+}));
+
 // The handler resolves "balanced"/"cost-optimized" through the code-defined
 // default profile catalog and reads `llm.profileSession` schema defaults
 // (1800/43200), so real config with no seeding covers these tests.
@@ -23,10 +34,24 @@ mock.module("../runtime/assistant-event.js", () => ({
 import { createConversation } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { providerConnections } from "../persistence/schema/inference.js";
 import { ROUTES } from "../runtime/routes/inference-profile-session-routes.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 await initializeDb();
+
+// The Vellum-managed connection row the default profiles resolve to.
+getDb()
+  .insert(providerConnections)
+  .values({
+    name: "vellum",
+    provider: "vellum",
+    auth: JSON.stringify({ type: "platform" }),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  })
+  .onConflictDoNothing()
+  .run();
 
 const openRoute = ROUTES.find(
   (r) => r.operationId === "inference_profile_open",

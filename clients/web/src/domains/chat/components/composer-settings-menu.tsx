@@ -33,6 +33,7 @@ import {
   setGlobalThresholds,
 } from "@/lib/threshold-api";
 import { useConversationStore } from "@/stores/conversation-store";
+import { badRequestMessage } from "@/utils/api-errors";
 import { findConversation } from "@/utils/conversation-cache";
 import {
   THRESHOLD_PRESETS,
@@ -381,13 +382,19 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
             );
           });
         return true;
-      } catch {
+      } catch (error) {
         if (conversationIdRef.current === capturedConversationId) {
           // Roll back to the last server-confirmed value, not a stale closure
           // capture — avoids clobbering a later successful selection when two
           // requests race (select A → select B → A fails → should stay at B).
           setOptimisticActiveProfile(lastConfirmedProfileRef.current);
-          toast.error("Failed to switch profile. Please try again.");
+          // A 400 means the profile can't dispatch (no connection or key for
+          // its provider). The server names what's missing; generic retry copy
+          // would send the user round the same failing loop.
+          toast.error(
+            badRequestMessage(error) ??
+              "Failed to switch profile. Please try again.",
+          );
         }
         return false;
       }

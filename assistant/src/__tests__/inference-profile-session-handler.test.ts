@@ -24,6 +24,27 @@ mock.module("../runtime/assistant-event.js", () => ({
   buildAssistantEvent: (event: unknown) => event,
 }));
 
+// The default profiles used below (`balanced`, `cost-optimized`) route through
+// the Vellum-managed connection, and the handler's availability guard judges
+// that route for real. Stand in for a signed-in platform session so the pin
+// path under test is the healthy one; `managedProxyEnabled` is flipped by the
+// guard test.
+let managedProxyEnabled = true;
+mock.module("../providers/platform-proxy/context.js", () => ({
+  resolveManagedProxyContext: async () => ({
+    enabled: managedProxyEnabled,
+    platformBaseUrl: "https://platform.example",
+    assistantApiKey: managedProxyEnabled ? "key" : "",
+  }),
+}));
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyResultAsync: async () => ({
+    value: undefined,
+    unreachable: false,
+  }),
+}));
+
 // The handler reads the real config: the "balanced" and "cost-optimized"
 // profiles used below are code-default catalog entries that always resolve,
 // and llm.profileSession's schema defaults (1800/43200) are what the TTL
@@ -44,8 +65,22 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { providerConnections } from "../persistence/schema/inference.js";
 
 await initializeDb();
+
+// The Vellum-managed connection row the default profiles resolve to.
+getDb()
+  .insert(providerConnections)
+  .values({
+    name: "vellum",
+    provider: "vellum",
+    auth: JSON.stringify({ type: "platform" }),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  })
+  .onConflictDoNothing()
+  .run();
 
 import {
   closeInferenceProfileSession,
@@ -342,6 +377,26 @@ describe("setInferenceProfileSession", () => {
     ).rejects.toThrow(
       'Profile "nonexistent-profile" is not defined in llm.profiles',
     );
+  });
+
+  test("open with an unavailable profile — refuses the pin and names the fix", async () => {
+    const conv = createConversation("sess-handler-unavailable-profile");
+    managedProxyEnabled = false;
+    try {
+      const promise = setInferenceProfileSession({
+        conversationId: conv.id,
+        profile: "balanced",
+        ttlSeconds: 300,
+      });
+      await expect(promise).rejects.toThrow(/Not signed in to Vellum/);
+      await expect(promise).rejects.toThrow(
+        /assistant inference send --profile balanced "Reply with OK"/,
+      );
+      // Nothing was pinned.
+      expect(getConversation(conv.id)?.inferenceProfile).toBeNull();
+    } finally {
+      managedProxyEnabled = true;
+    }
   });
 
   test("open with ttlSeconds=null — expiresAt=null, sessionId=null, profile kept", async () => {

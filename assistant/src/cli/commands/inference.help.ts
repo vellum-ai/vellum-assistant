@@ -36,6 +36,11 @@ const profileWriteOptions: CliOptionHelp[] = [
     flags: "--allow-unlisted",
     description: "Allow a model not in the catalog (warns)",
   },
+  {
+    flags: "--allow-unavailable",
+    description:
+      "Allow a profile that cannot dispatch yet (no connection/API key) — for pre-staging config (warns)",
+  },
   { flags: "--json", description: "Output as machine-readable JSON" },
 ];
 
@@ -223,6 +228,7 @@ a profile that uses it:
       subcommands: [
         {
           name: "list",
+          isDefault: true,
           description: "List configured providers",
           options: [
             { flags: "--provider <p>", description: "Filter by provider" },
@@ -409,6 +415,7 @@ Examples:
       subcommands: [
         {
           name: "list",
+          isDefault: true,
           description: "List catalog models (optionally filtered by provider)",
           options: [
             { flags: "--provider <p>", description: "Filter by provider id" },
@@ -436,16 +443,21 @@ Profiles are named model configurations. Managed defaults (balanced,
 quality-optimized, cost-optimized) are read-only; create your own to
 customize provider, model, and tuning.
 
+Create, then verify with a live call, then activate. Activation is refused
+for a profile that cannot dispatch (no provider connection or API key), so
+verify before you switch the chat model over.
+
 Examples:
   $ assistant inference profiles list
   $ assistant inference profiles create my-fast --provider anthropic \\
       --model claude-haiku-4-5 --connection anthropic-personal --effort low
-  $ assistant inference profiles update my-fast --effort high
+  $ assistant inference send --profile my-fast "Reply with OK"
   $ assistant inference profiles active my-fast
   $ assistant inference profiles delete my-fast`,
       subcommands: [
         {
           name: "list",
+          isDefault: true,
           description: "List the effective profile catalog",
           options: [
             {
@@ -500,7 +512,9 @@ Examples:
           ],
           helpText: `
 With no argument, prints the active profile. With a name, sets it — the
-same deep-merge write the model picker performs.
+same deep-merge write the model picker performs. Setting is refused when
+the named profile cannot dispatch; verify it first with
+'assistant inference send --profile <name> "Reply with OK"'.
 
 Examples:
   $ assistant inference profiles active
