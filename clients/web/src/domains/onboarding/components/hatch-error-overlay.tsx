@@ -1,5 +1,6 @@
 import { Button } from "@vellumai/design-library/components/button";
-import { Modal } from "@vellumai/design-library/components/modal";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { createPortal } from "react-dom";
 
 import { PLATFORM_HOSTED_DISABLED_MESSAGE } from "@/assistant/lifecycle";
 
@@ -13,53 +14,46 @@ interface HatchErrorOverlayProps {
 /**
  * Terminal background-hatch failure, surfaced over the onboarding funnel.
  *
- * Layers on top of whatever step is on screen rather than replacing it, so the
- * funnel keeps its collected state and a successful retry resumes in place.
- * Retrying can't help while managed hosting is at capacity, so that case offers
- * the local-assistant off-ramp instead.
+ * A non-modal banner: it layers on top of whatever step is on screen without
+ * trapping focus or swallowing pointer events, so the funnel keeps both its
+ * collected state and its own escapes (each step's back chevron, the calendar
+ * step's "Skip for now") while the failure is up, and a successful retry
+ * resumes in place. Retrying can't help while managed hosting is at capacity,
+ * so that case offers the local-assistant off-ramp instead.
+ *
+ * Portaled to `document.body` so no step's stacking or clipping context can
+ * bury it.
  */
 export function HatchErrorOverlay({ error, onRetry }: HatchErrorOverlayProps) {
   const platformHostedDisabled = error === PLATFORM_HOSTED_DISABLED_MESSAGE;
-  return (
-    <Modal.Root open>
-      <Modal.Content
-        size="sm"
-        role="alertdialog"
-        hideCloseButton
-        dismissOnOverlayClick={false}
-        onEscapeKeyDown={(event) => event.preventDefault()}
-        onInteractOutside={(event) => event.preventDefault()}
-      >
-        <Modal.Header>
-          <Modal.Title>Something went wrong</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Modal.Description>{error}</Modal.Description>
-          {platformHostedDisabled ? (
-            <p className="mt-5 text-body-medium-default text-[var(--content-default)]">
-              Get started today with a local assistant
-            </p>
-          ) : null}
-        </Modal.Body>
-        <Modal.Footer>
-          {platformHostedDisabled ? (
-            <Button asChild variant="primary" size="regular" fullWidth>
+  return createPortal(
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center p-4">
+      <Notice
+        tone="error"
+        title="Something went wrong"
+        className="pointer-events-auto w-auto max-w-[480px] shadow-xl"
+        actions={
+          platformHostedDisabled ? (
+            <Button asChild variant="primary" size="regular">
               <a href={`${window.location.origin}/download`}>
                 Download the macOS app
               </a>
             </Button>
           ) : (
-            <Button
-              variant="primary"
-              size="regular"
-              fullWidth
-              onClick={onRetry}
-            >
+            <Button variant="primary" size="regular" onClick={onRetry}>
               Try again
             </Button>
-          )}
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
+          )
+        }
+      >
+        {error}
+        {platformHostedDisabled ? (
+          <p className="mt-1 text-[color:var(--content-default)]">
+            Get started today with a local assistant
+          </p>
+        ) : null}
+      </Notice>
+    </div>,
+    document.body,
   );
 }
