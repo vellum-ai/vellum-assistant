@@ -307,3 +307,72 @@ describe("requireEdgeGuardianAuth — actor principal mode", () => {
     expect(res).toBeNull();
   });
 });
+
+// =========================================================================
+// Strict mode — guardian auth with the loopback fallback withheld
+// =========================================================================
+
+describe("requireEdgeGuardianAuthStrict — no loopback fallback", () => {
+  test("rejects a tokenless loopback caller the lenient guard would admit", async () => {
+    // The difference that matters: plugin code runs on this host, so a route
+    // gated only by the lenient guard is self-approvable from loopback.
+    const { requireEdgeGuardianAuth, requireEdgeGuardianAuthStrict } =
+      makeMiddleware();
+
+    expect(
+      await requireEdgeGuardianAuth(makeReq(), makeLoopbackServer()),
+    ).toBeNull();
+    expect(
+      (await requireEdgeGuardianAuthStrict(makeReq(), makeLoopbackServer()))
+        ?.status,
+    ).toBe(401);
+  });
+
+  test("rejects a loopback caller holding an invalid token", async () => {
+    mockValidateEdgeToken = mock(() => ({ ok: false, reason: "expired" }));
+    const { requireEdgeGuardianAuthStrict } = makeMiddleware();
+    const res = await requireEdgeGuardianAuthStrict(
+      makeReq({ authorization: "Bearer bad-jwt" }),
+      makeLoopbackServer(),
+    );
+    expect(res?.status).toBe(401);
+  });
+
+  test("rejects a loopback caller whose principal is not the guardian", async () => {
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: {
+        sub: "actor:test-assistant:actor-someone-else",
+        scope_profile: "actor_client_v1",
+      },
+    }));
+    mockFindVellumGuardian = mock(async () => ({
+      principalId: GUARDIAN_PRINCIPAL,
+    }));
+    const { requireEdgeGuardianAuthStrict } = makeMiddleware();
+    const res = await requireEdgeGuardianAuthStrict(
+      makeReq({ authorization: "Bearer fake-jwt" }),
+      makeLoopbackServer(),
+    );
+    expect(res?.status).toBe(403);
+  });
+
+  test("admits the real guardian, loopback or not", async () => {
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: {
+        sub: `actor:test-assistant:${GUARDIAN_PRINCIPAL}`,
+        scope_profile: "actor_client_v1",
+      },
+    }));
+    mockFindVellumGuardian = mock(async () => ({
+      principalId: GUARDIAN_PRINCIPAL,
+    }));
+    const { requireEdgeGuardianAuthStrict } = makeMiddleware();
+    const res = await requireEdgeGuardianAuthStrict(
+      makeReq({ authorization: "Bearer fake-jwt" }),
+      makeLoopbackServer(),
+    );
+    expect(res).toBeNull();
+  });
+});
