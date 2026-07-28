@@ -182,6 +182,7 @@ mock.module("@/lib/local-mode", () => ({
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setActiveLockfileAssistant: async () => {},
   saveLockfileAssistant: async () => {},
+  saveManagedLockfileAssistant: async () => {},
   updateLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
   primeLocalGatewayConnectionWithRepair: async () => {},

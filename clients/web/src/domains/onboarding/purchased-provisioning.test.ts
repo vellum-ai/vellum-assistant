@@ -60,9 +60,8 @@ mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => localMode,
 }));
 
-const { awaitPurchasedProvisioning, MAX_HATCH_WAIT_MS } = await import(
-  "./purchased-provisioning"
-);
+const { awaitPurchasedProvisioning, MAX_HATCH_WAIT_MS, POLL_INTERVAL_MS } =
+  await import("./purchased-provisioning");
 
 /** Poll a predicate without depending on the wait's own 3s poll interval. */
 async function until(
@@ -227,5 +226,27 @@ describe("awaitPurchasedProvisioning", () => {
     expect(onboardingRetrieveMock).not.toHaveBeenCalled();
     expect(getAssistantMock).not.toHaveBeenCalled();
     expect(getAssistantHealthzMock).not.toHaveBeenCalled();
+  });
+
+  test("a cancelled wait never sleeps out another poll interval", async () => {
+    // Both reads reject, so the iteration reaches its sleep without passing a
+    // cancellation check — the one path that could park a timer on a caller
+    // that has already gone away.
+    let cancelled = false;
+    subscriptionRetrieveMock.mockImplementationOnce(async () => {
+      cancelled = true;
+      throw new Error("network");
+    });
+    onboardingRetrieveMock.mockImplementationOnce(async () => {
+      throw new Error("network");
+    });
+
+    const startedAt = Date.now();
+    const outcome = await awaitPurchasedProvisioning(
+      baseOptions({ isCancelled: () => cancelled }),
+    );
+
+    expect(outcome).toBe("ready");
+    expect(Date.now() - startedAt).toBeLessThan(POLL_INTERVAL_MS);
   });
 });

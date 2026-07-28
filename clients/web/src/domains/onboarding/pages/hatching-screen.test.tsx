@@ -206,7 +206,14 @@ const hatchLocalAssistantMock = mock(async () => ({
 }));
 
 const saveLockfileAssistantMock = mock(
-  async (_entry: { assistantId: string; cloud: string }) => {},
+  async (_entry: {
+    assistantId: string;
+    cloud: string;
+    name?: string;
+    runtimeUrl?: string;
+    hatchedAt?: string;
+    organizationId?: string;
+  }) => {},
 );
 const clearGatewayTokenMock = mock(() => {});
 const setSelfHostedConnectionMock = mock((_connection: unknown) => {});
@@ -298,7 +305,22 @@ mock.module("@/lib/local-mode", () => ({
   loadLockfile: async () => {},
   primeLocalGatewayConnection: async () => {},
   probeLocalGatewayReady: async () => true,
-  saveLockfileAssistant: saveLockfileAssistantMock,
+  // Stands in for the real helper (whose payload `local-mode.test.ts` pins) so
+  // the lockfile entry the hatch writes stays visible to the assertions below.
+  saveManagedLockfileAssistant: async (
+    assistantId: string,
+    name: string | undefined,
+    organizationId: string | undefined,
+  ): Promise<void> => {
+    await saveLockfileAssistantMock({
+      assistantId,
+      name,
+      cloud: "vellum",
+      runtimeUrl: "https://runtime.example",
+      hatchedAt: new Date().toISOString(),
+      organizationId,
+    });
+  },
 }));
 
 mock.module("@/lib/auth/gateway-session", () => ({

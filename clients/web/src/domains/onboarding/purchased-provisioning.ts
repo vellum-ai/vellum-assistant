@@ -31,10 +31,7 @@ import {
 } from "@/lib/billing/provisioning-targets";
 import { isLocalMode } from "@/lib/local-mode";
 
-// The single source for the hatch poll cadence and the overall wait ceiling,
-// shared by every hatch entry point. `MAX_HATCH_WAIT_MS` decides the
-// `health_timeout` outcome below, so a caller reporting its own copy in
-// telemetry would be reporting a number that didn't make the decision.
+// Owned here: `MAX_HATCH_WAIT_MS` decides the `health_timeout` outcome below.
 export const POLL_INTERVAL_MS = 3000;
 export const MAX_HATCH_WAIT_MS = 300_000;
 // Hard cap on the post-payment resize wait, mirroring PROVISION_STALL_MS in the
@@ -76,8 +73,14 @@ export async function awaitPurchasedProvisioning(
     registerTimer,
   } = options;
 
+  // A cancelled wait resolves without scheduling anything, so the loop reaches
+  // its next check with no timer left behind.
   const sleep = (ms: number): Promise<void> =>
     new Promise<void>((resolve) => {
+      if (isCancelled()) {
+        resolve();
+        return;
+      }
       const timer = setTimeout(() => {
         registerTimer?.(null);
         resolve();

@@ -25,7 +25,7 @@ import {
     MAX_HATCH_WAIT_MS,
     POLL_INTERVAL_MS,
 } from "@/domains/onboarding/purchased-provisioning";
-import { getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, probeLocalGatewayReady, saveLockfileAssistant } from "@/lib/local-mode";
+import { isLocalMode, loadLockfile, primeLocalGatewayConnection, probeLocalGatewayReady, saveManagedLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import {
@@ -325,15 +325,12 @@ export function HatchingScreen() {
           const preflightState = resolveAssistantLifecycleState(existing);
           if (!cancelled && existing.ok && preflightState.kind === "active") {
             if (isLocalMode()) {
-              void saveLockfileAssistant({
-                assistantId: existing.data.id,
-                name: existing.data.name,
-                cloud: "vellum",
-                runtimeUrl: getPlatformRuntimeUrl(),
-                hatchedAt: new Date().toISOString(),
-                organizationId:
-                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
-              });
+              void saveManagedLockfileAssistant(
+                existing.data.id,
+                existing.data.name,
+                useOrganizationStore.getState().currentOrganizationId ??
+                  undefined,
+              );
             }
             // Route the reload path through the same provisioning wait as the
             // polled-active path so a purchased resize is never skipped.
@@ -607,15 +604,12 @@ export function HatchingScreen() {
               void persistHatchAvatar(assistantId);
             }
             if (isLocalMode()) {
-              void saveLockfileAssistant({
+              void saveManagedLockfileAssistant(
                 assistantId,
-                name: result.data.name,
-                cloud: "vellum",
-                runtimeUrl: getPlatformRuntimeUrl(),
-                hatchedAt: new Date().toISOString(),
-                organizationId:
-                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
-              });
+                result.data.name,
+                useOrganizationStore.getState().currentOrganizationId ??
+                  undefined,
+              );
             }
 
             // Wait for healthz, then hold for the purchased resize before
