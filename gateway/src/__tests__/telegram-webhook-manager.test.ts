@@ -398,7 +398,10 @@ describe("reconcileTelegramWebhook", () => {
 
   test("deregisters the webhook when ingress is explicitly disabled even with an ingress URL", async () => {
     const calls: string[] = [];
-    const caches = makeCaches({ ingressEnabled: false });
+    const caches = makeCaches({
+      ingressEnabled: false,
+      ingressUrl: "https://example.ngrok.io",
+    });
 
     fetchMock = mock(async (input: string | URL | Request) => {
       const url =
