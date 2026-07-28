@@ -364,8 +364,8 @@ describe("ProfileEditorModal create mode — provider-first", () => {
   test("Name is top-level in create mode; Key stays inside Advanced (LUM-2881)", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
-    // The Name field renders before any provider/model is picked — it must
-    // never hide inside the Advanced disclosure again.
+    // The Name field renders before any provider/model is picked — it is
+    // top-level, never inside the Advanced disclosure.
     expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
 
     selectProvider("Anthropic");

@@ -32,9 +32,14 @@ interface ProfileRowProps {
 
 /**
  * One row of the Profiles section (Figma 7412:133380): label, a
- * "{model} • Managed by Vellum" subtitle, Active/Advisor chips, and a kebab
- * menu showing only the actions valid for this row (Rok's annotation on
- * Light 738). Clicking the row opens the profile in the sidepanel.
+ * "{model} • Managed by Vellum" subtitle, Default/Advisor chips, and a
+ * kebab menu showing only the actions valid for this row (Rok's annotation
+ * on Light 738). Clicking the row opens the profile in the sidepanel.
+ *
+ * Wording note: the chip for `llm.activeProfile` reads "Default" — the
+ * default profile for chats that haven't picked one. "Active"/"Disabled"
+ * is the orthogonal `status` dimension (picker visibility), rendered as
+ * the dimmed title + "Disabled" chip + Enable/Disable menu items.
  */
 export function ProfileRow({
   profile,
@@ -100,7 +105,7 @@ export function ProfileRow({
             </span>
           ) : null}
           {isDisabled ? <Tag tone="neutral">Disabled</Tag> : null}
-          {isActiveProfile ? <Tag tone="positive">Active</Tag> : null}
+          {isActiveProfile ? <Tag tone="positive">Default</Tag> : null}
           {isAdvisorProfile ? <Tag tone="warning">Advisor</Tag> : null}
           <Menu.Root>
             <Menu.Trigger asChild>
@@ -116,7 +121,7 @@ export function ProfileRow({
                 {isManaged ? "View" : "Edit"}
               </Menu.Item>
               {!isActiveProfile && !isDisabled ? (
-                <Menu.Item onSelect={onMakeActive}>Make Active</Menu.Item>
+                <Menu.Item onSelect={onMakeActive}>Make Default</Menu.Item>
               ) : null}
               {!isAdvisorProfile && !isDisabled ? (
                 <Menu.Item onSelect={onMakeAdvisor}>Make Advisor</Menu.Item>
@@ -127,7 +132,7 @@ export function ProfileRow({
                 </Menu.Item>
               ) : null}
               {/* Managed profiles are enable-only: the daemon rejects the
-                  disable direction, mirroring the old list's one-way toggle. */}
+                  disable direction. */}
               {isDisabled ? (
                 <Menu.Item onSelect={() => onSetStatus(true)}>Enable</Menu.Item>
               ) : !isManaged ? (

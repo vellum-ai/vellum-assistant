@@ -34,6 +34,7 @@ import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalida
 import {
   configGetQueryKey,
   identityGetQueryKey,
+  inferenceProfilesGetQueryKey,
   schedulesGetQueryKey,
   soundsAvailableGetQueryKey,
   soundsConfigGetQueryKey,
@@ -85,6 +86,12 @@ export function useAssistantResourceSync(
             case SYNC_TAGS.assistantConfig:
               void queryClient.invalidateQueries({
                 queryKey: configGetQueryKey(pathOpts),
+              });
+              // The effective profile catalog is derived from config
+              // (profiles, default provider), so a config write on any
+              // client can change the Language Model card's rows.
+              void queryClient.invalidateQueries({
+                queryKey: inferenceProfilesGetQueryKey(pathOpts),
               });
               // Memory availability is derived from config (`memory.enabled`,
               // `memory.v3.live`), so a config write on any client can change

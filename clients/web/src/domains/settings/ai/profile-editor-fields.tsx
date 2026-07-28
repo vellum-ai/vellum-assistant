@@ -55,8 +55,8 @@ export interface ProfileEditorFieldsProps {
  * The profile editor's field stack, shared by the modal host (composer
  * quick-add) and the settings sidepanel. All state lives in the
  * `useProfileEditor` hook; this component only arranges fields per
- * mode/variant. The Name field leads every create layout (LUM-2881: it used
- * to be buried in the Advanced disclosure).
+ * mode/variant. The Name field leads every create layout — it must stay
+ * top-level, never inside the Advanced disclosure (LUM-2881).
  */
 export function ProfileEditorFields({
   editor,
@@ -336,8 +336,7 @@ export function ProfileEditorFields({
           </div>
         );
 
-    // Create is provider-first, but the Name now leads the form (LUM-2881)
-    // instead of hiding in the Advanced disclosure.
+    // Create is provider-first, with the Name leading the form (LUM-2881).
     return (
       <div className="space-y-4">
         {displayNameField}

@@ -1,13 +1,7 @@
-import { useQueryClient } from "@tanstack/react-query";
-
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
 import { captureError } from "@/lib/sentry/capture-error";
-import {
-  configGetSetQueryData,
-  inferenceProfilesGetQueryKey,
-  useConfigPatchMutation,
-} from "@/generated/daemon/@tanstack/react-query.gen";
 import type { ConfigPatchRequest } from "@/generated/daemon/types.gen";
 
 export interface ProfileActions {
@@ -44,21 +38,7 @@ export interface ProfileActions {
  * the config cache and the effective-catalog query so chips and rows agree.
  */
 export function useProfileActions(assistantId: string): ProfileActions {
-  const queryClient = useQueryClient();
-  const configMutation = useConfigPatchMutation({
-    onSuccess: (data) => {
-      configGetSetQueryData(
-        queryClient,
-        { path: { assistant_id: assistantId } },
-        data,
-      );
-      void queryClient.invalidateQueries({
-        queryKey: inferenceProfilesGetQueryKey({
-          path: { assistant_id: assistantId },
-        }),
-      });
-    },
-  });
+  const configMutation = useLlmConfigPatch(assistantId);
 
   async function patchLlm(
     llm: NonNullable<ConfigPatchRequest["llm"]>,

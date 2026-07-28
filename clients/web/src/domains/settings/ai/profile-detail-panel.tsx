@@ -1,27 +1,22 @@
 import { Trash2 } from "lucide-react";
 import { useEffect, useMemo } from "react";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
-import { toast } from "@vellumai/design-library/components/toast";
 
 import { DetailShell } from "@/components/detail-shell";
 import { BlockedDeleteModal } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { ProfileEditorFields } from "@/domains/settings/ai/profile-editor-fields";
 import { useProfileDeleteFlow } from "@/domains/settings/ai/use-profile-delete-flow";
 import { useProfileEditor } from "@/domains/settings/ai/use-profile-editor";
+import { useProfileSave } from "@/domains/settings/ai/use-profile-save";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
-import { captureError } from "@/lib/sentry/capture-error";
 import {
   configGetOptions,
-  configGetSetQueryData,
-  inferenceProfilesGetQueryKey,
   inferenceProviderconnectionsGetOptions,
-  useConfigPatchMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import type { ProfilePatchEntry } from "@/generated/daemon/types.gen";
 
 interface ProfileDetailPanelProps {
   assistantId: string;
@@ -44,8 +39,6 @@ export function ProfileDetailPanel({
   profileName,
   onClose,
 }: ProfileDetailPanelProps) {
-  const queryClient = useQueryClient();
-
   const { data: config } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
     staleTime: 30_000,
@@ -60,10 +53,6 @@ export function ProfileDetailPanel({
   const profiles = useMemo(
     () => config?.llm?.profiles ?? {},
     [config?.llm?.profiles],
-  );
-  const profileOrder = useMemo(
-    () => config?.llm?.profileOrder ?? [],
-    [config?.llm?.profileOrder],
   );
   const existingNames = Object.keys(profiles);
 
@@ -87,95 +76,9 @@ export function ProfileDetailPanel({
         ? "view"
         : "edit";
 
-  const configMutation = useConfigPatchMutation({
-    onSuccess: (data) => {
-      configGetSetQueryData(
-        queryClient,
-        { path: { assistant_id: assistantId } },
-        data,
-      );
-      void queryClient.invalidateQueries({
-        queryKey: inferenceProfilesGetQueryKey({
-          path: { assistant_id: assistantId },
-        }),
-      });
-    },
+  const { saveProfile, isPending: savePending } = useProfileSave(assistantId, {
+    onSaved: onClose,
   });
-
-  async function handleEditorSave(
-    name: string,
-    entry: ProfilePatchEntry,
-    options?: { mode?: "merge" | "replace" },
-  ) {
-    const saveMode = options?.mode ?? "replace";
-    const isNew = !(name in profiles);
-
-    // Merge mode (view-mode managed-profile re-enable): a single deep-merge
-    // PATCH layers the partial entry on top of the existing record without
-    // wiping seed-owned fields.
-    if (saveMode === "merge" && !isNew) {
-      await configMutation.mutateAsync({
-        path: { assistant_id: assistantId },
-        body: { llm: { profiles: { [name]: entry } } },
-      });
-      onClose();
-      return;
-    }
-
-    const llmPatch: {
-      profiles: Record<string, ProfilePatchEntry>;
-      profileOrder?: string[];
-    } = { profiles: { [name]: entry } };
-    if (isNew) {
-      llmPatch.profileOrder = profileOrder.includes(name)
-        ? profileOrder
-        : [...profileOrder, name];
-    }
-
-    // For edits: delete the existing profile fragment first so the new entry
-    // is a clean replacement rather than a deep-merge. This lets the user
-    // reset advanced params back to "inherit" — without this step, deep-merge
-    // semantics would silently preserve old values for omitted keys.
-    if (!isNew) {
-      const oldEntry = profiles[name];
-      await configMutation.mutateAsync({
-        path: { assistant_id: assistantId },
-        body: { llm: { profiles: { [name]: null } } },
-      });
-      try {
-        await configMutation.mutateAsync({
-          path: { assistant_id: assistantId },
-          body: { llm: llmPatch },
-        });
-      } catch (recreateErr) {
-        captureError(recreateErr, {
-          context: "settings-ai-profile-edit-recreate",
-        });
-        // Best-effort rollback: restore old entry so the profile isn't lost
-        if (oldEntry != null) {
-          await configMutation
-            .mutateAsync({
-              path: { assistant_id: assistantId },
-              body: { llm: { profiles: { [name]: oldEntry } } },
-            })
-            .catch(() => {
-              /* rollback failed — original error still propagates */
-            });
-        }
-        throw recreateErr;
-      }
-    } else {
-      await configMutation.mutateAsync({
-        path: { assistant_id: assistantId },
-        body: { llm: llmPatch },
-      });
-    }
-
-    if (isNew) {
-      toast.success(`Profile "${entry.label ?? name}" created`);
-    }
-    onClose();
-  }
 
   const editor = useProfileEditor({
     mode,
@@ -184,7 +87,7 @@ export function ProfileDetailPanel({
     existingNames,
     connections,
     assistantId,
-    onSave: handleEditorSave,
+    onSave: saveProfile,
   });
 
   const deleteFlow = useProfileDeleteFlow(assistantId, config, {
@@ -198,10 +101,10 @@ export function ProfileDetailPanel({
   const profileMissing =
     profileName != null && config != null && !(profileName in profiles);
   useEffect(() => {
-    if (profileMissing && !editor.saving && !configMutation.isPending) {
+    if (profileMissing && !editor.saving && !savePending) {
       onClose();
     }
-  }, [profileMissing, editor.saving, configMutation.isPending, onClose]);
+  }, [profileMissing, editor.saving, savePending, onClose]);
 
   const isManaged = mode === "view";
   const title =

@@ -1,10 +1,10 @@
 /**
- * Tests for `ProfilesSection` — the inline V2 Profiles list.
+ * Tests for `ProfilesSection` — the inline Profiles list of the Language
+ * Model card.
  *
- * Ports the behavioral coverage of the retired ManageProfilesModal list to
- * the new surface: invariant (managed) profiles expose enable-only actions
- * and no Delete, user profiles get the full kebab, the status re-enable
- * PATCHes exactly `{status: "active"}`, and the Active/Advisor chips track
+ * Invariant (managed) profiles expose enable-only actions and no Delete,
+ * user profiles get the full kebab, the status re-enable PATCHes exactly
+ * `{status: "active"}`, and the Default/Advisor chips track
  * `llm.activeProfile` / `llm.advisorProfile`.
  */
 
@@ -180,7 +180,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("ProfilesSection — chips", () => {
-  test("Active and Advisor chips track the config selections", () => {
+  test("Default and Advisor chips track the config selections", () => {
     activeProfileState = "balanced";
     advisorProfileState = "my-custom";
     renderSection();
@@ -190,13 +190,13 @@ describe("ProfilesSection — chips", () => {
     );
     const balancedRow = rows.find((r) => r.textContent?.includes("Balanced"));
     const customRow = rows.find((r) => r.textContent?.includes("My Custom"));
-    expect(balancedRow?.textContent).toContain("Active");
+    expect(balancedRow?.textContent).toContain("Default");
     expect(balancedRow?.textContent).not.toContain("Advisor");
     expect(customRow?.textContent).toContain("Advisor");
-    expect(customRow?.textContent).not.toContain("Active");
+    expect(customRow?.textContent).not.toContain("Default");
   });
 
-  test("a disabled profile shows the Disabled chip and no Active/Advisor chip", () => {
+  test("a disabled profile shows the Disabled chip and no Default/Advisor chip", () => {
     renderSection();
     const rows = Array.from(
       document.querySelectorAll<HTMLElement>('[data-slot="list-row"]'),
@@ -218,25 +218,25 @@ describe("ProfilesSection — chips", () => {
 });
 
 describe("ProfilesSection — kebab menus", () => {
-  test("an active managed profile offers View/Make Active/Make Advisor but no Disable or Delete", async () => {
+  test("an active managed profile offers View/Make Default/Make Advisor but no Disable or Delete", async () => {
     renderSection();
     const menu = await openKebab("Balanced");
     const items = menuItems(menu);
     expect(items).toContain("View");
-    expect(items).toContain("Make Active");
+    expect(items).toContain("Make Default");
     expect(items).toContain("Make Advisor");
     expect(items).not.toContain("Disable");
     expect(items).not.toContain("Delete");
     expect(items).not.toContain("Edit");
   });
 
-  test("a disabled managed profile offers Enable and hides Make Active/Advisor", async () => {
+  test("a disabled managed profile offers Enable and hides Make Default/Advisor", async () => {
     renderSection();
     const menu = await openKebab("Speed");
     const items = menuItems(menu);
     expect(items).toContain("Enable");
     expect(items).not.toContain("Disable");
-    expect(items).not.toContain("Make Active");
+    expect(items).not.toContain("Make Default");
     expect(items).not.toContain("Make Advisor");
     expect(items).not.toContain("Delete");
   });
@@ -251,13 +251,13 @@ describe("ProfilesSection — kebab menus", () => {
     expect(items).not.toContain("View");
   });
 
-  test("the current active profile hides Make Active; the advisor gains Remove as Advisor", async () => {
+  test("the current default profile hides Make Default; the advisor gains Remove as Advisor", async () => {
     activeProfileState = "my-custom";
     advisorProfileState = "my-custom";
     renderSection();
     const menu = await openKebab("My Custom");
     const items = menuItems(menu);
-    expect(items).not.toContain("Make Active");
+    expect(items).not.toContain("Make Default");
     expect(items).not.toContain("Make Advisor");
     expect(items).toContain("Remove as Advisor");
   });
@@ -275,10 +275,10 @@ describe("ProfilesSection — kebab menus", () => {
     ]);
   });
 
-  test("Make Active PATCHes llm.activeProfile", async () => {
+  test("Make Default PATCHes llm.activeProfile", async () => {
     renderSection();
     const menu = await openKebab("My Custom");
-    clickMenuItem(menu, "Make Active");
+    clickMenuItem(menu, "Make Default");
 
     await waitFor(() => {
       expect(configPatchBodies).toEqual([

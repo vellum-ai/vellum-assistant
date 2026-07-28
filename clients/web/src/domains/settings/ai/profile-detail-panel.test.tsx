@@ -2,9 +2,9 @@
  * Tests for `ProfileDetailPanel` — the settings sidepanel host of the
  * profile editor.
  *
- * The panel now owns the settings-surface save path (and its create success
- * toast), which used to live on the retired ManageProfilesModal: exactly one
- * toast per create, managed profiles render read-only with Save As New, and
+ * The panel owns the settings-surface save path and its create success
+ * toast (the composer quick-add surface owns its own, so exactly one toast
+ * fires per create). Managed profiles render read-only with Save As New;
  * a complete custom profile opens in edit with its stored values.
  */
 

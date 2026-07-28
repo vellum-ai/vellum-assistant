@@ -1,9 +1,8 @@
 /**
  * All state, derivation, and persistence logic of the profile editor,
- * extracted from the old ProfileEditorModalInner so the same editor can be
- * hosted by a modal (composer quick-add) or the settings sidepanel. Hosts
- * render `ProfileEditorFields` with the returned object and their own
- * chrome/footers around `handleSave` / `switchToSaveAsNew`.
+ * shared by its hosts — the modal (composer quick-add) and the settings
+ * sidepanel. Hosts render `ProfileEditorFields` with the returned object
+ * and their own chrome/footers around `handleSave` / `switchToSaveAsNew`.
  */
 import { useEffect, useMemo, useState } from "react";
 

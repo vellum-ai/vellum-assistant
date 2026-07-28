@@ -115,6 +115,7 @@ export const Disabled: Story = {
  * Model card's profile rows (chips + kebab menu).
  */
 export const InteractiveTrailing: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <ListRow
       title="Balanced"

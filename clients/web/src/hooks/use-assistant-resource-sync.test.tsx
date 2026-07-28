@@ -11,6 +11,7 @@ import {
   configGetQueryKey,
   homeFeedGetQueryKey,
   homeStateGetQueryKey,
+  inferenceProfilesGetQueryKey,
   pluginsGetQueryKey,
   pluginsSearchGetQueryKey,
   schedulesGetQueryKey,
@@ -144,6 +145,7 @@ describe("useAssistantResourceSync", () => {
       expect(queryKeys).toEqual(
         expect.arrayContaining([
           configGetQueryKey(pathOpts),
+          inferenceProfilesGetQueryKey(pathOpts),
           soundsConfigGetQueryKey(pathOpts),
           schedulesGetQueryKey(pathOpts),
           [
