@@ -50,11 +50,13 @@ mock.module("@/hooks/use-marketing-pricing-takeover", () => ({
   useMarketingPricingTakeover: () => takeoverValue,
 }));
 
+const PRIVACY_TOS_STEP = "privacy_tos";
 const emitFunnelStepCompletedMock = mock((..._args: unknown[]) => {});
+const getFunnelSessionIdMock = mock(() => "session-1");
 mock.module("@/domains/onboarding/funnel-events", () => ({
   emitOnboardingFunnelStepCompleted: emitFunnelStepCompletedMock,
-  getOnboardingFunnelSessionId: () => "session-1",
-  ONBOARDING_FUNNEL_STEPS: { privacyTos: "privacy_tos" },
+  getOnboardingFunnelSessionId: getFunnelSessionIdMock,
+  ONBOARDING_FUNNEL_STEPS: { privacyTos: PRIVACY_TOS_STEP },
 }));
 
 mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));
@@ -127,6 +129,7 @@ describe("PrivacyScreen — Start navigation", () => {
     navigateMock.mockClear();
     saveConsentMock.mockClear();
     emitFunnelStepCompletedMock.mockClear();
+    getFunnelSessionIdMock.mockClear();
     clearCheckoutIntentMock.mockClear();
     nativePlatform = false;
     localMode = false;
@@ -197,14 +200,18 @@ describe("PrivacyScreen — Start navigation", () => {
     expect(target).toContain("hosting=local");
   });
 
-  test("native keeps the standard hatching flow (research not wired for the native shell)", () => {
+  test("native follows the same research onboarding as web", () => {
     nativePlatform = true;
     searchParamsValue = new URLSearchParams();
     render(<PrivacyScreen />);
 
     clickStart();
 
-    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
+    expect(getFunnelSessionIdMock).toHaveBeenCalledTimes(1);
+    expect(emitFunnelStepCompletedMock).toHaveBeenCalledWith(PRIVACY_TOS_STEP, {
+      userId: "user-1",
+    });
+    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.research);
   });
 
   test("resumes checkout when a pending signup-marked package intent is present", () => {
