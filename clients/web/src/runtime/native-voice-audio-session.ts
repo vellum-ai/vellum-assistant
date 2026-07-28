@@ -19,13 +19,15 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
  * binary — a native gate could only be flipped by a TestFlight release,
  * whereas the web bundle hot-loads, so this one is a true runtime kill switch
  * and allows the configuration to be exercised on a device without cutting a
- * build. To enable on one device, from the WKWebView console:
+ * build.
  *
- *     localStorage.setItem("vellum:ff:iosVoiceAudioSession", "true")
- *
- * That is the *store* key (camel-cased), which is what
- * `client-feature-flag-store`'s override reader looks for — the kebab-case
- * registry key is not read from localStorage. Takes effect on reload.
+ * To enable on one device: Settings, seven taps on the version string, then
+ * the Feature Flags panel. That writes the local override through the store,
+ * under the camel-cased *store* key — which is the only form
+ * `client-feature-flag-store`'s override reader looks for, so a hand-written
+ * `localStorage` entry under the kebab-case registry key is ignored. Release
+ * builds are not Web Inspector-inspectable, so the panel is the only route on
+ * a TestFlight install.
  *
  * Nothing here may throw or reject. `LiveVoiceAudioCapture.start()` is
  * documented never to throw and `use-live-voice.ts` awaits its promise with no
