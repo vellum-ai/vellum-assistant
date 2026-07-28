@@ -160,6 +160,22 @@ export function getSubagentRecordById(id: string): SubagentRecord | undefined {
   return row ? rowToRecord(row) : undefined;
 }
 
+/**
+ * Every subagent record spawned under `parentConversationId`. Durable rows
+ * outlive the manager's in-memory metadata — the TTL sweep evicts terminal
+ * entries with `keepRecord: true` — so this is the only way to enumerate a
+ * parent's subagents that completed long enough ago to have been swept.
+ */
+export function getSubagentRecordsByParent(
+  parentConversationId: string,
+): SubagentRecord[] {
+  return rawAll<SubagentRow>(
+    "subagent:getByParent",
+    `SELECT * FROM subagents WHERE parent_conversation_id = ?`,
+    parentConversationId,
+  ).map(rowToRecord);
+}
+
 /** Delete a subagent record once the manager is fully done with it. */
 export function deleteSubagentRecord(id: string): void {
   rawRun("subagent:deleteRecord", `DELETE FROM subagents WHERE id = ?`, id);

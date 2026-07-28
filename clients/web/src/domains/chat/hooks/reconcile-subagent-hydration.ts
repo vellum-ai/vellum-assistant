@@ -6,7 +6,6 @@ import { isActiveStatus } from "@/utils/subagent-status";
 type SubagentStoreSlice = Pick<
   SubagentStore,
   | "byId"
-  | "reset"
   | "spawnSubagent"
   | "changeStatus"
   | "setConversationId"
@@ -23,16 +22,21 @@ export interface SubagentNotificationLike {
 }
 
 /**
- * Apply history subagent notifications to the store while preserving live
- * (in-flight) subagents.
+ * Apply history subagent notifications to the store as a pure upsert.
  *
- * In-flight subagent state streams from SSE, not history notifications, so a
- * blanket reset drops a subagent that's still running when the conversation
- * re-hydrates (e.g. after a tab switch). When nothing is in flight we rebuild
- * from scratch — clearing the prior conversation's terminal entries. When a
- * subagent is in flight we merge instead: upsert notified subagents and apply a
- * terminal status to a live entry that just finished, without discarding its
- * streamed events.
+ * Hydration never deletes. It is one additive evidence source among several —
+ * live SSE and the `/subagents/reconcile` snapshot are the others — and it is
+ * the least complete of them: in-flight state streams over SSE rather than
+ * appearing in history, and a run that streamed nothing at all (recovered from
+ * the daemon's durable rows) has no notification to be represented by. A reset
+ * here would delete exactly what the other two recover — a silent run that
+ * reconcile resurrected as terminal survives no rebuild-from-notifications,
+ * and which one wins would come down to whichever request finished first.
+ *
+ * Entry lifecycle cleanup is owned elsewhere: cross-conversation clearing by
+ * the conversation-change reset (`use-conversation-change-effects`' layout
+ * effect and `switchConversation`), staleness by reconcile's generation guard,
+ * and stuck-active settling by reconcile's orphan pass.
  *
  * `parentConversationId` is the conversation being hydrated — it scopes the
  * Active-Subagents overlay. A notification's own `conversationId` is the
@@ -45,18 +49,23 @@ export function reconcileSubagentStoreFromNotifications(
   now: number,
 ): void {
   const priorById = store.byId;
-  const hasInFlight = Object.values(priorById).some((entry) =>
-    isActiveStatus(entry.status),
-  );
-
-  if (!hasInFlight) store.reset();
 
   for (const n of notifications) {
     const parsed = SubagentStatusSchema.safeParse(n.status);
-    if (hasInFlight && priorById[n.subagentId]) {
-      // An unparseable status carries no information about a live entry —
-      // keep whatever the stream told us rather than flipping it terminal.
-      if (parsed.success) {
+    const existing = priorById[n.subagentId];
+    if (existing) {
+      // An unparseable status carries no information about an entry we
+      // already hold — keep what SSE or reconcile told us rather than
+      // flipping it terminal. A settled entry likewise never regresses to an
+      // active status on the say-so of a historical notification: reconcile
+      // may have just settled a run whose mid-run "running" notification
+      // still sits in history, and an interrupted run emits no further
+      // terminal event to re-correct the regression.
+      const regressesTerminal =
+        parsed.success &&
+        !isActiveStatus(existing.status) &&
+        isActiveStatus(parsed.data);
+      if (parsed.success && !regressesTerminal) {
         store.changeStatus({ subagentId: n.subagentId, status: parsed.data });
       }
       if (n.conversationId) {

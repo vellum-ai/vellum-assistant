@@ -115,6 +115,149 @@ describe("reconcileSubagents route", () => {
     expect(subagents["sub-anchored"].parentToolUseId).toBe("toolu-abc");
   });
 
+  test("carries terminal usage and failure reason", () => {
+    upsertSubagentRecord(
+      record({
+        id: "sub-failed",
+        conversationId: "child-conv-failed",
+        label: "failed-run",
+        status: "failed",
+        error: "provider timed out",
+        completedAt: 2000,
+        inputTokens: 1200,
+        outputTokens: 340,
+        estimatedCost: 0.021,
+      }),
+    );
+    getSubagentManager().rehydrateFromDb();
+
+    // The terminal `subagent_status_changed` is exactly the event a
+    // reconciling client may have missed, so the snapshot has to carry what it
+    // would have delivered.
+    expect(reconcile(PARENT_ID).subagents["sub-failed"]).toMatchObject({
+      status: "failed",
+      error: "provider timed out",
+      usage: { inputTokens: 1200, outputTokens: 340, estimatedCost: 0.021 },
+    });
+  });
+
+  test("omits usage and error for a child that has spent nothing", () => {
+    upsertSubagentRecord(record());
+    getSubagentManager().rehydrateFromDb();
+
+    const entry = reconcile(PARENT_ID).subagents["sub-1"];
+    expect(entry.usage).toBeUndefined();
+    expect(entry.error).toBeUndefined();
+  });
+
+  test("keeps a terminal subagent the retention sweep evicted from memory", () => {
+    upsertSubagentRecord(
+      record({
+        id: "sub-swept",
+        conversationId: "child-conv-swept",
+        label: "swept",
+        status: "completed",
+        completedAt: 2000,
+        inputTokens: 90,
+        outputTokens: 20,
+        estimatedCost: 0.003,
+      }),
+    );
+    // No `rehydrateFromDb()`: the row with no in-memory state IS the
+    // post-sweep shape (`dispose(..., { keepRecord: true })`). Absence here
+    // would read as "interrupted" to a client settling orphans by absence.
+
+    expect(reconcile(PARENT_ID).subagents["sub-swept"]).toEqual({
+      status: "completed",
+      conversationId: "child-conv-swept",
+      label: "swept",
+      objective: "Research competitor pricing",
+      isFork: false,
+      usage: { inputTokens: 90, outputTokens: 20, estimatedCost: 0.003 },
+    });
+  });
+
+  test("lets an in-memory child shadow its own durable row", () => {
+    upsertSubagentRecord(record());
+    // In-flight at rehydrate time → the manager settles it to `interrupted`.
+    getSubagentManager().rehydrateFromDb();
+    // A stale row claiming otherwise must not win: the live state is fresher.
+    upsertSubagentRecord(
+      record({ status: "completed", error: "stale", completedAt: 2000 }),
+    );
+
+    const entry = reconcile(PARENT_ID).subagents["sub-1"];
+    expect(entry.status).toBe("interrupted");
+    expect(entry.error).toBeUndefined();
+  });
+
+  test("settles an orphaned durable row still marked active", () => {
+    // The startup window: `setDbReady(true)` precedes `rehydrateFromDb()`, so
+    // a reconcile can read a pre-crash `running` row while the manager is
+    // still empty. Nothing can be running without an in-memory entry.
+    upsertSubagentRecord(record({ status: "running" }));
+    upsertSubagentRecord(
+      record({
+        id: "sub-pending",
+        conversationId: "child-conv-pending",
+        label: "pending",
+        status: "pending",
+      }),
+    );
+    upsertSubagentRecord(
+      record({
+        id: "sub-awaiting",
+        conversationId: "child-conv-awaiting",
+        label: "awaiting",
+        status: "awaiting_input",
+      }),
+    );
+    // Deliberately no `rehydrateFromDb()`.
+
+    const { subagents } = reconcile(PARENT_ID);
+    expect(subagents["sub-1"].status).toBe("interrupted");
+    expect(subagents["sub-pending"].status).toBe("interrupted");
+    expect(subagents["sub-awaiting"].status).toBe("interrupted");
+  });
+
+  test("leaves an orphaned durable row's terminal status untouched", () => {
+    for (const status of ["completed", "failed", "aborted", "interrupted"]) {
+      upsertSubagentRecord(
+        record({
+          id: `sub-${status}`,
+          conversationId: `child-conv-${status}`,
+          label: status,
+          status,
+          completedAt: 2000,
+        }),
+      );
+    }
+
+    const { subagents } = reconcile(PARENT_ID);
+    expect(subagents["sub-completed"].status).toBe("completed");
+    expect(subagents["sub-failed"].status).toBe("failed");
+    expect(subagents["sub-aborted"].status).toBe("aborted");
+    expect(subagents["sub-interrupted"].status).toBe("interrupted");
+  });
+
+  test("does not settle an active child the manager still holds", () => {
+    upsertSubagentRecord(record({ status: "running" }));
+    const manager = getSubagentManager();
+    manager.rehydrateFromDb();
+    // A live entry means something IS driving the run, so its active status is
+    // current rather than stale. `getState` hands back the manager's own state
+    // object — the very one the route's live pass reads.
+    manager.getState("sub-1")!.status = "running";
+
+    expect(reconcile(PARENT_ID).subagents["sub-1"].status).toBe("running");
+  });
+
+  test("omits a durable row whose status is out of enum", () => {
+    upsertSubagentRecord(record({ status: "zombie" }));
+
+    expect(reconcile(PARENT_ID).subagents).toEqual({});
+  });
+
   test("returns an empty map for a parent with no known children", () => {
     upsertSubagentRecord(record());
     getSubagentManager().rehydrateFromDb();

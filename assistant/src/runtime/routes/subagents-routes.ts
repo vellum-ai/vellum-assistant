@@ -7,15 +7,23 @@
  */
 import { z } from "zod";
 
-import { SubagentStatusSchema } from "../../api/events/subagent-status-changed.js";
+import {
+  type SubagentStatus,
+  SubagentStatusSchema,
+  SubagentUsageStatsSchema,
+} from "../../api/events/subagent-status-changed.js";
 import { SubagentDetailResponseSchema } from "../../api/responses/subagent-detail.js";
 import {
   getMessages,
   type MessageRow,
 } from "../../persistence/conversation-crud.js";
 import { getConversationUsageTotals } from "../../persistence/llm-usage-store.js";
-import { getSubagentRecordById } from "../../persistence/subagent-store.js";
+import {
+  getSubagentRecordById,
+  getSubagentRecordsByParent,
+} from "../../persistence/subagent-store.js";
 import { getSubagentManager } from "../../subagent/index.js";
+import { TERMINAL_STATUSES } from "../../subagent/types.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
@@ -194,7 +202,64 @@ const ReconciledSubagentSchema = z.object({
   objective: z.string().optional(),
   isFork: z.boolean().optional(),
   parentToolUseId: z.string().optional(),
+  /**
+   * Terminal metadata a client can otherwise only learn from the
+   * `subagent_status_changed` event — which is exactly the event a
+   * reconciling client may have missed. Carried here so the snapshot can
+   * restore final token/cost totals and a failure reason instead of leaving
+   * them owned by a lost event.
+   */
+  usage: SubagentUsageStatsSchema.optional(),
+  error: z.string().optional(),
 });
+
+/**
+ * Settle the status of a durable row that no live manager entry answers for.
+ *
+ * Invariant: a subagent runs from an in-memory entry, so a durable row without
+ * one can only describe a run that is no longer executing — whatever the row
+ * says, nothing is driving it. Its pre-crash `pending`/`running`/
+ * `awaiting_input` is therefore stale and reported as `interrupted`, exactly
+ * what `SubagentManager.rehydrateFromDb()` writes for the same row. Terminal
+ * statuses are the truth already and pass through untouched.
+ *
+ * This closes a startup window rather than a steady state: `setDbReady(true)`
+ * precedes `rehydrateFromDb()` in `daemon/lifecycle.ts`, so a request can pass
+ * the DB gate while the manager is still empty and read rows the rehydration
+ * has not yet normalized. Without the coercion a client reconciling on its SSE
+ * reopen adopts `running`, and the later rehydration flips the row to
+ * `interrupted` with no status event to say so — leaving the UI stuck.
+ *
+ * Only ever applied to record-derived statuses; live state is authoritative
+ * and never coerced.
+ */
+function settledDurableStatus(status: SubagentStatus): SubagentStatus {
+  return TERMINAL_STATUSES.has(status) ? status : "interrupted";
+}
+
+/**
+ * A child that has spent nothing reports no usage at all, matching the detail
+ * route — an all-zero snapshot tells a client nothing its own tally doesn't
+ * already say.
+ */
+function reconciledUsage(usage: {
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+}): z.infer<typeof SubagentUsageStatsSchema> | undefined {
+  if (
+    usage.inputTokens <= 0 &&
+    usage.outputTokens <= 0 &&
+    usage.estimatedCost <= 0
+  ) {
+    return undefined;
+  }
+  return {
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    estimatedCost: usage.estimatedCost,
+  };
+}
 
 export const ROUTES: RouteDefinition[] = [
   {
@@ -207,7 +272,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Reconcile subagent live status",
     description:
-      "Returns the live in-memory state of all subagents known to the assistant for a given parent conversation. Each entry carries enough detail (child conversation id, label, objective) for a client to rebuild its subagent list from scratch, not just refresh statuses. Subagents absent from the response are orphaned or terminal. Only `status` is guaranteed to be present; every other field is optional.",
+      "Returns every subagent the assistant knows for a given parent conversation — live, rehydrated, and durably recorded, including terminal runs whose in-memory metadata the retention sweep has already evicted. Each entry carries enough detail (child conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from scratch, not just refresh statuses. A subagent absent from the response is one the assistant has no knowledge of at all, so a client may settle its own stuck-active entries against this snapshot. Only `status` is guaranteed to be present; every other field is optional.",
     tags: ["subagents"],
     queryParams: [
       {
@@ -231,6 +296,33 @@ export const ROUTES: RouteDefinition[] = [
         string,
         z.infer<typeof ReconciledSubagentSchema>
       > = {};
+      // Durable rows first, so the live pass below overwrites any id it also
+      // holds. The retention sweep evicts terminal in-memory metadata while
+      // deliberately keeping the row, so a run that completed more than a TTL
+      // ago is absent from memory — and a client settling orphans by absence
+      // would rewrite its `completed` entry to `interrupted`.
+      for (const record of getSubagentRecordsByParent(parentConversationId)) {
+        // `SubagentRecord.status` is an untyped column; the response contract
+        // is the closed enum, so drop what doesn't parse rather than widening
+        // the wire type.
+        const status = SubagentStatusSchema.safeParse(record.status);
+        if (!status.success) {
+          continue;
+        }
+        subagents[record.id] = {
+          // Coerced here, before the live pass below overwrites any id the
+          // manager also holds — so only genuinely orphaned rows keep it.
+          status: settledDurableStatus(status.data),
+          conversationId: record.conversationId,
+          label: record.label,
+          objective: record.objective,
+          isFork: record.isFork,
+          parentToolUseId: record.parentToolUseId ?? undefined,
+          usage: reconciledUsage(record),
+          error: record.error ?? undefined,
+        };
+      }
+
       for (const child of manager.getChildrenOf(parentConversationId)) {
         subagents[child.config.id] = {
           status: child.status,
@@ -239,6 +331,8 @@ export const ROUTES: RouteDefinition[] = [
           objective: child.config.objective,
           isFork: child.isFork,
           parentToolUseId: child.config.parentToolUseId,
+          usage: child.usage ? reconciledUsage(child.usage) : undefined,
+          error: child.error,
         };
       }
       return { subagents };
@@ -298,9 +392,13 @@ export const ROUTES: RouteDefinition[] = [
       return {
         ...getSubagentDetail(pathParams!.id, conversationId),
         conversationId,
+        // `record` is only read when the manager has no state, so a
+        // record-derived status is by definition orphaned and gets settled.
         status:
           state?.status ??
-          (recordStatus?.success ? recordStatus.data : undefined),
+          (recordStatus?.success
+            ? settledDurableStatus(recordStatus.data)
+            : undefined),
         label: state?.config.label ?? record?.label,
         parentToolUseId: state?.config.parentToolUseId,
       };

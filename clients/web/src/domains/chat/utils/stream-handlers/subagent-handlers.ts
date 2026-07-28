@@ -5,7 +5,10 @@ import {
   UsageProgressEventSchema,
 } from "@vellumai/assistant-api";
 
-import { useSubagentStore } from "@/domains/chat/subagent-store";
+import {
+  requestSubagentReconcile,
+  useSubagentStore,
+} from "@/domains/chat/subagent-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 
 export function handleSubagentSpawned(
@@ -33,13 +36,16 @@ export function handleSubagentStatusChanged(
   // was missed (SSE gap, page reload) or the store was reset after it
   // arrived. Materialize a stub so the status lands instead of silently
   // vanishing — a dropped terminal status is how the inline card dies (the
-  // avatar row expands to nothing and the detail panel can't open).
+  // avatar row expands to nothing and the detail panel can't open). The
+  // reconcile kick then recovers the real identity, and any sibling subagent
+  // that streamed nothing at all, a round-trip later.
   if (!store.byId[event.subagentId]) {
     store.ensureEntry({
       subagentId: event.subagentId,
       timestamp: Date.now(),
       status: event.status,
     });
+    requestSubagentReconcile("unknown_subagent_id");
   }
   store.changeStatus({
     subagentId: event.subagentId,
@@ -90,6 +96,10 @@ export function handleSubagentEvent(
       conversationId: childConversationId,
       parentConversationId,
     });
+    // Reconcile the envelope's OWN parent: this event may belong to a
+    // background conversation, whose subagents the active chat's snapshot
+    // would say nothing about.
+    requestSubagentReconcile("unknown_subagent_id", parentConversationId);
   }
 
   if (inner.type === "usage_progress") {

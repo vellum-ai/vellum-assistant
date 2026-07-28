@@ -40,16 +40,87 @@ describe("reconcileSubagentStoreFromNotifications", () => {
     expect(store().byId["done"]?.status).toBe("completed"); // notified added
   });
 
-  test("rebuilds from notifications (clears stale terminal entries) when nothing is in flight", () => {
-    spawn("old", "completed"); // terminal entry from a prior conversation
+  test("keeps a terminal entry reconcile recovered but no notification mentions", () => {
+    // A silent run — one that streamed nothing — is recovered from the daemon's
+    // durable rows as `interrupted`, so it appears in no history notification.
+    // Hydration is additive; deleting it would make its visibility depend on
+    // which request finished first. Cross-conversation cleanup belongs to the
+    // conversation-change reset, not here.
+    spawn("silent", "interrupted");
     reconcileSubagentStoreFromNotifications(
       store(),
       [{ subagentId: "new", label: "new", status: "completed" }],
       PARENT,
       NOW,
     );
-    expect(store().byId["old"]).toBeUndefined(); // reset cleared it
+    expect(store().byId["silent"]?.status).toBe("interrupted");
     expect(store().byId["new"]?.status).toBe("completed");
+  });
+
+  test("never deletes entries, even with nothing in flight and no notifications", () => {
+    spawn("old", "completed");
+    reconcileSubagentStoreFromNotifications(store(), [], PARENT, NOW);
+    expect(store().byId["old"]?.status).toBe("completed");
+  });
+
+  test("a stale running notification cannot regress a settled entry", () => {
+    // Restart ordering: reconcile settles a silent run as `interrupted`
+    // (durable-row recovery), then history hydration replays the run's
+    // MID-RUN notification whose status is still `running`. The run will
+    // emit no further terminal event, so regressing here would stick the
+    // overlay and Stop control forever.
+    spawn("settled", "interrupted");
+    reconcileSubagentStoreFromNotifications(
+      store(),
+      [
+        {
+          subagentId: "settled",
+          label: "settled",
+          status: "running",
+          conversationId: "child-conv",
+        },
+      ],
+      PARENT,
+      NOW,
+    );
+    expect(store().byId["settled"]?.status).toBe("interrupted");
+    // The non-status fields still land — the notification remains a valid
+    // source for identity/conversation wiring.
+    expect(store().byId["settled"]?.conversationId).toBe("child-conv");
+    expect(store().byId["settled"]?.parentConversationId).toBe(PARENT);
+  });
+
+  test("a terminal-to-terminal notification still applies to a settled entry", () => {
+    // Only the terminal→active direction is blocked: a notification carrying
+    // a truer terminal state (e.g. `failed` over provisional `interrupted`)
+    // must still land.
+    spawn("settled2", "interrupted");
+    reconcileSubagentStoreFromNotifications(
+      store(),
+      [{ subagentId: "settled2", label: "settled2", status: "failed" }],
+      PARENT,
+      NOW,
+    );
+    expect(store().byId["settled2"]?.status).toBe("failed");
+  });
+
+  test("applies a terminal notification to a settled entry without dropping it", () => {
+    spawn("sub", "interrupted");
+    reconcileSubagentStoreFromNotifications(
+      store(),
+      [
+        {
+          subagentId: "sub",
+          label: "sub",
+          status: "completed",
+          conversationId: "conv-x",
+        },
+      ],
+      PARENT,
+      NOW,
+    );
+    expect(store().byId["sub"]?.status).toBe("completed");
+    expect(store().byId["sub"]?.conversationId).toBe("conv-x");
   });
 
   test("applies a terminal notification to a live entry without dropping it", () => {
