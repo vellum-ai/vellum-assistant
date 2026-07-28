@@ -1,6 +1,6 @@
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -150,6 +150,7 @@ function customCurrentSummary(current: CurrentTiers, proPlan: ProPlan): string {
  */
 export function PlansPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const electron = isElectron();
 
@@ -198,6 +199,9 @@ export function PlansPage() {
   const [resizeCreditTier, setResizeCreditTier] = useState<
     CreditTierEnum | null | undefined
   >(undefined);
+  // `?package=<key>` is a one-shot deep link (from marketing / the checkout
+  // no-op bail); once acted on it must never re-fire.
+  const packageParamConsumedRef = useRef(false);
 
   const subscription = subscriptionQuery.data;
   const proPlan = plansQuery.data?.plans.find(
@@ -206,6 +210,18 @@ export function PlansPage() {
   const packages = proPlan?.packages ?? [];
   const hasPackages = packages.length > 0;
   const isProUser = subscription?.plan_id === "pro";
+
+  // A Custom sub (unpinned or customized) has no meaningful catalog rank, so
+  // it has no current tier: every named card is offered as a switch target —
+  // including a customized sub's own pinned key, which is a real
+  // revert-to-stock operation.
+  const currentTierKey = !subscription
+    ? null
+    : subscription.plan_id === "base"
+      ? "free"
+      : isCleanPin(subscription.package)
+        ? subscription.package.key
+        : null;
 
   // Pro → Free is a cancellation: after a confirm step it opens the Stripe
   // billing portal (the same destination as the adjust-plan modal's "Downgrade
@@ -316,19 +332,106 @@ export function PlansPage() {
     }
   };
 
+  const selectTier = (tierKey: string) => {
+    if (!subscription) {
+      return;
+    }
+    // A billing action is already in flight (checkout / package switch /
+    // portal opening) — ignore the click. The CTAs are also disabled; this
+    // guards against a race between the click and the disabled re-render.
+    if (billingActionPending) {
+      return;
+    }
+    if (isProUser) {
+      if (tierKey === "free") {
+        // Pro → Free is a subscription cancellation, not a package switch.
+        // Confirm first (which Pro features are lost), then open the Stripe
+        // billing portal — the same destination as the adjust-plan modal's
+        // "Downgrade to Base" — where the user actually cancels. The
+        // package-only change-package endpoint 400s on non-package keys.
+        setFreeDowngradeOpen(true);
+        return;
+      }
+      // Active Pro orgs switch packages in place via the change-package
+      // endpoint (up or down). Only the named Pro packages route here.
+      const pkg = packages.find((p) => p.key === tierKey);
+      if (!pkg) {
+        return;
+      }
+      if (tierRelation(currentTierKey, pkg.key) === "current") {
+        return;
+      }
+      // Any active Pro sub — pinned, unpinned, or customized — switches in
+      // place via change-package. Only a cancelling or non-entitlement-status
+      // sub can't; route it to the billing manage/cancel surface instead of
+      // posting a change-package that can only fail (the same fallback the
+      // Pro → Free case uses).
+      if (!isPackageSwitchEligible(subscription)) {
+        navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
+        return;
+      }
+      setSwitchTarget(pkg);
+      return;
+    }
+    if (tierKey === "free") {
+      return;
+    }
+    // A package checkout resolves its own line items server-side; only the
+    // package key is sent (mirrors the plan-card upgrade path).
+    void startCheckout({
+      target_plan_id: "pro",
+      package: tierKey,
+      confirm: true,
+    });
+  };
+
+  // The deep-link effect below fires at most once, so it reads the handler
+  // through a ref rather than depending on an identity that changes every
+  // render.
+  const selectTierRef = useRef(selectTier);
+  useEffect(() => {
+    selectTierRef.current = selectTier;
+  });
+
+  // `?package=<key>` opens the switch flow for the requested package exactly
+  // once, reusing `selectTier` so the deep link inherits every guard a click
+  // gets. Non-Pro users get no checkout from a URL — but the param is still
+  // dropped so it can't fire later once they are Pro.
+  const packageParam = searchParams.get("package");
+  useEffect(() => {
+    if (packageParam == null || packageParamConsumedRef.current) {
+      return;
+    }
+    if (
+      !platformReady ||
+      !subscriptionQuery.isSuccess ||
+      !plansQuery.isSuccess
+    ) {
+      return;
+    }
+    packageParamConsumedRef.current = true;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("package");
+        return next;
+      },
+      { replace: true },
+    );
+    if (isProUser) {
+      selectTierRef.current(packageParam);
+    }
+  }, [
+    packageParam,
+    platformReady,
+    subscriptionQuery.isSuccess,
+    plansQuery.isSuccess,
+    isProUser,
+    setSearchParams,
+  ]);
+
   let body: ReactNode;
   if (subscription && proPlan && hasPackages) {
-    // A Custom sub (unpinned or customized) has no meaningful catalog rank, so
-    // it has no current tier: every named card is offered as a switch target —
-    // including a customized sub's own pinned key, which is a real
-    // revert-to-stock operation.
-    const currentTierKey =
-      subscription.plan_id === "base"
-        ? "free"
-        : isCleanPin(subscription.package)
-          ? subscription.package.key
-          : null;
-
     // A Pro sub with no clean pin (unpinned, customized, or legacy) — exactly
     // the subs `currentTierKey` leaves null — is represented by the Custom row,
     // not any named card. Mark that row as their current plan and summarize its
@@ -343,56 +446,6 @@ export function PlansPage() {
     const currentSummary = showCurrentPlan
       ? customCurrentSummary(current, proPlan)
       : undefined;
-
-    const selectTier = (tierKey: string) => {
-      // A billing action is already in flight (checkout / package switch /
-      // portal opening) — ignore the click. The CTAs are also disabled; this
-      // guards against a race between the click and the disabled re-render.
-      if (billingActionPending) {
-        return;
-      }
-      if (isProUser) {
-        if (tierKey === "free") {
-          // Pro → Free is a subscription cancellation, not a package switch.
-          // Confirm first (which Pro features are lost), then open the Stripe
-          // billing portal — the same destination as the adjust-plan modal's
-          // "Downgrade to Base" — where the user actually cancels. The
-          // package-only change-package endpoint 400s on non-package keys.
-          setFreeDowngradeOpen(true);
-          return;
-        }
-        // Active Pro orgs switch packages in place via the change-package
-        // endpoint (up or down). Only the named Pro packages route here.
-        const pkg = packages.find((p) => p.key === tierKey);
-        if (!pkg) {
-          return;
-        }
-        if (tierRelation(currentTierKey, pkg.key) === "current") {
-          return;
-        }
-        // Any active Pro sub — pinned, unpinned, or customized — switches in
-        // place via change-package. Only a cancelling or non-entitlement-status
-        // sub can't; route it to the billing manage/cancel surface instead of
-        // posting a change-package that can only fail (the same fallback the
-        // Pro → Free case uses).
-        if (!isPackageSwitchEligible(subscription)) {
-          navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
-          return;
-        }
-        setSwitchTarget(pkg);
-        return;
-      }
-      if (tierKey === "free") {
-        return;
-      }
-      // A package checkout resolves its own line items server-side; only the
-      // package key is sent (mirrors the plan-card upgrade path).
-      void startCheckout({
-        target_plan_id: "pro",
-        package: tierKey,
-        confirm: true,
-      });
-    };
 
     // Confirmed Pro → Free cancellation: close the confirm and hand off to the
     // Stripe billing portal, where the actual cancellation happens.

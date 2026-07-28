@@ -1,11 +1,19 @@
 /**
- * Interaction tests for the PlansPage CTA checkout wiring.
+ * Interaction tests for the PlansPage CTA checkout wiring and the `?package=`
+ * deep link.
  *
  * A base subscriber clicking a package button (Power Up / Go Super / Unleash
  * Ultra) fires the Stripe upgrade for THAT package and redirects to the
- * returned checkout URL. A Pro subscriber instead routes to the billing
- * manage modal (`?adjust_plan`), because the platform upgrade endpoint no-ops
- * for an active Pro org.
+ * returned checkout URL. An active Pro subscriber switches packages in place
+ * (the confirm modal → change-package), and only an *ineligible* Pro sub —
+ * cancelling or off an entitlement status — routes to the billing manage modal
+ * (`?adjust_plan`), because change-package can only fail for it.
+ *
+ * The `?package=<key>` deep link reuses that same click handler, so it inherits
+ * every guard: it opens the confirm modal for an eligible Pro sub, bails to
+ * `?adjust_plan` for an ineligible one, no-ops on the current or an unknown
+ * key, and never starts a checkout for a non-Pro user. The param is stripped
+ * either way and consumed exactly once.
  *
  * Strategy mirrors adjust-plan-modal.test.tsx: mock the generated SDK to
  * capture the upgrade body and return a redirect, mock `openUrl` to capture the
@@ -14,7 +22,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 
@@ -153,9 +167,16 @@ function LocationProbe() {
   return <div data-testid="loc">{location.pathname + location.search}</div>;
 }
 
-function renderPage(subscription: SubscriptionResponse) {
+function renderPage(
+  subscription: SubscriptionResponse,
+  entry = "/assistant/plans",
+) {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: {
+      // The seeded cache is the only data source — the read endpoints aren't
+      // mocked, so a background refetch would hit the network.
+      queries: { retry: false, staleTime: Infinity, refetchOnMount: false },
+    },
   });
   client.setQueryData(
     organizationsBillingSubscriptionRetrieveQueryKey(),
@@ -165,14 +186,17 @@ function renderPage(subscription: SubscriptionResponse) {
     organizationsBillingPlansRetrieveQueryKey(),
     fullCatalog(),
   );
-  return render(
-    <MemoryRouter initialEntries={["/assistant/plans"]}>
-      <QueryClientProvider client={client}>
-        <PlansPage />
-      </QueryClientProvider>
-      <LocationProbe />
-    </MemoryRouter>,
-  );
+  return {
+    client,
+    ...render(
+      <MemoryRouter initialEntries={[entry]}>
+        <QueryClientProvider client={client}>
+          <PlansPage />
+        </QueryClientProvider>
+        <LocationProbe />
+      </MemoryRouter>,
+    ),
+  };
 }
 
 beforeEach(() => {
@@ -233,5 +257,111 @@ describe("PlansPage checkout — Pro subscriber", () => {
 
     expect(upgradeCall).toBeNull();
     expect(readCheckoutIntent()).toBeNull();
+  });
+});
+
+// `?package=<key>` is the URL entry into the in-place package switch — the
+// funnel marketing's upgrade CTAs and the checkout no-op bail land on. It calls
+// the same handler a card click does, so every assertion below is really about
+// a guard being inherited rather than re-implemented.
+describe("PlansPage — ?package= deep link", () => {
+  // Emptying the query leaves React Router with a bare "?" on the path, so the
+  // assertion is on the param being gone rather than an exact string.
+  const ON_PLANS_WITHOUT_PARAM = /^\/assistant\/plans\??$/;
+
+  test("an eligible Pro sub opens the switch confirm for the requested package", async () => {
+    const { findByText, getByTestId } = renderPage(
+      proMightySubscription(),
+      "/assistant/plans?package=super",
+    );
+
+    // The confirm modal — not a checkout, not a direct change-package.
+    await findByText("Upgrade to Super");
+    expect(upgradeCall).toBeNull();
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toMatch(ON_PLANS_WITHOUT_PARAM),
+    );
+  });
+
+  test("an ineligible Pro sub bails to the billing manage surface", async () => {
+    const { getByTestId, queryByTestId } = renderPage(
+      { ...proMightySubscription(), cancel_at_period_end: true },
+      "/assistant/plans?package=super",
+    );
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe(
+        "/assistant/settings/usage?tab=billing&adjust_plan",
+      ),
+    );
+    expect(queryByTestId("confirm-package-switch-button")).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("the current package is a no-op", async () => {
+    const { getByTestId, queryByTestId } = renderPage(
+      proMightySubscription(),
+      "/assistant/plans?package=mighty",
+    );
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toMatch(ON_PLANS_WITHOUT_PARAM),
+    );
+    expect(queryByTestId("confirm-package-switch-button")).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("an unknown package key is a no-op", async () => {
+    const { getByTestId, queryByTestId } = renderPage(
+      proMightySubscription(),
+      "/assistant/plans?package=bogus",
+    );
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toMatch(ON_PLANS_WITHOUT_PARAM),
+    );
+    expect(queryByTestId("confirm-package-switch-button")).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("a non-Pro sub starts no checkout, and the param is still dropped", async () => {
+    const { getByTestId, queryByTestId } = renderPage(
+      freeSubscription(),
+      "/assistant/plans?package=super",
+    );
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toMatch(ON_PLANS_WITHOUT_PARAM),
+    );
+    // A URL alone must never charge anyone: the base user still has to press
+    // the card's CTA.
+    expect(upgradeCall).toBeNull();
+    expect(readCheckoutIntent()).toBeNull();
+    expect(queryByTestId("confirm-package-switch-button")).toBeNull();
+  });
+
+  test("the param is consumed once — a later query settle doesn't reopen the modal", async () => {
+    const { client, findByText, findByRole, getByTestId, queryByTestId } =
+      renderPage(proMightySubscription(), "/assistant/plans?package=super");
+
+    await findByText("Upgrade to Super");
+    fireEvent.click(await findByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(queryByTestId("confirm-package-switch-button")).toBeNull(),
+    );
+
+    // A subscription refetch settling re-runs the effect; the one-shot ref (and
+    // the already-stripped URL) keep it from reopening.
+    act(() => {
+      client.setQueryData(
+        organizationsBillingSubscriptionRetrieveQueryKey(),
+        proMightySubscription(),
+      );
+    });
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toMatch(ON_PLANS_WITHOUT_PARAM),
+    );
+    expect(queryByTestId("confirm-package-switch-button")).toBeNull();
   });
 });
