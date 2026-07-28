@@ -245,7 +245,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
               storageTier: selectedStorageTier,
               creditTier: displayCreditTier,
             });
-            // Snapshot the avatar so the takeover can draw it on a cold return.
             captureTakeoverAvatarStash(queryClient);
             void openUrl(data.checkout_url);
             return;

@@ -296,7 +296,6 @@ export function PlansPage() {
                 creditTier: body.credit_tier ?? null,
               },
         );
-        // Snapshot the avatar so the takeover can draw it on a cold return.
         captureTakeoverAvatarStash(queryClient);
         openUrl(result.checkout_url);
       } else {

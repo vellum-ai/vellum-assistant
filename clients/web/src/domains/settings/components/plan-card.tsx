@@ -271,7 +271,6 @@ function RecommendedUpgrade({
           kind: "package",
           packageKey: recommended.key,
         });
-        // Snapshot the avatar so the takeover can draw it on a cold return.
         captureTakeoverAvatarStash(queryClient);
         // Stripe returns with a `session_id`, which opens the
         // post-checkout Pro onboarding wizard — via the billing page on

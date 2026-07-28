@@ -472,7 +472,6 @@ beforeEach(() => {
   onboardingResponse = {};
   toastSuccessCalls = [];
   captureStashCalls = 0;
-  takeoverAvatarStash.clearTakeoverAvatarStash();
 });
 
 afterEach(() => {
