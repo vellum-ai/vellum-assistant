@@ -13,6 +13,7 @@ import {
   type MessageRow,
 } from "../../persistence/conversation-crud.js";
 import { getConversationUsageTotals } from "../../persistence/llm-usage-store.js";
+import { getSubagentRecordById } from "../../persistence/subagent-store.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -164,22 +165,13 @@ function getSubagentDetail(
   conversationId: string,
 ): SubagentDetailResult {
   const messages = getMessages(conversationId);
-  log.info(
-    {
-      subagentId,
-      conversationId,
-      messageCount: messages.length,
-      roles: messages.map((m) => m.role),
-    },
+  log.debug(
+    { subagentId, conversationId, messageCount: messages.length },
     "getSubagentDetail: raw messages from DB",
   );
   const result = parseSubagentMessages(subagentId, messages);
-  log.info(
-    {
-      subagentId,
-      eventCount: result.events.length,
-      eventTypes: result.events.map((e) => `${e.type}:${e.toolName ?? ""}`),
-    },
+  log.debug(
+    { subagentId, eventCount: result.events.length },
     "getSubagentDetail: parsed events",
   );
   const usage = getConversationUsageTotals(conversationId);
@@ -255,29 +247,36 @@ export const ROUTES: RouteDefinition[] = [
         schema: { type: "string" },
         description:
           "The subagent's own conversation ID. Fallback only — when the " +
-          "daemon knows the subagent (live or rehydrated), it resolves the " +
-          "conversation itself and this parameter is ignored.",
+          "daemon knows the subagent (live, rehydrated, or in its durable " +
+          "records), it resolves the conversation itself and this parameter " +
+          "is ignored.",
       },
     ],
     responseBody: SubagentDetailResponseSchema,
     handler: ({ pathParams, queryParams }) => {
       const manager = getSubagentManager();
       const state = manager.getState(pathParams!.id);
+      // Durable records outlive manager state (TTL eviction, daemon restart),
+      // so they answer for both the conversation and the label once it's gone.
+      const record = state ? undefined : getSubagentRecordById(pathParams!.id);
 
-      // Prefer the authoritative child-conversation id from manager state.
+      // Prefer the authoritative child-conversation id the daemon holds.
       // Clients recovering from a missed `subagent_spawned` only know the
       // PARENT conversation id (that's what `subagent_event` carries), so a
       // caller-supplied id may point at the wrong conversation entirely.
       const conversationId =
-        state?.conversationId ?? queryParams?.conversationId;
+        state?.conversationId ??
+        record?.conversationId ??
+        queryParams?.conversationId;
       if (!conversationId) {
         throw new BadRequestError("conversationId query parameter is required");
       }
 
       return {
         ...getSubagentDetail(pathParams!.id, conversationId),
+        conversationId,
         status: state?.status,
-        label: state?.config.label,
+        label: state?.config.label ?? record?.label,
         parentToolUseId: state?.config.parentToolUseId,
       };
     },

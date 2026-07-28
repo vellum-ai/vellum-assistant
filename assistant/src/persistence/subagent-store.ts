@@ -137,6 +137,20 @@ export function getSubagentRecordByConversationId(
   return row ? rowToRecord(row) : undefined;
 }
 
+/**
+ * Look up a subagent record by its own id. This is the durable fallback for
+ * subagents the live SubagentManager no longer holds — evicted by the TTL sweep
+ * or not yet rehydrated after a restart.
+ */
+export function getSubagentRecordById(id: string): SubagentRecord | undefined {
+  const row = rawGet<SubagentRow>(
+    "subagent:getById",
+    `SELECT * FROM subagents WHERE id = ?`,
+    id,
+  );
+  return row ? rowToRecord(row) : undefined;
+}
+
 /** Delete a subagent record once the manager is fully done with it. */
 export function deleteSubagentRecord(id: string): void {
   rawRun("subagent:deleteRecord", `DELETE FROM subagents WHERE id = ?`, id);

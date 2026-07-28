@@ -29335,8 +29335,8 @@ paths:
           schema:
             type: string
           description:
-            The subagent's own conversation ID. Fallback only — when the daemon knows the subagent (live or
-            rehydrated), it resolves the conversation itself and this parameter is ignored.
+            The subagent's own conversation ID. Fallback only — when the daemon knows the subagent (live, rehydrated,
+            or in its durable records), it resolves the conversation itself and this parameter is ignored.
       responses:
         "200":
           description: Successful response
@@ -29402,6 +29402,8 @@ paths:
                   label:
                     type: string
                   parentToolUseId:
+                    type: string
+                  conversationId:
                     type: string
                 required:
                   - subagentId
