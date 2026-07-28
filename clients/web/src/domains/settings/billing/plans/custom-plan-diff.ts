@@ -98,7 +98,7 @@ export function computeCustomPlanDiff(input: {
   const rows: CustomPlanDiffRow[] = [
     {
       key: "base",
-      label: `Pro base plan — ${formatMonthly(proPlan.base_price_cents)}`,
+      label: `Platform fee — ${formatMonthly(proPlan.base_price_cents)}`,
       changed: false,
     },
   ];
