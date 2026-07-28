@@ -33,7 +33,7 @@ mock.module("../../daemon/conversation-store.js", () => ({
 
 // Conversation-CRUD doubles for the teardown transcript-hygiene pass. The
 // real module is spread so every other export keeps its production behavior;
-// only the three functions the hygiene pass (and discard) touch are recorded.
+// only the functions the hygiene pass (and discard) touch are recorded.
 import * as realConversationCrud from "../../persistence/conversation-crud.js";
 
 let getMessageByIdImpl: (
@@ -65,10 +65,14 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     crudLog.deletes.push(messageId);
     return { segmentIds: [], deletedSummaryIds: [] };
   },
+  // The echo path advances the snapshot anchor for a real-user turn; the
+  // fake conversation has no row in SQLite, so stub the write out.
+  recordConversationPersistedSeq: () => {},
 }));
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
+import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
 import {
   cutFrontDoorContentAtVerdict,
@@ -344,6 +348,67 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     await startVoiceTurn(makeTurnOptions()); // content: CALL_OPENING_MARKER
 
     expect(fake.lastPersistOpts()?.metadata).toBeUndefined();
+  });
+});
+
+describe("startVoiceTurn hiddenSyntheticPrompt", () => {
+  // A caller whose internal instruction is composed per call carries no
+  // sentinel for the content comparisons to recognize, so it declares itself.
+  const SYNTHETIC_CONTENT =
+    "(the background task finished — announce the result)";
+
+  /** The `user_message_echo` events `turn` publishes to hub subscribers. */
+  async function collectUserMessageEchoes(
+    turn: () => Promise<unknown>,
+  ): Promise<Array<{ type: string }>> {
+    const published: Array<{ type: string }> = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      filter: { conversationId: "conv-voice-bridge-test" },
+      callback: (event) => {
+        published.push(event.message);
+      },
+    });
+    try {
+      await turn();
+    } finally {
+      subscription.dispose();
+    }
+    return published.filter((msg) => msg.type === "user_message_echo");
+  }
+
+  test("a declared prompt persists hidden and suppresses its echo", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    const echoes = await collectUserMessageEchoes(() =>
+      startVoiceTurn({
+        ...makeTurnOptions(),
+        content: SYNTHETIC_CONTENT,
+        hiddenSyntheticPrompt: true,
+      }),
+    );
+
+    expect(fake.lastPersistOpts()?.content).toBe(SYNTHETIC_CONTENT);
+    expect(fake.lastPersistOpts()?.metadata).toEqual({ hidden: true });
+    expect(echoes).toHaveLength(0);
+  });
+
+  test("the same content without the flag stays a plain user turn", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    const echoes = await collectUserMessageEchoes(() =>
+      startVoiceTurn({
+        ...makeTurnOptions(),
+        content: SYNTHETIC_CONTENT,
+      }),
+    );
+
+    expect(fake.lastPersistOpts()?.metadata).toBeUndefined();
+    expect(echoes).toEqual([
+      expect.objectContaining({ text: SYNTHETIC_CONTENT }),
+    ]);
   });
 });
 

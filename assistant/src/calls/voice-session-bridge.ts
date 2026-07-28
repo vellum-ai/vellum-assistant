@@ -312,6 +312,14 @@ export interface VoiceTurnOptions {
    */
   spokenEscalationBridge?: string;
   /**
+   * Marks this turn's `content` as an internal instruction rather than user
+   * speech: it persists `hidden` so `/messages` filters it after a reload,
+   * its echo is suppressed, and prompt-as-user-speech consumers (title
+   * generation) skip it. Set by callers whose synthetic prompt text is not a
+   * fixed sentinel.
+   */
+  hiddenSyntheticPrompt?: boolean;
+  /**
    * Unified front-door: this leg was dispatched speculatively at a silence
    * boundary, so its decision rule includes the hold branch (leading token
    * `[0]` = the caller is mid-thought). Only ever set on front-door legs —
@@ -683,11 +691,13 @@ export async function startVoiceTurn(
         ? "(verification completed — transitioning into conversation)"
         : opts.content;
 
-  // Opener / verification / escalation-continuation prompts are internal
-  // scaffolding: they persist a row so the model wakes, but they are not user
-  // speech and must not render as a live user bubble. Their echo is suppressed
-  // below (parity with `isEchoSuppressedUserMessage` on the text path).
+  // Opener / verification / escalation-continuation prompts, plus any turn a
+  // caller declares hidden, are internal scaffolding: they persist a row so the
+  // model wakes, but they are not user speech and must not render as a live
+  // user bubble. Their echo is suppressed below (parity with
+  // `isEchoSuppressedUserMessage` on the text path).
   const isSyntheticVoicePrompt =
+    opts.hiddenSyntheticPrompt === true ||
     opts.content === CALL_OPENING_MARKER ||
     opts.content === CALL_VERIFICATION_COMPLETE_MARKER ||
     opts.content === ESCALATION_CONTINUATION_CONTENT;
@@ -699,8 +709,10 @@ export async function startVoiceTurn(
   // `/messages` filters it out after a refetch/reload, and flag the turn as a
   // hidden prompt so prompt-as-user-speech consumers (e.g. title generation)
   // skip it. The escalated model still sees the row in context — `hidden` only
-  // affects client display.
+  // affects client display. A caller whose prompt text is not a fixed sentinel
+  // opts into the same treatment with `hiddenSyntheticPrompt`.
   const isHiddenSyntheticPrompt =
+    opts.hiddenSyntheticPrompt === true ||
     opts.content === ESCALATION_CONTINUATION_CONTENT;
 
   // Build the call-control protocol prompt so the model knows how to emit
