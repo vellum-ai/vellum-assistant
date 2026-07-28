@@ -17,7 +17,9 @@ import {
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
   liveVoiceStateLabel,
+  minimizeVoiceRoom,
   releaseLiveVoiceTurn,
+  restoreVoiceRoom,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
   updateLiveVoiceSessionConfig,
@@ -31,6 +33,14 @@ beforeEach(() => {
   // explicitly so tests can't leak a registered starter into each other.
   useLiveVoiceStore.getState().setStarter(null);
 });
+
+function makeStarter() {
+  return {
+    prewarm: mock(() => {}),
+    cancelPrewarm: mock(() => {}),
+    start: mock((_assistantId: string, _conversationId: string | null) => {}),
+  };
+}
 
 describe("useLiveVoiceStore — session context", () => {
   test("defaults to null assistant/conversation when idle", () => {
@@ -77,7 +87,7 @@ describe("useLiveVoiceStore — session starter", () => {
   });
 
   test("setStarter registers and deregisters the controller's starter", () => {
-    const starter = mock(() => {});
+    const starter = makeStarter();
     useLiveVoiceStore.getState().setStarter(starter);
     expect(useLiveVoiceStore.getState().starter).toBe(starter);
     useLiveVoiceStore.getState().setStarter(null);
@@ -85,7 +95,7 @@ describe("useLiveVoiceStore — session starter", () => {
   });
 
   test("reset preserves the starter — session teardown must not deregister the mounted controller", () => {
-    const starter = mock(() => {});
+    const starter = makeStarter();
     useLiveVoiceStore.getState().setStarter(starter);
     // Simulate a full session lifecycle ending in teardown's reset().
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
@@ -166,6 +176,39 @@ describe("useLiveVoiceStore — mute + handsFree", () => {
   });
 });
 
+describe("useLiveVoiceStore — room minimize", () => {
+  test("defaults to not minimized — a new session opens in the room", () => {
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("minimizeVoiceRoom sets the flag during an active session", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    minimizeVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+  });
+
+  test("minimizeVoiceRoom no-ops when idle", () => {
+    minimizeVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("restoreVoiceRoom clears the flag", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    minimizeVoiceRoom();
+    restoreVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("reset restores roomMinimized to false — a new session always opens in the room", () => {
+    useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+    useLiveVoiceStore.getState().setState("listening");
+    minimizeVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+});
+
 describe("liveVoiceStateLabel", () => {
   test("relabels only the connecting phase while reconnecting", () => {
     expect(liveVoiceStateLabel("connecting", true)).toBe("Reconnecting…");
@@ -201,19 +244,32 @@ describe("isLiveVoiceSessionOwnedBy", () => {
   ) => ({ state, conversationId, startedConversationId });
 
   test("no ownership without an active session, even with matching ids", () => {
-    expect(isLiveVoiceSessionOwnedBy(session("idle", "conv-1", "conv-1"), "conv-1")).toBe(false);
-    expect(isLiveVoiceSessionOwnedBy(session("failed", "conv-1", "conv-1"), "conv-1")).toBe(false);
+    expect(
+      isLiveVoiceSessionOwnedBy(session("idle", "conv-1", "conv-1"), "conv-1"),
+    ).toBe(false);
+    expect(
+      isLiveVoiceSessionOwnedBy(
+        session("failed", "conv-1", "conv-1"),
+        "conv-1",
+      ),
+    ).toBe(false);
   });
 
   test("composer bound to the session's conversation owns it", () => {
     expect(
-      isLiveVoiceSessionOwnedBy(session("listening", "conv-1", "conv-1"), "conv-1"),
+      isLiveVoiceSessionOwnedBy(
+        session("listening", "conv-1", "conv-1"),
+        "conv-1",
+      ),
     ).toBe(true);
   });
 
   test("composer bound to a different conversation does not own it", () => {
     expect(
-      isLiveVoiceSessionOwnedBy(session("listening", "conv-1", "conv-1"), "conv-other"),
+      isLiveVoiceSessionOwnedBy(
+        session("listening", "conv-1", "conv-1"),
+        "conv-other",
+      ),
     ).toBe(false);
   });
 
@@ -225,18 +281,30 @@ describe("isLiveVoiceSessionOwnedBy", () => {
     // After `ready`: authoritative id assigned, started id stays null — the
     // draft composer (still bound to no conversation) keeps owning it.
     expect(
-      isLiveVoiceSessionOwnedBy(session("listening", "conv-server", null), undefined),
+      isLiveVoiceSessionOwnedBy(
+        session("listening", "conv-server", null),
+        undefined,
+      ),
     ).toBe(true);
     expect(
-      isLiveVoiceSessionOwnedBy(session("listening", "conv-server", null), null),
+      isLiveVoiceSessionOwnedBy(
+        session("listening", "conv-server", null),
+        null,
+      ),
     ).toBe(true);
     // A composer bound to some other thread never picks it up.
     expect(
-      isLiveVoiceSessionOwnedBy(session("listening", "conv-server", null), "conv-other"),
+      isLiveVoiceSessionOwnedBy(
+        session("listening", "conv-server", null),
+        "conv-other",
+      ),
     ).toBe(false);
     // Navigating to the assigned conversation makes that composer the owner.
     expect(
-      isLiveVoiceSessionOwnedBy(session("listening", "conv-server", null), "conv-server"),
+      isLiveVoiceSessionOwnedBy(
+        session("listening", "conv-server", null),
+        "conv-server",
+      ),
     ).toBe(true);
   });
 
@@ -245,7 +313,10 @@ describe("isLiveVoiceSessionOwnedBy", () => {
       isLiveVoiceSessionOwnedBy(session("listening", "conv-1", "conv-1"), null),
     ).toBe(false);
     expect(
-      isLiveVoiceSessionOwnedBy(session("listening", "conv-1", "conv-1"), undefined),
+      isLiveVoiceSessionOwnedBy(
+        session("listening", "conv-1", "conv-1"),
+        undefined,
+      ),
     ).toBe(false);
   });
 });
@@ -312,7 +383,7 @@ describe("dismissLiveVoiceFailure", () => {
   });
 
   test("preserves the mount-scoped starter, like any reset", () => {
-    const starter = mock(() => {});
+    const starter = makeStarter();
     useLiveVoiceStore.getState().setStarter(starter);
     useLiveVoiceStore.getState().fail("boom");
 
@@ -336,7 +407,12 @@ describe("isLiveVoiceMicLive", () => {
   });
 
   test("false before capture starts and during/after teardown", () => {
-    const micOff: LiveVoiceSessionState[] = ["idle", "connecting", "ending", "failed"];
+    const micOff: LiveVoiceSessionState[] = [
+      "idle",
+      "connecting",
+      "ending",
+      "failed",
+    ];
     for (const state of micOff) {
       expect(isLiveVoiceMicLive(state)).toBe(false);
     }
@@ -359,7 +435,9 @@ describe("useLiveVoiceStore — playback-progress provider", () => {
   test("setPlaybackProgressProvider registers and deregisters the provider", () => {
     const provider = mock(() => null);
     useLiveVoiceStore.getState().setPlaybackProgressProvider(provider);
-    expect(useLiveVoiceStore.getState().playbackProgressProvider).toBe(provider);
+    expect(useLiveVoiceStore.getState().playbackProgressProvider).toBe(
+      provider,
+    );
     useLiveVoiceStore.getState().setPlaybackProgressProvider(null);
     expect(useLiveVoiceStore.getState().playbackProgressProvider).toBeNull();
   });

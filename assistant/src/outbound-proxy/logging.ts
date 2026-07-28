@@ -41,12 +41,16 @@ export function sanitizeHeaders(
  * the rest of the URL are preserved verbatim.
  */
 export function sanitizeUrl(url: string, sensitiveParams: string[]): string {
-  if (sensitiveParams.length === 0) return url;
+  if (sensitiveParams.length === 0) {
+    return url;
+  }
 
   // Guard against malformed input -- return the URL unchanged if it
   // doesn't contain a query string at all.
   const qIdx = url.indexOf("?");
-  if (qIdx === -1) return url;
+  if (qIdx === -1) {
+    return url;
+  }
 
   try {
     // Build a full URL if given an absolute path, otherwise parse as-is

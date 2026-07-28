@@ -11,6 +11,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { OpenPanelEvent } from "../api/events/open-panel.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   createSurfaceMutex,
   handleSurfaceAction,
@@ -18,10 +19,7 @@ import {
   type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
-import type {
-  AssistantEvent,
-  SurfaceType,
-} from "../daemon/message-protocol.js";
+import type { SurfaceType } from "../daemon/message-protocol.js";
 
 function makeContext(
   sent: AssistantEvent[] = [],

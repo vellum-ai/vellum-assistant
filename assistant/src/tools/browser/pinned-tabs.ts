@@ -28,7 +28,9 @@ export function setPinnedTab(
   tabId: string,
   clientId?: string,
 ): void {
-  if (!conversationId || !tabId) return;
+  if (!conversationId || !tabId) {
+    return;
+  }
   const key = clientId ?? "__default__";
   let inner = pinnedTabs.get(conversationId);
   if (!inner) {
@@ -54,9 +56,13 @@ export function getPinnedTab(
   conversationId: string,
   clientId?: string,
 ): string | undefined {
-  if (!conversationId) return undefined;
+  if (!conversationId) {
+    return undefined;
+  }
   const inner = pinnedTabs.get(conversationId);
-  if (!inner) return undefined;
+  if (!inner) {
+    return undefined;
+  }
   if (clientId !== undefined) {
     return inner.get(clientId) ?? inner.get("__default__");
   }
@@ -76,14 +82,20 @@ export function clearPinnedTab(
   conversationId: string,
   clientId?: string,
 ): void {
-  if (!conversationId) return;
+  if (!conversationId) {
+    return;
+  }
   const inner = pinnedTabs.get(conversationId);
-  if (!inner) return;
+  if (!inner) {
+    return;
+  }
   if (clientId !== undefined) {
     if (inner.delete(clientId)) {
       log.debug({ conversationId, clientId }, "Cleared pinned extension tab");
     }
-    if (inner.size === 0) pinnedTabs.delete(conversationId);
+    if (inner.size === 0) {
+      pinnedTabs.delete(conversationId);
+    }
   } else {
     // Clear all clients for this conversation
     if (pinnedTabs.delete(conversationId)) {
@@ -106,8 +118,13 @@ export function clearPinnedTab(
  *
  * Returns the number of slots cleared.
  */
-export function clearPinnedTabByTabId(tabId: string, clientId?: string): number {
-  if (!tabId) return 0;
+export function clearPinnedTabByTabId(
+  tabId: string,
+  clientId?: string,
+): number {
+  if (!tabId) {
+    return 0;
+  }
   let cleared = 0;
   for (const [conversationId, inner] of pinnedTabs.entries()) {
     if (clientId !== undefined) {
@@ -133,7 +150,9 @@ export function clearPinnedTabByTabId(tabId: string, clientId?: string): number 
         }
       }
     }
-    if (inner.size === 0) pinnedTabs.delete(conversationId);
+    if (inner.size === 0) {
+      pinnedTabs.delete(conversationId);
+    }
   }
   return cleared;
 }

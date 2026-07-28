@@ -31,7 +31,10 @@ import {
 export type ChartMetric = "spend" | "events";
 
 const MOBILE_Y_AXIS_WIDTH = 40;
-const MOBILE_AXIS_TICK = { fontSize: 11, fill: "var(--content-tertiary)" } as const;
+const MOBILE_AXIS_TICK = {
+  fontSize: 11,
+  fill: "var(--content-tertiary)",
+} as const;
 
 const USAGE_SOURCE_COLORS: Record<string, string> = {
   runtime_proxy_api: "#3b82f6",
@@ -67,9 +70,7 @@ function transformSeries(buckets: UsageBucket[], metric: ChartMetric) {
     const entry: ChartDatum = { date: bucket.date };
     for (const group of bucket.groups) {
       entry[group.group_key] =
-        metric === "spend"
-          ? parseFloat(group.total_usd)
-          : group.event_count;
+        metric === "spend" ? parseFloat(group.total_usd) : group.event_count;
     }
     return entry;
   });
@@ -144,9 +145,13 @@ export function BillingUsageChart({
 
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const ro = new ResizeObserver(([entry]) => {
-      if (entry) setWidth(entry.contentRect.width);
+      if (entry) {
+        setWidth(entry.contentRect.width);
+      }
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -193,7 +198,11 @@ export function BillingUsageChart({
 
   const isIntegerMetric = metric === "events";
   const yMax = useMemo(
-    () => niceMax(stackTotals, { integerOnly: isIntegerMetric, tickCount: Y_TICK_COUNT }),
+    () =>
+      niceMax(stackTotals, {
+        integerOnly: isIntegerMetric,
+        tickCount: Y_TICK_COUNT,
+      }),
     [stackTotals, isIntegerMetric],
   );
   const yTicks = useMemo(() => generateTicks(yMax, Y_TICK_COUNT), [yMax]);
@@ -201,7 +210,9 @@ export function BillingUsageChart({
   const formatAxisTick = useCallback(
     (v: number) => {
       if (metric === "spend") {
-        if (v === 0) return "$0";
+        if (v === 0) {
+          return "$0";
+        }
         const step = yMax / Y_TICK_COUNT;
         const digits = Math.max(step < 1 ? 2 : 0, niceStepDigits(step));
         return `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
@@ -227,20 +238,30 @@ export function BillingUsageChart({
 
   const isEmpty = stackKeys.length === 0;
 
-  const bars = isEmpty ? [] : data.map((d, di) => {
-    const x = plotLeft + di * bandWidth + barPadding;
-    let cumY = 0;
-    const segments = stackKeys.map((key, ki) => {
-      const val = Number(d[key]) || 0;
-      const y0 = cumY;
-      cumY += val;
-      const sy = yScale(cumY);
-      const sh = yScale(y0) - sy;
-      const isLast = ki === stackKeys.length - 1;
-      return { key, val, x, y: sy, h: sh, color: getBarColor(key, ki), isLast };
-    });
-    return { di, x, segments };
-  });
+  const bars = isEmpty
+    ? []
+    : data.map((d, di) => {
+        const x = plotLeft + di * bandWidth + barPadding;
+        let cumY = 0;
+        const segments = stackKeys.map((key, ki) => {
+          const val = Number(d[key]) || 0;
+          const y0 = cumY;
+          cumY += val;
+          const sy = yScale(cumY);
+          const sh = yScale(y0) - sy;
+          const isLast = ki === stackKeys.length - 1;
+          return {
+            key,
+            val,
+            x,
+            y: sy,
+            h: sh,
+            color: getBarColor(key, ki),
+            isLast,
+          };
+        });
+        return { di, x, segments };
+      });
 
   const handleBarMouseMove = (
     e: MouseEvent<SVGElement>,
@@ -248,7 +269,9 @@ export function BillingUsageChart({
     key: string,
   ) => {
     const svgRect = containerRef.current?.getBoundingClientRect();
-    if (!svgRect) return;
+    if (!svgRect) {
+      return;
+    }
     setTooltip({
       x: e.clientX - svgRect.left,
       y: e.clientY - svgRect.top,
@@ -260,7 +283,9 @@ export function BillingUsageChart({
   const handleBarMouseLeave = () => setTooltip(null);
 
   const handleBarClick = (key: string) => {
-    if (onBarClick) onBarClick(key);
+    if (onBarClick) {
+      onBarClick(key);
+    }
   };
 
   const tooltipPayload = tooltip
@@ -274,10 +299,10 @@ export function BillingUsageChart({
 
   // Clamp tooltip so it stays within the container on both edges
   const tooltipLeft = tooltip
-    ? Math.max(0, Math.min(
-        tooltip.x + TOOLTIP_OFFSET,
-        width - ESTIMATED_TOOLTIP_WIDTH,
-      ))
+    ? Math.max(
+        0,
+        Math.min(tooltip.x + TOOLTIP_OFFSET, width - ESTIMATED_TOOLTIP_WIDTH),
+      )
     : 0;
 
   const tooltipStyle: CSSProperties = {
@@ -288,18 +313,18 @@ export function BillingUsageChart({
 
   return (
     <div onMouseDown={(e) => e.preventDefault()}>
-      <div ref={containerRef} className="relative w-full" style={{ height: CHART_HEIGHT }}>
+      <div
+        ref={containerRef}
+        className="relative w-full"
+        style={{ height: CHART_HEIGHT }}
+      >
         {isEmpty ? (
           <div className="flex h-full items-center justify-center text-body-medium-lighter text-[var(--content-faint)]">
             No usage data for this period
           </div>
         ) : width > 0 ? (
           <>
-            <svg
-              width={width}
-              height={CHART_HEIGHT}
-              className="block"
-            >
+            <svg width={width} height={CHART_HEIGHT} className="block">
               {/* Grid lines */}
               {yTicks.map((t) => (
                 <line
@@ -342,7 +367,9 @@ export function BillingUsageChart({
               {/* X axis labels */}
               {xTickIndices.map((idx) => {
                 const d = data[idx];
-                if (!d) return null;
+                if (!d) {
+                  return null;
+                }
                 const cx = plotLeft + idx * bandWidth + bandWidth / 2;
                 return (
                   <text
@@ -361,7 +388,9 @@ export function BillingUsageChart({
               {/* Bars */}
               {bars.map(({ di, segments }) =>
                 segments.map((seg) => {
-                  if (seg.h <= 0) return null;
+                  if (seg.h <= 0) {
+                    return null;
+                  }
                   const opacity =
                     tooltip?.hoveredKey && tooltip.hoveredKey !== seg.key
                       ? 0.4
@@ -381,13 +410,7 @@ export function BillingUsageChart({
                     return (
                       <path
                         {...shared}
-                        d={topRoundedRect(
-                          seg.x,
-                          seg.y,
-                          barWidth,
-                          seg.h,
-                          3,
-                        )}
+                        d={topRoundedRect(seg.x, seg.y, barWidth, seg.h, 3)}
                       />
                     );
                   }

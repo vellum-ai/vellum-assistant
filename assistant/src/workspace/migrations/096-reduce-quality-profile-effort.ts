@@ -24,29 +24,41 @@ export const reduceQualityProfileEffortMigration: WorkspaceMigration = {
     'Reduce effort from "max" to "high" on quality-optimized profiles to let adaptive thinking work',
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     const profiles = readObject(llm.profiles);
-    if (profiles === null) return;
+    if (profiles === null) {
+      return;
+    }
 
     let changed = false;
 
     for (const name of TARGET_PROFILES) {
       const profile = readObject(profiles[name]);
-      if (profile === null) continue;
-      if (profile.effort !== "max") continue;
+      if (profile === null) {
+        continue;
+      }
+      if (profile.effort !== "max") {
+        continue;
+      }
 
       profile.effort = "high";
       profiles[name] = profile;

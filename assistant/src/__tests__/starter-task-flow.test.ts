@@ -1,13 +1,13 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import type {
-  AssistantEvent,
-  SurfaceType,
-} from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
+import type { SurfaceType } from "../daemon/message-protocol.js";
 
 mock.module("../apps/app-store.js", () => ({
   getApp: (id: string) => {
-    if (id !== "test-app") {return null;}
+    if (id !== "test-app") {
+      return null;
+    }
     return {
       id,
       name: "Test App",
@@ -16,6 +16,16 @@ mock.module("../apps/app-store.js", () => ({
     };
   },
   getAppPreview: () => null,
+  isDirectAppConversation: (app: { id: string }) => app.id === "test-app",
+  linkAppToConversationLineage: () => {},
+  listAppsByConversation: () => [
+    {
+      id: "inherited-app",
+      updatedAt: 2,
+      inheritedConversationIds: ["session-1"],
+    },
+    { id: "test-app", updatedAt: 1 },
+  ],
   updateApp: () => {
     throw new Error("updateApp should not be called in this test");
   },
@@ -137,5 +147,15 @@ describe("starter task surface actions", () => {
       "dynamic_page",
     );
     expect(sent.some((msg) => msg.type === "ui_surface_show")).toBe(true);
+  });
+
+  test("app_open without app_id prefers a direct app over a newer inherited app", async () => {
+    const ctx = makeContext();
+
+    const result = await surfaceProxyResolver(ctx, "app_open", {});
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(String(result.content)) as { appId: string };
+    expect(parsed.appId).toBe("test-app");
   });
 });

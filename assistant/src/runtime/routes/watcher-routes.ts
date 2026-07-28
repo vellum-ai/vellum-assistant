@@ -134,11 +134,21 @@ function handleWatcherUpdate({ body = {} }: RouteHandlerArgs) {
     configJson?: string | null;
   } = {};
 
-  if (name !== undefined) updates.name = name;
-  if (actionPrompt !== undefined) updates.actionPrompt = actionPrompt;
-  if (pollIntervalMs !== undefined) updates.pollIntervalMs = pollIntervalMs;
-  if (enabled !== undefined) updates.enabled = enabled;
-  if (config !== undefined) updates.configJson = JSON.stringify(config);
+  if (name !== undefined) {
+    updates.name = name;
+  }
+  if (actionPrompt !== undefined) {
+    updates.actionPrompt = actionPrompt;
+  }
+  if (pollIntervalMs !== undefined) {
+    updates.pollIntervalMs = pollIntervalMs;
+  }
+  if (enabled !== undefined) {
+    updates.enabled = enabled;
+  }
+  if (config !== undefined) {
+    updates.configJson = JSON.stringify(config);
+  }
 
   if (Object.keys(updates).length === 0) {
     throw new BadRequestError(

@@ -87,7 +87,10 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/research-results-overlay";
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
-import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
+import {
+  useVoiceSessionPillPresence,
+  VoiceSessionPillHost,
+} from "@/domains/chat/components/voice-session-pill-host";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
@@ -252,9 +255,7 @@ export function ChatLayout({
   const headerControlsHidden = useInChatOnboardingStore(
     selectHeaderControlsHidden,
   );
-  const headerCenterHidden = useInChatOnboardingStore(
-    selectHeaderCenterHidden,
-  );
+  const headerCenterHidden = useInChatOnboardingStore(selectHeaderCenterHidden);
   const navTourActive = useInChatOnboardingStore.use.navTourActive();
   const tourActive = useInChatOnboardingStore(selectTourActive);
 
@@ -363,7 +364,8 @@ export function ChatLayout({
 
   // Voice-room visibility. The room is a full-viewport takeover on every
   // platform (mounted at layout scope below): it covers the header and
-  // sidebar, and ending the session is the only way out of it.
+  // sidebar until the session ends or the room is minimized (the session
+  // then continues behind the composer voice bar / title-bar pill).
   const voiceRoomVisible = useIsVoiceRoomVisible();
 
   const drawerVisible = isMobile && drawerOpen;
@@ -426,7 +428,10 @@ export function ChatLayout({
   useEdgeSwipeDrawer({
     panelRef: drawerRef,
     enabled:
-      isMobile && !drawerOpen && backSwipeOwnerCount === 0 && openRowCount === 0,
+      isMobile &&
+      !drawerOpen &&
+      backSwipeOwnerCount === 0 &&
+      openRowCount === 0,
     onDragStart: () => setDrawerDragging(true),
     onOpen: () => {
       // Same as the button path: swiping the drawer in over a focused
@@ -496,11 +501,10 @@ export function ChatLayout({
   );
   const handleRequestRenameGroup = useCallback(
     (groupId: string) => {
-      const currentName =
-        conversationGroups.find((g) => g.id === groupId)?.name ?? "";
+      const group = conversationGroups.find((g) => g.id === groupId);
       useGroupNameRequestStore
         .getState()
-        .requestRenameGroup(groupId, currentName);
+        .requestRenameGroup(groupId, group?.name ?? "", group?.icon ?? null);
     },
     [conversationGroups],
   );
@@ -527,6 +531,13 @@ export function ChatLayout({
       activeConversationId,
       isAssistantActive,
     ) ?? null;
+
+  // Drives the header's right-cluster collapse: while the voice pill occupies
+  // the row, the remaining controls fold behind a ⋯ so the centre title keeps
+  // a readable width. Same hook the host itself uses, so the two agree.
+  const { visible: voicePillVisible, showFailure: voicePillFailure } =
+    useVoiceSessionPillPresence();
+  const voicePillPresent = voicePillVisible || voicePillFailure;
 
   const topBarCenter =
     topBarCenterSlot ??
@@ -798,9 +809,10 @@ export function ChatLayout({
       // Hidden during the avatar tour for the same reason (plus noise) —
       // the tour owns the sidebar's attention.
       tipCard={
-        (args.variant === "overlay" && !drawerOpen) || navTourActive
-          ? undefined
-          : <SidebarTipCard />
+        (args.variant === "overlay" && !drawerOpen) ||
+        navTourActive ? undefined : (
+          <SidebarTipCard />
+        )
       }
       onClose={args.onClose}
     />
@@ -834,11 +846,16 @@ export function ChatLayout({
           // per-route hooks that unmount on navigation, exactly when the pill
           // must persist. The host renders null when no session is active (or
           // while viewing the owning thread's composer), so the header is
-          // unaffected otherwise.
+          // unaffected otherwise. It leads the cluster (ahead of the mobile
+          // search button) rather than sitting between search and the
+          // notification bell.
+          topBarRightLeading={<VoiceSessionPillHost />}
+          // Only phones need the collapse — desktop headers have the width for
+          // the full cluster, and the pill renders its expanded form there.
+          collapseRightCluster={isMobile && voicePillPresent}
           topBarRightSlot={
             <>
               {topBarRightSlot}
-              <VoiceSessionPillHost />
               {topBarAccessory}
             </>
           }
@@ -942,7 +959,11 @@ export function ChatLayout({
             // Hiding eases smoothly; revealing uses a back-ease so the rail
             // lands with a slight bounce (the tour's takeover moment).
             style={{
-              width: chatFocusActive ? 0 : effectiveCollapsed ? 48 : sidebarWidth,
+              width: chatFocusActive
+                ? 0
+                : effectiveCollapsed
+                  ? 48
+                  : sidebarWidth,
               opacity: chatFocusActive ? 0 : 1,
               marginRight: chatFocusActive ? -16 : 0,
               transition: chatFocusActive

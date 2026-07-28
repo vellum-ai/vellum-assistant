@@ -113,12 +113,20 @@ export function unwrapExternalContentForDisplay(value: string): string {
 }
 
 /**
- * Escape sequences that could break out of the `<external_content>` wrapper.
- * Case-insensitive to cover mixed-case evasion attempts.
+ * Escape sequences that could forge or break out of the
+ * `<external_content>` wrapper. Case-insensitive to cover mixed-case
+ * evasion attempts.
+ *
+ * Both tag forms are escaped. A closing tag would end the fence early.
+ * An opening tag is subtler: it lets external content fabricate what
+ * reads as a second envelope — one it gets to label with any `source` it
+ * likes — and it defeats any structural reasoning over the result, since
+ * a forged tag is indistinguishable from a real one. Nothing legitimate
+ * arrives from the outside world carrying either.
  */
 export function escapeContentBoundaries(content: string): string {
   return content.replace(
-    /<\/external_content/gi,
+    /<\/?external_content/gi,
     (match) => `&lt;${match.slice(1)}`,
   );
 }

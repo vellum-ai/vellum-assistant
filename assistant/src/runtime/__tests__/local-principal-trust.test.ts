@@ -13,8 +13,12 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: (_input?: { channelTypes?: string[] }) =>
     Promise.resolve(mockGuardianList),
   peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) => {
-    if (mockGuardianList == null) return undefined;
-    if (!input?.channelTypes) return mockGuardianList;
+    if (mockGuardianList == null) {
+      return undefined;
+    }
+    if (!input?.channelTypes) {
+      return mockGuardianList;
+    }
     return mockGuardianList.filter((g) =>
       input.channelTypes!.includes(g.channelType as string),
     );
@@ -25,12 +29,10 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
-const { resolveLocalPrincipalTrustContext } = await import(
-  "../local-principal-trust.js"
-);
-const { resolveActorTrust, toTrustContext } = await import(
-  "../actor-trust-resolver.js"
-);
+const { resolveLocalPrincipalTrustContext } =
+  await import("../local-principal-trust.js");
+const { resolveActorTrust, toTrustContext } =
+  await import("../actor-trust-resolver.js");
 
 const SOURCE_CHANNEL: ChannelId = "vellum";
 const CONVERSATION_ID = "conv-1";

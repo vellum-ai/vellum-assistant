@@ -160,7 +160,9 @@ export class IpcFrameReader {
   private drain(): void {
     while (true) {
       if (this.state === "detect") {
-        if (this.buffer.length === 0) return;
+        if (this.buffer.length === 0) {
+          return;
+        }
         // Legacy detection: first byte is '{' (0x7B)
         if (this.buffer[0] === 0x7b) {
           this.isLegacy = true;
@@ -172,14 +174,18 @@ export class IpcFrameReader {
       }
 
       if (this.state === "read-length") {
-        if (this.buffer.length < 4) return;
+        if (this.buffer.length < 4) {
+          return;
+        }
         this.pendingLength = this.buffer.readUInt32BE(0);
         this.buffer = this.buffer.subarray(4);
         this.state = this.expectBinary ? "read-binary" : "read-payload";
       }
 
       if (this.state === "read-payload") {
-        if (this.buffer.length < this.pendingLength) return;
+        if (this.buffer.length < this.pendingLength) {
+          return;
+        }
         const payload = this.buffer.subarray(0, this.pendingLength);
         this.buffer = this.buffer.subarray(this.pendingLength);
 
@@ -216,7 +222,9 @@ export class IpcFrameReader {
       }
 
       if (this.state === "read-binary") {
-        if (this.buffer.length < this.pendingLength) return;
+        if (this.buffer.length < this.pendingLength) {
+          return;
+        }
         const binary = new Uint8Array(
           this.buffer.subarray(0, this.pendingLength),
         );
@@ -231,7 +239,9 @@ export class IpcFrameReader {
 
       // Chunked streaming states
       if (this.state === "read-stream-chunk-length") {
-        if (this.buffer.length < 4) return;
+        if (this.buffer.length < 4) {
+          return;
+        }
         this.pendingLength = this.buffer.readUInt32BE(0);
         this.buffer = this.buffer.subarray(4);
 
@@ -247,7 +257,9 @@ export class IpcFrameReader {
       }
 
       if (this.state === "read-stream-chunk") {
-        if (this.buffer.length < this.pendingLength) return;
+        if (this.buffer.length < this.pendingLength) {
+          return;
+        }
         const chunk = new Uint8Array(
           this.buffer.subarray(0, this.pendingLength),
         );
@@ -269,7 +281,9 @@ export class IpcFrameReader {
     while ((newlineIdx = this.buffer.indexOf(0x0a)) !== -1) {
       const line = this.buffer.subarray(0, newlineIdx).toString("utf-8").trim();
       this.buffer = this.buffer.subarray(newlineIdx + 1);
-      if (!line) continue;
+      if (!line) {
+        continue;
+      }
       try {
         const envelope = JSON.parse(line) as IpcEnvelope;
         this.onMessage(envelope, undefined);

@@ -56,7 +56,9 @@ describe("SSE reconnect replay (B7.2)", () => {
       buildAssistantEvent({ type: "message_complete" }, conversationId),
       buildAssistantEvent({ type: "message_complete" }, conversationId),
     ];
-    for (const event of events) stampAndBuffer(event);
+    for (const event of events) {
+      stampAndBuffer(event);
+    }
 
     const ac = new AbortController();
     const { handleSubscribeAssistantEvents } =

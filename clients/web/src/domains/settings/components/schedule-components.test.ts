@@ -68,18 +68,16 @@ const {
   formatTimestamp,
   groupSchedules,
   pastOneTimeStatus,
+  summarizeRunsForUsage,
   SYSTEM_TASK_URL_IDS,
   systemTaskKindFromUrlId,
 } = await import("@/domains/settings/utils/schedule-formatters");
-const { RecentRunsCard } = await import(
-  "@/domains/settings/components/recent-runs-card"
-);
-const { CreateScheduleModal } = await import(
-  "@/domains/settings/components/create-schedule-modal"
-);
-const { SystemTaskRow, SystemTasksSection } = await import(
-  "@/domains/settings/components/system-tasks-section"
-);
+const { RecentRunsCard } =
+  await import("@/domains/settings/components/recent-runs-card");
+const { CreateScheduleModal } =
+  await import("@/domains/settings/components/create-schedule-modal");
+const { SystemTaskRow, SystemTasksSection } =
+  await import("@/domains/settings/components/system-tasks-section");
 
 afterEach(() => {
   cleanup();
@@ -438,6 +436,125 @@ describe("RecentRunsCard", () => {
     expect(document.body.textContent).toContain("local output");
     expect(document.body.textContent).not.toContain("Run details");
     expect(document.body.textContent).not.toContain("Back to runs");
+  });
+
+  test("skipped runs show the skip reason inline instead of duration and cost", () => {
+    render(
+      createElement(RecentRunsCard, {
+        runs: [
+          run({
+            id: "run-skipped",
+            conversationId: null,
+            status: "skipped",
+            startedAt: 1_761_792_000_000,
+            durationMs: null,
+            estimatedCostUsd: 0,
+            output: "Skipped — outside active hours",
+          }),
+        ],
+        isLoading: false,
+      }),
+    );
+
+    expect(document.body.textContent).toContain(
+      "Skipped — outside active hours",
+    );
+    expect(document.body.textContent).not.toContain("$0.00");
+    // The reason is already inline — no expandable details affordance, so
+    // the row renders non-interactive.
+    expect(document.querySelector('[role="button"]')).toBeNull();
+  });
+
+  test("missed runs without stored output fall back to a Missed label", () => {
+    render(
+      createElement(RecentRunsCard, {
+        runs: [
+          run({
+            id: "run-missed",
+            conversationId: null,
+            status: "missed",
+            startedAt: 1_761_792_000_000,
+            durationMs: null,
+            estimatedCostUsd: 0,
+            output: null,
+          }),
+        ],
+        isLoading: false,
+      }),
+    );
+
+    expect(document.body.textContent).toContain("Missed");
+    expect(document.body.textContent).not.toContain("$0.00");
+  });
+
+  test("empty page with more history keeps the Load more control reachable", () => {
+    const onLoadMore = mock(() => {});
+    render(
+      createElement(RecentRunsCard, {
+        // A page can filter down to nothing (bookkeeping-only rows from an
+        // older daemon) while real runs sit on older pages.
+        runs: [],
+        isLoading: false,
+        hasMore: true,
+        onLoadMore,
+      }),
+    );
+
+    expect(document.body.textContent).toContain("No runs yet.");
+    const loadMore = screen.getByRole("button", { name: "Load more" });
+    fireEvent.click(loadMore);
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("summarizeRunsForUsage", () => {
+  test("counts only executed runs, not skipped/missed/bookkeeping rows", () => {
+    const runs = [
+      run({
+        id: "r-ok",
+        status: "ok",
+        startedAt: 1_000,
+        estimatedCostUsd: 0.1,
+      }),
+      run({
+        id: "r-error",
+        status: "error",
+        startedAt: 1_100,
+        estimatedCostUsd: 0.05,
+      }),
+      run({
+        id: "r-skip",
+        status: "skipped",
+        startedAt: 1_200,
+        estimatedCostUsd: 0,
+      }),
+      run({
+        id: "r-miss",
+        status: "missed",
+        startedAt: 1_300,
+        estimatedCostUsd: 0,
+      }),
+      run({
+        id: "r-pending",
+        status: "pending",
+        startedAt: 1_400,
+        estimatedCostUsd: 0,
+      }),
+      run({
+        id: "r-superseded",
+        status: "superseded",
+        startedAt: 1_500,
+        estimatedCostUsd: 0,
+      }),
+    ];
+
+    const summary = summarizeRunsForUsage("system-heartbeat", runs, {
+      from: 0,
+      to: 2_000,
+    });
+
+    expect(summary.runCount).toBe(2);
+    expect(summary.totalEstimatedCostUsd).toBeCloseTo(0.15);
   });
 });
 

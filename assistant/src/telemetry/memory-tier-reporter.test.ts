@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { memoryTier } from "../config/memory-tier.js";
 import type { AssistantConfig } from "../config/schema.js";
 import type { ConsentState } from "../platform/consent-cache.js";
+import type { MemoryCorpusSize } from "./memory-corpus-size.js";
 import type { WatchdogEventRecord } from "./watchdog-events-store.js";
 
 // Mutable stubs flipped per test. bun's `mock.module` patches retroactively
@@ -14,6 +15,27 @@ let consent: ConsentState = true;
 let currentConfig: AssistantConfig = {} as AssistantConfig;
 let recorded: WatchdogEventRecord[] = [];
 
+// Stubbed so the assertions below stay exact-match: the real probe walks the
+// live workspace, whose contents differ per machine. `measureMemoryCorpusSize`
+// has its own tests against a temp tree.
+const ZERO_CORPUS: MemoryCorpusSize = {
+  concept_pages: 0,
+  concept_bytes: 0,
+  pkb_files: 0,
+  pkb_bytes: 0,
+  buffer_lines: 0,
+};
+let corpus: MemoryCorpusSize = ZERO_CORPUS;
+let corpusError: Error | null = null;
+
+mock.module("./memory-corpus-size.js", () => ({
+  measureMemoryCorpusSize: () => {
+    if (corpusError) {
+      throw corpusError;
+    }
+    return corpus;
+  },
+}));
 mock.module("../platform/consent-cache.js", () => ({
   getRawShareAnalytics: () => consent,
 }));
@@ -51,6 +73,8 @@ describe("memory-tier-reporter", () => {
     consent = true;
     currentConfig = {} as AssistantConfig;
     recorded = [];
+    corpus = ZERO_CORPUS;
+    corpusError = null;
     // Clear any interval/boot-retry timer a prior test's start left behind.
     stopMemoryTierReporter();
   });
@@ -69,7 +93,7 @@ describe("memory-tier-reporter", () => {
     expect(recorded).toHaveLength(1);
     expect(recorded[0]).toEqual({
       checkName: "memory_tier",
-      detail: { tier: memoryTier(config) },
+      detail: { tier: memoryTier(config), ...ZERO_CORPUS },
     });
     expect(recorded[0]?.detail?.tier).toBe("v2");
   });
@@ -78,6 +102,33 @@ describe("memory-tier-reporter", () => {
     currentConfig = makeConfig(true, true, true); // v3 live wins over v2
     recordMemoryTierOnce();
 
+    expect(recorded[0]?.detail).toEqual({ tier: "v3", ...ZERO_CORPUS });
+  });
+
+  test("carries the measured corpus size alongside the tier", () => {
+    currentConfig = makeConfig(true, true, true);
+    corpus = {
+      concept_pages: 42,
+      concept_bytes: 133_700,
+      pkb_files: 3,
+      pkb_bytes: 900,
+      buffer_lines: 7,
+    };
+
+    recordMemoryTierOnce();
+
+    expect(recorded[0]?.detail).toEqual({ tier: "v3", ...corpus });
+  });
+
+  test("a failed corpus probe still emits the tier heartbeat", () => {
+    // The fleet-mix dashboards read `detail.tier`; a sizing failure must
+    // degrade the payload, never drop the event and gap the series.
+    currentConfig = makeConfig(true, true, true);
+    corpusError = new Error("workspace unreadable");
+
+    recordMemoryTierOnce();
+
+    expect(recorded).toHaveLength(1);
     expect(recorded[0]?.detail).toEqual({ tier: "v3" });
   });
 
@@ -91,7 +142,7 @@ describe("memory-tier-reporter", () => {
     for (const event of recorded) {
       expect(event).toEqual({
         checkName: "memory_tier",
-        detail: { tier: "v1" },
+        detail: { tier: "v1", ...ZERO_CORPUS },
       });
     }
   });
@@ -115,6 +166,20 @@ describe("memory-tier-reporter", () => {
     recordMemoryTierOnce();
 
     expect(recorded).toHaveLength(1);
+  });
+
+  test("a confirmed opt-out skips the corpus probe entirely", () => {
+    // The event is dropped one layer down, so walking the workspace for it
+    // would be pure cost on an assistant that asked us not to collect. The
+    // throwing stub asserts the probe is never reached.
+    consent = false;
+    currentConfig = makeConfig(true, true);
+    corpusError = new Error("probe must not run");
+
+    recordMemoryTierOnce();
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.detail).toEqual({ tier: "v2" });
   });
 
   test("startMemoryTierReporter is a no-op under VELLUM_DEV=1", () => {

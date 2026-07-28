@@ -9,10 +9,7 @@
  * @see useSendMessage — the orchestrator that composes this hook
  */
 
-import {
-  useCallback,
-  useMemo,
-} from "react";
+import { useCallback, useMemo } from "react";
 
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -47,8 +44,7 @@ function requestIdForQueuedMessage(messageId: string): string | undefined {
   }
   return snapshot?.messages.find(
     (message) =>
-      message.queueStatus === "queued" &&
-      messageMatchesKey(message, messageId),
+      message.queueStatus === "queued" && messageMatchesKey(message, messageId),
   )?.id;
 }
 

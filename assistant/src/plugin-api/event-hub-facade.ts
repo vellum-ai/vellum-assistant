@@ -40,7 +40,7 @@
  * mid-fanout (the hub delivers one object to every subscriber in turn).
  */
 
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../api/index.js";
 import {
   type AssistantEventFilter,
   type AssistantEventHub,
@@ -86,8 +86,12 @@ function wireSnapshot<T>(value: T): T {
  * client receives it.
  */
 function deepFreeze<T>(value: T, seen: WeakSet<object> = new WeakSet()): T {
-  if (value === null || typeof value !== "object") return value;
-  if (seen.has(value)) return value;
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (seen.has(value)) {
+    return value;
+  }
   seen.add(value);
   for (const key of Object.keys(value)) {
     deepFreeze((value as Record<string, unknown>)[key], seen);
@@ -162,6 +166,9 @@ export const pluginAssistantEventHub: PluginEventHub = Object.freeze({
         `Plugins may not publish daemon-to-client host-proxy control events (type "${blockedType}").`,
       );
     }
+    // `assistantEventHub.publish` forwards to the daemon when this is not the
+    // main process, so the guarded snapshot reaches real subscribers whether
+    // published here or from a sidecar worker.
     return assistantEventHub.publish(snapshot, snapshotOptions);
   },
 

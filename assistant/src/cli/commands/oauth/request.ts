@@ -125,7 +125,9 @@ export function registerRequestCommand(oauth: Command): void {
         const writeError = (error: string, hint?: string): void => {
           if (jsonMode) {
             const payload: Record<string, unknown> = { ok: false, error };
-            if (hint) payload.hint = hint;
+            if (hint) {
+              payload.hint = hint;
+            }
             writeOutput(cmd, payload);
           } else {
             process.stderr.write(error + "\n");
@@ -178,14 +180,27 @@ export function registerRequestCommand(oauth: Command): void {
             provider: opts.provider,
             url,
           };
-          if (opts.request) body.method = opts.request;
-          if (Object.keys(parsedHeaders).length > 0)
+          if (opts.request) {
+            body.method = opts.request;
+          }
+          if (Object.keys(parsedHeaders).length > 0) {
             body.headers = parsedHeaders;
-          if (parsedData !== undefined) body.parsed_data = parsedData;
-          if (opts.get) body.force_get = true;
-          if (opts.head) body.head = true;
-          if (opts.account) body.account = opts.account;
-          if (opts.clientId) body.client_id = opts.clientId;
+          }
+          if (parsedData !== undefined) {
+            body.parsed_data = parsedData;
+          }
+          if (opts.get) {
+            body.force_get = true;
+          }
+          if (opts.head) {
+            body.head = true;
+          }
+          if (opts.account) {
+            body.account = opts.account;
+          }
+          if (opts.clientId) {
+            body.client_id = opts.clientId;
+          }
 
           const r = await cliIpcCall<{
             ok: boolean;
@@ -197,7 +212,9 @@ export function registerRequestCommand(oauth: Command): void {
             accountWarning?: string;
           }>("oauth_request", { body });
 
-          if (!r.ok) return exitFromIpcResult(r);
+          if (!r.ok) {
+            return exitFromIpcResult(r);
+          }
 
           const result = r.result!;
 

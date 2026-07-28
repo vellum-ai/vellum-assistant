@@ -56,7 +56,8 @@ export function RuntimeUpgradeBanner({
   const [dismissedScope, setDismissedScope] = useState<string | null>(null);
   const assistantState = useAssistantLifecycleStore((s) => s.assistantState);
   const localHealth = useLocalAssistantHealth();
-  const fallbackAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const fallbackAssistantId =
+    useResolvedAssistantsStore.use.activeAssistantId();
   const fallbackCurrentVersion = useAssistantIdentityStore.use.version();
   const previewChannelEnabled = useClientFeatureFlagStore.use.previewChannel();
   const assistantId = assistantIdProp ?? fallbackAssistantId;
@@ -142,7 +143,9 @@ export function RuntimeUpgradeBanner({
   });
 
   useEffect(() => {
-    if (!shouldCheck) return;
+    if (!shouldCheck) {
+      return;
+    }
     const refetch = () => {
       void refetchReleases();
     };
@@ -152,7 +155,9 @@ export function RuntimeUpgradeBanner({
       subscribe("power.unlock", refetch),
     ];
     return () => {
-      for (const unsubscribe of unsubscribers) unsubscribe();
+      for (const unsubscribe of unsubscribers) {
+        unsubscribe();
+      }
     };
   }, [refetchReleases, shouldCheck]);
 
@@ -196,10 +201,13 @@ export function RuntimeUpgradeBanner({
     );
   }, [assistantId, targetVersion]);
 
-  const dismissed = dismissalScope !== null && dismissalScope === dismissedScope;
+  const dismissed =
+    dismissalScope !== null && dismissalScope === dismissedScope;
 
   const handleConfirmUpgrade = async () => {
-    if (!assistantId || !targetVersion || !mode) return;
+    if (!assistantId || !targetVersion || !mode) {
+      return;
+    }
     setShowConfirmation(false);
     try {
       if (mode === "platform") {
@@ -227,7 +235,9 @@ export function RuntimeUpgradeBanner({
   };
 
   const handleDismiss = () => {
-    if (!assistantId || !targetVersion) return;
+    if (!assistantId || !targetVersion) {
+      return;
+    }
     dismissRuntimeUpgrade(assistantId, targetVersion);
     setDismissedScope(`${assistantId}:${targetVersion}`);
   };
@@ -314,7 +324,9 @@ function usePlatformRuntimeUpgrade({
   });
 
   useEffect(() => {
-    if (!isPollingUpgrade || !shouldStopPolling) return;
+    if (!isPollingUpgrade || !shouldStopPolling) {
+      return;
+    }
     targetVersionRef.current = null;
     setIsPollingUpgrade(false);
   }, [isPollingUpgrade, shouldStopPolling]);

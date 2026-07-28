@@ -131,7 +131,9 @@ export function useOAuthConnect({
       platformAssistantId: string,
       baselineSignatures: ReadonlyMap<string, string>,
     ): Promise<boolean> => {
-      if (!managedAvailable) return false;
+      if (!managedAvailable) {
+        return false;
+      }
 
       for (let attempt = 0; attempt < 8; attempt += 1) {
         if (attempt > 0) {
@@ -274,7 +276,9 @@ export function useOAuthConnect({
   const startOAuth = useAssistantsOauthStartCreateMutation();
 
   const handleConnect = (requestedScopes: string[] = []) => {
-    if (!managedAvailable) return;
+    if (!managedAvailable) {
+      return;
+    }
 
     const requestId = crypto.randomUUID();
     setOAuthInProgress(true);
@@ -282,7 +286,8 @@ export function useOAuthConnect({
     const start = async (popup: Window | null) => {
       let platformAssistantId: string;
       try {
-        platformAssistantId = await resolveLocalAssistantPlatformIdentity(assistantId);
+        platformAssistantId =
+          await resolveLocalAssistantPlatformIdentity(assistantId);
       } catch (error) {
         closePopupWindow();
         clearPendingRequest();

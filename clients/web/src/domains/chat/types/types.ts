@@ -219,7 +219,9 @@ export const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
  * — are non-interactive and should never block the composer.
  */
 export function isSurfaceInteractive(surface: Surface): boolean {
-  if (surface.completed) {return false;}
+  if (surface.completed) {
+    return false;
+  }
   const hasActions =
     Array.isArray(surface.actions) && surface.actions.length > 0;
   return (

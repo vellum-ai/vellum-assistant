@@ -30,7 +30,9 @@ function makeEntry(
 ): WorkflowEntry {
   const { leaves, ...rest } = overrides;
   const leafMap = new Map<number, WorkflowLeaf>();
-  for (const leaf of leaves ?? []) leafMap.set(leaf.seq, leaf);
+  for (const leaf of leaves ?? []) {
+    leafMap.set(leaf.seq, leaf);
+  }
   return {
     runId: "wf-1",
     status: "running",
@@ -113,9 +115,15 @@ describe("computeWorkflowCardData — leaf mapping", () => {
       }),
     );
     const [a, b, c] = data.steps;
-    if (a?.kind === "tool") expect(a.status).toBe("running");
-    if (b?.kind === "tool") expect(b.status).toBe("error");
-    if (c?.kind === "tool") expect(c.status).toBe("completed");
+    if (a?.kind === "tool") {
+      expect(a.status).toBe("running");
+    }
+    if (b?.kind === "tool") {
+      expect(b.status).toBe("error");
+    }
+    if (c?.kind === "tool") {
+      expect(c.status).toBe("completed");
+    }
   });
 
   test("cancelled leaf maps to a non-running, non-error step status", () => {
@@ -329,7 +337,9 @@ describe("useWorkflowCardData — hydration wiring", () => {
     const realHydrate = useWorkflowStore.getState().hydrateRunIfNeeded;
     const spy = mock(async (_assistantId: string, _runId: string) => {});
     useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
-    useWorkflowStore.getState().startRun({ runId: "wf-present", timestamp: NOW });
+    useWorkflowStore
+      .getState()
+      .startRun({ runId: "wf-present", timestamp: NOW });
     useWorkflowStore.setState({ hydrateRunIfNeeded: spy });
 
     const { result } = renderHook(() => useWorkflowCardData("wf-present"));
@@ -426,7 +436,9 @@ describe("useWorkflowAgentAvatarSeeds", () => {
   });
 
   test("returns a referentially stable array across renders when the entry is unchanged", () => {
-    useWorkflowStore.getState().startRun({ runId: "wf-stable", timestamp: NOW });
+    useWorkflowStore
+      .getState()
+      .startRun({ runId: "wf-stable", timestamp: NOW });
     useWorkflowStore.getState().leafStarted({ runId: "wf-stable", seq: 0 });
 
     const { result, rerender } = renderHook(() =>

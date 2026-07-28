@@ -10,7 +10,7 @@
  *   3. `false`                                    (for undeclared keys)
  *
  * Key format:
- *   Canonical:  simple kebab-case string (e.g., "browser", "voice-mode")
+ *   Canonical:  simple kebab-case string (e.g., "browser", "contacts")
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -49,7 +49,9 @@ let cachedDefaults: FeatureFlagDefaultsRegistry | undefined;
 const REGISTRY_FILENAME = "feature-flag-registry.json";
 
 function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
-  if (cachedDefaults) return cachedDefaults;
+  if (cachedDefaults) {
+    return cachedDefaults;
+  }
 
   const thisDir = import.meta.dirname ?? __dirname;
   const candidates = [
@@ -92,22 +94,33 @@ function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
  * filtering to flags the backend consumes (`assistant`- and `both`-scope).
  */
 function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {};
+  }
 
   const registry = parsed as { version?: number; flags?: unknown[] };
-  if (!Array.isArray(registry.flags)) return {};
+  if (!Array.isArray(registry.flags)) {
+    return {};
+  }
 
   const result: FeatureFlagDefaultsRegistry = {};
   for (const flag of registry.flags) {
-    if (!flag || typeof flag !== "object" || Array.isArray(flag)) continue;
+    if (!flag || typeof flag !== "object" || Array.isArray(flag)) {
+      continue;
+    }
     const entry = flag as Record<string, unknown>;
-    if (entry.scope !== "assistant" && entry.scope !== "both") continue;
-    if (typeof entry.key !== "string") continue;
+    if (entry.scope !== "assistant" && entry.scope !== "both") {
+      continue;
+    }
+    if (typeof entry.key !== "string") {
+      continue;
+    }
     if (
       typeof entry.defaultEnabled !== "boolean" &&
       typeof entry.defaultEnabled !== "string"
-    )
+    ) {
       continue;
+    }
 
     result[entry.key as string] = {
       defaultEnabled: entry.defaultEnabled,
@@ -199,7 +212,9 @@ export async function initFeatureFlagOverrides(options?: {
    */
   callTimeoutMs?: number;
 }): Promise<boolean> {
-  if (isCachedFromGateway()) return true;
+  if (isCachedFromGateway()) {
+    return true;
+  }
 
   const backoffs = options?.retryBackoffsMs ?? DEFAULT_INIT_RETRY_BACKOFFS_MS;
   const callTimeoutMs = options?.callTimeoutMs;
@@ -215,7 +230,9 @@ export async function initFeatureFlagOverrides(options?: {
       // Re-check after the wait: a concurrent caller (e.g. a test using
       // `setOverridesForTesting`) may have populated the cache while we
       // were sleeping. Bail out so we don't clobber their setup.
-      if (isCachedFromGateway()) return true;
+      if (isCachedFromGateway()) {
+        return true;
+      }
     }
 
     const gatewayOverrides = await fetchOverridesFromGateway(callTimeoutMs);
@@ -306,9 +323,13 @@ export function getAssistantFeatureFlagValue(
   const overrides = loadOverrides();
 
   const explicit = overrides[key];
-  if (explicit !== undefined) return explicit;
+  if (explicit !== undefined) {
+    return explicit;
+  }
 
-  if (declared) return declared.defaultEnabled;
+  if (declared) {
+    return declared.defaultEnabled;
+  }
 
   return false;
 }

@@ -16,7 +16,10 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
 import { useConversationStore } from "@/stores/conversation-store";
 import { createSelectors } from "@/utils/create-selectors";
-import type { SubagentStatus, SubagentInnerEvent } from "@vellumai/assistant-api";
+import type {
+  SubagentStatus,
+  SubagentInnerEvent,
+} from "@vellumai/assistant-api";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import { isActiveStatus } from "@/utils/subagent-status";
 import { fetchSubagentDetail } from "./fetch-subagent-detail";
@@ -71,7 +74,15 @@ export interface SubagentEntry {
   totalCost: number;
   spawnedAt: number;
   events: SubagentTimelineEvent[];
-  /** The subagent's own conversation ID, used to fetch detail data. */
+  /**
+   * Conversation id passed to the detail fetch. History hydration and
+   * reconcile-on-load supply the subagent's OWN conversation id; the live
+   * `subagent_event` path stamps the PARENT's (the only id that event
+   * carries). The ambiguity is harmless on 0.11.0+ daemons (the detail
+   * route resolves the true conversation from manager state and treats
+   * this value as a fallback), and the stamping is version-gated so
+   * pre-0.11.0 daemons are never sent a parent id they'd trust verbatim.
+   */
   conversationId?: string;
   /** StableId of the parent assistant message that spawned this subagent. */
   parentMessageStableId?: string;
@@ -84,6 +95,19 @@ export interface SubagentEntry {
    * `byToolUseId`. Optional — older daemons omit it.
    */
   parentToolUseId?: string;
+  /**
+   * True on a stub entry created from mid-run evidence (a `subagent_event`
+   * or `subagent_status_changed` for an id with no entry — the
+   * `subagent_spawned` event was missed or the store was reset) whose
+   * authoritative detail fetch is still outstanding. While set,
+   * `receiveEvent` drops incoming timeline events instead of appending:
+   * they're already part of the daemon-side history the fetch returns, and
+   * appending them would make `loadDetail` discard that full history in
+   * favor of the partial live suffix. Cleared by `loadDetail`, and by
+   * `fetchDetailIfNeeded`'s failure path so the live stream degrades to
+   * append-only instead of dropping forever.
+   */
+  hydrationPending?: boolean;
 }
 
 export interface SubagentState {
@@ -160,6 +184,32 @@ export interface SubagentActions {
     totalCost?: number;
   }) => void;
 
+  /**
+   * Create a stub entry for a subagent the store never saw spawn — either
+   * from mid-run evidence (a `subagent_event` / `subagent_status_changed`
+   * whose id has no entry because the `subagent_spawned` event was missed
+   * or the store was reset after it arrived) or from the daemon's
+   * reconcile-on-load snapshot. No-op when the entry exists.
+   *
+   * When `conversationId` is provided the stub is marked
+   * `hydrationPending` and left with zero events, which makes the
+   * detail auto-fetch (`fetchDetailIfNeeded`) backfill the authoritative
+   * label/objective/status/timeline. Without one the stub renders from
+   * whatever streams in — a generic but functional card.
+   *
+   * `label` / `parentToolUseId` are supplied by the reconcile path (which
+   * gets them from the daemon in the same response); evidence-driven stubs
+   * omit them and rely on the detail backfill.
+   */
+  ensureEntry: (params: {
+    subagentId: string;
+    timestamp: number;
+    conversationId?: string;
+    status?: SubagentStatus;
+    label?: string;
+    parentToolUseId?: string;
+  }) => void;
+
   receiveEvent: (params: {
     subagentId: string;
     event: SubagentInnerEvent;
@@ -174,6 +224,14 @@ export interface SubagentActions {
     outputTokens?: number;
     totalCost?: number;
     events: SubagentTimelineEvent[];
+    /** Backfills a stub entry's placeholder label (0.11.0+ daemons). */
+    label?: string;
+    /**
+     * Backfills a stub entry's spawn anchor and registers it in
+     * `byToolUseId` (0.11.0+ daemons), restoring exact message anchoring
+     * for entries recovered without their `subagent_spawned` event.
+     */
+    parentToolUseId?: string;
   }) => void;
 
   setConversationId: (subagentId: string, conversationId: string) => void;
@@ -201,7 +259,10 @@ export interface SubagentActions {
    * Dedup state lives in the store so it survives component lifecycle.
    * Clears the marker on failure or empty events so callers can retry.
    */
-  fetchDetailIfNeeded: (assistantId: string, subagentId: string) => Promise<void>;
+  fetchDetailIfNeeded: (
+    assistantId: string,
+    subagentId: string,
+  ) => Promise<void>;
 
   /**
    * Best-effort abort of a running subagent. Reads `assistantId` and
@@ -231,7 +292,9 @@ const INITIAL_STATE: SubagentState = {
 /** Parent-id keys an entry contributes to in the `byParent` index. */
 function parentKeysForEntry(entry: SubagentEntry): string[] {
   const keys: string[] = [];
-  if (entry.parentMessageStableId) keys.push(entry.parentMessageStableId);
+  if (entry.parentMessageStableId) {
+    keys.push(entry.parentMessageStableId);
+  }
   if (
     entry.parentMessageId &&
     entry.parentMessageId !== entry.parentMessageStableId
@@ -253,7 +316,9 @@ function addEntryToByParent(
   entry: SubagentEntry,
 ): Map<string, SubagentEntry[]> {
   const keys = parentKeysForEntry(entry);
-  if (keys.length === 0) return byParent;
+  if (keys.length === 0) {
+    return byParent;
+  }
 
   const next = new Map(byParent);
   for (const key of keys) {
@@ -384,7 +449,9 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
 
   spawnSubagent: (params) => {
     const { byId, orderedIds } = get();
-    if (byId[params.subagentId]) return;
+    if (byId[params.subagentId]) {
+      return;
+    }
 
     const entry: SubagentEntry = {
       subagentId: params.subagentId,
@@ -421,10 +488,70 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     });
   },
 
+  ensureEntry: (params) => {
+    const existing = get().byId[params.subagentId];
+    if (existing) {
+      // Arm an existing placeholder stub (empty label — created by an
+      // earlier ensureEntry, e.g. from a conversationId-less
+      // `subagent_status_changed`) when a conversationId arrives. Without
+      // arming here, the first `subagent_event` would append immediately
+      // and the stub would fail the detail auto-fetch's zero-events guard
+      // forever, stranding the placeholder label. Real entries (label from
+      // `subagent_spawned` or reconcile), entries with events, and stubs
+      // already armed or backfilled are left alone — arming a healthy
+      // live-spawned entry would cost a needless fetch per spawn.
+      if (
+        params.conversationId &&
+        !existing.label &&
+        !existing.conversationId &&
+        !existing.hydrationPending &&
+        existing.events.length === 0
+      ) {
+        set({
+          byId: {
+            ...get().byId,
+            [params.subagentId]: {
+              ...existing,
+              conversationId: params.conversationId,
+              hydrationPending: true,
+            },
+          },
+        });
+      }
+      return;
+    }
+    get().spawnSubagent({
+      subagentId: params.subagentId,
+      // Reconcile-driven creation supplies real identity; evidence-driven
+      // stubs get a placeholder that the detail fetch backfills on
+      // 0.11.0+ daemons (see `loadDetail`).
+      label: params.label ?? "",
+      objective: "",
+      status: params.status ?? "running",
+      conversationId: params.conversationId,
+      timestamp: params.timestamp,
+      parentToolUseId: params.parentToolUseId,
+    });
+    if (params.conversationId) {
+      const { byId } = get();
+      const entry = byId[params.subagentId];
+      if (entry) {
+        set({
+          byId: {
+            ...byId,
+            [params.subagentId]: { ...entry, hydrationPending: true },
+          },
+        });
+      }
+    }
+  },
+
   changeStatus: (params) => {
     const { byId } = get();
     const existing = byId[params.subagentId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     set({
       byId: {
@@ -462,7 +589,25 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   receiveEvent: (params) => {
     const { byId } = get();
     const existing = byId[params.subagentId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
+
+    // A stub awaiting its detail backfill: the daemon-side history the
+    // in-flight fetch returns already contains this event, and appending it
+    // here would make `loadDetail` keep the partial live suffix over the
+    // full timeline (see the `hydrationPending` doc on `SubagentEntry`).
+    if (existing.hydrationPending) {
+      return;
+    }
+
+    // A stub awaiting its detail backfill: the daemon-side history the
+    // in-flight fetch returns already contains this event, and appending it
+    // here would make `loadDetail` keep the partial live suffix over the
+    // full timeline (see the `hydrationPending` doc on `SubagentEntry`).
+    if (existing.hydrationPending) {
+      return;
+    }
 
     const eventType = mapInnerEventType(params.event);
 
@@ -495,12 +640,16 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       }
       // Don't create a new text event for an empty delta — wait for a
       // non-empty one to start a fresh coalesced run.
-      if (!innerContent) return;
+      if (!innerContent) {
+        return;
+      }
     }
 
     // Skip message_complete — it carries no content and is only used
     // by macOS to attach a daemon message ID to the preceding text event.
-    if (params.event.type === "message_complete") return;
+    if (params.event.type === "message_complete") {
+      return;
+    }
 
     const timelineEvent: SubagentTimelineEvent = {
       id: generateTimelineEventId(),
@@ -520,7 +669,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       // the detail view needs, so capture both success and error results.
       result:
         params.event.type === "tool_result"
-          ? params.event.result ?? params.event.content ?? params.event.text
+          ? (params.event.result ?? params.event.content ?? params.event.text)
           : undefined,
       // The resolved web-search query — only present (and only needed) on a
       // web_search `tool_result`; `undefined` everywhere else.
@@ -541,13 +690,31 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   loadDetail: (params) => {
     const { byId } = get();
     const existing = byId[params.subagentId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
+
+    // Backfill the spawn anchor for a recovered stub and register it in the
+    // tool-use index so the inline card re-anchors to its exact spawn call.
+    const parentToolUseId = existing.parentToolUseId ?? params.parentToolUseId;
+    const nextByToolUseId =
+      parentToolUseId && !existing.parentToolUseId
+        ? setToolUseAnchor(
+            get().byToolUseId,
+            parentToolUseId,
+            params.subagentId,
+          )
+        : get().byToolUseId;
 
     set({
       byId: {
         ...byId,
         [params.subagentId]: {
           ...existing,
+          // A stub's placeholder label yields to the fetched one; a label
+          // learned from `subagent_spawned` wins (same source of truth).
+          label: existing.label || (params.label ?? ""),
+          parentToolUseId,
           status: params.status ?? existing.status,
           objective: params.objective ?? existing.objective,
           inputTokens: params.inputTokens ?? existing.inputTokens,
@@ -557,15 +724,21 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
             params.events.length > 0 && existing.events.length === 0
               ? params.events
               : existing.events,
+          // The authoritative snapshot has landed (or definitively has no
+          // events yet) — resume appending live stream events either way.
+          hydrationPending: false,
         },
       },
+      byToolUseId: nextByToolUseId,
     });
   },
 
   setConversationId: (subagentId, conversationId) => {
     const { byId } = get();
     const existing = byId[subagentId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     set({
       byId: {
@@ -576,7 +749,9 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   },
 
   reanchorToMessage: ({ stableId, messageId }) => {
-    if (stableId === messageId) return;
+    if (stableId === messageId) {
+      return;
+    }
 
     const { byId } = get();
     const updatedById = new Map<string, SubagentEntry>();
@@ -585,10 +760,15 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
         entry.parentMessageStableId === stableId &&
         entry.parentMessageId !== messageId
       ) {
-        updatedById.set(entry.subagentId, { ...entry, parentMessageId: messageId });
+        updatedById.set(entry.subagentId, {
+          ...entry,
+          parentMessageId: messageId,
+        });
       }
     }
-    if (updatedById.size === 0) return;
+    if (updatedById.size === 0) {
+      return;
+    }
 
     const nextById = { ...byId };
     for (const [subagentId, updated] of updatedById) {
@@ -608,9 +788,13 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
 
   updateUsage: (params) => {
     const { byId, terminalUsageIds } = get();
-    if (terminalUsageIds.has(params.subagentId)) return;
+    if (terminalUsageIds.has(params.subagentId)) {
+      return;
+    }
     const existing = byId[params.subagentId];
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
 
     set({
       byId: {
@@ -628,18 +812,28 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   fetchDetailIfNeeded: async (assistantId, subagentId) => {
     const { byId, fetchedAt } = get();
     const entry = byId[subagentId];
-    if (!entry?.conversationId) return;
-    if (entry.events.length > 0) return;
+    if (!entry?.conversationId) {
+      return;
+    }
+    if (entry.events.length > 0) {
+      return;
+    }
 
     const prev = fetchedAt.get(subagentId);
-    if (prev !== undefined && prev >= entry.spawnedAt) return;
+    if (prev !== undefined && prev >= entry.spawnedAt) {
+      return;
+    }
 
     // Mark as fetched before the await to prevent concurrent duplicates.
     const nextFetchedAt = new Map(fetchedAt);
     nextFetchedAt.set(subagentId, entry.spawnedAt);
     set({ fetchedAt: nextFetchedAt });
 
-    const detail = await fetchSubagentDetail(assistantId, subagentId, entry.conversationId);
+    const detail = await fetchSubagentDetail(
+      assistantId,
+      subagentId,
+      entry.conversationId,
+    );
 
     const clearMarker = () => {
       const next = new Map(get().fetchedAt);
@@ -649,6 +843,17 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
 
     if (!detail) {
       clearMarker();
+      // A stub whose backfill failed must not keep dropping live events —
+      // degrade to append-only so the card still accrues a timeline.
+      const entry = get().byId[subagentId];
+      if (entry?.hydrationPending) {
+        set({
+          byId: {
+            ...get().byId,
+            [subagentId]: { ...entry, hydrationPending: false },
+          },
+        });
+      }
       return;
     }
 
@@ -666,13 +871,18 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       outputTokens: detail.usage?.outputTokens,
       totalCost: detail.usage?.estimatedCost,
       events,
+      label: detail.label,
+      parentToolUseId: detail.parentToolUseId,
     });
   },
 
   abortSubagent: async (subagentId) => {
     const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-    const activeConversationId = useConversationStore.getState().activeConversationId;
-    if (!assistantId || !activeConversationId) return;
+    const activeConversationId =
+      useConversationStore.getState().activeConversationId;
+    if (!assistantId || !activeConversationId) {
+      return;
+    }
     try {
       await subagentsByIdAbortPost({
         path: { assistant_id: assistantId, id: subagentId },

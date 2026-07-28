@@ -1,4 +1,13 @@
-import { AlertTriangle, CheckCircle, Globe, Info, Loader2, Lock, Wrench, type LucideIcon } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle,
+  Globe,
+  Info,
+  Loader2,
+  Lock,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 
 import { Button, Card, Input } from "@vellumai/design-library";
@@ -39,11 +48,19 @@ export interface SecretPromptCardProps {
   onCancel: () => void;
 }
 
-function ContextChip({ icon: IconGlyph, children }: { icon: LucideIcon; children: ReactNode }) {
+function ContextChip({
+  icon: IconGlyph,
+  children,
+}: {
+  icon: LucideIcon;
+  children: ReactNode;
+}) {
   return (
     <div className="flex items-center gap-1.5 rounded-lg bg-[var(--surface-base)] px-2 py-1.5">
       <IconGlyph className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]" />
-      <span className="text-body-small-default text-[var(--content-tertiary)]">{children}</span>
+      <span className="text-body-small-default text-[var(--content-tertiary)]">
+        {children}
+      </span>
     </div>
   );
 }
@@ -92,14 +109,24 @@ export function SecretPromptCard({
       <div className="h-px w-full bg-[var(--border-base)]" />
 
       {/* Usage context */}
-      {!!(secret.purpose || secret.allowedTools?.length || secret.allowedDomains?.length) && (
+      {!!(
+        secret.purpose ||
+        secret.allowedTools?.length ||
+        secret.allowedDomains?.length
+      ) && (
         <div className="flex flex-col items-start gap-1">
-          {secret.purpose && <ContextChip icon={Info}>{secret.purpose}</ContextChip>}
+          {secret.purpose && (
+            <ContextChip icon={Info}>{secret.purpose}</ContextChip>
+          )}
           {secret.allowedTools?.length ? (
-            <ContextChip icon={Wrench}>Tools: {secret.allowedTools.join(", ")}</ContextChip>
+            <ContextChip icon={Wrench}>
+              Tools: {secret.allowedTools.join(", ")}
+            </ContextChip>
           ) : null}
           {secret.allowedDomains?.length ? (
-            <ContextChip icon={Globe}>Domains: {secret.allowedDomains.join(", ")}</ContextChip>
+            <ContextChip icon={Globe}>
+              Domains: {secret.allowedDomains.join(", ")}
+            </ContextChip>
           ) : null}
         </div>
       )}
@@ -122,8 +149,8 @@ export function SecretPromptCard({
             fullWidth
           />
           <p className="text-body-small-default text-[var(--content-disabled)]">
-            This information is stored securely on your device and not sent to any server. AI
-            never sees this value.
+            This information is stored securely on your device and not sent to
+            any server. AI never sees this value.
           </p>
         </div>
 
@@ -138,14 +165,22 @@ export function SecretPromptCard({
           <>
             {/* Buttons */}
             <div className="flex items-center justify-between">
-              <Button variant="danger" onClick={onCancel} disabled={isSubmitting}>
+              <Button
+                variant="danger"
+                onClick={onCancel}
+                disabled={isSubmitting}
+              >
                 Cancel
               </Button>
               <Button
                 type="submit"
                 variant="primary"
                 disabled={!canSubmit}
-                leftIcon={isSubmitting ? <Loader2 className="animate-spin" /> : undefined}
+                leftIcon={
+                  isSubmitting ? (
+                    <Loader2 className="animate-spin" />
+                  ) : undefined
+                }
               >
                 {isSubmitting ? "Saving..." : "Save"}
               </Button>

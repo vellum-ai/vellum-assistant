@@ -27,7 +27,10 @@ export function useTranscriptMessages(): DisplayMessage[] {
     // Dismissed surfaces are client state that hides server-sent surface rows;
     // apply it at read time (returns the same ref when nothing is dismissed,
     // so the steady-state union stays referentially stable).
-    const visibleHistory = filterDismissedSurfaces(messages, dismissedSurfaceIds);
+    const visibleHistory = filterDismissedSurfaces(
+      messages,
+      dismissedSurfaceIds,
+    );
     return selectTranscriptMessages(visibleHistory, optimisticSends);
     // Key on `snapshot.messages`, not the whole snapshot: the rolling-snapshot
     // reducer mints a new snapshot object on every stream event but reuses the

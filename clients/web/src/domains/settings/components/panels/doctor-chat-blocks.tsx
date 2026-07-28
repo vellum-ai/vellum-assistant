@@ -20,6 +20,8 @@ import { useEffect, useRef, useState } from "react";
 import { MarkdownMessage } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
+
 import type {
   ApprovalMeta,
   BackupPromptMeta,
@@ -44,9 +46,9 @@ export function MessageCopyButton({ text }: { text: string }) {
   }, []);
 
   const handleCopy = () => {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => {
+    copyToClipboard(text, {
+      errorMessage: "Couldn't copy the message.",
+      onCopied: () => {
         setCopied(true);
         if (timerRef.current) {
           clearTimeout(timerRef.current);
@@ -55,8 +57,8 @@ export function MessageCopyButton({ text }: { text: string }) {
           setCopied(false);
           timerRef.current = null;
         }, 1500);
-      })
-      .catch(() => {});
+      },
+    });
   };
 
   return (
@@ -103,8 +105,7 @@ export function ToolCallBlock({
       : "Completed 1 step";
 
   const canExpand =
-    !isRunning &&
-    (result !== undefined || Object.keys(input).length > 0);
+    !isRunning && (result !== undefined || Object.keys(input).length > 0);
 
   return (
     <div className="my-1 w-full">

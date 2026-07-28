@@ -27,10 +27,7 @@ describe("decideGraduationDispatches", () => {
   });
 
   test("removes from processing without adding attention when nothing pending", () => {
-    const actions = decideGraduationDispatches(
-      ["conv-1", "conv-2"],
-      new Set(),
-    );
+    const actions = decideGraduationDispatches(["conv-1", "conv-2"], new Set());
     expect(actions).toEqual([
       { type: "REMOVE_PROCESSING_KEY", key: "conv-1" },
       { type: "REMOVE_PROCESSING_KEY", key: "conv-2" },
@@ -38,10 +35,7 @@ describe("decideGraduationDispatches", () => {
   });
 
   test("adds attention before removing processing for pending keys", () => {
-    const actions = decideGraduationDispatches(
-      ["conv-1"],
-      new Set(["conv-1"]),
-    );
+    const actions = decideGraduationDispatches(["conv-1"], new Set(["conv-1"]));
     expect(actions).toEqual([
       { type: "ADD_ATTENTION_KEY", key: "conv-1" },
       { type: "REMOVE_PROCESSING_KEY", key: "conv-1" },

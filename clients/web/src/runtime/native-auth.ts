@@ -7,12 +7,16 @@ import {
 } from "@/domains/account/social-auth";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
 import { getSession } from "@/lib/auth/allauth-client";
+import { resolveSignupCheckoutDestination } from "@/lib/billing/post-auth-checkout";
 import { isPlatformLocal, startLoopbackAuth } from "@/lib/auth/loopback-auth";
 import { isLocalMode } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { primeElectronSessionToken } from "@/runtime/session-token";
-import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric";
+import {
+  isBiometricEnabled,
+  storeBiometricToken,
+} from "@/runtime/native-biometric";
 import { routes } from "@/utils/routes";
 
 /**
@@ -102,6 +106,13 @@ export async function startNativeLogin(options?: {
   loginHint?: string;
   intent?: string;
 }): Promise<void> {
+  // Every native auth entry routes through the shared stale-stash cleanup. The
+  // direct login form (`login-page.tsx`) calls this without going through
+  // `resolveNativePostAuthDestination`, so without this a stash abandoned by a
+  // prior native checkout-signup could leak into a later login and wrongly
+  // resume checkout from privacy.
+  clearStaleNativeCheckoutStash(options?.intent, options?.returnTo);
+
   const baseURL = options?.baseURL ?? deriveAuthBaseURL();
   const { sessionToken } = await NativeAuth.startAuth({
     baseURL,
@@ -197,7 +208,8 @@ export function installSessionCookies(sessionToken: string): void {
   // `max-age` makes the cookie persistent. If unspecified, the cookie
   // expires at the end of the session, and users will be required to
   // login again.
-  const cookieAttrs = "path=/; domain=.vellum.ai; secure; samesite=lax; max-age=1209600";
+  const cookieAttrs =
+    "path=/; domain=.vellum.ai; secure; samesite=lax; max-age=1209600";
   document.cookie = `sessionid=${sessionToken}; ${cookieAttrs}`;
   document.cookie = `__Secure-sessionid=${sessionToken}; ${cookieAttrs}`;
 }
@@ -207,16 +219,71 @@ export function installSessionCookies(sessionToken: string): void {
  * Checks `__Secure-sessionid` (prod) then `sessionid` (dev).
  */
 export function getSessionTokenFromCookies(): string | null {
-  if (typeof document === "undefined") return null;
+  if (typeof document === "undefined") {
+    return null;
+  }
   const cookies = document.cookie.split("; ");
   for (const name of ["__Secure-sessionid", "sessionid"]) {
     const entry = cookies.find((c) => c.startsWith(`${name}=`));
     if (entry) {
       const value = entry.slice(name.length + 1);
-      if (value) return value;
+      if (value) {
+        return value;
+      }
     }
   }
   return null;
+}
+
+/**
+ * Post-auth destination for the native (Capacitor/Electron) flows. Delegates
+ * the signup checkout-stash + destination decision to the shared
+ * `resolveSignupCheckoutDestination`, which both this path and the web
+ * `resolvePostAuth` path use: a signup routes through consent (privacy) first,
+ * stashing any pricing-CTA checkout package so the consent screen resumes
+ * checkout afterward, and any non-checkout auth discards a stale stash. A login
+ * keeps its `returnTo` (the callers below sanitize and apply the fallback).
+ */
+export function resolveNativePostAuthDestination(
+  intent: string | undefined,
+  returnTo: string | null | undefined,
+): string | null {
+  const isSignup = intent === "signup";
+  const destination = resolveSignupCheckoutDestination({
+    intent: isSignup ? "signup" : "login",
+    returnTo: returnTo ?? "",
+  });
+  // A signup takes the shared destination (privacy, resuming checkout after
+  // consent). A login keeps its raw `returnTo` — the callers below sanitize
+  // and apply the fallback — while still discarding a stale stash via the
+  // shared resolver.
+  return isSignup ? destination : (returnTo ?? null);
+}
+
+/**
+ * Discard a checkout stash abandoned by a prior native checkout-signup so it
+ * can't leak into a later native auth. Runs on every native auth entry (via
+ * `startNativeLogin`), including the direct login form that skips
+ * `resolveNativePostAuthDestination`.
+ *
+ * A signup owns its stash through `resolveSignupCheckoutDestination` — already
+ * run before we reach here, and its `returnTo` is the transformed privacy
+ * destination rather than the original checkout link — so we skip it to avoid
+ * wiping the package it just stashed. Otherwise the shared resolver clears a
+ * stale stash for a non-checkout destination and leaves an existing stash in
+ * place when the destination IS a checkout deep link (a legitimate resume).
+ */
+export function clearStaleNativeCheckoutStash(
+  intent: string | undefined,
+  returnTo: string | null | undefined,
+): void {
+  if (intent === "signup") {
+    return;
+  }
+  resolveSignupCheckoutDestination({
+    intent: "login",
+    returnTo: returnTo ?? "",
+  });
 }
 
 /**
@@ -242,10 +309,10 @@ export async function startAuthFlow(
   if (isNativePlatform()) {
     try {
       await startNativeLogin({
-        returnTo:
-          options.intent === "signup"
-            ? routes.onboarding.privacy
-            : options.returnTo ?? null,
+        returnTo: resolveNativePostAuthDestination(
+          options.intent,
+          options.returnTo,
+        ),
         loginHint: options.loginHint,
         intent: options.intent,
       });
@@ -255,7 +322,9 @@ export async function startAuthFlow(
       // the second arg (as an own property, not in `message`). Match the
       // code exactly rather than substring-matching the message.
       const errorCode = (err as { code?: unknown } | null | undefined)?.code;
-      if (errorCode === "USER_CANCELLED") return;
+      if (errorCode === "USER_CANCELLED") {
+        return;
+      }
       throw err;
     }
     return;
@@ -277,9 +346,7 @@ export async function startAuthFlow(
         primeElectronSessionToken(result.sessionToken);
         await setMenuPlatformSession(true);
         const destination = sanitizeReturnTo(
-          options.intent === "signup"
-            ? routes.onboarding.privacy
-            : options.returnTo ?? null,
+          resolveNativePostAuthDestination(options.intent, options.returnTo),
           DEFAULT_POST_AUTH_DESTINATION,
         );
         window.location.href = destination;

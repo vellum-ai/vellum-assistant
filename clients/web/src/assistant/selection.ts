@@ -42,15 +42,21 @@ export function resolveSelectedAssistantId(
 
   if (selectedAssistantId !== null) {
     const known = assistants.some((a) => a.id === selectedAssistantId);
-    if (isValid(selectedAssistantId)) return selectedAssistantId;
+    if (isValid(selectedAssistantId)) {
+      return selectedAssistantId;
+    }
     // Unknown id: pass through only pre-hydration. Once the list is
     // authoritative, an id absent from it is a ghost — fall through.
-    if (!known && !assistantsHydrated) return selectedAssistantId;
+    if (!known && !assistantsHydrated) {
+      return selectedAssistantId;
+    }
   }
 
   // Lockfile active, then first valid — both validated.
   const active = getActiveAssistant()?.assistantId ?? null;
-  if (active !== null && isValid(active)) return active;
+  if (active !== null && isValid(active)) {
+    return active;
+  }
 
   return valid[0]?.id ?? null;
 }

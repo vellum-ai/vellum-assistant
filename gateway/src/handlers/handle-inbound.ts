@@ -295,6 +295,12 @@ export async function handleInbound(
           isStranger: event.actor.isStranger,
           isRestricted: event.actor.isRestricted,
           ...(event.actor.teamId ? { actorTeamId: event.actor.teamId } : {}),
+          // What the sender had open in Slack when they sent the message. The
+          // runtime renders it into the turn so deictic references ("summarize
+          // this") resolve; absent on every other channel.
+          ...(event.source.appContext
+            ? { appContext: event.source.appContext }
+            : {}),
           ...(transportHints.length > 0 ? { hints: transportHints } : {}),
           ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
           // Floor for the runtime admission stage. Exempt channels send no

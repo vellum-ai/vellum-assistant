@@ -99,6 +99,26 @@ export interface RenderedHistoryContent {
 }
 
 /**
+ * One entry from Slack's `app_context` — an object the sender had open in
+ * Slack when they sent the message. `value` is an id string for the channel /
+ * canvas / list entity types and an object for `slack#/types/message_context`,
+ * which points at a specific message. Mirrors `sourceMetadata.appContext` on
+ * the gateway inbound contract; the values arrive unvalidated, so every
+ * consumer shape-checks before use.
+ */
+export interface SlackAppContextEntity {
+  type: string;
+  value: string | { messageTs?: string; channelId?: string };
+  teamId?: string;
+  enterpriseId?: string;
+}
+
+/** The sender's active Slack context for a single inbound message. */
+export interface SlackAppContext {
+  entities: SlackAppContextEntity[];
+}
+
+/**
  * Slack-specific metadata extracted at the inbound HTTP boundary and threaded
  * through to user-message persistence so the row can be tagged with a
  * `slackMeta` envelope for the chronological renderer.
@@ -130,6 +150,15 @@ export interface SlackInboundMessageMetadata {
   timestampTimezoneLabel?: string;
   /** Compact timezone label appended to the rendered speaker name. */
   speakerTimezoneLabel?: string;
+  /**
+   * What the sender had open in Slack when they sent this message. Carried
+   * here so it lands on the stored ingress payload alongside the rest of
+   * `slackInbound`, letting the retry sweep render a replayed turn with the
+   * same context the live turn saw. Not projected into `slackMeta`: the
+   * context is baked into the message content at ingress, so the transcript
+   * renderer already has it.
+   */
+  appContext?: SlackAppContext;
 }
 
 /**

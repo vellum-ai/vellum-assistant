@@ -1,19 +1,14 @@
-import {
-    CircleCheck,
-    ExternalLink,
-    Info,
-} from "lucide-react";
+import { CircleCheck, ExternalLink, Info, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
-import {
-    assistantsListOptions,
-} from "@/generated/api/@tanstack/react-query.gen";
+import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { credentialsInspectPost } from "@/generated/daemon/sdk.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { usePlatformAssistantId } from "@/hooks/use-platform-assistant-id";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useEnvironmentStore } from "@/stores/environment-store";
@@ -22,14 +17,12 @@ import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { ByoServiceCard, ServiceCard } from "@/domains/settings/ai/shared-ui";
+import { SaveButton } from "@/components/service-form-controls";
 import {
-  ByoServiceCard,
-  ServiceCard,
-} from "@/domains/settings/ai/shared-ui";
-import {
-  SaveButton,
-} from "@/components/service-form-controls";
-import { LS_EMAIL_BYO_PROVIDER, LS_EMAIL_MODE } from "@/utils/local-settings-keys";
+  LS_EMAIL_BYO_PROVIDER,
+  LS_EMAIL_MODE,
+} from "@/utils/local-settings-keys";
 import type { EmailByoProvider } from "@/lib/provider-catalogs";
 import { EMAIL_BYO_PROVIDERS } from "@/lib/provider-catalogs";
 import { parseServiceMode } from "@/domains/settings/ai/utils";
@@ -51,13 +44,33 @@ export function EmailServiceCard() {
   const platformGate = usePlatformGate();
 
   const [mode, setMode] = useState<ServiceMode>(() => {
-    if (platformGate === "gated") return "your-own";
-    return parseServiceMode(getLocalSetting(LS_EMAIL_MODE, "managed"), "managed");
+    if (platformGate === "gated") {
+      return "your-own";
+    }
+    return parseServiceMode(
+      getLocalSetting(LS_EMAIL_MODE, "managed"),
+      "managed",
+    );
   });
-  const [byoProviderId, setByoProviderId] = useState<EmailByoProvider["id"]>(() => {
-    const raw = getLocalSetting(LS_EMAIL_BYO_PROVIDER, "resend");
-    return raw === "mailgun" || raw === "resend" ? raw : "resend";
-  });
+  const [byoProviderId, setByoProviderId] = useState<EmailByoProvider["id"]>(
+    () => {
+      const raw = getLocalSetting(LS_EMAIL_BYO_PROVIDER, "resend");
+      return raw === "mailgun" || raw === "resend" ? raw : "resend";
+    },
+  );
+
+  // Managed email lives on the platform API, whose assistant routes key on
+  // the platform UUID — the local-mode lockfile id is a slug that no
+  // platform route matches. Resolve the platform id before rendering the
+  // managed form; on resolution failure fall back to the raw id so the
+  // platform can still answer with a real per-request error.
+  const { platformAssistantId, error: platformAssistantIdError } =
+    usePlatformAssistantId(
+      assistantId,
+      platformGate === "full" && mode === "managed",
+    );
+  const managedAssistantId =
+    platformAssistantId ?? (platformAssistantIdError ? assistantId : null);
 
   // -- BYO credential check (your-own mode) ----------------------------------
   const byoCredentialQuery = useQuery({
@@ -77,8 +90,13 @@ export function EmailServiceCard() {
   });
 
   useEffect(() => {
-    if (!byoCredentialQuery.error) return;
-    captureError(byoCredentialQuery.error, { context: "byo_email_credential_check", bestEffort: true });
+    if (!byoCredentialQuery.error) {
+      return;
+    }
+    captureError(byoCredentialQuery.error, {
+      context: "byo_email_credential_check",
+      bestEffort: true,
+    });
   }, [byoCredentialQuery.error]);
 
   const byoConfigured = byoCredentialQuery.data?.hasSecret === true;
@@ -107,13 +125,13 @@ export function EmailServiceCard() {
       <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
       <div className="flex flex-col gap-1">
         <span>
-          Configure {selectedByoProvider.displayName} via the assistant
-          CLI: ask the assistant to run the{" "}
+          Configure {selectedByoProvider.displayName} via the assistant CLI: ask
+          the assistant to run the{" "}
           <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]">
             {selectedByoProvider.setupSkill}
           </code>{" "}
-          skill. It walks you through storing the API key, detecting the
-          domain, and (optionally) wiring up an inbound webhook.
+          skill. It walks you through storing the API key, detecting the domain,
+          and (optionally) wiring up an inbound webhook.
         </span>
         <a
           href={selectedByoProvider.docsUrl}
@@ -137,7 +155,9 @@ export function EmailServiceCard() {
         <Dropdown
           value={byoProviderId}
           onChange={(val) => {
-            if (val === "mailgun" || val === "resend") setByoProviderId(val);
+            if (val === "mailgun" || val === "resend") {
+              setByoProviderId(val);
+            }
           }}
           options={EMAIL_BYO_PROVIDERS.map((p) => ({
             value: p.id,
@@ -151,8 +171,8 @@ export function EmailServiceCard() {
           <div className="flex items-center gap-2 rounded-lg border border-[var(--system-positive-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-default)]">
             <CircleCheck className="h-4 w-4 shrink-0 text-[var(--system-positive-strong)]" />
             <span>
-              {selectedByoProvider.displayName} API key configured.
-              To reconfigure, run the{" "}
+              {selectedByoProvider.displayName} API key configured. To
+              reconfigure, run the{" "}
               <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]">
                 {selectedByoProvider.setupSkill}
               </code>{" "}
@@ -169,7 +189,9 @@ export function EmailServiceCard() {
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>
-      ) : byoSetupInstructions}
+      ) : (
+        byoSetupInstructions
+      )}
 
       <div className="flex items-center gap-2">
         <SaveButton onClick={handleSaveMode} disabled={false} />
@@ -203,15 +225,22 @@ export function EmailServiceCard() {
             <PlatformLoginNotice>
               Log in to the Vellum platform to manage email settings.
             </PlatformLoginNotice>
+          ) : managedAssistantId === null ? (
+            <div className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)]">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Connecting to the Vellum platform…
+            </div>
           ) : (
             <EmailManagedContent
-              assistantId={assistantId}
+              assistantId={managedAssistantId}
               assistantHandle={assistantHandle}
               emailRootDomain={emailRootDomain}
             />
           )}
         </div>
-      ) : yourOwnContent}
+      ) : (
+        yourOwnContent
+      )}
     </ServiceCard>
   );
 }

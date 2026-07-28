@@ -13,19 +13,45 @@
  * by the type checker.
  */
 
-import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
+import { z } from "zod";
+
+import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
 import { loadConfig } from "../../config/loader.js";
 import { callerOwnsWorkflowRun } from "../../workflows/capabilities.js";
 import type { WorkflowRun } from "../../workflows/journal-store.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+/**
+ * Model-input schema, `safeParse`d at the top of
+ * {@link executeManageWorkflows}. Same in-tool pattern and TOOLS.json drift
+ * guard as the other bundled-skill tools — see the schema block in
+ * `tools/document/document-tool.ts` for the framework.
+ *
+ * `action` is deliberately UNDECLARED (loose passthrough): the switch's
+ * default case owns the unknown-action error, and `executor.ts` reads
+ * `input.action` / `input.run_id` pre-execution for the requireFreshApproval
+ * promotion (those reads are already defensive and see the raw input either
+ * way).
+ */
+export const manageWorkflowsInputSchema = z.looseObject({
+  run_id: nullAsOmitted(z.string()),
+});
 
 export async function executeManageWorkflows(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const parsedInput = manageWorkflowsInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("manage_workflows", parsedInput.error);
+  }
   const action = input.action as string | undefined;
-  const runId = input.run_id as string | undefined;
+  const runId = parsedInput.data.run_id;
   const manager = getWorkflowRunManager();
 
   // Authorization scope ({@link callerOwnsWorkflowRun}, shared with the
@@ -104,7 +130,9 @@ export async function executeManageWorkflows(
       // Only signal a run the caller owns. A non-owned (or absent) run is a
       // no-op with the same response shape, so existence is never revealed.
       const run = manager.status(runId);
-      if (run && ownsRun(run)) manager.abort(runId);
+      if (run && ownsRun(run)) {
+        manager.abort(runId);
+      }
       return {
         content: JSON.stringify({
           runId,
@@ -164,7 +192,10 @@ export async function executeManageWorkflows(
       // workspace-wide active profile. Read-only — leaves use this to pick a
       // valid `profile` for `run_workflow` (an unknown profile throws).
       const { llm } = loadConfig();
-      const profiles = getEffectiveProfiles(llm?.profiles);
+      const profiles = getEffectiveProfilesForProvider(
+        llm?.profiles,
+        llm?.defaultProvider ?? null,
+      );
       return {
         content: JSON.stringify({
           profiles: Object.keys(profiles).sort(),

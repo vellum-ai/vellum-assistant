@@ -3,13 +3,13 @@ import { useCallback, useState } from "react";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
-    assistantsMaintenanceModeEnterCreate,
-    assistantsMaintenanceModeExitCreate,
+  assistantsMaintenanceModeEnterCreate,
+  assistantsMaintenanceModeExitCreate,
 } from "@/generated/api/sdk.gen";
 import type { MaintenanceMode } from "@/generated/api/types.gen";
 import {
-    useActiveAssistantLifecycleIsLoading,
-    usePlatformGate,
+  useActiveAssistantLifecycleIsLoading,
+  usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { Button } from "@vellumai/design-library/components/button";
@@ -95,7 +95,9 @@ export function RecoveryModeControls({
   // Early return must follow every hook above so that gate transitions
   // (e.g. lifecycle flipping to `self_hosted` after the API resolves)
   // never skip a hook and trigger a hook-order violation.
-  if (platformGate === "gated") return null;
+  if (platformGate === "gated") {
+    return null;
+  }
 
   const isActive = maintenanceMode?.enabled === true;
   // Treat the lifecycle-loading window as effective loading: the existing
@@ -146,7 +148,8 @@ export function RecoveryModeControls({
 
       {platformGate === "disabled" && (
         <PlatformLoginNotice>
-          Log in to the Vellum platform to {isActive ? "exit" : "enter"} Recovery Mode.
+          Log in to the Vellum platform to {isActive ? "exit" : "enter"}{" "}
+          Recovery Mode.
         </PlatformLoginNotice>
       )}
       {error && <Notice tone="error">{error}</Notice>}

@@ -12,17 +12,18 @@
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import {
-  type MutableRefObject,
-  useCallback,
-  useRef,
-} from "react";
+import { type MutableRefObject, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
 import { routes } from "@/utils/routes";
 import { conversationsByIdSlashPost } from "@/generated/daemon/sdk.gen";
-import { isLocalMetaCommand } from "@/domains/chat/components/chat-composer/slash-command-catalog";
+import {
+  isLocalMetaCommand,
+  parseDoctorCommand,
+} from "@/domains/chat/components/chat-composer/slash-command-catalog";
+import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { saveContextWindowUsage } from "@/domains/chat/utils/context-window-storage";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
@@ -33,7 +34,10 @@ import type {
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
-import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
+import {
+  type DiskPressureChatBlockReason,
+  getDiskPressureChatBlockMessage,
+} from "@/assistant/disk-pressure";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -50,7 +54,10 @@ import {
   shouldSurfaceConversationOnUserSend,
   surfaceConversationInCaches,
 } from "@/utils/conversation-cache-mutations";
-import { findConversation, patchConversation } from "@/utils/conversation-cache";
+import {
+  findConversation,
+  patchConversation,
+} from "@/utils/conversation-cache";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import {
@@ -152,7 +159,6 @@ interface UseSendMessageParams {
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
   refreshConversations: () => Promise<void>;
-
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +178,10 @@ export function useSendMessage({
 }: UseSendMessageParams) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  // The Doctor is platform-hosted only; when the active assistant is
+  // self-hosted the Doctor tab doesn't exist, so `/doctor` must fall through
+  // to a normal send rather than navigating to a doomed, empty tab.
+  const doctorGate = usePlatformGate({ platformHostedOnly: true });
   const addOptimisticSend = useChatSessionStore.use.addOptimisticSend();
   const setOptimisticSends = useChatSessionStore.use.setOptimisticSends();
   const setError = useChatSessionStore.use.setError();
@@ -219,25 +229,26 @@ export function useSendMessage({
    * Persist dismissed surface IDs to both the in-memory ref and local
    * storage. Extracted so optimistic-send updaters stay pure.
    */
-  const persistDismissedSurfaces = useCallback(
-    (dismissedIds: Set<string>) => {
-      useChatSessionStore.getState().addDismissedSurfaceIds(dismissedIds);
-      const streamCtx = useStreamStore.getState().streamContext;
-      if (streamCtx) {
-        saveDismissedSurfaceIds(
-          streamCtx.assistantId,
-          streamCtx.conversationId,
-          useChatSessionStore.getState().dismissedSurfaceIds,
-        );
-      }
-    },
-    [],
-  );
+  const persistDismissedSurfaces = useCallback((dismissedIds: Set<string>) => {
+    useChatSessionStore.getState().addDismissedSurfaceIds(dismissedIds);
+    const streamCtx = useStreamStore.getState().streamContext;
+    if (streamCtx) {
+      saveDismissedSurfaceIds(
+        streamCtx.assistantId,
+        streamCtx.conversationId,
+        useChatSessionStore.getState().dismissedSurfaceIds,
+      );
+    }
+  }, []);
 
   const surfaceConversationAfterUserSend = useCallback(
     async (conversationId: string) => {
-      if (!assistantId) return;
-      if (surfacingConversationIdsRef.current.has(conversationId)) return;
+      if (!assistantId) {
+        return;
+      }
+      if (surfacingConversationIdsRef.current.has(conversationId)) {
+        return;
+      }
 
       let conversation = findConversation(
         queryClient,
@@ -252,16 +263,23 @@ export function useSendMessage({
             conversationId,
           );
         } catch (err) {
-          if (err instanceof ConversationNotFoundError) return;
+          if (err instanceof ConversationNotFoundError) {
+            return;
+          }
           throw err;
         }
       }
 
-      if (!shouldSurfaceConversationOnUserSend(conversation)) return;
+      if (!shouldSurfaceConversationOnUserSend(conversation)) {
+        return;
+      }
 
       surfacingConversationIdsRef.current.add(conversationId);
       try {
-        const surfacedAt = await surfaceConversation(assistantId, conversationId);
+        const surfacedAt = await surfaceConversation(
+          assistantId,
+          conversationId,
+        );
         surfaceConversationInCaches(
           queryClient,
           assistantId,
@@ -279,7 +297,16 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string, isHidden = false, bypassSecretCheck = false): Promise<SendStreamResult> => {
+    async (
+      content: string,
+      epoch: number,
+      turnId: string,
+      attachmentIds: string[] = [],
+      isDraft = false,
+      clientMessageId?: string,
+      isHidden = false,
+      bypassSecretCheck = false,
+    ): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
         return {
           status: "failed",
@@ -290,8 +317,10 @@ export function useSendMessage({
       const requestConversationId = activeConversationId;
       const isCurrentSendScope = (resolvedConversationId?: string | null) =>
         isAsyncChatScopeCurrent({
-          currentAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
-          currentConversationId: useConversationStore.getState().activeConversationId,
+          currentAssistantId:
+            useResolvedAssistantsStore.getState().activeAssistantId,
+          currentConversationId:
+            useConversationStore.getState().activeConversationId,
           requestAssistantId,
           requestConversationId,
           resolvedConversationId,
@@ -369,8 +398,10 @@ export function useSendMessage({
           recordDiagnostic("send_error_ignored_inactive_conversation", {
             assistantId: requestAssistantId,
             conversationId: requestConversationId,
-            activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
-            activeConversationId: useConversationStore.getState().activeConversationId,
+            activeAssistantId:
+              useResolvedAssistantsStore.getState().activeAssistantId,
+            activeConversationId:
+              useConversationStore.getState().activeConversationId,
           });
           return { status: "ignored" };
         }
@@ -430,8 +461,10 @@ export function useSendMessage({
           assistantId: postResult.assistantId,
           conversationId: requestConversationId,
           resolvedConversationId: effectiveConversationId,
-          activeAssistantId: useResolvedAssistantsStore.getState().activeAssistantId,
-          activeConversationId: useConversationStore.getState().activeConversationId,
+          activeAssistantId:
+            useResolvedAssistantsStore.getState().activeAssistantId,
+          activeConversationId:
+            useConversationStore.getState().activeConversationId,
         });
         return {
           status: "ok",
@@ -577,6 +610,27 @@ export function useSendMessage({
       // always a fresh first message (conversation idle), so they never take the
       // queue path below.
       const isHidden = opts.hidden === true;
+      // `/doctor <message>` navigates to the Doctor panel rather than starting
+      // an assistant turn, parking the first message in a hand-off store so the
+      // panel can auto-start a session and send it. Handled before the
+      // conversation/disk-pressure guards below since it needs neither.
+      const doctorPrompt = parseDoctorCommand(content);
+      if (doctorPrompt !== null) {
+        // The Doctor is platform-hosted only. On a self-hosted assistant its
+        // tab doesn't exist, so the command is disabled: clear the input and
+        // surface a notice rather than sending "/doctor …" as a normal turn.
+        if (doctorGate === "gated") {
+          useComposerStore.getState().setInput("");
+          toast.info("The Doctor isn't available on this assistant.");
+          return;
+        }
+        if (doctorPrompt) {
+          useDoctorHandoffStore.getState().setPendingPrompt(doctorPrompt);
+        }
+        useComposerStore.getState().setInput("");
+        navigate(`${routes.settings.debug}?tab=doctor`);
+        return;
+      }
       // Explicit user override from the composer secret guard's "Send
       // anyway" confirmation — forwarded on this send's POST only.
       const bypassSecretCheck = opts.bypassSecretCheck === true;
@@ -590,15 +644,14 @@ export function useSendMessage({
       // the queue path. See `pendingDraftMintRef` declaration.
       if (pendingDraftMintRef.current === activeConversationId) {
         setError({
-          message: "Setting up your conversation. Please try again in a moment.",
+          message:
+            "Setting up your conversation. Please try again in a moment.",
         });
         return;
       }
       if (diskPressureChatBlockReason) {
         setError({
-          message: getDiskPressureChatBlockMessage(
-            diskPressureChatBlockReason,
-          ),
+          message: getDiskPressureChatBlockMessage(diskPressureChatBlockReason),
         });
         return;
       }
@@ -669,22 +722,39 @@ export function useSendMessage({
           content.trim().length > 0 ? [{ type: "text", text: content }] : [],
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),
-        ...(willQueue ? { queueStatus: "queued" as const, queuePosition: 0 } : {}),
+        ...(willQueue
+          ? { queueStatus: "queued" as const, queuePosition: 0 }
+          : {}),
       };
-      if (!isHidden) addOptimisticSend(userMessage);
+      if (!isHidden) {
+        addOptimisticSend(userMessage);
+      }
       void getSoundManager().play("message_sent");
 
       // Queue path: POST to assistant (it queues internally) but don't
       // disrupt the active turn.
       if (willQueue) {
-        useChatSessionStore.getState().pushPendingQueuedMessageId(userMessage.id);
+        // A hidden send renders no optimistic row and the daemon suppresses
+        // its queued ack, so there is nothing for the pending FIFO to bind.
+        // Tracking it would park a dead entry at the head that the next
+        // visible send's ack would bind to instead of its own row.
+        if (!isHidden) {
+          useChatSessionStore
+            .getState()
+            .pushPendingQueuedMessageId(userMessage.id);
+        }
         const attachmentIds = attachments.map((att) => att.id);
         try {
           const postResult = await postChatMessage(
             assistantId,
             activeConversationId,
             content,
-            { attachmentIds, clientMessageId, hidden: isHidden, bypassSecretCheck },
+            {
+              attachmentIds,
+              clientMessageId,
+              hidden: isHidden,
+              bypassSecretCheck,
+            },
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);
@@ -693,24 +763,30 @@ export function useSendMessage({
               postResult.error.detail,
               "Failed to queue message. Please try again.",
             );
-            setError({ message: detail, code: postResult.error.code ?? undefined });
+            setError({
+              message: detail,
+              code: postResult.error.code ?? undefined,
+            });
             return;
           }
-          void surfaceConversationAfterUserSend(postResult.conversationId).catch(
-            (err) => {
-              captureError(err, {
-                context: "surface_queued_conversation_after_send",
-              });
-            },
-          );
+          void surfaceConversationAfterUserSend(
+            postResult.conversationId,
+          ).catch((err) => {
+            captureError(err, {
+              context: "surface_queued_conversation_after_send",
+            });
+          });
           if (!postResult.queued) {
             // The daemon processed the message directly (turn finished
             // between the client-side isSending check and the POST
             // arriving). Clear the optimistic queue status and let the
             // existing SSE stream deliver the response.
-            const queueIds = useChatSessionStore.getState().pendingQueuedMessageIds;
+            const queueIds =
+              useChatSessionStore.getState().pendingQueuedMessageIds;
             const idx = queueIds.indexOf(userMessage.id);
-            if (idx !== -1) queueIds.splice(idx, 1);
+            if (idx !== -1) {
+              queueIds.splice(idx, 1);
+            }
             setOptimisticSends((prev) =>
               clearQueueStatus(prev, userMessage.id),
             );
@@ -744,9 +820,7 @@ export function useSendMessage({
                 messageId: userMessage.id,
                 setOptimisticSends,
                 onDeleted: () => {
-                  useChatSessionStore
-                    .getState()
-                    .popRequestIdMapping(requestId);
+                  useChatSessionStore.getState().popRequestIdMapping(requestId);
                   useTurnStore.getState().deleteQueuedMessage();
                 },
               });
@@ -778,7 +852,11 @@ export function useSendMessage({
       // Optimistically add a stub conversation to the sidebar for draft
       // conversations that don't exist on the server yet.
       if (!currentConv) {
-        prependConversation(queryClient, assistantId, { conversationId: activeConversationId, lastMessageAt: Date.now(), draft: true } as Conversation);
+        prependConversation(queryClient, assistantId, {
+          conversationId: activeConversationId,
+          lastMessageAt: Date.now(),
+          draft: true,
+        } as Conversation);
       }
 
       cancelReconciliation();
@@ -836,16 +914,36 @@ export function useSendMessage({
           const newConversationId = resolvedId;
           useConversationStore
             .getState()
-            .transferProcessingConversationId(activeConversationId, newConversationId);
-          resolveDraftKey(queryClient, assistantId, activeConversationId, newConversationId);
-          resolveEditChatDraftConversationId(activeConversationId, newConversationId);
+            .transferProcessingConversationId(
+              activeConversationId,
+              newConversationId,
+            );
+          resolveDraftKey(
+            queryClient,
+            assistantId,
+            activeConversationId,
+            newConversationId,
+          );
+          resolveEditChatDraftConversationId(
+            activeConversationId,
+            newConversationId,
+          );
 
           // Only update active view state if the user is still on this conversation.
-          if (useConversationStore.getState().activeConversationId === activeConversationId) {
+          if (
+            useConversationStore.getState().activeConversationId ===
+            activeConversationId
+          ) {
             useChatSessionStore.getState().markDraftResolution();
-            useChatSessionStore.setState({ previousConversationId: newConversationId });
-            useConversationStore.getState().setActiveConversationId(newConversationId);
-            void navigate(routes.conversation(newConversationId), { replace: true });
+            useChatSessionStore.setState({
+              previousConversationId: newConversationId,
+            });
+            useConversationStore
+              .getState()
+              .setActiveConversationId(newConversationId);
+            void navigate(routes.conversation(newConversationId), {
+              replace: true,
+            });
           }
         }
 
@@ -859,9 +957,13 @@ export function useSendMessage({
         // covers the single-conversation pairing; this catch-all clears
         // every key the send touched and fires `onStreamError` once.
         useTurnStore.getState().onStreamError();
-        const keysToClean = [activeConversationId, resolvedId].filter(Boolean) as string[];
+        const keysToClean = [activeConversationId, resolvedId].filter(
+          Boolean,
+        ) as string[];
         if (keysToClean.length > 0) {
-          useConversationStore.getState().removeMultipleProcessingConversationIds(keysToClean);
+          useConversationStore
+            .getState()
+            .removeMultipleProcessingConversationIds(keysToClean);
         }
         if (isDraft) {
           removeConversation(queryClient, assistantId, activeConversationId);
@@ -871,6 +973,8 @@ export function useSendMessage({
     [
       activeConversationId,
       assistantId,
+      doctorGate,
+      navigate,
       diskPressureChatBlockReason,
       uiContextRef,
       runLocalMetaCommand,
@@ -887,7 +991,9 @@ export function useSendMessage({
   // handleStopGenerating — cancel the active generation
   // -------------------------------------------------------------------------
   const handleStopGenerating = useCallback(async () => {
-    if (!assistantId || !activeConversationId) return;
+    if (!assistantId || !activeConversationId) {
+      return;
+    }
     useStreamStore.getState().bumpEpoch();
     patchConversation(queryClient, assistantId, activeConversationId, {
       isProcessing: false,

@@ -1,12 +1,11 @@
-
 import {
-    ArrowDownToLine,
-    ArrowLeft,
-    ArrowUpFromLine,
-    ChevronRight,
-    Users,
-    Workflow,
-    X,
+  ArrowDownToLine,
+  ArrowLeft,
+  ArrowUpFromLine,
+  ChevronRight,
+  Users,
+  Workflow,
+  X,
 } from "lucide-react";
 
 import { useCallback, useEffect, useState } from "react";
@@ -15,14 +14,14 @@ import { motion, useReducedMotion } from "motion/react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import {
-    AnimatedMetricCard,
-    formatNumber,
+  AnimatedMetricCard,
+  formatNumber,
 } from "@/domains/chat/components/metric-card";
 import { StopButton } from "@/domains/chat/components/stop-button";
 import { WorkflowLeafDetail } from "@/domains/chat/components/workflow-leaf-detail";
 import {
-    WorkflowLeafStatusBadge,
-    WorkflowStatusBadge,
+  WorkflowLeafStatusBadge,
+  WorkflowStatusBadge,
 } from "@/domains/chat/components/workflow-status-badge";
 import { WorkflowSubagentRow } from "@/domains/chat/components/workflow-subagent-row";
 import type { WorkflowEntry } from "@/domains/chat/workflow-store";

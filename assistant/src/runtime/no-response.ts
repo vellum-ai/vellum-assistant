@@ -46,7 +46,9 @@ const NO_RESPONSE_SENTINEL_FORMS = [
  */
 function isPotentialNoResponsePrefix(text: string): boolean {
   const lower = text.trim().toLowerCase();
-  if (lower.length === 0) return false;
+  if (lower.length === 0) {
+    return false;
+  }
   return NO_RESPONSE_SENTINEL_FORMS.some((sentinel) =>
     sentinel.startsWith(lower),
   );
@@ -60,8 +62,14 @@ function isPotentialNoResponsePrefix(text: string): boolean {
  */
 export function hasDeliverableAssistantText(text: string): boolean {
   const trimmed = text.trim();
-  if (trimmed.length === 0) return false;
-  if (NO_RESPONSE_ONLY_RE.test(trimmed)) return false;
-  if (isPotentialNoResponsePrefix(trimmed)) return false;
+  if (trimmed.length === 0) {
+    return false;
+  }
+  if (NO_RESPONSE_ONLY_RE.test(trimmed)) {
+    return false;
+  }
+  if (isPotentialNoResponsePrefix(trimmed)) {
+    return false;
+  }
   return stripNoResponseMarkers(trimmed).length > 0;
 }

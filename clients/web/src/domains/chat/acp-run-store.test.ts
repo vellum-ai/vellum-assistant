@@ -16,7 +16,11 @@ function getState() {
 
 const NOW = 1700000000000;
 
-function spawn(overrides: Partial<Parameters<ReturnType<typeof getState>["spawnRun"]>[0]> = {}) {
+function spawn(
+  overrides: Partial<
+    Parameters<ReturnType<typeof getState>["spawnRun"]>[0]
+  > = {},
+) {
   getState().spawnRun({
     acpSessionId: "acp-1",
     agent: "claude",
@@ -221,11 +225,21 @@ describe("receiveEvent", () => {
     const store = getState();
     store.receiveEvent({
       acpSessionId: "acp-1",
-      event: event({ seq: 1, updateType: "agent_thought_chunk", content: "think", messageId: "t-1" }),
+      event: event({
+        seq: 1,
+        updateType: "agent_thought_chunk",
+        content: "think",
+        messageId: "t-1",
+      }),
     });
     store.receiveEvent({
       acpSessionId: "acp-1",
-      event: event({ seq: 2, updateType: "agent_thought_chunk", content: "ing", messageId: "t-1" }),
+      event: event({
+        seq: 2,
+        updateType: "agent_thought_chunk",
+        content: "ing",
+        messageId: "t-1",
+      }),
     });
 
     const events = getState().byId["acp-1"]!.events;
@@ -259,7 +273,12 @@ describe("receiveEvent", () => {
     });
     store.receiveEvent({
       acpSessionId: "acp-1",
-      event: event({ seq: 2, updateType: "tool_call", toolCallId: "tc-1", toolTitle: "Read" }),
+      event: event({
+        seq: 2,
+        updateType: "tool_call",
+        toolCallId: "tc-1",
+        toolTitle: "Read",
+      }),
     });
 
     const events = getState().byId["acp-1"]!.events;
@@ -309,10 +328,16 @@ describe("appendLocalMarker", () => {
     spawn();
     const store = getState();
     // Catch the client up to seq N — the normal steer-time case.
-    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 5, content: "a" }) });
+    store.receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 5, content: "a" }),
+    });
     expect(getState().highWaterMark.get("acp-1")).toBe(5);
 
-    store.appendLocalMarker({ acpSessionId: "acp-1", content: "↻ Steering: go" });
+    store.appendLocalMarker({
+      acpSessionId: "acp-1",
+      content: "↻ Steering: go",
+    });
 
     const events = getState().byId["acp-1"]!.events;
     const marker = events[events.length - 1]!;
@@ -327,7 +352,9 @@ describe("appendLocalMarker", () => {
     const steps = computeAcpRunSteps(events);
     const lastStep = steps[steps.length - 1]!;
     expect(lastStep.kind).toBe("message");
-    expect(lastStep.kind === "message" && lastStep.content).toBe("↻ Steering: go");
+    expect(lastStep.kind === "message" && lastStep.content).toBe(
+      "↻ Steering: go",
+    );
   });
 
   it("does not coalesce into an adjacent real message — uses a unique messageId", () => {
@@ -338,7 +365,10 @@ describe("appendLocalMarker", () => {
       event: event({ seq: 1, content: "real", messageId: "m-1" }),
     });
 
-    store.appendLocalMarker({ acpSessionId: "acp-1", content: "↻ Steering: go" });
+    store.appendLocalMarker({
+      acpSessionId: "acp-1",
+      content: "↻ Steering: go",
+    });
 
     const events = getState().byId["acp-1"]!.events;
     expect(events).toHaveLength(2);
@@ -349,8 +379,14 @@ describe("appendLocalMarker", () => {
     spawn();
     const store = getState();
     // Client is caught up at seq N when the steer fires.
-    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 5, content: "a" }) });
-    store.appendLocalMarker({ acpSessionId: "acp-1", content: "↻ Steering: go" });
+    store.receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 5, content: "a" }),
+    });
+    store.appendLocalMarker({
+      acpSessionId: "acp-1",
+      content: "↻ Steering: go",
+    });
 
     // Simulate the SSE dedup gate (acp-handlers): drop seq <= hwm, else apply.
     const hwm = getState().highWaterMark.get("acp-1") ?? -1;
@@ -358,7 +394,11 @@ describe("appendLocalMarker", () => {
     expect(nextSeq).toBeGreaterThan(hwm);
     store.receiveEvent({
       acpSessionId: "acp-1",
-      event: event({ seq: nextSeq, content: "post-steer", messageId: "m-post" }),
+      event: event({
+        seq: nextSeq,
+        content: "post-steer",
+        messageId: "m-post",
+      }),
     });
 
     // The daemon's first real post-steer event survives.
@@ -382,7 +422,10 @@ describe("appendLocalMarker", () => {
     expect(markerId).toBe(events[events.length - 1]!.messageId!);
 
     expect(
-      getState().appendLocalMarker({ acpSessionId: "acp-missing", content: "x" }),
+      getState().appendLocalMarker({
+        acpSessionId: "acp-missing",
+        content: "x",
+      }),
     ).toBeNull();
   });
 });
@@ -423,7 +466,10 @@ describe("removeLocalMarker", () => {
     const before = getState().byId["acp-1"]!.events;
 
     getState().removeLocalMarker({ acpSessionId: "acp-1", markerId: "nope" });
-    getState().removeLocalMarker({ acpSessionId: "acp-missing", markerId: "x" });
+    getState().removeLocalMarker({
+      acpSessionId: "acp-missing",
+      markerId: "x",
+    });
 
     // Same array reference — no state churn when nothing matched.
     expect(getState().byId["acp-1"]!.events).toBe(before);
@@ -545,7 +591,10 @@ describe("restoreRunStatus", () => {
 describe("retireMissingRuns", () => {
   it("marks an active run cancelled with a daemon_restarted stop reason", () => {
     spawn();
-    getState().retireMissingRuns({ acpSessionIds: ["acp-1"], completedAt: NOW });
+    getState().retireMissingRuns({
+      acpSessionIds: ["acp-1"],
+      completedAt: NOW,
+    });
 
     const entry = getState().byId["acp-1"]!;
     expect(entry.status).toBe("cancelled");
@@ -696,11 +745,20 @@ describe("seedFromHistory", () => {
   it("does not clobber a live entry's events with a shorter snapshot", () => {
     spawn({ acpSessionId: "acp-1" });
     const store = getState();
-    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 1, content: "a" }) });
-    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 2, updateType: "tool_call" }) });
+    store.receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 1, content: "a" }),
+    });
+    store.receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 2, updateType: "tool_call" }),
+    });
 
     getState().seedFromHistory([
-      historyEntry({ acpSessionId: "acp-1", events: [event({ seq: 1, content: "stale" })] }),
+      historyEntry({
+        acpSessionId: "acp-1",
+        events: [event({ seq: 1, content: "stale" })],
+      }),
     ]);
 
     // Seq union keeps both live events; the live seq=1 wins over history's.
@@ -713,7 +771,10 @@ describe("seedFromHistory", () => {
       historyEntry({ acpSessionId: "acp-1", events: [event({ seq: 1 })] }),
     ]);
     getState().seedFromHistory([
-      historyEntry({ acpSessionId: "acp-1", events: [event({ seq: 1 }), event({ seq: 2 })] }),
+      historyEntry({
+        acpSessionId: "acp-1",
+        events: [event({ seq: 1 }), event({ seq: 2 })],
+      }),
     ]);
 
     expect(getState().byId["acp-1"]!.events.map((e) => e.seq)).toEqual([1, 2]);
@@ -724,15 +785,26 @@ describe("seedFromHistory", () => {
     const store = getState();
     // Live store received only the newest events (high seqs) before the HTTP
     // snapshot resolved.
-    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 9, content: "live-9" }) });
-    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 10, updateType: "tool_call", toolCallId: "live-10" }) });
+    store.receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 9, content: "live-9" }),
+    });
+    store.receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 10, updateType: "tool_call", toolCallId: "live-10" }),
+    });
     expect(getState().highWaterMark.get("acp-1")).toBe(10);
 
     // A stale-but-longer history snapshot: more events, but max seq 4 < 10.
     getState().seedFromHistory([
       historyEntry({
         acpSessionId: "acp-1",
-        events: [event({ seq: 1 }), event({ seq: 2 }), event({ seq: 3 }), event({ seq: 4 })],
+        events: [
+          event({ seq: 1 }),
+          event({ seq: 2 }),
+          event({ seq: 3 }),
+          event({ seq: 4 }),
+        ],
       }),
     ]);
 
@@ -748,9 +820,15 @@ describe("seedFromHistory", () => {
 
   it("appends events lacking a seq without deduping them", () => {
     spawn({ acpSessionId: "acp-1" });
-    getState().receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 5, content: "live" }) });
+    getState().receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 5, content: "live" }),
+    });
 
-    const seqless = { updateType: "tool_call", toolCallId: "no-seq" } as AcpRunRawEvent;
+    const seqless = {
+      updateType: "tool_call",
+      toolCallId: "no-seq",
+    } as AcpRunRawEvent;
     getState().seedFromHistory([
       historyEntry({
         acpSessionId: "acp-1",
@@ -760,7 +838,9 @@ describe("seedFromHistory", () => {
 
     const events = getState().byId["acp-1"]!.events;
     // seq 1 + seq 5, then both seqless events appended (not collapsed).
-    expect(events.filter((e) => typeof e.seq === "number").map((e) => e.seq)).toEqual([1, 5]);
+    expect(
+      events.filter((e) => typeof e.seq === "number").map((e) => e.seq),
+    ).toEqual([1, 5]);
     expect(events.filter((e) => e.toolCallId === "no-seq")).toHaveLength(2);
     // highWaterMark ignores seqless events.
     expect(getState().highWaterMark.get("acp-1")).toBe(5);
@@ -769,8 +849,14 @@ describe("seedFromHistory", () => {
   it("merges terminal status/usage onto a live entry while unioning events", () => {
     spawn({ acpSessionId: "acp-1" });
     const store = getState();
-    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 1, content: "a" }) });
-    store.receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 2, updateType: "tool_call" }) });
+    store.receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 1, content: "a" }),
+    });
+    store.receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 2, updateType: "tool_call" }),
+    });
     expect(getState().byId["acp-1"]!.status).toBe("running");
 
     // Equal-length terminal history snapshot must still fold in metadata.
@@ -871,7 +957,10 @@ describe("seedFromHistory", () => {
 describe("reset", () => {
   it("clears all state back to initial", () => {
     spawn({ parentToolUseId: "tool-1" });
-    getState().receiveEvent({ acpSessionId: "acp-1", event: event({ seq: 3 }) });
+    getState().receiveEvent({
+      acpSessionId: "acp-1",
+      event: event({ seq: 3 }),
+    });
 
     getState().reset();
 

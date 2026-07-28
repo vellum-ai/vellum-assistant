@@ -40,7 +40,9 @@ export function CustomPlanRow({
   currentSummary,
 }: CustomPlanRowProps) {
   return (
-    <div className={`flex w-full flex-col items-center gap-8 ${className ?? ""}`}>
+    <div
+      className={`flex w-full flex-col items-center gap-8 ${className ?? ""}`}
+    >
       <p className="text-center text-[20px] font-medium text-[var(--content-tertiary)]">
         Need something more tailored to your needs?
       </p>

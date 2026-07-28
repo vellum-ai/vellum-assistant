@@ -83,7 +83,9 @@ mock.module("node:fs", () => {
     },
     unwatchFile: (filePath: string) => {
       const idx = capturedFileWatches.findIndex((w) => w.filePath === filePath);
-      if (idx !== -1) capturedFileWatches.splice(idx, 1);
+      if (idx !== -1) {
+        capturedFileWatches.splice(idx, 1);
+      }
     },
   };
 });

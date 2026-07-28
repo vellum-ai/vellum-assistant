@@ -167,10 +167,7 @@ export const AllVariants: Story = {
         label="linear.createIssue"
         onClick={() => {}}
       />
-      <ToolStepPill
-        iconName="bolt"
-        label="Command failed with exit code 1"
-      />
+      <ToolStepPill iconName="bolt" label="Command failed with exit code 1" />
       <ToolStepPill
         iconName="sparkle"
         label="review-cycle (active)"

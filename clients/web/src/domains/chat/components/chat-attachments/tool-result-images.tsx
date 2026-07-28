@@ -189,7 +189,10 @@ const ToolResultImageThumb: FC<{
     );
   }
   return (
-    <ReferencedToolResultImage attachment={attachment} assistantId={assistantId} />
+    <ReferencedToolResultImage
+      attachment={attachment}
+      assistantId={assistantId}
+    />
   );
 };
 

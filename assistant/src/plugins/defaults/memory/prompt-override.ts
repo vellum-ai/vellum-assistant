@@ -58,7 +58,9 @@ export function resolveOverridePath(
   if (overridePath.startsWith("~/")) {
     return join(homedir(), overridePath.slice(2));
   }
-  if (isAbsolute(overridePath)) return overridePath;
+  if (isAbsolute(overridePath)) {
+    return overridePath;
+  }
   return join(workspaceDir, overridePath);
 }
 
@@ -90,7 +92,9 @@ export function loadPromptOverride(opts: {
   label: string;
 }): string | null {
   const { overridePath, workspaceDir, log, label } = opts;
-  if (overridePath == null) return null;
+  if (overridePath == null) {
+    return null;
+  }
 
   const resolvedPath = resolveOverridePath(overridePath, workspaceDir);
   let contents: string;

@@ -76,6 +76,40 @@ export const SourceMetadataSchema = z
     actorTeamId: z.string().optional(),
 
     /**
+     * Slack-specific: what the sender had open when they messaged the app,
+     * ordered by relevance. Slack attaches this to `message.im` once the app
+     * subscribes to `app_context_changed` (which requires `agent_view`), so a
+     * DM like "summarise this" can be resolved against the channel, thread, or
+     * canvas the sender was actually looking at.
+     *
+     * Entity values are Slack ids; the entity `type` is a Slack type URI such
+     * as `slack#/types/channel_id`. Absent when the sender had nothing open.
+     */
+    appContext: z
+      .object({
+        entities: z.array(
+          z.object({
+            type: z.string(),
+            /**
+             * An id string for channel / canvas / list entities; an object for
+             * `slack#/types/message_context`, which points at a specific
+             * message or thread.
+             */
+            value: z.union([
+              z.string(),
+              z.object({
+                messageTs: z.string().optional(),
+                channelId: z.string().optional(),
+              }),
+            ]),
+            teamId: z.string().optional(),
+            enterpriseId: z.string().optional(),
+          }),
+        ),
+      })
+      .optional(),
+
+    /**
      * Per-channel inbound admission policy attached by the gateway. The
      * runtime admission-policy stage enforces the floor against the
      * resolved trust class; when absent, the runtime falls back to

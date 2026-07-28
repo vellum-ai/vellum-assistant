@@ -166,7 +166,9 @@ export function fitAnisotropyCalibration(
     // Eigenvalue λ = ‖X v‖² / (n - 1).
     const Xv = matmulXv(data, n, dim, v);
     let xvSq = 0;
-    for (let i = 0; i < n; i++) xvSq += Xv[i] * Xv[i];
+    for (let i = 0; i < n; i++) {
+      xvSq += Xv[i] * Xv[i];
+    }
     components.push(v);
     componentVariance.push(xvSq / denom);
   }
@@ -206,7 +208,9 @@ export function applyAnisotropyCorrection(
   }
 
   const out = new Float64Array(calib.dim);
-  for (let j = 0; j < calib.dim; j++) out[j] = vec[j];
+  for (let j = 0; j < calib.dim; j++) {
+    out[j] = vec[j];
+  }
   l2NormalizeInPlace(out);
 
   for (let j = 0; j < calib.dim; j++) {
@@ -215,8 +219,12 @@ export function applyAnisotropyCorrection(
 
   for (const pc of calib.components) {
     let proj = 0;
-    for (let j = 0; j < calib.dim; j++) proj += out[j] * pc[j];
-    for (let j = 0; j < calib.dim; j++) out[j] -= proj * pc[j];
+    for (let j = 0; j < calib.dim; j++) {
+      proj += out[j] * pc[j];
+    }
+    for (let j = 0; j < calib.dim; j++) {
+      out[j] -= proj * pc[j];
+    }
   }
 
   l2NormalizeInPlace(out);
@@ -277,7 +285,9 @@ export async function applyCorrectionIfCalibrated(
   model: string,
 ): Promise<number[]> {
   const calib = await loadCalibration(provider, model, vec.length);
-  if (!calib) return vec;
+  if (!calib) {
+    return vec;
+  }
   return applyAnisotropyCorrection(vec, calib);
 }
 
@@ -293,7 +303,9 @@ export async function loadCalibration(
   dim: number,
 ): Promise<AnisotropyCalibration | null> {
   const key = calibrationKey(provider, model, dim);
-  if (cache.has(key)) return cache.get(key) ?? null;
+  if (cache.has(key)) {
+    return cache.get(key) ?? null;
+  }
 
   const path = calibrationPath(provider, model, dim);
   if (!existsSync(path)) {
@@ -373,14 +385,18 @@ function powerIteration(
       return v;
     }
     let dot = 0;
-    for (let j = 0; j < dim; j++) dot += v[j] * next[j];
+    for (let j = 0; j < dim; j++) {
+      dot += v[j] * next[j];
+    }
     // |dot| approaches 1 as power iteration converges (sign can flip across
     // iterations, so absolute value).
     if (Math.abs(Math.abs(dot) - Math.abs(prevDot)) < POWER_ITERATION_TOL) {
       return next;
     }
     prevDot = dot;
-    for (let j = 0; j < dim; j++) v[j] = next[j];
+    for (let j = 0; j < dim; j++) {
+      v[j] = next[j];
+    }
   }
   return v;
 }
@@ -396,7 +412,9 @@ function matmulXv(
   for (let i = 0; i < n; i++) {
     const base = i * dim;
     let acc = 0;
-    for (let j = 0; j < dim; j++) acc += data[base + j] * v[j];
+    for (let j = 0; j < dim; j++) {
+      acc += data[base + j] * v[j];
+    }
     out[i] = acc;
   }
   return out;
@@ -413,7 +431,9 @@ function matmulXTu(
   for (let i = 0; i < n; i++) {
     const base = i * dim;
     const ui = u[i];
-    for (let j = 0; j < dim; j++) out[j] += data[base + j] * ui;
+    for (let j = 0; j < dim; j++) {
+      out[j] += data[base + j] * ui;
+    }
   }
   return out;
 }
@@ -426,18 +446,28 @@ function deflateInPlace(
   for (const pc of deflate) {
     let proj = 0;
     const dim = v.length;
-    for (let j = 0; j < dim; j++) proj += v[j] * pc[j];
-    for (let j = 0; j < dim; j++) v[j] -= proj * pc[j];
+    for (let j = 0; j < dim; j++) {
+      proj += v[j] * pc[j];
+    }
+    for (let j = 0; j < dim; j++) {
+      v[j] -= proj * pc[j];
+    }
   }
 }
 
 /** L2-normalise `v` in place. Returns the original norm so callers can detect zero vectors. */
 function l2NormalizeInPlace(v: Float64Array): number {
   let norm = 0;
-  for (let j = 0; j < v.length; j++) norm += v[j] * v[j];
+  for (let j = 0; j < v.length; j++) {
+    norm += v[j] * v[j];
+  }
   norm = Math.sqrt(norm);
-  if (norm === 0) return 0;
+  if (norm === 0) {
+    return 0;
+  }
   const inv = 1 / norm;
-  for (let j = 0; j < v.length; j++) v[j] *= inv;
+  for (let j = 0; j < v.length; j++) {
+    v[j] *= inv;
+  }
   return norm;
 }

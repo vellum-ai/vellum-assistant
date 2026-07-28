@@ -61,7 +61,9 @@ function isPendingProviderKey(value: unknown): value is PendingProviderKey {
 export function peekPendingProviderKey(): PendingProviderKey | null {
   try {
     const raw = sessionStorage.getItem(PENDING_KEY_STORAGE);
-    if (!raw) return null;
+    if (!raw) {
+      return null;
+    }
     const parsed: unknown = JSON.parse(raw);
     return isPendingProviderKey(parsed) ? parsed : null;
   } catch {
@@ -111,15 +113,15 @@ async function createProviderConnection(
     ? { type: "api_key" as const, credential: `credential/${provider}/api_key` }
     : { type: "none" as const };
 
-  const baseUrl = isOpenAICompatible && options?.baseUrl
-    ? options.baseUrl
-    : undefined;
-  const models = isOpenAICompatible && options?.customModels
-    ? options.customModels
-        .split(",")
-        .map((id) => ({ id: id.trim() }))
-        .filter((m) => m.id)
-    : undefined;
+  const baseUrl =
+    isOpenAICompatible && options?.baseUrl ? options.baseUrl : undefined;
+  const models =
+    isOpenAICompatible && options?.customModels
+      ? options.customModels
+          .split(",")
+          .map((id) => ({ id: id.trim() }))
+          .filter((m) => m.id)
+      : undefined;
 
   const { response } = await inferenceProviderconnectionsPost({
     path: { assistant_id: assistantId },
@@ -210,7 +212,9 @@ export async function applyPendingProviderKey(
   assistantId: string,
 ): Promise<void> {
   const pending = consumePendingProviderKey();
-  if (!pending) return;
+  if (!pending) {
+    return;
+  }
   const trimmed = pending.key.trim();
   const hasKey = trimmed.length > 0;
   const isOpenAICompatible = pending.provider === "openai-compatible";
@@ -227,7 +231,9 @@ export async function applyPendingProviderKey(
     .map((s) => s.trim())
     .find((s) => s);
   const model =
-    selectedModel || firstCustomModel || defaultModelForOnboardingProvider(pending.provider);
+    selectedModel ||
+    firstCustomModel ||
+    defaultModelForOnboardingProvider(pending.provider);
   if (model) {
     await replaceOnboardingProfile(assistantId, pending.provider, model);
     await activateOnboardingProfile(assistantId);

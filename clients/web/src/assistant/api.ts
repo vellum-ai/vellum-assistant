@@ -339,9 +339,7 @@ interface DaemonSnapshot {
   encrypted: boolean;
 }
 
-function parseDaemonBackups(
-  data: unknown,
-): AssistantBackup[] {
+function parseDaemonBackups(data: unknown): AssistantBackup[] {
   const raw =
     data && typeof data === "object" && !Array.isArray(data)
       ? (data as Record<string, unknown>)
@@ -395,9 +393,7 @@ function parseDaemonBackups(
   return snapshots;
 }
 
-function parsePlatformBackups(
-  data: unknown,
-): AssistantBackup[] {
+function parsePlatformBackups(data: unknown): AssistantBackup[] {
   const raw =
     data && typeof data === "object" && !Array.isArray(data)
       ? (data as Record<string, unknown>)
@@ -468,7 +464,11 @@ export async function listAssistantBackups(
     }
   }
 
-  return { ok: true, status: daemonResult.response.status, data: daemonSnapshots };
+  return {
+    ok: true,
+    status: daemonResult.response.status,
+    data: daemonSnapshots,
+  };
 }
 
 export type CreateBackupResult =
@@ -585,8 +585,7 @@ export async function restartAssistant(
 }
 
 export type RetireResult =
-  | { ok: true }
-  | { ok: false; status: number; error: Record<string, unknown> };
+  { ok: true } | { ok: false; status: number; error: Record<string, unknown> };
 
 export async function retireAssistant(): Promise<RetireResult> {
   const { error, response } = await assistantsRetireDestroy({

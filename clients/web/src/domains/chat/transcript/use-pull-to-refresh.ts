@@ -22,7 +22,13 @@
 // so we compute pull extent as (currentY − startY). Positive extent
 // means the finger has traveled downward — i.e., the user is pulling.
 
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 
 import {
   PULL_ELIGIBLE_BOTTOM_DISTANCE_PX,
@@ -40,8 +46,12 @@ import { haptic } from "@/utils/haptics";
  *  we apply gentle damping so the spinner doesn't grow without bound
  *  if the user keeps dragging. */
 function visualPullHeight(dragDistance: number): number {
-  if (dragDistance <= 0) return 0;
-  if (dragDistance <= PULL_THRESHOLD_PX) return dragDistance;
+  if (dragDistance <= 0) {
+    return 0;
+  }
+  if (dragDistance <= PULL_THRESHOLD_PX) {
+    return dragDistance;
+  }
   return PULL_THRESHOLD_PX + (dragDistance - PULL_THRESHOLD_PX) * 0.4;
 }
 
@@ -91,9 +101,13 @@ export function usePullToRefresh({
       : "idle";
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      return;
+    }
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
 
     // The Transcript scroll container ships with `overscroll-none` as a
     // baseline class. We *also* set the inline style during an active pull
@@ -130,25 +144,33 @@ export function usePullToRefresh({
     const findPrimaryTouch = (event: TouchEvent, id: number): Touch | null => {
       for (let i = 0; i < event.touches.length; i += 1) {
         const t = event.touches[i];
-        if (t && t.identifier === id) return t;
+        if (t && t.identifier === id) {
+          return t;
+        }
       }
       return null;
     };
 
     const handleTouchStart = (event: TouchEvent) => {
-      if (!canStartPull({
-        isRefreshing: isRefreshingRef.current,
-        scrollTop: el.scrollTop,
-        scrollHeight: el.scrollHeight,
-        clientHeight: el.clientHeight,
-      })) {
+      if (
+        !canStartPull({
+          isRefreshing: isRefreshingRef.current,
+          scrollTop: el.scrollTop,
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight,
+        })
+      ) {
         return;
       }
       // Only single-finger interactions are pull candidates. Multi-touch
       // (pinch / two-finger drag) cancels the gesture.
-      if (event.touches.length !== 1) return;
+      if (event.touches.length !== 1) {
+        return;
+      }
       const touch = event.touches[0];
-      if (!touch) return;
+      if (!touch) {
+        return;
+      }
       dragRef.current = {
         primaryTouchId: touch.identifier,
         startY: touch.clientY,
@@ -159,15 +181,21 @@ export function usePullToRefresh({
 
     const handleTouchMove = (event: TouchEvent) => {
       const drag = dragRef.current;
-      if (!drag) return;
-      if (isRefreshingRef.current) return;
+      if (!drag) {
+        return;
+      }
+      if (isRefreshingRef.current) {
+        return;
+      }
       // Multi-touch cancels mid-drag.
       if (event.touches.length > 1) {
         resetVisuals();
         return;
       }
       const touch = findPrimaryTouch(event, drag.primaryTouchId);
-      if (!touch) return;
+      if (!touch) {
+        return;
+      }
       const pullExtent = computePullExtent({
         startY: drag.startY,
         currentY: touch.clientY,
@@ -219,8 +247,12 @@ export function usePullToRefresh({
 
     const handleTouchEnd = (event: TouchEvent) => {
       const drag = dragRef.current;
-      if (!drag) return;
-      if (isRefreshingRef.current) return;
+      if (!drag) {
+        return;
+      }
+      if (isRefreshingRef.current) {
+        return;
+      }
 
       let finalPullExtent = 0;
       for (let i = 0; i < event.changedTouches.length; i += 1) {
@@ -269,7 +301,9 @@ export function usePullToRefresh({
 
     const handleTouchCancel = () => {
       // Don't disturb in-flight refresh state.
-      if (isRefreshingRef.current) return;
+      if (isRefreshingRef.current) {
+        return;
+      }
       resetVisuals();
     };
 

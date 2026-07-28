@@ -4,7 +4,9 @@ export function messagesEqual(
   a: DisplayMessage[],
   b: DisplayMessage[],
 ): boolean {
-  if (a.length !== b.length) return false;
+  if (a.length !== b.length) {
+    return false;
+  }
   for (let i = 0; i < a.length; i++) {
     const am = a[i]!;
     const bm = b[i]!;
@@ -46,13 +48,16 @@ export function messagesEqual(
     ]);
     const amKeys = Object.keys(am).filter((k) => !knownKeys.has(k));
     const bmKeys = Object.keys(bm).filter((k) => !knownKeys.has(k));
-    if (amKeys.length !== bmKeys.length) return false;
+    if (amKeys.length !== bmKeys.length) {
+      return false;
+    }
     for (const key of new Set([...amKeys, ...bmKeys])) {
       if (
         JSON.stringify((am as unknown as Record<string, unknown>)[key]) !==
         JSON.stringify((bm as unknown as Record<string, unknown>)[key])
-      )
+      ) {
         return false;
+      }
     }
   }
   return true;
@@ -76,8 +81,12 @@ function concatOptionalArrays<T>(
   current: T[] | undefined,
   incoming: T[] | undefined,
 ): T[] | undefined {
-  if (!current || current.length === 0) return incoming;
-  if (!incoming || incoming.length === 0) return current;
+  if (!current || current.length === 0) {
+    return incoming;
+  }
+  if (!incoming || incoming.length === 0) {
+    return current;
+  }
   return [...current, ...incoming];
 }
 
@@ -113,7 +122,9 @@ function remapAdjacentContentOrder(
     thinking: number;
   },
 ): Array<{ type: string; id: string }> | undefined {
-  if (!entries || entries.length === 0) return entries;
+  if (!entries || entries.length === 0) {
+    return entries;
+  }
   if (
     offsets.text === 0 &&
     offsets.attachment === 0 &&
@@ -125,12 +136,16 @@ function remapAdjacentContentOrder(
   }
   return entries.map((entry) => {
     const offset = pickContentOrderOffset(entry.type, offsets);
-    if (offset === 0) return entry;
+    if (offset === 0) {
+      return entry;
+    }
     // Real ids (UUIDs, tool-use ids, surfaceIds, segment ids) resolve via
     // the renderer's id-keyed lookup — leave them alone. Only positional
     // numeric ids ("0", "1", "12") hit the parseInt fallback that needs
     // shifting after the survivor's array members claim 0..N-1.
-    if (!/^\d+$/.test(entry.id)) return entry;
+    if (!/^\d+$/.test(entry.id)) {
+      return entry;
+    }
     const idx = parseInt(entry.id, 10);
     return { ...entry, id: String(idx + offset) };
   });
@@ -146,13 +161,23 @@ function pickContentOrderOffset(
     thinking: number;
   },
 ): number {
-  if (entryType === "text") return offsets.text;
-  if (entryType === "attachment") return offsets.attachment;
+  if (entryType === "text") {
+    return offsets.text;
+  }
+  if (entryType === "attachment") {
+    return offsets.attachment;
+  }
   // Streaming pipeline writes "toolCall"; history pipeline writes "tool"
   // — `transcript-message-body.tsx` treats them as the same entry kind.
-  if (entryType === "tool" || entryType === "toolCall") return offsets.toolCall;
-  if (entryType === "surface") return offsets.surface;
-  if (entryType === "thinking") return offsets.thinking;
+  if (entryType === "tool" || entryType === "toolCall") {
+    return offsets.toolCall;
+  }
+  if (entryType === "surface") {
+    return offsets.surface;
+  }
+  if (entryType === "thinking") {
+    return offsets.thinking;
+  }
   return 0;
 }
 
@@ -160,11 +185,15 @@ function canFoldAdjacentAssistant(
   survivor: DisplayMessage,
   donor: DisplayMessage,
 ): boolean {
-  if (survivor.role !== "assistant" || donor.role !== "assistant") return false;
+  if (survivor.role !== "assistant" || donor.role !== "assistant") {
+    return false;
+  }
   // Optimistic ids are client UUIDs not yet echoed by the server; the
   // snapshot reconcile's optimistic echo-swap needs them to stay
   // standalone until the server snapshot lands.
-  if (survivor.isOptimistic || donor.isOptimistic) return false;
+  if (survivor.isOptimistic || donor.isOptimistic) {
+    return false;
+  }
   // Subagent / ACP notification rows are state-reconstruction metadata that
   // `build-items.ts` filters out of the rendered transcript — folding
   // them into a real assistant turn would either lose the flag or
@@ -245,14 +274,30 @@ function foldAdjacentAssistant(
   const merged: DisplayMessage = {
     ...survivor,
   };
-  if (textSegments) merged.textSegments = textSegments;
-  if (contentOrder) merged.contentOrder = contentOrder;
-  if (toolCalls) merged.toolCalls = toolCalls;
-  if (surfaces) merged.surfaces = surfaces;
-  if (attachments) merged.attachments = attachments;
-  if (thinkingSegments) merged.thinkingSegments = thinkingSegments;
-  if (contentBlocks) merged.contentBlocks = contentBlocks;
-  if (mergedMessageIds) merged.mergedMessageIds = mergedMessageIds;
+  if (textSegments) {
+    merged.textSegments = textSegments;
+  }
+  if (contentOrder) {
+    merged.contentOrder = contentOrder;
+  }
+  if (toolCalls) {
+    merged.toolCalls = toolCalls;
+  }
+  if (surfaces) {
+    merged.surfaces = surfaces;
+  }
+  if (attachments) {
+    merged.attachments = attachments;
+  }
+  if (thinkingSegments) {
+    merged.thinkingSegments = thinkingSegments;
+  }
+  if (contentBlocks) {
+    merged.contentBlocks = contentBlocks;
+  }
+  if (mergedMessageIds) {
+    merged.mergedMessageIds = mergedMessageIds;
+  }
   // metadata / slackMessage / timestamp come from the survivor (older
   // anchor) via the spread — matches the backend's
   // `mergeConsecutiveAssistantMessages` which keeps the anchor's
@@ -290,7 +335,9 @@ export function mergeAdjacentAssistantMessages(
       break;
     }
   }
-  if (firstFoldIdx === -1) return messages;
+  if (firstFoldIdx === -1) {
+    return messages;
+  }
 
   const result: DisplayMessage[] = messages.slice(0, firstFoldIdx);
   for (let i = firstFoldIdx; i < messages.length; i++) {

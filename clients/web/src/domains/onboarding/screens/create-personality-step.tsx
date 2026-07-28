@@ -111,7 +111,11 @@ const PERSONALITY_AXES: PersonalityAxis[] = [
     left: "Polite",
     right: "Unfiltered",
     leftAvatar: { bodyShape: "sprout", eyeStyle: "bashful", color: "green" },
-    rightAvatar: { bodyShape: "urchin", eyeStyle: "surprised", color: "orange" },
+    rightAvatar: {
+      bodyShape: "urchin",
+      eyeStyle: "surprised",
+      color: "orange",
+    },
   },
 ];
 
@@ -331,14 +335,25 @@ function EdgeAvatarLayer({
   size: number;
 }) {
   return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 -z-10"
+    >
       {PERSONALITY_AXES.map((axis, i) => {
         const value = values[axis.id] ?? DEFAULT_VALUE;
-        const leftProgress = Math.max(0, (DEFAULT_VALUE - value) / DEFAULT_VALUE);
-        const rightProgress = Math.max(0, (value - DEFAULT_VALUE) / DEFAULT_VALUE);
+        const leftProgress = Math.max(
+          0,
+          (DEFAULT_VALUE - value) / DEFAULT_VALUE,
+        );
+        const rightProgress = Math.max(
+          0,
+          (value - DEFAULT_VALUE) / DEFAULT_VALUE,
+        );
         const top = AVATAR_TOPS[i] ?? "50%";
         const pair = sideAvatars[i];
-        if (!pair) return null;
+        if (!pair) {
+          return null;
+        }
         return (
           <div key={axis.id}>
             <EdgePeekAvatar
@@ -407,13 +422,22 @@ export function CreatePersonalityStep({
       palette,
     );
     return PERSONALITY_AXES.map((axis, i) => ({
-      left: { ...axis.leftAvatar, color: leftColors[i] ?? axis.leftAvatar.color },
-      right: { ...axis.rightAvatar, color: rightColors[i] ?? axis.rightAvatar.color },
+      left: {
+        ...axis.leftAvatar,
+        color: leftColors[i] ?? axis.leftAvatar.color,
+      },
+      right: {
+        ...axis.rightAvatar,
+        color: rightColors[i] ?? axis.rightAvatar.color,
+      },
     }));
   }, [components, selectedColor]);
 
   return (
-    <div className="absolute inset-0 z-10 overflow-hidden" style={{ color: tone.fg }}>
+    <div
+      className="absolute inset-0 z-10 overflow-hidden"
+      style={{ color: tone.fg }}
+    >
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
       {isDesktop && components && (
@@ -450,7 +474,10 @@ export function CreatePersonalityStep({
             Create my personality
           </h1>
           {locked ? (
-            <p className="text-center text-[15px]" style={{ color: tone.fgMuted }}>
+            <p
+              className="text-center text-[15px]"
+              style={{ color: tone.fgMuted }}
+            >
               Personality locked — chat with your assistant to make any more
               updates
             </p>
@@ -463,7 +490,9 @@ export function CreatePersonalityStep({
 
         {PERSONALITY_AXES.map((axis, i) => (
           <Fragment key={axis.id}>
-            {i > 0 && <div className="w-full min-h-2.5 shrink basis-8 sm:basis-11" />}
+            {i > 0 && (
+              <div className="w-full min-h-2.5 shrink basis-8 sm:basis-11" />
+            )}
             <PersonalitySlider
               axis={axis}
               value={values[axis.id] ?? DEFAULT_VALUE}

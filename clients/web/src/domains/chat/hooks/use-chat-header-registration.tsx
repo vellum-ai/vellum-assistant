@@ -20,9 +20,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conversation-display";
-import {
-  formatSlackConversationDisplayLabel,
-} from "@/domains/chat/utils/slack-conversation-display";
+import { formatSlackConversationDisplayLabel } from "@/domains/chat/utils/slack-conversation-display";
 import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getChannelBindingDisplayText } from "@/domains/chat/utils/channel-conversation-display";
@@ -57,12 +55,17 @@ export function useChatHeaderRegistration({
   const activeConversationId = useConversationStore.use.activeConversationId();
   const messages = useTranscriptMessages();
   const setTopBarRightSlot = useChatLayoutSlotsStore.use.setTopBarRightSlot();
-  const setHeaderSupplements = useChatLayoutSlotsStore.use.setHeaderSupplements();
+  const setHeaderSupplements =
+    useChatLayoutSlotsStore.use.setHeaderSupplements();
   // Older daemons omit `enabledPlugins` on the conversation GET, so the pill
   // can't reflect per-chat state there — hide it until the daemon supports it.
   const supportsPluginPill = useSupportsInchatPluginEdit();
 
-  const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
+  const activeConversation = useActiveConversation(
+    assistantId,
+    activeConversationId,
+    true,
+  );
 
   // Channel header tag derivation. Slack keeps its richer label (channel
   // vs DM, lazy name resolution); other channels fall back to the generic
@@ -73,10 +76,12 @@ export function useChatHeaderRegistration({
     messages,
   });
   const channelHeaderChannelId = isChannelConversation(activeConversation)
-    ? activeConversation?.originChannel ?? null
+    ? (activeConversation?.originChannel ?? null)
     : null;
   const channelHeaderLabel = useMemo(() => {
-    if (!channelHeaderChannelId) return null;
+    if (!channelHeaderChannelId) {
+      return null;
+    }
     if (channelHeaderChannelId === "slack") {
       return slackConversationDisplay
         ? formatSlackConversationDisplayLabel(slackConversationDisplay)
@@ -99,9 +104,9 @@ export function useChatHeaderRegistration({
   // channel goes through `sourceLink`, so a channel lights up here as soon
   // as its daemon-side binding-metadata builder emits one.
   const channelSourceLinkHref = channelHeaderChannelId
-    ? slackConversationDisplay?.href ??
+    ? (slackConversationDisplay?.href ??
       getExternalLinkUrl(activeConversation?.channelBinding?.sourceLink) ??
-      null
+      null)
     : null;
 
   // Header supplements — chat-specific data for the conversation header menu
@@ -110,32 +115,37 @@ export function useChatHeaderRegistration({
     [messages],
   );
 
-  const headerSupplements = useMemo<ChatHeaderSupplements>(() => ({
-    hasPersistedMessage,
-    channelHeaderLabel,
-    channelHeaderChannelId,
-    channelSourceLinkHref,
-    onForkConversation: handleForkConversationFromMenu,
-    onOpenInNewWindow: handleOpenInNewWindow,
-    onInspect: handleInspectConversation,
-    onCopyConversation: messages.length > 0 ? handleCopyConversation : null,
-    onRefresh,
-  }), [
-    hasPersistedMessage,
-    channelHeaderLabel,
-    channelHeaderChannelId,
-    channelSourceLinkHref,
-    handleForkConversationFromMenu,
-    handleOpenInNewWindow,
-    handleInspectConversation,
-    handleCopyConversation,
-    messages.length,
-    onRefresh,
-  ]);
+  const headerSupplements = useMemo<ChatHeaderSupplements>(
+    () => ({
+      hasPersistedMessage,
+      channelHeaderLabel,
+      channelHeaderChannelId,
+      channelSourceLinkHref,
+      onForkConversation: handleForkConversationFromMenu,
+      onOpenInNewWindow: handleOpenInNewWindow,
+      onInspect: handleInspectConversation,
+      onCopyConversation: messages.length > 0 ? handleCopyConversation : null,
+      onRefresh,
+    }),
+    [
+      hasPersistedMessage,
+      channelHeaderLabel,
+      channelHeaderChannelId,
+      channelSourceLinkHref,
+      handleForkConversationFromMenu,
+      handleOpenInNewWindow,
+      handleInspectConversation,
+      handleCopyConversation,
+      messages.length,
+      onRefresh,
+    ],
+  );
 
   useEffect(() => {
     setHeaderSupplements(headerSupplements);
-    return () => { setHeaderSupplements(null); };
+    return () => {
+      setHeaderSupplements(null);
+    };
   }, [headerSupplements, setHeaderSupplements]);
 
   // Top bar right slot — ConversationAssetsPill
@@ -143,13 +153,17 @@ export function useChatHeaderRegistration({
   const handleOpenDocument = useCallback(
     (surfaceId: string) => {
       haptic.light();
-      if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
+      if (assistantId) {
+        void useViewerStore.getState().loadDocument(assistantId, surfaceId);
+      }
     },
     [assistantId],
   );
 
   const topBarRightContent = useMemo(() => {
-    if (!activeConversation?.conversationId || !assistantId) return null;
+    if (!activeConversation?.conversationId || !assistantId) {
+      return null;
+    }
     return (
       <>
         {channelSourceLinkHref ? (
@@ -173,11 +187,21 @@ export function useChatHeaderRegistration({
         ) : null}
       </>
     );
-  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument, supportsPluginPill, channelSourceLinkHref, channelHeaderChannelId]);
+  }, [
+    activeConversation?.conversationId,
+    assistantId,
+    assetsRefreshKey,
+    handleOpenAppFromChat,
+    handleOpenDocument,
+    supportsPluginPill,
+    channelSourceLinkHref,
+    channelHeaderChannelId,
+  ]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);
-    return () => { setTopBarRightSlot(null); };
+    return () => {
+      setTopBarRightSlot(null);
+    };
   }, [topBarRightContent, setTopBarRightSlot]);
-
 }

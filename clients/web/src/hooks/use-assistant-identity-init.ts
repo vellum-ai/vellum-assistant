@@ -89,10 +89,14 @@ export function useAssistantIdentityInit({
   // clear runs first and this seed survives.
   const seededRef = useRef(false);
   useEffect(() => {
-    if (seededRef.current || !canFetchIdentity) return;
+    if (seededRef.current || !canFetchIdentity) {
+      return;
+    }
     seededRef.current = true;
     const optimisticName = consumePendingAssistantName();
-    if (!optimisticName) return;
+    if (!optimisticName) {
+      return;
+    }
     const { name: current } = useAssistantIdentityStore.getState();
     if (!current) {
       useAssistantIdentityStore
@@ -108,12 +112,12 @@ export function useAssistantIdentityInit({
     // (initializing assistant, unreachable runtime). Don't clobber a
     // good cached name with a transient null on the same assistant —
     // cross-assistant clears are handled by the effect above.
-    if (!data) return;
-    useAssistantIdentityStore.getState().setIdentity(
-      data.name ?? null,
-      data.version ?? null,
-      assistantId,
-    );
+    if (!data) {
+      return;
+    }
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity(data.name ?? null, data.version ?? null, assistantId);
     lastWrittenForRef.current = assistantId;
   }, [identityQuery.data, assistantId]);
 }

@@ -54,6 +54,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
+import { recordCommit } from "@/lib/commit-pressure";
 import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
@@ -380,8 +381,9 @@ export function ChatMainPanel({
   const handleOpenDocument = useCallback(
     (surfaceId: string) => {
       haptic.light();
-      if (assistantId)
+      if (assistantId) {
         void useViewerStore.getState().loadDocument(assistantId, surfaceId);
+      }
     },
     [assistantId],
   );
@@ -482,6 +484,14 @@ export function ChatMainPanel({
   });
   useNativeQuoteReply(transcriptContainerRef);
 
+  // Commit counter for the chat-route subtree. Deliberately dependency-less:
+  // it has to run on every commit to measure how tightly they are packed,
+  // which is what `Maximum update depth exceeded` actually reacts to. Records
+  // nothing but two integers — see `lib/commit-pressure.ts`.
+  useEffect(() => {
+    recordCommit();
+  });
+
   // Clear staged quotes and dismiss the reply bubble when the active
   // conversation changes to prevent quotes from one conversation leaking
   // into another.
@@ -548,7 +558,9 @@ export function ChatMainPanel({
 
   const handleRecallLastMessage = useCallback(() => {
     const content = startEditing();
-    if (content !== null) useComposerStore.getState().setInput(content);
+    if (content !== null) {
+      useComposerStore.getState().setInput(content);
+    }
   }, [startEditing]);
 
   const handleCancelEdit = useCallback(() => {
@@ -785,7 +797,9 @@ export function ChatMainPanel({
             "The current model doesn't support image input. Switch to a vision-capable model to attach images.",
         });
       }
-      if (allowed.length > 0) addChatAttachmentFiles(allowed);
+      if (allowed.length > 0) {
+        addChatAttachmentFiles(allowed);
+      }
     },
     [addChatAttachmentFiles, activeModelSupportsVision, visionGateActive],
   );
@@ -976,6 +990,7 @@ export function ChatMainPanel({
     dockStartersToBottom,
     renderAvatar,
     emptyStatePlaceholder,
+    composerPeekSlot,
   } = useChatEmptyState({
     assistantId,
     conversationId: activeConversationId,
@@ -1104,6 +1119,16 @@ export function ChatMainPanel({
           <ComposerSettingsMenu
             assistantId={assistantId}
             conversationId={activeConversation?.conversationId}
+            segments="access"
+          />
+        ) : undefined
+      }
+      modelPickerSlot={
+        assistantId ? (
+          <ComposerSettingsMenu
+            assistantId={assistantId}
+            conversationId={activeConversation?.conversationId}
+            segments="profile"
           />
         ) : undefined
       }
@@ -1287,7 +1312,9 @@ export function ChatMainPanel({
         <BottomSheet.Root
           open={Boolean(selectedSuggestion)}
           onOpenChange={(next) => {
-            if (!next) handleCloseSuggestion();
+            if (!next) {
+              handleCloseSuggestion();
+            }
           }}
         >
           {/* `SuggestionDetailPanel` brings its own visible heading + scroll-
@@ -1316,6 +1343,7 @@ export function ChatMainPanel({
   return (
     <>
       {mainContent}
+      {composerPeekSlot}
       <MicPermissionPrimer
         open={showPrimer}
         onContinue={handlePrimerContinue}

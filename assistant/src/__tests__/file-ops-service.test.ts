@@ -51,7 +51,9 @@ describe("FileSystemOps.readFileSafe", () => {
 
     const result = ops.readFileSafe({ path: "hello.txt" });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.value.content).toContain("line one");
     expect(result.value.content).toContain("line two");
     expect(result.value.content).toContain("line three");
@@ -63,7 +65,9 @@ describe("FileSystemOps.readFileSafe", () => {
 
     const result = ops.readFileSafe({ path: "nonexistent.txt" });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("NOT_FOUND");
   });
 
@@ -74,7 +78,9 @@ describe("FileSystemOps.readFileSafe", () => {
 
     const result = ops.readFileSafe({ path: "subdir" });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("NOT_A_FILE");
   });
 
@@ -86,7 +92,9 @@ describe("FileSystemOps.readFileSafe", () => {
     const ops = new FileSystemOps(sandboxPolicyFor(dir), { sizeLimit: 100 });
     const result = ops.readFileSafe({ path: "big.txt" });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("SIZE_LIMIT_EXCEEDED");
   });
 
@@ -96,7 +104,9 @@ describe("FileSystemOps.readFileSafe", () => {
 
     const result = ops.readFileSafe({ path: "../../../etc/passwd" });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("PATH_OUT_OF_BOUNDS");
   });
 
@@ -107,7 +117,9 @@ describe("FileSystemOps.readFileSafe", () => {
 
     const result = ops.readFileSafe({ path: "lines.txt", offset: 2, limit: 2 });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.value.content).toContain("b");
     expect(result.value.content).toContain("c");
     expect(result.value.content).not.toContain("     1");
@@ -129,7 +141,9 @@ describe("FileSystemOps.writeFileSafe", () => {
       content: "hello world",
     });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.value.isNewFile).toBe(true);
     expect(result.value.newContent).toBe("hello world");
     expect(result.value.oldContent).toBe("");
@@ -146,7 +160,9 @@ describe("FileSystemOps.writeFileSafe", () => {
       content: "new stuff",
     });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.value.isNewFile).toBe(false);
     expect(result.value.oldContent).toBe("old stuff");
     expect(result.value.newContent).toBe("new stuff");
@@ -161,7 +177,9 @@ describe("FileSystemOps.writeFileSafe", () => {
       content: "deep",
     });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.value.isNewFile).toBe(true);
     expect(existsSync(join(dir, "a/b/c/deep.txt"))).toBe(true);
   });
@@ -175,7 +193,9 @@ describe("FileSystemOps.writeFileSafe", () => {
       content: "bad",
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("PATH_OUT_OF_BOUNDS");
   });
 
@@ -188,7 +208,9 @@ describe("FileSystemOps.writeFileSafe", () => {
       content: "x".repeat(50),
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("SIZE_LIMIT_EXCEEDED");
   });
 });
@@ -209,7 +231,9 @@ describe("FileSystemOps.editFileSafe", () => {
       replaceAll: false,
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("NOT_FOUND");
   });
 
@@ -225,7 +249,9 @@ describe("FileSystemOps.editFileSafe", () => {
       replaceAll: false,
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("NOT_A_FILE");
   });
 
@@ -241,7 +267,9 @@ describe("FileSystemOps.editFileSafe", () => {
       replaceAll: false,
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("MATCH_NOT_FOUND");
   });
 
@@ -257,7 +285,9 @@ describe("FileSystemOps.editFileSafe", () => {
       replaceAll: false,
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("MATCH_AMBIGUOUS");
   });
 
@@ -273,7 +303,9 @@ describe("FileSystemOps.editFileSafe", () => {
       replaceAll: true,
     });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.value.matchCount).toBe(3);
     expect(result.value.newContent).toBe("qux bar qux baz qux");
     expect(result.value.oldContent).toBe("foo bar foo baz foo");
@@ -292,7 +324,9 @@ describe("FileSystemOps.editFileSafe", () => {
       replaceAll: false,
     });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.value.matchCount).toBe(1);
     expect(result.value.newContent).toBe("one TWO three");
     expect(result.value.matchMethod).toBe("exact");
@@ -311,7 +345,9 @@ describe("FileSystemOps.editFileSafe", () => {
       replaceAll: true,
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("MATCH_NOT_FOUND");
   });
 
@@ -327,7 +363,9 @@ describe("FileSystemOps.editFileSafe", () => {
       replaceAll: false,
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("SIZE_LIMIT_EXCEEDED");
   });
 
@@ -342,7 +380,9 @@ describe("FileSystemOps.editFileSafe", () => {
       replaceAll: false,
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("PATH_OUT_OF_BOUNDS");
   });
 });

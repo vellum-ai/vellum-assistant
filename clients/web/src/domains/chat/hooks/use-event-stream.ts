@@ -22,12 +22,7 @@
  * does not register any `visibilitychange` listener of its own.
  */
 
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-} from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";

@@ -6,6 +6,7 @@ import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { handleLogout } from "@/lib/auth/handle-logout";
 import { useSupportsBookmarks } from "@/lib/backwards-compat/use-supports-bookmarks";
+import { useSupportsCredentialsSettings } from "@/lib/backwards-compat/use-supports-credentials-settings";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -22,15 +23,17 @@ import { SidebarTree, type SidebarItem } from "@/components/sidebar-tree";
  * navigation) and an `<Outlet />` for the active settings tab page.
  */
 export function SettingsLayout() {
-  const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
-  const credentialsSettingsEnabled = useAssistantFeatureFlagStore.use.credentialsSettings();
-  const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
+  const settingsDeveloperNav =
+    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const platformNotifications =
+    useClientFeatureFlagStore.use.platformNotifications();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  // The Bookmarks tab needs the active assistant's bookmark routes (v0.8.1+);
-  // an older assistant 404s them, so hide the tab rather than render a dead
-  // "Failed to load bookmarks" page. Scoped to the active assistant so a
-  // stale cross-store version can't light the tab mid-switch.
+  // The Bookmarks and Credentials tabs need routes that only newer assistants
+  // serve (v0.8.1+ / v0.10.8+); an older assistant 404s them, so hide the
+  // tabs rather than render a dead error page. Scoped to the active assistant
+  // so a stale cross-store version can't light a tab mid-switch.
   const supportsBookmarks = useSupportsBookmarks(activeAssistantId);
+  const supportsCredentials = useSupportsCredentialsSettings(activeAssistantId);
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   // The Usage item is never hidden: the Usage tab reads from the local daemon
   // and works for every assistant. Its label only gains "Billing &" when the
@@ -57,7 +60,7 @@ export function SettingsLayout() {
         if (item.id === "bookmarks" && !supportsBookmarks) {
           return false;
         }
-        if (item.id === "credentials" && !credentialsSettingsEnabled) {
+        if (item.id === "credentials" && !supportsCredentials) {
           return false;
         }
         if (item.id === "developer") {
@@ -71,7 +74,7 @@ export function SettingsLayout() {
       platformNotifications,
       platformGate,
       supportsBookmarks,
-      credentialsSettingsEnabled,
+      supportsCredentials,
       billingLabel,
     ],
   );
@@ -101,12 +104,15 @@ export function SettingsLayout() {
   }, [settingsDeveloperNav, hasPlatformSession, navigate, login]);
 
   const pageTitle = useMemo(() => {
-    if (pathname === routes.settings.root) {return "Settings";}
+    if (pathname === routes.settings.root) {
+      return "Settings";
+    }
     const match = SETTINGS_SIDEBAR.find(
-      (item) =>
-        pathname === item.href || pathname.startsWith(item.href + "/"),
+      (item) => pathname === item.href || pathname.startsWith(item.href + "/"),
     );
-    if (match) {return match.id === "billing" ? billingLabel : match.label;}
+    if (match) {
+      return match.id === "billing" ? billingLabel : match.label;
+    }
     return "Settings";
   }, [pathname, billingLabel]);
 
@@ -114,7 +120,11 @@ export function SettingsLayout() {
     <SidebarShell
       backHref={routes.assistant}
       sidebar={
-        <SidebarTree items={filteredItems} bottomItems={bottomItems} indexPath={routes.settings.root} />
+        <SidebarTree
+          items={filteredItems}
+          bottomItems={bottomItems}
+          indexPath={routes.settings.root}
+        />
       }
       title={pageTitle}
     >

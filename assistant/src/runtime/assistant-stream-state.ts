@@ -67,9 +67,9 @@ import {
   SSE_REPLAY_RING_AGE_LIMIT_MS,
   SSE_REPLAY_RING_COUNT_LIMIT,
 } from "../api/constants/sse-replay.js";
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
-import type { AssistantEventEnvelope } from "./assistant-event.js";
 
 const log = getLogger("assistant-stream-state");
 

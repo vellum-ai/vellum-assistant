@@ -1,13 +1,13 @@
 import { Crown, Info, Loader2, Palmtree } from "lucide-react";
 
 import type {
-    CreditTier,
-    CreditTierEnum,
-    MachineTier,
-    MachineTierEnum,
-    PlanCatalogEntry,
-    StorageTier,
-    StorageTierEnum,
+  CreditTier,
+  CreditTierEnum,
+  MachineTier,
+  MachineTierEnum,
+  PlanCatalogEntry,
+  StorageTier,
+  StorageTierEnum,
 } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";

@@ -34,9 +34,9 @@ describe("deriveAssistantStatus", () => {
   });
 
   test("error when the lifecycle terminally failed (and auth is fine)", () => {
-    expect(
-      deriveAssistantStatus({ ...working, lifecycleKind: "error" }),
-    ).toBe("error");
+    expect(deriveAssistantStatus({ ...working, lifecycleKind: "error" })).toBe(
+      "error",
+    );
   });
 
   test("disconnected while the session is still initializing", () => {
@@ -60,9 +60,9 @@ describe("deriveAssistantStatus", () => {
   });
 
   test("disconnected when active but the SSE stream is down", () => {
-    expect(
-      deriveAssistantStatus({ ...working, isSSEConnected: false }),
-    ).toBe("disconnected");
+    expect(deriveAssistantStatus({ ...working, isSSEConnected: false })).toBe(
+      "disconnected",
+    );
   });
 
   test("thinking while a turn is queued, thinking, or streaming", () => {
@@ -82,8 +82,8 @@ describe("deriveAssistantStatus", () => {
   test("an errored turn on an otherwise-healthy assistant stays idle", () => {
     // Turn-level errors surface in the chat UI; the menu-bar dot reflects the
     // assistant's connection health, which is still fine here.
-    expect(
-      deriveAssistantStatus({ ...working, turnPhase: "errored" }),
-    ).toBe("idle");
+    expect(deriveAssistantStatus({ ...working, turnPhase: "errored" })).toBe(
+      "idle",
+    );
   });
 });

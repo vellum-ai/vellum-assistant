@@ -2,23 +2,30 @@ import { useCallback, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import {
-    AgreementsCard,
-    PrivacyPreferencesCard,
+  AgreementsCard,
+  PrivacyPreferencesCard,
 } from "@/domains/onboarding/components/consent-controls";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
-    emitOnboardingFunnelStepCompleted,
-    getOnboardingFunnelSessionId,
-    ONBOARDING_FUNNEL_STEPS,
+  emitOnboardingFunnelStepCompleted,
+  getOnboardingFunnelSessionId,
+  ONBOARDING_FUNNEL_STEPS,
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
-import { isLocalMode } from "@/lib/local-mode";
+import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
+import { CHECKOUT_CONTINUE_PARAM } from "@/lib/billing/checkout-continuation";
 import {
-    usePrivacyConsent,
-    useShareDiagnostics,
-    useTosAccepted,
+  clearCheckoutIntent,
+  readCheckoutIntent,
+} from "@/lib/billing/checkout-intent";
+import { isLocalMode } from "@/lib/local-mode";
+import { postCheckoutHatchReturnTo } from "@/lib/navigation/navigation-resolver";
+import {
+  usePrivacyConsent,
+  useShareDiagnostics,
+  useTosAccepted,
 } from "@/domains/onboarding/prefs";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -41,12 +48,11 @@ export function PrivacyScreen() {
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
   const hasPlatformSession = useHasPlatformSession();
+  const takeover = useMarketingPricingTakeover();
 
   useEffect(() => {
-    if (!isNative) {
-      getOnboardingFunnelSessionId();
-    }
-  }, [isNative]);
+    getOnboardingFunnelSessionId();
+  }, []);
 
   const isPreview = searchParams.get("preview") === "true";
   const noop = useCallback((_next: boolean) => {}, []);
@@ -66,19 +72,36 @@ export function PrivacyScreen() {
     // Analytics isn't asked here — the server keeps share_analytics null
     // until the user opts in via settings or review-terms.
     saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics: shareDiagnosticsChecked, hasPlatformSession });
-    if (!isNative) {
-      emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
-        userId,
-      });
+    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
+      userId,
+    });
+
+    // A completed checkout with nothing provisioned is funneled to the hatching
+    // screen; an unconsented user is bounced here, and the funnel URL rides
+    // along as `returnTo`. With consent now recorded, resume it rather than the
+    // standard onboarding step: that step carries neither the managed-hatch nor
+    // the paid-return marker, so the purchased machine and storage would never
+    // be waited for. Money has already changed hands, which is why this outranks
+    // the pending-package resume below.
+    const paidHatchReturnTo = postCheckoutHatchReturnTo(
+      searchParams.get("returnTo"),
+    );
+    if (paidHatchReturnTo) {
+      void navigate(paidHatchReturnTo);
+      return;
     }
 
     const hostingParam = searchParams.get("hosting");
     const params = new URLSearchParams();
-    if (hostingParam) params.set("hosting", hostingParam);
+    if (hostingParam) {
+      params.set("hosting", hostingParam);
+    }
     // Carry the marketing plugin attribution forward so the research runner can
     // read it off the URL and pre-install that plugin (see `plugin-attribution`).
     const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
-    if (pluginParam) params.set(ATTRIBUTED_PLUGIN_PARAM, pluginParam);
+    if (pluginParam) {
+      params.set(ATTRIBUTED_PLUGIN_PARAM, pluginParam);
+    }
     const qs = params.toString();
     // A local-hosting onboarding (hosting=local/docker in a local-mode build)
     // must run the foreground local hatch first, so it goes to `hatching`, which
@@ -87,18 +110,52 @@ export function PrivacyScreen() {
     const isLocalHatch =
       isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
     const destination = onboardingDestinationAfterConsent({
-      isNative,
       isLocalHatch,
     });
-    void navigate(`${destination}${qs ? `?${qs}` : ""}`);
+    const onboardingNext = `${destination}${qs ? `?${qs}` : ""}`;
+
+    // A pricing-CTA signup stashes its chosen package (see navigation-resolver
+    // post-auth). With consent now recorded, resume checkout so payment happens
+    // after consent and before the assistant hatches. Resume ONLY a
+    // signup-marked intent (`resumeAfterOnboarding`): an ordinary billing-surface
+    // stash (an abandoned CheckoutPage/takeover checkout) carries no marker, so
+    // it's ignored here and left untouched for its own flow — onboarding proceeds
+    // normally. The checkout route owns the marked stash's lifecycle from here —
+    // re-stashing on a Stripe redirect, clearing it on an already-Pro no_op — so
+    // this screen just hands off. Resuming only from this explicit Start click —
+    // never a render effect — keeps consent and checkout from looping.
+    // A positively-off `marketing-pricing-takeover` drops the dead package and
+    // continues onboarding: handing off would bounce through a gated checkout
+    // route and out of the funnel before research runs. An unresolved flag still
+    // resumes, carrying the onboarding step this click would otherwise have
+    // taken: if the flag lands off, checkout returns the user there instead of
+    // the plans takeover, so a pending→disabled race stays inside the funnel.
+    const checkoutIntent = readCheckoutIntent();
+    if (
+      checkoutIntent?.kind === "package" &&
+      checkoutIntent.resumeAfterOnboarding === true
+    ) {
+      if (takeover === "disabled") {
+        clearCheckoutIntent();
+      } else {
+        const checkoutParams = new URLSearchParams({
+          package: checkoutIntent.packageKey,
+          [CHECKOUT_CONTINUE_PARAM]: onboardingNext,
+        });
+        void navigate(`${routes.checkout}?${checkoutParams.toString()}`);
+        return;
+      }
+    }
+
+    void navigate(onboardingNext);
   }, [
     privacyConsent,
     hasPlatformSession,
-    isNative,
     isPreview,
     navigate,
     searchParams,
     shareDiagnosticsChecked,
+    takeover,
     tosAccepted,
     userId,
   ]);
@@ -117,7 +174,11 @@ export function PrivacyScreen() {
           </div>
         )}
         <h1
-          className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}
+          className={
+            electron
+              ? "text-title-large"
+              : "text-3xl font-semibold tracking-tight"
+          }
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
           Before You Start
@@ -195,7 +256,6 @@ export function PrivacyScreen() {
             Back
           </Button>
         </div>
-
       </div>
     </OnboardingLayout>
   );

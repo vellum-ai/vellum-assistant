@@ -58,13 +58,8 @@ mock.module("@vellumai/design-library/components/modal", () => {
     );
   return {
     Modal: {
-      Root: ({
-        open,
-        children,
-      }: {
-        open?: boolean;
-        children?: ReactNode;
-      }) => (open ? <div role="dialog">{children}</div> : null),
+      Root: ({ open, children }: { open?: boolean; children?: ReactNode }) =>
+        open ? <div role="dialog">{children}</div> : null,
       Content: passthrough("modal-content"),
       Header: passthrough("modal-header"),
       Title: ({ children }: { children?: ReactNode }) => (
@@ -417,9 +412,7 @@ describe("TranscriptMessageBody", () => {
     expect(markdown!.textContent).toBe("line one\nline two");
     expect(markdown!.getAttribute("data-hard-line-breaks")).toBe("true");
     // The text run is wrapped in the user bubble.
-    expect(
-      container.querySelector("[class*='user-bubble-bg']"),
-    ).not.toBeNull();
+    expect(container.querySelector("[class*='user-bubble-bg']")).not.toBeNull();
   });
 
   test("uses the latest tool completion as the message activity timestamp", () => {
@@ -1389,9 +1382,7 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    const bubbles = container.querySelectorAll(
-      "[class*='user-bubble-bg']",
-    );
+    const bubbles = container.querySelectorAll("[class*='user-bubble-bg']");
     // Exactly one bubble container carries the user-bubble background.
     expect(bubbles.length).toBe(1);
 
@@ -1430,9 +1421,7 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    const bubbles = container.querySelectorAll(
-      "[class*='user-bubble-bg']",
-    );
+    const bubbles = container.querySelectorAll("[class*='user-bubble-bg']");
     expect(bubbles.length).toBe(1);
     expect(bubbles[0]!.querySelector("img")?.getAttribute("src")).toBe(
       "blob:preview",
@@ -1541,7 +1530,10 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    clickVellumLink("vellum://workspace/qa-delete-desktop-dialog.png", "desktop");
+    clickVellumLink(
+      "vellum://workspace/qa-delete-desktop-dialog.png",
+      "desktop",
+    );
     clickModalAction("Download file");
     expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
     expect(
@@ -1673,9 +1665,7 @@ describe("TranscriptMessageBody", () => {
     expect(
       container.querySelector("[data-testid='attachments']"),
     ).not.toBeNull();
-    expect(
-      container.querySelector("[class*='user-bubble-bg']"),
-    ).toBeNull();
+    expect(container.querySelector("[class*='user-bubble-bg']")).toBeNull();
   });
 
   test("suppresses native text selection on user bubbles for coarse pointers", () => {
@@ -1775,9 +1765,7 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    const bubble = container.querySelector(
-      "[class*='user-bubble-bg']",
-    );
+    const bubble = container.querySelector("[class*='user-bubble-bg']");
     expect(bubble).not.toBeNull();
     // Text lives inside the bubble.
     expect(bubble!.querySelector("[data-testid='markdown']")?.textContent).toBe(
@@ -1813,9 +1801,7 @@ describe("TranscriptMessageBody", () => {
     ).toBeTruthy();
 
     // The surface is NOT inside a user bubble; the text IS.
-    const bubble = container.querySelector(
-      "[class*='user-bubble-bg']",
-    );
+    const bubble = container.querySelector("[class*='user-bubble-bg']");
     expect(bubble).not.toBeNull();
     expect(bubble!.contains(surface)).toBe(false);
     expect(bubble!.contains(markdown)).toBe(true);
@@ -1864,9 +1850,7 @@ describe("TranscriptMessageBody", () => {
 
     // The tool chip is never wrapped inside a user text bubble — the
     // text runs render inline and the chip sits between them.
-    const bubbles = container.querySelectorAll(
-      "[class*='user-bubble-bg']",
-    );
+    const bubbles = container.querySelectorAll("[class*='user-bubble-bg']");
     for (const bubble of bubbles) {
       expect(bubble.contains(toolChip)).toBe(false);
     }
@@ -1893,9 +1877,7 @@ describe("TranscriptMessageBody", () => {
 
     // No visible text and no attachments: the empty user bubble must
     // not render.
-    expect(
-      container.querySelector("[class*='user-bubble-bg']"),
-    ).toBeNull();
+    expect(container.querySelector("[class*='user-bubble-bg']")).toBeNull();
     // The lone tool still renders as the inline chip.
     expect(
       container.querySelector("[data-testid='inline-tool-link']"),

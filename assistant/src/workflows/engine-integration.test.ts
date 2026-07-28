@@ -68,7 +68,9 @@ function lastUserPrompt(
 ): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m?.role !== "user") continue;
+    if (m?.role !== "user") {
+      continue;
+    }
     return m.content
       .filter((b) => b.type === "text")
       .map((b) => b.text ?? "")

@@ -106,11 +106,15 @@ function removeEntry(archive: Uint8Array, entryName: string): Uint8Array {
   let offset = 0;
   while (offset + 512 <= raw.length) {
     const block = raw.subarray(offset, offset + 512);
-    if (block.every((b) => b === 0)) break;
+    if (block.every((b) => b === 0)) {
+      break;
+    }
 
     // Entry name is at offset 0..100 of the header, null-terminated.
     let nameEnd = 0;
-    while (nameEnd < 100 && block[nameEnd] !== 0) nameEnd += 1;
+    while (nameEnd < 100 && block[nameEnd] !== 0) {
+      nameEnd += 1;
+    }
     const name = new TextDecoder().decode(block.subarray(0, nameEnd));
 
     const sizeStr = new TextDecoder()
@@ -183,11 +187,17 @@ function dropFromManifestAndRepack(
   }
   header[135] = 0;
   // Zero out the old checksum field before recomputing.
-  for (let i = 148; i < 156; i++) header[i] = 0x20;
+  for (let i = 148; i < 156; i++) {
+    header[i] = 0x20;
+  }
   let sum = 0;
-  for (let i = 0; i < 512; i++) sum += header[i];
+  for (let i = 0; i < 512; i++) {
+    sum += header[i];
+  }
   const cksum = sum.toString(8).padStart(6, "0");
-  for (let i = 0; i < 6; i++) header[148 + i] = cksum.charCodeAt(i);
+  for (let i = 0; i < 6; i++) {
+    header[148 + i] = cksum.charCodeAt(i);
+  }
   header[154] = 0;
   header[155] = 0x20;
 
@@ -246,7 +256,9 @@ describe("streamCommitImport — happy path", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("unreachable");
+    if (!result.ok) {
+      throw new Error("unreachable");
+    }
 
     expect(existsSync(join(workspaceDir, "a.txt"))).toBe(true);
     expect(readFileSync(join(workspaceDir, "a.txt"))).toEqual(
@@ -426,7 +438,9 @@ describe("streamCommitImport — failure modes", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("unreachable");
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
     expect(result.reason).toBe("validation_failed");
 
     // Real workspace's pre-existing content is still there, unmodified.
@@ -505,7 +519,9 @@ describe("streamCommitImport — failure modes", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("unreachable");
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
     expect(result.reason).toBe("validation_failed");
 
     // Existing workspace content preserved, no temp dir hanging around.
@@ -545,7 +561,9 @@ describe("streamCommitImport — failure modes", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("unreachable");
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
     expect(result.reason).toBe("validation_failed");
     // The error payload should surface the missing path.
     const combined = JSON.stringify(result);
@@ -590,7 +608,9 @@ describe("streamCommitImport — failure modes", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("unreachable");
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
     expect(result.reason).toBe("validation_failed");
 
     expect(readFileSync(join(workspaceDir, "existing.txt"), "utf8")).toBe(
@@ -628,7 +648,9 @@ describe("streamCommitImport — runtime-version compat gate", () => {
    * importer's actual layout.
    */
   function assertNoLeftoverTempDirs(): void {
-    if (!existsSync(workspaceDir)) return;
+    if (!existsSync(workspaceDir)) {
+      return;
+    }
     const entries = readdirSync(workspaceDir);
     const leftover = entries.filter(
       (name) =>
@@ -736,7 +758,9 @@ describe("streamCommitImport — runtime-version compat gate", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("unreachable");
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
     expect(result.reason).toBe("version_incompatible");
 
     expect(readFileSync(join(workspaceDir, "seed.txt"))).toEqual(
@@ -809,7 +833,9 @@ describe("streamCommitImport — memory ceiling", () => {
         onProgress: () => {
           progressCount += 1;
           const cur = sampleRss();
-          if (cur !== null && cur > peakRss) peakRss = cur;
+          if (cur !== null && cur > peakRss) {
+            peakRss = cur;
+          }
         },
       });
 
@@ -876,7 +902,9 @@ describe("streamCommitImport — report parity with commitImport", () => {
     try {
       expect(bufferResult.ok).toBe(true);
       expect(streamResult.ok).toBe(true);
-      if (!bufferResult.ok || !streamResult.ok) throw new Error("unreachable");
+      if (!bufferResult.ok || !streamResult.ok) {
+        throw new Error("unreachable");
+      }
 
       // The shapes must match key-for-key.
       expect(Object.keys(streamResult.report).sort()).toEqual(
@@ -975,7 +1003,9 @@ describe("streamCommitImport — no workspace entries means no swap", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("unreachable");
+    if (!result.ok) {
+      throw new Error("unreachable");
+    }
 
     // Real workspace's pre-existing files are STILL THERE — the temp tree
     // was not swapped in.
@@ -1027,7 +1057,9 @@ describe("streamCommitImport — no workspace entries means no swap", () => {
     );
     const externalResolver = {
       resolve(archivePath: string): string | null {
-        if (archivePath.startsWith("credentials/")) return null;
+        if (archivePath.startsWith("credentials/")) {
+          return null;
+        }
         return join(outOfWorkspaceDir, archivePath.replace(/\//g, "_"));
       },
     };
@@ -1054,7 +1086,9 @@ describe("streamCommitImport — no workspace entries means no swap", () => {
       });
 
       expect(result.ok).toBe(true);
-      if (!result.ok) throw new Error("unreachable");
+      if (!result.ok) {
+        throw new Error("unreachable");
+      }
 
       // Everything was skipped as "outside workspace".
       expect(result.report.summary.files_skipped).toBeGreaterThanOrEqual(1);
@@ -1121,7 +1155,9 @@ describe("streamCommitImport — config sanitization parity", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("unreachable");
+    if (!result.ok) {
+      throw new Error("unreachable");
+    }
 
     const writtenPath = join(workspaceDir, "config.json");
     expect(existsSync(writtenPath)).toBe(true);
@@ -1222,7 +1258,9 @@ describe("streamCommitImport — legacy USER.md skip on customized persona", () 
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("unreachable");
+    if (!result.ok) {
+      throw new Error("unreachable");
+    }
 
     // The other file in the bundle was written normally (proves the swap
     // happened — we're not accidentally hitting the no-swap short circuit).
@@ -1319,7 +1357,9 @@ describe("streamCommitImport — preserves live workspace paths when bundle omit
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("unreachable");
+    if (!result.ok) {
+      throw new Error("unreachable");
+    }
 
     const postSegPath = join(
       workspaceDir,
@@ -1360,7 +1400,9 @@ describe("streamCommitImport — preserves live workspace paths when bundle omit
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("unreachable");
+    if (!result.ok) {
+      throw new Error("unreachable");
+    }
 
     const postDbPath = join(workspaceDir, "data", "db", "assistant.db");
     expect(readFileSync(postDbPath)).toEqual(Buffer.from(newDbBytes));
@@ -1433,7 +1475,9 @@ describe("streamCommitImport — legacy-only bundle writes in place", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("unreachable");
+    if (!result.ok) {
+      throw new Error("unreachable");
+    }
 
     // Bundle's DB landed at the right live location with the new bytes.
     const postDbPath = join(workspaceDir, "data", "db", "assistant.db");
@@ -1543,7 +1587,9 @@ describe("streamCommitImport — preserved-path carry-over is per-file", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("unreachable");
+    if (!result.ok) {
+      throw new Error("unreachable");
+    }
 
     // Bundle's overwrite landed.
     expect(
@@ -1639,9 +1685,13 @@ describe("streamCommitImport — bundle resource ceilings", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("unreachable");
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
     expect(result.reason).toBe("validation_failed");
-    if (result.reason !== "validation_failed") throw new Error("unreachable");
+    if (result.reason !== "validation_failed") {
+      throw new Error("unreachable");
+    }
     expect(result.errors[0]!.code).toBe("bundle_too_many_entries");
 
     // Real workspace untouched, temp dir cleaned up.
@@ -1678,9 +1728,13 @@ describe("streamCommitImport — bundle resource ceilings", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("unreachable");
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
     expect(result.reason).toBe("validation_failed");
-    if (result.reason !== "validation_failed") throw new Error("unreachable");
+    if (result.reason !== "validation_failed") {
+      throw new Error("unreachable");
+    }
     expect(result.errors[0]!.code).toBe("bundle_too_large");
 
     expect(readFileSync(join(workspaceDir, "existing.txt"), "utf8")).toBe(
@@ -1746,7 +1800,9 @@ describe("streamCommitImport — report.sha256 reflects post-sanitization bytes"
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("unreachable");
+    if (!result.ok) {
+      throw new Error("unreachable");
+    }
 
     const writtenPath = join(workspaceDir, "config.json");
     const onDiskBytes = readFileSync(writtenPath);

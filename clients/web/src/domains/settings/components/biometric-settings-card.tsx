@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
 
 import { DetailCard } from "@/components/detail-card";
-import { getSessionTokenFromCookies, useIsNativePlatform } from "@/runtime/native-auth";
 import {
-    deleteBiometricToken,
-    getBiometricTypeLabel,
-    isBiometricAvailable,
-    isBiometricEnabled,
-    setBiometricEnabled,
-    storeBiometricToken,
+  getSessionTokenFromCookies,
+  useIsNativePlatform,
+} from "@/runtime/native-auth";
+import {
+  deleteBiometricToken,
+  getBiometricTypeLabel,
+  isBiometricAvailable,
+  isBiometricEnabled,
+  setBiometricEnabled,
+  storeBiometricToken,
 } from "@/runtime/native-biometric";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
@@ -20,12 +23,16 @@ export function BiometricSettingsCard() {
   const [toggling, setToggling] = useState(false);
 
   useEffect(() => {
-    if (!isNative) return;
+    if (!isNative) {
+      return;
+    }
     isBiometricAvailable().then(setAvailable);
     getBiometricTypeLabel().then(setBiometricLabel);
   }, [isNative]);
 
-  if (!isNative || !available) return null;
+  if (!isNative || !available) {
+    return null;
+  }
 
   const handleToggle = async () => {
     setToggling(true);

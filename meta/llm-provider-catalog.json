@@ -722,8 +722,26 @@
         "linkLabel": "Open Fireworks Dashboard"
       },
       "supportsPlatformAuth": true,
-      "defaultModel": "accounts/fireworks/models/kimi-k2p5",
+      "defaultModel": "accounts/fireworks/models/deepseek-v4-flash",
       "models": [
+        {
+          "id": "accounts/fireworks/models/kimi-k3",
+          "displayName": "Kimi K3",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 3,
+            "outputPer1mTokens": 15,
+            "cacheReadPer1mTokens": 0.3
+          }
+        },
         {
           "id": "accounts/fireworks/models/kimi-k2p6",
           "displayName": "Kimi K2.6",
@@ -756,22 +774,6 @@
             "inputPer1mTokens": 1.4,
             "outputPer1mTokens": 4.4,
             "cacheReadPer1mTokens": 0.26
-          }
-        },
-        {
-          "id": "accounts/fireworks/models/kimi-k2p5",
-          "displayName": "Kimi K2.5",
-          "contextWindowTokens": 256000,
-          "maxOutputTokens": 32768,
-          "defaultContextWindowTokens": 200000,
-          "longContextMode": "native-model",
-          "supportsThinking": false,
-          "supportsCaching": false,
-          "supportsVision": false,
-          "supportsToolUse": true,
-          "pricing": {
-            "inputPer1mTokens": 0.6,
-            "outputPer1mTokens": 2.5
           }
         },
         {
@@ -2148,6 +2150,48 @@
             "outputPer1mTokens": 4.05,
             "cacheReadPer1mTokens": 0.17
           }
+        }
+      ]
+    },
+    {
+      "id": "poolside",
+      "displayName": "Poolside",
+      "subtitle": "Laguna models from Poolside (OpenAI-compatible). Requires a Poolside API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Poolside API key to enable Laguna models.",
+      "envVar": "POOLSIDE_API_KEY",
+      "apiKeyPlaceholder": "Your Poolside API key",
+      "credentialsGuide": {
+        "description": "Sign in to Poolside and create an API key.",
+        "url": "https://poolside.ai",
+        "linkLabel": "Open Poolside"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "poolside/laguna-s-2.1",
+      "models": [
+        {
+          "id": "poolside/laguna-s-2.1",
+          "displayName": "Laguna S 2.1",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true
+        },
+        {
+          "id": "poolside/laguna-xs-2.1",
+          "displayName": "Laguna XS 2.1",
+          "contextWindowTokens": 262144,
+          "maxOutputTokens": 32768,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true
         }
       ]
     }

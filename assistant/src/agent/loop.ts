@@ -52,6 +52,10 @@ import {
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
+import {
+  deepRepairHistory,
+  isRepairableOrderingError,
+} from "./history-repair/history-repair.js";
 
 const log = getLogger("agent-loop");
 
@@ -1020,6 +1024,10 @@ export class AgentLoop {
     let newMessagesStart = history.length;
     let toolUseTurns = 0;
     let postModelCallContinues = 0;
+    // One deep history-repair recovery per turn: a second consecutive ordering
+    // rejection means the repair could not recover, so the error surfaces
+    // instead of looping. Turn-scoped, so each turn recovers afresh.
+    let orderingRepairAttempted = false;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
     // Armed at the end of a tool-use iteration so the budget gate runs at the
@@ -2414,15 +2422,11 @@ export class AgentLoop {
           continue;
         }
 
-        // A provider rejection is a model-call outcome: the loop has nothing
-        // more to produce this turn unless a recovery hook repairs the history
-        // and asks to retry. Run the `post-model-call` hook with the rejection
-        // attached — a recovery hook (e.g. history-repair on an ordering
-        // violation) can re-normalize the history and set `decision` to
-        // `"continue"` to re-issue the call; hooks that only act on a real
-        // reply ignore the rejection. The same per-run backstop bounds these
-        // error-driven retries as the success-path ones. The chain is run
-        // fail-open: a hook throw surfaces the original rejection.
+        // A provider rejection is a model-call outcome. Dispatch the
+        // post-model-call chain first so plugins observe the rejection (the
+        // hook fires at every outcome, per its contract), then decide whether
+        // to recover and retry. Both recovery paths share the same per-run
+        // backstop as the success-path retries.
         //
         // Confined to genuine provider rejections: a throw from elsewhere in
         // the turn body (tool execution, the success-path stop/post-model-call
@@ -2447,9 +2451,40 @@ export class AgentLoop {
           } catch (postModelCallError) {
             rlog.error(
               { err: postModelCallError },
-              "post-model-call hook failed on a provider rejection — surfacing the original error",
+              "post-model-call hook failed on a provider rejection, surfacing the original error",
             );
           }
+
+          // Built-in history-repair recovery takes precedence over a hook-driven
+          // retry. A tool_use/tool_result pairing or ordering rejection is
+          // recovered by deep-repairing the settled history and re-issuing the
+          // call, so a hook that continues generically on a rejection cannot
+          // burn the retry budget re-sending the same malformed history. Bounded
+          // to one pass per turn (a second consecutive ordering rejection means
+          // the repair could not recover).
+          if (
+            isRepairableOrderingError(err.message) &&
+            !orderingRepairAttempted &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
+          ) {
+            orderingRepairAttempted = true;
+            postModelCallContinues++;
+            history = deepRepairHistory(errorOutcome.messages).messages;
+            // Deep repair merges and drops messages, so the prior input
+            // boundary no longer maps onto the new array; the repaired history
+            // is the base the retry's output appends after.
+            newMessagesStart = history.length;
+            rlog.warn(
+              { turn: toolUseTurns, messageCount: history.length },
+              "Provider ordering error, recovering via history deep-repair",
+            );
+            continue;
+          }
+
+          // Otherwise honor a post-model-call recovery hook (e.g. image-recovery
+          // on an image-too-large rejection) that re-normalized the history and
+          // set `decision` to `"continue"` to re-issue the call. Hooks that only
+          // act on a real reply leave `decision` at `"stop"`.
           if (
             errorOutcome.decision === "continue" &&
             postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES

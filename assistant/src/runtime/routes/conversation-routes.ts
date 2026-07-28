@@ -16,6 +16,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../../agent/message-types.js";
+import type { AssistantEvent } from "../../api/index.js";
 import {
   BackgroundToolCompletionSchema,
   type ConversationContentBlock,
@@ -38,7 +39,7 @@ import {
   supportsHostProxy,
 } from "../../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
+import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import {
@@ -81,7 +82,6 @@ import {
   shouldAttachHostProxyForCapability,
 } from "../../daemon/host-proxy-preactivation.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
   NonHostProxyTransportMetadata,
@@ -142,7 +142,6 @@ import {
   getWorkspaceDir,
   getWorkspacePromptPath,
 } from "../../util/platform.js";
-import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { getCurrentSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -457,11 +456,26 @@ async function collectGuardianRequestHintIds(
 async function expireOrphanedGuardianRequests(
   conversationId: string,
 ): Promise<void> {
-  const sourceScoped = await listGuardianRequestsOrEmpty({
-    sourceConversationId: conversationId,
-    status: "pending",
-    kind: "tool_approval",
-  });
+  const [toolApprovals, pendingQuestions] = await Promise.all([
+    listGuardianRequestsOrEmpty({
+      sourceConversationId: conversationId,
+      status: "pending",
+      kind: "tool_approval",
+    }),
+    listGuardianRequestsOrEmpty({
+      sourceConversationId: conversationId,
+      status: "pending",
+      kind: "pending_question",
+    }),
+  ]);
+
+  // Voice-call questions (callSessionId present) track their lifecycle in the
+  // calls domain, not `pendingInteractions` — never treat them as orphaned
+  // here. Only ask_question rows are interaction-bound.
+  const sourceScoped = [
+    ...toolApprovals,
+    ...pendingQuestions.filter((req) => !req.callSessionId),
+  ];
 
   for (const req of sourceScoped) {
     // Skip requests that still have a live in-memory pending interaction —
@@ -1435,7 +1449,11 @@ export async function handleSendMessage(
     );
   }
   if (requestedInferenceProfile !== undefined) {
-    const profiles = getEffectiveProfiles(getConfig().llm.profiles);
+    const { llm } = getConfig();
+    const profiles = getEffectiveProfilesForProvider(
+      llm.profiles,
+      llm.defaultProvider ?? null,
+    );
     if (
       !Object.prototype.hasOwnProperty.call(profiles, requestedInferenceProfile)
     ) {
@@ -1963,10 +1981,7 @@ export async function handleSendMessage(
         recordConversationPersistedSeq(conversationId, getCurrentSeq());
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.setProcessing(false);
-        silentlyWithLog(
-          conversation.drainQueue(),
-          "canned-greeting queue drain",
-        );
+        void conversation.kickDrainQueue("loop_complete", "canned_greeting");
 
         conversation.warmPromptCache();
       }, 0);
@@ -1980,7 +1995,7 @@ export async function handleSendMessage(
     } finally {
       if (!cleanupDeferred && conversation.isProcessing()) {
         conversation.setProcessing(false);
-        silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
+        void conversation.kickDrainQueue("loop_complete", "send_error_path");
       }
     }
   }
@@ -2292,7 +2307,7 @@ export async function handleSendMessage(
         recordConversationPersistedSeq(conversationId, getCurrentSeq());
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.setProcessing(false);
-        silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
+        void conversation.kickDrainQueue("loop_complete", "slash_command");
       }, 0);
 
       cleanupDeferred = true;
@@ -2302,7 +2317,7 @@ export async function handleSendMessage(
       // setTimeout above), but still needed for error paths.
       if (!cleanupDeferred && conversation.isProcessing()) {
         conversation.setProcessing(false);
-        silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
+        void conversation.kickDrainQueue("loop_complete", "send_error_path");
       }
     }
   }
@@ -2329,12 +2344,12 @@ export async function handleSendMessage(
       // throw from this initial persist never reaches it — reset here so the
       // conversation isn't stranded in queued mode.
       conversation.setProcessing(false);
-      silentlyWithLog(conversation.drainQueue(), "compact-command queue drain");
+      void conversation.kickDrainQueue("loop_complete", "compact_command");
       throw err;
     }
     if (persisted.deduplicated) {
       conversation.setProcessing(false);
-      silentlyWithLog(conversation.drainQueue(), "compact-dedup queue drain");
+      void conversation.kickDrainQueue("loop_complete", "compact_dedup");
       return {
         accepted: true,
         messageId: persisted.id,
@@ -2384,10 +2399,7 @@ export async function handleSendMessage(
         });
       } finally {
         conversation.setProcessing(false);
-        silentlyWithLog(
-          conversation.drainQueue(),
-          "compact-command queue drain",
-        );
+        void conversation.kickDrainQueue("loop_complete", "compact_command");
       }
     })();
 
@@ -2465,7 +2477,7 @@ export async function handleSendMessage(
       };
     } finally {
       conversation.setProcessing(false);
-      silentlyWithLog(conversation.drainQueue(), "clean-command queue drain");
+      void conversation.kickDrainQueue("loop_complete", "clean_command");
     }
   }
 

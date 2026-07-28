@@ -24,7 +24,9 @@ export interface TwilioConfig {
 export function resolveTwilioPhoneNumber(): string {
   try {
     const config = loadConfig();
-    if (config.twilio?.phoneNumber) return config.twilio.phoneNumber;
+    if (config.twilio?.phoneNumber) {
+      return config.twilio.phoneNumber;
+    }
   } catch {
     // Config may not be available yet during early startup
   }

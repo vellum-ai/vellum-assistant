@@ -146,10 +146,14 @@ export function resolveVoiceRoomLook(
   traits: CharacterTraits | null,
   customImageUrl: string | null,
 ): VoiceRoomLook | null {
-  if (!components) return null;
+  if (!components) {
+    return null;
+  }
   // A custom uploaded image with no traits renders as the image avatar, not a
   // character — same precedence as ChatAvatar's `preferCharacter`.
-  if (!traits && customImageUrl) return null;
+  if (!traits && customImageUrl) {
+    return null;
+  }
   const effectiveTraits =
     traits ??
     (components.bodyShapes[0] && components.eyeStyles[0] && components.colors[0]
@@ -159,17 +163,23 @@ export function resolveVoiceRoomLook(
           color: components.colors[0].id,
         }
       : null);
-  if (!effectiveTraits) return null;
+  if (!effectiveTraits) {
+    return null;
+  }
   const eyeDef = components.eyeStyles.find(
     (e) => e.id === effectiveTraits.eyeStyle,
   );
   const bgHex = components.colors.find(
     (c) => c.id === effectiveTraits.color,
   )?.hex;
-  if (!eyeDef || eyeDef.paths.length === 0 || !bgHex) return null;
+  if (!eyeDef || eyeDef.paths.length === 0 || !bgHex) {
+    return null;
+  }
   const bbox = unionBBox(eyeDef.paths.map((p) => pathBBox(p.svgPath)));
   // Degenerate art (empty paths) would make the sizing math divide by zero.
-  if (bbox.w <= 0 || bbox.h <= 0) return null;
+  if (bbox.w <= 0 || bbox.h <= 0) {
+    return null;
+  }
   const bodyDef = components.bodyShapes.find(
     (b) => b.id === effectiveTraits.bodyShape,
   );
@@ -260,7 +270,10 @@ export function VoiceRoomColorLook({
 
   // Where the entrance grows from: the tapped control's viewport point, or the
   // fixed picker-height screen center when none was captured (or in Storybook).
-  const origin = entryOrigin ?? { x: w / 2, y: (ENTER_FROM_CENTER_VH / 100) * h };
+  const origin = entryOrigin ?? {
+    x: w / 2,
+    y: (ENTER_FROM_CENTER_VH / 100) * h,
+  };
 
   // Per-state treatments. The waveform is the user's live voice (listening
   // only). The eyes never move — they stay centered and express the state by
@@ -278,16 +291,20 @@ export function VoiceRoomColorLook({
   // the user transcript above, and pairing with the state caption further down
   // the lower zone. (Centered scaling, so the small eyes' bottom sits above the
   // full-size bottom by half the size loss.)
-  const thinkingEyeBottom = centeredEyeTop + eyeH - (eyeH * (1 - EYE_STATE_SCALE.thinking)) / 2;
+  const thinkingEyeBottom =
+    centeredEyeTop + eyeH - (eyeH * (1 - EYE_STATE_SCALE.thinking)) / 2;
 
   // Body grows to cover the screen end to end, from the small avatar size at
   // the entry origin — onboarding's Introduction grow, re-anchored to where the
   // user tapped. The body's rest center is the screen center (w/2, h/2), so it
   // starts offset by (origin − center) and slides to 0.
   const bodyGeometry = useMemo(() => {
-    if (!look.body) return null;
+    if (!look.body) {
+      return null;
+    }
     const coverSize = 1.25 * Math.max(w, h);
-    const coverH = (coverSize * look.body.viewBox.height) / look.body.viewBox.width;
+    const coverH =
+      (coverSize * look.body.viewBox.height) / look.body.viewBox.width;
     return {
       coverSize,
       coverH,
@@ -589,9 +606,13 @@ function useRespondingAmp(getAmplitude?: () => number) {
     getRef.current = getAmplitude;
   }, [getAmplitude]);
   useEffect(() => {
-    if (reduce) return;
+    if (reduce) {
+      return;
+    }
     const node = ref.current;
-    if (!node) return;
+    if (!node) {
+      return;
+    }
     const smoother = createAmplitudeSmoother({ attackMs: 90, releaseMs: 260 });
     let raf = 0;
     let lastTime = performance.now();
@@ -707,12 +728,19 @@ function VoiceRespondingTreatment({
           }}
           initial={reduce ? false : { scale: 0.4, opacity: 0.55 }}
           animate={
-            reduce ? { opacity: 0.2 } : { scale: [0.4, 1.75], opacity: [0.55, 0] }
+            reduce
+              ? { opacity: 0.2 }
+              : { scale: [0.4, 1.75], opacity: [0.55, 0] }
           }
           transition={
             reduce
               ? { duration: 0 }
-              : { duration: 2.4, repeat: Infinity, ease: "easeOut", delay: i * 0.8 }
+              : {
+                  duration: 2.4,
+                  repeat: Infinity,
+                  ease: "easeOut",
+                  delay: i * 0.8,
+                }
           }
         />
       ))}
@@ -807,7 +835,9 @@ export function VoiceRoomEyes({
 
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   useEffect(() => {
-    if (reduce) return;
+    if (reduce) {
+      return;
+    }
     const onMove = (e: MouseEvent) => {
       setPointer({
         x: (e.clientX / window.innerWidth - 0.5) * 2,
@@ -823,14 +853,20 @@ export function VoiceRoomEyes({
   const [blinking, setBlinking] = useState(false);
   const [entranceDone, setEntranceDone] = useState(!playEntrance);
   useEffect(() => {
-    if (reduce || !entranceDone) return;
+    if (reduce || !entranceDone) {
+      return;
+    }
     let cancelled = false;
     let t: ReturnType<typeof setTimeout>;
     const blink = (next: () => void) => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       setBlinking(true);
       t = setTimeout(() => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         setBlinking(false);
         t = setTimeout(next, 140);
       }, 140);
@@ -891,7 +927,15 @@ export function VoiceRoomEyes({
       h,
       { x: originX, y: originY },
     );
-    return { eyesW, eyesH, left: (w - eyesW) / 2, restTop, startX, startY, dipY };
+    return {
+      eyesW,
+      eyesH,
+      left: (w - eyesW) / 2,
+      restTop,
+      startX,
+      startY,
+      dipY,
+    };
   }, [art, w, h, placement, originX, originY]);
 
   const cx = art.bbox.x + art.bbox.w / 2;
@@ -957,7 +1001,9 @@ export function VoiceRoomEyes({
         style={{ transformOrigin: "center" }}
         animate={{ scale: sizeScale }}
         transition={
-          reduce ? { duration: 0 } : { duration: EYE_RESIZE_MS / 1000, ease: "easeInOut" }
+          reduce
+            ? { duration: 0 }
+            : { duration: EYE_RESIZE_MS / 1000, ease: "easeInOut" }
         }
       >
         {/* The opacity fades the eyes back while reconnecting. */}

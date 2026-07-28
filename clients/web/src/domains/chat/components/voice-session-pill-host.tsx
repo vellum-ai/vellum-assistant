@@ -13,14 +13,17 @@
  *
  * Visibility is the exact complement of the owning-composer voice surface — the
  * one the full-screen voice room also renders against — so that in the main
- * window, for any active session, exactly one of {room, pill} renders. Both
- * derive from the shared {@link useOwningComposerSurfaceVisible} predicate
- * (session active AND the on-screen composer owns it): the pill shows when a
- * session is active and it is `false`, the room when it is `true` and this is
- * the main window. Because the pill keys off that popout-free primitive (not
- * the room's own `!isPopout` gate), a headerless pop-out's standalone pill
- * still hides while the composer's voice bar owns the session — no double
- * control. Concretely, the pill shows when:
+ * window, for any active session, exactly one of {room, voice bar, pill} is
+ * the visible control. The room and the pill both derive from the shared
+ * {@link useOwningComposerSurfaceVisible} predicate (session active AND the
+ * on-screen composer owns it): the pill shows when a session is active and it
+ * is `false`; the room when it is `true`, this is the main window, and the
+ * room is not minimized. Because the pill keys off that primitive alone — not
+ * the room's own `!isPopout` / `!roomMinimized` gates — a headerless
+ * pop-out's standalone pill still hides while the composer's voice bar owns
+ * the session, and minimizing the room on the owning thread hands control to
+ * the voice bar underneath, not the pill — no double control. Concretely, the
+ * pill shows when:
  *
  * - the user is viewing a different conversation than the session's,
  * - the user is off the chat routes entirely (Home, Library, …) or on a
@@ -41,7 +44,8 @@
  * A session not yet attached to a conversation (started from a draft, before
  * the server's `ready` frame) still shows the pill when the user is away from
  * the owning composer — a live mic must always have a visible control — just
- * without a thread name or navigation target.
+ * without a navigation target, leaving its waves inert rather than a dead
+ * button.
  *
  * A `failed` session unmounts the pill (no longer active), but the failure
  * must not vanish silently: when no composer is on screen to render its
@@ -56,6 +60,10 @@
  * re-arms). A manual session's `interrupt()` ends the whole session,
  * contradicting the control's "without ending the session" contract, so
  * there the pill offers only ✕ (end).
+ *
+ * The pill is textless and takes no thread title, so nothing here resolves
+ * the owning conversation row. Only `conversationId` matters, and only to
+ * decide whether the waves navigate.
  */
 
 import { useCallback } from "react";
@@ -68,7 +76,6 @@ import {
   VoiceSessionErrorChip,
   VoiceSessionPill,
 } from "@/domains/chat/components/voice-session-pill";
-import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useComposerOnScreen } from "@/domains/chat/hooks/use-composer-on-screen";
 import {
   LIVE_VOICE_STATE_LABELS,
@@ -76,12 +83,13 @@ import {
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   isLiveVoiceSessionActive,
-  releaseLiveVoiceTurn,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useOwningComposerSurfaceVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
+import { resolveWaveAccentHex } from "@/domains/chat/voice/voice-room/wave-accent";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 
 export interface VoiceSessionPillHostProps {
   /**
@@ -92,6 +100,30 @@ export interface VoiceSessionPillHostProps {
    * there is neither an active session to control nor a failure to surface.
    */
   variant?: "header" | "standalone";
+}
+
+/**
+ * Whether this host renders anything — an active-session pill, or the failure
+ * chip that replaces it.
+ *
+ * Exported so the header can size its right cluster against a *live* session
+ * without re-deriving the rules (`ChatLayoutHeader` collapses its other
+ * controls behind an overflow menu once the pill occupies the row). The host
+ * consumes the same hook, so the two can never disagree about whether the
+ * slot is occupied.
+ */
+export function useVoiceSessionPillPresence(): {
+  visible: boolean;
+  showFailure: boolean;
+} {
+  const state = useLiveVoiceStore.use.state();
+  const error = useLiveVoiceStore.use.error();
+  const composerOnScreen = useComposerOnScreen();
+  const owningSurfaceVisible = useOwningComposerSurfaceVisible();
+  return {
+    visible: isLiveVoiceSessionActive(state) && !owningSurfaceVisible,
+    showFailure: state === "failed" && error !== null && !composerOnScreen,
+  };
 }
 
 export function VoiceSessionPillHost({
@@ -109,33 +141,32 @@ export function VoiceSessionPillHost({
 
   const navigate = useNavigate();
 
-  const sessionActive = isLiveVoiceSessionActive(state);
-  // Shared with the voice room (see `use-composer-on-screen.ts`): a conversation
-  // chat route is mounted and not covered by the desktop fullscreen app viewer.
-  // The strict chat predicate matters — conversation subroutes like the
-  // inspector (`/assistant/conversations/:id/inspect`) render no composer, so
-  // the pill must stay up there even for the owning conversation. Retained here
-  // only for the failure surface below — the pill's own visibility keys off the
-  // owning-composer surface primitive.
-  const composerOnScreen = useComposerOnScreen();
-  // Exact complement of the owning-composer voice surface: the pill shows for an
-  // active session precisely when that surface is NOT on screen. Both derive
-  // from the one shared predicate so they can never drift. This is the room's
-  // popout-free core — so in a pop-out the pill still hides while the composer's
-  // voice bar owns the session (the room itself never renders there).
-  const owningSurfaceVisible = useOwningComposerSurfaceVisible();
-  const visible = sessionActive && !owningSurfaceVisible;
-  // Failure surface: exact complement of the composer's failure Notice, which
-  // any on-screen voice-enabled composer renders regardless of ownership.
-  const showFailure = state === "failed" && error !== null && !composerOnScreen;
+  // Both flags come from the shared hook above:
+  //
+  // - `visible` is the exact complement of the owning-composer voice surface —
+  //   the pill shows for an active session precisely when that surface is NOT
+  //   on screen. This is the room's popout-free core, so in a pop-out the pill
+  //   still hides while the composer's voice bar owns the session.
+  // - `showFailure` is the exact complement of the composer's failure Notice,
+  //   which any on-screen voice-enabled composer renders regardless of
+  //   ownership. Its `useComposerOnScreen` predicate is the strict one:
+  //   conversation subroutes like the inspector
+  //   (`/assistant/conversations/:id/inspect`) render no composer, so the
+  //   chip must stay up there even for the owning conversation.
+  const { visible, showFailure } = useVoiceSessionPillPresence();
 
-  // Resolves the owning row from whichever list cache holds it, fetching the
-  // single row when absent. Enabled only while the pill is shown so hidden
-  // states cost nothing.
-  const owningConversation = useActiveConversation(
-    sessionAssistantId,
-    sessionConversationId,
-    visible && sessionConversationId !== null,
+  // Wave accent for the pill's listening waves — the same avatar-matched tint
+  // the room resolves (see wave-accent.ts). Fetch-gated to a visible pill;
+  // the query is shared with every other avatar consumer.
+  const {
+    components: avatarComponents,
+    traits: avatarTraits,
+    customImageUrl: avatarCustomImageUrl,
+  } = useAssistantAvatar(visible ? sessionAssistantId : null);
+  const waveAccentHex = resolveWaveAccentHex(
+    avatarComponents,
+    avatarTraits,
+    avatarCustomImageUrl,
   );
 
   const handleNavigate = useCallback(() => {
@@ -145,25 +176,28 @@ export function VoiceSessionPillHost({
   }, [navigate, sessionConversationId]);
 
   let content: ReactNode = null;
-  if (showFailure) {
+  // `showFailure` already implies a non-null `error`; repeating the check here
+  // is what re-narrows the type for the chip, since the flag now arrives from
+  // the shared hook rather than an inline comparison.
+  if (showFailure && error !== null) {
     content = (
-      <VoiceSessionErrorChip message={error} onDismiss={dismissLiveVoiceFailure} />
+      <VoiceSessionErrorChip
+        message={error}
+        onDismiss={dismissLiveVoiceFailure}
+      />
     );
   } else if (visible) {
     content = (
       <VoiceSessionPill
         primaryLabel={muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
-        secondaryLabel={
-          owningConversation ? (owningConversation.title ?? "Untitled") : undefined
-        }
         state={state}
         getAmplitude={getLiveVoiceInputAmplitude}
         muted={muted}
         onToggleMute={() => setLiveVoiceMuted(!muted)}
         onStop={handsFree ? stopLiveVoiceResponse : undefined}
         onEnd={endLiveVoiceSession}
-        onSend={releaseLiveVoiceTurn}
         onNavigate={sessionConversationId ? handleNavigate : undefined}
+        waveAccentHex={waveAccentHex}
       />
     );
   }

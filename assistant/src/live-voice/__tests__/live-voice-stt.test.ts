@@ -178,7 +178,9 @@ async function waitFor(
   message = "Timed out waiting for live voice STT test condition",
 ): Promise<void> {
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(message);
@@ -394,7 +396,9 @@ describe("LiveVoiceSession STT", () => {
     let resolverCalls = 0;
     const resolver: LiveVoiceStreamingTranscriberResolver = mock(async () => {
       resolverCalls += 1;
-      if (resolverCalls === 1) return firstTranscriber;
+      if (resolverCalls === 1) {
+        return firstTranscriber;
+      }
       return new Promise<StreamingTranscriber | null>(() => {});
     });
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
@@ -431,7 +435,9 @@ describe("LiveVoiceSession STT", () => {
     let resolverCalls = 0;
     const resolver: LiveVoiceStreamingTranscriberResolver = mock(async () => {
       resolverCalls += 1;
-      if (resolverCalls === 1) return new MockStreamingTranscriber();
+      if (resolverCalls === 1) {
+        return new MockStreamingTranscriber();
+      }
       throw new Error("next stt unavailable");
     });
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {

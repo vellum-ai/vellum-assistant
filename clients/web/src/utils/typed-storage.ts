@@ -97,7 +97,9 @@ export interface KeyedStorageAccessor<T> {
 // ---------------------------------------------------------------------------
 
 function readRaw(key: string): string | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined") {
+    return null;
+  }
   try {
     return localStorage.getItem(key);
   } catch {
@@ -167,7 +169,9 @@ export function createStorageAccessor<T>(
 
   function load(): T {
     const raw = readRaw(key);
-    if (raw === cachedRaw) return cachedValue;
+    if (raw === cachedRaw) {
+      return cachedValue;
+    }
     cachedRaw = raw;
     if (raw === null) {
       cachedValue = fallback;
@@ -241,7 +245,9 @@ export function createKeyedStorageAccessor<T>(
 
   function load(id: string): T {
     const raw = readRaw(keyFn(id));
-    if (raw === null) return fallback;
+    if (raw === null) {
+      return fallback;
+    }
     try {
       const parsed = parse(raw);
       return parsed !== null ? parsed : fallback;
@@ -345,7 +351,9 @@ export function createRecordStorageAccessor<V>(
 
   function load(id: string): Record<string, V> {
     const raw = readRaw(keyFn(id));
-    if (raw === null) return { ...fallback };
+    if (raw === null) {
+      return { ...fallback };
+    }
     return parseRecord(raw) ?? { ...fallback };
   }
 

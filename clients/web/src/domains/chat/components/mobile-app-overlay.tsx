@@ -101,21 +101,23 @@ export function MobileAppOverlay({
         // starts below the padding) re-enables pointer events for the strip.
         isAppMinimized && "pointer-events-none",
       )}
-      style={{
-        ...shellStyle,
-        // `--drag-y` is 0 at rest and tracks the finger during a swipe. It
-        // composes with the resting translateY so the overlay follows the
-        // finger, then springs back (or animates to the new resting state on
-        // commit) when the transition re-enables.
-        "--drag-y": `${dragOffset}px`,
-        transform: isAppMinimized
-          ? "translateY(calc(100% - var(--app-strip-h, 64px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) - var(--overlay-safe-area-bottom, 0px) + var(--drag-y, 0px)))"
-          : "translateY(var(--drag-y, 0px))",
-        // Disable the CSS transition while dragging so the overlay tracks the
-        // finger 1:1; re-enable it on release for the spring-back / commit
-        // animation.
-        transition: isDragging ? "none" : undefined,
-      } as CSSProperties}
+      style={
+        {
+          ...shellStyle,
+          // `--drag-y` is 0 at rest and tracks the finger during a swipe. It
+          // composes with the resting translateY so the overlay follows the
+          // finger, then springs back (or animates to the new resting state on
+          // commit) when the transition re-enables.
+          "--drag-y": `${dragOffset}px`,
+          transform: isAppMinimized
+            ? "translateY(calc(100% - var(--app-strip-h, 64px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) - var(--overlay-safe-area-bottom, 0px) + var(--drag-y, 0px)))"
+            : "translateY(var(--drag-y, 0px))",
+          // Disable the CSS transition while dragging so the overlay tracks the
+          // finger 1:1; re-enable it on release for the spring-back / commit
+          // animation.
+          transition: isDragging ? "none" : undefined,
+        } as CSSProperties
+      }
     >
       {/* The minimized strip overlays the chat, so it needs a top-directional
           shadow to read as a layer above it. The shadow lives on this inner

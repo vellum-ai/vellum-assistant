@@ -24,7 +24,9 @@ function resolveBaseUrl(optionBaseUrl?: string): string {
   for (const candidate of [optionBaseUrl, getOllamaBaseUrlEnv()]) {
     if (typeof candidate === "string") {
       const trimmed = candidate.trim();
-      if (trimmed.length > 0) return trimmed;
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
     }
   }
   return DEFAULT_OLLAMA_BASE_URL;

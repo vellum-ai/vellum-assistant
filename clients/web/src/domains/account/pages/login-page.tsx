@@ -1,10 +1,24 @@
 import { useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link } from "react-router";
 
 import { NativeSplash } from "@/components/native-splash";
-import { DarkLoginShell, LoginCard, LoginErrorText, LoginHeading } from "@/domains/account/components/login-shell";
-import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
-import { startAuthFlow, startNativeLogin, useIsNativePlatform } from "@/runtime/native-auth";
+import { AuthWaitSpinner } from "@/domains/account/components/auth-wait-spinner";
+import {
+  DarkLoginShell,
+  LoginCard,
+  LoginErrorText,
+  LoginHeading,
+} from "@/domains/account/components/login-shell";
+import { useReturnToShortCircuit } from "@/domains/account/hooks/use-return-to-short-circuit";
+import {
+  PROVIDER_ID,
+  buildProviderCallbackUrl,
+} from "@/domains/account/login-flow";
+import {
+  startAuthFlow,
+  startNativeLogin,
+  useIsNativePlatform,
+} from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library";
 
@@ -46,7 +60,8 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
             ? err.data.authError
             : undefined;
         setErrorMessage(
-          (errorKey && AUTH_ERROR_MESSAGES[errorKey]) ?? "Something went wrong. Please try again.",
+          (errorKey && AUTH_ERROR_MESSAGES[errorKey]) ??
+            "Something went wrong. Please try again.",
         );
       } else {
         console.error("[native-auth] auth flow failed:", err);
@@ -64,7 +79,9 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
     <NativeSplash>
       <div className="z-10 mt-8 flex w-full max-w-[320px] flex-col items-center gap-3">
         {errorMessage && (
-          <LoginErrorText className="max-w-[280px]">{errorMessage}</LoginErrorText>
+          <LoginErrorText className="max-w-[280px]">
+            {errorMessage}
+          </LoginErrorText>
         )}
         <Button
           type="button"
@@ -144,12 +161,30 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
  *
  * Delegates to `NativeLoginForm` (Capacitor iOS) or `WebLoginForm`
  * (standard browser / Electron) based on platform detection.
+ *
+ * `useReturnToShortCircuit` owns whether an existing session skips OAuth and
+ * lands on the `returnTo` destination directly — the same decision
+ * `SignupPage` makes. Only the loading shell differs.
  */
 export function LoginPage() {
-  const [searchParams] = useSearchParams();
   const isNative = useIsNativePlatform();
-  const returnTo = searchParams.get("returnTo");
+  const shortCircuit = useReturnToShortCircuit();
 
-  if (isNative) return <NativeLoginForm returnTo={returnTo} />;
-  return <WebLoginForm returnTo={returnTo} />;
+  if (shortCircuit.kind === "wait") {
+    return isNative ? (
+      <NativeSplash />
+    ) : (
+      <DarkLoginShell>
+        <AuthWaitSpinner />
+      </DarkLoginShell>
+    );
+  }
+  if (shortCircuit.kind === "redirect") {
+    return shortCircuit.node;
+  }
+
+  if (isNative) {
+    return <NativeLoginForm returnTo={shortCircuit.returnTo} />;
+  }
+  return <WebLoginForm returnTo={shortCircuit.returnTo} />;
 }

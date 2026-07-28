@@ -16,7 +16,7 @@
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import { usesConceptPageMemory } from "../../config/memory-v3-gate.js";
+import { isMemoryV1Active } from "../../config/memory-v3-gate.js";
 import { getMemoryCheckpoint } from "../../persistence/checkpoints.js";
 import {
   enqueueMemoryJob,
@@ -29,12 +29,12 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 function isFilingAvailable(): boolean {
   const config = getConfig();
-  // Filing runs through the memory jobs worker, whose slow lane is parked
-  // while memory is disabled — an enqueued job would sit pending forever, so
-  // report unavailable (and reject run-now) rather than queue dead work.
-  return (
-    config.memory.enabled !== false && !usesConceptPageMemory(config.memory)
-  );
+  // PKB filing is v1 work, so it is available on exactly the v1 tier. That
+  // covers both cases the docstring names: under concept-page memory filing
+  // yields to consolidation, and while memory is disabled the jobs worker's
+  // slow lane is parked, so an enqueued job would sit pending forever. Report
+  // unavailable (and reject run-now) rather than queue dead work.
+  return isMemoryV1Active(config);
 }
 
 // ---------------------------------------------------------------------------

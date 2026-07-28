@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   createSurfaceMutex,
   type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
 import type {
-  AssistantEvent,
   CardSurfaceData,
   DynamicPageSurfaceData,
   SurfaceType,

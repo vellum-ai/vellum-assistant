@@ -60,11 +60,18 @@ function entryToPlain(
     out.displayNameLong = entry.displayNameLong;
   }
   out.kind = entry.kind;
-  if (entry.apiKeyPrefix !== undefined) out.apiKeyPrefix = entry.apiKeyPrefix;
-  if (entry.envVar !== undefined) out.envVar = entry.envVar;
-  if (entry.secretKey !== undefined) out.secretKey = entry.secretKey;
-  if (entry.fallbackOrder !== undefined)
+  if (entry.apiKeyPrefix !== undefined) {
+    out.apiKeyPrefix = entry.apiKeyPrefix;
+  }
+  if (entry.envVar !== undefined) {
+    out.envVar = entry.envVar;
+  }
+  if (entry.secretKey !== undefined) {
+    out.secretKey = entry.secretKey;
+  }
+  if (entry.fallbackOrder !== undefined) {
     out.fallbackOrder = entry.fallbackOrder;
+  }
   if (entry.privacyPolicyUrl !== undefined) {
     out.privacyPolicyUrl = entry.privacyPolicyUrl;
   }

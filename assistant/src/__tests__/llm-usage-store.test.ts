@@ -1739,12 +1739,14 @@ describe("queryUnreportedUsageEvents", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Conversation-level metadata (conversationType + turnIndex). These are
-  // JOIN-computed at telemetry-query time so the reporter can emit them on
-  // the wire without persisting extra columns on `llm_usage_events`.
+  // Conversation-level metadata (conversationType + turnIndex).
+  // `conversationType` is stamped on the row at record time (so it survives
+  // deletion of the parent conversation before flush) with a JOIN fallback
+  // for pre-migration rows; `turnIndex` is JOIN-computed at telemetry-query
+  // time.
   // -------------------------------------------------------------------------
 
-  test("conversationType is JOINed from the conversations table", () => {
+  test("conversationType resolves from the conversations table", () => {
     const db = getDb();
     const now = Date.now();
     db.run(
@@ -1764,6 +1766,67 @@ describe("queryUnreportedUsageEvents", () => {
     expect(events[1].conversationType).toBe("background");
     // LLM calls without a parent conversation get null — LEFT JOIN, not INNER.
     expect(events[2].conversationType).toBeNull();
+  });
+
+  test("conversationType is stamped on the row at record time", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-stamp', 'background', ${now}, ${now})`,
+    );
+
+    const event = recordUsageEvent(
+      makeInput({ conversationId: "conv-stamp" }),
+      pricedResult,
+    );
+
+    const row = getSqlite()
+      .query("SELECT conversation_type FROM llm_usage_events WHERE id = ?")
+      .get(event.id) as { conversation_type: string | null } | null;
+    expect(row?.conversation_type).toBe("background");
+  });
+
+  test("conversationType survives deletion of the parent conversation before flush", () => {
+    // Reproduces the memory-retrospective NULL-label bug: the retrospective
+    // runs in a `background` fork conversation whose row is GC'd once a
+    // newer run supersedes it (or immediately on wake failure). Usage rows
+    // flushed after that deletion carried a conversation_id but a null
+    // conversation_type, because the type was derived only via a flush-time
+    // JOIN. Same mechanism covers users deleting a standard conversation
+    // within the flush window (the mainAgent NULL case).
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-gone', 'background', ${now}, ${now})`,
+    );
+    insertEventAt(1000, {
+      conversationId: "conv-gone",
+      callSite: "memoryRetrospective",
+    });
+
+    db.run(`DELETE FROM conversations WHERE id = 'conv-gone'`);
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].conversationId).toBe("conv-gone");
+    expect(events[0].conversationType).toBe("background");
+  });
+
+  test("conversationType falls back to the JOIN for pre-migration rows", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-legacy', 'scheduled', ${now}, ${now})`,
+    );
+    insertEventAt(1000, { conversationId: "conv-legacy" });
+    // Simulate a row persisted before migration 353 stamped the column.
+    db.run(
+      `UPDATE llm_usage_events SET conversation_type = NULL WHERE conversation_id = 'conv-legacy'`,
+    );
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].conversationType).toBe("scheduled");
   });
 
   test("turnIndex counts real user turns up to the LLM call's createdAt", () => {

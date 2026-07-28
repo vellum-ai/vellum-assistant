@@ -38,7 +38,9 @@ export function migrateRemindersToSchedules(database: DrizzleDb): void {
       "SELECT name FROM sqlite_master WHERE type='table' AND name='reminders'",
     )
     .get();
-  if (!hasReminders) return;
+  if (!hasReminders) {
+    return;
+  }
 
   // Read all reminders into memory. We use the reminder's original ID as
   // the cron_jobs primary key so that INSERT OR IGNORE deduplicates
@@ -57,7 +59,9 @@ export function migrateRemindersToSchedules(database: DrizzleDb): void {
     updated_at: number;
   }>;
 
-  if (reminders.length === 0) return;
+  if (reminders.length === 0) {
+    return;
+  }
 
   const insert = raw.query(/*sql*/ `
       INSERT OR IGNORE INTO cron_jobs (

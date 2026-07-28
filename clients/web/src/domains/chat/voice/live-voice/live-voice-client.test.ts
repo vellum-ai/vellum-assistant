@@ -35,8 +35,9 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
       const { token } = await mintResult;
       const url = new URL(`wss://velay.vellum.ai/${assistantId}/v1/live-voice`);
       url.searchParams.set("token", token);
-      if (conversationId)
+      if (conversationId) {
         url.searchParams.set("conversationId", conversationId);
+      }
       return url.toString();
     },
   ),
@@ -147,7 +148,9 @@ async function connectAndGetSocket(
 ): Promise<FakeWebSocket> {
   await client.connect(args);
   const ws = FakeWebSocket.instances.at(-1);
-  if (!ws) throw new Error("no WebSocket was constructed");
+  if (!ws) {
+    throw new Error("no WebSocket was constructed");
+  }
   return ws;
 }
 
@@ -403,7 +406,7 @@ describe("server frame dispatch", () => {
     expect(got.archived).toHaveLength(1);
   });
 
-  test("dispatches speech_started / utterance_end / utterance_discarded / turn_cancelled to their events", async () => {
+  test("dispatches speech_started / utterance_end / utterance_discarded / turn_cancelled / minimize_room to their events", async () => {
     const { client, ws } = await ready();
 
     const { got, record } = makeRecorder();
@@ -411,12 +414,14 @@ describe("server frame dispatch", () => {
     client.on("utteranceEnd", record("utteranceEnd"));
     client.on("utteranceDiscarded", record("utteranceDiscarded"));
     client.on("turnCancelled", record("turnCancelled"));
+    client.on("minimizeRoom", record("minimizeRoom"));
 
     ws.receive({ type: "speech_started", seq: 2 });
     ws.receive({ type: "utterance_end", seq: 3, reason: "silence" });
     ws.receive({ type: "utterance_end", seq: 4, reason: "max-duration" });
     ws.receive({ type: "utterance_discarded", seq: 5 });
     ws.receive({ type: "turn_cancelled", seq: 6, turnId: "t1" });
+    ws.receive({ type: "minimize_room", seq: 7, turnId: "t1" });
 
     expect(got.speechStarted).toEqual([{ type: "speech_started", seq: 2 }]);
     expect(got.utteranceEnd).toEqual([
@@ -428,6 +433,9 @@ describe("server frame dispatch", () => {
     ]);
     expect(got.turnCancelled).toEqual([
       { type: "turn_cancelled", seq: 6, turnId: "t1" },
+    ]);
+    expect(got.minimizeRoom).toEqual([
+      { type: "minimize_room", seq: 7, turnId: "t1" },
     ]);
   });
 

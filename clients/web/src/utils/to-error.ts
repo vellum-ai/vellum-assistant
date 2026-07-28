@@ -7,6 +7,8 @@
  * `catch (e: unknown)` in TypeScript without unsafe casts.
  */
 export function toError(error: unknown, fallback: string): Error {
-  if (error instanceof Error) return error;
+  if (error instanceof Error) {
+    return error;
+  }
   return new Error(fallback);
 }

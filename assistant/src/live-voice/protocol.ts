@@ -22,6 +22,7 @@ const _LIVE_VOICE_SERVER_FRAME_TYPES = [
   "tts_audio",
   "tts_done",
   "turn_cancelled",
+  "minimize_room",
   "metrics",
   "archived",
   "error",
@@ -242,6 +243,18 @@ export interface LiveVoiceTurnCancelledServerFrame extends LiveVoiceServerFrameB
   readonly turnId: string;
 }
 
+/**
+ * Assistant-requested room minimize: the just-completed turn asked (via the
+ * inline [-1] control marker) for the client to dismiss the full-screen
+ * voice room so the user can see the screen behind it. Sent only after the
+ * turn's TTS has fully drained, at most once per turn. Advisory — clients
+ * without a room (pop-outs, older clients) ignore it.
+ */
+export interface LiveVoiceMinimizeRoomServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "minimize_room";
+  readonly turnId: string;
+}
+
 export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "metrics";
   readonly event?: string;
@@ -312,6 +325,7 @@ export type LiveVoiceServerFrame =
   | LiveVoiceTtsAudioServerFrame
   | LiveVoiceTtsDoneServerFrame
   | LiveVoiceTurnCancelledServerFrame
+  | LiveVoiceMinimizeRoomServerFrame
   | LiveVoiceMetricsServerFrame
   | LiveVoiceArchivedServerFrame
   | LiveVoiceErrorServerFrame;
@@ -331,6 +345,7 @@ export type LiveVoiceServerFramePayload =
   | WithoutSeq<LiveVoiceTtsAudioServerFrame>
   | WithoutSeq<LiveVoiceTtsDoneServerFrame>
   | WithoutSeq<LiveVoiceTurnCancelledServerFrame>
+  | WithoutSeq<LiveVoiceMinimizeRoomServerFrame>
   | WithoutSeq<LiveVoiceMetricsServerFrame>
   | WithoutSeq<LiveVoiceArchivedServerFrame>
   | WithoutSeq<LiveVoiceErrorServerFrame>;
@@ -535,7 +550,9 @@ function validateStartFrame(
 
   const audio = value.audio;
   const audioConfig = validateAudioConfig(audio);
-  if (!audioConfig.ok) return audioConfig;
+  if (!audioConfig.ok) {
+    return audioConfig;
+  }
 
   if ("conversationId" in value && !isNonEmptyString(value.conversationId)) {
     return protocolError(
@@ -742,7 +759,9 @@ function isPositiveInteger(value: unknown): value is number {
 }
 
 function isValidBase64Payload(value: string): boolean {
-  if (value.length === 0 || value.length % 4 !== 0) return false;
+  if (value.length === 0 || value.length % 4 !== 0) {
+    return false;
+  }
   return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
     value,
   );

@@ -1,4 +1,3 @@
-
 import { useEffect } from "react";
 
 /**
@@ -65,8 +64,12 @@ export function useOptionHotkeys(
   const onClose = extras?.onClose;
 
   useEffect(() => {
-    if (!enabled) return;
-    if (typeof window === "undefined") return;
+    if (!enabled) {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
 
     const handler = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) {
@@ -111,9 +114,13 @@ export function useOptionHotkeys(
       // Only single-character digit keys. `event.key` is the rendered
       // character, so this naturally rejects "Digit1" with modifiers that
       // produce e.g. "!" on US layouts.
-      if (event.key.length !== 1) return;
+      if (event.key.length !== 1) {
+        return;
+      }
       const digit = Number(event.key);
-      if (!Number.isInteger(digit) || digit < 1 || digit > 9) return;
+      if (!Number.isInteger(digit) || digit < 1 || digit > 9) {
+        return;
+      }
 
       if (digit <= optionCount) {
         event.preventDefault();
@@ -130,5 +137,14 @@ export function useOptionHotkeys(
     return () => {
       window.removeEventListener("keydown", handler);
     };
-  }, [optionCount, onSelect, onFreeText, enabled, onPrev, onNext, onSkip, onClose]);
+  }, [
+    optionCount,
+    onSelect,
+    onFreeText,
+    enabled,
+    onPrev,
+    onNext,
+    onSkip,
+    onClose,
+  ]);
 }

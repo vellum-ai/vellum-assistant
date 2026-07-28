@@ -5,8 +5,7 @@ import { useOrganizationStore } from "@/stores/organization-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 
 export type CreatePlatformAssistantResult =
-  | { ok: true; id: string }
-  | { ok: false; error: string };
+  { ok: true; id: string } | { ok: false; error: string };
 
 /**
  * Create a new managed (platform-hosted) assistant and switch to it.

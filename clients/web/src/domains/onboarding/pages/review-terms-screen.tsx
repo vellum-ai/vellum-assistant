@@ -3,29 +3,30 @@ import { useCallback, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import {
-    AgreementsCard,
-    PrivacyPreferencesCard,
+  AgreementsCard,
+  PrivacyPreferencesCard,
 } from "@/domains/onboarding/components/consent-controls";
 import {
-    privacyChangeNotes,
-    tosChangeNotes,
+  privacyChangeNotes,
+  tosChangeNotes,
 } from "@/domains/onboarding/consent-changelog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
-    useAnalyticsConsentCurrent,
-    useDiagnosticsConsentCurrent,
-    usePrivacyConsent,
-    useShareAnalytics,
-    useShareDiagnostics,
-    useTosAccepted,
+  useAnalyticsConsentCurrent,
+  useDiagnosticsConsentCurrent,
+  useHasConsentRecord,
+  usePrivacyConsent,
+  useShareAnalytics,
+  useShareDiagnostics,
+  useTosAccepted,
 } from "@/domains/onboarding/prefs";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import {
-    PRIVACY_CONSENT_VERSION,
-    TOS_CONSENT_VERSION,
-    saveConsent,
+  PRIVACY_CONSENT_VERSION,
+  TOS_CONSENT_VERSION,
+  saveConsent,
 } from "@/lib/consent/consent-persistence";
 import { sanitizeReturnTo } from "@/utils/return-to";
 import { routes } from "@/utils/routes";
@@ -45,6 +46,7 @@ export function ReviewTermsScreen() {
   const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
   const [analyticsConsentCurrent] = useAnalyticsConsentCurrent();
   const [diagnosticsConsentCurrent] = useDiagnosticsConsentCurrent();
+  const hasConsentRecord = useHasConsentRecord();
   // Never-asked (null) displays as on: both toggles are opt-out, so an
   // unchosen toggle is effectively enabled.
   const shareAnalyticsChecked = shareAnalytics ?? true;
@@ -66,18 +68,35 @@ export function ReviewTermsScreen() {
     !privacyStaleAtMount &&
     !analyticsStaleAtMount &&
     !diagnosticsStaleAtMount;
+  // No consent record at all means this user never consented (e.g. arrived
+  // with an assistant via the bring-your-agent import, which replaces
+  // onboarding). Present first-time consent framing, not the "we've updated
+  // our terms" re-review framing — there is no baseline to diff against.
+  //
+  // Keyed off the explicit record signal, NOT off the two staleness flags:
+  // those carry version currency, so an established user whose acceptances
+  // predate BOTH current required versions has both stale and would otherwise
+  // be misread as never-consented — losing the "what's changed" notes that are
+  // the whole point of their re-review.
+  //
+  // Snapshotted at mount for the same reason as the staleness flags above: a
+  // sync landing mid-visit must not re-frame the page or unmount the
+  // diagnostics toggle while the user is using it.
+  const [firstConsentAtMount] = useState(() => !hasConsentRecord);
   const showTos = tosStaleAtMount || nothingStaleAtMount;
   const showPrivacy = privacyStaleAtMount || nothingStaleAtMount;
   const showAnalytics = analyticsStaleAtMount || nothingStaleAtMount;
-  const showDiagnostics = diagnosticsStaleAtMount || nothingStaleAtMount;
+  // A first-consent user (bring-your-agent) skips the onboarding privacy
+  // screen entirely, so review-terms is where they first choose diagnostics
+  // sharing. Their *Current flags read never-asked as "nothing to re-review"
+  // (true), so diagnosticsStaleAtMount is false — surface the toggle anyway to
+  // match the onboarding privacy screen (diagnostics-only; analytics stays
+  // null until an explicit opt-in, so showAnalytics is deliberately not forced
+  // here).
+  const showDiagnostics =
+    diagnosticsStaleAtMount || nothingStaleAtMount || firstConsentAtMount;
   const onlyTogglesStaleAtMount =
     !nothingStaleAtMount && !tosStaleAtMount && !privacyStaleAtMount;
-  // Both legal docs unaccepted at mount means this user never consented at
-  // all (e.g. arrived with an assistant via the bring-your-agent import,
-  // which replaces onboarding). Present first-time consent framing, not the
-  // "we've updated our terms" re-review framing — there is no baseline to
-  // diff against.
-  const firstConsentAtMount = tosStaleAtMount && privacyStaleAtMount;
 
   const heading = nothingStaleAtMount
     ? "Terms & privacy"
@@ -109,7 +128,10 @@ export function ReviewTermsScreen() {
       hasPlatformSession,
     });
 
-    const destination = sanitizeReturnTo(searchParams.get("returnTo"), routes.assistant);
+    const destination = sanitizeReturnTo(
+      searchParams.get("returnTo"),
+      routes.assistant,
+    );
     void navigate(destination, { replace: true });
   }, [
     privacyConsent,
@@ -223,7 +245,6 @@ export function ReviewTermsScreen() {
             Log out
           </Button>
         </div>
-
       </div>
     </OnboardingLayout>
   );

@@ -15,12 +15,36 @@
  * of truth the model reads when generating the `script`.
  */
 
+import { z } from "zod";
+
 import { findConversation } from "../../daemon/conversation-registry.js";
 import { FALLBACK_TURN_TRUST } from "../../daemon/trust-context.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { CapabilityManifestSchema } from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+/**
+ * Model-input schema, `safeParse`d at the top of {@link executeRunWorkflow}.
+ * Same in-tool pattern and TOOLS.json drift guard as the other bundled-skill
+ * tools — see the schema block in `tools/document/document-tool.ts` for the
+ * framework.
+ *
+ * `args` (the workflow runtime accepts any JSON value) and `capabilities`
+ * (`CapabilityManifestSchema` is the single validation authority, and
+ * `executor.ts` reads it pre-execution for the requireFreshApproval
+ * promotion) are deliberately UNDECLARED — loose passthrough. The
+ * exactly-one-of script/name rule stays a bespoke check below.
+ */
+export const runWorkflowInputSchema = z.looseObject({
+  script: nullAsOmitted(z.string()),
+  name: nullAsOmitted(z.string()),
+  label: nullAsOmitted(z.string()),
+});
 
 /**
  * Resolve the {@link TrustContext} to forward to the run's leaves. Prefer the
@@ -33,7 +57,9 @@ function resolveTrustContext(context: ToolContext): TrustContext {
   const conversation = findConversation(context.conversationId);
   const fromConversation =
     conversation?.currentTurnTrustContext ?? conversation?.trustContext;
-  if (fromConversation) return fromConversation;
+  if (fromConversation) {
+    return fromConversation;
+  }
   return { ...FALLBACK_TURN_TRUST, trustClass: context.trustClass };
 }
 
@@ -41,8 +67,11 @@ export async function executeRunWorkflow(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const script = input.script as string | undefined;
-  const name = input.name as string | undefined;
+  const parsedInput = runWorkflowInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("run_workflow", parsedInput.error);
+  }
+  const { script, name, label } = parsedInput.data;
 
   // Exactly one of script/name is required.
   if ((script == null) === (name == null)) {
@@ -54,7 +83,6 @@ export async function executeRunWorkflow(
   }
 
   const args = (input.args as Record<string, unknown> | undefined) ?? {};
-  const label = input.label as string | undefined;
   const trustContext = resolveTrustContext(context);
 
   try {

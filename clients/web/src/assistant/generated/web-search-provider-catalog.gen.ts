@@ -34,14 +34,13 @@ export const WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS: Readonly<
 };
 
 /** localStorage key used to persist each BYOK provider's user-supplied key. */
-export const WEB_SEARCH_PROVIDER_KEY_STORAGE: Readonly<
-  Record<string, string>
-> = {
-  perplexity: "vellum:ai:perplexityKey",
-  brave: "vellum:ai:braveKey",
-  tavily: "vellum:ai:tavilyKey",
-  firecrawl: "vellum:ai:firecrawlKey",
-};
+export const WEB_SEARCH_PROVIDER_KEY_STORAGE: Readonly<Record<string, string>> =
+  {
+    perplexity: "vellum:ai:perplexityKey",
+    brave: "vellum:ai:braveKey",
+    tavily: "vellum:ai:tavilyKey",
+    firecrawl: "vellum:ai:firecrawlKey",
+  };
 
 /** Provider ids that require a user-supplied API key. */
 export const WEB_SEARCH_BYOK_PROVIDER_IDS: ReadonlySet<string> = new Set([

@@ -23,12 +23,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@vellumai/design-library";
 import { Toaster } from "@vellumai/design-library/components/toast";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
+import { installQueryPressureProbe } from "@/lib/commit-pressure";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
-import { useOrganizationStore } from "@/stores/organization-store";
+import { useRequestOrganizationId } from "@/stores/organization-store";
 import { queryRetryDelay, shouldRetryQuery } from "@/utils/query-retry";
+import { requestScopeKey } from "@/utils/request-scope-key";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -45,11 +47,7 @@ function createQueryClient(): QueryClient {
   });
 }
 
-function AuthScopedQueryClientProvider({
-  children,
-}: {
-  children: ReactNode;
-}) {
+function AuthScopedQueryClientProvider({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => createQueryClient());
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -62,23 +60,30 @@ function RequestScopedQueryClientProvider({
   children: ReactNode;
 }) {
   const [queryClient] = useState(() => createQueryClient());
+  // Query notifications re-render through `useSyncExternalStore`, so they are
+  // part of the same commit traffic as the chat route's timer-driven updates.
+  // Only this client is probed: it is the one the conversation route's queries
+  // live under, and the auth-scoped client above serves a handful of
+  // low-frequency reads.
+  useEffect(() => installQueryPressureProbe(queryClient), [queryClient]);
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
 }
 
-function ScopeKeyedQueryClientProvider({
-  children,
-}: {
-  children: ReactNode;
-}) {
+function ScopeKeyedQueryClientProvider({ children }: { children: ReactNode }) {
   const isAuthenticated = useIsAuthenticated();
   const user = useAuthStore.use.user();
-  const currentOrganizationId =
-    useOrganizationStore.use.currentOrganizationId();
-  const scopeKey = `${
-    isAuthenticated ? `user:${user?.id ?? "unknown"}` : "anonymous"
-  }:org:${currentOrganizationId ?? "none"}`;
+  // The organization is the one requests carry, which is the store's resolved
+  // selection or the persisted id standing in for it. Both are store slices,
+  // so the key recomputes whenever the identity behind the cache moves and a
+  // response is never read as the answer for an identity that replaced it.
+  const organizationId = useRequestOrganizationId();
+  const scopeKey = requestScopeKey({
+    isAuthenticated,
+    userId: user?.id,
+    organizationId,
+  });
 
   return (
     <RequestScopedQueryClientProvider key={scopeKey}>

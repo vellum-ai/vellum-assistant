@@ -158,7 +158,9 @@ interface WorkflowJournalRow {
 
 /** Parse a nullable JSON column; malformed values collapse to null. */
 function parseJsonColumn(value: string | null): unknown {
-  if (value === null) return null;
+  if (value === null) {
+    return null;
+  }
   try {
     return JSON.parse(value);
   } catch {

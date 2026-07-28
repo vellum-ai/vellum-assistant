@@ -27,7 +27,9 @@ import { useViewerStore } from "@/stores/viewer-store";
  */
 function useWorkflowCardSummary(id: string): CardSummary | null {
   const data = useWorkflowCardData(id);
-  if (!data) return null;
+  if (!data) {
+    return null;
+  }
   return {
     state: data.state,
     title: data.currentStepTitle,

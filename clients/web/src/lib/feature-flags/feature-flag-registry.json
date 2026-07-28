@@ -6,7 +6,7 @@
       "scope": "client",
       "key": "in-chat-onboarding-tour",
       "label": "In-Chat Onboarding Tour",
-      "description": "Multivariate experiment for the eyes-led in-chat onboarding tour. control = straight to chat after research onboarding (current behavior); tour = the extended tour auto-plays on first workspace entry, and the header replay button shows. Desktop-only: phone-width viewports and the native shell get neither the tour nor its telemetry (not even the exposure event), so the funnel measures desktop sessions exclusively. Targeted via LaunchDarkly (planned 70% tour / 30% control).",
+      "description": "Multivariate experiment for the eyes-led in-chat onboarding tour. control = straight to chat after research onboarding (current behavior); tour = the extended tour auto-plays on first workspace entry. Desktop-only: phone-width viewports and the native shell get neither the tour nor its telemetry (not even the exposure event), so the funnel measures desktop sessions exclusively. Targeted via LaunchDarkly (70% tour / 30% control).",
       "defaultEnabled": "control",
       "values": ["control", "tour"]
     },
@@ -123,22 +123,6 @@
       "key": "backward-releases",
       "label": "Backward Releases",
       "description": "Show older versions in the version picker, allowing rollback to previous releases",
-      "defaultEnabled": false
-    },
-    {
-      "id": "voice-mode",
-      "scope": "assistant",
-      "key": "voice-mode",
-      "label": "Voice Mode",
-      "description": "Show the live voice conversation button in the composer",
-      "defaultEnabled": false
-    },
-    {
-      "id": "voice-duplex-handoff",
-      "scope": "assistant",
-      "key": "voice-duplex-handoff",
-      "label": "Voice Duplex Handoff",
-      "description": "When a user barges in during live voice, keep the interrupted turn running as a background subagent instead of discarding it (true-duplex handoff)",
       "defaultEnabled": false
     },
     {
@@ -302,14 +286,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "memory-v3-injection-gate",
-      "scope": "assistant",
-      "key": "memory-v3-injection-gate",
-      "label": "Memory v3 injection gate",
-      "description": "Per-turn injection gate for memory v3: after the BM25F needle + dense cosine finder lanes run, skip the selectPool LLM call (inject nothing) when finder-lane scores fall below the configured thresholds (memory.v3.gate). Default on (flipped remotely July 2026); this registry value is the fallback when no platform snapshot is available.",
-      "defaultEnabled": true
-    },
-    {
       "id": "self-intro-greeting",
       "scope": "both",
       "key": "self-intro-greeting",
@@ -358,22 +334,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "credentials-settings",
-      "scope": "assistant",
-      "key": "credentials-settings",
-      "label": "Credentials settings page",
-      "description": "Show the Credentials page in web settings for listing, adding, and deleting stored credentials.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "credential-requests",
-      "scope": "assistant",
-      "key": "credential-requests",
-      "label": "One-time credential request links",
-      "description": "Enable one-time credential-request links: the generate-link action in settings, the public credential entry page, and assistant-initiated links on channels without secure input.",
-      "defaultEnabled": false
-    },
-    {
       "id": "chat-credential-reveal",
       "scope": "assistant",
       "key": "chat-credential-reveal",
@@ -387,6 +347,14 @@
       "key": "composer-secret-guard",
       "label": "Composer Secret Guard",
       "description": "Detect API keys/secrets typed into the chat composer and offer secure credential storage before send",
+      "defaultEnabled": false
+    },
+    {
+      "id": "marketing-pricing-takeover",
+      "scope": "client",
+      "key": "marketing-pricing-takeover",
+      "label": "Marketing Pricing Takeover",
+      "description": "Gates the marketing pricing takeover page (www.vellum.ai/pricing) and the `/assistant/checkout?package=<slug>` deep link its package CTAs target. One flag covers both halves of the funnel so they can never be enabled independently and strand a CTA. When off, the checkout deep link redirects to the in-app plans takeover.",
       "defaultEnabled": false
     }
   ]

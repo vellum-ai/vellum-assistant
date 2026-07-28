@@ -13,7 +13,7 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { Message } from "../providers/types.js";
 
 // ── Fake Conversation ───────────────────────────────────────────────────────
@@ -54,6 +54,13 @@ let runLoopInvoked = false;
 let lastPersistedUserMessage: string | undefined;
 /** Records `setSubagentDenySideEffects` on the most recent FakeConversation. */
 let lastDenySideEffects: boolean | undefined;
+/**
+ * Records `setSubagentSuppressParentNotifications` on the most recent
+ * FakeConversation.
+ */
+let lastSuppressParentNotifications: boolean | undefined;
+/** Records `setTrustContext` on the most recent FakeConversation. */
+let lastTrustContext: unknown;
 /** Options the most recent `bootstrapConversation` call received. */
 let lastBootstrapOptions: Record<string, unknown> | undefined;
 
@@ -88,7 +95,9 @@ class FakeConversation {
     this.sendToClient = sendToClient;
   }
 
-  setTrustContext() {}
+  setTrustContext(ctx: unknown) {
+    lastTrustContext = ctx;
+  }
   setAuthContext() {}
   getAuthContext() {
     return undefined;
@@ -98,6 +107,9 @@ class FakeConversation {
   setSubagentAllowedTools() {}
   setSubagentDenySideEffects(deny: boolean) {
     lastDenySideEffects = deny;
+  }
+  setSubagentSuppressParentNotifications(suppress: boolean) {
+    lastSuppressParentNotifications = suppress;
   }
   setPreactivatedSkillIds() {}
   getCurrentSystemPrompt() {
@@ -125,7 +137,9 @@ class FakeConversation {
           this.resolveAbort = resolve;
         });
       }
-      if (this.cfg.resolveOnAbort) {return;}
+      if (this.cfg.resolveOnAbort) {
+        return;
+      }
       throw new Error("aborted");
     }
     if (this.cfg.runError) {
@@ -228,6 +242,8 @@ describe("SubagentManager.spawnAndAwait", () => {
   // `undefined` across the opaque spawnAndAwait call.
   beforeEach(() => {
     lastDenySideEffects = undefined;
+    lastSuppressParentNotifications = undefined;
+    lastTrustContext = undefined;
   });
 
   test("wires denySideEffectTools onto the subagent conversation (read-only)", async () => {
@@ -249,6 +265,38 @@ describe("SubagentManager.spawnAndAwait", () => {
     await manager.spawnAndAwait(makeConfig(), () => {});
 
     expect(lastDenySideEffects).toBeUndefined();
+  });
+
+  test("an explicit config trustContext lands on the subagent conversation", async () => {
+    nextConversationConfig = {};
+
+    const manager = new SubagentManager();
+    // No parent conversation is registered here, so inheritance would leave
+    // trust unset — the explicit config value must be applied regardless (the
+    // live-voice continuation path, where the parent's per-turn trust has
+    // already been cleared at spawn time).
+    await manager.spawnAndAwait(
+      makeConfig({
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      }),
+      () => {},
+    );
+
+    expect(lastTrustContext).toMatchObject({
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    });
+  });
+
+  test("suppresses mid-run parent notifications on the synchronous path", async () => {
+    nextConversationConfig = {};
+
+    const manager = new SubagentManager();
+    await manager.spawnAndAwait(makeConfig(), () => {});
+
+    // The awaiting caller is the child's only parent channel: notify_parent
+    // must not inject a user-role turn into the live parent mid-await.
+    expect(lastSuppressParentNotifications).toBe(true);
   });
 
   test("stamps the parent conversation id on the subagent's conversation", async () => {

@@ -33,7 +33,7 @@ mock.module("../../daemon/conversation-store.js", () => ({
 
 // Conversation-CRUD doubles for the teardown transcript-hygiene pass. The
 // real module is spread so every other export keeps its production behavior;
-// only the three functions the hygiene pass (and discard) touch are recorded.
+// only the functions the hygiene pass (and discard) touch are recorded.
 import * as realConversationCrud from "../../persistence/conversation-crud.js";
 
 let getMessageByIdImpl: (
@@ -65,10 +65,14 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     crudLog.deletes.push(messageId);
     return { segmentIds: [], deletedSummaryIds: [] };
   },
+  // The echo path advances the snapshot anchor for a real-user turn; the
+  // fake conversation has no row in SQLite, so stub the write out.
+  recordConversationPersistedSeq: () => {},
 }));
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
+import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
 import {
   cutFrontDoorContentAtVerdict,
@@ -344,6 +348,67 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     await startVoiceTurn(makeTurnOptions()); // content: CALL_OPENING_MARKER
 
     expect(fake.lastPersistOpts()?.metadata).toBeUndefined();
+  });
+});
+
+describe("startVoiceTurn hiddenSyntheticPrompt", () => {
+  // A caller whose internal instruction is composed per call carries no
+  // sentinel for the content comparisons to recognize, so it declares itself.
+  const SYNTHETIC_CONTENT =
+    "(the background task finished — announce the result)";
+
+  /** The `user_message_echo` events `turn` publishes to hub subscribers. */
+  async function collectUserMessageEchoes(
+    turn: () => Promise<unknown>,
+  ): Promise<Array<{ type: string }>> {
+    const published: Array<{ type: string }> = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      filter: { conversationId: "conv-voice-bridge-test" },
+      callback: (event) => {
+        published.push(event.message);
+      },
+    });
+    try {
+      await turn();
+    } finally {
+      subscription.dispose();
+    }
+    return published.filter((msg) => msg.type === "user_message_echo");
+  }
+
+  test("a declared prompt persists hidden and suppresses its echo", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    const echoes = await collectUserMessageEchoes(() =>
+      startVoiceTurn({
+        ...makeTurnOptions(),
+        content: SYNTHETIC_CONTENT,
+        hiddenSyntheticPrompt: true,
+      }),
+    );
+
+    expect(fake.lastPersistOpts()?.content).toBe(SYNTHETIC_CONTENT);
+    expect(fake.lastPersistOpts()?.metadata).toEqual({ hidden: true });
+    expect(echoes).toHaveLength(0);
+  });
+
+  test("the same content without the flag stays a plain user turn", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    const echoes = await collectUserMessageEchoes(() =>
+      startVoiceTurn({
+        ...makeTurnOptions(),
+        content: SYNTHETIC_CONTENT,
+      }),
+    );
+
+    expect(fake.lastPersistOpts()?.metadata).toBeUndefined();
+    expect(echoes).toEqual([
+      expect.objectContaining({ text: SYNTHETIC_CONTENT }),
+    ]);
   });
 });
 
@@ -1101,7 +1166,7 @@ describe("startVoiceTurn tool-event forwarding", () => {
     fakeConversation = fake.conversation;
   }
 
-  test("tool_use_start delivers the tool name and toolUseId", async () => {
+  test("tool_use_start delivers the tool name, toolUseId, and input", async () => {
     makeEventEmittingConversation([
       {
         type: "tool_use_start",
@@ -1121,7 +1186,10 @@ describe("startVoiceTurn tool-event forwarding", () => {
     await flushMicrotasks();
 
     expect(starts).toEqual([
-      { toolName: "web_search", detail: { toolUseId: "toolu-1" } },
+      {
+        toolName: "web_search",
+        detail: { toolUseId: "toolu-1", input: { query: "weather" } },
+      },
     ]);
   });
 
@@ -1325,7 +1393,7 @@ describe("cutFrontDoorContentAtVerdict", () => {
   });
 });
 
-describe("front-door transcript hygiene (teardown pass)", () => {
+describe("transcript hygiene (teardown pass)", () => {
   beforeEach(resetCrudLog);
 
   function makeRow(text: string) {
@@ -1415,16 +1483,170 @@ describe("front-door transcript hygiene (teardown pass)", () => {
     expect(events).not.toContain("loadFromDb");
   });
 
-  test("a non-routed leg never runs the hygiene pass", async () => {
-    makeReservedRowConversation();
+  test("a front-door answer ending with the minimize marker has the marker stripped", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("Here we go, watch the overlay. [-1]");
+
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toEqual([
+      {
+        messageId: "assistant-row-1",
+        content: JSON.stringify([
+          { type: "text", text: "Here we go, watch the overlay." },
+        ]),
+      },
+    ]);
+    expect(crudLog.deletes).toHaveLength(0);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a marker-only front-door answer row is deleted", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("[-1]");
+
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toHaveLength(0);
+    expect(crudLog.deletes).toEqual(["assistant-row-1"]);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a non-routed leg leaves verdict-token content untouched (verdict cutting is front-door-only)", async () => {
+    const { events } = makeReservedRowConversation();
     getMessageByIdImpl = () => makeRow("[1] Anything at all");
 
     await startVoiceTurn(makeTurnOptions());
     await flushMicrotasks();
 
-    expect(crudLog.reads).toHaveLength(0);
+    expect(crudLog.reads).toEqual(["assistant-row-1"]);
     expect(crudLog.updates).toHaveLength(0);
     expect(crudLog.deletes).toHaveLength(0);
+    expect(events).not.toContain("loadFromDb");
+  });
+
+  test("a main-leg row containing the minimize marker persists with the marker stripped", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("Done, take a look [-1]");
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toEqual([
+      {
+        messageId: "assistant-row-1",
+        content: JSON.stringify([{ type: "text", text: "Done, take a look" }]),
+      },
+    ]);
+    expect(crudLog.deletes).toHaveLength(0);
+    // The clean row must reach in-memory history and sync consumers.
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a mid-text [-1] (content, not command) leaves the row untouched", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () =>
+      makeRow("The array [-1] sorts first, then the rest.");
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toHaveLength(0);
+    expect(crudLog.deletes).toHaveLength(0);
+    expect(events).not.toContain("loadFromDb");
+  });
+
+  test("a marker-only main-leg row is deleted, not persisted as an empty bubble", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("[-1]");
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toHaveLength(0);
+    expect(crudLog.deletes).toEqual(["assistant-row-1"]);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a terminal marker split across text blocks is stripped whole", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => ({
+      ...makeRow(""),
+      content: [
+        { type: "text", text: "Done, take a look [-" },
+        { type: "text", text: "1]" },
+      ],
+    });
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toEqual([
+      {
+        messageId: "assistant-row-1",
+        content: JSON.stringify([{ type: "text", text: "Done, take a look" }]),
+      },
+    ]);
+    expect(crudLog.deletes).toHaveLength(0);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a marker-only row split across text blocks is deleted", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => ({
+      ...makeRow(""),
+      content: [
+        { type: "text", text: "[-" },
+        { type: "text", text: "1]" },
+      ],
+    });
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toHaveLength(0);
+    expect(crudLog.deletes).toEqual(["assistant-row-1"]);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a marker-only row with a surviving non-text block is rewritten, never deleted", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => ({
+      ...makeRow("[-1]"),
+      content: [
+        { type: "text", text: "[-1]" },
+        { type: "tool_use", id: "tool-1", name: "app_create", input: {} },
+      ],
+    });
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.deletes).toHaveLength(0);
+    expect(crudLog.updates).toEqual([
+      {
+        messageId: "assistant-row-1",
+        content: JSON.stringify([
+          { type: "tool_use", id: "tool-1", name: "app_create", input: {} },
+        ]),
+      },
+    ]);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a main-leg row without the minimize marker is never rewritten", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("Done, take a look.");
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.reads).toEqual(["assistant-row-1"]);
+    expect(crudLog.updates).toHaveLength(0);
+    expect(crudLog.deletes).toHaveLength(0);
+    expect(events).not.toContain("loadFromDb");
   });
 
   test("a discarded speculative leg deletes its reserved assistant row at teardown", async () => {

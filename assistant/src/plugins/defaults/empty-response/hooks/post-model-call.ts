@@ -113,10 +113,14 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   // A provider rejection carries no turn content to assess (a recovery hook
   // owns the rejection); the sibling `stop` hook clears the mark when the turn
   // terminates.
-  if (ctx.error) return;
+  if (ctx.error) {
+    return;
+  }
   // A tool-bearing turn continues mid-run — the loop runs the tools — so leave
   // the mark intact to keep the one-nudge-per-run bound across tool iterations.
-  if (hasToolUse(ctx.content)) return;
+  if (hasToolUse(ctx.content)) {
+    return;
+  }
 
   const turnHasVisibleText = hasVisibleText(ctx.content);
 
@@ -150,7 +154,9 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
     // post-model-call contract requires self-gating on call site to avoid
     // re-querying them. The refusal-rewrite above is a user-facing terminal
     // fallback, not a re-query, so it stays ungated.
-    if (ctx.callSite !== "mainAgent") return;
+    if (ctx.callSite !== "mainAgent") {
+      return;
+    }
 
     // Re-query once to recover a real answer. The one-shot per-conversation
     // mark makes the hook self-limiting: a second empty turn this run finds the

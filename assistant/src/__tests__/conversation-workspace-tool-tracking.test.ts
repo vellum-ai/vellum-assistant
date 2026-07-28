@@ -103,9 +103,6 @@ mock.module("../memory/retriever.js", () => ({
 mock.module("../memory/query-builder.js", () => ({
   buildMemoryQuery: () => "",
 }));
-mock.module("../plugins/defaults/memory/retrieval-budget.js", () => ({
-  computeRecallBudget: () => 0,
-}));
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
     estimateInputTokens() {

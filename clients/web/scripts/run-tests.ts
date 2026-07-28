@@ -18,7 +18,10 @@
 import { Glob } from "bun";
 
 const args = process.argv.slice(2);
-const concurrency = Math.max(1, parseInt(process.env.TEST_CONCURRENCY ?? "8", 10) || 8);
+const concurrency = Math.max(
+  1,
+  parseInt(process.env.TEST_CONCURRENCY ?? "8", 10) || 8,
+);
 
 // Collect test files — from CLI args or by globbing src/.
 const files =
@@ -64,10 +67,14 @@ for (let i = 0; i < files.length; i += concurrency) {
   );
 }
 
-console.log(`\n${passed} passed, ${failed} failed (${files.length} test files)`);
+console.log(
+  `\n${passed} passed, ${failed} failed (${files.length} test files)`,
+);
 
 if (failures.length > 0) {
   console.log("\nFailed:");
-  for (const f of failures) console.log(`  ${f}`);
+  for (const f of failures) {
+    console.log(`  ${f}`);
+  }
   process.exit(1);
 }

@@ -6,7 +6,12 @@ import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
-import { base64Source, resolveMediaReferences } from "../media-resolve.js";
+import {
+  base64Source,
+  mediaSourceByteLength,
+  resolveMediaReferences,
+} from "../media-resolve.js";
+import { modelSupportsAudioInput } from "../model-catalog.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
@@ -35,6 +40,11 @@ import {
   coerceObjectParamsToJsonString,
   decodeCoercedObjectArgs,
 } from "./coerce-object-args.js";
+import {
+  isOpenAICompatInlineAudio,
+  OPENAI_COMPAT_MAX_INLINE_AUDIO_BYTES,
+  openAIInputAudioFormat,
+} from "./input-audio.js";
 
 /**
  * Detect OpenAI-compatible context-overflow signals on an `OpenAI.APIError`.
@@ -56,7 +66,9 @@ export function detectOpenAICompatibleContextOverflow(
 ): { actualTokens?: number; maxTokens?: number } | null {
   // OpenAI-compatible providers use 400 (most) or 413 (rarer payload-too-large).
   const status = error.status;
-  if (status !== 400 && status !== 413) return null;
+  if (status !== 400 && status !== 413) {
+    return null;
+  }
   const code = error.code;
   const codeMatches =
     typeof code === "string" &&
@@ -70,7 +82,9 @@ export function detectOpenAICompatibleContextOverflow(
     /context.?length.?exceeded|context.?window.?exceeded|prompt.?is.?too.?long|prompt_too_long|input.?too.?long|too.?many.?(?:input.?)?tokens|maximum.?context/i.test(
       message,
     );
-  if (!codeMatches && !messageMatches) return null;
+  if (!codeMatches && !messageMatches) {
+    return null;
+  }
   // OpenAI-compatible providers rarely report usable token counts; best-effort extract.
   return extractOverflowTokensFromMessage(message);
 }
@@ -250,7 +264,9 @@ function isReasoningOptOutRejection(error: unknown, params: unknown): boolean {
 export function mapNeutralToolChoice(
   toolChoice: unknown,
 ): OpenAI.Chat.Completions.ChatCompletionToolChoiceOption | undefined {
-  if (toolChoice == null || typeof toolChoice !== "object") return undefined;
+  if (toolChoice == null || typeof toolChoice !== "object") {
+    return undefined;
+  }
   const tc = toolChoice as { type?: unknown; name?: unknown };
   switch (tc.type) {
     case "auto":
@@ -277,7 +293,9 @@ const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
 
 function partialTagSuffix(text: string, tag: string): number {
   for (let len = Math.min(text.length, tag.length - 1); len > 0; len--) {
-    if (text.endsWith(tag.substring(0, len))) return len;
+    if (text.endsWith(tag.substring(0, len))) {
+      return len;
+    }
   }
   return 0;
 }
@@ -336,6 +354,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
       options.coerceObjectArgsToJsonString ?? false;
   }
 
+  get defaultModel(): string {
+    return this.model;
+  }
+
   async sendMessage(
     messages: Message[],
     options?: SendMessageOptions,
@@ -359,7 +381,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const coercedObjectKeys = new Map<string, string[]>();
 
     try {
-      const openaiMessages = this.toOpenAIMessages(messages, systemPrompt);
+      const openaiMessages = this.toOpenAIMessages(
+        messages,
+        systemPrompt,
+        modelSupportsAudioInput(modelOverride ?? this.model),
+      );
 
       const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming =
         {
@@ -587,7 +613,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
             const reasoningDetails = deltaWithReasoning.reasoning_details;
             if (Array.isArray(reasoningDetails)) {
               for (const entry of reasoningDetails) {
-                if (entry.type === "reasoning.encrypted") continue;
+                if (entry.type === "reasoning.encrypted") {
+                  continue;
+                }
                 const piece = entry.summary ?? entry.text;
                 if (piece) {
                   sawVisibleDetail = true;
@@ -616,8 +644,12 @@ export class OpenAIChatCompletionsProvider implements Provider {
                   toolCallMap.set(tc.index, { id: "", name: "", args: "" });
                 }
                 const entry = toolCallMap.get(tc.index)!;
-                if (tc.id) entry.id = tc.id;
-                if (tc.function?.name) entry.name += tc.function.name;
+                if (tc.id) {
+                  entry.id = tc.id;
+                }
+                if (tc.function?.name) {
+                  entry.name += tc.function.name;
+                }
                 toolProgress.emitPreviewStart(entry.id, entry.name);
                 if (tc.function?.arguments) {
                   entry.args += tc.function.arguments;
@@ -836,18 +868,30 @@ export class OpenAIChatCompletionsProvider implements Provider {
           rawBody?: string;
           reason?: ProviderErrorReason;
         } = {};
-        if (retryAfterMs !== undefined)
+        if (retryAfterMs !== undefined) {
           errorOptions.retryAfterMs = retryAfterMs;
-        if (abortReason) errorOptions.abortReason = abortReason;
-        if (normalized.apiErrorCode)
+        }
+        if (abortReason) {
+          errorOptions.abortReason = abortReason;
+        }
+        if (normalized.apiErrorCode) {
           errorOptions.apiErrorCode = normalized.apiErrorCode;
-        if (normalized.apiErrorType)
+        }
+        if (normalized.apiErrorType) {
           errorOptions.apiErrorType = normalized.apiErrorType;
-        if (normalized.apiErrorParam)
+        }
+        if (normalized.apiErrorParam) {
           errorOptions.apiErrorParam = normalized.apiErrorParam;
-        if (normalized.requestId) errorOptions.requestId = normalized.requestId;
-        if (normalized.rawBody) errorOptions.rawBody = normalized.rawBody;
-        if (normalized.reason) errorOptions.reason = normalized.reason;
+        }
+        if (normalized.requestId) {
+          errorOptions.requestId = normalized.requestId;
+        }
+        if (normalized.rawBody) {
+          errorOptions.rawBody = normalized.rawBody;
+        }
+        if (normalized.reason) {
+          errorOptions.reason = normalized.reason;
+        }
         throw new ProviderError(
           formattedMessage,
           this.name,
@@ -893,6 +937,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private toOpenAIMessages(
     messages: Message[],
     systemPrompt?: string,
+    audioInputEnabled = false,
   ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
     // Swap any persisted attachment references back to inline base64 before
     // serializing, so the block transforms below can read `source.data`.
@@ -923,9 +968,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
         );
 
         // Emit tool results as separate tool-role messages
-        // OpenAI's API only supports string content in tool messages, so images
-        // from contentBlocks are collected and injected as a user message below.
-        const toolResultImages: ContentBlock[] = [];
+        // OpenAI's API only supports string content in tool messages, so media
+        // from contentBlocks is collected and injected as a user message below.
+        const toolResultMedia: ContentBlock[] = [];
         for (const tr of toolResults) {
           let textContent = tr.content;
           if (tr.contentBlocks && tr.contentBlocks.length > 0) {
@@ -939,7 +984,18 @@ export class OpenAIChatCompletionsProvider implements Provider {
               textContent = textContent + "\n" + extraText.join("\n");
             }
             for (const cb of tr.contentBlocks) {
-              if (cb.type === "image") toolResultImages.push(cb);
+              if (cb.type === "image") {
+                toolResultMedia.push(cb);
+              } else if (
+                audioInputEnabled &&
+                cb.type === "file" &&
+                isOpenAICompatInlineAudio(
+                  cb.source.media_type,
+                  mediaSourceByteLength(cb.source),
+                )
+              ) {
+                toolResultMedia.push(cb);
+              }
             }
           }
           result.push({
@@ -949,12 +1005,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
           });
         }
 
-        // Emit remaining content + any tool result images as a user message.
-        // Images from tool results (e.g. browser_screenshot) must go in a user
-        // message because OpenAI-compatible APIs don't support images in tool messages.
-        const userContent = [...otherBlocks, ...toolResultImages];
+        // Emit remaining content + any tool result media as a user message.
+        // Media from tool results (e.g. browser_screenshot, audio a tool read)
+        // must go in a user message because OpenAI-compatible APIs don't
+        // support media parts in tool messages.
+        const userContent = [...otherBlocks, ...toolResultMedia];
         if (userContent.length > 0) {
-          result.push(this.toOpenAIUserMessage(userContent));
+          result.push(this.toOpenAIUserMessage(userContent, audioInputEnabled));
         }
       }
     }
@@ -978,7 +1035,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
           break;
         case "thinking":
           // Anthropic thinking blocks carry signatures — skip those.
-          if (!block.signature) reasoningParts.push(block.thinking);
+          if (!block.signature) {
+            reasoningParts.push(block.thinking);
+          }
           break;
         case "tool_use":
           toolCalls.push({
@@ -1035,9 +1094,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
     return result;
   }
 
-  /** Convert user content blocks (text, image) to an OpenAI user message. */
+  /** Convert user content blocks (text, image, audio) to an OpenAI user message. */
   private toOpenAIUserMessage(
     blocks: ContentBlock[],
+    audioInputEnabled = false,
   ): OpenAI.Chat.Completions.ChatCompletionUserMessageParam {
     // If only a single text block, use plain string (simpler, fewer tokens)
     if (blocks.length === 1 && blocks[0].type === "text") {
@@ -1066,12 +1126,28 @@ export class OpenAIChatCompletionsProvider implements Provider {
             });
           }
           break;
-        case "file":
-          parts.push({
-            type: "text",
-            text: this.fileBlockToText(block),
-          });
+        case "file": {
+          const audioFormat = audioInputEnabled
+            ? openAIInputAudioFormat(block.source.media_type)
+            : null;
+          if (
+            audioFormat !== null &&
+            mediaSourceByteLength(block.source) <=
+              OPENAI_COMPAT_MAX_INLINE_AUDIO_BYTES
+          ) {
+            const audioSrc = base64Source(block.source);
+            parts.push({
+              type: "input_audio",
+              input_audio: { data: audioSrc.data, format: audioFormat },
+            });
+          } else {
+            parts.push({
+              type: "text",
+              text: this.fileBlockToText(block),
+            });
+          }
           break;
+        }
         case "server_tool_use":
           parts.push({
             type: "text",

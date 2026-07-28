@@ -47,9 +47,17 @@ function env(seq: number, message: AssistantEvent): AssistantEventEnvelope {
 const stampOf = (seq: number) => 1000 + seq;
 
 const userEcho = (seq: number, id: string, text: string) =>
-  env(seq, { type: "user_message_echo", messageId: id, text } as AssistantEvent);
+  env(seq, {
+    type: "user_message_echo",
+    messageId: id,
+    text,
+  } as AssistantEvent);
 const textDelta = (seq: number, id: string, text: string) =>
-  env(seq, { type: "assistant_text_delta", messageId: id, text } as AssistantEvent);
+  env(seq, {
+    type: "assistant_text_delta",
+    messageId: id,
+    text,
+  } as AssistantEvent);
 const thinkingDelta = (seq: number, id: string, thinking: string) =>
   env(seq, {
     type: "assistant_thinking_delta",
@@ -58,7 +66,12 @@ const thinkingDelta = (seq: number, id: string, thinking: string) =>
   } as AssistantEvent);
 const complete = (seq: number, id: string) =>
   env(seq, { type: "message_complete", messageId: id } as AssistantEvent);
-const toolUseStart = (seq: number, id: string, toolUseId: string, name: string) =>
+const toolUseStart = (
+  seq: number,
+  id: string,
+  toolUseId: string,
+  name: string,
+) =>
   env(seq, {
     type: "tool_use_start",
     messageId: id,
@@ -162,7 +175,10 @@ describe("rolling-snapshot reducer", () => {
 
   test("total: an unfolded event type leaves message content unchanged", () => {
     const base = applyEventsToHistory(SEED, cleanTurn());
-    const after = applyEvent(base, env(7, { type: "sync_changed" } as AssistantEvent));
+    const after = applyEvent(
+      base,
+      env(7, { type: "sync_changed" } as AssistantEvent),
+    );
     expect(after.messages).toBe(base.messages); // content untouched...
     expect(after.seq).toBe(7); // ...only the version cursor advances
   });
@@ -204,7 +220,9 @@ describe("rolling-snapshot reducer", () => {
 
   describe("resolveSnapshot (seed / resync)", () => {
     test("a null tail (gap / no anchor) leaves the snapshot standing alone", () => {
-      const snapshot = applyEventsToHistory(SEED, [textDelta(1, "a1", "persisted")]);
+      const snapshot = applyEventsToHistory(SEED, [
+        textDelta(1, "a1", "persisted"),
+      ]);
       expect(resolveSnapshot(snapshot, null)).toBe(snapshot);
     });
 
@@ -213,18 +231,24 @@ describe("rolling-snapshot reducer", () => {
         userEcho(1, "u1", "hi"),
         textDelta(2, "a1", "persisted"),
       ]);
-      const resolved = resolveSnapshot(snapshot, [textDelta(3, "a1", " + live")]);
-      expect(resolved.messages.find((m) => m.id === "a1")?.textSegments).toEqual([
-        "persisted + live",
+      const resolved = resolveSnapshot(snapshot, [
+        textDelta(3, "a1", " + live"),
       ]);
+      expect(
+        resolved.messages.find((m) => m.id === "a1")?.textSegments,
+      ).toEqual(["persisted + live"]);
       expect(resolved.seq).toBe(3);
     });
 
     test("idempotent: tail events already in the snapshot are dropped", () => {
       const snapshot = applyEventsToHistory(SEED, [textDelta(5, "a1", "x")]); // seq 5
       // A stale tail (<= snapshot.seq) folds to nothing.
-      const resolved = resolveSnapshot(snapshot, [textDelta(4, "a1", " stale")]);
-      expect(resolved.messages.find((m) => m.id === "a1")?.textSegments).toEqual(["x"]);
+      const resolved = resolveSnapshot(snapshot, [
+        textDelta(4, "a1", " stale"),
+      ]);
+      expect(
+        resolved.messages.find((m) => m.id === "a1")?.textSegments,
+      ).toEqual(["x"]);
     });
 
     test("reconciles a nonce-less placeholder after an optimistic steer", () => {
@@ -304,7 +328,11 @@ describe("rolling-snapshot reducer", () => {
         toolUseId,
         toolName: "bash",
       } as AssistantEvent);
-    const confirmationRequest = (seq: number, requestId: string, toolUseId: string) =>
+    const confirmationRequest = (
+      seq: number,
+      requestId: string,
+      toolUseId: string,
+    ) =>
       env(seq, {
         type: "confirmation_request",
         requestId,
@@ -313,7 +341,11 @@ describe("rolling-snapshot reducer", () => {
         riskLevel: "low",
         input: {},
       } as AssistantEvent);
-    const interactionResolved = (seq: number, requestId: string, kind: string) =>
+    const interactionResolved = (
+      seq: number,
+      requestId: string,
+      kind: string,
+    ) =>
       env(seq, {
         type: "interaction_resolved",
         requestId,
@@ -339,12 +371,20 @@ describe("rolling-snapshot reducer", () => {
     });
 
     test("confirmation_request attaches, interaction_resolved clears the marker", () => {
-      const withTool = applyEventsToHistory(SEED, [toolUseStart(1, "a1", "t1", "bash")]);
-      const attached = applyEvent(withTool, confirmationRequest(2, "cr-1", "t1"));
+      const withTool = applyEventsToHistory(SEED, [
+        toolUseStart(1, "a1", "t1", "bash"),
+      ]);
+      const attached = applyEvent(
+        withTool,
+        confirmationRequest(2, "cr-1", "t1"),
+      );
       const tc = attached.messages.find((m) => m.id === "a1")?.toolCalls?.[0];
       expect(tc?.pendingConfirmation?.requestId).toBe("cr-1");
 
-      const cleared = applyEvent(attached, interactionResolved(3, "cr-1", "confirmation"));
+      const cleared = applyEvent(
+        attached,
+        interactionResolved(3, "cr-1", "confirmation"),
+      );
       expect(
         cleared.messages.find((m) => m.id === "a1")?.toolCalls?.[0]
           ?.pendingConfirmation,
@@ -356,7 +396,10 @@ describe("rolling-snapshot reducer", () => {
         toolUseStart(1, "a1", "t1", "bash"),
         confirmationRequest(2, "cr-1", "t1"),
       ]);
-      const after = applyEvent(attached, interactionResolved(3, "cr-1", "host_bash"));
+      const after = applyEvent(
+        attached,
+        interactionResolved(3, "cr-1", "host_bash"),
+      );
       expect(
         after.messages.find((m) => m.id === "a1")?.toolCalls?.[0]
           ?.pendingConfirmation?.requestId,
@@ -369,9 +412,15 @@ describe("rolling-snapshot reducer", () => {
   // -------------------------------------------------------------------------
   describe("processing flag", () => {
     const turnStart = (seq: number, id: string) =>
-      env(seq, { type: "assistant_turn_start", messageId: id } as AssistantEvent);
+      env(seq, {
+        type: "assistant_turn_start",
+        messageId: id,
+      } as AssistantEvent);
     const activityIdle = (seq: number) =>
-      env(seq, { type: "assistant_activity_state", phase: "idle" } as AssistantEvent);
+      env(seq, {
+        type: "assistant_activity_state",
+        phase: "idle",
+      } as AssistantEvent);
     const activityThinking = (seq: number) =>
       env(seq, {
         type: "assistant_activity_state",
@@ -386,10 +435,12 @@ describe("rolling-snapshot reducer", () => {
     });
 
     test("assistant content folds processing → true (turn-start fallback)", () => {
-      expect(applyEvent(idleSeed, textDelta(1, "a1", "hi")).processing).toBe(true);
-      expect(applyEvent(idleSeed, thinkingDelta(1, "a1", "hmm")).processing).toBe(
+      expect(applyEvent(idleSeed, textDelta(1, "a1", "hi")).processing).toBe(
         true,
       );
+      expect(
+        applyEvent(idleSeed, thinkingDelta(1, "a1", "hmm")).processing,
+      ).toBe(true);
     });
 
     test("a non-idle activity phase keeps processing true", () => {
@@ -422,7 +473,11 @@ describe("rolling-snapshot reducer", () => {
     test("converges under a noisy, out-of-order lifecycle stream", () => {
       // The scalar-fold analogue of the message invariant: the highest-seq
       // lifecycle event wins regardless of arrival order.
-      const clean = [turnStart(1, "a1"), textDelta(2, "a1", "hi"), activityIdle(3)];
+      const clean = [
+        turnStart(1, "a1"),
+        textDelta(2, "a1", "hi"),
+        activityIdle(3),
+      ];
       const cleanProcessing = applyEventsToHistory(idleSeed, clean).processing;
       expect(cleanProcessing).toBe(false);
       for (let seed = 1; seed <= 50; seed++) {

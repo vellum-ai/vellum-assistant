@@ -115,8 +115,12 @@ export interface LatestTurnPartition {
  *  Only `messages` genuinely differs: rendered `DisplayMessage`s, not the wire
  *  rows — plus the two client-derived extraction fields. */
 export interface PaginatedHistoryResult
-  extends Required<
-      Pick<MessagesGetResponse, "hasMore" | "oldestTimestamp" | "oldestMessageId">
+  extends
+    Required<
+      Pick<
+        MessagesGetResponse,
+        "hasMore" | "oldestTimestamp" | "oldestMessageId"
+      >
     >,
     Pick<MessagesGetResponse, "seq" | "processing"> {
   messages: DisplayMessage[];

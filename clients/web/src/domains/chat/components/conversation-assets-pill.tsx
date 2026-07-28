@@ -98,7 +98,9 @@ export function ConversationAssetsPill({
   });
 
   useEffect(() => {
-    if (refreshKey === undefined) return;
+    if (refreshKey === undefined) {
+      return;
+    }
     void queryClient.invalidateQueries({
       queryKey: appsGetQueryKey({
         path: { assistant_id: assistantId },

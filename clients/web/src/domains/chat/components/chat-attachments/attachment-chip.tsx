@@ -1,24 +1,23 @@
-
 import {
-    Archive,
-    Code2,
-    FileAudio,
-    File as FileIcon,
-    FileImage,
-    FileSpreadsheet,
-    FileText,
-    FileType2,
-    FileVideo,
-    X,
+  Archive,
+  Code2,
+  FileAudio,
+  File as FileIcon,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileType2,
+  FileVideo,
+  X,
 } from "lucide-react";
 import type { FC, ReactNode } from "react";
 
 import { Button } from "@vellumai/design-library";
 
 import {
-    classifyAttachment,
-    middleTruncate,
-    type AttachmentIconKind,
+  classifyAttachment,
+  middleTruncate,
+  type AttachmentIconKind,
 } from "@/domains/chat/components/chat-attachments/utils";
 
 interface AttachmentChipProps {

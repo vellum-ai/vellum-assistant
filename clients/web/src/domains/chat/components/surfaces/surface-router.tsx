@@ -53,7 +53,10 @@ function SurfaceRouterInner({
   toolCalls,
   onVellumLinkClick,
 }: SurfaceRouterProps) {
-  if (surface.completed && INHERENTLY_INTERACTIVE_SURFACE_TYPES.includes(surface.surfaceType)) {
+  if (
+    surface.completed &&
+    INHERENTLY_INTERACTIVE_SURFACE_TYPES.includes(surface.surfaceType)
+  ) {
     const isCancelled = surface.completionSummary === "Cancelled";
     if (isCancelled) {
       return (

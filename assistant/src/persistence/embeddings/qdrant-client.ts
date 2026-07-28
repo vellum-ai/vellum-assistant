@@ -29,9 +29,13 @@ const log = getLogger("qdrant-client");
  */
 export function resolveQdrantUrl(config: AssistantConfig): string {
   const port = getQdrantHttpPortEnv();
-  if (port) return `http://127.0.0.1:${port}`;
+  if (port) {
+    return `http://127.0.0.1:${port}`;
+  }
   const url = getQdrantUrlEnv();
-  if (url) return url;
+  if (url) {
+    return url;
+  }
   return config.memory.qdrant.url;
 }
 
@@ -182,7 +186,9 @@ export class VellumQdrantClient {
   }
 
   async ensureCollection(): Promise<{ migrated: boolean }> {
-    if (this.collectionReady) return { migrated: false };
+    if (this.collectionReady) {
+      return { migrated: false };
+    }
 
     // A leftover sentinel means a prior boot deleted the collection but never
     // got to enqueue the rebuild (createCollection threw, or the process died
@@ -407,10 +413,14 @@ export class VellumQdrantClient {
     )?.sparse_vectors;
     // No sparse config in the probe — nothing to move. (A collection without
     // the `sparse` named vector cannot accept an index update for it.)
-    if (!sparseParams || !("sparse" in sparseParams)) return;
+    if (!sparseParams || !("sparse" in sparseParams)) {
+      return;
+    }
 
     const current = sparseParams.sparse?.index?.on_disk ?? false;
-    if (current === this.onDisk) return;
+    if (current === this.onDisk) {
+      return;
+    }
 
     try {
       await this.client.updateCollection(this.collection, {
@@ -738,7 +748,9 @@ export class VellumQdrantClient {
   async deleteCollection(): Promise<boolean> {
     try {
       const exists = await this.client.collectionExists(this.collection);
-      if (!exists.exists) return false;
+      if (!exists.exists) {
+        return false;
+      }
       await this.client.deleteCollection(this.collection);
       this.collectionReady = false;
       return true;
@@ -835,7 +847,9 @@ export class VellumQdrantClient {
         with_payload: true,
         with_vector: false,
       });
-      if (points.length === 0) return null;
+      if (points.length === 0) {
+        return null;
+      }
       return (
         ((points[0].payload as Record<string, unknown>)
           ?.embedding_model as string) ?? null
@@ -907,7 +921,9 @@ export class VellumQdrantClient {
           out.push({ id, payload });
         }
         const next = result.next_page_offset;
-        if (next == null) break;
+        if (next == null) {
+          break;
+        }
         offset = typeof next === "string" ? next : (next as number);
       }
       return out;

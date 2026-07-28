@@ -14,7 +14,9 @@ function writeWorkspaceConfig(config: Record<string, unknown>): void {
 
 afterEach(() => {
   const path = getWorkspaceConfigPath();
-  if (existsSync(path)) rmSync(path);
+  if (existsSync(path)) {
+    rmSync(path);
+  }
 });
 
 function createTestDb(withColumns = true) {

@@ -43,7 +43,10 @@ async function runCli(...argv: string[]): Promise<string> {
   return stdoutChunks.join("");
 }
 
-function emptySnapshot(channel: string, overrides: Record<string, unknown> = {}) {
+function emptySnapshot(
+  channel: string,
+  overrides: Record<string, unknown> = {},
+) {
   return {
     channel,
     ready: false,
@@ -69,9 +72,7 @@ describe("assistant channels", () => {
 
   describe("list", () => {
     test("calls channels_readiness_get with includeRemote=false by default", async () => {
-      mockResponses = [
-        { ok: true, result: { success: true, snapshots: [] } },
-      ];
+      mockResponses = [{ ok: true, result: { success: true, snapshots: [] } }];
       await runCli("channels", "list", "--json");
       expect(mockCalls).toHaveLength(1);
       expect(mockCalls[0][0]).toBe("channels_readiness_get");
@@ -81,9 +82,7 @@ describe("assistant channels", () => {
     });
 
     test("--remote flips includeRemote to true (still GET, still cached)", async () => {
-      mockResponses = [
-        { ok: true, result: { success: true, snapshots: [] } },
-      ];
+      mockResponses = [{ ok: true, result: { success: true, snapshots: [] } }];
       await runCli("channels", "list", "--remote", "--json");
       expect(mockCalls[0][0]).toBe("channels_readiness_get");
       expect(mockCalls[0][1]).toEqual({
@@ -117,9 +116,7 @@ describe("assistant channels", () => {
     });
 
     test("exits non-zero when channel has no registered probe", async () => {
-      mockResponses = [
-        { ok: true, result: { success: true, snapshots: [] } },
-      ];
+      mockResponses = [{ ok: true, result: { success: true, snapshots: [] } }];
       await runCli("channels", "get", "nope", "--json");
       expect(process.exitCode).toBe(1);
     });
@@ -135,9 +132,7 @@ describe("assistant channels", () => {
   describe("refresh", () => {
     test("is not registered (mutating verb deferred to its own PR)", async () => {
       // commander throws via exitOverride for unknown subcommands
-      await expect(
-        runCli("channels", "refresh", "slack"),
-      ).rejects.toThrow();
+      await expect(runCli("channels", "refresh", "slack")).rejects.toThrow();
     });
   });
 });

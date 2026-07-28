@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
@@ -88,14 +94,14 @@ describe("SystemPermissionsCard", () => {
     render(<SystemPermissionsCard />);
 
     expect(
-      screen.getByRole("switch", { name: "Notifications" }).getAttribute(
-        "aria-checked",
-      ),
+      screen
+        .getByRole("switch", { name: "Notifications" })
+        .getAttribute("aria-checked"),
     ).toBe("true");
     expect(
-      screen.getByRole("switch", { name: "Notification Badges" }).getAttribute(
-        "aria-checked",
-      ),
+      screen
+        .getByRole("switch", { name: "Notification Badges" })
+        .getAttribute("aria-checked"),
     ).toBe("false");
   });
 
@@ -104,7 +110,9 @@ describe("SystemPermissionsCard", () => {
 
     render(<SystemPermissionsCard />);
 
-    fireEvent.click(screen.getByRole("switch", { name: "Notification Badges" }));
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Notification Badges" }),
+    );
 
     await waitFor(() => {
       expect(localStorage.getItem("device:dock_badges_enabled")).toBe("false");

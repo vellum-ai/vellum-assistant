@@ -12,10 +12,10 @@ mock.module("../background-wake/publisher.js", () => ({
   refreshBackgroundWakeIntent: () => {},
 }));
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   cancelSchedule,

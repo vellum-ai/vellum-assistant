@@ -320,7 +320,9 @@ export function AcpChatToolCard({
             ) : (
               <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
             )}
-            <span>{expandedRaw ? "Hide raw input/output" : "Show raw input/output"}</span>
+            <span>
+              {expandedRaw ? "Hide raw input/output" : "Show raw input/output"}
+            </span>
           </button>
           {expandedRaw && (
             <div className="mt-1.5 flex flex-col gap-2">

@@ -6,9 +6,9 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { Loader2 } from "lucide-react";
 
 import {
-    inferenceChatgptsubscriptionAuthExchangePost,
-    inferenceChatgptsubscriptionAuthPost,
-    inferenceProviderconnectionsGet,
+  inferenceChatgptsubscriptionAuthExchangePost,
+  inferenceChatgptsubscriptionAuthPost,
+  inferenceProviderconnectionsGet,
 } from "@/generated/daemon/sdk.gen";
 
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
@@ -26,12 +26,7 @@ import type { ProviderConnection } from "@/generated/daemon/types.gen";
 // resulting connection so the parent can persist it.
 
 type ChatgptOAuthState =
-  | "idle"
-  | "starting"
-  | "paste_url"
-  | "exchanging"
-  | "completed"
-  | "failed";
+  "idle" | "starting" | "paste_url" | "exchanging" | "completed" | "failed";
 
 interface ChatgptOAuthSectionProps {
   assistantId: string;
@@ -116,8 +111,7 @@ export function ChatgptOAuthSection({
       });
       const conns = data.connections;
       const chatgptConn = conns.find(
-        (c) =>
-          c.name === "chatgpt-subscription" || c.name === "openai-chatgpt",
+        (c) => c.name === "chatgpt-subscription" || c.name === "openai-chatgpt",
       );
       if (chatgptConn) {
         onConnected(chatgptConn);

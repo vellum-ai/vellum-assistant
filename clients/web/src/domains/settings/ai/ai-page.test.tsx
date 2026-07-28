@@ -20,8 +20,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
 import {
-    assistantsListQueryKey,
-    organizationsBillingSubscriptionRetrieveQueryKey,
+  assistantsListQueryKey,
+  organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 
@@ -48,7 +48,19 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => ASSISTANT_ID,
 }));
 
-const { EmailServiceCard } = await import("@/domains/settings/ai/email-service-card");
+// Platform-id resolution is effect-driven and never settles under
+// renderToStaticMarkup; resolve it synchronously so the managed form
+// (and the entitlement gate under test) renders.
+mock.module("@/hooks/use-platform-assistant-id", () => ({
+  usePlatformAssistantId: () => ({
+    platformAssistantId: ASSISTANT_ID,
+    isLoading: false,
+    error: null,
+  }),
+}));
+
+const { EmailServiceCard } =
+  await import("@/domains/settings/ai/email-service-card");
 
 const ASSISTANT_HANDLE = "my-assistant";
 
@@ -71,10 +83,9 @@ function renderCard(subscription: SubscriptionResponse): string {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  client.setQueryData(
-    assistantsListQueryKey(),
-    { results: [{ id: ASSISTANT_ID, handle: ASSISTANT_HANDLE }] },
-  );
+  client.setQueryData(assistantsListQueryKey(), {
+    results: [{ id: ASSISTANT_ID, handle: ASSISTANT_HANDLE }],
+  });
   client.setQueryData(
     organizationsBillingSubscriptionRetrieveQueryKey(),
     subscription,

@@ -50,7 +50,11 @@ const CATALOG = {
 const CONFIG = {
   llm: {
     profiles: {
-      "my-byok": { label: "My BYOK", provider: "anthropic", model: "claude-fable-5" },
+      "my-byok": {
+        label: "My BYOK",
+        provider: "anthropic",
+        model: "claude-fable-5",
+      },
     },
     profileOrder: ["my-byok"],
     activeProfile: null,
@@ -163,7 +167,9 @@ describe("CallSiteOverridesModal — apply to all", () => {
     const trigger = document.querySelector<HTMLElement>(
       'button[role="combobox"]',
     );
-    if (!trigger) throw new Error("expected the apply-all dropdown trigger");
+    if (!trigger) {
+      throw new Error("expected the apply-all dropdown trigger");
+    }
     pickOption(trigger, "My BYOK");
 
     fireEvent.click(getButton("Apply to all"));

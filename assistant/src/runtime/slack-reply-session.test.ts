@@ -28,7 +28,7 @@ mock.module("./gateway-client.js", () => ({
   },
 }));
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js";
 import {
   createSlackReplySession,
@@ -351,7 +351,9 @@ describe("createSlackReplySession", () => {
   test("falls back when stopStream throws after streaming text", async () => {
     deliverImpl = async (_url, payload) => {
       const op = payload.slackStream as { action: string };
-      if (op.action === "stop") {throw new Error("stop failed");}
+      if (op.action === "stop") {
+        throw new Error("stop failed");
+      }
       return { ok: true, ts: "stream-ts-1" };
     };
     const session = createSlackReplySession({

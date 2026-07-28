@@ -190,7 +190,9 @@ export function ManageProfilesModal({
       <Modal.Root
         open={isOpen}
         onOpenChange={(next) => {
-          if (!next) onClose();
+          if (!next) {
+            onClose();
+          }
         }}
       >
         {isOpen ? (
@@ -322,7 +324,9 @@ function ManageProfilesModalInner({
     profile: ProfileWithName,
     active: boolean,
   ): Promise<boolean> {
-    if (togglingNames.has(profile.name)) return false;
+    if (togglingNames.has(profile.name)) {
+      return false;
+    }
     setTogglingNames((prev) => new Set(prev).add(profile.name));
     setToggleError(null);
 
@@ -409,7 +413,9 @@ function ManageProfilesModalInner({
   }
 
   async function handleReassignAndDelete() {
-    if (!blockedDelete || !blockedDeleteReplacement) return;
+    if (!blockedDelete || !blockedDeleteReplacement) {
+      return;
+    }
     setBlockedDeleteSaving(true);
     setBlockedDeleteError(null);
 
@@ -453,13 +459,19 @@ function ManageProfilesModalInner({
     sourceName: string,
     target: { name: string; after: boolean },
   ) {
-    if (sourceName === target.name) return;
+    if (sourceName === target.name) {
+      return;
+    }
     setReorderError(null);
 
     const without = profileOrder.filter((n) => n !== sourceName);
     let insertAt = without.indexOf(target.name);
-    if (insertAt === -1) return;
-    if (target.after) insertAt += 1;
+    if (insertAt === -1) {
+      return;
+    }
+    if (target.after) {
+      insertAt += 1;
+    }
     const newOrder = [
       ...without.slice(0, insertAt),
       sourceName,

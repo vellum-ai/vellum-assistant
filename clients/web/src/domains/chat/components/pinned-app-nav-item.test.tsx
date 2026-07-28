@@ -41,7 +41,13 @@ mock.module("@vellumai/design-library", () => {
       createElement("div", { "data-testid": "ctx-trigger" }, children),
     Content: ({ children }: { children?: ReactNode }) =>
       createElement("div", { "data-testid": "ctx-content" }, children),
-    Item: ({ children, onSelect }: { children?: ReactNode; onSelect?: () => void }) =>
+    Item: ({
+      children,
+      onSelect,
+    }: {
+      children?: ReactNode;
+      onSelect?: () => void;
+    }) =>
       createElement("button", { type: "button", onClick: onSelect }, children),
   };
   return { SideMenu, ContextMenu };
@@ -51,7 +57,12 @@ import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item"
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { PinnableApp, PinnedAppEntry } from "@/utils/app-pin-storage";
 
-const APP: PinnedAppEntry = { appId: "app-1", pinnedOrder: 1, name: "My App", icon: "🚀" };
+const APP: PinnedAppEntry = {
+  appId: "app-1",
+  pinnedOrder: 1,
+  name: "My App",
+  icon: "🚀",
+};
 
 function seedPin(entry: PinnedAppEntry): void {
   const app: PinnableApp = {
@@ -75,7 +86,12 @@ describe("PinnedAppNavItem", () => {
   test("renders the app label and opens the app on select", () => {
     const onOpen = mock((_appId: string) => {});
     render(
-      <PinnedAppNavItem app={APP} active={false} collapsed={false} onOpen={onOpen} />,
+      <PinnedAppNavItem
+        app={APP}
+        active={false}
+        collapsed={false}
+        onOpen={onOpen}
+      />,
     );
 
     const row = screen.getByTestId("app-row");
@@ -106,6 +122,8 @@ describe("PinnedAppNavItem", () => {
 
   test("marks the row active when active is true", () => {
     render(<PinnedAppNavItem app={APP} active collapsed={false} />);
-    expect(screen.getByTestId("app-row").getAttribute("data-active")).toBe("true");
+    expect(screen.getByTestId("app-row").getAttribute("data-active")).toBe(
+      "true",
+    );
   });
 });

@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 
 /**
@@ -8,7 +7,10 @@ import { useEffect, useState } from "react";
  * @param hints   - Array of hint strings to rotate through.
  * @param intervalMs - Milliseconds between rotations.
  */
-export function useHintRotation(hints: readonly string[], intervalMs: number): string {
+export function useHintRotation(
+  hints: readonly string[],
+  intervalMs: number,
+): string {
   const [index, setIndex] = useState(0);
 
   useEffect(() => {

@@ -56,6 +56,7 @@ const { handleOpenPanel, handleOpenUrl, handleOpenConversation } =
   await import("@/domains/chat/utils/stream-handlers/navigation-handlers");
 const { useViewerStore } = await import("@/stores/viewer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
+const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 
 function makeCtx(
   overrides: Partial<StreamHandlerContext> = {},
@@ -303,5 +304,47 @@ describe("handleOpenConversation", () => {
       "conv-origin",
     );
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it("keeps subagent state when opening the already-active conversation (LUM-2875)", () => {
+    useConversationStore.getState().setActiveConversationId("conv-origin");
+    useSubagentStore.getState().reset();
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sub-1",
+      label: "auditor",
+      objective: "audit",
+      timestamp: Date.now(),
+    });
+    const push = mock((_url: string) => {});
+    const ctx = { router: { push } } as unknown as StreamHandlerContext;
+
+    handleOpenConversation(
+      { type: "open_conversation", conversationId: "conv-origin" },
+      ctx,
+    );
+
+    // A same-conversation open must not wipe running-subagent state — the
+    // store only repopulates from live SSE events.
+    expect(useSubagentStore.getState().byId["sub-1"]).toBeDefined();
+  });
+
+  it("resets subagent state on a genuine conversation switch", () => {
+    useConversationStore.getState().setActiveConversationId("conv-origin");
+    useSubagentStore.getState().reset();
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sub-1",
+      label: "auditor",
+      objective: "audit",
+      timestamp: Date.now(),
+    });
+    const push = mock((_url: string) => {});
+    const ctx = { router: { push } } as unknown as StreamHandlerContext;
+
+    handleOpenConversation(
+      { type: "open_conversation", conversationId: "conv-target" },
+      ctx,
+    );
+
+    expect(useSubagentStore.getState().byId["sub-1"]).toBeUndefined();
   });
 });

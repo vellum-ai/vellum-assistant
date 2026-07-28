@@ -39,9 +39,12 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
-import type { OperationalStatus } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
+import {
+  isEntitlementRaceVerdict,
+  isResizeOperationInFlight,
+} from "@/lib/billing/provisioning-targets";
 import { useOrganizationStore } from "@/stores/organization-store";
 
 import {
@@ -73,20 +76,6 @@ const TERMINAL_STATES: readonly ProvisioningStateKind[] = [
   "CONFIRM_TIMEOUT",
 ];
 
-function isResizeOperationInFlight(
-  status: OperationalStatus | null | undefined,
-): boolean {
-  if (!status) return false;
-  if (
-    status.state === "resizing_machine" ||
-    status.state === "resizing_storage"
-  ) {
-    return true;
-  }
-  const operation = status.active_operation?.operation;
-  return typeof operation === "string" && operation.startsWith("resize");
-}
-
 export interface UseProProvisioningOptions {
   open: boolean;
 }
@@ -103,12 +92,17 @@ export interface ProProvisioningResult {
    * operational-status polls.
    */
   assistantId: string | null;
-  /** `domain_setup_available` from the onboarding state, once loaded. */
-  domainSetupAvailable: boolean | undefined;
+  /**
+   * Whether the wizard may offer the domain/email step: the org holds the
+   * managed-email entitlement AND the onboarding payload names an assistant to
+   * attach the domain to. Both halves ride the same payload, so this is
+   * `undefined` until it loads.
+   */
+  domainStepAvailable: boolean | undefined;
   /**
    * The post-confirm onboarding fetch has settled — neither the cold load nor
    * the refetch from the on-open invalidation is in flight, so
-   * `domainSetupAvailable` is safe to route on.
+   * `domainStepAvailable` is safe to route on.
    */
   onboardingSettled: boolean;
   /** The CONFIRMING-phase subscription fetch failed. */
@@ -210,7 +204,9 @@ export function useProProvisioning({
   const [tracking, setTracking] = useState(true);
 
   useEffect(() => {
-    if (open) return;
+    if (open) {
+      return;
+    }
     setConfirmExpired(false);
     setConfirmGeneration(0);
     setOpenedAt(null);
@@ -234,7 +230,9 @@ export function useProProvisioning({
   // data while the refetch is in flight, so `openedAt` fences confirm
   // latching to data that actually landed after this open.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     setOpenedAt(Date.now());
     void queryClient.invalidateQueries({
       queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
@@ -250,7 +248,9 @@ export function useProProvisioning({
     ...organizationsBillingSubscriptionRetrieveOptions(),
     refetchInterval: (query) => {
       const planId = query.state.data?.plan_id;
-      if (planId === "pro" || confirmExpired) return false;
+      if (planId === "pro" || confirmExpired) {
+        return false;
+      }
       return PRO_POLL_INTERVAL_MS;
     },
     refetchIntervalInBackground: false,
@@ -265,7 +265,9 @@ export function useProProvisioning({
     (subscriptionFresh ? subscriptionQuery.data?.plan_id : null) ?? null;
 
   useEffect(() => {
-    if (!open || proConfirmed || observedPlanId !== "pro") return;
+    if (!open || proConfirmed || observedPlanId !== "pro") {
+      return;
+    }
     const confirmedAt = Date.now();
     setProConfirmedAt(confirmedAt);
     setNow(confirmedAt);
@@ -315,15 +317,11 @@ export function useProProvisioning({
               return;
             }
             setEnsureError(null);
-            // `not_applicable` + `no_active_pro` is the subscription-flipped-
-            // but-entitlement-not-yet-visible race, not an answer: adopting it
-            // would park the wizard in a terminal state with an unprovisioned
-            // assistant. Leave the verdict null (pure inference keeps running)
-            // and re-ask once — the race resolves in a beat.
-            if (
-              data.state === "not_applicable" &&
-              data.reason === "no_active_pro"
-            ) {
+            // A race reply is not an answer: adopting it would park the wizard
+            // in a terminal state with an unprovisioned assistant. Leave the
+            // verdict null (pure inference keeps running) and re-ask once —
+            // the race resolves in a beat.
+            if (isEntitlementRaceVerdict(data)) {
               if (!ensureRaceRetriedRef.current) {
                 ensureRaceRetriedRef.current = true;
                 setRaceRetryScheduled(true);
@@ -337,8 +335,9 @@ export function useProProvisioning({
                 // the stall clock here would drop the user out of STALLED with
                 // no resize running and nothing said. Hold the state and
                 // explain, regardless of source, so a repeat dead end surfaces
-                // why.
-                setEnsureError({ error: "no_active_pro" });
+                // why — carrying the server's own reason so the snag copy
+                // names the right one.
+                setEnsureError({ error: data.reason ?? "no_active_pro" });
               }
             } else {
               setServerVerdict(data.state);
@@ -433,7 +432,7 @@ export function useProProvisioning({
 
   // The post-confirm onboarding fetch has settled: fresh for this open, and
   // neither the cold load nor the on-open-invalidation refetch is in flight.
-  // Routing consumes this ("is domain_setup_available safe to route on yet?"),
+  // Routing consumes this ("is `domainStepAvailable` safe to route on yet?"),
   // so it must not settle on a stale pre-checkout payload.
   const onboardingSettled =
     onboardingFresh &&
@@ -448,10 +447,10 @@ export function useProProvisioning({
   // ignored. Fall back to active until it lands fresh.
 
   const assistantId =
-    (onboardingFresh
-      ? onboardingQuery.data?.primary_assistant_id
-      : null) ??
-    (onboardingQuery.isPending ? null : (activeAssistantQuery.data?.id ?? null));
+    (onboardingFresh ? onboardingQuery.data?.primary_assistant_id : null) ??
+    (onboardingQuery.isPending
+      ? null
+      : (activeAssistantQuery.data?.id ?? null));
 
   // Actuals must track the same assistant the wizard targets — under
   // multi-assistant the active assistant may not be the one being resized.
@@ -476,12 +475,16 @@ export function useProProvisioning({
   );
 
   useEffect(() => {
-    if (resizeOperationInFlight) setSawOperation(true);
+    if (resizeOperationInFlight) {
+      setSawOperation(true);
+    }
   }, [resizeOperationInFlight]);
 
   const onboarding = onboardingQuery.data;
   const targets = useMemo<ProvisioningDimensions | null>(() => {
-    if (!onboarding) return null;
+    if (!onboarding) {
+      return null;
+    }
     return {
       // No machine tier on the package (e.g. Mighty), or a tier this bundle
       // doesn't know, yields no machine target; the machine treats a null
@@ -492,9 +495,21 @@ export function useProProvisioning({
     };
   }, [onboarding]);
 
+  // The managed-email entitlement alone doesn't make the domain step offerable:
+  // the domain POST re-resolves the caller's primary assistant server-side and
+  // rejects with 409 when there is none, so the payload must also name one. The
+  // active-assistant fallback that resolves `assistantId` is deliberately not
+  // consulted here — the server ignores any client-supplied id for that write.
+  const domainStepAvailable = onboarding
+    ? onboarding.domain_setup_available &&
+      onboarding.primary_assistant_id != null
+    : undefined;
+
   const assistant = assistantQuery.data;
   const actuals = useMemo<ProvisioningDimensions | null>(() => {
-    if (!assistant) return null;
+    if (!assistant) {
+      return null;
+    }
     return {
       machineSize: assistant.machine_size ?? null,
       storageGib: assistant.provisioned_storage_gib ?? null,
@@ -512,7 +527,9 @@ export function useProProvisioning({
   const currentTargetsMet = targetsMet(targets, actuals);
   const targetsMetMatchesAssistant = targetsMetAssistantId === assistantId;
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     if (currentTargetsMet) {
       setTargetsMetAt((prev) =>
         prev != null && targetsMetMatchesAssistant ? prev : Date.now(),
@@ -576,7 +593,9 @@ export function useProProvisioning({
   }, [shouldTrack]);
 
   useEffect(() => {
-    if (!open || !proConfirmed || isTerminal) return;
+    if (!open || !proConfirmed || isTerminal) {
+      return;
+    }
     const t = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
     return () => clearInterval(t);
   }, [open, proConfirmed, isTerminal]);
@@ -587,7 +606,7 @@ export function useProProvisioning({
     targets,
     actualsSnapshot,
     assistantId,
-    domainSetupAvailable: onboarding?.domain_setup_available,
+    domainStepAvailable,
     onboardingSettled,
     confirmError: !proConfirmed && subscriptionQuery.isError,
     // The onboarding endpoint is platform-side (not the restarting assistant

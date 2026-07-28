@@ -20,15 +20,15 @@ import { InvoicesTable } from "@/domains/settings/components/invoices-table";
 import { PlanCard } from "@/domains/settings/components/plan-card";
 import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
 import {
-    organizationsBillingSubscriptionOnboardingRetrieveOptions,
-    organizationsBillingSubscriptionRetrieveOptions,
-    organizationsBillingSummaryRetrieveOptions,
+  organizationsBillingSubscriptionOnboardingRetrieveOptions,
+  organizationsBillingSubscriptionRetrieveOptions,
+  organizationsBillingSummaryRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
-    useActiveAssistantIsPlatformHosted,
-    useActiveAssistantLifecycleIsLoading,
-    usePlatformGate,
+  useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
+  usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { useIsPlatformSessionSettled } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
@@ -42,295 +42,327 @@ import { toast } from "@vellumai/design-library/components/toast";
  * after checkout completes (success) or is cancelled.
  */
 function BillingStatusHandler() {
-    const [searchParams] = useSearchParams();
-    const navigate = useNavigate();
-    const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-    useEffect(() => {
-        const billingStatus = searchParams.get("billing_status");
-        if (!billingStatus) {
-            return;
-        }
+  useEffect(() => {
+    const billingStatus = searchParams.get("billing_status");
+    if (!billingStatus) {
+      return;
+    }
 
-        if (billingStatus === "success") {
-            toast.success("Payment received! Your credit balance will update shortly.", {
-                id: "billing-status",
-            });
-            queryClient.invalidateQueries({
-                queryKey: organizationsBillingSummaryRetrieveOptions().queryKey,
-            });
-        } else if (billingStatus === "cancel") {
-            toast.info("Checkout was cancelled. No credits were added.", {
-                id: "billing-status",
-            });
-        }
+    if (billingStatus === "success") {
+      toast.success(
+        "Payment received! Your credit balance will update shortly.",
+        {
+          id: "billing-status",
+        },
+      );
+      queryClient.invalidateQueries({
+        queryKey: organizationsBillingSummaryRetrieveOptions().queryKey,
+      });
+    } else if (billingStatus === "cancel") {
+      toast.info("Checkout was cancelled. No credits were added.", {
+        id: "billing-status",
+      });
+    }
 
-        navigate(routes.settings.usageBilling, { replace: true });
-    }, [searchParams, navigate, queryClient]);
+    navigate(routes.settings.usageBilling, { replace: true });
+  }, [searchParams, navigate, queryClient]);
 
-    return null;
+  return null;
 }
 
 /**
  * Re-entry nudge into the pro onboarding wizard: shown while the org is on Pro
  * with domain setup offered but no assistant email domain registered yet.
  */
-function FinishProSetupNotice({ onFinishSetup }: { onFinishSetup: () => void }) {
-    // Gate the query chain on org readiness (and subscribe to it, so the notice
-    // re-evaluates when the org hydrates): a request fired before the org store
-    // settles omits `Vellum-Organization-Id` and the platform rejects it.
-    const orgReady = useIsOrgReady();
-    const { data: subscription } = useQuery({
-        ...organizationsBillingSubscriptionRetrieveOptions(),
-        enabled: orgReady,
-    });
-    const isPro = subscription?.plan_id === "pro";
-    const { data: onboarding } = useQuery({
-        ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
-        enabled: isPro && orgReady,
-    });
-    // `domain_setup_available` only says the platform offers domain setup — it
-    // stays true after a domain is registered, so the real "still unconfigured"
-    // signal is the assistant's domains list being loaded and empty.
-    const domainSetupOffered =
-        isPro && onboarding?.domain_setup_available === true;
-    const { domains } = useAssistantDomains(
-        domainSetupOffered,
-        onboarding?.primary_assistant_id,
-    );
-    const domainMissing = domains !== undefined && domains.results.length === 0;
+function FinishProSetupNotice({
+  onFinishSetup,
+}: {
+  onFinishSetup: () => void;
+}) {
+  // Gate the query chain on org readiness (and subscribe to it, so the notice
+  // re-evaluates when the org hydrates): a request fired before the org store
+  // settles omits `Vellum-Organization-Id` and the platform rejects it.
+  const orgReady = useIsOrgReady();
+  const { data: subscription } = useQuery({
+    ...organizationsBillingSubscriptionRetrieveOptions(),
+    enabled: orgReady,
+  });
+  const isPro = subscription?.plan_id === "pro";
+  const { data: onboarding } = useQuery({
+    ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
+    enabled: isPro && orgReady,
+  });
+  // `domain_setup_available` only says the platform offers domain setup — it
+  // stays true after a domain is registered, so the real "still unconfigured"
+  // signal is the assistant's domains list being loaded and empty.
+  const domainSetupOffered =
+    isPro && onboarding?.domain_setup_available === true;
+  const { domains } = useAssistantDomains(
+    domainSetupOffered,
+    onboarding?.primary_assistant_id,
+  );
+  const domainMissing = domains !== undefined && domains.results.length === 0;
 
-    if (!domainSetupOffered || !domainMissing) {
-        return null;
-    }
+  if (!domainSetupOffered || !domainMissing) {
+    return null;
+  }
 
-    return (
-        <Notice
-            tone="info"
-            title={`Finish setting up your ${proPackageDisplayName(subscription?.package)} plan`}
-            actions={
-                <Button
-                    variant="outlined"
-                    size="compact"
-                    onClick={onFinishSetup}
-                    data-testid="finish-pro-setup-button"
-                >
-                    Finish setup
-                </Button>
-            }
-            data-testid="finish-pro-setup-notice"
+  return (
+    <Notice
+      tone="info"
+      title={`Finish setting up your ${proPackageDisplayName(subscription?.package)} plan`}
+      actions={
+        <Button
+          variant="outlined"
+          size="compact"
+          onClick={onFinishSetup}
+          data-testid="finish-pro-setup-button"
         >
-            Your assistant&apos;s email address hasn&apos;t been set up yet.
-        </Notice>
-    );
+          Finish setup
+        </Button>
+      }
+      data-testid="finish-pro-setup-notice"
+    >
+      Your assistant&apos;s email address hasn&apos;t been set up yet.
+    </Notice>
+  );
 }
 
 function BillingTab() {
-    const platformGate = usePlatformGate({ platformHostedOnly: true });
-    const billingGate = usePlatformGate();
-    const isPlatformHosted = useActiveAssistantIsPlatformHosted();
-    const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
+  const billingGate = usePlatformGate();
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
 
-    const [searchParams, setSearchParams] = useSearchParams();
-    const [planModalOpen, setPlanModalOpen] = useState(false);
-    const openPlanModal = useCallback(() => setPlanModalOpen(true), []);
-    const closePlanModal = useCallback(() => setPlanModalOpen(false), []);
-    const [resizeModalOpen, setResizeModalOpen] = useState(false);
-    const onTierUpgraded = useCallback(() => setResizeModalOpen(true), []);
-    const [proOnboardingOpen, setProOnboardingOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [planModalOpen, setPlanModalOpen] = useState(false);
+  const openPlanModal = useCallback(() => setPlanModalOpen(true), []);
+  const closePlanModal = useCallback(() => setPlanModalOpen(false), []);
+  const [resizeModalOpen, setResizeModalOpen] = useState(false);
+  const onTierUpgraded = useCallback(() => setResizeModalOpen(true), []);
+  const [proOnboardingOpen, setProOnboardingOpen] = useState(false);
 
-    useEffect(() => {
-        // Only consume the modal-opening params once billing is usable (signed
-        // in). While the tab shows the login notice (`"disabled"`), leave them
-        // in the URL so PlatformLoginNotice carries them through sign-in and
-        // the target modal opens on return instead of being silently dropped.
-        if (billingGate !== "full") {
-            return;
-        }
-        const hasAdjustPlan = searchParams.has("adjust_plan");
-        const hasProOnboarding = searchParams.has("pro_onboarding");
-        if (!hasAdjustPlan && !hasProOnboarding) {
-            return;
-        }
-        if (hasAdjustPlan) {
-            setPlanModalOpen(true);
-        }
-        if (hasProOnboarding) {
-            setProOnboardingOpen(true);
-        }
-        setSearchParams((prev) => {
-            const next = new URLSearchParams(prev);
-            next.delete("adjust_plan");
-            next.delete("pro_onboarding");
-            return next;
-        }, { replace: true });
-    }, [billingGate, searchParams, setSearchParams]);
-
-    const hasSessionId = searchParams.has("session_id");
-    const closeOnboarding = useCallback(() => {
-        setProOnboardingOpen(false);
-        setSearchParams((prev) => {
-            const next = new URLSearchParams(prev);
-            next.delete("session_id");
-            return next;
-        }, { replace: true });
-    }, [setSearchParams]);
-    // Routed through `?pro_onboarding` (rather than opening state directly) so
-    // the nudge exercises the same path as a deeplink.
-    const openProOnboarding = useCallback(() => {
-        setSearchParams((prev) => {
-            const next = new URLSearchParams(prev);
-            next.set("pro_onboarding", "");
-            return next;
-        }, { replace: true });
-    }, [setSearchParams]);
-
-    if (billingGate === "disabled") {
-        return (
-            <div className="space-y-4">
-                <PlatformLoginNotice>
-                    Log in to the Vellum platform to manage billing and usage.
-                </PlatformLoginNotice>
-            </div>
-        );
+  useEffect(() => {
+    // Only consume the modal-opening params once billing is usable (signed
+    // in). While the tab shows the login notice (`"disabled"`), leave them
+    // in the URL so PlatformLoginNotice carries them through sign-in and
+    // the target modal opens on return instead of being silently dropped.
+    if (billingGate !== "full") {
+      return;
     }
-
-    if (isLifecycleLoading) {
-        return (
-            <div className="space-y-4">
-                <div className="flex items-center gap-2 py-6 text-body-medium-lighter text-[var(--content-secondary)]">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading billing…
-                </div>
-            </div>
-        );
+    const hasAdjustPlan = searchParams.has("adjust_plan");
+    const hasProOnboarding = searchParams.has("pro_onboarding");
+    if (!hasAdjustPlan && !hasProOnboarding) {
+      return;
     }
-
-    const showPlanManagement = isPlatformHosted;
-
-    if (!isPlatformHosted && platformGate !== "gated") {
-        return (
-            <div className="space-y-4">
-                <Notice tone="warning">
-                    Billing isn&apos;t available for the current assistant state.
-                </Notice>
-            </div>
-        );
+    if (hasAdjustPlan) {
+      setPlanModalOpen(true);
     }
-
-    return (
-        <div className="space-y-4">
-            <Suspense fallback={null}>
-                <BillingStatusHandler />
-                <BillingPortalReturnHandler />
-            </Suspense>
-            {showPlanManagement && <GracePeriodBanner />}
-            {showPlanManagement && (
-                <FinishProSetupNotice onFinishSetup={openProOnboarding} />
-            )}
-            {showPlanManagement && (
-                <PlanCard onManage={openPlanModal} onTierUpgraded={onTierUpgraded} />
-            )}
-            {showPlanManagement && (
-                <AdjustPlanModal open={planModalOpen} onClose={closePlanModal} onTierUpgraded={onTierUpgraded} />
-            )}
-            <Suspense fallback={null}>
-                <BillingPanel />
-            </Suspense>
-            <Suspense fallback={null}>
-                <InvoicesTable />
-            </Suspense>
-            {showPlanManagement && (
-                <BillingOnboardingModal
-                    open={hasSessionId || proOnboardingOpen}
-                    onClose={closeOnboarding}
-                />
-            )}
-            {showPlanManagement && (
-                <BillingOnboardingModal
-                    mode="resize"
-                    open={resizeModalOpen}
-                    onClose={() => setResizeModalOpen(false)}
-                />
-            )}
-        </div>
+    if (hasProOnboarding) {
+      setProOnboardingOpen(true);
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("adjust_plan");
+        next.delete("pro_onboarding");
+        return next;
+      },
+      { replace: true },
     );
+  }, [billingGate, searchParams, setSearchParams]);
+
+  const hasSessionId = searchParams.has("session_id");
+  const closeOnboarding = useCallback(() => {
+    setProOnboardingOpen(false);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("session_id");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+  // Routed through `?pro_onboarding` (rather than opening state directly) so
+  // the nudge exercises the same path as a deeplink.
+  const openProOnboarding = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set("pro_onboarding", "");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+
+  if (billingGate === "disabled") {
+    return (
+      <div className="space-y-4">
+        <PlatformLoginNotice>
+          Log in to the Vellum platform to manage billing and usage.
+        </PlatformLoginNotice>
+      </div>
+    );
+  }
+
+  if (isLifecycleLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 py-6 text-body-medium-lighter text-[var(--content-secondary)]">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading billing…
+        </div>
+      </div>
+    );
+  }
+
+  const showPlanManagement = isPlatformHosted;
+  // The pro onboarding wizard is organization-scoped — `useProProvisioning`
+  // targets the subscription's `primary_assistant_id` and falls back to the
+  // active assistant only when the payload names none — so it is gated on the
+  // organization rather than on the active assistant's hosting. An
+  // organization holding both hosting types would otherwise drop a completed
+  // checkout's `session_id` whenever a self-hosted assistant is selected.
+  // Every other surface below reads the active assistant and stays gated on
+  // `showPlanManagement`.
+  const showProOnboarding =
+    showPlanManagement || hasSessionId || proOnboardingOpen;
+
+  if (!isPlatformHosted && platformGate !== "gated") {
+    return (
+      <div className="space-y-4">
+        <Notice tone="warning">
+          Billing isn&apos;t available for the current assistant state.
+        </Notice>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Suspense fallback={null}>
+        <BillingStatusHandler />
+        <BillingPortalReturnHandler />
+      </Suspense>
+      {showPlanManagement && <GracePeriodBanner />}
+      {showPlanManagement && (
+        <FinishProSetupNotice onFinishSetup={openProOnboarding} />
+      )}
+      {showPlanManagement && (
+        <PlanCard onManage={openPlanModal} onTierUpgraded={onTierUpgraded} />
+      )}
+      {showPlanManagement && (
+        <AdjustPlanModal
+          open={planModalOpen}
+          onClose={closePlanModal}
+          onTierUpgraded={onTierUpgraded}
+        />
+      )}
+      <Suspense fallback={null}>
+        <BillingPanel />
+      </Suspense>
+      <Suspense fallback={null}>
+        <InvoicesTable />
+      </Suspense>
+      {showProOnboarding && (
+        <BillingOnboardingModal
+          open={hasSessionId || proOnboardingOpen}
+          onClose={closeOnboarding}
+        />
+      )}
+      {showPlanManagement && (
+        <BillingOnboardingModal
+          mode="resize"
+          open={resizeModalOpen}
+          onClose={() => setResizeModalOpen(false)}
+        />
+      )}
+    </div>
+  );
 }
 
 function UsagePanel() {
-    const assistantId = useActiveAssistantId();
-    const chartGate = usePlatformGate({ platformHostedOnly: true });
-    const reachabilityGate = usePlatformGate();
-    const showChart = chartGate === "full" && reachabilityGate !== "gated";
+  const assistantId = useActiveAssistantId();
+  const chartGate = usePlatformGate({ platformHostedOnly: true });
+  const reachabilityGate = usePlatformGate();
+  const showChart = chartGate === "full" && reachabilityGate !== "gated";
 
-    return (
-        <div className="space-y-4">
-            {showChart && <BillingUsagePanel />}
-            <UsageTab assistantId={assistantId} />
-        </div>
-    );
+  return (
+    <div className="space-y-4">
+      {showChart && <BillingUsagePanel />}
+      <UsageTab assistantId={assistantId} />
+    </div>
+  );
 }
 
 export function BillingPage() {
-    const billingGate = usePlatformGate();
-    const [searchParams, setSearchParams] = useSearchParams();
-    // Shown when signed in (`"full"`); for a signed-out-but-reachable viewer
-    // (`"disabled"`) it stays reachable only when the URL carries billing intent
-    // (a deeplink / upgrade CTA / Stripe return), so the BillingTab login notice
-    // can carry those params through sign-in. Normal signed-out browsing and
-    // self-hosted (`"gated"`) see the Usage tab alone. See
-    // `billing-tab-visibility.ts`.
-    const showBillingTab = shouldShowBillingTab(billingGate, searchParams);
+  const billingGate = usePlatformGate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Shown when signed in (`"full"`); for a signed-out-but-reachable viewer
+  // (`"disabled"`) it stays reachable only when the URL carries billing intent
+  // (a deeplink / upgrade CTA / Stripe return), so the BillingTab login notice
+  // can carry those params through sign-in. Normal signed-out browsing and
+  // self-hosted (`"gated"`) see the Usage tab alone. See
+  // `billing-tab-visibility.ts`.
+  const showBillingTab = shouldShowBillingTab(billingGate, searchParams);
 
-    // When Billing is available it leads the tab list and is the default;
-    // Usage is reached via `?tab=usage`. With no Billing tab, Usage is all
-    // there is.
-    const activeTab =
-        showBillingTab && searchParams.get("tab") !== "usage" ? "billing" : "usage";
+  // When Billing is available it leads the tab list and is the default;
+  // Usage is reached via `?tab=usage`. With no Billing tab, Usage is all
+  // there is.
+  const activeTab =
+    showBillingTab && searchParams.get("tab") !== "usage" ? "billing" : "usage";
 
-    // Keep the active tab explicit in the URL so both tabs are symmetric and
-    // the address bar always names what's shown: a bare `/settings/usage` — or
-    // a stale `?tab=billing` after signing out — is rewritten to the resolved
-    // tab. Gate on the *platform-session* probe settling, not just session
-    // status: the local-gateway path flips `sessionStatus` to authenticated
-    // while `platformSession` is still `"unknown"` (so `usePlatformGate()`
-    // reads no session and Billing hasn't resolved as the default). Rewriting
-    // in that window would lock `?tab=usage` and strand a signed-in viewer on
-    // Usage once the session confirms.
-    const isPlatformSessionSettled = useIsPlatformSessionSettled();
-    useEffect(() => {
-        if (!isPlatformSessionSettled) {
-            return;
-        }
-        if (searchParams.get("tab") !== activeTab) {
-            const next = new URLSearchParams(searchParams);
-            next.set("tab", activeTab);
-            setSearchParams(next, { replace: true });
-        }
-    }, [isPlatformSessionSettled, searchParams, activeTab, setSearchParams]);
+  // Keep the active tab explicit in the URL so both tabs are symmetric and
+  // the address bar always names what's shown: a bare `/settings/usage` — or
+  // a stale `?tab=billing` after signing out — is rewritten to the resolved
+  // tab. Gate on the *platform-session* probe settling, not just session
+  // status: the local-gateway path flips `sessionStatus` to authenticated
+  // while `platformSession` is still `"unknown"` (so `usePlatformGate()`
+  // reads no session and Billing hasn't resolved as the default). Rewriting
+  // in that window would lock `?tab=usage` and strand a signed-in viewer on
+  // Usage once the session confirms.
+  const isPlatformSessionSettled = useIsPlatformSessionSettled();
+  useEffect(() => {
+    if (!isPlatformSessionSettled) {
+      return;
+    }
+    if (searchParams.get("tab") !== activeTab) {
+      const next = new URLSearchParams(searchParams);
+      next.set("tab", activeTab);
+      setSearchParams(next, { replace: true });
+    }
+  }, [isPlatformSessionSettled, searchParams, activeTab, setSearchParams]);
 
-    const handleTabChange = (value: string) => {
-        const next = new URLSearchParams(searchParams);
-        next.set("tab", value);
-        setSearchParams(next, { replace: true });
-    };
+  const handleTabChange = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", value);
+    setSearchParams(next, { replace: true });
+  };
 
-    return (
-        <div className="space-y-6">
-            <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
-                <Tabs.List>
-                    {showBillingTab && <Tabs.Trigger value="billing">Billing</Tabs.Trigger>}
-                    <Tabs.Trigger value="usage">Usage</Tabs.Trigger>
-                </Tabs.List>
-                {showBillingTab && (
-                    <Tabs.Panel value="billing" className="pt-4">
-                        <BillingTab />
-                    </Tabs.Panel>
-                )}
-                <Tabs.Panel value="usage" className="pt-4">
-                    <UsagePanel />
-                </Tabs.Panel>
-            </Tabs.Root>
-        </div>
-    );
+  return (
+    <div className="space-y-6">
+      <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
+        <Tabs.List>
+          {showBillingTab && (
+            <Tabs.Trigger value="billing">Billing</Tabs.Trigger>
+          )}
+          <Tabs.Trigger value="usage">Usage</Tabs.Trigger>
+        </Tabs.List>
+        {showBillingTab && (
+          <Tabs.Panel value="billing" className="pt-4">
+            <BillingTab />
+          </Tabs.Panel>
+        )}
+        <Tabs.Panel value="usage" className="pt-4">
+          <UsagePanel />
+        </Tabs.Panel>
+      </Tabs.Root>
+    </div>
+  );
 }

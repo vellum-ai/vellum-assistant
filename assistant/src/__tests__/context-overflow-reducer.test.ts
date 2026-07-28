@@ -230,7 +230,9 @@ describe("context-overflow-reducer", () => {
         currentMessages = result.messages;
         state = result.state;
 
-        if (state.exhausted) break;
+        if (state.exhausted) {
+          break;
+        }
       }
 
       // All four tiers should have been applied

@@ -37,7 +37,7 @@ export function useSaveSlackConfig({
     }) => {
       if (!appToken.trim()) {
         throw new Error(
-          "App token is required. Go back to step 2 to enter it.",
+          "App token is required. Copy the xapp- token from Slack's install screen.",
         );
       }
       if (!botToken.trim()) {

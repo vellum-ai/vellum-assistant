@@ -87,7 +87,9 @@ export function nextPackageUp(
   packages: ProPackage[],
   currentKey: string | null,
 ): ProPackage | null {
-  if (packages.length === 0) return null;
+  if (packages.length === 0) {
+    return null;
+  }
 
   const sorted = [...packages].sort(
     (a, b) =>
@@ -95,10 +97,16 @@ export function nextPackageUp(
       PACKAGE_ORDER.indexOf(b.key as (typeof PACKAGE_ORDER)[number]),
   );
 
-  if (!currentKey) return sorted[0];
+  if (!currentKey) {
+    return sorted[0];
+  }
 
   const idx = sorted.findIndex((p) => p.key === currentKey);
-  if (idx === -1) return sorted[0];
-  if (idx >= sorted.length - 1) return null;
+  if (idx === -1) {
+    return sorted[0];
+  }
+  if (idx >= sorted.length - 1) {
+    return null;
+  }
   return sorted[idx + 1];
 }

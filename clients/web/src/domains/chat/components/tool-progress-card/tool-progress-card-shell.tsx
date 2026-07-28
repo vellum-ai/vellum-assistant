@@ -1,4 +1,3 @@
-
 import { AlertCircle, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useState, type ReactNode } from "react";
@@ -22,11 +21,7 @@ import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card
  * the two semantics can diverge visually later without a prop break.
  */
 export type ToolProgressCardState =
-  | "loading"
-  | "complete"
-  | "warning"
-  | "denied"
-  | "error";
+  "loading" | "complete" | "warning" | "denied" | "error";
 
 export interface ToolProgressCardShellProps {
   /**
@@ -244,7 +239,9 @@ export function ToolProgressCardShell({
       onHeaderClick();
       return;
     }
-    if (disableExpand) return;
+    if (disableExpand) {
+      return;
+    }
     const next = !expanded;
     if (!isControlled) {
       setUncontrolledExpanded(next);
@@ -442,9 +439,7 @@ export function ToolProgressCardShell({
                   // inline `SingleActivity` links (border + px-1.5 − ml-1.5
                   // otherwise leaves it 1px right of flush).
                   `h-auto w-fit min-w-0 max-w-[calc(100%+0.375rem)] justify-start gap-2 rounded-md border-0 px-1.5 py-1.5 -ml-1.5 hover:bg-[var(--surface-hover)]${
-                    expanded || headerActive
-                      ? " bg-[var(--surface-hover)]"
-                      : ""
+                    expanded || headerActive ? " bg-[var(--surface-hover)]" : ""
                   }`
                 : `h-auto w-full min-w-0 justify-between gap-2 p-3 ${
                     expanded

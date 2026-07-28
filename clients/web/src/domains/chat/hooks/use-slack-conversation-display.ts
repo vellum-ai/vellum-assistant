@@ -12,9 +12,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 type SlackConversationDisplayInput = {
   assistantId?: string;
   conversation:
-    | (SlackDisplayConversation & { conversationId?: string })
-    | null
-    | undefined;
+    (SlackDisplayConversation & { conversationId?: string }) | null | undefined;
   messages?: DisplayMessage[];
 };
 

@@ -4,8 +4,8 @@ import { PLUGIN_TOGGLE_ERROR } from "@/domains/intelligence/plugins/constants";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import { pluginsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
-    pluginsByNameDisablePost,
-    pluginsByNameEnablePost,
+  pluginsByNameDisablePost,
+  pluginsByNameEnablePost,
 } from "@/generated/daemon/sdk.gen";
 import type { PluginsGetResponse } from "@/generated/daemon/types.gen";
 import { toast } from "@vellumai/design-library";
@@ -76,7 +76,9 @@ export function usePluginToggle(assistantId: string): UsePluginToggleResult {
       // success and let `onSettled` refetch the truth; only other non-ok
       // statuses are real failures.
       const status = result.response?.status;
-      if (result.response?.ok || status === 409) return result;
+      if (result.response?.ok || status === 409) {
+        return result;
+      }
       throw new Error(`Plugin toggle failed (${status ?? "network error"})`);
     },
     onMutate: async ({ name, nextEnabled }) => {
@@ -100,6 +102,8 @@ export function usePluginToggle(assistantId: string): UsePluginToggleResult {
 
   return {
     toggle,
-    togglingName: mutation.isPending ? (mutation.variables?.name ?? null) : null,
+    togglingName: mutation.isPending
+      ? (mutation.variables?.name ?? null)
+      : null,
   };
 }

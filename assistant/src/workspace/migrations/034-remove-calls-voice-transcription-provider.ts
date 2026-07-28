@@ -35,12 +35,16 @@ export const removeCallsVoiceTranscriptionProviderMigration: WorkspaceMigration 
       "Copy calls.voice.transcriptionProvider to services.stt.provider and remove legacy keys",
     run(workspaceDir: string): void {
       const configPath = join(workspaceDir, "config.json");
-      if (!existsSync(configPath)) return;
+      if (!existsSync(configPath)) {
+        return;
+      }
 
       let config: Record<string, unknown>;
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          return;
+        }
         config = raw as Record<string, unknown>;
       } catch {
         return; // Malformed JSON — skip
@@ -102,12 +106,16 @@ export const removeCallsVoiceTranscriptionProviderMigration: WorkspaceMigration 
       // The down migration restores `calls.voice.transcriptionProvider`
       // from `services.stt.provider` where possible.
       const configPath = join(workspaceDir, "config.json");
-      if (!existsSync(configPath)) return;
+      if (!existsSync(configPath)) {
+        return;
+      }
 
       let config: Record<string, unknown>;
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          return;
+        }
         config = raw as Record<string, unknown>;
       } catch {
         return;
@@ -121,7 +129,9 @@ export const removeCallsVoiceTranscriptionProviderMigration: WorkspaceMigration 
       // Reverse-map canonical provider ID to legacy enum value
       const legacyProvider = reverseMapProvider(sttProvider);
 
-      if (!legacyProvider) return;
+      if (!legacyProvider) {
+        return;
+      }
 
       const calls = ensureObj(config, "calls");
       const voice = ensureObj(calls, "voice");
@@ -180,10 +190,14 @@ function ensureObj(
 function looksLike033Default(stt: Record<string, unknown>): boolean {
   const keys033 = new Set(["mode", "provider", "providers"]);
   for (const key of Object.keys(stt)) {
-    if (!keys033.has(key)) return false;
+    if (!keys033.has(key)) {
+      return false;
+    }
   }
   // Verify the other structural values match the 033 defaults
-  if ("mode" in stt && stt.mode !== "your-own") return false;
+  if ("mode" in stt && stt.mode !== "your-own") {
+    return false;
+  }
   if ("providers" in stt) {
     const providers = stt.providers;
     if (
@@ -203,7 +217,9 @@ function looksLike033Default(stt: Record<string, unknown>): boolean {
  * `calls.voice.transcriptionProvider` enum value for the down migration.
  */
 function reverseMapProvider(sttProvider: string | null): string | null {
-  if (!sttProvider) return null;
+  if (!sttProvider) {
+    return null;
+  }
   switch (sttProvider) {
     case "deepgram":
       return "Deepgram";

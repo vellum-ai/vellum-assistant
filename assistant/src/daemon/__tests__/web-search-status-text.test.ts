@@ -20,6 +20,7 @@ mock.module("../../persistence/llm-request-log-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
+import type { AssistantEvent } from "../../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -30,7 +31,6 @@ import {
   formatFetchStatusText,
   formatSearchStatusText,
 } from "../conversation-agent-loop-handlers.js";
-import type { AssistantEvent } from "../message-protocol.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

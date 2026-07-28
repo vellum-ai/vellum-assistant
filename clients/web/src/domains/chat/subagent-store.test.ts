@@ -369,7 +369,11 @@ describe("receiveEvent", () => {
 
     getState().receiveEvent({
       subagentId: "sa-1",
-      event: { type: "tool_use_start", toolName: "file_read", content: "Reading file" },
+      event: {
+        type: "tool_use_start",
+        toolName: "file_read",
+        content: "Reading file",
+      },
       timestamp: NOW + 300,
     });
 
@@ -444,7 +448,11 @@ describe("receiveEvent", () => {
 
     getState().receiveEvent({
       subagentId: "sa-1",
-      event: { type: "tool_result", content: "Permission denied", isError: true },
+      event: {
+        type: "tool_result",
+        content: "Permission denied",
+        isError: true,
+      },
       timestamp: NOW + 500,
     });
 
@@ -485,7 +493,9 @@ describe("receiveEvent", () => {
       timestamp: NOW + 700,
     });
 
-    expect(getState().byId["sa-1"]!.events[0]!.content).toBe("Hello from text field");
+    expect(getState().byId["sa-1"]!.events[0]!.content).toBe(
+      "Hello from text field",
+    );
   });
 
   it("reads result field for tool_result when content is absent", () => {
@@ -515,7 +525,11 @@ describe("receiveEvent", () => {
 
     getState().receiveEvent({
       subagentId: "sa-1",
-      event: { type: "assistant_text_delta", content: "from content", text: "from text" },
+      event: {
+        type: "assistant_text_delta",
+        content: "from content",
+        text: "from text",
+      },
       timestamp: NOW + 900,
     });
 
@@ -538,7 +552,11 @@ describe("receiveEvent", () => {
     });
     store.receiveEvent({
       subagentId: "sa-1",
-      event: { type: "tool_use_start", toolName: "bash", input: { command: "ls" } },
+      event: {
+        type: "tool_use_start",
+        toolName: "bash",
+        input: { command: "ls" },
+      },
       timestamp: NOW + 200,
     });
     store.receiveEvent({
@@ -602,7 +620,11 @@ describe("receiveEvent", () => {
     });
     store.receiveEvent({
       subagentId: "sa-1",
-      event: { type: "tool_use_start", toolName: "bash", input: { command: "ls" } },
+      event: {
+        type: "tool_use_start",
+        toolName: "bash",
+        input: { command: "ls" },
+      },
       timestamp: NOW + 200,
     });
     store.receiveEvent({
@@ -675,7 +697,11 @@ describe("receiveEvent", () => {
     const store = getState();
     store.receiveEvent({
       subagentId: "sa-1",
-      event: { type: "tool_use_start", toolName: "bash", input: { command: "ls" } },
+      event: {
+        type: "tool_use_start",
+        toolName: "bash",
+        input: { command: "ls" },
+      },
       timestamp: NOW + 100,
     });
     store.receiveEvent({
@@ -1050,7 +1076,9 @@ describe("byParent index", () => {
     });
 
     expect(
-      getState().byParent.get("msg-x")?.map((e) => e.subagentId),
+      getState()
+        .byParent.get("msg-x")
+        ?.map((e) => e.subagentId),
     ).toEqual(["sa-early", "sa-late"]);
   });
 
@@ -1127,7 +1155,9 @@ describe("byParent index", () => {
     expect(getState().byParent.get("msg-1")).toBe(bucketBefore);
     // msg-2's bucket grew.
     expect(
-      getState().byParent.get("msg-2")?.map((e) => e.subagentId),
+      getState()
+        .byParent.get("msg-2")
+        ?.map((e) => e.subagentId),
     ).toEqual(["sa-b", "sa-c"]);
   });
 });
@@ -1245,7 +1275,9 @@ describe("reanchorToMessage", () => {
 
     const { byParent, byId } = getState();
     expect(byParent.get("msg-1")?.map((e) => e.subagentId)).toEqual(["sa-1"]);
-    expect(byParent.get("stable-1")?.map((e) => e.subagentId)).toEqual(["sa-1"]);
+    expect(byParent.get("stable-1")?.map((e) => e.subagentId)).toEqual([
+      "sa-1",
+    ]);
     expect(byId["sa-1"]!.parentMessageId).toBe("msg-1");
     expect(byId["sa-1"]!.parentMessageStableId).toBe("stable-1");
   });
@@ -1269,7 +1301,9 @@ describe("reanchorToMessage", () => {
     getState().reanchorToMessage({ stableId: "stable-1", messageId: "msg-1" });
 
     expect(
-      getState().byParent.get("msg-1")?.map((e) => e.subagentId),
+      getState()
+        .byParent.get("msg-1")
+        ?.map((e) => e.subagentId),
     ).toEqual(["sa-early", "sa-late"]);
   });
 
@@ -1293,7 +1327,9 @@ describe("reanchorToMessage", () => {
     getState().reanchorToMessage({ stableId: "stable-1", messageId: "msg-1" });
 
     expect(
-      getState().byParent.get("msg-1")?.map((e) => e.subagentId),
+      getState()
+        .byParent.get("msg-1")
+        ?.map((e) => e.subagentId),
     ).toEqual(["sa-existing", "sa-stable"]);
   });
 
@@ -1370,5 +1406,174 @@ describe("reanchorToMessage", () => {
 
     // The unrelated bucket reference is untouched.
     expect(getState().byParent.get("stable-other")).toBe(otherBucketBefore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ensureEntry — stub recovery for a missed subagent_spawned (LUM-2875)
+// ---------------------------------------------------------------------------
+
+describe("ensureEntry", () => {
+  it("creates a running stub with placeholder identity", () => {
+    getState().ensureEntry({ subagentId: "sa-1", timestamp: NOW });
+
+    const entry = getState().byId["sa-1"];
+    expect(entry).toBeDefined();
+    expect(entry?.label).toBe("");
+    expect(entry?.status).toBe("running");
+    expect(entry?.events).toEqual([]);
+    expect(entry?.hydrationPending).toBeUndefined();
+    expect(getState().orderedIds).toEqual(["sa-1"]);
+  });
+
+  it("marks the stub hydrationPending when a conversationId arms the backfill", () => {
+    getState().ensureEntry({
+      subagentId: "sa-1",
+      timestamp: NOW,
+      conversationId: "conv-parent",
+    });
+
+    const entry = getState().byId["sa-1"];
+    expect(entry?.conversationId).toBe("conv-parent");
+    expect(entry?.hydrationPending).toBe(true);
+  });
+
+  it("is a no-op when the entry already exists", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "real label",
+      objective: "obj",
+      timestamp: NOW,
+    });
+
+    getState().ensureEntry({
+      subagentId: "sa-1",
+      timestamp: NOW + 5,
+      conversationId: "conv-x",
+    });
+
+    const entry = getState().byId["sa-1"];
+    expect(entry?.label).toBe("real label");
+    expect(entry?.hydrationPending).toBeUndefined();
+  });
+
+  it("accepts a terminal status for a stub recovered from a status event", () => {
+    getState().ensureEntry({
+      subagentId: "sa-1",
+      timestamp: NOW,
+      status: "completed",
+    });
+
+    expect(getState().byId["sa-1"]?.status).toBe("completed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hydrationPending — live events defer to the authoritative backfill
+// ---------------------------------------------------------------------------
+
+describe("hydrationPending", () => {
+  const textEvent: SubagentInnerEvent = {
+    type: "assistant_text_delta",
+    text: "hello",
+  };
+
+  it("receiveEvent drops events while the backfill is outstanding", () => {
+    getState().ensureEntry({
+      subagentId: "sa-1",
+      timestamp: NOW,
+      conversationId: "conv-parent",
+    });
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: textEvent,
+      timestamp: NOW + 1,
+    });
+
+    expect(getState().byId["sa-1"]?.events).toEqual([]);
+  });
+
+  it("loadDetail clears the flag and subsequent events append", () => {
+    getState().ensureEntry({
+      subagentId: "sa-1",
+      timestamp: NOW,
+      conversationId: "conv-parent",
+    });
+
+    getState().loadDetail({ subagentId: "sa-1", events: [] });
+
+    expect(getState().byId["sa-1"]?.hydrationPending).toBe(false);
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: textEvent,
+      timestamp: NOW + 2,
+    });
+    expect(getState().byId["sa-1"]?.events).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadDetail — identity backfill for recovered stubs
+// ---------------------------------------------------------------------------
+
+describe("loadDetail identity backfill", () => {
+  it("backfills label and parentToolUseId onto a stub and indexes the anchor", () => {
+    getState().ensureEntry({
+      subagentId: "sa-1",
+      timestamp: NOW,
+      conversationId: "conv-parent",
+    });
+
+    getState().loadDetail({
+      subagentId: "sa-1",
+      events: [],
+      label: "Audit daemon defenses",
+      parentToolUseId: "toolu_1",
+    });
+
+    const entry = getState().byId["sa-1"];
+    expect(entry?.label).toBe("Audit daemon defenses");
+    expect(entry?.parentToolUseId).toBe("toolu_1");
+    expect(getState().byToolUseId.get("toolu_1")).toBe("sa-1");
+  });
+
+  it("keeps a label learned from subagent_spawned over the fetched one", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "spawn label",
+      objective: "obj",
+      timestamp: NOW,
+      conversationId: "conv-child",
+    });
+
+    getState().loadDetail({
+      subagentId: "sa-1",
+      events: [],
+      label: "fetched label",
+    });
+
+    expect(getState().byId["sa-1"]?.label).toBe("spawn label");
+  });
+
+  it("does not re-index or clobber an existing parentToolUseId", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentToolUseId: "toolu_original",
+    });
+    const byToolUseIdBefore = getState().byToolUseId;
+
+    getState().loadDetail({
+      subagentId: "sa-1",
+      events: [],
+      parentToolUseId: "toolu_other",
+    });
+
+    expect(getState().byId["sa-1"]?.parentToolUseId).toBe("toolu_original");
+    expect(getState().byToolUseId).toBe(byToolUseIdBefore);
   });
 });

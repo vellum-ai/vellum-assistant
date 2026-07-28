@@ -1,4 +1,12 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 import { LLMSchema } from "../../config/schemas/llm.js";
 import type { ProviderConnection } from "../inference/auth.js";
@@ -111,6 +119,44 @@ describe("resolveProviderFromConnection native web search selection", () => {
         useNativeWebSearch: true,
       }),
     ]);
+  });
+});
+
+describe("resolveProviderFromConnection connection cache TTL", () => {
+  beforeEach(() => {
+    adapterCalls.length = 0;
+    clearConnectionProviderCache();
+    setSystemTime(new Date("2026-01-01T00:00:00Z"));
+  });
+
+  afterEach(() => {
+    // Restore the real clock so later suites are not frozen.
+    setSystemTime();
+  });
+
+  test("serves a cached provider within the TTL, re-resolves after it expires", async () => {
+    // First resolution: a cache miss builds an adapter.
+    await resolveProviderFromConnection(openRouterConnection, makeConfig(), {
+      model: "anthropic/claude-opus-4-7",
+    });
+    expect(adapterCalls).toHaveLength(1);
+
+    // A second resolution 59s later is a cache hit — no new adapter, so the
+    // baked-in credential is reused.
+    setSystemTime(new Date("2026-01-01T00:00:59Z"));
+    await resolveProviderFromConnection(openRouterConnection, makeConfig(), {
+      model: "anthropic/claude-opus-4-7",
+    });
+    expect(adapterCalls).toHaveLength(1);
+
+    // Past the 60s TTL the entry is stale: the next resolution re-reads the
+    // credential and rebuilds the adapter, so a key rotated out-of-band is
+    // picked up without any explicit cache invalidation.
+    setSystemTime(new Date("2026-01-01T00:01:01Z"));
+    await resolveProviderFromConnection(openRouterConnection, makeConfig(), {
+      model: "anthropic/claude-opus-4-7",
+    });
+    expect(adapterCalls).toHaveLength(2);
   });
 });
 

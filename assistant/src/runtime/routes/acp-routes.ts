@@ -18,8 +18,8 @@ import {
   AcpSessionNotFoundError,
 } from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
+import type { AssistantEvent } from "../../api/index.js";
 import { getConfig } from "../../config/loader.js";
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
 import { createGuardianRequestForConfirmation } from "../../permissions/confirmation-guardian-request.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getDb } from "../../persistence/db-connection.js";

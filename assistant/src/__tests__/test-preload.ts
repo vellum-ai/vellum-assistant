@@ -55,6 +55,15 @@ const savedCesCredentialUrl = process.env.CES_CREDENTIAL_URL;
 delete process.env.IS_CONTAINERIZED;
 delete process.env.CES_CREDENTIAL_URL;
 
+// A test runs daemon code in-process, so it acts as the main daemon for the
+// event hub's publish routing (a non-daemon forwards publishes over IPC to a
+// daemon that isn't there). Default the shared process-role slot to true; a
+// test simulating a worker overrides it. Written directly (not via
+// `runtime/process-role.ts`) to keep the preload free of source-module imports;
+// the slot is typed by the ambient `VellumAssistantNamespace` global (declared
+// in `src/vellum-assistant-namespace.d.ts`), so no import is needed to touch it.
+(globalThis.vellumAssistant ??= {}).mainDaemonProcess = true;
+
 // --- Phase 2: install the IPC mock (no source-module imports) ---
 
 // Mock gateway IPC so no test accidentally connects to a real gateway socket.

@@ -12,14 +12,7 @@
  *     and `conversationId` propagated only when supplied.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { client } from "@/generated/api/client.gen";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";

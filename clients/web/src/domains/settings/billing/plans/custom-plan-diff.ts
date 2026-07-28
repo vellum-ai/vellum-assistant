@@ -5,15 +5,14 @@
  */
 
 import {
-  formatDollars,
+  creditRowLabel,
   formatMonthly,
+  storageRowLabel,
 } from "@/domains/settings/components/tier-pricing";
 import type {
-  CreditTier,
   CreditTierEnum,
   MachineTierEnum,
   ProPlan,
-  StorageTier,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
 
@@ -50,14 +49,6 @@ export interface CustomPlanDiff {
   previousTotalCents: number | null;
   deltaCents: number | null;
   rows: CustomPlanDiffRow[];
-}
-
-function storageLabel(tier: StorageTier): string {
-  return `${tier.storage_gib} GB storage`;
-}
-
-function creditLabel(tier: CreditTier): string {
-  return `${formatDollars(tier.credits_usd * 100)} of bundled credits`;
 }
 
 export function computeCustomPlanDiff(input: {
@@ -107,7 +98,7 @@ export function computeCustomPlanDiff(input: {
   const rows: CustomPlanDiffRow[] = [
     {
       key: "base",
-      label: `Pro base plan — ${formatMonthly(proPlan.base_price_cents)}`,
+      label: `Platform fee: ${formatMonthly(proPlan.base_price_cents)}`,
       changed: false,
     },
   ];
@@ -133,9 +124,11 @@ export function computeCustomPlanDiff(input: {
       seedStorage?.tier !== selectedStorage.tier;
     rows.push({
       key: "storage",
-      label: storageLabel(selectedStorage),
+      label: storageRowLabel(selectedStorage.storage_gib),
       previousLabel:
-        changed && seedStorage != null ? storageLabel(seedStorage) : undefined,
+        changed && seedStorage != null
+          ? storageRowLabel(seedStorage.storage_gib)
+          : undefined,
       changed,
     });
   }
@@ -146,7 +139,7 @@ export function computeCustomPlanDiff(input: {
     creditChoice === NO_EXTRA_CREDITS
       ? NO_CREDITS_LABEL
       : selectedCredit != null
-        ? creditLabel(selectedCredit)
+        ? creditRowLabel(selectedCredit.credits_usd)
         : null;
 
   if (selectedCreditLabel != null) {
@@ -158,7 +151,7 @@ export function computeCustomPlanDiff(input: {
       seed?.creditTier == null
         ? NO_CREDITS_LABEL
         : seedCredit != null
-          ? creditLabel(seedCredit)
+          ? creditRowLabel(seedCredit.credits_usd)
           : undefined;
     rows.push({
       key: "credit",

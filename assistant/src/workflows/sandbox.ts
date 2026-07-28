@@ -279,7 +279,9 @@ export function createWorkflowSandbox(
       // CPU guard). `signal.aborted` remains the hard, total-runtime stop.
       const deadline = { at: Date.now() + interruptDeadlineMs };
       runtime.setInterruptHandler(() => {
-        if (opts.signal?.aborted) return true;
+        if (opts.signal?.aborted) {
+          return true;
+        }
         return Date.now() > deadline.at;
       });
 
@@ -342,7 +344,9 @@ function installNativeBridge(
         const result = await fn(...parsedArgs);
         // `undefined` JSON-stringifies to `undefined`; map it to the VM's
         // undefined so the sync wrapper returns `undefined` rather than NaN.
-        if (result === undefined) return vm.undefined;
+        if (result === undefined) {
+          return vm.undefined;
+        }
         return vm.newString(deterministicStringify(result));
       } finally {
         // The VM is about to resume script execution. Reset the CPU budget so the

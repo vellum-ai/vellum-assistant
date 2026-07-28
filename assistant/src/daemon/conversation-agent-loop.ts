@@ -9,12 +9,14 @@
 
 import { v4 as uuid } from "uuid";
 
+import { repairHistoryForRun } from "../agent/history-repair/history-repair.js";
 import type {
   AgentEvent,
   AgentLoopExitReason,
   CheckpointDecision,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   ChannelId,
   InterfaceId,
@@ -116,7 +118,7 @@ import {
   registerInflightTurn,
   unregisterInflightTurn,
 } from "./inflight-turn-registry.js";
-import type { AssistantEvent, UsageStats } from "./message-protocol.js";
+import type { UsageStats } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
 import { runWithLatencySubSpans } from "./turn-latency-sub-spans.js";
@@ -983,7 +985,15 @@ export async function runAgentLoopImpl(
       () => runHook(HOOKS.USER_PROMPT_SUBMIT, userPromptCtx),
     );
     latencyTracker.mark("prompt_hook_end");
-    const runMessages = finalUserPromptCtx.latestMessages;
+    // Built-in history repair: normalize the working history to satisfy the
+    // provider's tool-use/tool-result pairing and role-alternation rules
+    // immediately before the call, after every hook (memory injection, title,
+    // user plugins) has settled its shape. Runs unconditionally — a malformed
+    // history is a hard provider rejection, never a per-conversation opt-in.
+    const runMessages = repairHistoryForRun(
+      finalUserPromptCtx.latestMessages,
+      ctx.conversationId,
+    );
 
     // Reset the manager's turn-scoped overflow-recovery ladder at the turn
     // boundary so a new turn starts the ladder fresh from the emergency rung.
@@ -1669,7 +1679,13 @@ export async function runAgentLoopImpl(
     // the API, enabling stable prefix caching across turns.  Compaction
     // consolidates when it summarizes old messages (cache miss is expected).
 
-    ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
+    // kickDrainQueue never rejects — a drain failure here would otherwise be
+    // an unhandled rejection that strands the queue with nothing left to
+    // re-trigger it.
+    void ctx.kickDrainQueue(
+      yieldedForHandoff ? "checkpoint_handoff" : "loop_complete",
+      "agent_loop_finally",
+    );
   }
 }
 

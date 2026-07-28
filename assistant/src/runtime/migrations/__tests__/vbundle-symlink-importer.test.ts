@@ -82,7 +82,9 @@ describe("commitImport — symlinks", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     const fooPath = join(workspaceDir, "skills/foo.md");
     expect(lstatSync(fooPath).isSymbolicLink()).toBe(true);
@@ -147,7 +149,9 @@ describe("commitImport — symlinks", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     const entry = result.report.files.find((f) => f.path === archivePath);
     expect(entry).toBeDefined();
@@ -207,7 +211,9 @@ describe("commitImport — symlinks", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     const entry = result.report.files.find((f) => f.path === archivePath);
     expect(entry).toBeDefined();
@@ -274,7 +280,9 @@ describe("commitImport — symlinks", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     expect(lstatSync(fooDiskPath).isSymbolicLink()).toBe(true);
     expect(readlinkSync(fooDiskPath)).toBe("bar.md");
@@ -369,7 +377,9 @@ describe("commitImport — symlinks", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     // The customized persona file must remain a regular file (NOT a symlink).
     const stat = lstatSync(guardianPath);
@@ -443,7 +453,9 @@ describe("commitImport — symlinks", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     expect(lstatSync(fooDiskPath).isSymbolicLink()).toBe(true);
     expect(readlinkSync(fooDiskPath)).toBe("bar.md");

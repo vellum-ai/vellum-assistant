@@ -13,7 +13,9 @@
  * do NOT pass "never" to this function.
  */
 export function parseDuration(input: string): number {
-  if (/^\d+$/.test(input)) return parseInt(input, 10);
+  if (/^\d+$/.test(input)) {
+    return parseInt(input, 10);
+  }
   // Validate the whole string is composed entirely of <digits><unit> groups
   if (!/^(\d+[hms])+$/.test(input)) {
     throw new Error(`Invalid duration: "${input}"`);
@@ -36,6 +38,8 @@ export function parseDuration(input: string): number {
         break;
     }
   }
-  if (total === 0) throw new Error(`Invalid duration: "${input}"`);
+  if (total === 0) {
+    throw new Error(`Invalid duration: "${input}"`);
+  }
   return total;
 }

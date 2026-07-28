@@ -47,6 +47,10 @@ describe("VELAY_ALLOWED_PATHS", () => {
       "/webhooks/resend": true,
       "/webhooks/mailgun": true,
       "/webhooks/oauth/callback": true,
+      // Plugin-declared webhooks ride the existing `^/webhooks/` entry. Which
+      // of them the gateway actually serves is decided by the approval gate,
+      // not by Velay — the tunnel just stops treating the prefix as private.
+      "/webhooks/plugins/example/realtime": true,
       "/v1/audio/some-uuid.mp3": true,
       "/v1/live-voice": true,
       "/v1/stt/stream": true,

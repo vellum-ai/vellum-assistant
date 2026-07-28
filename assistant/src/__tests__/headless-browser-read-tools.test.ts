@@ -38,7 +38,9 @@ const fakeCdpSession = {
   send: async (method: string, params?: Record<string, unknown>) => {
     sendCalls.push({ method, params });
     const value = sendHandler(method, params);
-    if (value instanceof Error) throw value;
+    if (value instanceof Error) {
+      throw value;
+    }
     return value;
   },
   // Provided so `LocalCdpClient.dispose()` can call `session.detach()`
@@ -218,8 +220,12 @@ describe("executeBrowserWaitFor", () => {
       if (method === "Runtime.evaluate") {
         return { result: { value: true } };
       }
-      if (method === "DOM.getDocument") return { root: { nodeId: 1 } };
-      if (method === "DOM.querySelector") return { nodeId: 42 };
+      if (method === "DOM.getDocument") {
+        return { root: { nodeId: 1 } };
+      }
+      if (method === "DOM.querySelector") {
+        return { nodeId: 42 };
+      }
       if (method === "DOM.describeNode") {
         return { node: { backendNodeId: 100 } };
       }
@@ -321,7 +327,9 @@ describe("executeBrowserExtract", () => {
 
   test("extracts page text content via CDP", async () => {
     sendHandler = (method, params) => {
-      if (method !== "Runtime.evaluate") return {};
+      if (method !== "Runtime.evaluate") {
+        return {};
+      }
       const expression = (params as { expression: string }).expression;
       if (expression === "document.location.href") {
         return { result: { value: "https://example.com/" } };
@@ -350,7 +358,9 @@ describe("executeBrowserExtract", () => {
 
   test("shows (empty page) for empty content", async () => {
     sendHandler = (method, params) => {
-      if (method !== "Runtime.evaluate") return {};
+      if (method !== "Runtime.evaluate") {
+        return {};
+      }
       const expression = (params as { expression: string }).expression;
       if (expression === "document.location.href") {
         return { result: { value: "https://example.com/" } };
@@ -368,7 +378,9 @@ describe("executeBrowserExtract", () => {
   test("truncates long content", async () => {
     const longText = "x".repeat(60_000);
     sendHandler = (method, params) => {
-      if (method !== "Runtime.evaluate") return {};
+      if (method !== "Runtime.evaluate") {
+        return {};
+      }
       const expression = (params as { expression: string }).expression;
       if (expression === "document.location.href") {
         return { result: { value: "https://example.com/" } };
@@ -387,7 +399,9 @@ describe("executeBrowserExtract", () => {
 
   test("includes links when requested using EXTRACT_LINKS_EXPRESSION", async () => {
     sendHandler = (method, params) => {
-      if (method !== "Runtime.evaluate") return {};
+      if (method !== "Runtime.evaluate") {
+        return {};
+      }
       const expression = (params as { expression: string }).expression;
       if (expression === "document.location.href") {
         return { result: { value: "https://example.com/" } };
@@ -428,7 +442,9 @@ describe("executeBrowserExtract", () => {
 
   test("does not include links by default", async () => {
     sendHandler = (method, params) => {
-      if (method !== "Runtime.evaluate") return {};
+      if (method !== "Runtime.evaluate") {
+        return {};
+      }
       const expression = (params as { expression: string }).expression;
       if (expression === "document.location.href") {
         return { result: { value: "https://example.com/" } };

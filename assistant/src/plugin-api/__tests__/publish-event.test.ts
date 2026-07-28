@@ -7,9 +7,12 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { AssistantEventEnvelope } from "../../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../../api/index.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { publishEvent } from "../publish-event.js";
+
+// A test process defaults to "main daemon" (set by the test preload), so the
+// hub publishes locally here rather than forwarding.
 
 function syncEvent(): AssistantEventEnvelope {
   return {

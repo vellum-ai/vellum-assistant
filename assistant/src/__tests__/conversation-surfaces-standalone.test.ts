@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 
 let broadcastImpl: (msg: AssistantEvent) => void = () => {};
@@ -128,7 +128,9 @@ describe("showStandaloneSurface", () => {
 
   afterEach(() => {
     // Safety cleanup of any lingering timers
-    for (const t of timers) {clearTimeout(t);}
+    for (const t of timers) {
+      clearTimeout(t);
+    }
   });
 
   test("fails closed when no client is connected", async () => {
@@ -478,7 +480,9 @@ describe("cleanupStandaloneSurface", () => {
     clearTimeout(timer);
     const tombstoneTimer =
       ctx.recentlyCompletedStandaloneSurfaces!.get("surf-c1");
-    if (tombstoneTimer) {clearTimeout(tombstoneTimer);}
+    if (tombstoneTimer) {
+      clearTimeout(tombstoneTimer);
+    }
   });
 
   test("is idempotent — safe to call multiple times", () => {

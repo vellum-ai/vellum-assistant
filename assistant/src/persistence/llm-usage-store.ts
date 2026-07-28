@@ -42,6 +42,30 @@ import {
 // Write
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve the parent conversation's `conversation_type` at record time.
+ * Usage rows outlive conversation rows (retrospective forks are GC'd,
+ * users delete conversations), so the type must be captured while the
+ * conversation still exists — the telemetry flush can run after the
+ * parent row is gone. Best-effort: a lookup failure degrades to null
+ * (same as the pre-column behavior) rather than dropping the usage row.
+ */
+function lookupConversationType(conversationId: string | null): string | null {
+  if (conversationId === null) {
+    return null;
+  }
+  try {
+    const row = getDb()
+      .select({ conversationType: conversations.conversationType })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .get();
+    return row?.conversationType ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function recordUsageEvent(
   input: UsageEventInput,
   pricing: PricingResult,
@@ -88,6 +112,10 @@ export function recordUsageEvent(
       // the assistant happens to be running on at upload time. See
       // migration 267 + `TelemetryEventBase.assistant_version` (wire).
       assistantVersion: event.assistantVersion,
+      // Capture the parent conversation's type at RECORD time for the
+      // same reason: the conversation row may be deleted before the
+      // telemetry flush joins against it. See migration 353.
+      conversationType: lookupConversationType(event.conversationId),
     })
     .run();
   return event;
@@ -192,9 +220,11 @@ export function listUsageEvents(options?: { limit?: number }): UsageEvent[] {
 export interface UnreportedUsageEvent extends UsageEvent {
   /**
    * Type of the parent conversation (`"standard"` / `"background"` /
-   * `"scheduled"`). Null when the LLM call has no `conversationId`
-   * (memory consolidation, background embedding work, etc.) and so no
-   * `conversations` row to join against.
+   * `"scheduled"`). Sourced from the value captured at record time
+   * (survives deletion of the parent conversation before flush), with a
+   * JOIN to `conversations` as the fallback for rows persisted before
+   * migration 353. Null when the LLM call has no `conversationId`
+   * (memory consolidation, background embedding work, etc.).
    */
   conversationType: string | null;
   /**
@@ -263,10 +293,13 @@ export function queryUnreportedUsageEvents(
       ${conversations.createdAt}
     )
   END`;
-  // JOIN to `conversations` to attach `conversationType`. LEFT JOIN
-  // because `llm_usage_events.conversationId` is nullable — calls that
-  // aren't tied to a conversation (memory consolidation, etc.) still
-  // need to flush through telemetry.
+  // `conversationType` prefers the value stamped on the row at record
+  // time (migration 353) — the parent conversation may have been deleted
+  // before this flush (retrospective fork GC, user deletion) — and falls
+  // back to a LEFT JOIN against `conversations` for pre-353 rows. LEFT
+  // JOIN because `llm_usage_events.conversationId` is nullable — calls
+  // that aren't tied to a conversation (memory consolidation, etc.)
+  // still need to flush through telemetry.
   //
   // `turnIndex` is a correlated subquery counting real user turns in
   // the same conversation up to and including this LLM call's
@@ -297,7 +330,11 @@ export function queryUnreportedUsageEvents(
       pricingStatus: llmUsageEvents.pricingStatus,
       assistantVersion: llmUsageEvents.assistantVersion,
       llmCallCount: llmUsageEvents.llmCallCount,
-      conversationType: conversations.conversationType,
+      conversationType: sql<
+        string | null
+      >`COALESCE(${llmUsageEvents.conversationType}, ${conversations.conversationType})`.as(
+        "resolved_conversation_type",
+      ),
       // Null when conversationId is null (no parent conversation).
       // Otherwise the count of eligible user turns up to and including
       // this LLM call's createdAt. The COALESCE guard returns null

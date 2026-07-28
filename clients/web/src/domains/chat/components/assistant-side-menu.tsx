@@ -1,47 +1,49 @@
+import { Clock, MessageSquare, Pin, Search, SquarePen, X } from "lucide-react";
 import {
-    Clock,
-    MessageSquare,
-    Pin,
-    Search,
-    SquarePen,
-    X,
-} from "lucide-react";
-import {
-    useCallback,
-    useLayoutEffect,
-    useRef,
-    useState,
-    type CSSProperties,
-    type ReactNode,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
 } from "react";
 
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
-import { CollapsedGroupIcon, getGroupIndicatorState, GroupIndicatorDot } from "@/domains/chat/components/collapsed-group-icon";
 import {
-    ConversationListProvider,
-    type ConversationListContextValue,
+  CollapsedGroupIcon,
+  getGroupIndicatorState,
+  GroupIndicatorDot,
+} from "@/domains/chat/components/collapsed-group-icon";
+import {
+  ConversationListProvider,
+  type ConversationListContextValue,
 } from "@/domains/chat/components/conversation-list-context";
 import { ConversationNavSection } from "@/domains/chat/components/conversation-nav-section";
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
-import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
+import {
+  GroupActionsMenu,
+  type GroupMenuItemsProps,
+} from "@/domains/chat/components/group-actions-menu";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
+import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
-import { getChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
 import {
-    Button,
-    ContextMenu,
-    SideMenu,
-} from "@vellumai/design-library";
+  DEFAULT_GROUP_ICON,
+  getGroupIcon,
+} from "@/domains/chat/utils/group-icon-registry";
+import { getChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
+import { Button, SideMenu } from "@vellumai/design-library";
 
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
-export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT = SIDEBAR_CONVERSATION_LIMIT;
+export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT =
+  SIDEBAR_CONVERSATION_LIMIT;
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -80,7 +82,10 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onRenameGroup?: (groupId: string) => void;
   onDeleteGroup?: (groupId: string) => void;
   onMarkAllReadInGroup?: (conversations: Conversation[]) => void;
-  onArchiveAllInGroup?: (groupName: string, conversations: Conversation[]) => void;
+  onArchiveAllInGroup?: (
+    groupName: string,
+    conversations: Conversation[],
+  ) => void;
   processingConversationIds?: Set<string>;
   activeConversationProcessing?: boolean;
   onOpenInNewWindow?: (conversation: Conversation) => void;
@@ -128,6 +133,8 @@ function SearchButton() {
  *     • Show more/less — page through recent conversations
  *     • Channel ▾      — one collapsible section per origin channel
  *                        (Slack, Telegram, WhatsApp, …)
+ *     • ───────────────
+ *     • Group ▾        — one collapsible section per custom group
  *   Footer
  *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • ───────────────
@@ -233,38 +240,39 @@ export function AssistantSideMenu({
     onReorder: (_section, ordered) => onReorderConversations?.(ordered),
   });
 
-  // Context menu content for a section header (channel section / custom
-  // group). Returns undefined when no group-level action is available.
-  const buildGroupContextMenu = (
+  // Header actions for a sidebar section. Every section gets the same shape —
+  // Pinned, Chats, each channel section, and each custom group — so the bulk
+  // actions are identical everywhere and the only per-section difference is
+  // the rename/delete pair that custom groups additionally own.
+  const buildGroupMenu = (
     groupName: string,
     conversations: Conversation[],
-    options?: { onRename?: () => void; onDelete?: () => void },
-  ) => {
-    const hasAnyAction =
-      onMarkAllReadInGroup || onArchiveAllInGroup || options?.onRename || options?.onDelete;
-    if (!hasAnyAction) {
-      return undefined;
-    }
-
-    return renderGroupMenuItems({
-      Primitive: ContextMenu,
-      onMarkAllRead: onMarkAllReadInGroup
-        ? () => onMarkAllReadInGroup(conversations)
-        : undefined,
-      hasUnreadConversations: conversations.some(
-        (c) => c.hasUnseenLatestAssistantMessage,
-      ),
-      onArchiveAll: onArchiveAllInGroup
-        ? () => onArchiveAllInGroup(groupName, conversations)
-        : undefined,
-      hasConversations: conversations.length > 0,
-      onRename: options?.onRename,
-      onDelete: options?.onDelete,
-    });
-  };
+    options?: {
+      onRename?: () => void;
+      onDelete?: () => void;
+      onCopyGroupId?: () => void;
+    },
+  ): GroupMenuItemsProps => ({
+    onMarkAllRead: onMarkAllReadInGroup
+      ? () => onMarkAllReadInGroup(conversations)
+      : undefined,
+    hasUnreadConversations: onMarkAllReadInGroup
+      ? conversations.some((c) => c.hasUnseenLatestAssistantMessage)
+      : false,
+    onArchiveAll: onArchiveAllInGroup
+      ? () => onArchiveAllInGroup(groupName, conversations)
+      : undefined,
+    hasConversations: conversations.length > 0,
+    onRename: options?.onRename,
+    onDelete: options?.onDelete,
+    onCopyGroupId: options?.onCopyGroupId,
+  });
 
   const selectAndClose = useCallback(
-    (key: string) => { onSelectConversation(key); onClose?.(); },
+    (key: string) => {
+      onSelectConversation(key);
+      onClose?.();
+    },
     [onSelectConversation, onClose],
   );
 
@@ -323,7 +331,14 @@ export function AssistantSideMenu({
                 app={app}
                 collapsed={collapsed}
                 active={activeAppId === app.appId}
-                onOpen={onOpenApp ? (appId) => { onOpenApp(appId); onClose?.(); } : undefined}
+                onOpen={
+                  onOpenApp
+                    ? (appId) => {
+                        onOpenApp(appId);
+                        onClose?.();
+                      }
+                    : undefined
+                }
               />
             ))}
           </div>
@@ -345,10 +360,20 @@ export function AssistantSideMenu({
           label={assistantName || "Your Assistant"}
           active={isIntelligenceActive}
           collapsed={collapsed}
-          onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
+          onSelect={
+            onOpenIntelligence
+              ? () => {
+                  onOpenIntelligence();
+                  onClose?.();
+                }
+              : undefined
+          }
           onNewConversation={
             variant === "rail" && onStartNewConversation
-              ? () => { onStartNewConversation(); onClose?.(); }
+              ? () => {
+                  onStartNewConversation();
+                  onClose?.();
+                }
               : undefined
           }
         />
@@ -393,26 +418,26 @@ export function AssistantSideMenu({
         <SideMenu.Body
           className={
             variant === "overlay"
-              /* pb-24 is a coarse floating-column reserve until the measured
+              ? /* pb-24 is a coarse floating-column reserve until the measured
                  inline padding below is applied. */
-              ? "gap-4 pt-3 pb-24 max-md:pt-4"
-              /* The collapsed rail tucks the group icons up under the
+                "gap-4 pt-3 pb-24 max-md:pt-4"
+              : /* The collapsed rail tucks the group icons up under the
                  cluster separator (~12px to the first icon tile) so they
                  read as the next section, not a distant island. */
-              : isCollapsedRail
+                isCollapsedRail
                 ? "gap-4 pt-2"
                 : "gap-4 pt-3 max-md:pt-4"
           }
           style={
             variant === "overlay" && overlayBottomColumnHeight > 0
-              ? {
+              ? ({
                   /* The floating column overlaps the scrollport by its own
                      height + the safe-area inset (its 1rem bottom offset
                      cancels against the root's p-4); + 1rem breathing gap. */
                   "--overlay-bottom-column-h": `${overlayBottomColumnHeight}px`,
                   paddingBottom:
                     "calc(var(--overlay-bottom-column-h) + 1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
-                } as CSSProperties
+                } as CSSProperties)
               : undefined
           }
         >
@@ -423,7 +448,11 @@ export function AssistantSideMenu({
                 <CollapsedGroupIcon
                   icon={Pin}
                   label="Pinned"
-                  indicatorState={getGroupIndicatorState(sidebar.pinned, processingConversationIds, attentionConversationIds)}
+                  indicatorState={getGroupIndicatorState(
+                    sidebar.pinned,
+                    processingConversationIds,
+                    attentionConversationIds,
+                  )}
                 >
                   {(close) => (
                     <CollapsedGroupFlyout
@@ -438,7 +467,11 @@ export function AssistantSideMenu({
                 icon={Clock}
                 label="Recents"
                 disabled={sidebar.recents.all.length === 0}
-                indicatorState={getGroupIndicatorState(sidebar.recents.all, processingConversationIds, attentionConversationIds)}
+                indicatorState={getGroupIndicatorState(
+                  sidebar.recents.all,
+                  processingConversationIds,
+                  attentionConversationIds,
+                )}
               >
                 {(close) => (
                   <CollapsedGroupFlyout
@@ -454,7 +487,11 @@ export function AssistantSideMenu({
                   icon={getChannelIcon(section.channelId)}
                   label={getChannelLabel(section.channelId)}
                   disabled={section.totalCount === 0}
-                  indicatorState={getGroupIndicatorState(section.all, processingConversationIds, attentionConversationIds)}
+                  indicatorState={getGroupIndicatorState(
+                    section.all,
+                    processingConversationIds,
+                    attentionConversationIds,
+                  )}
                 >
                   {(close) => (
                     <CollapsedGroupFlyout
@@ -465,24 +502,48 @@ export function AssistantSideMenu({
                   )}
                 </CollapsedGroupIcon>
               ))}
+              {sidebar.customGroups.map((group) => (
+                <CollapsedGroupIcon
+                  key={group.id}
+                  icon={getGroupIcon(group.icon) ?? DEFAULT_GROUP_ICON}
+                  label={group.name}
+                  disabled={group.conversations.length === 0}
+                  indicatorState={getGroupIndicatorState(
+                    group.conversations,
+                    processingConversationIds,
+                    attentionConversationIds,
+                  )}
+                >
+                  {(close) => (
+                    <CollapsedGroupFlyout
+                      title={group.name}
+                      conversations={group.conversations}
+                      onClosePopover={close}
+                    />
+                  )}
+                </CollapsedGroupIcon>
+              ))}
             </div>
           ) : (
             <>
-              {/* Pinned + Chats are collapsible like the channel/group
-                  sections below, but default open (see `openPrimary` in
-                  use-sidebar-state). New Chat lives in the assistant cluster
-                  above, not as a section-header action. */}
+              {/* Pinned, Chats, and the channel sections share one accordion
+                  root, so its gap governs every section boundary uniformly.
+                  Their open state lives in two storage buckets (Pinned/Chats
+                  default open); `use-sidebar-state` merges and re-splits it.
+                  New Chat lives in the assistant cluster above, not as a
+                  section-header action. */}
               <CollapsibleNavSection.Root
                 type="multiple"
-                className="gap-1"
-                value={sidebar.effectiveOpenPrimary}
-                onValueChange={sidebar.onOpenPrimaryChange}
+                className="gap-3"
+                value={sidebar.effectiveOpenSections}
+                onValueChange={sidebar.onOpenSectionsChange}
               >
                 {sidebar.pinned.length > 0 ? (
                   <ConversationNavSection
                     value="pinned"
                     icon={Pin}
                     label="Pinned"
+                    groupMenu={buildGroupMenu("Pinned", sidebar.pinned)}
                     items={sidebar.pinned}
                     dragSection="pinned"
                     collapsedIndicator={collapsedActivityDot(sidebar.pinned)}
@@ -493,18 +554,12 @@ export function AssistantSideMenu({
                   value="recents"
                   icon={MessageSquare}
                   label="Chats"
+                  groupMenu={buildGroupMenu("Chats", sidebar.recents.all)}
                   items={sidebar.recents.items}
                   pagination={sidebar.recents}
                   collapsedIndicator={collapsedActivityDot(sidebar.recents.all)}
                 />
-              </CollapsibleNavSection.Root>
 
-              <CollapsibleNavSection.Root
-                type="multiple"
-                className="gap-1"
-                value={sidebar.effectiveOpenCategories}
-                onValueChange={sidebar.onOpenCategoriesChange}
-              >
                 {sidebar.channelSections.map((section) => {
                   const label = getChannelLabel(section.channelId);
                   return (
@@ -513,7 +568,7 @@ export function AssistantSideMenu({
                       value={channelSectionKey(section.channelId)}
                       icon={getChannelIcon(section.channelId)}
                       label={label}
-                      contextMenuContent={buildGroupContextMenu(label, section.all)}
+                      groupMenu={buildGroupMenu(label, section.all)}
                       items={section.items}
                       pagination={section}
                       collapsedIndicator={collapsedActivityDot(section.all)}
@@ -525,46 +580,48 @@ export function AssistantSideMenu({
               {sidebar.customGroups.length > 0 ? (
                 <>
                   <SideMenu.Separator />
-                  <SideMenu.Section title="Your Groups">
-                    <CollapsibleNavSection.Root
-                      type="multiple"
-                      className="gap-1"
-                      value={sidebar.effectiveOpenCustomGroups}
-                      onValueChange={sidebar.onOpenCustomGroupsChange}
-                    >
-                      {sidebar.customGroups.map((group) => (
+                  <CollapsibleNavSection.Root
+                    type="multiple"
+                    className="gap-3"
+                    value={sidebar.effectiveOpenCustomGroups}
+                    onValueChange={sidebar.onOpenCustomGroupsChange}
+                  >
+                    {sidebar.customGroups.map((group) => {
+                      const groupMenu = buildGroupMenu(
+                        group.name,
+                        group.conversations,
+                        {
+                          onRename: onRenameGroup
+                            ? () => onRenameGroup(group.id)
+                            : undefined,
+                          onDelete: onDeleteGroup
+                            ? () => onDeleteGroup(group.id)
+                            : undefined,
+                          onCopyGroupId: () =>
+                            copyIdToClipboard(group.id, "Group ID"),
+                        },
+                      );
+                      return (
                         <ConversationNavSection
                           key={group.id}
                           value={group.id}
                           label={group.name}
+                          /* The "…" button and the header's right-click menu
+                             both render from `groupMenu`. */
                           trailing={
-                            onRenameGroup || onDeleteGroup ? (
-                              <GroupActionsMenu
-                                groupId={group.id}
-                                onRename={onRenameGroup}
-                                onDelete={onDeleteGroup}
-                              />
-                            ) : null
+                            <GroupActionsMenu
+                              label={group.name}
+                              {...groupMenu}
+                            />
                           }
-                          contextMenuContent={buildGroupContextMenu(
-                            group.name,
-                            group.conversations,
-                            {
-                              onRename: onRenameGroup
-                                ? () => onRenameGroup(group.id)
-                                : undefined,
-                              onDelete: onDeleteGroup
-                                ? () => onDeleteGroup(group.id)
-                                : undefined,
-                            },
-                          )}
+                          groupMenu={groupMenu}
                           items={group.conversations}
                           dragSection={`group:${group.id}`}
                           collapsedIndicator={collapsedActivityDot(group.conversations)}
                         />
-                      ))}
-                    </CollapsibleNavSection.Root>
-                  </SideMenu.Section>
+                      );
+                    })}
+                  </CollapsibleNavSection.Root>
                 </>
               ) : null}
             </>

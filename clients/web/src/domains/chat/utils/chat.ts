@@ -190,7 +190,9 @@ export function hasAnyInteractiveSurface(
   for (const msg of messages) {
     if (msg.surfaces) {
       for (const s of msg.surfaces) {
-        if (isSurfaceInteractive(s)) return true;
+        if (isSurfaceInteractive(s)) {
+          return true;
+        }
       }
     }
   }
@@ -216,9 +218,15 @@ export function shouldClearFirstMessageGateOnConversationChange({
   autoGreetPending: boolean;
   assistantMessagePresent: boolean;
 }): boolean {
-  if (previousConversationId == null) return false;
-  if (nextConversationId == null) return false;
-  if (previousConversationId === nextConversationId) return false;
+  if (previousConversationId == null) {
+    return false;
+  }
+  if (nextConversationId == null) {
+    return false;
+  }
+  if (previousConversationId === nextConversationId) {
+    return false;
+  }
 
   return !(
     autoGreetPending &&
@@ -302,8 +310,12 @@ export function identitiesEqual(
   a: IdentityGetResponse | null,
   b: IdentityGetResponse | null,
 ): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
+  if (a === b) {
+    return true;
+  }
+  if (a === null || b === null) {
+    return false;
+  }
   return (
     a.name === b.name &&
     a.role === b.role &&
@@ -369,7 +381,9 @@ export function attachConfirmationToToolCall(
   if (toolUseId) {
     for (let mi = messages.length - 1; mi >= 0; mi--) {
       const msg = messages[mi];
-      if (!msg?.toolCalls?.length) continue;
+      if (!msg?.toolCalls?.length) {
+        continue;
+      }
       const tcIdx = msg.toolCalls.findIndex((tc) => tc.id === toolUseId);
       if (tcIdx !== -1) {
         return applyConfirmationToToolCall(messages, mi, tcIdx, pending);
@@ -380,7 +394,9 @@ export function attachConfirmationToToolCall(
   // 2. Fallback: last running tool call in the latest assistant message with tool calls
   for (let mi = messages.length - 1; mi >= 0; mi--) {
     const msg = messages[mi];
-    if (msg?.role !== "assistant" || !msg.toolCalls?.length) continue;
+    if (msg?.role !== "assistant" || !msg.toolCalls?.length) {
+      continue;
+    }
 
     for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
       const tc = msg.toolCalls[ti];
@@ -410,7 +426,9 @@ export function extractWirePendingConfirmation(
 ): PendingConfirmationState | null {
   for (let mi = messages.length - 1; mi >= 0; mi--) {
     const msg = messages[mi];
-    if (!msg?.toolCalls?.length) continue;
+    if (!msg?.toolCalls?.length) {
+      continue;
+    }
     for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
       const tc = msg.toolCalls[ti];
       if (tc?.pendingConfirmation) {
@@ -437,7 +455,9 @@ export function extractWirePendingQuestion(
 ): PendingQuestionState | null {
   for (let mi = messages.length - 1; mi >= 0; mi--) {
     const msg = messages[mi];
-    if (!msg?.toolCalls?.length) continue;
+    if (!msg?.toolCalls?.length) {
+      continue;
+    }
     for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
       const tc = msg.toolCalls[ti];
       if (tc?.pendingQuestion) {
@@ -470,7 +490,9 @@ export function extractWirePendingAcpConnect(
 ): PendingAcpConnectState | null {
   for (let mi = messages.length - 1; mi >= 0; mi--) {
     const msg = messages[mi];
-    if (!msg?.toolCalls?.length) continue;
+    if (!msg?.toolCalls?.length) {
+      continue;
+    }
     for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
       const tc = msg.toolCalls[ti];
       if (tc?.errorCode === ACP_CLAUDE_OAUTH_MISSING_CODE && tc.id) {
@@ -491,14 +513,20 @@ export function deriveCommandText(
   input: Record<string, unknown> | undefined,
   toolName: string,
 ): string {
-  if (!input) return toolName;
+  if (!input) {
+    return toolName;
+  }
   const preferredKeys = ["command", "cmd", "path", "file", "url"];
   for (const key of preferredKeys) {
     const val = input[key];
-    if (typeof val === "string" && val.trim()) return val.trim();
+    if (typeof val === "string" && val.trim()) {
+      return val.trim();
+    }
   }
   for (const val of Object.values(input)) {
-    if (typeof val === "string" && val.trim()) return val.trim();
+    if (typeof val === "string" && val.trim()) {
+      return val.trim();
+    }
   }
   try {
     const json = JSON.stringify(input);
@@ -530,9 +558,15 @@ const MS_PER_MINUTE = 60_000;
 
 export function formatRelativeTime(timestamp: number): string {
   const diffMin = Math.floor((Date.now() - timestamp) / MS_PER_MINUTE);
-  if (diffMin < 1) return "just now";
-  if (diffMin < MINUTES_PER_HOUR) return `${diffMin}m ago`;
+  if (diffMin < 1) {
+    return "just now";
+  }
+  if (diffMin < MINUTES_PER_HOUR) {
+    return `${diffMin}m ago`;
+  }
   const diffHr = Math.floor(diffMin / MINUTES_PER_HOUR);
-  if (diffHr < HOURS_PER_DAY) return `${diffHr}h ago`;
+  if (diffHr < HOURS_PER_DAY) {
+    return `${diffHr}h ago`;
+  }
   return `${Math.floor(diffHr / HOURS_PER_DAY)}d ago`;
 }

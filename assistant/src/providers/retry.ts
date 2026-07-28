@@ -57,6 +57,7 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "fireworks",
   "together",
   "baseten",
+  "poolside",
 ]);
 
 // For these providers, disabling reasoning is encoded through the same effort
@@ -69,6 +70,7 @@ const DISABLED_THINKING_USES_EFFORT_PROVIDERS = new Set([
   "openrouter",
   "vercel-ai-gateway",
   "baseten",
+  "poolside",
 ]);
 
 // Whether a disabled `thinking` config must be encoded as `effort: "none"`
@@ -232,23 +234,35 @@ const RETRYABLE_PROVIDER_ERROR_REASONS = new Set<ProviderErrorReason>([
 ]);
 
 function isRetryableStreamError(error: unknown): boolean {
-  if (!(error instanceof ProviderError)) return false;
-  if (error.statusCode !== undefined) return false; // has a real HTTP status — not a stream error
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
+  if (error.statusCode !== undefined) {
+    return false;
+  } // has a real HTTP status — not a stream error
   return RETRYABLE_STREAM_PATTERNS.some((p) => error.message.includes(p));
 }
 
 function isRetryableProviderMessage(error: unknown): boolean {
-  if (!(error instanceof ProviderError)) return false;
-  if (error.statusCode !== undefined) return false; // has a real HTTP status — handled by status check
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
+  if (error.statusCode !== undefined) {
+    return false;
+  } // has a real HTTP status — handled by status check
   return RETRYABLE_PROVIDER_MESSAGE_PATTERNS.some((p) => p.test(error.message));
 }
 
 function isRetryableTransportAbort(error: unknown): boolean {
-  if (!(error instanceof ProviderError)) return false;
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
   // Transport aborts surface with ``status === undefined`` (the SDK never
   // saw an HTTP response). A real HTTP status here means a server error,
   // which is handled by the status check.
-  if (error.statusCode !== undefined) return false;
+  if (error.statusCode !== undefined) {
+    return false;
+  }
   return RETRYABLE_TRANSPORT_ABORT_PATTERNS.some((p) => p.test(error.message));
 }
 
@@ -257,7 +271,9 @@ function isRetryableError(error: unknown): boolean {
   // will never succeed. Short-circuit before the generic 429/5xx check so
   // ContextOverflowError (which extends ProviderError and may carry a 429
   // statusCode on Gemini/Vertex) never triggers exponential backoff.
-  if (isContextOverflowError(error)) return false;
+  if (isContextOverflowError(error)) {
+    return false;
+  }
   // Daemon/user-initiated aborts are never retryable. The catch-site tags
   // these with `abortReason` exactly when `signal.aborted` was true at the
   // time of failure, so this short-circuits before any message-based pattern
@@ -277,11 +293,19 @@ function isRetryableError(error: unknown): boolean {
     return RETRYABLE_PROVIDER_ERROR_REASONS.has(error.reason);
   }
   if (error instanceof ProviderError && error.statusCode !== undefined) {
-    if (error.statusCode === 429 || error.statusCode >= 500) return true;
+    if (error.statusCode === 429 || error.statusCode >= 500) {
+      return true;
+    }
   }
-  if (isRetryableProviderMessage(error)) return true;
-  if (isRetryableStreamError(error)) return true;
-  if (isRetryableTransportAbort(error)) return true;
+  if (isRetryableProviderMessage(error)) {
+    return true;
+  }
+  if (isRetryableStreamError(error)) {
+    return true;
+  }
+  if (isRetryableTransportAbort(error)) {
+    return true;
+  }
   return isRetryableNetworkError(error);
 }
 
@@ -328,7 +352,9 @@ function normalizeSendMessageOptions(
   normalizeOptions: { forwardUsageAttributionHeaders?: boolean } = {},
 ): SendMessageOptions | undefined {
   const config = options?.config;
-  if (!config) return options;
+  if (!config) {
+    return options;
+  }
 
   const nextConfig: Record<string, unknown> = { ...config };
 
@@ -549,7 +575,9 @@ function normalizeSendMessageOptions(
     if (wire.level !== undefined || wire.streamThinking !== undefined) {
       const scrubbed: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(wire)) {
-        if (key === "level" || key === "streamThinking") continue;
+        if (key === "level" || key === "streamThinking") {
+          continue;
+        }
         scrubbed[key] = value;
       }
       nextConfig.thinking = scrubbed;
@@ -569,10 +597,16 @@ function normalizeSendMessageOptions(
   // `reasoning` parameter via `buildExtraCreateParams` and may support
   // reasoning with forced tool_choice).
   const isThinkingForcedToolConflict = (() => {
-    if (nextConfig.thinking == null) return false;
-    if (isThinkingConfigDisabled(nextConfig.thinking)) return false;
+    if (nextConfig.thinking == null) {
+      return false;
+    }
+    if (isThinkingConfigDisabled(nextConfig.thinking)) {
+      return false;
+    }
     const tc = nextConfig.tool_choice as Record<string, unknown> | undefined;
-    if (tc == null || (tc.type !== "tool" && tc.type !== "any")) return false;
+    if (tc == null || (tc.type !== "tool" && tc.type !== "any")) {
+      return false;
+    }
     const model = typeof nextConfig.model === "string" ? nextConfig.model : "";
     return targetsAnthropicWire(providerName, model);
   })();

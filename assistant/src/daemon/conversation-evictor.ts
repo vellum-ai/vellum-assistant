@@ -7,6 +7,7 @@ const log = getLogger("conversation-evictor");
 /** Minimal interface a conversation must satisfy to be evictable. */
 export interface EvictableConversation {
   isProcessing(): boolean;
+  hasQueuedMessages(): boolean;
   dispose(): void;
 }
 
@@ -63,7 +64,12 @@ export class ConversationEvictor {
       options?.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
   }
 
-  /** Abort any subagents belonging to a conversation as it's evicted. */
+  /**
+   * Abort any in-flight subagents belonging to a conversation as it's evicted.
+   * Terminal subagent metadata is left readable — an evicted conversation is
+   * resumable from the database, and its next turn may still `subagent_read` a
+   * completed child's result.
+   */
   onEvict(conversationId: string): void {
     getSubagentManager().abortAllForParent(conversationId);
   }
@@ -87,7 +93,9 @@ export class ConversationEvictor {
 
   /** Start the periodic sweep timer. */
   start(): void {
-    if (this.sweepTimer) return;
+    if (this.sweepTimer) {
+      return;
+    }
     this.sweepTimer = setInterval(() => {
       try {
         const result = this.sweep();
@@ -125,10 +133,21 @@ export class ConversationEvictor {
     };
 
     // Phase 1: TTL eviction — remove conversations idle longer than ttlMs.
+    // A conversation with queued messages is not idle: the queue drains via an
+    // async dispatch after the current turn's `finally`, so `isProcessing()`
+    // can read false while a queued turn (e.g. a subagent completion wake) is
+    // still pending. Disposing in that gap would silently drop the queued
+    // messages.
     for (const [id, conversation] of this.conversations) {
       const lastAccessTime = this.lastAccess.get(id) ?? 0;
-      if (now - lastAccessTime < this.ttlMs) continue;
-      if (conversation.isProcessing() || this.shouldProtect(id)) {
+      if (now - lastAccessTime < this.ttlMs) {
+        continue;
+      }
+      if (
+        conversation.isProcessing() ||
+        conversation.hasQueuedMessages() ||
+        this.shouldProtect(id)
+      ) {
         result.skipped++;
         continue;
       }
@@ -140,7 +159,9 @@ export class ConversationEvictor {
     if (this.conversations.size > this.maxConversations) {
       const sorted = this.idleConversationsByLru();
       for (const [id, conversation] of sorted) {
-        if (this.conversations.size <= this.maxConversations) break;
+        if (this.conversations.size <= this.maxConversations) {
+          break;
+        }
         this.evict(id, conversation);
         result.lruEvicted++;
       }
@@ -162,7 +183,9 @@ export class ConversationEvictor {
           "Memory pressure detected, evicting idle conversations",
         );
         for (const [id, conversation] of sorted) {
-          if (process.memoryUsage.rss() <= this.memoryThresholdBytes) break;
+          if (process.memoryUsage.rss() <= this.memoryThresholdBytes) {
+            break;
+          }
           this.evict(id, conversation);
           result.memoryEvicted++;
         }
@@ -202,8 +225,15 @@ export class ConversationEvictor {
   private idleConversationsByLru(): Array<[string, EvictableConversation]> {
     const idle: Array<[string, EvictableConversation, number]> = [];
     for (const [id, conversation] of this.conversations) {
-      if (conversation.isProcessing()) continue;
-      if (this.shouldProtect(id)) continue;
+      if (conversation.isProcessing()) {
+        continue;
+      }
+      if (conversation.hasQueuedMessages()) {
+        continue;
+      }
+      if (this.shouldProtect(id)) {
+        continue;
+      }
       idle.push([id, conversation, this.lastAccess.get(id) ?? 0]);
     }
     idle.sort((a, b) => a[2] - b[2]);

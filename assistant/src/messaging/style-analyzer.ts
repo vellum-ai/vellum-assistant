@@ -103,7 +103,9 @@ const storeStyleAnalysisTool = {
 function buildCorpus(messages: ProviderMessage[]): string[] {
   const entries: string[] = [];
   for (const msg of messages) {
-    if (!msg.text.trim()) continue;
+    if (!msg.text.trim()) {
+      continue;
+    }
     const to = msg.conversationId;
     const truncatedBody = truncate(msg.text, 500, "");
     entries.push(`To: ${to}\n\n${truncatedBody}`);

@@ -106,10 +106,18 @@ interface PlatformFileContentResponse {
  * round trip.
  */
 export function sanitizeRelativePath(rawPath: string): string | null {
-  if (typeof rawPath !== "string" || rawPath.length === 0) return null;
-  if (rawPath.includes("\0")) return null;
-  if (rawPath.startsWith("/")) return null;
-  if (/^[a-zA-Z]:[/\\]/.test(rawPath)) return null;
+  if (typeof rawPath !== "string" || rawPath.length === 0) {
+    return null;
+  }
+  if (rawPath.includes("\0")) {
+    return null;
+  }
+  if (rawPath.startsWith("/")) {
+    return null;
+  }
+  if (/^[a-zA-Z]:[/\\]/.test(rawPath)) {
+    return null;
+  }
 
   // Normalize separators and strip any leading "./" before posix.normalize
   // (which would otherwise preserve it in some cases).
@@ -117,20 +125,32 @@ export function sanitizeRelativePath(rawPath: string): string | null {
   while (candidate.startsWith("./")) {
     candidate = candidate.slice(2);
   }
-  if (candidate.length === 0) return null;
+  if (candidate.length === 0) {
+    return null;
+  }
 
   const normalized = posix.normalize(candidate);
-  if (normalized === "..") return null;
-  if (normalized.startsWith("../")) return null;
+  if (normalized === "..") {
+    return null;
+  }
+  if (normalized.startsWith("../")) {
+    return null;
+  }
   // posix.normalize can still return "." for purely no-op paths.
-  if (normalized === ".") return null;
+  if (normalized === ".") {
+    return null;
+  }
   // Reject if normalization produced an absolute or Windows-drive path.
   // Covers bypasses like `.//etc/passwd` where the leading `./` strip loop
   // leaves `/etc/passwd`, which `posix.normalize` then passes through as an
   // absolute path. The pre-normalization absolute-path check above only
   // catches inputs that were absolute to begin with.
-  if (normalized.startsWith("/")) return null;
-  if (/^[a-zA-Z]:[/\\]/.test(normalized)) return null;
+  if (normalized.startsWith("/")) {
+    return null;
+  }
+  if (/^[a-zA-Z]:[/\\]/.test(normalized)) {
+    return null;
+  }
 
   return normalized;
 }
@@ -163,7 +183,9 @@ async function resolveCatalogSource(
 ): Promise<CatalogSource | null> {
   const catalog = await getCatalog();
   const inCatalog = catalog.some((skill) => skill.id === skillId);
-  if (!inCatalog) return null;
+  if (!inCatalog) {
+    return null;
+  }
 
   const repoSkillsDir = getRepoSkillsDir();
   if (repoSkillsDir) {
@@ -195,8 +217,12 @@ function isSafeDevSkillRoot(candidate: string, repoSkillsDir: string): boolean {
   } catch {
     return false;
   }
-  if (lstat.isSymbolicLink()) return false;
-  if (!lstat.isDirectory()) return false;
+  if (lstat.isSymbolicLink()) {
+    return false;
+  }
+  if (!lstat.isDirectory()) {
+    return false;
+  }
 
   let realCandidate: string;
   let realRepoSkillsDir: string;
@@ -279,9 +305,15 @@ export const SKIP_DIRS = new Set(["node_modules", "__pycache__", ".git"]);
 export function hasHiddenOrSkippedSegment(sanitized: string): boolean {
   const segments = sanitized.split("/");
   for (const segment of segments) {
-    if (segment.length === 0) continue;
-    if (segment.startsWith(".")) return true;
-    if (SKIP_DIRS.has(segment)) return true;
+    if (segment.length === 0) {
+      continue;
+    }
+    if (segment.startsWith(".")) {
+      return true;
+    }
+    if (SKIP_DIRS.has(segment)) {
+      return true;
+    }
   }
   return false;
 }
@@ -298,19 +330,27 @@ function walkSkillDir(dir: string, rootDir: string): SkillFileEntry[] {
     // Skip dot-prefixed entries (hidden files like `.DS_Store` and dot-dirs
     // like `.git`, `.venv`). Matches the behavior of the installed-skill
     // walker in `daemon/handlers/skills.ts`.
-    if (dirent.name.startsWith(".")) continue;
+    if (dirent.name.startsWith(".")) {
+      continue;
+    }
     const abs = join(dir, dirent.name);
     // Silently skip symlinks, sockets, devices, etc.
-    if (dirent.isSymbolicLink()) continue;
+    if (dirent.isSymbolicLink()) {
+      continue;
+    }
     if (dirent.isDirectory()) {
       // Skip well-known heavyweight directories (node_modules, __pycache__,
       // ...) so a dev working on a catalog skill locally doesn't see
       // thousands of spurious entries in the preview listing.
-      if (SKIP_DIRS.has(dirent.name)) continue;
+      if (SKIP_DIRS.has(dirent.name)) {
+        continue;
+      }
       out.push(...walkSkillDir(abs, rootDir));
       continue;
     }
-    if (!dirent.isFile()) continue;
+    if (!dirent.isFile()) {
+      continue;
+    }
     try {
       const stat = statSync(abs);
       // Convert absolute → relative with manual separator normalization so
@@ -349,7 +389,9 @@ export async function readCatalogSkillFiles(
   skillId: string,
 ): Promise<SkillFileEntry[] | null> {
   const source = await resolveCatalogSource(skillId);
-  if (!source) return null;
+  if (!source) {
+    return null;
+  }
 
   if (source.kind === "dir") {
     const entries = walkSkillDir(source.dirPath, source.dirPath);
@@ -360,7 +402,9 @@ export async function readCatalogSkillFiles(
   const response = await fetchPlatformJson<PlatformFileListResponse>(
     `/v1/skills/${encodeURIComponent(skillId)}/files/`,
   );
-  if (!response) return null;
+  if (!response) {
+    return null;
+  }
 
   const entries: SkillFileEntry[] = response.files.map((file) => ({
     path: file.path,
@@ -389,16 +433,22 @@ export async function readCatalogSkillFileContent(
   relativePath: string,
 ): Promise<SkillFileEntry | null> {
   const sanitized = sanitizeRelativePath(relativePath);
-  if (!sanitized) return null;
+  if (!sanitized) {
+    return null;
+  }
 
   // Defense in depth: reject any path that references a hidden or
   // SKIP_DIRS segment. The daemon handler performs the same check before
   // calling us, but we repeat it here so direct callers of this module
   // short-circuit without a network round trip and without touching disk.
-  if (hasHiddenOrSkippedSegment(sanitized)) return null;
+  if (hasHiddenOrSkippedSegment(sanitized)) {
+    return null;
+  }
 
   const source = await resolveCatalogSource(skillId);
-  if (!source) return null;
+  if (!source) {
+    return null;
+  }
 
   if (source.kind === "dir") {
     const abs = join(source.dirPath, sanitized);
@@ -408,7 +458,9 @@ export async function readCatalogSkillFileContent(
     if (!(abs === source.dirPath || abs.startsWith(source.dirPath + sep))) {
       return null;
     }
-    if (!existsSync(abs)) return null;
+    if (!existsSync(abs)) {
+      return null;
+    }
 
     // Reject symlinks at the target path directly: we do NOT want to follow
     // a symlinked file inside a catalog skill dir out of the skill root.
@@ -418,8 +470,12 @@ export async function readCatalogSkillFileContent(
     } catch {
       return null;
     }
-    if (lstat.isSymbolicLink()) return null;
-    if (!lstat.isFile()) return null;
+    if (lstat.isSymbolicLink()) {
+      return null;
+    }
+    if (!lstat.isFile()) {
+      return null;
+    }
 
     // Also resolve any intermediate symlinks in the parent path via
     // realpath and verify the result is still contained within the skill
@@ -443,7 +499,9 @@ export async function readCatalogSkillFileContent(
     } catch {
       return null;
     }
-    if (!stat.isFile()) return null;
+    if (!stat.isFile()) {
+      return null;
+    }
 
     const name = basename(abs);
     const mimeType = Bun.file(abs).type;
@@ -470,7 +528,9 @@ export async function readCatalogSkillFileContent(
     `/v1/skills/${encodeURIComponent(skillId)}/files/content/`,
     { path: sanitized },
   );
-  if (!response) return null;
+  if (!response) {
+    return null;
+  }
 
   return {
     path: response.path,
@@ -539,7 +599,9 @@ export function createVellumCatalogProvider(): SkillFileProvider {
     async toSlimSkill(skillId: string): Promise<SlimSkillResponse | null> {
       const catalog = await getCatalog();
       const cs = catalog.find((s) => s.id === skillId);
-      if (!cs) return null;
+      if (!cs) {
+        return null;
+      }
       return catalogSkillToSlim(cs);
     },
   };

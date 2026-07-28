@@ -67,7 +67,9 @@ export function mapOpenAIError(error: unknown): string {
  */
 function deriveTitleFromPrompt(prompt: string): string | undefined {
   const firstWords = prompt.trim().split(/\s+/).slice(0, 6).join(" ");
-  if (!firstWords) return undefined;
+  if (!firstWords) {
+    return undefined;
+  }
   const sanitized = firstWords
     .replace(/[^\w\s-]/g, "")
     .replace(/\s+/g, "-")
@@ -132,12 +134,16 @@ export async function generateImageOpenAI(
 
   const images: GeneratedImage[] = [];
   for (const entry of response.data ?? []) {
-    if (!entry.b64_json) continue;
+    if (!entry.b64_json) {
+      continue;
+    }
     const img: GeneratedImage = {
       mimeType: "image/png",
       dataBase64: entry.b64_json,
     };
-    if (title) img.title = title;
+    if (title) {
+      img.title = title;
+    }
     images.push(img);
   }
 

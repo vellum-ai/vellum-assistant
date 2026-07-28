@@ -77,11 +77,17 @@ export function useSandboxFetchProxy(
 
     const handler = async (event: MessageEvent) => {
       const msg = event.data;
-      if (!msg || msg.frameId !== frameId) {return;}
-      if (event.source !== iframeRef.current?.contentWindow) {return;}
+      if (!msg || msg.frameId !== frameId) {
+        return;
+      }
+      if (event.source !== iframeRef.current?.contentWindow) {
+        return;
+      }
 
       if (msg.type === "vellum_subscribe") {
-        if (!enabled) {return;}
+        if (!enabled) {
+          return;
+        }
         const { subId, tags } = msg as { subId: string; tags: unknown };
         if (typeof subId === "string" && Array.isArray(tags)) {
           subscriptions.set(
@@ -112,7 +118,9 @@ export function useSandboxFetchProxy(
         // user activation (transient — typically ~5s after a user
         // gesture), so programmatic spam on load or in a loop can't
         // trigger unsolicited downloads.
-        if (!navigator.userActivation?.isActive) {return;}
+        if (!navigator.userActivation?.isActive) {
+          return;
+        }
         onOpenVellumLink?.(msg.href, msg.linkText);
         return;
       }
@@ -127,22 +135,31 @@ export function useSandboxFetchProxy(
           iframe?.contentWindow?.postMessage(response, "*", transfer ?? []);
         };
         if (!enabled) {
-          sendAsset({ type: "vellum_asset_response", callId, error: "Asset proxy disabled" });
+          sendAsset({
+            type: "vellum_asset_response",
+            callId,
+            error: "Asset proxy disabled",
+          });
           return;
         }
         if (!appId) {
-          sendAsset({ type: "vellum_asset_response", callId, error: "No app context for assets" });
+          sendAsset({
+            type: "vellum_asset_response",
+            callId,
+            error: "No app context for assets",
+          });
           return;
         }
         if (typeof path !== "string" || path === "" || path.includes("..")) {
-          sendAsset({ type: "vellum_asset_response", callId, error: "Invalid asset path" });
+          sendAsset({
+            type: "vellum_asset_response",
+            callId,
+            error: "Invalid asset path",
+          });
           return;
         }
         try {
-          const encodedPath = path
-            .split("/")
-            .map(encodeURIComponent)
-            .join("/");
+          const encodedPath = path.split("/").map(encodeURIComponent).join("/");
           const url = `/v1/assistants/${assistantId}/apps/${appId}/asset/${encodedPath}`;
           const { data: blob, response } = await client.get({
             url,
@@ -177,7 +194,9 @@ export function useSandboxFetchProxy(
         return;
       }
 
-      if (!enabled || msg.type !== "vellum_fetch_request") {return;}
+      if (!enabled || msg.type !== "vellum_fetch_request") {
+        return;
+      }
 
       const { callId, path, method, headers, body } = msg as {
         callId: string;
@@ -225,7 +244,8 @@ export function useSandboxFetchProxy(
         const fetchOptions = {
           url: proxyUrl,
           throwOnError: false as const,
-          headers: headers && Object.keys(headers).length > 0 ? headers : undefined,
+          headers:
+            headers && Object.keys(headers).length > 0 ? headers : undefined,
           body: body ? JSON.parse(body) : undefined,
         };
 
@@ -274,8 +294,7 @@ export function useSandboxFetchProxy(
     // event carrying a payload crosses into the sandbox.
     const busUnsubscribe = busSubscribe("sse.event", (envelope) => {
       const message = envelope.message as
-        | { type?: string; tags?: unknown }
-        | undefined;
+        { type?: string; tags?: unknown } | undefined;
       if (
         !message ||
         message.type !== "sync_changed" ||

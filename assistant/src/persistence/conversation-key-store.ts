@@ -12,10 +12,13 @@ import { v4 as uuid } from "uuid";
 
 import { cleanupBootstrapFiles } from "../prompts/bootstrap-cleanup.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
+import { getLogger } from "../util/logger.js";
 import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
 import { getDb } from "./db-connection.js";
 import { conversationKeys, conversations } from "./schema/index.js";
+
+const log = getLogger("conversation-key-store");
 
 /** Set after the first conversation is created so BOOTSTRAP.md is deleted on the second. */
 let firstConversationSeen = false;
@@ -116,7 +119,9 @@ export function resolveConversationId(idOrKey: string): string | null {
     .from(conversations)
     .where(eq(conversations.id, idOrKey))
     .get();
-  if (direct) return direct.id;
+  if (direct) {
+    return direct.id;
+  }
 
   // Slow path: check if it's a conversation key.
   const mapping = db
@@ -267,6 +272,23 @@ export function getOrCreateConversation(
 
   if (result.created) {
     initConversationDir({ ...result.conversation, originChannel: null });
+    // Attribution for every key-materialized conversation: this is the single
+    // choke point through which all unseen-key creations flow, and the key
+    // shape + caller frames identify the entry point from the log alone. The
+    // raw key is never logged — channel-backed keys embed external chat ids
+    // (phone numbers, Slack/Telegram ids), and assistant logs travel in
+    // support bundles. Emitted only on the creation branch, never on hot
+    // read/write paths.
+    log.info(
+      {
+        conversationKeyShape: classifyConversationKey(conversationKey),
+        conversationId: result.conversationId,
+        conversationType,
+        hasCustomTitle: Boolean(opts?.title?.trim()),
+        caller: captureCallerFrames(),
+      },
+      "Materialized conversation for unseen conversation key",
+    );
   }
 
   return {
@@ -274,4 +296,47 @@ export function getOrCreateConversation(
     conversationType: result.conversationType,
     created: result.created,
   };
+}
+
+const UUID_SHAPE_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * PII-free shape label for a conversation key. Channel-backed keys embed
+ * external chat/user ids, so only the structural prefix is kept (e.g.
+ * `asst:<id>:slack:<chat>:thread:<ts>` → "asst-scoped:slack:threaded");
+ * free-form keys collapse to a coarse class.
+ */
+function classifyConversationKey(conversationKey: string): string {
+  if (conversationKey.startsWith("asst:")) {
+    const parts = conversationKey.split(":");
+    const channel = parts[2] ?? "unknown";
+    const threaded = parts.includes("thread") ? ":threaded" : "";
+    return `asst-scoped:${channel}${threaded}`;
+  }
+  const prefixed = conversationKey.match(/^([a-z-]+)[:-]/i);
+  if (prefixed) {
+    return `prefixed:${prefixed[1].toLowerCase()}`;
+  }
+  if (UUID_SHAPE_RE.test(conversationKey)) {
+    return "uuid";
+  }
+  return "opaque";
+}
+
+/**
+ * Compact caller summary for creation attribution: the first few stack
+ * frames above this module, joined into one log-friendly line.
+ */
+function captureCallerFrames(): string {
+  const stack = new Error().stack?.split("\n") ?? [];
+  return stack
+    .slice(1)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.startsWith("at ") && !line.includes("conversation-key-store"),
+    )
+    .slice(0, 4)
+    .join(" | ");
 }

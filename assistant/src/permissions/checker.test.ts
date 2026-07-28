@@ -15,12 +15,14 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 }));
 
 // `buildPolicyContext` (used by the integration tests below) precomputes the
-// proc-to-skills gate via `isProcToSkillsActive`. Drive it through this slot so
-// a test can put the production threading path in the active / inactive state.
-let mockProcToSkillsActive = true;
+// proc-to-skills gate via `isV3TierActive`. Drive it through this slot so a
+// test can put the production threading path in the active / inactive state.
+let mockV3TierActive = true;
 mock.module("../config/memory-v3-gate.js", () => ({
-  isProcToSkillsActive: () => mockProcToSkillsActive,
-  isMemoryV3Live: () => mockProcToSkillsActive,
+  isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
+    config?.memory?.enabled !== false,
+  isV3TierActive: () => mockV3TierActive,
+  isMemoryV3Live: () => mockV3TierActive,
   usesConceptPageMemory: (memory?: {
     enabled?: boolean;
     v2?: { enabled?: boolean };
@@ -30,10 +32,35 @@ mock.module("../config/memory-v3-gate.js", () => ({
     (memory?.v3?.live === true || memory?.v2?.enabled === true),
 }));
 
-// Mock skill resolution — return null by default (no skill found).
+// Mock skill resolution — return null by default (no skill found). The
+// `skill_load` predicate tests drive both slots to model a locally installed
+// skill with or without inline command expansions.
+type MockSkill = {
+  id: string;
+  directoryPath: string;
+  inlineCommandExpansions?: string[];
+  includes?: string[];
+};
+let mockSkillCatalog: MockSkill[] = [];
+let mockResolvedSkill: MockSkill | null = null;
+// Set to make the corresponding skills-module call throw, modelling an
+// unreadable catalog or a selector resolution that hits the filesystem and
+// fails.
+let mockCatalogError: Error | null = null;
+let mockSelectorError: Error | null = null;
 mock.module("../config/skills.js", () => ({
-  loadSkillCatalog: () => [],
-  resolveSkillSelector: () => ({ skill: null }),
+  loadSkillCatalog: () => {
+    if (mockCatalogError) {
+      throw mockCatalogError;
+    }
+    return mockSkillCatalog;
+  },
+  resolveSkillSelector: () => {
+    if (mockSelectorError) {
+      throw mockSelectorError;
+    }
+    return { skill: mockResolvedSkill };
+  },
 }));
 
 // Mock skills helpers used for file context building.
@@ -42,9 +69,9 @@ mock.module("../skills/path-classifier.js", () => ({
   getSkillRoots: () => ["/mock/skills/managed/", "/mock/skills/bundled/"],
 }));
 
-mock.module("../skills/include-graph.js", () => ({
-  indexCatalogById: () => new Map(),
-}));
+// `../skills/include-graph.js` is intentionally left unmocked: it is a pure,
+// side-effect-free traversal, and the `skill_load` predicate tests below need
+// the production include walk to run over `mockSkillCatalog`.
 
 mock.module("../skills/transitive-version-hash.js", () => ({
   computeTransitiveSkillVersionHash: () => "mock-transitive-hash",
@@ -115,10 +142,14 @@ mock.module("./trust-store.js", () => ({
   onRulesChanged: () => {},
 }));
 
-// Mock workspace policy.
+// Mock workspace policy. Spread the real module so pure path helpers
+// (resolveSandboxBase) keep their real behavior for param building.
+const realWorkspacePolicy = await import("./workspace-policy.js");
 let mockIsPathWithinWorkspaceRoot = true;
 mock.module("./workspace-policy.js", () => ({
+  ...realWorkspacePolicy,
   isWorkspaceScopedInvocation: () => false,
+  isOutOfWorkspaceFileInvocation: () => false,
   isPathWithinWorkspaceRoot: () => mockIsPathWithinWorkspaceRoot,
 }));
 
@@ -143,9 +174,13 @@ mock.module("../tools/network/url-safety.js", () => ({
 import type { ClassificationResult } from "./ipc-risk-types.js";
 
 let mockIpcClassifyRiskResult: ClassificationResult | undefined;
+let lastClassifyRiskParams: Record<string, unknown> | undefined;
 
 mock.module("../ipc/gateway-client.js", () => ({
-  ipcClassifyRisk: async () => mockIpcClassifyRiskResult,
+  ipcClassifyRisk: async (params: Record<string, unknown>) => {
+    lastClassifyRiskParams = params;
+    return mockIpcClassifyRiskResult;
+  },
   ipcCall: async () => undefined,
   ipcCallPersistent: async () => undefined,
   resetPersistentClient: () => {},
@@ -155,6 +190,7 @@ mock.module("../ipc/gateway-client.js", () => ({
 
 import {
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   unlinkSync,
@@ -171,6 +207,7 @@ import {
   generateAllowlistOptions,
   generateScopeOptions,
   getCachedAssessment,
+  isInstalledStaticSkillLoad,
 } from "./checker.js";
 import { RiskLevel } from "./types.js";
 
@@ -180,10 +217,15 @@ describe("Permission Checker (gateway IPC)", () => {
   beforeEach(() => {
     mockIsContainerized = false;
     mockIpcClassifyRiskResult = undefined;
+    lastClassifyRiskParams = undefined;
     mockCachedThreshold = "low";
     mockRefreshedThreshold = null;
-    mockProcToSkillsActive = true;
+    mockV3TierActive = true;
     thresholdCallLog.length = 0;
+    mockSkillCatalog = [];
+    mockResolvedSkill = null;
+    mockCatalogError = null;
+    mockSelectorError = null;
   });
 
   // ── classifyRisk ──────────────────────────────────────────────────────────
@@ -244,6 +286,70 @@ describe("Permission Checker (gateway IPC)", () => {
       await expect(classifyRisk("bash", { command: "ls" })).rejects.toThrow(
         /Gateway IPC classify_risk failed/,
       );
+    });
+
+    test("sends canonicalized boundary params for sandbox file tools", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "File write outside the workspace",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const workingDir = mkdtempSync(join(tmpdir(), "checker-boundary-"));
+      try {
+        await classifyRisk(
+          "file_write",
+          { path: "/tmp/checker-boundary-outside.txt" },
+          workingDir,
+        );
+        expect(lastClassifyRiskParams?.isContainerized).toBe(false);
+        // The boundary is canonicalized so the gateway compares canonical
+        // against canonical (macOS tmpdir lives behind a /var symlink).
+        expect(lastClassifyRiskParams?.resolvedWorkingDir).toBe(
+          realpathSync(workingDir),
+        );
+      } finally {
+        rmSync(workingDir, { recursive: true, force: true });
+      }
+    });
+
+    test("classifies a dangling symlink by its destination", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "File write outside the workspace",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const workingDir = realpathSync(
+        mkdtempSync(join(tmpdir(), "checker-dangling-")),
+      );
+      const outside = realpathSync(
+        mkdtempSync(join(tmpdir(), "checker-dangling-out-")),
+      );
+      try {
+        const destination = join(outside, "not-yet.txt");
+        symlinkSync(destination, join(workingDir, "dangle"));
+        await classifyRisk("file_write", { path: "dangle" }, workingDir);
+        // The destination does not exist, but a write through the link
+        // creates it — classification must see the destination.
+        expect(lastClassifyRiskParams?.resolvedPath).toBe(destination);
+      } finally {
+        rmSync(workingDir, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    test("omits the canonicalized boundary for host file tools", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "Host file write (default)",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      await classifyRisk("host_file_write", {
+        path: "/tmp/checker-boundary-host.txt",
+      });
+      expect(lastClassifyRiskParams?.resolvedWorkingDir).toBeUndefined();
     });
 
     test("caches results for identical inputs", async () => {
@@ -1085,7 +1191,7 @@ describe("Permission Checker (gateway IPC)", () => {
       // Same retrospective ToolContext, but the feature is inactive (flag off
       // or v3 not live). buildPolicyContext stamps `procToSkillsActive: false`,
       // so the grant is dead and the high-risk scaffold prompts.
-      mockProcToSkillsActive = false;
+      mockV3TierActive = false;
       mockIpcClassifyRiskResult = {
         risk: "high",
         reason: "Skill scaffold",
@@ -1260,6 +1366,183 @@ describe("Permission Checker (gateway IPC)", () => {
     test("returns empty for non-scope-aware tools", () => {
       const options = generateScopeOptions("/home/user/project", "web_fetch");
       expect(options).toEqual([]);
+    });
+  });
+
+  // ── isInstalledStaticSkillLoad ────────────────────────────────────────────
+
+  describe("isInstalledStaticSkillLoad", () => {
+    function installSkill(inlineCommandExpansions?: string[]): void {
+      const skill: MockSkill = {
+        id: "note-taker",
+        directoryPath: "/mock/skills/bundled/note-taker",
+        inlineCommandExpansions,
+      };
+      mockResolvedSkill = skill;
+      mockSkillCatalog = [skill];
+    }
+
+    /**
+     * Install a `note-taker` parent whose selector resolves, plus whichever
+     * children are given. Children the parent includes but that are absent
+     * from `children` model an include that is not installed locally.
+     */
+    function installGraph(
+      parentIncludes: string[],
+      children: MockSkill[],
+      parentInlineCommandExpansions?: string[],
+    ): void {
+      const parent: MockSkill = {
+        id: "note-taker",
+        directoryPath: "/mock/skills/bundled/note-taker",
+        inlineCommandExpansions: parentInlineCommandExpansions,
+        includes: parentIncludes,
+      };
+      mockResolvedSkill = parent;
+      mockSkillCatalog = [parent, ...children];
+    }
+
+    function child(id: string, overrides: Partial<MockSkill> = {}): MockSkill {
+      return {
+        id,
+        directoryPath: `/mock/skills/bundled/${id}`,
+        ...overrides,
+      };
+    }
+
+    test("returns false for a tool other than skill_load", () => {
+      installSkill();
+      expect(isInstalledStaticSkillLoad("bash", { skill: "note-taker" })).toBe(
+        false,
+      );
+    });
+
+    test("returns false when the selector is missing", () => {
+      installSkill();
+      expect(isInstalledStaticSkillLoad("skill_load", {})).toBe(false);
+    });
+
+    test("returns false when the selector is blank", () => {
+      installSkill();
+      expect(isInstalledStaticSkillLoad("skill_load", { skill: "   " })).toBe(
+        false,
+      );
+    });
+
+    test("returns false when the skill is not installed locally", () => {
+      mockResolvedSkill = null;
+      mockSkillCatalog = [];
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when the resolved skill has inline expansions", () => {
+      installSkill(["git status"]);
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns true for an installed skill with no inline expansions", () => {
+      installSkill();
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(true);
+    });
+
+    // ── Transitive include graph ────────────────────────────────────────────
+    // Loading a parent auto-installs its missing includes and renders inline
+    // commands in included children, so the predicate must clear the whole
+    // graph, not just the target.
+
+    test("returns false when an included skill is missing locally", () => {
+      installGraph(["formatting"], []);
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when an included skill has inline expansions", () => {
+      installGraph(
+        ["formatting"],
+        [child("formatting", { inlineCommandExpansions: ["git status"] })],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when a grandchild include is missing locally", () => {
+      installGraph(
+        ["formatting"],
+        [child("formatting", { includes: ["typography"] })],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when a grandchild include has inline expansions", () => {
+      installGraph(
+        ["formatting"],
+        [
+          child("formatting", { includes: ["typography"] }),
+          child("typography", { inlineCommandExpansions: ["date"] }),
+        ],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false for a cyclic include graph", () => {
+      installGraph(
+        ["formatting"],
+        [child("formatting", { includes: ["note-taker"] })],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns true when every transitive include is installed and static", () => {
+      installGraph(
+        ["formatting"],
+        [
+          child("formatting", { includes: ["typography"] }),
+          child("typography"),
+        ],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(true);
+    });
+
+    // ── Fail-closed ─────────────────────────────────────────────────────────
+    // The live-voice contention gate calls this from a synchronous event
+    // callback, so a throw would abort the rest of the frame's dispatch.
+
+    test("returns false when the catalog cannot be read", () => {
+      installSkill();
+      mockCatalogError = new Error("catalog unreadable");
+      expect(() =>
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).not.toThrow();
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when selector resolution throws", () => {
+      installSkill();
+      mockSelectorError = new Error("skill directory unreadable");
+      expect(() =>
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).not.toThrow();
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
     });
   });
 });

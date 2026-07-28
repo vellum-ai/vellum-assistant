@@ -9,7 +9,7 @@ import type {
   CheckpointInfo,
   ExitReason,
 } from "../agent/loop.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { stampAndBuffer } from "../runtime/assistant-stream-state.js";
 import { setConfig } from "./helpers/set-config.js";
@@ -688,25 +688,89 @@ describe("Conversation message queue", () => {
       content: "msg-2",
       onEvent: (e) => events2.push(e),
       requestId: "req-2",
+      clientMessageId: "cmid-2",
     });
     expect(result.queued).toBe(true);
+
+    // The enqueue is acked synchronously on the sender's sink, with the
+    // 1-based position and the sender's idempotency nonce echoed back.
+    const queued = events2.find((e) => e.type === "message_queued");
+    expect(queued).toEqual({
+      type: "message_queued",
+      conversationId: "conv-1",
+      requestId: "req-2",
+      position: 1,
+      clientMessageId: "cmid-2",
+    });
 
     // Complete first
     await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
-    // Check for message_dequeued with correct fields
+    // Check for message_dequeued with correct fields: the nonce from the
+    // enqueue round-trips onto the dequeue so clients can match by identity.
     const dequeued = events2.find((e) => e.type === "message_dequeued");
     expect(dequeued).toBeDefined();
     expect(dequeued).toEqual({
       type: "message_dequeued",
       conversationId: "conv-1",
       requestId: "req-2",
+      clientMessageId: "cmid-2",
     });
 
     // Complete second run so the conversation finishes cleanly
     await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("hidden sends are never acked with message_queued and don't shift visible positions", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const hiddenEvents: AssistantEvent[] = [];
+    const visibleEvents: AssistantEvent[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // Hidden sends stay invisible end-to-end: queued, but no ack event,
+    // matching their exclusion from list-messages queued snapshots.
+    const hidden = conversation.enqueueMessage({
+      content: "hidden-msg",
+      onEvent: (e) => hiddenEvents.push(e),
+      requestId: "req-hidden",
+      metadata: { hidden: true },
+    });
+    expect(hidden.queued).toBe(true);
+    expect(hiddenEvents.filter((e) => e.type === "message_queued")).toEqual([]);
+
+    // A visible send queued behind the hidden one is position 1: positions
+    // count visible items only, mirroring the cold-load queue snapshot.
+    const visible = conversation.enqueueMessage({
+      content: "visible-msg",
+      onEvent: (e) => visibleEvents.push(e),
+      requestId: "req-visible",
+    });
+    expect(visible.queued).toBe(true);
+    expect(conversation.getQueueDepth()).toBe(2);
+    const queuedAck = visibleEvents.find((e) => e.type === "message_queued");
+    expect(queuedAck).toMatchObject({
+      requestId: "req-visible",
+      position: 1,
+    });
+
+    // Drain so the conversation finishes cleanly.
+    await resolveRun(0);
+    await p1;
+    await waitForCondition(() => conversation.getQueueDepth() === 0);
+    for (let i = 1; i < pendingRuns.length; i++) {
+      await resolveRun(i);
+    }
     await new Promise((r) => setTimeout(r, 10));
   });
 

@@ -2,38 +2,40 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import {
-    WEB_FETCH_BYOK_PROVIDER_IDS,
-    WEB_FETCH_PROVIDER_DISPLAY_NAMES,
-    WEB_FETCH_PROVIDER_IDS,
-    WEB_FETCH_PROVIDER_KEY_PLACEHOLDERS,
+  WEB_FETCH_BYOK_PROVIDER_IDS,
+  WEB_FETCH_PROVIDER_DISPLAY_NAMES,
+  WEB_FETCH_PROVIDER_IDS,
+  WEB_FETCH_PROVIDER_KEY_PLACEHOLDERS,
 } from "@/assistant/generated/web-fetch-provider-catalog.gen";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
-    getLocalSetting,
-    removeLocalSetting,
-    setLocalSetting,
+  getLocalSetting,
+  removeLocalSetting,
+  setLocalSetting,
 } from "@/utils/local-settings";
 import { useQueryClient } from "@tanstack/react-query";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import {
-  ByoServiceCard,
-} from "@/domains/settings/ai/shared-ui";
-import {
-  ResetButton,
-  SaveButton,
-} from "@/components/service-form-controls";
+import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
+import { ResetButton, SaveButton } from "@/components/service-form-controls";
 import { LS_WEB_FETCH_PROVIDER } from "@/utils/local-settings-keys";
 import { getWebFetchProviderKeyStorage } from "@/domains/settings/ai/utils";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  configGetOptions,
+  configGetSetQueryData,
+  useConfigPatchMutation,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { useQuery } from "@tanstack/react-query";
 import { useDraftOverride } from "@/hooks/use-draft-override";
-import { credentialPresenceQueryKey, useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
+import {
+  credentialPresenceQueryKey,
+  useStoredCredentialPresence,
+} from "@/domains/settings/ai/use-stored-credential-presence";
 
 const DEFAULT_PROVIDER = "default";
 
@@ -54,7 +56,11 @@ export function WebFetchCard() {
 
   const configMutation = useConfigPatchMutation({
     onSuccess: (data) => {
-      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+      configGetSetQueryData(
+        queryClient,
+        { path: { assistant_id: assistantId } },
+        data,
+      );
     },
   });
   const provisionProviderKey = useProvisionProviderKey();
@@ -65,14 +71,20 @@ export function WebFetchCard() {
       return getLocalSetting(LS_WEB_FETCH_PROVIDER, DEFAULT_PROVIDER);
     }
     const service = daemonConfig.services?.["web-fetch"];
-    return service?.provider || getLocalSetting(LS_WEB_FETCH_PROVIDER, DEFAULT_PROVIDER);
+    return (
+      service?.provider ||
+      getLocalSetting(LS_WEB_FETCH_PROVIDER, DEFAULT_PROVIDER)
+    );
   }, [daemonConfig]);
 
   const [saving, setSaving] = useState(false);
-  const [webFetchProvider, setDraftWebFetchProvider] = useDraftOverride(serverWebFetchProvider);
+  const [webFetchProvider, setDraftWebFetchProvider] = useDraftOverride(
+    serverWebFetchProvider,
+  );
   const [webFetchApiKey, setWebFetchApiKey] = useState("");
 
-  const requiresProviderCredential = WEB_FETCH_BYOK_PROVIDER_IDS.has(webFetchProvider);
+  const requiresProviderCredential =
+    WEB_FETCH_BYOK_PROVIDER_IDS.has(webFetchProvider);
   const { hasStoredCredential: webFetchHasStoredKey } =
     useStoredCredentialPresence({
       assistantId,
@@ -89,7 +101,8 @@ export function WebFetchCard() {
   const saveDisabled =
     saving || needsKeyBeforeSave || (!configChanged && !hasNewApiKey);
   const apiKeyPlaceholder = secretPlaceholder(
-    WEB_FETCH_PROVIDER_KEY_PLACEHOLDERS[webFetchProvider] ?? "Enter your API key",
+    WEB_FETCH_PROVIDER_KEY_PLACEHOLDERS[webFetchProvider] ??
+      "Enter your API key",
     webFetchHasStoredKey,
   );
 
@@ -101,18 +114,22 @@ export function WebFetchCard() {
       if (hasUserKey) {
         await provisionProviderKey(webFetchProvider, trimmed);
       }
-      await configMutation.mutateAsync({
-        path: { assistant_id: assistantId },
-        body: {
-          services: {
-            "web-fetch": { provider: webFetchProvider },
+      await configMutation
+        .mutateAsync({
+          path: { assistant_id: assistantId },
+          body: {
+            services: {
+              "web-fetch": { provider: webFetchProvider },
+            },
           },
-        },
-      }).catch((error) => {
-        toast.error("Failed to update assistant configuration. Please try again.");
-        captureError(error, { context: "patch_daemon_config" });
-        throw error;
-      });
+        })
+        .catch((error) => {
+          toast.error(
+            "Failed to update assistant configuration. Please try again.",
+          );
+          captureError(error, { context: "patch_daemon_config" });
+          throw error;
+        });
     } catch {
       setSaving(false);
       return;
@@ -193,7 +210,9 @@ export function WebFetchCard() {
 
         <div className="flex items-center gap-2">
           <SaveButton onClick={handleSave} disabled={saveDisabled} />
-          {saving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
+          {saving && (
+            <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
+          )}
           {requiresProviderCredential && (
             <ResetButton onClick={handleReset} filled />
           )}

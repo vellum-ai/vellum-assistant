@@ -40,14 +40,18 @@ mock.module("../persistence/conversation-crud.js", () => ({
     // `lastPersisted("assistant")` assertions continue to find the row that
     // was reserved at `llm_call_started` time.
     const call = addMessageCalls.find((c) => c.id === messageId);
-    if (call) call.content = content;
+    if (call) {
+      call.content = content;
+    }
   },
   markMessageContentInflight: () => {},
   finalizeMessageContent: (messageId: string, content: string) => {
     // The finalize seam writes through `finalizeMessageContent`; mirror it
     // into the same capture array as `updateMessageContent`.
     const call = addMessageCalls.find((c) => c.id === messageId);
-    if (call) call.content = content;
+    if (call) {
+      call.content = content;
+    }
   },
   provenanceFromTrustContext: () => ({}),
   reserveMessage: mock(
@@ -144,7 +148,9 @@ function makeMessageCompleteEvent(
 
 function lastPersisted(role: "assistant" | "user"): AddMessageCall {
   for (let i = addMessageCalls.length - 1; i >= 0; i--) {
-    if (addMessageCalls[i].role === role) return addMessageCalls[i];
+    if (addMessageCalls[i].role === role) {
+      return addMessageCalls[i];
+    }
   }
   throw new Error(`No ${role} message was persisted`);
 }

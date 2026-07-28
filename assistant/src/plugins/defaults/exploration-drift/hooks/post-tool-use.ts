@@ -138,7 +138,9 @@ function toolUsesById(
 ): Map<string, ToolInvocation> {
   const uses = new Map<string, ToolInvocation>();
   for (const message of messages) {
-    if (message.role !== "assistant") continue;
+    if (message.role !== "assistant") {
+      continue;
+    }
     for (const block of message.content) {
       if (block.type === "tool_use") {
         uses.set(block.id, { name: block.name, input: block.input });
@@ -187,17 +189,25 @@ function trailingExplorationRun(
       const spokeToUser = message.content.some(
         (block) => block.type === "text" && block.text.trim().length > 0,
       );
-      if (spokeToUser) break;
+      if (spokeToUser) {
+        break;
+      }
       continue;
     }
-    if (message.role !== "user") continue;
+    if (message.role !== "user") {
+      continue;
+    }
     const hasToolResult = message.content.some(
       (block) => block.type === "tool_result",
     );
-    if (!hasToolResult) break;
+    if (!hasToolResult) {
+      break;
+    }
     for (let j = message.content.length - 1; j >= 0; j--) {
       const block = message.content[j];
-      if (block.type !== "tool_result") continue;
+      if (block.type !== "tool_result") {
+        continue;
+      }
       const use = usesById.get(block.tool_use_id);
       if (use === undefined || !EXPLORATION_TOOL_NAMES.has(use.name)) {
         return { streak: toolUseIds.length, toolUseIds };
@@ -237,8 +247,12 @@ function currentCallRepeatCount(
 const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
   const usesById = toolUsesById(ctx.messages);
   const currentUse = usesById.get(ctx.toolResponse.tool_use_id);
-  if (currentUse === undefined || !EXPLORATION_TOOL_NAMES.has(currentUse.name))
+  if (
+    currentUse === undefined ||
+    !EXPLORATION_TOOL_NAMES.has(currentUse.name)
+  ) {
     return;
+  }
 
   // The current result is not in history yet — count it explicitly.
   const run = trailingExplorationRun(ctx.messages, usesById);
@@ -272,11 +286,15 @@ const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
   }
   const loopNudge = loopRepeatCount >= EXPLORATION_LOOP_REPEAT_THRESHOLD;
 
-  if (!longDigNudge && !loopNudge) return;
+  if (!longDigNudge && !loopNudge) {
+    return;
+  }
 
   // Subagent conversations are exempt — see module doc. Subagents run under
   // the `subagentSpawn` call site.
-  if (ctx.callSite === "subagentSpawn") return;
+  if (ctx.callSite === "subagentSpawn") {
+    return;
+  }
 
   lastNudgedStreakByConversation.set(ctx.conversationId, streak);
   const nudgeText = loopNudge

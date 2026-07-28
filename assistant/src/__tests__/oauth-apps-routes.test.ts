@@ -116,7 +116,9 @@ function getRoute(method: string, endpoint: string) {
   const route = ROUTES.find(
     (r) => r.method === method && r.endpoint === endpoint,
   );
-  if (!route) throw new Error(`Route not found: ${method} ${endpoint}`);
+  if (!route) {
+    throw new Error(`Route not found: ${method} ${endpoint}`);
+  }
   return route;
 }
 

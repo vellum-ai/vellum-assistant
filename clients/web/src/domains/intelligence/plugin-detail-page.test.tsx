@@ -43,10 +43,7 @@ function renderAt(name: string): void {
     <MemoryRouter initialEntries={[`/assistant/plugins/${name}`]}>
       <Routes>
         <Route path="/assistant/plugins/:name" element={<PluginDetailPage />} />
-        <Route
-          path="/assistant/superpowers"
-          element={<SuperpowersLanding />}
-        />
+        <Route path="/assistant/superpowers" element={<SuperpowersLanding />} />
       </Routes>
     </MemoryRouter>,
   );

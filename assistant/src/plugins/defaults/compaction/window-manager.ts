@@ -277,13 +277,21 @@ export function createContextSummaryMessage(summary: string): Message {
 export function getSummaryFromContextMessage(
   message: Message | undefined,
 ): string | null {
-  if (!message) return null;
+  if (!message) {
+    return null;
+  }
   const text = extractText(message.content).trim();
-  if (!text.startsWith(CONTEXT_SUMMARY_MARKER)) return null;
-  if (!INTERNAL_CONTEXT_SUMMARY_MESSAGES.has(message)) return null;
+  if (!text.startsWith(CONTEXT_SUMMARY_MARKER)) {
+    return null;
+  }
+  if (!INTERNAL_CONTEXT_SUMMARY_MESSAGES.has(message)) {
+    return null;
+  }
   let inner = text.slice(CONTEXT_SUMMARY_MARKER.length);
   const closeIdx = inner.lastIndexOf(CONTEXT_SUMMARY_CLOSE);
-  if (closeIdx !== -1) inner = inner.slice(0, closeIdx);
+  if (closeIdx !== -1) {
+    inner = inner.slice(0, closeIdx);
+  }
   return inner.trim();
 }
 
@@ -423,6 +431,10 @@ export class ContextWindowManager {
     return this.provider.tokenEstimationProvider ?? this.provider.name;
   }
 
+  private get estimationModel(): string | undefined {
+    return this.provider.defaultModel;
+  }
+
   private get systemPrompt(): string {
     const conversation = findConversationOrSubagent(this.conversationId);
     return conversation?.systemPrompt ?? "";
@@ -444,6 +456,7 @@ export class ContextWindowManager {
   estimateInputTokens(messages: Message[]): number {
     return estimatePromptTokens(messages, this.systemPrompt, {
       providerName: this.estimationProviderName,
+      model: this.estimationModel,
       toolTokenBudget: this.toolTokenBudget,
     });
   }
@@ -470,9 +483,12 @@ export class ContextWindowManager {
    */
   shouldCompact(messages: Message[]): ShouldCompactResult {
     const compaction = this.resolveCompactionConfig();
-    if (!compaction.enabled) return { needed: false, estimatedTokens: 0 };
+    if (!compaction.enabled) {
+      return { needed: false, estimatedTokens: 0 };
+    }
     const estimated = estimatePromptTokens(messages, this.systemPrompt, {
       providerName: this.estimationProviderName,
+      model: this.estimationModel,
       toolTokenBudget: this.toolTokenBudget,
     });
     const threshold = Math.floor(
@@ -634,6 +650,7 @@ export class ContextWindowManager {
       this.systemPrompt,
       {
         providerName: this.estimationProviderName,
+        model: this.estimationModel,
         toolTokenBudget: this.resolveTurnToolTokenBudget(),
       },
     );
@@ -713,6 +730,7 @@ export class ContextWindowManager {
       options?.precomputedEstimate ??
       estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.estimationProviderName,
+        model: this.estimationModel,
         toolTokenBudget: this.toolTokenBudget,
       });
     const thresholdTokens = Math.floor(
@@ -776,7 +794,9 @@ export class ContextWindowManager {
         fixedTailStartIndex: options.fixedTailStartIndex,
         fixedBoundaryRowIndex: options.fixedBoundaryRowIndex,
       });
-      if (!result.compacted) return result;
+      if (!result.compacted) {
+        return result;
+      }
       return {
         ...result,
         estimatedInputTokens: this.settleCompactionAttempt(result, messages),
@@ -808,7 +828,9 @@ export class ContextWindowManager {
 
     // Compactor early-returned without doing any work (e.g. no eligible
     // messages, summary failed, disabled mid-way). Nothing to retry.
-    if (!result.compacted) return result;
+    if (!result.compacted) {
+      return result;
+    }
 
     let estimatedInputTokens = this.settleCompactionAttempt(result, messages);
 
@@ -843,7 +865,9 @@ export class ContextWindowManager {
           result.messages,
         ),
       });
-      if (!nextResult.compacted) break;
+      if (!nextResult.compacted) {
+        break;
+      }
       const nextEstimate = this.settleCompactionAttempt(
         nextResult,
         result.messages,
@@ -855,9 +879,13 @@ export class ContextWindowManager {
       }
       // Forward-cut hit the floor and still over budget — same stop condition
       // as the first pass: another retry lands on the same floor.
-      if (nextResult.tailFloorReached) break;
+      if (nextResult.tailFloorReached) {
+        break;
+      }
       // Non-productive (compacted but didn't shrink) — stuck compactor.
-      if (estimatedInputTokens >= previousEstimate) break;
+      if (estimatedInputTokens >= previousEstimate) {
+        break;
+      }
       previousEstimate = estimatedInputTokens;
     }
 
@@ -922,6 +950,7 @@ export class ContextWindowManager {
     try {
       return estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.estimationProviderName,
+        model: this.estimationModel,
         toolTokenBudget: this.toolTokenBudget,
       });
     } catch (err) {

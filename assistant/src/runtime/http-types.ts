@@ -16,7 +16,7 @@ import type {
 // Re-export so route modules (background-dispatch, etc.) can pull the type
 // from the runtime barrel without reaching into daemon internals.
 export type { SlackInboundMessageMetadata };
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { AssistantEventHub } from "./assistant-event-hub.js";
 
 export type {

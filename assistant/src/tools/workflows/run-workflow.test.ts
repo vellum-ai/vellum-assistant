@@ -27,7 +27,9 @@ mock.module("../../daemon/conversation-registry.js", () => ({
 let lastStartArgs: Record<string, unknown> | null = null;
 let startThrows: Error | null = null;
 const startMock = mock((opts: Record<string, unknown>) => {
-  if (startThrows) throw startThrows;
+  if (startThrows) {
+    throw startThrows;
+  }
   lastStartArgs = opts;
   return { runId: "run-123" };
 });
@@ -36,7 +38,9 @@ const abortMock = mock(() => {});
 const listMock = mock(() => [] as unknown[]);
 let resumeThrows: Error | null = null;
 const resumeMock = mock((runId: string) => {
-  if (resumeThrows) throw resumeThrows;
+  if (resumeThrows) {
+    throw resumeThrows;
+  }
   return { runId };
 });
 
@@ -419,5 +423,53 @@ describe("manage_workflows", () => {
       contactContext(),
     );
     expect(abortMock).toHaveBeenCalledWith("mine");
+  });
+});
+
+// ── model-input schema validation (LUM-2855) ────────────────────────
+
+describe("workflow tools — model-input schema validation", () => {
+  test("run_workflow rejects a non-string script", async () => {
+    const result = await executeRunWorkflow({ script: 42 }, makeContext());
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "run_workflow"');
+    expect(result.content).toContain("script");
+    expect(startMock).not.toHaveBeenCalled();
+  });
+
+  test("run_workflow treats explicit null script/name as omitted (bespoke exactly-one error)", async () => {
+    const result = await executeRunWorkflow(
+      { script: null, name: null },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("exactly one");
+  });
+
+  test("run_workflow passes args through unvalidated (workflow runtime accepts any JSON)", async () => {
+    const result = await executeRunWorkflow(
+      { script: "export const meta = {}", args: ["positional"] },
+      makeContext(),
+    );
+    expect(result.isError).toBe(false);
+    expect(lastStartArgs?.args).toEqual(["positional"]);
+  });
+
+  test("manage_workflows rejects a non-string run_id", async () => {
+    const result = await executeManageWorkflows(
+      { action: "status", run_id: 42 },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "manage_workflows"',
+    );
+    expect(result.content).toContain("run_id");
+  });
+
+  test("manage_workflows keeps the bespoke unknown-action error", async () => {
+    const result = await executeManageWorkflows({ action: 42 }, makeContext());
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Unknown action");
   });
 });

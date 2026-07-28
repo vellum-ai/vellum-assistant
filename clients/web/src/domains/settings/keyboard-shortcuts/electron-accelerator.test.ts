@@ -7,10 +7,7 @@ import { eventToAccelerator, findConflict } from "./electron-accelerator";
 /** Minimal stand-in for a captured keydown — only the fields we read. */
 const keydown = (
   init: Partial<
-    Pick<
-      KeyboardEvent,
-      "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey"
-    >
+    Pick<KeyboardEvent, "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">
   >,
 ): KeyboardEvent =>
   ({
@@ -55,15 +52,17 @@ describe("eventToAccelerator", () => {
   });
 
   it("resolves arrows, digits, and punctuation from the physical code", () => {
-    expect(eventToAccelerator(keydown({ code: "ArrowUp", metaKey: true }))).toBe(
-      "CmdOrCtrl+Up",
-    );
     expect(
-      eventToAccelerator(keydown({ code: "Digit1", metaKey: true })),
-    ).toBe("CmdOrCtrl+1");
+      eventToAccelerator(keydown({ code: "ArrowUp", metaKey: true })),
+    ).toBe("CmdOrCtrl+Up");
+    expect(eventToAccelerator(keydown({ code: "Digit1", metaKey: true }))).toBe(
+      "CmdOrCtrl+1",
+    );
     // Shift+/ stays the slash key rather than becoming "?".
     expect(
-      eventToAccelerator(keydown({ code: "Slash", metaKey: true, shiftKey: true })),
+      eventToAccelerator(
+        keydown({ code: "Slash", metaKey: true, shiftKey: true }),
+      ),
     ).toBe("CmdOrCtrl+Shift+/");
     expect(
       eventToAccelerator(keydown({ code: "Backslash", metaKey: true })),
@@ -71,11 +70,15 @@ describe("eventToAccelerator", () => {
   });
 
   it("returns null for a lone modifier press", () => {
-    expect(eventToAccelerator(keydown({ code: "MetaLeft", metaKey: true }))).toBeNull();
+    expect(
+      eventToAccelerator(keydown({ code: "MetaLeft", metaKey: true })),
+    ).toBeNull();
   });
 
   it("returns null for an unmapped key", () => {
-    expect(eventToAccelerator(keydown({ code: "Lang1", metaKey: true }))).toBeNull();
+    expect(
+      eventToAccelerator(keydown({ code: "Lang1", metaKey: true })),
+    ).toBeNull();
   });
 });
 

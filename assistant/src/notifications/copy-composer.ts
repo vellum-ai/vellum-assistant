@@ -39,7 +39,9 @@ import type { NotificationChannel, RenderedChannelCopy } from "./types.js";
 type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
 
 function str(value: unknown, fallback: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
   return fallback;
 }
 
@@ -222,21 +224,6 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     };
   },
 
-  "ingress.trusted_contact.denied": (payload) => {
-    const parsed = parseTrustedContactDecisionPayload(payload);
-    const requesterLabel = formatTrustedContactActor(
-      parsed?.requesterDisplayName,
-      parsed?.requesterExternalUserId,
-      parsed?.sourceChannel,
-      "Someone",
-    );
-
-    return {
-      title: "Trusted Contact Denied",
-      body: `A trusted contact request from ${requesterLabel} has been denied.`,
-    };
-  },
-
   "watcher.notification": (payload) => ({
     title: str(payload.title, "Watcher Notification"),
     body: str(payload.body, "A watcher event occurred"),
@@ -350,13 +337,19 @@ function buildChatSurfaceFallbackDeliveryText(
   baseCopy: RenderedChannelCopy,
 ): string {
   const explicit = nonEmpty(baseCopy.deliveryText);
-  if (explicit) return explicit;
+  if (explicit) {
+    return explicit;
+  }
 
   const body = nonEmpty(baseCopy.body);
-  if (body) return body;
+  if (body) {
+    return body;
+  }
 
   const title = nonEmpty(baseCopy.title);
-  if (title) return title;
+  if (title) {
+    return title;
+  }
 
   // No usable text: return empty string. The broadcaster's empty-body skip in
   // `broadcaster.ts` suppresses fallback-derived empty bodies; the

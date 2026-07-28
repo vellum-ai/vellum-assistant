@@ -211,6 +211,10 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   // ingress path; not part of the public gateway API
   "/v1/speech/stt/stream",
   "/v1/speech/tts/stream",
+  // Plugin-declared webhooks — which paths exist is decided at runtime by the
+  // installed plugins and the guardian's approvals, so there is no fixed set
+  // to document. The declaration schema is the contract, not this path.
+  "/webhooks/plugins/{param1}/{param2}",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──

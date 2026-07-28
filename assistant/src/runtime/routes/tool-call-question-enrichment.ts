@@ -54,10 +54,14 @@ export function enrichToolCallsWithQuestion(
   toolCalls: ConversationMessageToolCall[],
   opts: { pendingQuestions: ReadonlyMap<string, PendingQuestionMatch> },
 ): ConversationMessageToolCall[] {
-  if (opts.pendingQuestions.size === 0) return toolCalls;
+  if (opts.pendingQuestions.size === 0) {
+    return toolCalls;
+  }
   return toolCalls.map((tc) => {
     const match = tc.id ? opts.pendingQuestions.get(tc.id) : undefined;
-    if (!match) return tc;
+    if (!match) {
+      return tc;
+    }
     return {
       ...tc,
       pendingQuestion: { requestId: match.requestId, entries: match.entries },

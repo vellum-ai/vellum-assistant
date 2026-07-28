@@ -17,11 +17,12 @@ mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: (_target, prop: string) => {
-        if (prop === "child")
+        if (prop === "child") {
           return () =>
             new Proxy({} as Record<string, unknown>, {
               get: () => () => {},
             });
+        }
         return (...args: unknown[]) => {
           if (typeof args[0] === "string") {
             logMessages.push({ level: prop, msg: args[0] });

@@ -4,12 +4,7 @@ import {
 } from "@/components/charts/format-date-label";
 
 export type UsageRangeWindowId =
-  | "today"
-  | "yesterday"
-  | "7d"
-  | "30d"
-  | "90d"
-  | "all";
+  "today" | "yesterday" | "7d" | "30d" | "90d" | "all";
 
 const RANGE_START_DAY_OFFSETS: Record<
   Exclude<UsageRangeWindowId, "all" | "yesterday">,
@@ -51,11 +46,7 @@ export function resolveUsageRangeWindow(
   }
 
   const dayOffset = RANGE_START_DAY_OFFSETS[range];
-  const { fromDate } = resolveLastTimezoneCalendarDays(
-    dayOffset + 1,
-    tz,
-    to,
-  );
+  const { fromDate } = resolveLastTimezoneCalendarDays(dayOffset + 1, tz, to);
   return {
     from: timezoneDayStartEpoch(fromDate, tz),
     to,

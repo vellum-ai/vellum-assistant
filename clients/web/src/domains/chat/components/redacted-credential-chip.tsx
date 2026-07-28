@@ -26,6 +26,7 @@ import { Check, Copy, Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 
 import { credentialsRevealPost } from "@/generated/daemon/sdk.gen";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -137,8 +138,9 @@ export function RedactedCredentialChip({
     if (revealed == null) {
       return;
     }
-    void navigator.clipboard.writeText(revealed).then(
-      () => {
+    copyToClipboard(revealed, {
+      errorMessage: "Couldn't copy. Reveal and copy manually.",
+      onCopied: () => {
         setJustCopied(true);
         if (copiedTimer.current) {
           clearTimeout(copiedTimer.current);
@@ -148,8 +150,7 @@ export function RedactedCredentialChip({
           COPIED_FEEDBACK_MS,
         );
       },
-      () => toast.error("Couldn't copy — reveal and copy manually."),
-    );
+    });
   }, [revealed]);
 
   // Neutralized sentinel: the daemon defused this span as a forgery (or an

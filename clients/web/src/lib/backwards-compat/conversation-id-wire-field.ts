@@ -42,10 +42,14 @@ export type ConversationIdWireField = "conversationId" | "conversationKey";
  */
 export function pickConversationIdWireField(): ConversationIdWireField {
   const version = useAssistantIdentityStore.getState().version;
-  if (!version) return "conversationKey";
+  if (!version) {
+    return "conversationKey";
+  }
   const parsed = parseSemver(version);
   const min = parseSemver(MIN_VERSION);
-  if (!parsed || !min) return "conversationKey";
+  if (!parsed || !min) {
+    return "conversationKey";
+  }
   return compareParsed({ ...parsed, pre: null }, min) >= 0
     ? "conversationId"
     : "conversationKey";

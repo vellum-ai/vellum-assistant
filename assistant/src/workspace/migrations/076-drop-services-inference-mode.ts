@@ -22,12 +22,16 @@ export const dropServicesInferenceModeMigration: WorkspaceMigration = {
     "Strip services.inference.mode from config.json (mode field removed from schema)",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
@@ -38,19 +42,23 @@ export const dropServicesInferenceModeMigration: WorkspaceMigration = {
       services === null ||
       typeof services !== "object" ||
       Array.isArray(services)
-    )
+    ) {
       return;
+    }
 
     const inference = (services as Record<string, unknown>).inference;
     if (
       inference === null ||
       typeof inference !== "object" ||
       Array.isArray(inference)
-    )
+    ) {
       return;
+    }
 
     const inferenceObj = inference as Record<string, unknown>;
-    if (!("mode" in inferenceObj)) return;
+    if (!("mode" in inferenceObj)) {
+      return;
+    }
 
     delete inferenceObj.mode;
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");

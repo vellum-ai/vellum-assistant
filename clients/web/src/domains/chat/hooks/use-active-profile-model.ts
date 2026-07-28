@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
 import {
-    configGetOptions,
-    conversationsByIdGetOptions,
+  configGetOptions,
+  conversationsByIdGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { ConfigGetResponse } from "@/generated/daemon/types.gen";
 
@@ -61,18 +61,23 @@ export function useActiveProfileModel(
   });
 
   return useMemo(() => {
-    if (!config) return null;
+    if (!config) {
+      return null;
+    }
     const llm = config.llm;
     const profiles = llm?.profiles ?? {};
     const globalActive = llm?.activeProfile ?? null;
 
-    const convOverride =
-      convData?.conversation.inferenceProfile ?? null;
+    const convOverride = convData?.conversation.inferenceProfile ?? null;
     const effective = convOverride ?? pendingProfile ?? globalActive;
 
-    if (!effective) return null;
+    if (!effective) {
+      return null;
+    }
     const entry: ProfileEntry | undefined = profiles[effective];
-    if (!entry?.provider || !entry.model) return null;
+    if (!entry?.provider || !entry.model) {
+      return null;
+    }
     return {
       provider: entry.provider,
       model: entry.model,

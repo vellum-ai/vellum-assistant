@@ -52,12 +52,20 @@ export const MAX_TOKENS_CONTINUE_NUDGE_TEXT =
   "</system_notice>";
 
 const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
-  if (ctx.error) return;
-  if (!isMaxTokensStopReason(ctx.stopReason)) return;
-  if (ctx.callSite !== "mainAgent") return;
+  if (ctx.error) {
+    return;
+  }
+  if (!isMaxTokensStopReason(ctx.stopReason)) {
+    return;
+  }
+  if (ctx.callSite !== "mainAgent") {
+    return;
+  }
   // Nothing survived truncation-block stripping — there is no partial output
   // to resume from, so let the turn end terminally.
-  if (ctx.content.length === 0) return;
+  if (ctx.content.length === 0) {
+    return;
+  }
 
   if (!hasMaxTokensContinueBudget(ctx.conversationId)) {
     ctx.logger.warn(
