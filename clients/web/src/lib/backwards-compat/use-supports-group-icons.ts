@@ -15,7 +15,7 @@
  */
 import { useAssistantSupports } from "./utils";
 
-export const MIN_VERSION = "0.12.0";
+export const MIN_VERSION = "0.11.1";
 
 /**
  * Returns `true` when the active assistant persists group icons. Subscribes
