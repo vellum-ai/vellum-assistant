@@ -626,11 +626,11 @@ describe("ResearchOnboardingRoute paid return", () => {
   });
 });
 
-// Retrying the hatch has to restart everything that already resolved against
-// the dead one. Both of these used to survive the retry poisoned: the
-// established-assistant verdict (cached fail-open from the rejected
-// `awaitReady`) and a research turn that settled "error" while keeping its
-// subject key, which made even an identical resubmit a no-op.
+// Retrying the hatch must restart everything that already resolved against the
+// dead one: the established-assistant verdict (otherwise it stays fail-open
+// from the rejected `awaitReady`) and a research turn that settled "error"
+// while holding its subject key (otherwise an identical resubmit dedupes to a
+// no-op).
 describe("ResearchOnboardingRoute hatch retry", () => {
   const HATCH_ERROR = "Failed to start your assistant. Please try again.";
 

@@ -157,8 +157,8 @@ describe("resolveResearchCompletionStatus", () => {
 
 describe("useResearchRunner reset", () => {
   const subject: ResearchSubject = {
-    firstName: "Ada",
-    lastName: "Lovelace",
+    firstName: "Alice",
+    lastName: "Example",
     occupation: "Engineer",
     hobbies: [],
     timezone: "UTC",
