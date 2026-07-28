@@ -43,6 +43,10 @@ function writeManifest(
 ): string {
   const pluginDir = join(workspaceDir, "plugins", plugin);
   mkdirSync(join(pluginDir, "channels"), { recursive: true });
+  writeFileSync(
+    join(pluginDir, "package.json"),
+    JSON.stringify({ name: plugin }),
+  );
   writeFileSync(join(pluginDir, PLUGIN_INGRESS_MANIFEST_RELPATH), contents);
   return pluginDir;
 }
@@ -241,10 +245,28 @@ describe("discoverPluginIngress", () => {
     const external = makeWorkspace();
     const target = join(external, "meeting-bot");
     mkdirSync(join(target, "channels"), { recursive: true });
+    writeFileSync(
+      join(target, "package.json"),
+      JSON.stringify({ name: "meeting-bot" }),
+    );
     writeFileSync(join(target, PLUGIN_INGRESS_MANIFEST_RELPATH), VALID);
 
     mkdirSync(join(workspaceDir, "plugins"), { recursive: true });
     symlinkSync(target, join(workspaceDir, "plugins", "meeting-bot"));
+
+    const { plugins, problems } = discoverPluginIngress({ workspaceDir });
+    expect(problems).toEqual([]);
+    expect(plugins.map((p) => p.plugin)).toEqual(["meeting-bot"]);
+  });
+
+  it("ignores a directory with an ingress manifest but no package.json", () => {
+    // Without this gate an arbitrary symlink to any directory holding a
+    // manifest would hold public routes for something never loaded.
+    const workspaceDir = makeWorkspace();
+    const impostor = join(workspaceDir, "plugins", "impostor");
+    mkdirSync(join(impostor, "channels"), { recursive: true });
+    writeFileSync(join(impostor, PLUGIN_INGRESS_MANIFEST_RELPATH), VALID);
+    writeManifest(workspaceDir, "meeting-bot", VALID);
 
     const { plugins, problems } = discoverPluginIngress({ workspaceDir });
     expect(problems).toEqual([]);
