@@ -881,20 +881,10 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.26,
         },
       },
-      {
-        id: "accounts/fireworks/models/kimi-k2p5",
-        displayName: "Kimi K2.5",
-        contextWindowTokens: 256000,
-        maxOutputTokens: 32768,
-        supportsThinking: false,
-        supportsCaching: false,
-        supportsVision: false,
-        supportsToolUse: true,
-        pricing: {
-          inputPer1mTokens: 0.6,
-          outputPer1mTokens: 2.5,
-        },
-      },
+      // Kimi K2.5 (accounts/fireworks/models/kimi-k2p5) was removed on
+      // 2026-07-28: Fireworks withdrew its serverless deployment, so
+      // chat/completions calls 404 ("not found, inaccessible, and/or not
+      // deployed"). Migration 136 repairs configs still pinning it.
       {
         id: "accounts/fireworks/models/minimax-m3",
         displayName: "MiniMax M3",
@@ -964,7 +954,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
     ],
-    defaultModel: "accounts/fireworks/models/kimi-k2p5",
+    defaultModel: "accounts/fireworks/models/deepseek-v4-flash",
     apiKeyUrl: "https://fireworks.ai/account/api-keys",
     apiKeyPlaceholder: "fw_...",
   },
