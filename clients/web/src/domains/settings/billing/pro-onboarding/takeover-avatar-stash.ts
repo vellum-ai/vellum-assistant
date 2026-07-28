@@ -171,8 +171,16 @@ export function captureTakeoverAvatarStash(queryClient: QueryClient): void {
   } = useResolvedAssistantsStore.getState();
   // The single-assistant org has to be positively known: the list starts empty
   // while a persisted `activeAssistantId` already reads through, so an
-  // unhydrated read cannot tell a solo org from a multi-assistant one.
-  if (!assistantId || !assistantsHydrated || assistants.length !== 1) {
+  // unhydrated read cannot tell a solo org from a multi-assistant one. The
+  // sole entry must also BE the active id: the list and the lifecycle update
+  // independently, so a freshly replaced list can briefly outlive a stale
+  // active id that no longer names its one assistant.
+  if (
+    !assistantId ||
+    !assistantsHydrated ||
+    assistants.length !== 1 ||
+    assistants[0]?.id !== assistantId
+  ) {
     clearTakeoverAvatarStash();
     return;
   }

@@ -35,7 +35,7 @@ import { Button } from "@vellumai/design-library/components/button";
  * and a bail clears them; after it, they belong to the post-checkout return
  * trip and nothing here may touch them. Electron and native Capacitor open
  * Stripe without unloading the page, so the route is still mounted to enforce
- * that — and to offer the way out a browser closed short of paying otherwise
+ * that, and to offer the way out a browser closed short of paying otherwise
  * leaves the user without.
  */
 type CheckoutPhase = "idle" | "running" | "handed_off" | "settled";
@@ -174,8 +174,8 @@ export function CheckoutPage() {
         void openUrl(result.checkout_url);
         return;
       }
-      // `no_op` — already Pro, nothing to provision. Clear the stashes so an
-      // already-Pro bounce doesn't leave them lingering for their TTL, then
+      // `no_op` means already Pro, nothing to provision. Clear the stashes so
+      // an already-Pro bounce doesn't leave them lingering for their TTL, then
       // hand off rather than stranding the user on a blank splash. Pro→Pro is
       // an in-place package switch, never Stripe Checkout, so the requested
       // package rides along to plans, which opens that switch from it. A

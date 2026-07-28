@@ -419,6 +419,30 @@ describe("captureTakeoverAvatarStash", () => {
     expect(readTakeoverAvatarStash()).toMatchObject({ assistantId: "a1" });
   });
 
+  test("clears when the sole listed assistant is not the active id", () => {
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: TRAITS,
+    });
+    // A replaced list can briefly outlive a stale active id: length one alone
+    // must not read as "the active assistant is the sole assistant".
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "a1",
+      assistants: [assistant("a2")],
+      assistantsHydrated: true,
+    });
+    seed("a1", {
+      components: BUNDLED_COMPONENTS,
+      traits: TRAITS,
+      customImageUrl: null,
+    });
+
+    captureTakeoverAvatarStash(queryClient);
+
+    expect(readTakeoverAvatarStash()).toBeNull();
+  });
+
   test("clears instead of stashing before the list has hydrated", () => {
     // A persisted `activeAssistantId` reads through pre-hydration, so a list
     // that happens to show one assistant proves nothing about the org yet.
