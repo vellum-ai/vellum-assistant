@@ -96,7 +96,10 @@ export function handleSubagentEvent(
       conversationId: childConversationId,
       parentConversationId,
     });
-    requestSubagentReconcile("unknown_subagent_id");
+    // Reconcile the envelope's OWN parent: this event may belong to a
+    // background conversation, whose subagents the active chat's snapshot
+    // would say nothing about.
+    requestSubagentReconcile("unknown_subagent_id", parentConversationId);
   }
 
   if (inner.type === "usage_progress") {

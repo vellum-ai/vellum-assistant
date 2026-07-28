@@ -498,10 +498,16 @@ const reconcileInFlight = new Map<string, Promise<void>>();
  */
 let resetGeneration = 0;
 
-/** Minimum spacing between `requestSubagentReconcile` kicks. */
+/** Minimum spacing between `requestSubagentReconcile` kicks for one parent. */
 const RECONCILE_KICK_INTERVAL_MS = 5_000;
 
-let lastReconcileKickAt = 0;
+/**
+ * Last kick time keyed by parent conversation id, mirroring
+ * `reconcileInFlight`. Subagent events are routed globally, so a background
+ * conversation's kick must not consume the window the conversation on screen
+ * needs — a single shared throttle lets either starve the other.
+ */
+const lastReconcileKickAt = new Map<string, number>();
 
 /** One child row from the reconcile snapshot; only `status` is guaranteed. */
 type ReconciledSubagent = SubagentsReconcileGetResponse["subagents"][string];
@@ -1098,7 +1104,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   reset: () => {
     // A reset means a conversation switch, so the next unknown-id kick should
     // fire immediately instead of inheriting the previous chat's window.
-    lastReconcileKickAt = 0;
+    lastReconcileKickAt.clear();
     // Invalidate every in-flight snapshot (they describe the context being
     // left) and drop them from the single-flight map so a reconcile for the
     // new context issues a fresh request instead of joining a doomed one.
@@ -1123,26 +1129,37 @@ export const useSubagentStore = createSelectors(useSubagentStoreBase);
  * For imperative call sites that only hold a reason — the stream handlers hit
  * this when an event names a subagent the store has never seen, which means
  * the client's picture of the run is incomplete. Reads the active assistant
- * and conversation from their stores (same pattern as `abortSubagent`) and
- * rate-limits to one round-trip per `RECONCILE_KICK_INTERVAL_MS`, so a burst
- * of events for the same missing subagent costs a single fetch.
+ * from its store (same pattern as `abortSubagent`) and rate-limits to one
+ * round-trip per parent per `RECONCILE_KICK_INTERVAL_MS`, so a burst of events
+ * for the same missing subagent costs a single fetch.
+ *
+ * `parentConversationId` names the conversation to resync. Subagent events are
+ * routed globally, so an event for a background conversation must reconcile
+ * ITS parent rather than whichever chat is on screen. Callers with no id at
+ * hand — `subagent_status_changed` carries none — fall back to the active
+ * conversation.
  */
-export function requestSubagentReconcile(reason: string): void {
+export function requestSubagentReconcile(
+  reason: string,
+  parentConversationId?: string,
+): void {
   const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-  const parentConversationId =
+  const targetConversationId =
+    parentConversationId ??
     useConversationStore.getState().activeConversationId;
-  if (!assistantId || !parentConversationId) {
+  if (!assistantId || !targetConversationId) {
     return;
   }
 
   const now = Date.now();
-  if (now - lastReconcileKickAt < RECONCILE_KICK_INTERVAL_MS) {
+  const lastKickAt = lastReconcileKickAt.get(targetConversationId) ?? 0;
+  if (now - lastKickAt < RECONCILE_KICK_INTERVAL_MS) {
     return;
   }
-  lastReconcileKickAt = now;
+  lastReconcileKickAt.set(targetConversationId, now);
 
   recordDiagnostic("subagent_reconcile_kick", { reason });
   void useSubagentStoreBase
     .getState()
-    .reconcileFromDaemon(assistantId, parentConversationId);
+    .reconcileFromDaemon(assistantId, targetConversationId);
 }

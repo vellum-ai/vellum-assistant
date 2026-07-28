@@ -29497,10 +29497,12 @@ paths:
       operationId: subagents_reconcile_get
       summary: Reconcile subagent live status
       description:
-        Returns the live in-memory state of all subagents known to the assistant for a given parent conversation.
-        Each entry carries enough detail (child conversation id, label, objective, token usage, failure reason) for a
-        client to rebuild its subagent list from scratch, not just refresh statuses. Subagents absent from the response
-        are orphaned or terminal. Only `status` is guaranteed to be present; every other field is optional.
+        Returns every subagent the assistant knows for a given parent conversation — live, rehydrated, and durably
+        recorded, including terminal runs whose in-memory metadata the retention sweep has already evicted. Each entry
+        carries enough detail (child conversation id, label, objective, token usage, failure reason) for a client to
+        rebuild its subagent list from scratch, not just refresh statuses. A subagent absent from the response is one
+        the assistant has no knowledge of at all, so a client may settle its own stuck-active entries against this
+        snapshot. Only `status` is guaranteed to be present; every other field is optional.
       tags:
         - subagents
       parameters:

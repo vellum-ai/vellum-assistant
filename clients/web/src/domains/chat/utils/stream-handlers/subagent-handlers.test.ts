@@ -28,9 +28,13 @@ mock.module("@/lib/backwards-compat/subagent-detail-self-lookup", () => ({
 }));
 
 let reconcileCalls = 0;
+const reconciledParents: string[] = [];
 mock.module("@/generated/daemon/sdk.gen", () => ({
-  subagentsReconcileGet: async () => {
+  subagentsReconcileGet: async (options: {
+    query?: { parentConversationId?: string };
+  }) => {
     reconcileCalls += 1;
+    reconciledParents.push(options.query?.parentConversationId ?? "");
     return { data: { subagents: {} }, response: { ok: true, status: 200 } };
   },
   subagentsByIdGet: async () => ({ data: undefined, response: { ok: false } }),
@@ -56,6 +60,7 @@ const { makeCtx } = await import(
 
 const PARENT = "conv-parent";
 const CHILD = "conv-child";
+const BACKGROUND = "conv-background";
 
 const ctx = {} as StreamHandlerContext;
 
@@ -64,6 +69,7 @@ beforeEach(() => {
   useSubagentStore.getState().reset();
   selfLookupSupported = true;
   reconcileCalls = 0;
+  reconciledParents.length = 0;
   useResolvedAssistantsStore.getState().setActiveAssistantId(null);
   useConversationStore.getState().setActiveConversationId(null);
 });
@@ -316,5 +322,63 @@ describe("unknown-id reconcile kick", () => {
     await Promise.resolve();
 
     expect(reconcileCalls).toBe(0);
+  });
+
+  it("reconciles the event's own parent, not the conversation on screen", async () => {
+    activate();
+
+    // Subagent events are routed globally, so this one belongs to a
+    // conversation running in the background.
+    handleSubagentEvent(
+      {
+        type: "subagent_event",
+        subagentId: "sa-bg",
+        conversationId: BACKGROUND,
+        event: { type: "assistant_text_delta", text: "working…" },
+      },
+      ctx,
+    );
+    await Promise.resolve();
+
+    expect(reconciledParents).toEqual([BACKGROUND]);
+  });
+
+  it("throttles per parent so a background kick can't starve the active one", async () => {
+    activate();
+
+    handleSubagentEvent(
+      {
+        type: "subagent_event",
+        subagentId: "sa-bg",
+        conversationId: BACKGROUND,
+        event: { type: "assistant_text_delta", text: "working…" },
+      },
+      ctx,
+    );
+    // Inside the background parent's 5s window, but the active parent has a
+    // window of its own.
+    handleSubagentStatusChanged(statusEvent("sa-active"), ctx);
+    // A second background kick is still throttled.
+    handleSubagentEvent(
+      {
+        type: "subagent_event",
+        subagentId: "sa-bg-2",
+        conversationId: BACKGROUND,
+        event: { type: "assistant_text_delta", text: "working…" },
+      },
+      ctx,
+    );
+    await Promise.resolve();
+
+    expect(reconciledParents).toEqual([BACKGROUND, PARENT]);
+  });
+
+  it("targets the active conversation for a status change, which carries no ids", async () => {
+    activate();
+
+    handleSubagentStatusChanged(statusEvent("sa-1"), ctx);
+    await Promise.resolve();
+
+    expect(reconciledParents).toEqual([PARENT]);
   });
 });

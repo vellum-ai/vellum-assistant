@@ -150,6 +150,53 @@ describe("reconcileSubagents route", () => {
     expect(entry.error).toBeUndefined();
   });
 
+  test("keeps a terminal subagent the retention sweep evicted from memory", () => {
+    upsertSubagentRecord(
+      record({
+        id: "sub-swept",
+        conversationId: "child-conv-swept",
+        label: "swept",
+        status: "completed",
+        completedAt: 2000,
+        inputTokens: 90,
+        outputTokens: 20,
+        estimatedCost: 0.003,
+      }),
+    );
+    // No `rehydrateFromDb()`: the row with no in-memory state IS the
+    // post-sweep shape (`dispose(..., { keepRecord: true })`). Absence here
+    // would read as "interrupted" to a client settling orphans by absence.
+
+    expect(reconcile(PARENT_ID).subagents["sub-swept"]).toEqual({
+      status: "completed",
+      conversationId: "child-conv-swept",
+      label: "swept",
+      objective: "Research competitor pricing",
+      isFork: false,
+      usage: { inputTokens: 90, outputTokens: 20, estimatedCost: 0.003 },
+    });
+  });
+
+  test("lets an in-memory child shadow its own durable row", () => {
+    upsertSubagentRecord(record());
+    // In-flight at rehydrate time → the manager settles it to `interrupted`.
+    getSubagentManager().rehydrateFromDb();
+    // A stale row claiming otherwise must not win: the live state is fresher.
+    upsertSubagentRecord(
+      record({ status: "completed", error: "stale", completedAt: 2000 }),
+    );
+
+    const entry = reconcile(PARENT_ID).subagents["sub-1"];
+    expect(entry.status).toBe("interrupted");
+    expect(entry.error).toBeUndefined();
+  });
+
+  test("omits a durable row whose status is out of enum", () => {
+    upsertSubagentRecord(record({ status: "zombie" }));
+
+    expect(reconcile(PARENT_ID).subagents).toEqual({});
+  });
+
   test("returns an empty map for a parent with no known children", () => {
     upsertSubagentRecord(record());
     getSubagentManager().rehydrateFromDb();

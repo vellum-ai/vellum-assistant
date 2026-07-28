@@ -17,7 +17,10 @@ import {
   type MessageRow,
 } from "../../persistence/conversation-crud.js";
 import { getConversationUsageTotals } from "../../persistence/llm-usage-store.js";
-import { getSubagentRecordById } from "../../persistence/subagent-store.js";
+import {
+  getSubagentRecordById,
+  getSubagentRecordsByParent,
+} from "../../persistence/subagent-store.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -208,6 +211,30 @@ const ReconciledSubagentSchema = z.object({
   error: z.string().optional(),
 });
 
+/**
+ * A child that has spent nothing reports no usage at all, matching the detail
+ * route — an all-zero snapshot tells a client nothing its own tally doesn't
+ * already say.
+ */
+function reconciledUsage(usage: {
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+}): z.infer<typeof SubagentUsageStatsSchema> | undefined {
+  if (
+    usage.inputTokens <= 0 &&
+    usage.outputTokens <= 0 &&
+    usage.estimatedCost <= 0
+  ) {
+    return undefined;
+  }
+  return {
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    estimatedCost: usage.estimatedCost,
+  };
+}
+
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "reconcileSubagents",
@@ -219,7 +246,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Reconcile subagent live status",
     description:
-      "Returns the live in-memory state of all subagents known to the assistant for a given parent conversation. Each entry carries enough detail (child conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from scratch, not just refresh statuses. Subagents absent from the response are orphaned or terminal. Only `status` is guaranteed to be present; every other field is optional.",
+      "Returns every subagent the assistant knows for a given parent conversation — live, rehydrated, and durably recorded, including terminal runs whose in-memory metadata the retention sweep has already evicted. Each entry carries enough detail (child conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from scratch, not just refresh statuses. A subagent absent from the response is one the assistant has no knowledge of at all, so a client may settle its own stuck-active entries against this snapshot. Only `status` is guaranteed to be present; every other field is optional.",
     tags: ["subagents"],
     queryParams: [
       {
@@ -243,8 +270,32 @@ export const ROUTES: RouteDefinition[] = [
         string,
         z.infer<typeof ReconciledSubagentSchema>
       > = {};
+      // Durable rows first, so the live pass below overwrites any id it also
+      // holds. The retention sweep evicts terminal in-memory metadata while
+      // deliberately keeping the row, so a run that completed more than a TTL
+      // ago is absent from memory — and a client settling orphans by absence
+      // would rewrite its `completed` entry to `interrupted`.
+      for (const record of getSubagentRecordsByParent(parentConversationId)) {
+        // `SubagentRecord.status` is an untyped column; the response contract
+        // is the closed enum, so drop what doesn't parse rather than widening
+        // the wire type.
+        const status = SubagentStatusSchema.safeParse(record.status);
+        if (!status.success) {
+          continue;
+        }
+        subagents[record.id] = {
+          status: status.data,
+          conversationId: record.conversationId,
+          label: record.label,
+          objective: record.objective,
+          isFork: record.isFork,
+          parentToolUseId: record.parentToolUseId ?? undefined,
+          usage: reconciledUsage(record),
+          error: record.error ?? undefined,
+        };
+      }
+
       for (const child of manager.getChildrenOf(parentConversationId)) {
-        const usage = child.usage;
         subagents[child.config.id] = {
           status: child.status,
           conversationId: child.conversationId,
@@ -252,20 +303,7 @@ export const ROUTES: RouteDefinition[] = [
           objective: child.config.objective,
           isFork: child.isFork,
           parentToolUseId: child.config.parentToolUseId,
-          // A child that has spent nothing reports no usage at all, matching
-          // the detail route — an all-zero snapshot tells a client nothing its
-          // own tally doesn't already say.
-          usage:
-            usage &&
-            (usage.inputTokens > 0 ||
-              usage.outputTokens > 0 ||
-              usage.estimatedCost > 0)
-              ? {
-                  inputTokens: usage.inputTokens,
-                  outputTokens: usage.outputTokens,
-                  estimatedCost: usage.estimatedCost,
-                }
-              : undefined,
+          usage: child.usage ? reconciledUsage(child.usage) : undefined,
           error: child.error,
         };
       }

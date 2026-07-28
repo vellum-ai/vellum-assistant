@@ -1892,6 +1892,10 @@ describe("reconcileFromDaemon", () => {
     expect(entry?.hydrationPending).toBe(true);
   });
 
+  // Absence is authoritative because the daemon's snapshot spans live,
+  // rehydrated AND durably-recorded children — a run whose terminal metadata
+  // the retention sweep evicted still reports its terminal status, so only a
+  // subagent the daemon has no record of at all goes missing.
   it("settles an active entry the daemon no longer knows about", async () => {
     getState().spawnSubagent({
       subagentId: "sa-gone",
@@ -1905,6 +1909,39 @@ describe("reconcileFromDaemon", () => {
 
     await getState().reconcileFromDaemon("assistant-1", "conv-parent");
 
+    expect(getState().byId["sa-gone"]?.status).toBe("interrupted");
+  });
+
+  it("settles an absent entry even when the snapshot carries swept siblings", async () => {
+    for (const subagentId of ["sa-gone", "sa-swept"]) {
+      getState().spawnSubagent({
+        subagentId,
+        label: "Agent",
+        objective: "",
+        status: "running",
+        parentConversationId: "conv-parent",
+        timestamp: NOW,
+      });
+    }
+    // `sa-swept` is terminal in the daemon's durable rows only — its
+    // in-memory metadata is long gone. It reports `completed`; `sa-gone` has
+    // no row at all, so its absence is still the real thing.
+    reconcileReply = {
+      ok: true,
+      subagents: {
+        "sa-swept": {
+          status: "completed",
+          conversationId: "conv-child-swept",
+          label: "Swept",
+          usage: { inputTokens: 90, outputTokens: 20, estimatedCost: 0.003 },
+        },
+      },
+    };
+
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent");
+
+    expect(getState().byId["sa-swept"]?.status).toBe("completed");
+    expect(getState().byId["sa-swept"]?.inputTokens).toBe(90);
     expect(getState().byId["sa-gone"]?.status).toBe("interrupted");
   });
 
