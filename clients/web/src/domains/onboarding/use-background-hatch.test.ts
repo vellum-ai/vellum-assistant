@@ -64,8 +64,8 @@ mock.module("@/lib/local-mode", () => ({
   probeLocalGatewayReady: probeLocalGatewayReadyMock,
   getLockfileAssistant: getLockfileAssistantMock,
   isLocalMode: () => localMode,
-  // Stands in for the real helper (whose payload `local-mode.test.ts` pins) so
-  // the lockfile entry the hatch writes stays visible to the assertions below.
+  // Surfaces the written entry to the assertions below; payload pinned by
+  // `local-mode.test.ts`.
   saveManagedLockfileAssistant: async (
     assistantId: string,
     name: string | undefined,
@@ -476,6 +476,9 @@ describe("useBackgroundHatch", () => {
   });
 
   test("unmounting stops the assistant poll loop", async () => {
+    // Local mode so the discovery branch would write the lockfile — which sets
+    // the ACTIVE assistant, and is not covered by `settleReady`'s own guard.
+    localMode = true;
     getAssistantResult = {
       ok: true,
       status: 200,
@@ -495,15 +498,43 @@ describe("useBackgroundHatch", () => {
     await waitFor(() =>
       expect(getAssistantMock.mock.calls.length).toBeGreaterThanOrEqual(2),
     );
+
+    // Hold one poll open across the unmount, then answer it `active` — the
+    // response a departed hatch would otherwise claim the assistant on.
+    let releasePoll!: () => void;
+    let pollStarted = false;
+    const heldPoll = new Promise<void>((resolve) => {
+      releasePoll = resolve;
+    });
+    getAssistantMock.mockImplementationOnce(async () => {
+      pollStarted = true;
+      await heldPoll;
+      return {
+        ok: true,
+        status: 200,
+        data: {
+          id: "ast-research",
+          name: "Research",
+          status: "active",
+          is_local: false,
+        } as never,
+      };
+    });
+    await until(() => pollStarted);
+
     unmount();
     const callsAtUnmount = getAssistantMock.mock.calls.length;
+    await act(async () => {
+      releasePoll();
+    });
 
     // Leaving the funnel mid-hatch must not keep polling from a dead
-    // component: the in-flight request may land, but nothing follows it —
-    // the aborted sleep schedules no timer to poll from.
+    // component — the aborted sleep schedules no timer to poll from — and the
+    // late answer must not switch the user's active assistant.
     await expect(
-      until(() => getAssistantMock.mock.calls.length > callsAtUnmount + 1),
+      until(() => getAssistantMock.mock.calls.length > callsAtUnmount),
     ).rejects.toThrow();
+    expect(saveLockfileAssistantMock).not.toHaveBeenCalled();
   });
 
   test("unmounting during the initial hatch never settles", async () => {

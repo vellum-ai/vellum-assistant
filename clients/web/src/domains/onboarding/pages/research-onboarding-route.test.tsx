@@ -488,9 +488,9 @@ describe("ResearchOnboardingRoute resume guard", () => {
     expect(startResearchMock).not.toHaveBeenCalled();
   });
 
-  // A completed snapshot is NOT idle, so the pre-fix resume effect returned
-  // early and never consulted the guard — the user could walk a done journey
-  // into the chat handoff against an established assistant.
+  // A completed snapshot is NOT idle, so the resume effect must still consult
+  // the established-assistant guard: otherwise a done journey walks straight
+  // into the chat handoff against an assistant that already has a life.
   test("a restored completed snapshot diverts to the decision screen when the assistant is established", async () => {
     establishedResult = { established: true, assistantName: "Viper" };
     researchStatus = "done";
@@ -715,12 +715,25 @@ describe("ResearchOnboardingRoute paid return", () => {
     expect(navigateMock).not.toHaveBeenCalled();
     expect(readResearchSnapshot(USER_ID)).not.toBeNull();
 
+    // "Try again" clears the terminal error synchronously, but the fresh
+    // attempt has to provision before it has an assistant.
     onRetryHatch = () => {
       backgroundHatch.error = null;
-      backgroundHatch.ready = true;
-      backgroundHatch.assistantId = "asst-1";
     };
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    rerender(<ResearchOnboardingRoute />);
+
+    // The retry window: no error left, still nothing to hand off to. Releasing
+    // the CTA here would enter a null assistant, exactly as the dead hatch did.
+    expect(
+      (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByTestId("letschat-start"));
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(readResearchSnapshot(USER_ID)).not.toBeNull();
+
+    backgroundHatch.ready = true;
+    backgroundHatch.assistantId = "asst-1";
     rerender(<ResearchOnboardingRoute />);
 
     // A recovered hatch has an assistant to hand off to again.
