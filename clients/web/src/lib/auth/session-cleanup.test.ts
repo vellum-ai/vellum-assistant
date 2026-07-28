@@ -1,6 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import {
+  readTakeoverAvatarStash,
+  saveTakeoverAvatarStash,
+} from "@/domains/settings/billing/pro-onboarding/takeover-avatar-stash";
+import type { CharacterTraits } from "@/types/avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+
 import { clearUserScopedStorage } from "./session-cleanup";
+
+const STASH_TRAITS: CharacterTraits = {
+  bodyShape: "blob",
+  eyeStyle: "default",
+  color: "purple",
+};
 
 beforeEach(() => {
   localStorage.clear();
@@ -20,6 +33,41 @@ describe("clearUserScopedStorage", () => {
     clearUserScopedStorage();
 
     expect(sessionStorage.length).toBe(0);
+  });
+
+  test("clears a takeover avatar stash whose write never reached storage", () => {
+    // That stash lives only in the module's in-memory mirror, so
+    // `sessionStorage.clear()` cannot reach it and logout has to clear the
+    // module outright.
+    const original = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "sessionStorage",
+    )!;
+    Object.defineProperty(globalThis, "sessionStorage", {
+      configurable: true,
+      get: () => ({
+        clear: () => {},
+        getItem: () => null,
+        setItem: () => {
+          throw new Error("quota exceeded");
+        },
+        removeItem: () => {},
+      }),
+    });
+    try {
+      saveTakeoverAvatarStash({
+        assistantId: "a1",
+        components: BUNDLED_COMPONENTS,
+        traits: STASH_TRAITS,
+      });
+      expect(readTakeoverAvatarStash()).not.toBeNull();
+
+      clearUserScopedStorage();
+
+      expect(readTakeoverAvatarStash()).toBeNull();
+    } finally {
+      Object.defineProperty(globalThis, "sessionStorage", original);
+    }
   });
 
   test("removes all vellum: prefixed keys from localStorage", () => {

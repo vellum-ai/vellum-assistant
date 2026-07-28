@@ -188,8 +188,8 @@ function avatarModeFor(
  * body-morph and the reduced-motion gating all come from `AnimatedAvatar`
  * inside `ChatAvatar`.
  *
- * Nothing renders until the target assistant resolves and its avatar query
- * settles. `components ?? fallback`
+ * Nothing renders until something is drawable: the live query settling, or the
+ * stash captured at the Stripe hand-off. `components ?? fallback`
  * synthesizes traits from the first bundled entry of each list — a green blob —
  * so drawing during the fetch shows a different assistant's avatar for a beat,
  * and the takeover is the one surface that reliably mounts cold: the Stripe

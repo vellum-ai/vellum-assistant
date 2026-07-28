@@ -8,26 +8,23 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderHook } from "@testing-library/react";
 
+import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
+import type { AvatarData } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import type { CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { SURFACE_GROUND } from "@/utils/avatar-tone";
 
 /** The id handed to the avatar hook, captured to assert the target rule. */
 let avatarQueryId: string | null | undefined;
 /** The payload the mocked avatar query resolves to, set per test. */
-let avatar: {
-  components: CharacterComponents | null;
-  traits: CharacterTraits | null;
-  customImageUrl: string | null;
-  isLoading: boolean;
-};
+let avatar: AvatarData & { isLoading: boolean };
 mock.module("@/hooks/use-assistant-avatar", () => ({
+  ...assistantAvatarMod,
   useAssistantAvatar: (assistantId: string | null) => {
     avatarQueryId = assistantId;
     return { ...avatar, invalidate: () => {} };
   },
-  avatarQueryKey: (assistantId: string) => ["assistantAvatar", assistantId],
 }));
 
 const { useTakeoverSurface } = await import("./use-takeover-surface");
@@ -281,9 +278,9 @@ describe("avatar stash", () => {
     expect(result.current.tintHex.toLowerCase()).toBe(PURPLE_SURFACE);
   });
 
-  test("a target resolving to another assistant mid-flight keeps the drawn stash", () => {
-    // Dropping `ready` here would unmount the creature and restart the
-    // placeholder, so a stash already on screen stays until live data lands.
+  test("a target resolving to another assistant mid-flight withholds the stash", () => {
+    // A mismatch withholds whether it exists at mount or appears mid-flight:
+    // drawing on is drawing the wrong creature at full-viewport scale.
     seedStash("primary-assistant", "purple");
     avatar.isLoading = true;
 
@@ -296,9 +293,8 @@ describe("avatar stash", () => {
 
     rerender({ id: "other-assistant" });
 
-    expect(result.current.ready).toBe(true);
-    expect(result.current.avatar.traits).toEqual(traits("purple"));
-    expect(result.current.tintHex.toLowerCase()).toBe(PURPLE_SURFACE);
+    expect(result.current.ready).toBe(false);
+    expect(result.current.tintHex).toBe(SURFACE_GROUND);
 
     avatar = {
       components: BUNDLED_COMPONENTS,
@@ -308,6 +304,7 @@ describe("avatar stash", () => {
     };
     rerender({ id: "other-assistant" });
 
+    expect(result.current.ready).toBe(true);
     expect(result.current.avatar.traits).toEqual(traits("orange"));
     expect(result.current.tintHex.toLowerCase()).toBe(ORANGE_SURFACE);
   });
