@@ -38,13 +38,31 @@ export const MEMORY_ENABLE_PROMPT =
   "conversations again.";
 
 /** Which way out this surface offers, if any. */
-export type MemoryUnavailableAction = "upgrade" | "settings" | "none";
+export type MemoryUnavailableAction = "upgrade" | "settings" | "retry" | "none";
 
 export interface MemoryUnavailableCopy {
   title: string;
   detail: string;
   action: MemoryUnavailableAction;
 }
+
+/**
+ * Shown when `GET /memory/stats` fails outright (transport error or 5xx, after
+ * React Query exhausts its retries).
+ *
+ * Deliberately NOT the unknown-tier copy. A failed status read is not evidence
+ * about the tier: the assistant may be perfectly current and momentarily
+ * unreachable, so telling its owner to go update it diagnoses a problem they
+ * do not have. This surface exists to stop naming fixes that may not apply,
+ * and a request that never landed is the case where we know least of all. Say
+ * the read failed, and offer the only action that can help.
+ */
+export const MEMORY_STATUS_ERROR_COPY: MemoryUnavailableCopy = {
+  title: "Couldn't check your memory settings",
+  detail:
+    "Something went wrong reading this assistant's memory status, so there's nothing reliable to tell you yet.",
+  action: "retry",
+};
 
 /**
  * Tier → what to say about the missing graph.

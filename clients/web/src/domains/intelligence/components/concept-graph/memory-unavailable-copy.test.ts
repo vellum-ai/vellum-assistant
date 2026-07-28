@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 import {
   describeMemoryUnavailable,
   MEMORY_ENABLE_PROMPT,
+  MEMORY_STATUS_ERROR_COPY,
   MEMORY_V3_UPGRADE_PROMPT,
 } from "./memory-unavailable-copy";
 
@@ -67,6 +68,25 @@ describe("describeMemoryUnavailable", () => {
       expect(copy.title.length).toBeGreaterThan(0);
       expect(copy.detail.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("MEMORY_STATUS_ERROR_COPY", () => {
+  test("does not diagnose a tier it never managed to read", () => {
+    // A failed stats read leaves `tier` undefined exactly as an older daemon
+    // does. Borrowing the unknown-tier copy would tell the owner of a current,
+    // momentarily unreachable assistant to go update it.
+    expect(MEMORY_STATUS_ERROR_COPY.title).not.toBe(
+      describeMemoryUnavailable(undefined).title,
+    );
+    expect(MEMORY_STATUS_ERROR_COPY.detail).not.toMatch(
+      /update your assistant/i,
+    );
+    expect(MEMORY_STATUS_ERROR_COPY.detail).not.toContain("v3");
+  });
+
+  test("offers the one action that can help", () => {
+    expect(MEMORY_STATUS_ERROR_COPY.action).toBe("retry");
   });
 });
 

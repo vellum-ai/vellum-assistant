@@ -11,7 +11,7 @@
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Settings, Sparkles } from "lucide-react";
+import { RefreshCw, Settings, Sparkles } from "lucide-react";
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
 
@@ -27,6 +27,7 @@ import { CenteredMessage } from "./centered-message";
 import {
   describeMemoryUnavailable,
   MEMORY_ENABLE_PROMPT,
+  MEMORY_STATUS_ERROR_COPY,
   MEMORY_V3_UPGRADE_PROMPT,
 } from "./memory-unavailable-copy";
 
@@ -78,7 +79,13 @@ export function MemoryUpgradePrompt({
   }
 
   const tier = stats.data?.kind === "ready" ? stats.data.tier : undefined;
-  const copy = describeMemoryUnavailable(tier);
+  // A failed stats read leaves `tier` undefined exactly as an older daemon
+  // does, but the two mean opposite things: one is "this assistant can't tell
+  // us", the other is "we couldn't ask". Only the first justifies telling
+  // someone to update their assistant.
+  const copy = stats.isError
+    ? MEMORY_STATUS_ERROR_COPY
+    : describeMemoryUnavailable(tier);
 
   let action: React.ReactNode = null;
   if (copy.action === "upgrade" && onOpenThread) {
@@ -95,6 +102,19 @@ export function MemoryUpgradePrompt({
         }}
       >
         Upgrade memory
+      </Button>
+    );
+  } else if (copy.action === "retry") {
+    action = (
+      <Button
+        variant="outlined"
+        size="compact"
+        leftIcon={<RefreshCw />}
+        onClick={() => {
+          void stats.refetch();
+        }}
+      >
+        Try again
       </Button>
     );
   } else if (copy.action === "settings" && canOpenMemorySettings) {
