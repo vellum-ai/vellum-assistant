@@ -1632,7 +1632,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Snapshot the stop generation before the async teardown: a stop that lands
     // during it must cancel the pending detach (checked in detachInterruptedTurn).
     const stopGeneration = this.detachStopGeneration;
-    log.info(
+    log.debug(
       {
         turnId: turn.turnId,
         detachSeq,
@@ -1781,7 +1781,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           );
           return;
         }
-        log.info(
+        log.debug(
           {
             turnId: turn.turnId,
             teardownWaitMs: Date.now() - detachStartedAtMs,
@@ -1852,7 +1852,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       } catch (err) {
         // A stop/interrupt aborts via the signal; that rejection is expected.
         if (controller.signal.aborted) {
-          log.info(
+          log.debug(
             { turnId: turn.turnId, ranMs: Date.now() - detachStartedAtMs },
             "Voice duplex continuation aborted mid-run",
           );
@@ -1889,7 +1889,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const aborted = this.detachControllers.size;
     const hadPendingResult = this.pendingContinuationResult !== null;
     if (aborted > 0 || hadPendingResult) {
-      log.info(
+      log.debug(
         {
           conversationId: this.conversationId,
           reason: opts?.reason ?? "unspecified",
