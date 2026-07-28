@@ -231,6 +231,11 @@ engine.
 3. End live voice. Finalization runs off the audio path and presents the iOS
    share sheet automatically.
 
+To load a local web worktree on a physical device, start its Vite server on the
+LAN and run `ios:setup` with
+`VOICE_DEMO_CAPTURE_SERVER_URL=http://192.168.x.x:3178/assistant`. This
+demo-only override enables cleartext loading for the generated shell.
+
 The Xcode console prints the local archive URL. The shared zip contains a
 `voice-demo-<timestamp>/` folder with `session.json`, `alex.wav`, `pax.wav`,
 `mix.wav`, and `transcript.txt`. Audio files are 48 kHz, 32-bit float WAVs;

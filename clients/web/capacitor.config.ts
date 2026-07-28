@@ -46,7 +46,9 @@ function resolveServerUrl(): string {
   return override;
 }
 
-const SERVER_URL = resolveServerUrl();
+const VOICE_DEMO_CAPTURE_SERVER_URL =
+  process.env.VOICE_DEMO_CAPTURE_SERVER_URL?.trim();
+const SERVER_URL = VOICE_DEMO_CAPTURE_SERVER_URL || resolveServerUrl();
 
 const SCHEME_NAMES: Record<string, string> = {
   production: "App",
@@ -65,7 +67,7 @@ const config: CapacitorConfig = {
   webDir: "capacitor-shell",
   server: {
     url: SERVER_URL,
-    cleartext: false,
+    cleartext: VOICE_DEMO_CAPTURE_SERVER_URL?.startsWith("http://") ?? false,
   },
   ios: {
     // Native iOS project lives as a peer to `clients/web/` at `clients/ios/`,

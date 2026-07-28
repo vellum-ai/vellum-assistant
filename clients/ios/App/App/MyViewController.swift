@@ -161,10 +161,7 @@ class MyViewController: CAPBridgeViewController {
     /// launch configuration explicitly opts in. The marker is absent from
     /// Release builds and from ordinary Debug launches.
     private func installVoiceDemoCaptureMarker() {
-        let process = ProcessInfo.processInfo
-        let enabled = process.arguments.contains("-VoiceDemoCapture")
-            || process.environment["VOICE_DEMO_CAPTURE"] == "1"
-        guard enabled,
+        guard VoiceDemoCaptureMode.isEnabled,
               let contentController = webView?.configuration.userContentController
         else { return }
         let script = WKUserScript(

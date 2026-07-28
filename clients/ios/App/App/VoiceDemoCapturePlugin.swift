@@ -3,6 +3,14 @@ import AVFAudio
 import Capacitor
 import UIKit
 
+enum VoiceDemoCaptureMode {
+    static var isEnabled: Bool {
+        let process = ProcessInfo.processInfo
+        return process.arguments.contains("-VoiceDemoCapture")
+            || process.environment["VOICE_DEMO_CAPTURE"] == "1"
+    }
+}
+
 @objc(VoiceDemoCapturePlugin)
 public final class VoiceDemoCapturePlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "VoiceDemoCapturePlugin"
