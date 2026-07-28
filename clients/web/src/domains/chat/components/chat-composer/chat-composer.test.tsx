@@ -1226,8 +1226,7 @@ describe("ChatComposer — live-voice integration", () => {
     const { queryByLabelText } = renderVoiceComposer();
 
     // THEN there is no send-now control: server VAD (hands-free) and
-    // auto-release (manual fallback) both end the turn without the user, so
-    // the ↑ advertised an action they never need (JARVIS-1363).
+    // auto-release (manual fallback) both end the turn without the user.
     expect(queryByLabelText("Send now")).toBeNull();
     expect(liveControls.release).not.toHaveBeenCalled();
   });

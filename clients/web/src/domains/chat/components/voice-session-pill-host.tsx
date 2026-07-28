@@ -61,9 +61,9 @@
  * contradicting the control's "without ending the session" contract, so
  * there the pill offers only ✕ (end).
  *
- * The pill takes no thread title (JARVIS-1363) — it is textless, so nothing
- * here resolves the owning conversation row. Only `conversationId` matters,
- * and only to decide whether the waves navigate.
+ * The pill is textless and takes no thread title, so nothing here resolves
+ * the owning conversation row. Only `conversationId` matters, and only to
+ * decide whether the waves navigate.
  */
 
 import { useCallback } from "react";

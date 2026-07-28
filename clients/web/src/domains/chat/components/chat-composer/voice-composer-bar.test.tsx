@@ -64,9 +64,8 @@ describe("VoiceComposerBar — state label", () => {
   });
 
   test("the state label is visually hidden, not painted", () => {
-    // The mic glyph and the animating waves already say "listening"; the text
-    // was redundant weight on a phone-width composer (JARVIS-1363). It stays
-    // in the tree for assistive tech only.
+    // The mic glyph and the animating waves carry "listening" on their own,
+    // so the text stays in the tree for assistive tech only.
     renderBar("listening");
     expect(screen.getByText("Listening…").className).toContain("sr-only");
   });
@@ -75,7 +74,7 @@ describe("VoiceComposerBar — state label", () => {
 describe("VoiceComposerBar — no manual send", () => {
   test("offers no send control in any state", () => {
     // Turns release themselves (server VAD hands-free, auto-release in the
-    // manual fallback), so the ↑ advertised an action the user never needs.
+    // manual fallback), so a send control would name an action nobody takes.
     for (const state of [
       "connecting",
       "listening",

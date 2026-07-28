@@ -6,9 +6,9 @@
  * CSS var — inert under happy-dom, so no harness is needed here.
  *
  * `useIsMobile` is mocked because the pill has two genuinely different forms
- * either side of the `md` breakpoint (JARVIS-1363): an inline control row on
- * desktop, a single sheet trigger on mobile. `mockIsMobile` selects which one
- * is under test; it resets to desktop in `beforeEach`.
+ * either side of the `md` breakpoint: an inline control row on desktop, a
+ * single sheet trigger on mobile. `mockIsMobile` selects which one is under
+ * test; it resets to desktop in `beforeEach`.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -67,7 +67,7 @@ describe("VoiceSessionPill — textless surface", () => {
     // The state text must exist for screen readers…
     const live = screen.getByText("Working on App…");
     // …but be visually hidden, so the pill stays narrow enough to leave the
-    // header's centre title its room (JARVIS-1363).
+    // header's centre title its room.
     expect(live.className).toContain("sr-only");
     expect(live.getAttribute("aria-live")).toBe("polite");
   });
@@ -128,8 +128,8 @@ describe("VoiceSessionPill — stop control", () => {
 describe("VoiceSessionPill — no manual send", () => {
   test("offers no send control in any state", () => {
     // Turns release themselves (server VAD hands-free, auto-release in the
-    // manual fallback), so a send affordance advertised a no-op action and
-    // cost the header ~40px it could not spare (JARVIS-1363).
+    // manual fallback), so a send affordance would name a no-op action and
+    // cost the header ~40px it cannot spare.
     for (const state of [
       "connecting",
       "listening",
@@ -208,8 +208,8 @@ describe("VoiceSessionPill — condensed mobile form", () => {
   test("collapses the whole cluster to one trigger", () => {
     mockIsMobile = true;
     renderPill();
-    // The inline controls are gone — that is the entire point, since three
-    // icon buttons squeezed the header's centre title on phone widths.
+    // One trigger, no inline controls: three icon buttons leave the header's
+    // centre title unreadable at phone widths.
     expect(trigger()).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Mute microphone" })).toBeNull();
     expect(

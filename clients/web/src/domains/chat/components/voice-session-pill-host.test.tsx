@@ -49,9 +49,9 @@ mock.module("react-router", () => ({
   useNavigate: () => navigateFn,
 }));
 
-// No `use-active-conversation` mock: the pill is textless (JARVIS-1363), so
-// the host no longer resolves the owning row at all. Only `conversationId`
-// matters, and only to decide whether the waves navigate.
+// No `use-active-conversation` mock: the pill is textless, so the host
+// resolves no owning row. Only `conversationId` matters, and only to decide
+// whether the waves navigate.
 
 let mockMainView: MainView = "chat";
 mock.module("@/stores/viewer-store", () => ({
@@ -360,8 +360,7 @@ describe("VoiceSessionPillHost — state announcement", () => {
   });
 
   test("renders no thread title — the pill is textless", () => {
-    // The host used to resolve the owning row to label line 2. It no longer
-    // fetches it at all (JARVIS-1363), so no thread name can reach the header.
+    // The host fetches no owning row, so no thread name can reach the header.
     startSession("listening");
     render(<VoiceSessionPillHost />);
     expect(screen.queryByText("Owning thread")).toBeNull();

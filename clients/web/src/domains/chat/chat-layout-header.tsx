@@ -51,9 +51,8 @@ export interface ChatLayoutHeaderProps {
   /**
    * Collapse the rest of the right cluster (search, `topBarRightSlot`) behind
    * a single ⋯ popover, leaving `topBarRightLeading` beside it. Set while the
-   * voice-session pill occupies the row: three icon buttons squeezed the
-   * centre title on phone widths, and two is the budget that keeps a
-   * conversation title readable (JARVIS-1363).
+   * voice-session pill occupies the row: two icon buttons is the budget that
+   * keeps a conversation title readable at phone widths.
    *
    * The leading slot deliberately stays out of the popover — a live
    * microphone must keep an indicator visible in the chrome, not one the user
@@ -206,11 +205,11 @@ export function ChatLayoutHeader({
         {topBarCenter}
       </div>
 
-      {/* `shrink-0`, not `flex-1`: these are fixed-size controls. Letting the
-          cluster flex meant a wide occupant (the voice-session pill) either
-          squashed the buttons into each other or held the row at its
-          intrinsic width and pushed the trailing ones off-screen. The centre
-          slot is the only zone that gives (JARVIS-1363). */}
+      {/* `shrink-0`, not `flex-1`: these are fixed-size controls, and a wide
+          occupant (the voice-session pill) would otherwise either squash them
+          into each other or hold the row at its intrinsic width and push the
+          trailing ones off-screen. The centre slot is the only zone that
+          gives. */}
       <div
         inert={controlsHidden || undefined}
         className={`flex shrink-0 items-center gap-2 max-md:justify-end transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
@@ -222,11 +221,13 @@ export function ChatLayoutHeader({
           // `topBarRightSlot` need no menu-item form of themselves.
           <Popover.Root>
             <Popover.Trigger asChild>
+              {/* No `tooltip`: the collapse is mobile-only, and touch has no
+                  hover to show one on. The `aria-label` is what names the
+                  control for assistive tech. */}
               <Button
                 variant="ghost"
                 iconOnly={<MoreHorizontal />}
                 aria-label="More controls"
-                tooltip="More controls"
               />
             </Popover.Trigger>
             <Popover.Content

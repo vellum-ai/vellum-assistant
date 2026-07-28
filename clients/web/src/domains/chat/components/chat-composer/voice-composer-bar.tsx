@@ -11,16 +11,15 @@
  * wires `state`, an amplitude poll function, and the callbacks. The red ✕
  * ends the session and is always available.
  *
- * Textless by design (JARVIS-1363), matching the title-bar pill. The bar
- * previously painted the state label ("Listening…") beside the mic; the mic
- * glyph and the animating waves already carry that, and dropping the text
- * buys the waves room on phone-width composers. The label survives as an
- * `sr-only` live region so assistive tech still tracks session state.
+ * Textless, matching the title-bar pill: the mic glyph and the animating
+ * waves carry the session state on their own, and the waves want the width on
+ * a phone-width composer. The state string reaches assistive tech through an
+ * `sr-only` live region instead.
  *
- * There is no manual "send now" (↑) — turns release themselves (server VAD
+ * The bar offers no manual "send now" — turns release themselves (server VAD
  * hands-free, auto-release in the manual fallback), so a primary-weight send
- * button advertised an action the user never needs. ■ stays: interrupting a
- * reply in progress has no other silent equivalent.
+ * button would advertise an action the user never needs. ■ earns its place:
+ * interrupting a reply in progress has no silent equivalent.
  *
  * Layout mirrors the composer's bottom action row (`px-2 pb-2`, regular
  * `h-8` icon buttons) so swapping the rows in during a session causes no

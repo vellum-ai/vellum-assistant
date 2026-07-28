@@ -2,45 +2,40 @@
  * Title-bar pill for an active live-voice session (Light 54's right cluster).
  * Presentational — the mounting host owns store wiring and visibility rules.
  *
- * Two forms, split at the `md` breakpoint (JARVIS-1363), because the header
- * has room for a control cluster on a desktop window and none on a phone:
+ * Two forms, split at the `md` breakpoint, because the header has room for a
+ * control cluster on a desktop window and none on a phone:
  *
  * - **Desktop** — mic glyph (mute toggle), the voice room's listening waves
  *   in a compact strip, red ✕ (end session), and the stop slot: a circular ■
  *   that appears only while the assistant is `speaking` and the host provides
  *   `onStop`.
  * - **Mobile** — one `AudioLines` glyph, accent-tinted to read as the live
- *   session, opening a `BottomSheet` with the same actions as rows (mute,
+ *   session, opening a `BottomSheet` carrying the same actions as rows (mute,
  *   stop while speaking, go to thread, end). This is the repo's standard
  *   dropdown-on-desktop / sheet-on-mobile pattern; see
  *   `conversation-actions-menu.tsx`.
  *
- * Deliberately textless in both forms. The pill previously led with a two-line
- * label — state text over the owning thread's name — which on a phone-width
- * header consumed ~160px and pushed ✕/■ off the right edge entirely, and
- * squeezed the centre title until it overflowed under the hamburger. The mic
- * glyph and the animating waves already say "a voice session is live and
- * listening", so the label was redundant weight. State text survives for
- * assistive tech as an `sr-only` live region in both forms — the visual
- * cleanup must not cost a screen-reader user the session state.
+ * Both forms are textless: the mic glyph and the animating waves carry "a
+ * voice session is live and listening" on their own, and a phone-width header
+ * has no room for a label beside the centre title. The state string reaches
+ * assistive tech through an `sr-only` live region instead, so the session
+ * state is never visual-only.
  *
- * On desktop the wave strip carries the return-to-thread tap: with the label
- * gone it is the pill's largest target. It is a `button` only when
- * `onNavigate` is supplied (a session not yet attached to a conversation has
- * nowhere to go), so it never ships a dead target; mobile applies the same
- * rule by omitting the sheet's navigate row.
+ * On desktop the wave strip is the pill's largest target and carries the
+ * return-to-thread tap. It is a `button` only when `onNavigate` is supplied —
+ * a session not yet attached to a conversation has nowhere to go — so it
+ * never ships a dead target; mobile applies the same rule by omitting the
+ * sheet's navigate row.
  *
- * The mobile form softens a rule the desktop form keeps: mute is one tap
- * deeper rather than always on screen. A hot mic still has a *visible*
- * control at all times — the trigger itself — which is the invariant that
- * actually matters; making it a one-tap toggle cost the centre title more
- * room than the header had.
+ * Mute is one tap deeper on mobile than on desktop. The invariant a hot mic
+ * must hold is a *visible* control, which the trigger itself satisfies; a
+ * one-tap toggle would cost the centre title more room than the header has.
  *
- * There is no manual "send now" (↑). Turns release themselves — server VAD in
- * hands-free, auto-release in the manual fallback — so a persistent, primary
- * send affordance advertised an action the user never needs to take. ■
- * (barge-in) remains because interrupting a reply in progress has no other
- * silent equivalent.
+ * Neither form offers a manual "send now". Turns release themselves — server
+ * VAD in hands-free, auto-release in the manual fallback — so a persistent
+ * primary send affordance would advertise an action the user never needs to
+ * take. ■ (barge-in) earns its place because interrupting a reply in progress
+ * has no silent equivalent.
  *
  * The pill lives inside `ChatLayoutHeader`, which doubles as the Electron
  * macOS title bar (`-webkit-app-region: drag`). The root opts the whole
@@ -155,13 +150,11 @@ export function VoiceSessionPill({
     ? ({ [AVATAR_ACCENT_CSS_VAR]: waveAccentHex } as CSSProperties)
     : undefined;
 
-  // Phones collapse the whole cluster into one glyph. The expanded row costs
+  // Phones collapse the whole cluster into one glyph. The expanded row needs
   // ~160pt (mic + 96pt waves + ✕); on a 402pt phone the header's three zones
-  // share 338pt, so that left the centre title ~58pt — less than "New Chat"
-  // needs, and a conversation with an assets chip was worse. One 32pt trigger
-  // returns ~130pt to the title. Mute and end move one tap deeper, which is
-  // the deliberate cost: a hot mic keeps a *visible* control, not a
-  // one-tap one (JARVIS-1363).
+  // share 338pt, which leaves the centre title less than the ~62pt "New Chat"
+  // occupies — narrower still once a conversation carries an assets chip. A
+  // single 32pt trigger keeps the title readable.
   if (isMobile) {
     const close = () => setSheetOpen(false);
     return (
@@ -184,13 +177,10 @@ export function VoiceSessionPill({
                   <AudioLines className="size-4" />
                 )
               }
-              // NB: `expandOnMobile` stays at its default `true` here, unlike
-              // the desktop form below — it is what gives ghost icon-only
-              // buttons their `touch-mobile` 40px circular chrome, so the
-              // trigger matches the search and notification buttons it sits
-              // beside. Opting out (correct on desktop, where the pill must
-              // fit a 32px title-bar row) left a chrome-less glyph floating
-              // between two circular buttons.
+              // `expandOnMobile` keeps its default `true` here (the desktop
+              // form opts out): it supplies the `touch-mobile` 40px circular
+              // chrome that matches the search and notification buttons this
+              // trigger sits beside.
               aria-label="Voice session controls"
               // Tinted to the room's avatar accent so the glyph reads as the
               // live session rather than a generic header button; muted
