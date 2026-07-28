@@ -234,6 +234,11 @@ function TakeoverAvatar({
       }
     >
       <div className="provision-avatar-stage">
+        {/* Keeps the reserved stage from reading as a hole while the avatar is withheld. */}
+        <div
+          data-testid="provision-avatar-placeholder"
+          className={`provision-avatar-placeholder${avatarReady ? " is-resolved" : ""}`}
+        />
         <div className="provision-avatar-layer">
           <div className="provision-avatar-current">
             <div className="provision-avatar-strain">

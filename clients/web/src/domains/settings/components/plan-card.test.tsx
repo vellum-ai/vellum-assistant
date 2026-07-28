@@ -45,6 +45,7 @@ import {
   makeSuperPackage,
   makeUltraPackage,
 } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
+import * as takeoverAvatarStash from "@/domains/settings/billing/pro-onboarding/takeover-avatar-stash";
 import { routes } from "@/utils/routes";
 
 // Capture navigate() targets so the action-button wiring can be asserted
@@ -156,6 +157,19 @@ mock.module("@/runtime/browser", () => ({
   },
   openUrlFinishedListener: () => () => {},
 }));
+
+// Count the avatar snapshot the checkout redirect takes; the real capture reads
+// the resolved-assistants store, which these DOM tests never drive.
+let captureStashCalls = 0;
+mock.module(
+  "@/domains/settings/billing/pro-onboarding/takeover-avatar-stash",
+  () => ({
+    ...takeoverAvatarStash,
+    captureTakeoverAvatarStash: () => {
+      captureStashCalls += 1;
+    },
+  }),
+);
 
 const { PlanCard } = await import("./plan-card");
 
@@ -457,6 +471,8 @@ beforeEach(() => {
   changeStorageTierCall = null;
   onboardingResponse = {};
   toastSuccessCalls = [];
+  captureStashCalls = 0;
+  takeoverAvatarStash.clearTakeoverAvatarStash();
 });
 
 afterEach(() => {
@@ -1297,6 +1313,8 @@ describe("PlanCard recommended upgrade — change-package", () => {
       }
     });
     expect(openedUrl).toBe("https://checkout.example.com/session");
+    // The redirect snapshots the avatar so the takeover can draw it on return.
+    expect(captureStashCalls).toBe(1);
     expect(upgradeCall?.body).toMatchObject({
       target_plan_id: "pro",
       package: "mighty",

@@ -736,7 +736,7 @@ describe("takeover avatar mode", () => {
     // of the assistant's real avatar.
     avatarLoading = true;
 
-    const { container } = renderState({
+    const { container, getByTestId } = renderState({
       state: "WAITING",
       assistantId: "primary-assistant",
     });
@@ -744,15 +744,36 @@ describe("takeover avatar mode", () => {
     expect(container.querySelector(".provision-avatar-reveal")).toBeNull();
     // The stage still reserves its height, so nothing moves when it arrives.
     expect(container.querySelector(".provision-avatar-stage")).toBeTruthy();
+    // …and the placeholder breathes in the meantime rather than leaving a hole.
+    expect(getByTestId("provision-avatar-placeholder").className).not.toContain(
+      "is-resolved",
+    );
   });
 
+  for (const state of ["CONFIRMING", "WAITING"] as const) {
+    test(`renders exactly one placeholder in ${state}`, () => {
+      const { container } = renderState({
+        state,
+        assistantId: "primary-assistant",
+      });
+
+      expect(
+        container.querySelectorAll(".provision-avatar-placeholder"),
+      ).toHaveLength(1);
+    });
+  }
+
   test("reveals the avatar once the target and the query both settle", () => {
-    const { container } = renderState({
+    const { container, getByTestId } = renderState({
       state: "WAITING",
       assistantId: "primary-assistant",
     });
 
     expect(container.querySelector(".provision-avatar-reveal")).toBeTruthy();
+    // The placeholder fades out on the same beat the creature arrives on.
+    expect(getByTestId("provision-avatar-placeholder").className).toContain(
+      "is-resolved",
+    );
   });
 
   test("keeps waiting while the target assistant is still unknown", () => {
