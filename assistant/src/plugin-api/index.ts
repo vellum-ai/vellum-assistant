@@ -242,10 +242,44 @@ export { CLI_COMMAND_HELP } from "../cli/index.help.js";
 // vector-store subsystem. Host-resolved: each reads the live workspace config
 // internally, so plugins hold no config. Async because the facade loads the
 // embed graph lazily on first call.
+//
+// Two families:
+//   • Compute-only (Layer 1): `embed`, `generateSparseEmbedding` — run the
+//     workspace backend and return raw vectors, no persistence.
+//   • Plugin index (Layer 2): `indexPluginDocument` / `queryPluginIndex` /
+//     `getPluginDocument` / `removePluginDocument` / `purgePluginEmbeddings` —
+//     a plugin-owned semantic namespace (hybrid dense+sparse search) that is
+//     scoped to the calling plugin and never participates in agent recall.
+//   • `embedAndUpsert` remains the legacy write-only host-recall path.
+export type {
+  IndexPluginDocumentOptions,
+  PluginDocument,
+  PluginEmbedding,
+  PluginIndexDocumentResult,
+  PluginIndexHit,
+  QueryPluginIndexOptions,
+} from "../persistence/embeddings/plugin-facade.js";
 export {
+  embed,
   embedAndUpsert,
+  generateSparseEmbedding,
+  getPluginDocument,
+  indexPluginDocument,
+  purgePluginEmbeddings,
+  queryPluginIndex,
+  removePluginDocument,
   selectedBackendSupportsMultimodal,
 } from "../persistence/embeddings/plugin-facade.js";
+// Embedding input/output value shapes shared by the compute and index APIs.
+export type {
+  AudioEmbeddingInput,
+  EmbeddingInput,
+  ImageEmbeddingInput,
+  MultimodalEmbeddingInput,
+  SparseEmbedding,
+  TextEmbeddingInput,
+  VideoEmbeddingInput,
+} from "../persistence/embeddings/embedding-types.js";
 // Graph-node orphan sweep — deletes `graph_node` Qdrant points whose backing
 // `memory_graph_nodes` row is gone (cacheless points the cache-driven sweep
 // cannot see). The memory plugin's `sweep_orphaned_graph_node_points` job
