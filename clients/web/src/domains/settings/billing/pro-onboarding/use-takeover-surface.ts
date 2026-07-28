@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
@@ -77,12 +77,20 @@ export function useTakeoverSurface(
   // `useAssistantAvatar(null)` is a disabled query, which reports
   // `isLoading: false` with no data, so the id has to gate settling too.
   const liveSettled = resolvedId != null && !isLoading;
+  // The id of a stash this surface has already drawn. Latched so the surface
+  // only ever upgrades: a target resolving to a different id mid-flight would
+  // otherwise drop `ready` back to false, unmounting the creature and
+  // restarting the placeholder before the real one lands.
+  const [latchedStashId, setLatchedStashId] = useState<string | null>(null);
   // While the provisioning hook has not named a target the stash may stand in,
   // safe because a stash is only ever captured in a single-assistant org, so
   // there is no second creature the unresolved target could turn out to be.
-  // Once a target does resolve, only a matching stash may draw.
+  // Once a target does resolve, only a matching (or already drawn) stash draws.
   const stashUsable =
-    stash != null && (resolvedId == null || resolvedId === stash.assistantId);
+    stash != null &&
+    (resolvedId == null ||
+      resolvedId === stash.assistantId ||
+      latchedStashId === stash.assistantId);
   const liveDrawable =
     liveSettled &&
     (components != null || traits != null || customImageUrl != null);
@@ -90,6 +98,13 @@ export function useTakeoverSurface(
   // daemon erroring while the machine restarts) keeps the stash, which is
   // strictly more truthful than the bundled-green fallback.
   const drawnStash = stashUsable && !liveDrawable ? stash : null;
+
+  const drawnStashId = drawnStash?.assistantId ?? null;
+  useEffect(() => {
+    if (drawnStashId != null) {
+      setLatchedStashId(drawnStashId);
+    }
+  }, [drawnStashId]);
 
   const effectiveComponents = drawnStash ? drawnStash.components : components;
   const effectiveTraits = drawnStash ? drawnStash.traits : traits;
@@ -109,8 +124,7 @@ export function useTakeoverSurface(
 
   return {
     tintHex: ready && accent ? avatarSurfaceHex(accent) : SURFACE_GROUND,
-    // The stash carries no image, so only a live settle can supply a backdrop.
-    backdropImageUrl: liveSettled ? customImageUrl : null,
+    backdropImageUrl: ready ? effectiveCustomImageUrl : null,
     ready,
     avatar: {
       components: effectiveComponents,

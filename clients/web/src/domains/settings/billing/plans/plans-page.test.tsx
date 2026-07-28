@@ -557,7 +557,11 @@ beforeEach(() => {
   takeoverResizeCredits = undefined;
   // The stash and the assistants store are module-level globals, so reset both.
   clearTakeoverAvatarStash();
-  useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: null,
+    assistants: [],
+    assistantsHydrated: false,
+  });
 });
 
 afterEach(() => {
@@ -698,7 +702,12 @@ describe("PlansPage — Pro package switch (change-package)", () => {
 
   test("base user CTA starts Stripe checkout, not change-package", async () => {
     const { client, findByRole } = renderInteractive(freeSubscription());
-    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    // Capture only stashes for a hydrated list holding exactly one assistant.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "a1",
+      assistants: [{ id: "a1", isLocal: false, isPlatformHosted: true }],
+      assistantsHydrated: true,
+    });
     client.setQueryData([...avatarQueryKey("a1"), true], {
       components: BUNDLED_COMPONENTS,
       traits: null,
