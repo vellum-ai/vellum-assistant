@@ -67,8 +67,9 @@ export const SubagentDetailResponseSchema = z.object({
   label: z.string().optional(),
   /**
    * Tool-use id of the spawning `subagent_spawn` call, from the live manager
-   * state. Lets a recovering client re-anchor the inline card to the exact
-   * spawn tool call (same role as the field on `subagent_spawned`).
+   * state or, once that is gone, the durable record. Lets a recovering client
+   * re-anchor the inline card to the exact spawn tool call (same role as the
+   * field on `subagent_spawned`).
    */
   parentToolUseId: z.string().optional(),
   /**

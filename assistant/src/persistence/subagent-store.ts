@@ -200,11 +200,6 @@ export function getSubagentRecordsByParent(
   ).map(rowToRecord);
 }
 
-/** Delete a subagent record once the manager is fully done with it. */
-export function deleteSubagentRecord(id: string): void {
-  rawRun("subagent:deleteRecord", `DELETE FROM subagents WHERE id = ?`, id);
-}
-
 /**
  * Delete every subagent record spawned under `parentConversationId`. A row
  * lives as long as its parent conversation, and the TTL sweep drops a child's

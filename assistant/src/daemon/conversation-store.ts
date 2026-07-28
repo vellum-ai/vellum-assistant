@@ -248,12 +248,21 @@ export async function getOrCreateConversation(
  * Abort, dispose, and remove a single in-memory conversation.
  * Use before deleting the DB row so the agent loop can't write to a
  * deleted conversation and trip FK constraints.
+ *
+ * `keepSubagentRecords` leaves the children's durable rows behind for the
+ * caller to delete once its own destructive work has committed — see
+ * `SubagentManager.disposeAllForParent`.
  */
-export function destroyActiveConversation(conversationId: string): void {
+export function destroyActiveConversation(
+  conversationId: string,
+  opts?: { keepSubagentRecords?: boolean },
+): void {
   // Subagent teardown is keyed by parent id, not the live instance — an
   // evicted parent still retains its terminal children, and deleting the
   // conversation must take their records with it.
-  getSubagentManager().disposeAllForParent(conversationId);
+  getSubagentManager().disposeAllForParent(conversationId, undefined, {
+    keepRecords: opts?.keepSubagentRecords === true,
+  });
   const conversation = findConversation(conversationId);
   if (!conversation) {
     return;
