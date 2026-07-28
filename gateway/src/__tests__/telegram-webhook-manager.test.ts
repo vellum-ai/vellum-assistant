@@ -366,7 +366,8 @@ describe("reconcileTelegramWebhook", () => {
     expect((calls[2].body as any).secret_token).toBe("test-webhook-secret");
   });
 
-  test("skips managed callback fallback when ingress is explicitly disabled", async () => {
+  test("deregisters the webhook instead of using the managed callback fallback when ingress is explicitly disabled", async () => {
+    const calls: string[] = [];
     const caches = makeCaches({
       ingressUrl: undefined,
       ingressEnabled: false,
@@ -375,18 +376,54 @@ describe("reconcileTelegramWebhook", () => {
       platformAssistantId: "11111111-2222-4333-8444-555555555555",
     });
 
-    fetchMock = mock(async () => new Response("", { status: 200 }));
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.includes("/deleteWebhook")) {
+        calls.push("deleteWebhook");
+        return makeTelegramResponse(true);
+      }
+      calls.push(`unexpected:${url}`);
+      return new Response("Not found", { status: 404 });
+    });
 
     await reconcileTelegramWebhook(caches);
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(calls).toEqual(["deleteWebhook"]);
   });
 
-  test("skips reconciliation when ingress is explicitly disabled even with an ingress URL", async () => {
+  test("deregisters the webhook when ingress is explicitly disabled even with an ingress URL", async () => {
+    const calls: string[] = [];
     const caches = makeCaches({ ingressEnabled: false });
 
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.includes("/deleteWebhook")) {
+        calls.push("deleteWebhook");
+        return makeTelegramResponse(true);
+      }
+      calls.push(`unexpected:${url}`);
+      return new Response("Not found", { status: 404 });
+    });
+
+    await reconcileTelegramWebhook(caches);
+
+    expect(calls).toEqual(["deleteWebhook"]);
+  });
+
+  test("does not call Telegram when ingress is disabled but credentials are absent", async () => {
     fetchMock = mock(async () => new Response("", { status: 200 }));
 
+    const caches = makeCaches({ ingressEnabled: false, botToken: undefined });
     await reconcileTelegramWebhook(caches);
 
     expect(fetchMock).not.toHaveBeenCalled();

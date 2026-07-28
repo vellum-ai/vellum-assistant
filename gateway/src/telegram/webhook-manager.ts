@@ -143,7 +143,9 @@ async function resolveExpectedTelegramWebhookUrl(
   // (LUM-2899).
   //
   //   1. An explicit `ingress.enabled: false` is a decision not to accept
-  //      inbound webhooks at all; it blocks both tiers below.
+  //      inbound webhooks at all; it precedes both tiers below and actively
+  //      deregisters, so `reconcileTelegramWebhook` handles it before calling
+  //      this resolver.
   //   2. A configured public ingress URL wins (a self-hosted tunnel, or the
   //      Velay-published URL while the tunnel is registered).
   //   3. Platform-connected assistants (platform pods and local assistants
@@ -151,10 +153,6 @@ async function resolveExpectedTelegramWebhookUrl(
   //      route. `registerManagedTelegramCallbackRoute` self-gates on platform
   //      features and credential presence, so a gateway with no platform
   //      context resolves to undefined and reconciliation skips.
-  if (caches?.configFile?.getBoolean("ingress", "enabled") === false) {
-    return undefined;
-  }
-
   let ingressUrl: string | undefined;
   if (caches?.configFile) {
     ingressUrl = caches.configFile.getString("ingress", "publicBaseUrl");
@@ -200,6 +198,24 @@ export async function reconcileTelegramWebhook(
     return;
   }
 
+  const apiOpts = caches?.credentials
+    ? { credentials: caches.credentials, configFile: caches?.configFile }
+    : undefined;
+
+  // An explicit `ingress.enabled: false` must actively deregister, not just
+  // skip: Telegram keeps delivering to the last registered webhook URL until
+  // deleteWebhook (or a replacement setWebhook) runs, and the gateway's
+  // /webhooks/telegram route does not consult this flag. deleteWebhook is
+  // idempotent, and pending updates are deliberately kept so re-enabling
+  // ingress does not lose queued messages.
+  if (caches?.configFile?.getBoolean("ingress", "enabled") === false) {
+    await callTelegramApi("deleteWebhook", {}, apiOpts);
+    log.info(
+      "Telegram webhook deregistered: public ingress is explicitly disabled",
+    );
+    return;
+  }
+
   let expectedUrl: string | undefined;
   try {
     expectedUrl = await resolveExpectedTelegramWebhookUrl(caches);
@@ -221,10 +237,6 @@ export async function reconcileTelegramWebhook(
     );
     return;
   }
-
-  const apiOpts = caches?.credentials
-    ? { credentials: caches.credentials, configFile: caches?.configFile }
-    : undefined;
 
   const info = await callTelegramApi<WebhookInfo>(
     "getWebhookInfo",
