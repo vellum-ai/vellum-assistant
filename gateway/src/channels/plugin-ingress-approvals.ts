@@ -9,6 +9,7 @@ import {
   type DiscoveredPluginIngress,
   type DiscoverPluginIngressOptions,
   type IngressRoute,
+  type PluginIngressDiscovery,
   type PluginIngressProblem,
 } from "./plugin-ingress.js";
 
@@ -69,7 +70,20 @@ export interface PluginIngressResolution {
 export function resolvePluginIngress(
   opts: DiscoverPluginIngressOptions = {},
 ): PluginIngressResolution {
-  const { plugins, problems } = discoverPluginIngress(opts);
+  return resolveDiscoveredPluginIngress(discoverPluginIngress(opts));
+}
+
+/**
+ * Split an already-performed discovery by approval.
+ *
+ * Split out so the request path can resolve against {@link
+ * PluginIngressCache} rather than re-walking the filesystem per inbound
+ * webhook.
+ */
+export function resolveDiscoveredPluginIngress(
+  discovery: PluginIngressDiscovery,
+): PluginIngressResolution {
+  const { plugins, problems } = discovery;
   const approvedDigestByPlugin = new Map(
     listPluginIngressApprovals().map((a) => [a.plugin, a.digest]),
   );

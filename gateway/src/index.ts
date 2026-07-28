@@ -145,6 +145,9 @@ import {
   createChannelIngressApproveHandler,
   createChannelIngressRevokeHandler,
 } from "./http/routes/channel-ingress.js";
+import { createPluginWebhookHandler } from "./http/routes/plugin-webhook.js";
+import { resolveDiscoveredPluginIngress } from "./channels/plugin-ingress-approvals.js";
+import { PluginIngressCache } from "./channels/plugin-ingress.js";
 import {
   createChannelPermissionOverridesListHandler,
   createChannelPermissionOverrideSetHandler,
@@ -605,6 +608,13 @@ async function main() {
     createChannelAdmissionPolicyDeleteHandler();
   const handleChannelIngressApprove = createChannelIngressApproveHandler();
   const handleChannelIngressRevoke = createChannelIngressRevokeHandler();
+  // TTL-cached so an inbound webhook does not re-walk the plugins directory,
+  // while installs and toggles still take effect without a gateway restart.
+  const pluginIngressCache = new PluginIngressCache();
+  const handlePluginWebhook = createPluginWebhookHandler({
+    config,
+    resolve: () => resolveDiscoveredPluginIngress(pluginIngressCache.get()),
+  });
   const handleChannelPermissionOverridesList =
     createChannelPermissionOverridesListHandler();
   const handleChannelPermissionOverrideSet =
@@ -695,6 +705,15 @@ async function main() {
     {
       path: "/webhooks/mailgun",
       handler: (req) => handleMailgunWebhook(req),
+    },
+    // Plugin-declared webhooks. Unauthenticated like their neighbours above;
+    // what makes them safe is that only a guardian-approved declaration
+    // creates one, and every other path here 404s. Any method — the plugin's
+    // route module decides which verbs it answers.
+    {
+      path: /^\/webhooks\/plugins\/([^/]+)\/(.+)$/,
+      handler: (req, params) =>
+        handlePluginWebhook(req, params[0]!, params[1]!),
     },
 
     // ── BYO provider registration (auto-verify guardian email) ──
