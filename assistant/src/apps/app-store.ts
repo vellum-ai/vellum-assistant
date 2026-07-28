@@ -1301,9 +1301,19 @@ export function linkAppToConversationLineage(
   appId: string,
   conversationId: string,
 ): void {
-  for (const [index, id] of resolveConversationLineage(
-    conversationId,
-  ).entries()) {
+  // Lineage resolution reaches the conversation store; an unexpected throw
+  // there degrades to the conversation itself rather than breaking the link.
+  let lineage: string[];
+  try {
+    lineage = resolveConversationLineage(conversationId);
+  } catch (err) {
+    log.warn(
+      { err, appId, conversationId },
+      "Failed to resolve conversation lineage for app association",
+    );
+    lineage = [conversationId];
+  }
+  for (const [index, id] of lineage.entries()) {
     try {
       addAppConversationId(appId, id, { inherited: index > 0 });
     } catch (err) {
