@@ -252,6 +252,44 @@ describe("reconcileSubagents route", () => {
     expect(reconcile(PARENT_ID).subagents["sub-1"].status).toBe("running");
   });
 
+  test("bounds the durable pass to the most recent terminal runs", () => {
+    // Rows live as long as the conversation, so an old chat holds every
+    // subagent it ever spawned — the snapshot must not ship the lot.
+    for (let i = 0; i < 25; i++) {
+      upsertSubagentRecord(
+        record({
+          id: `sub-done-${i}`,
+          conversationId: `child-conv-done-${i}`,
+          label: `done-${i}`,
+          status: "completed",
+          completedAt: 10_000 + i,
+        }),
+      );
+    }
+    // An unsettled row is never dropped, however old: the client's stuck-active
+    // entry has to be settled no matter how much finished work came after it.
+    upsertSubagentRecord(
+      record({
+        id: "sub-stale-active",
+        conversationId: "child-conv-stale",
+        label: "stale-active",
+        status: "running",
+        createdAt: 1,
+        completedAt: null,
+      }),
+    );
+
+    const { subagents } = reconcile(PARENT_ID);
+
+    expect(subagents["sub-stale-active"].status).toBe("interrupted");
+    const terminalIds = Object.keys(subagents)
+      .filter((id) => id !== "sub-stale-active")
+      .sort();
+    expect(terminalIds).toEqual(
+      Array.from({ length: 20 }, (_, i) => `sub-done-${i + 5}`).sort(),
+    );
+  });
+
   test("omits a durable row whose status is out of enum", () => {
     upsertSubagentRecord(record({ status: "zombie" }));
 

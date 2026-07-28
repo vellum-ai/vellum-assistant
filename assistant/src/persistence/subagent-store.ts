@@ -161,22 +161,68 @@ export function getSubagentRecordById(id: string): SubagentRecord | undefined {
 }
 
 /**
- * Every subagent record spawned under `parentConversationId`. Durable rows
- * outlive the manager's in-memory metadata — the TTL sweep evicts terminal
- * entries with `keepRecord: true` — so this is the only way to enumerate a
- * parent's subagents that completed long enough ago to have been swept.
+ * Subagent records spawned under `parentConversationId`. Durable rows outlive
+ * the manager's in-memory metadata — the TTL sweep evicts terminal entries with
+ * `keepRecord: true` — so this is the only way to enumerate a parent's
+ * subagents that finished long enough ago to have been swept.
+ *
+ * Rows live as long as the parent conversation, so a long-lived chat
+ * accumulates them without limit and the result is bounded: every row whose
+ * status is NOT in `bound.terminalStatuses` is returned (an unsettled row
+ * matters at any age), plus the `bound.maxTerminal` most recently finished
+ * terminal rows. Recency is `completed_at` falling back to `created_at`, since
+ * a row settled at rehydration records no completion time.
+ *
+ * The terminal status set is supplied by the caller so this layer stays
+ * decoupled from the subagent domain's status enum.
  */
 export function getSubagentRecordsByParent(
   parentConversationId: string,
+  bound: { terminalStatuses: readonly string[]; maxTerminal: number },
 ): SubagentRecord[] {
+  const placeholders = bound.terminalStatuses.map(() => "?").join(", ");
   return rawAll<SubagentRow>(
     "subagent:getByParent",
-    `SELECT * FROM subagents WHERE parent_conversation_id = ?`,
+    `SELECT * FROM subagents
+       WHERE parent_conversation_id = ? AND status NOT IN (${placeholders})
+     UNION ALL
+     SELECT * FROM (
+       SELECT * FROM subagents
+         WHERE parent_conversation_id = ? AND status IN (${placeholders})
+         ORDER BY COALESCE(completed_at, created_at) DESC
+         LIMIT ?
+     )`,
     parentConversationId,
+    ...bound.terminalStatuses,
+    parentConversationId,
+    ...bound.terminalStatuses,
+    bound.maxTerminal,
   ).map(rowToRecord);
 }
 
 /** Delete a subagent record once the manager is fully done with it. */
 export function deleteSubagentRecord(id: string): void {
   rawRun("subagent:deleteRecord", `DELETE FROM subagents WHERE id = ?`, id);
+}
+
+/**
+ * Delete every subagent record spawned under `parentConversationId`. A row
+ * lives as long as its parent conversation, and the TTL sweep drops a child's
+ * in-memory entry while keeping the row — so deleting by id alone strands the
+ * swept children when the parent goes away. Served by
+ * `idx_subagents_parent_conversation_id`.
+ */
+export function deleteSubagentRecordsByParent(
+  parentConversationId: string,
+): void {
+  rawRun(
+    "subagent:deleteRecordsByParent",
+    `DELETE FROM subagents WHERE parent_conversation_id = ?`,
+    parentConversationId,
+  );
+}
+
+/** Delete every subagent record. For clear-all, when all chat data goes away. */
+export function deleteAllSubagentRecords(): void {
+  rawRun("subagent:deleteAllRecords", `DELETE FROM subagents`);
 }

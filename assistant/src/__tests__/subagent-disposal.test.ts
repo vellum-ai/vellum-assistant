@@ -7,6 +7,7 @@ import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/354
 import { resetTestTables } from "../persistence/raw-query.js";
 import {
   getSubagentRecordById,
+  loadAllSubagentRecords,
   type SubagentRecord,
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
@@ -375,10 +376,13 @@ describe("durable record lifetime across disposal paths", () => {
     resetTestTables("subagents");
   });
 
-  function seedRecord(id: string): void {
+  function seedRecord(
+    id: string,
+    parentConversationId = "parent-sess-1",
+  ): void {
     const rec: SubagentRecord = {
       id,
-      parentConversationId: "parent-sess-1",
+      parentConversationId,
       conversationId: "conv-sub-1",
       label: "Test subagent",
       objective: "Do something",
@@ -442,6 +446,46 @@ describe("durable record lifetime across disposal paths", () => {
     expect(getSubagentRecordById("sub-parent-gone")).toBeUndefined();
 
     asInternals(manager).stopSweep();
+  });
+
+  test("disposeAllForParent deletes rows the sweep already evicted", () => {
+    const manager = new SubagentManager();
+    seedRecord("sub-swept-then-deleted");
+    seedRecord("sub-other-parent", "parent-sess-2");
+    injectFakeSubagent(
+      manager,
+      "sub-swept-then-deleted",
+      makeState("sub-swept-then-deleted", { status: "completed" }),
+      undefined,
+      null,
+    );
+    asInternals(manager).subagents.get(
+      "sub-swept-then-deleted",
+    )!.retainedUntil = Date.now() - 1000; // expired
+
+    // The sweep frees the in-memory entry, so `parentToChildren` no longer
+    // names this child — only a by-parent delete can still reach its row.
+    asInternals(manager).sweepTerminal();
+    expect(getSubagentRecordById("sub-swept-then-deleted")).toBeDefined();
+
+    manager.disposeAllForParent("parent-sess-1");
+
+    expect(getSubagentRecordById("sub-swept-then-deleted")).toBeUndefined();
+    // Another parent's rows are untouched.
+    expect(getSubagentRecordById("sub-other-parent")).toBeDefined();
+
+    asInternals(manager).stopSweep();
+  });
+
+  test("clear-all deletes rows for a parent with no live children", () => {
+    const manager = new SubagentManager();
+    seedRecord("sub-orphan-row", "parent-sess-3");
+
+    // No in-memory entry at all, so `parentToChildren` holds no key for this
+    // parent and iterating it would skip the row entirely.
+    manager.disposeAllForAllParents();
+
+    expect(loadAllSubagentRecords()).toHaveLength(0);
   });
 
   test("shutdown disposal keeps the row for rehydration", () => {
