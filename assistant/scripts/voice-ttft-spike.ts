@@ -142,8 +142,7 @@ async function main(): Promise<void> {
   try {
     await initializeTools();
   } catch (error) {
-    toolInitError =
-      error instanceof Error ? error.message : String(error);
+    toolInitError = error instanceof Error ? error.message : String(error);
   }
   // Registry entries are definition-shaped objects (see tool-manifest.ts);
   // getDefinition exists only on some registrations. Either way this
@@ -155,7 +154,11 @@ async function main(): Promise<void> {
       };
       return typeof t.getDefinition === "function"
         ? t.getDefinition()
-        : { name: t.name, description: t.description, input_schema: t.input_schema };
+        : {
+            name: t.name,
+            description: t.description,
+            input_schema: t.input_schema,
+          };
     })
     .filter((def) => Boolean(def.name && def.input_schema));
   const fullPrompt = buildSystemPrompt();
