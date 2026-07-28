@@ -39,6 +39,7 @@ function makeCaches(
     botToken?: string | null;
     webhookSecret?: string | null;
     ingressUrl?: string | null;
+    ingressEnabled?: boolean;
     platformBaseUrl?: string | null;
     assistantApiKey?: string | null;
     platformAssistantId?: string | null;
@@ -79,7 +80,11 @@ function makeCaches(
       return undefined;
     },
     getNumber: () => undefined,
-    getBoolean: () => undefined,
+    getBoolean: (section: string, key: string) => {
+      if (section === "ingress" && key === "enabled")
+        return opts.ingressEnabled;
+      return undefined;
+    },
     getRecord: () => undefined,
     refreshNow: () => {},
   } as unknown as ConfigFileCache;
@@ -293,6 +298,98 @@ describe("reconcileTelegramWebhook", () => {
       "https://platform.example.com/v1/gateway/callbacks/11111111-2222-4333-8444-555555555555/webhooks/telegram/",
     );
     expect((calls[2].body as any).secret_token).toBe("test-webhook-secret");
+  });
+
+  test("registers a managed callback route without IS_CONTAINERIZED when platform credentials are present (LUM-2899)", async () => {
+    const calls: { method: string; body: unknown }[] = [];
+    // IS_CONTAINERIZED deliberately unset: a platform-connected local
+    // assistant must complete the setWebhook handshake for the managed
+    // callback mode that `hasWebhookRoutingConfigured` reports as configured.
+    const caches = makeCaches({
+      ingressUrl: undefined,
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "ast-managed-key",
+      platformAssistantId: "11111111-2222-4333-8444-555555555555",
+    });
+
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        if (
+          url ===
+          "https://platform.example.com/v1/internal/gateway/callback-routes/register/"
+        ) {
+          const body = init?.body ? JSON.parse(init.body as string) : null;
+          calls.push({ method: "registerCallbackRoute", body });
+          return new Response(
+            JSON.stringify({
+              callback_url:
+                "https://platform.example.com/v1/gateway/callbacks/11111111-2222-4333-8444-555555555555/webhooks/telegram/",
+            }),
+            {
+              status: 201,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+        if (url.includes("/getWebhookInfo")) {
+          calls.push({ method: "getWebhookInfo", body: null });
+          return makeTelegramResponse({
+            url: "",
+            has_custom_certificate: false,
+            pending_update_count: 0,
+          });
+        }
+        if (url.includes("/setWebhook")) {
+          const body = init?.body ? JSON.parse(init.body as string) : null;
+          calls.push({ method: "setWebhook", body });
+          return makeTelegramResponse(true);
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    );
+
+    await reconcileTelegramWebhook(caches);
+
+    expect(calls).toHaveLength(3);
+    expect(calls[0].method).toBe("registerCallbackRoute");
+    expect(calls[1].method).toBe("getWebhookInfo");
+    expect(calls[2].method).toBe("setWebhook");
+    expect((calls[2].body as any).url).toBe(
+      "https://platform.example.com/v1/gateway/callbacks/11111111-2222-4333-8444-555555555555/webhooks/telegram/",
+    );
+    expect((calls[2].body as any).secret_token).toBe("test-webhook-secret");
+  });
+
+  test("skips managed callback fallback when ingress is explicitly disabled", async () => {
+    const caches = makeCaches({
+      ingressUrl: undefined,
+      ingressEnabled: false,
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "ast-managed-key",
+      platformAssistantId: "11111111-2222-4333-8444-555555555555",
+    });
+
+    fetchMock = mock(async () => new Response("", { status: 200 }));
+
+    await reconcileTelegramWebhook(caches);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("skips reconciliation when ingress is explicitly disabled even with an ingress URL", async () => {
+    const caches = makeCaches({ ingressEnabled: false });
+
+    fetchMock = mock(async () => new Response("", { status: 200 }));
+
+    await reconcileTelegramWebhook(caches);
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("registers via env assistant key and credential cache for assistant ID", async () => {

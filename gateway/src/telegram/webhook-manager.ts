@@ -135,6 +135,26 @@ async function registerManagedTelegramCallbackRoute(
 async function resolveExpectedTelegramWebhookUrl(
   caches?: WebhookManagerCaches,
 ): Promise<string | undefined> {
+  // Resolution order mirrors `hasWebhookRoutingConfigured` in
+  // assistant/src/config/webhook-routing.ts, which is what the daemon's
+  // Telegram config handler and readiness probes report to the user. The two
+  // must agree: a mode that derivation reports as configured but this
+  // resolver declines makes setup report success while setWebhook never runs
+  // (LUM-2899).
+  //
+  //   1. An explicit `ingress.enabled: false` is a decision not to accept
+  //      inbound webhooks at all; it blocks both tiers below.
+  //   2. A configured public ingress URL wins (a self-hosted tunnel, or the
+  //      Velay-published URL while the tunnel is registered).
+  //   3. Platform-connected assistants (platform pods and local assistants
+  //      holding vellum credentials) fall back to a managed platform callback
+  //      route. `registerManagedTelegramCallbackRoute` self-gates on platform
+  //      features and credential presence, so a gateway with no platform
+  //      context resolves to undefined and reconciliation skips.
+  if (caches?.configFile?.getBoolean("ingress", "enabled") === false) {
+    return undefined;
+  }
+
   let ingressUrl: string | undefined;
   if (caches?.configFile) {
     ingressUrl = caches.configFile.getString("ingress", "publicBaseUrl");
@@ -143,13 +163,6 @@ async function resolveExpectedTelegramWebhookUrl(
   if (ingressUrl) {
     const baseUrl = ingressUrl.replace(/\/+$/, "");
     return `${baseUrl}/${TELEGRAM_CALLBACK_PATH}`;
-  }
-
-  // Only fall back to managed callback registration in containerized mode.
-  // A local gateway that happens to have stored vellum credentials should not
-  // silently reroute Telegram webhooks to the platform.
-  if (!process.env.IS_CONTAINERIZED) {
-    return undefined;
   }
 
   return registerManagedTelegramCallbackRoute(caches);
