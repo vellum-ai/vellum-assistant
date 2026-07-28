@@ -22,7 +22,7 @@ export function DiscordNudgeBanner({
             Share feedback, request features, get answers faster
           </span>
           <span className="hidden sm:inline">
-            Talk to the team — share feedback, request features, get answers
+            Talk to the team: share feedback, request features, get answers
             faster
           </span>
         </>
