@@ -85,6 +85,37 @@ describe("handleSubagentEvent — unknown subagent id", () => {
   });
 });
 
+describe("status-first recovery ordering", () => {
+  it("arms a bare status-created stub when a later event supplies the conversation id", () => {
+    // `subagent_status_changed` carries no conversationId, so the recovery
+    // stub starts un-armed…
+    handleSubagentStatusChanged(
+      { type: "subagent_status_changed", subagentId: "sa-1", status: "running" },
+      ctx,
+    );
+    const stub = useSubagentStore.getState().byId["sa-1"];
+    expect(stub?.conversationId).toBeUndefined();
+    expect(stub?.hydrationPending).toBeUndefined();
+
+    // …and the first `subagent_event` must arm it for detail backfill
+    // rather than appending (which would strand the placeholder label by
+    // failing the auto-fetch's zero-events guard forever).
+    handleSubagentEvent(
+      {
+        type: "subagent_event",
+        subagentId: "sa-1",
+        conversationId: "conv-parent",
+        event: { type: "assistant_text_delta", text: "working…" },
+      },
+      ctx,
+    );
+    const armed = useSubagentStore.getState().byId["sa-1"];
+    expect(armed?.conversationId).toBe("conv-parent");
+    expect(armed?.hydrationPending).toBe(true);
+    expect(armed?.events).toEqual([]);
+  });
+});
+
 describe("handleSubagentStatusChanged — unknown subagent id", () => {
   it("materializes a stub carrying the status instead of dropping it", () => {
     handleSubagentStatusChanged(

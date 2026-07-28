@@ -477,7 +477,37 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   },
 
   ensureEntry: (params) => {
-    if (get().byId[params.subagentId]) return;
+    const existing = get().byId[params.subagentId];
+    if (existing) {
+      // Arm an existing placeholder stub (empty label — created by an
+      // earlier ensureEntry, e.g. from a conversationId-less
+      // `subagent_status_changed`) when a conversationId arrives. Without
+      // arming here, the first `subagent_event` would append immediately
+      // and the stub would fail the detail auto-fetch's zero-events guard
+      // forever, stranding the placeholder label. Real entries (label from
+      // `subagent_spawned` or reconcile), entries with events, and stubs
+      // already armed or backfilled are left alone — arming a healthy
+      // live-spawned entry would cost a needless fetch per spawn.
+      if (
+        params.conversationId &&
+        !existing.label &&
+        !existing.conversationId &&
+        !existing.hydrationPending &&
+        existing.events.length === 0
+      ) {
+        set({
+          byId: {
+            ...get().byId,
+            [params.subagentId]: {
+              ...existing,
+              conversationId: params.conversationId,
+              hydrationPending: true,
+            },
+          },
+        });
+      }
+      return;
+    }
     get().spawnSubagent({
       subagentId: params.subagentId,
       // Reconcile-driven creation supplies real identity; evidence-driven
@@ -551,7 +581,9 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     // in-flight fetch returns already contains this event, and appending it
     // here would make `loadDetail` keep the partial live suffix over the
     // full timeline (see the `hydrationPending` doc on `SubagentEntry`).
-    if (existing.hydrationPending) return;
+    if (existing.hydrationPending) {
+      return;
+    }
 
     const eventType = mapInnerEventType(params.event);
 

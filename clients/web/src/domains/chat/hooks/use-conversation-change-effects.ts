@@ -58,7 +58,9 @@ export function useConversationChangeEffects(
   // can't seed a usable entry.
   const supportsRecovery = useSupportsSubagentRecovery();
   useEffect(() => {
-    if (!assistantId || !activeConversationId || !supportsRecovery) return;
+    if (!assistantId || !activeConversationId || !supportsRecovery) {
+      return;
+    }
     const requestedConversationId = activeConversationId;
     void (async () => {
       try {
@@ -67,7 +69,9 @@ export function useConversationChangeEffects(
           query: { parentConversationId: requestedConversationId },
           throwOnError: false,
         });
-        if (!response?.ok || !data) return;
+        if (!response?.ok || !data) {
+          return;
+        }
         // A switch while the request was in flight: these subagents belong
         // to a conversation no longer in view.
         if (
@@ -80,7 +84,9 @@ export function useConversationChangeEffects(
         for (const [subagentId, info] of Object.entries(
           data.subagents ?? {},
         )) {
-          if (store.byId[subagentId]) continue;
+          if (store.byId[subagentId]) {
+            continue;
+          }
           const status = SubagentStatusSchema.safeParse(info.status);
           store.ensureEntry({
             subagentId,

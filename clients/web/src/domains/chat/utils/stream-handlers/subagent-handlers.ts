@@ -62,15 +62,16 @@ export function handleSubagentEvent(
   // when the daemon resolves the subagent's own conversation itself; an
   // older daemon would parse the parent's messages as the subagent's.
   const wasKnown = Boolean(store.byId[event.subagentId]);
-  if (!wasKnown) {
-    store.ensureEntry({
-      subagentId: event.subagentId,
-      timestamp: Date.now(),
-      conversationId: supportsSubagentRecovery()
-        ? event.conversationId
-        : undefined,
-    });
-  }
+  // Runs even for known entries: `ensureEntry` also arms an existing bare
+  // stub (created by a conversationId-less `subagent_status_changed`) for
+  // detail backfill the moment an event supplies the conversation id.
+  store.ensureEntry({
+    subagentId: event.subagentId,
+    timestamp: Date.now(),
+    conversationId: supportsSubagentRecovery()
+      ? event.conversationId
+      : undefined,
+  });
   // Don't stamp the parent conversation id onto a stub on a pre-0.10.13
   // daemon: it would arm the detail auto-fetch with an id the old daemon
   // trusts verbatim, backfilling the PARENT conversation's messages as the
