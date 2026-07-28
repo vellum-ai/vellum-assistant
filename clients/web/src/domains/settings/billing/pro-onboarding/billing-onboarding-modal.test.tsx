@@ -73,6 +73,7 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
     isLoading: false,
     invalidate: () => {},
   }),
+  avatarQueryKey: (assistantId: string) => ["assistantAvatar", assistantId],
 }));
 
 // Capture the escape toast so the exit-on-escape path can assert its message;

@@ -22,6 +22,7 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
     isLoading: avatarLoading,
     invalidate: () => {},
   }),
+  avatarQueryKey: (assistantId: string) => ["assistantAvatar", assistantId],
 }));
 
 const { AssistantAvatarTile } = await import("./assistant-avatar-tile");

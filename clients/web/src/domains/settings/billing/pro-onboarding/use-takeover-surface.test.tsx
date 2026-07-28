@@ -27,15 +27,30 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
     avatarQueryId = assistantId;
     return { ...avatar, invalidate: () => {} };
   },
+  avatarQueryKey: (assistantId: string) => ["assistantAvatar", assistantId],
 }));
 
 const { useTakeoverSurface } = await import("./use-takeover-surface");
+// Dynamic like the hook above: a static import is hoisted over `mock.module`,
+// which would load the real avatar hook that the stash module imports.
+const { clearTakeoverAvatarStash, saveTakeoverAvatarStash } = await import(
+  "./takeover-avatar-stash"
+);
 
 const GREEN_SURFACE = "#1d281d";
 const PURPLE_SURFACE = "#29202e";
+const ORANGE_SURFACE = "#332019";
 
 function traits(color: string): CharacterTraits {
   return { bodyShape: "blob", eyeStyle: "default", color };
+}
+
+function seedStash(assistantId: string, color: string): void {
+  saveTakeoverAvatarStash({
+    assistantId,
+    components: BUNDLED_COMPONENTS,
+    traits: traits(color),
+  });
 }
 
 beforeEach(() => {
@@ -47,6 +62,7 @@ beforeEach(() => {
     isLoading: false,
   };
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  clearTakeoverAvatarStash();
 });
 
 describe("target selection", () => {
@@ -175,5 +191,107 @@ describe("resolved surfaces", () => {
     expect(result.current.ready).toBe(true);
     expect(result.current.tintHex.toLowerCase()).toBe(GREEN_SURFACE);
     expect(result.current.backdropImageUrl).toBeNull();
+  });
+});
+
+describe("avatar stash", () => {
+  test("draws the stash while the live query is still in flight", () => {
+    seedStash("primary-assistant", "purple");
+    avatar.isLoading = true;
+
+    const { result } = renderHook(() =>
+      useTakeoverSurface("primary-assistant"),
+    );
+
+    expect(result.current.ready).toBe(true);
+    expect(result.current.avatar).toEqual({
+      components: BUNDLED_COMPONENTS,
+      traits: traits("purple"),
+      customImageUrl: null,
+    });
+    expect(result.current.tintHex.toLowerCase()).toBe(PURPLE_SURFACE);
+    expect(result.current.backdropImageUrl).toBeNull();
+  });
+
+  test("an unnamed target draws the stash rather than withholding", () => {
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "active-assistant",
+    });
+    seedStash("primary-assistant", "purple");
+
+    const { result } = renderHook(() => useTakeoverSurface(null));
+
+    expect(avatarQueryId).toBeNull();
+    expect(result.current.ready).toBe(true);
+    expect(result.current.avatar.traits).toEqual(traits("purple"));
+    expect(result.current.tintHex.toLowerCase()).toBe(PURPLE_SURFACE);
+  });
+
+  test("a stash for another assistant never draws", () => {
+    seedStash("other-assistant", "purple");
+    avatar.isLoading = true;
+
+    const { result } = renderHook(() =>
+      useTakeoverSurface("primary-assistant"),
+    );
+
+    expect(result.current.ready).toBe(false);
+    expect(result.current.tintHex).toBe(SURFACE_GROUND);
+    expect(result.current.avatar.components).toBeNull();
+  });
+
+  test("live data replaces the stash the moment it lands", () => {
+    seedStash("primary-assistant", "purple");
+    avatar.isLoading = true;
+
+    const { rerender, result } = renderHook(() =>
+      useTakeoverSurface("primary-assistant"),
+    );
+    expect(result.current.tintHex.toLowerCase()).toBe(PURPLE_SURFACE);
+
+    avatar = {
+      components: BUNDLED_COMPONENTS,
+      traits: traits("orange"),
+      customImageUrl: null,
+      isLoading: false,
+    };
+    rerender();
+
+    expect(result.current.avatar.traits).toEqual(traits("orange"));
+    expect(result.current.tintHex.toLowerCase()).toBe(ORANGE_SURFACE);
+  });
+
+  test("picks up a stash written after the hook already mounted", () => {
+    // The native return: checkout opens an external browser, so the billing
+    // modal hosting this hook is mounted (and already read an empty stash)
+    // before the redirect writes one.
+    avatar.isLoading = true;
+
+    const { rerender, result } = renderHook(() =>
+      useTakeoverSurface("primary-assistant"),
+    );
+    expect(result.current.ready).toBe(false);
+    expect(result.current.tintHex).toBe(SURFACE_GROUND);
+
+    seedStash("primary-assistant", "purple");
+    rerender();
+
+    expect(result.current.ready).toBe(true);
+    expect(result.current.avatar.traits).toEqual(traits("purple"));
+    expect(result.current.tintHex.toLowerCase()).toBe(PURPLE_SURFACE);
+  });
+
+  test("a settle with no data at all keeps the stash", () => {
+    // The daemon erroring while the machine restarts settles the query empty.
+    // The stashed creature beats falling through to the bundled green one.
+    seedStash("primary-assistant", "purple");
+
+    const { result } = renderHook(() =>
+      useTakeoverSurface("primary-assistant"),
+    );
+
+    expect(result.current.ready).toBe(true);
+    expect(result.current.avatar.traits).toEqual(traits("purple"));
+    expect(result.current.tintHex.toLowerCase()).toBe(PURPLE_SURFACE);
   });
 });
