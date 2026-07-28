@@ -1870,36 +1870,10 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });
 
-  // Delete the conversation's segments and their embeddings on the memory
-  // connection after the main delete succeeds, rather than leaving the segment
-  // rows to the conversation-deleted hook: that hook is a no-op when the memory
-  // plugin is disabled and would keep the plaintext content in the memory
-  // database. Best-effort: a memory-DB failure must not abort the disk cleanup
-  // or the hook below.
-  if (memoryDb) {
-    try {
-      if (result.segmentIds.length > 0) {
-        memoryDb
-          .delete(memoryEmbeddings)
-          .where(
-            and(
-              eq(memoryEmbeddings.targetType, "segment"),
-              inArray(memoryEmbeddings.targetId, result.segmentIds),
-            ),
-          )
-          .run();
-      }
-      memoryDb
-        .delete(memorySegments)
-        .where(eq(memorySegments.conversationId, id))
-        .run();
-    } catch (err) {
-      log.warn(
-        { err, conversationId: id },
-        "Failed to delete memory segments for deleted conversation; continuing",
-      );
-    }
-  }
+  // Purge the conversation's segments and their embeddings on the memory
+  // connection after the main delete, unioning the pre-delete snapshot so the
+  // returned Qdrant cleanup list is complete.
+  result.segmentIds = purgeConversationSegments(id, result.segmentIds);
 
   // Remove the conversation's disk-view directory after the DB transaction
   if (createdAtForDiskCleanup != null) {
@@ -2042,36 +2016,11 @@ export async function deleteConversationGently(
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });
 
-  // Delete the conversation's segments and their embeddings on the memory
-  // connection, rather than leaving the segment rows to the conversation-deleted
-  // hook: that hook is a no-op when the memory plugin is disabled and would keep
-  // the plaintext content in the memory database. Best-effort, after the main
-  // delete succeeds. A memory-DB failure must not abort the hook/disk cleanup
-  // below.
-  if (memoryDb) {
-    try {
-      if (result.segmentIds.length > 0) {
-        memoryDb
-          .delete(memoryEmbeddings)
-          .where(
-            and(
-              eq(memoryEmbeddings.targetType, "segment"),
-              inArray(memoryEmbeddings.targetId, result.segmentIds),
-            ),
-          )
-          .run();
-      }
-      memoryDb
-        .delete(memorySegments)
-        .where(eq(memorySegments.conversationId, id))
-        .run();
-    } catch (err) {
-      log.warn(
-        { err, conversationId: id },
-        "Failed to delete memory segments for deleted conversation; continuing",
-      );
-    }
-  }
+  // Purge the conversation's segments and their embeddings on the memory
+  // connection after the batched delete, re-reading and unioning the pre-delete
+  // snapshot so a segment written during the awaited drain is still cleaned up
+  // and returned for Qdrant cleanup.
+  result.segmentIds = purgeConversationSegments(id, result.segmentIds);
 
   // Remove the conversation's disk-view directory after the DB transaction.
   if (createdAtForDiskCleanup != null) {
@@ -3416,6 +3365,75 @@ function purgeMessageSegments(messageIds: string[], context: string): string[] {
     );
     return [];
   }
+}
+
+/**
+ * Delete a conversation's memory_segments and their segment embeddings on the
+ * memory connection, returning the deleted segment ids for Qdrant cleanup.
+ * memory_segments has no cross-file FK to conversations, so a conversation
+ * delete does not cascade to it and the conversation-deleted hook is a no-op
+ * when the memory plugin is disabled; this purge runs regardless. It re-reads
+ * the ids and unions them with any already known, capturing rows a concurrent
+ * index wrote during an awaited batch delete while preserving ids the boot
+ * orphan sweep may have removed once the conversation row went away. Embeddings
+ * and segments are deleted under independent guards so a missing or broken
+ * embedding cache (such as a partial migration) cannot block deletion of the
+ * plaintext segment rows. Best-effort throughout.
+ */
+export function purgeConversationSegments(
+  conversationId: string,
+  knownSegmentIds: string[] = [],
+): string[] {
+  const memoryDb = getMemoryDb();
+  if (!memoryDb) {
+    return knownSegmentIds;
+  }
+  const ids = new Set(knownSegmentIds);
+  try {
+    for (const row of memoryDb
+      .select({ id: memorySegments.id })
+      .from(memorySegments)
+      .where(eq(memorySegments.conversationId, conversationId))
+      .all()) {
+      ids.add(row.id);
+    }
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Failed to read memory segments for deleted conversation; continuing",
+    );
+  }
+  const segmentIds = [...ids];
+  if (segmentIds.length > 0) {
+    try {
+      memoryDb
+        .delete(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.targetType, "segment"),
+            inArray(memoryEmbeddings.targetId, segmentIds),
+          ),
+        )
+        .run();
+    } catch (err) {
+      log.warn(
+        { err, conversationId },
+        "Failed to delete segment embeddings for deleted conversation; continuing",
+      );
+    }
+  }
+  try {
+    memoryDb
+      .delete(memorySegments)
+      .where(eq(memorySegments.conversationId, conversationId))
+      .run();
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Failed to delete memory segments for deleted conversation; continuing",
+    );
+  }
+  return segmentIds;
 }
 
 export function deleteLastExchange(conversationId: string): number {
