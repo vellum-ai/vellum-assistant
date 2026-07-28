@@ -1,173 +1,48 @@
 /**
- * Tests for the signup entry gate: an existing session plus a `returnTo`
- * skips OAuth and lands on the sanitized destination.
+ * The shared auth-entry contract run against the signup page, plus the one
+ * thing only this page decides: which shell covers the waiting state.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { describe, expect, mock, test } from "bun:test";
+import { screen } from "@testing-library/react";
 
-import * as authStore from "@/stores/auth-store";
-import * as nativeAuth from "@/runtime/native-auth";
-import type { PlatformSessionStatus } from "@/stores/session-status";
+import {
+  CHECKOUT,
+  authEntry,
+  describeAuthEntryContract,
+  entryUrl,
+  mockAuthStore,
+  mockNativeAuth,
+  renderAuthEntry,
+  setupAuthEntry,
+} from "./auth-entry-contract-test-helpers";
 
-const CHECKOUT = "/assistant/checkout?package=super";
-const LOCAL_DESTINATION = "/assistant/settings/general";
-// The platform's hardcoded Stripe `success_url` — the real post-checkout return.
-const LEGACY_BILLING_LANDING =
-  "/assistant/settings/billing?session_id=cs_test_123";
-
-let authenticated = false;
-let initializing = false;
-let authFlowCalls: { callbackUrl: string; returnTo: string | null }[] = [];
-
-const setPlatformSession = (platformSession: PlatformSessionStatus) => {
-  authStore.useAuthStore.setState({ platformSession });
-};
-
-mock.module("@/stores/auth-store", () => ({
-  ...authStore,
-  useIsAuthenticated: () => authenticated,
-  useIsSessionInitializing: () => initializing,
-}));
-
-mock.module("@/runtime/native-auth", () => ({
-  ...nativeAuth,
-  startAuthFlow: (
-    _provider: string,
-    callbackUrl: string,
-    options?: { returnTo?: string | null },
-  ) => {
-    authFlowCalls.push({ callbackUrl, returnTo: options?.returnTo ?? null });
-    return Promise.resolve();
-  },
-  startNativeLogin: () => Promise.resolve(),
-  useIsNativePlatform: () => false,
-}));
+mock.module("@/stores/auth-store", mockAuthStore);
+mock.module("@/runtime/native-auth", mockNativeAuth);
 
 const { SignupPage } = await import("@/domains/account/pages/signup-page");
 
-function LocationProbe() {
-  const location = useLocation();
-  return (
-    <div data-testid="location">{`${location.pathname}${location.search}`}</div>
-  );
-}
+const ROUTE = "/account/signup";
 
-function renderAt(url: string) {
-  return render(
-    <MemoryRouter initialEntries={[url]}>
-      <LocationProbe />
-      <Routes>
-        <Route path="/account/signup" element={<SignupPage />} />
-        <Route path="*" element={null} />
-      </Routes>
-    </MemoryRouter>,
-  );
-}
+describeAuthEntryContract("SignupPage", {
+  Page: SignupPage,
+  route: ROUTE,
+  authScreenText: "Continue",
+  oauthTriggerText: "Continue",
+});
 
-const location = () => screen.getByTestId("location").textContent;
+describe("SignupPage waiting shell", () => {
+  setupAuthEntry();
 
-describe("SignupPage", () => {
-  beforeEach(() => {
-    authenticated = false;
-    initializing = false;
-    authFlowCalls = [];
-    setPlatformSession("present");
-  });
-
-  afterEach(cleanup);
-
-  test("an authenticated visitor with returnTo lands there without OAuth", () => {
-    authenticated = true;
-    renderAt(`/account/signup?returnTo=${encodeURIComponent(CHECKOUT)}`);
-
-    expect(location()).toBe(CHECKOUT);
-    expect(screen.queryByText("Continue")).toBeNull();
-    expect(authFlowCalls).toHaveLength(0);
-  });
-
-  test("a platform-dependent returnTo without a platform session still signs in", () => {
-    authenticated = true;
-    setPlatformSession("absent");
-    const entry = `/account/signup?returnTo=${encodeURIComponent(CHECKOUT)}`;
-    renderAt(entry);
-
-    expect(location()).toBe(entry);
-    expect(screen.getByText("Continue")).toBeTruthy();
-  });
-
-  test("the legacy billing landing without a platform session still signs in", () => {
-    authenticated = true;
-    setPlatformSession("absent");
-    const entry = `/account/signup?returnTo=${encodeURIComponent(LEGACY_BILLING_LANDING)}`;
-    renderAt(entry);
-
-    expect(location()).toBe(entry);
-    expect(screen.getByText("Continue")).toBeTruthy();
-  });
-
-  test("a platform-dependent returnTo waits out the platform-session probe", () => {
-    authenticated = true;
-    setPlatformSession("unknown");
-    const entry = `/account/signup?returnTo=${encodeURIComponent(CHECKOUT)}`;
-    renderAt(entry);
-
-    expect(location()).toBe(entry);
-    expect(screen.queryByText("Continue")).toBeNull();
-  });
-
-  test("a local-only returnTo skips OAuth without a platform session", () => {
-    authenticated = true;
-    setPlatformSession("absent");
-    renderAt(
-      `/account/signup?returnTo=${encodeURIComponent(LOCAL_DESTINATION)}`,
+  test("the wait holds the branded sign-up shell", () => {
+    authEntry.initializing = true;
+    const { container } = renderAuthEntry(
+      SignupPage,
+      ROUTE,
+      entryUrl(ROUTE, CHECKOUT),
     );
 
-    expect(location()).toBe(LOCAL_DESTINATION);
-    expect(authFlowCalls).toHaveLength(0);
-  });
-
-  test("an unauthenticated visitor with returnTo still gets the sign-up screen", () => {
-    renderAt(`/account/signup?returnTo=${encodeURIComponent(CHECKOUT)}`);
-
-    expect(screen.getByText("Continue")).toBeTruthy();
-    expect(location()).toBe(
-      `/account/signup?returnTo=${encodeURIComponent(CHECKOUT)}`,
-    );
-  });
-
-  test("an authenticated visitor with no returnTo still gets the sign-up screen", () => {
-    authenticated = true;
-    renderAt("/account/signup");
-
-    expect(screen.getByText("Continue")).toBeTruthy();
-    expect(location()).toBe("/account/signup");
-  });
-
-  test("a hostile returnTo falls back to the assistant", () => {
-    authenticated = true;
-    renderAt("/account/signup?returnTo=https%3A%2F%2Fevil.example");
-
-    expect(location()).toBe("/assistant");
-  });
-
-  test("a hostile returnTo is sanitized before it reaches the auth flow", () => {
-    renderAt("/account/signup?returnTo=https%3A%2F%2Fevil.example");
-    fireEvent.click(screen.getByText("Continue"));
-
-    expect(authFlowCalls).toHaveLength(1);
-    expect(authFlowCalls[0]?.returnTo).toBe("/assistant");
-    expect(authFlowCalls[0]?.callbackUrl).not.toContain("evil.example");
-  });
-
-  test("an unsettled session with returnTo neither redirects nor offers OAuth", () => {
-    authenticated = true;
-    initializing = true;
-    const entry = `/account/signup?returnTo=${encodeURIComponent(CHECKOUT)}`;
-    renderAt(entry);
-
-    expect(location()).toBe(entry);
+    expect(container.querySelector(".signup")).toBeTruthy();
     expect(screen.queryByText("Continue")).toBeNull();
   });
 });
