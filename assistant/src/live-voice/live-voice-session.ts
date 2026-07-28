@@ -31,7 +31,6 @@ import {
   MIN_SPOKEN_BRIDGE_CHARS,
   type VoiceRoutingLeg,
 } from "../calls/voice-triage-escalate.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import {
   type LiveVoiceFrontModelConfig,
@@ -186,13 +185,13 @@ export type LiveVoiceTtsStreamer = (
   options: LiveVoiceTtsOptions,
 ) => Promise<LiveVoiceTtsResult>;
 
-// Runs an interrupted live-voice turn to completion on a background subagent
-// (true-duplex handoff, gated behind voice-duplex-handoff). The run itself is
-// silent (no parent notification); it RESOLVES with the continuation's final
-// answer text, and the session decides where that goes — the next turn the user
-// starts, an announcement into audible silence, or the conversation once the
-// call has ended. Aborts when `signal` fires (rejecting). Injected for
-// testability; the factory wires the real SubagentManager-backed impl.
+// Runs an interrupted live-voice turn to completion on a background subagent.
+// The run itself is silent (no parent notification); it RESOLVES with the
+// continuation's final answer text, and the session decides where that goes —
+// the next turn the user starts, an announcement into audible silence, or the
+// conversation once the call has ended. Aborts when `signal` fires (rejecting).
+// Injected for testability; the factory wires the real SubagentManager-backed
+// impl.
 export type LiveVoiceBackgroundContinuationSpawner = (args: {
   parentConversationId: string;
   objective: string;
@@ -271,9 +270,8 @@ export interface LiveVoiceSessionOptions {
    */
   frontDecider?: VoiceFrontDecider | null;
   /**
-   * Spawns the background continuation for a barged-in turn when the
-   * `voice-duplex-handoff` flag is on. The factory wires the real
-   * SubagentManager-backed implementation; tests inject a stub.
+   * Spawns the background continuation for a barged-in turn. The factory wires
+   * the real SubagentManager-backed implementation; tests inject a stub.
    */
   spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
   /**
@@ -510,10 +508,9 @@ interface ActiveAssistantTurn {
   // merges it with this turn's utterance instead of treating that utterance as
   // a fresh follow-up. Null for an ordinary (non-barge-in) turn.
   interruptedRequest: string | null;
-  // The completed background continuation's answer (voice-duplex-handoff),
-  // folded into this turn's control prompt as context so the model can deliver
-  // or reference it in reply to the user's own utterance. Null when no
-  // continuation result is pending for this turn.
+  // The completed background continuation's answer, folded into this turn's
+  // control prompt as context so the model can deliver or reference it in reply
+  // to the user's own utterance. Null when no continuation result is pending.
   continuationResult: string | null;
   // Set only on an announcement turn: the interrupted request and the
   // continuation's answer, which the turn exists solely to deliver. The turn has
@@ -668,12 +665,11 @@ function buildInterruptionMergeNote(interruptedRequest: string): string {
 }
 
 // System-level guidance appended to the NEXT turn's control prompt after a
-// background continuation (voice-duplex-handoff) finished the reply the user
-// interrupted. Folds the completed answer in as context so the model can
-// deliver or reference it in its reply to whatever the user just said — this
-// turn answers the user, so the result is offered only if it fits. Reaches the
-// model only; it is not a user message and never renders as a transcript
-// bubble.
+// background continuation finished the reply the user interrupted. Folds the
+// completed answer in as context so the model can deliver or reference it in
+// its reply to whatever the user just said — this turn answers the user, so the
+// result is offered only if it fits. Reaches the model only; it is not a user
+// message and never renders as a transcript bubble.
 function buildResurfaceContextNote(continuationResult: string): string {
   return `Earlier the user interrupted you, and in the background you finished the reply they cut off. What you worked out was: "${continuationResult}". If their current message relates to it, use it to answer; otherwise you may briefly offer it or leave it aside, and do not repeat it verbatim if it no longer fits.`;
 }
@@ -895,16 +891,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
   private readonly spawnBackgroundContinuation: LiveVoiceBackgroundContinuationSpawner | null;
   // Reads the interrupted turn's teardown promise so the barge-in path can wait
-  // for it to settle before forking the continuation (voice-duplex-handoff).
+  // for it to settle before forking the continuation.
   private readonly getTurnTeardown:
     | ((conversationId: string) => Promise<void> | undefined)
     | null;
   private readonly detachTeardownSettleTimeoutMs: number;
   private readonly continuationAnnounceSilenceMs: number;
   // Abort handles for background continuations started when a barge-in detached
-  // an interrupted turn (voice-duplex-handoff). Each controller is registered
-  // synchronously before its spawn, so interrupt()/close() abort a continuation
-  // even if a stop lands while it is still spawning.
+  // an interrupted turn. Each controller is registered synchronously before
+  // its spawn, so interrupt()/close() abort a continuation even if a stop lands
+  // while it is still spawning.
   private readonly detachControllers = new Set<AbortController>();
   // Bumped whenever detached runs are invalidated: a stop (interrupt/close),
   // a newer barge-in superseding them, or a foreground-wins abort. A barge-in
@@ -968,12 +964,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Consumed (and cleared) when that turn launches; cleared if the barge-in
   // utterance is discarded, so it can never attach to a later, unrelated turn.
   private pendingInterruptedRequest: string | null = null;
-  // Set when a background continuation (voice-duplex-handoff) finishes the reply
-  // a barge-in cut off: its final answer, folded into the next turn the user
-  // starts as context. Consumed (and cleared) when that turn launches; cleared
-  // on a hard stop (abortDetachedRuns) so a stale result never surfaces later,
-  // and cleared by an announcement that delivers the same answer itself — an
-  // announcement the user cuts short hands it straight back.
+  // Set when a background continuation finishes the reply a barge-in cut off:
+  // its final answer, folded into the next turn the user starts as context.
+  // Consumed (and cleared) when that turn launches; cleared on a hard stop
+  // (abortDetachedRuns) so a stale result never surfaces later, and cleared by
+  // an announcement that delivers the same answer itself — an announcement the
+  // user cuts short hands it straight back.
   private pendingContinuationResult: string | null = null;
   // The same finished continuation, queued for an announcement turn: the
   // session speaks the result on its own once the call has been quiet for
@@ -1796,15 +1792,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       );
       await this.sendFrame({ type: "turn_cancelled", turnId: turn.turnId });
       await this.cancelAssistantTurn("barge_in");
-      // Keep the interrupted turn's work alive on a background subagent
-      // (voice-duplex-handoff); the detach waits for its teardown to settle the
-      // partial into history before forking.
+      // Keep the interrupted turn's work alive on a background subagent; the
+      // detach waits for its teardown to settle the partial into history before
+      // forking.
       this.detachInterruptedTurn(turn, stopGeneration, teardownWait, detachSeq);
     })().catch(() => {});
   }
 
-  // True-duplex handoff (voice-duplex-handoff): keep a barged-in turn's work
-  // alive by continuing it on a background subagent instead of discarding it.
+  // Keep a barged-in turn's work alive by continuing it on a background
+  // subagent instead of discarding it.
   // Waits for the interrupted turn's bridge teardown (captured at barge-in) to
   // settle before forking, so its partial — including any completed tool calls —
   // is already in the conversation the subagent forks from and a side-effecting
@@ -1826,44 +1822,36 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Every skip is logged with its reason — the handoff is silent by design,
     // so without this a dropped continuation is indistinguishable from a
     // never-attempted one (tail with: grep -i "voice duplex").
-    const skipReason = !spawn
-      ? "no_spawner"
-      : this.isClosed
-        ? "session_closed"
-        : // Barging in over an announcement means the user is answering it, not
-          // asking for it to be finished in the background — there is no
-          // pending request behind an announcement turn to continue. Its answer
-          // is already finished, so bargeIn returns it to the stash instead.
-          turn.continuationDelivery !== null
-          ? "announcement_turn"
-          : // The model already finished generating (barge-in during TTS playback
-            // of a complete reply): there is nothing to continue, so a
-            // continuation would just re-do a finished answer.
-            turn.assistantCompleted
-            ? "assistant_already_completed"
-            : // A stop (interrupt/close) or a superseding invalidation landed
-              // during the barge-in teardown: honor it.
-              this.detachStopGeneration !== stopGeneration
-              ? "invalidated_during_barge_teardown"
-              : !isAssistantFeatureFlagEnabled(
-                    "voice-duplex-handoff",
-                    getConfig(),
-                  )
-                ? "flag_disabled"
-                : null;
-    if (skipReason !== null || !spawn) {
-      // debug for the always-off configurations, info for the dynamic skips.
-      if (skipReason === "flag_disabled" || skipReason === "no_spawner") {
-        log.debug(
-          { turnId: turn.turnId, skipReason },
-          "Voice duplex continuation skipped",
-        );
-      } else {
-        log.info(
-          { turnId: turn.turnId, skipReason },
-          "Voice duplex continuation skipped",
-        );
-      }
+    if (!spawn) {
+      log.debug(
+        { turnId: turn.turnId, skipReason: "no_spawner" },
+        "Voice duplex continuation skipped",
+      );
+      return;
+    }
+    const skipReason = this.isClosed
+      ? "session_closed"
+      : // Barging in over an announcement means the user is answering it, not
+        // asking for it to be finished in the background — there is no pending
+        // request behind an announcement turn to continue. Its answer is
+        // already finished, so bargeIn returns it to the stash instead.
+        turn.continuationDelivery !== null
+        ? "announcement_turn"
+        : // The model already finished generating (barge-in during TTS playback
+          // of a complete reply): there is nothing to continue, so a
+          // continuation would just re-do a finished answer.
+          turn.assistantCompleted
+          ? "assistant_already_completed"
+          : // A stop (interrupt/close) or a superseding invalidation landed
+            // during the barge-in teardown: honor it.
+            this.detachStopGeneration !== stopGeneration
+            ? "invalidated_during_barge_teardown"
+            : null;
+    if (skipReason !== null) {
+      log.info(
+        { turnId: turn.turnId, skipReason },
+        "Voice duplex continuation skipped",
+      );
       return;
     }
     // Embed the interrupted request in the objective so the continuation knows

@@ -1,16 +1,12 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
+import { beforeAll, describe, expect, mock, test } from "bun:test";
 
 import type { TurnDetectorConfig } from "../../calls/media-turn-detector.js";
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
-import {
-  clearCachedOverrides,
-  setCachedOverrides,
-} from "../../config/feature-flag-cache.js";
 import {
   getConfig,
   loadRawConfig,
@@ -359,7 +355,6 @@ async function startForegroundWinsScenario(): Promise<{
   followUp: VoiceTurnOptions | undefined;
   signal: AbortSignal | undefined;
 }> {
-  setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
   const spawnBackgroundContinuation = mock(
     (args: {
       parentConversationId: string;
@@ -409,10 +404,6 @@ describe("LiveVoiceSession server VAD", () => {
   // (a tool is only provably read-only when it is the trusted built-in);
   // register the core baseline so built-in names resolve like in the daemon.
   beforeAll(() => __resetRegistryForTesting());
-
-  // The voice-duplex-handoff flag is toggled via the override cache in a few
-  // tests below; reset it so it never leaks into the flag-off default cases.
-  afterEach(() => clearCachedOverrides());
 
   test("ready echoes turnDetection server_vad", async () => {
     const { frames, session } = createHarness({});
@@ -775,8 +766,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(laterTurn?.voiceControlPrompt).not.toContain("first question");
   });
 
-  test("voice-duplex-handoff on: a thinking barge-in spawns a background continuation", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a thinking barge-in spawns a background continuation", async () => {
     const spawnBackgroundContinuation = mock(
       async (_args: {
         parentConversationId: string;
@@ -812,8 +802,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(spawnArgs?.objective).toContain("first question");
   });
 
-  test("voice-duplex-handoff on: a client interrupt aborts an in-flight continuation", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a client interrupt aborts an in-flight continuation", async () => {
     // Hang the continuation so it is still in flight when the interrupt lands;
     // resolve it when its signal aborts.
     const spawnBackgroundContinuation = mock(
@@ -854,8 +843,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(signal?.aborted).toBe(true);
   });
 
-  test("voice-duplex-handoff on: a client interrupt during barge-in cleanup skips the continuation", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a client interrupt during barge-in cleanup skips the continuation", async () => {
     const spawnBackgroundContinuation = mock(
       async (_args: {
         parentConversationId: string;
@@ -905,38 +893,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
   });
 
-  test("voice-duplex-handoff off (default): a thinking barge-in spawns no continuation", async () => {
-    const spawnBackgroundContinuation = mock(
-      async (_args: {
-        parentConversationId: string;
-        objective: string;
-        label: string;
-        signal: AbortSignal;
-      }): Promise<string> => "",
-    );
-    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
-      options.onAudioChunk(makeTtsChunk("assistant audio"));
-      return makeTtsResult("assistant audio");
-    });
-    const { frames, session } = createHarness({
-      finals: ["first question", "second question"],
-      streamTtsAudio,
-      spawnBackgroundContinuation,
-    });
-
-    await session.start();
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
-    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
-    await waitFor(() =>
-      frames.some((frame) => frame.type === "turn_cancelled"),
-    );
-    await flushAsyncCallbacks();
-    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
-  });
-
-  test("voice-duplex-handoff on: no continuation when the model already completed", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("no continuation when the model already completed", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     const spawnBackgroundContinuation = mock(
       async (_args: {
@@ -988,8 +945,7 @@ describe("LiveVoiceSession server VAD", () => {
     releaseTts?.();
   });
 
-  test("voice-duplex-handoff on: the continuation fork waits for the interrupted turn's teardown to settle", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("the continuation fork waits for the interrupted turn's teardown to settle", async () => {
     const spawnBackgroundContinuation = mock(
       async (_args: {
         parentConversationId: string;
@@ -1037,8 +993,7 @@ describe("LiveVoiceSession server VAD", () => {
     await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
   });
 
-  test("voice-duplex-handoff on: the continuation is skipped when the teardown wait times out", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("the continuation is skipped when the teardown wait times out", async () => {
     const spawnBackgroundContinuation = mock(
       async (_args: {
         parentConversationId: string;
@@ -1079,8 +1034,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
   });
 
-  test("voice-duplex-handoff on: a client interrupt during the teardown wait skips the continuation", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a client interrupt during the teardown wait skips the continuation", async () => {
     const spawnBackgroundContinuation = mock(
       async (_args: {
         parentConversationId: string;
@@ -1158,8 +1112,7 @@ describe("LiveVoiceSession server VAD", () => {
     return { startVoiceTurn, calls };
   }
 
-  test("voice-duplex-handoff on: a completed continuation's result folds into the next turn's control prompt", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a completed continuation's result folds into the next turn's control prompt", async () => {
     // Control the continuation's resolution so we know exactly when its result
     // is stashed relative to the turns we inspect.
     let resolveContinuation: ((result: string) => void) | undefined;
@@ -1224,8 +1177,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(later?.voiceControlPrompt).not.toContain("THE_RESULT");
   });
 
-  test("voice-duplex-handoff on: a client interrupt drops a stashed continuation result", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a client interrupt drops a stashed continuation result", async () => {
     let resolveContinuation: ((result: string) => void) | undefined;
     const spawnBackgroundContinuation = mock(
       (_args: {
@@ -1273,8 +1225,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(later?.voiceControlPrompt).not.toContain("THE_RESULT");
   });
 
-  test("voice-duplex-handoff on: an empty continuation result adds no context to the next turn", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("an empty continuation result adds no context to the next turn", async () => {
     // Continuation ends with no answer text (e.g. it stopped on a tool call):
     // there is nothing to fold in.
     const spawnBackgroundContinuation = mock(
@@ -1313,8 +1264,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(later?.voiceControlPrompt).not.toContain("background you finished");
   });
 
-  test("voice-duplex-handoff on: a newer continuation's result survives an older one finishing later", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a newer continuation's result survives an older one finishing later", async () => {
     // Capture each continuation's resolver in spawn (detach) order.
     const resolvers: Array<(result: string) => void> = [];
     const spawnBackgroundContinuation = mock(
@@ -1383,8 +1333,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(resurfaced?.voiceControlPrompt).not.toContain("OLDER_RESULT");
   });
 
-  test("voice-duplex-handoff on: a rapid second barge-in invalidates a first continuation that finishes after it", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a rapid second barge-in invalidates a first continuation that finishes after it", async () => {
     const resolvers: Array<(result: string) => void> = [];
     const spawnBackgroundContinuation = mock(
       (_args: {
@@ -1466,8 +1415,7 @@ describe("LiveVoiceSession server VAD", () => {
     resolvers[1]?.("");
   });
 
-  test("voice-duplex-handoff on: a new barge-in drops an already-stashed continuation result", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a new barge-in drops an already-stashed continuation result", async () => {
     const resolvers: Array<(result: string) => void> = [];
     const spawnBackgroundContinuation = mock(
       (_args: {
@@ -1534,7 +1482,7 @@ describe("LiveVoiceSession server VAD", () => {
     resolvers[1]?.("");
   });
 
-  test("voice-duplex-handoff on: a foreground consequential tool start aborts an in-flight continuation", async () => {
+  test("a foreground consequential tool start aborts an in-flight continuation", async () => {
     const { followUp, signal } = await startForegroundWinsScenario();
 
     // The follow-up turn starts a consequential tool: foreground wins the
@@ -1548,7 +1496,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(signal?.aborted).toBe(true);
   });
 
-  test("voice-duplex-handoff on: a read-only built-in leaves the continuation running; an unclassified tool fails closed", async () => {
+  test("a read-only built-in leaves the continuation running; an unclassified tool fails closed", async () => {
     const { followUp, signal } = await startForegroundWinsScenario();
 
     // A provably read-only built-in cannot contend on the workspace: the
@@ -1575,7 +1523,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(signal?.aborted).toBe(true);
   });
 
-  test("voice-duplex-handoff on: an installed static skill_load leaves the continuation running", async () => {
+  test("an installed static skill_load leaves the continuation running", async () => {
     installSkillFixture("static-fixture-skill", "Plain instructions.");
     const { followUp, signal } = await startForegroundWinsScenario();
 
@@ -1603,7 +1551,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(signal?.aborted).toBe(true);
   });
 
-  test("voice-duplex-handoff on: a skill_load with inline command expansions aborts the continuation", async () => {
+  test("a skill_load with inline command expansions aborts the continuation", async () => {
     installSkillFixture(
       "dynamic-fixture-skill",
       "Current status: !`git status --short`",
@@ -1619,7 +1567,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(signal?.aborted).toBe(true);
   });
 
-  test("voice-duplex-handoff on: a skill_load with no input aborts the continuation", async () => {
+  test("a skill_load with no input aborts the continuation", async () => {
     const { followUp, signal } = await startForegroundWinsScenario();
 
     // Without the input there is no way to tell a pure read from an
@@ -1630,8 +1578,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(signal?.aborted).toBe(true);
   });
 
-  test("voice-duplex-handoff on: a foreground-wins abort keeps an already-stashed continuation result", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a foreground-wins abort keeps an already-stashed continuation result", async () => {
     let resolveContinuation: ((result: string) => void) | undefined;
     const spawnBackgroundContinuation = mock(
       (_args: {
@@ -1735,8 +1682,7 @@ describe("LiveVoiceSession server VAD", () => {
       .length;
   }
 
-  test("voice-duplex-handoff on: a continuation finishing on an idle live call is announced", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a continuation finishing on an idle live call is announced", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { frames, session } = createHarness({
@@ -1768,8 +1714,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(announcement?.voiceControlPrompt).toContain("first question");
   });
 
-  test("voice-duplex-handoff on: an announcement persists hidden and is never delivered twice", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("an announcement persists hidden and is never delivered twice", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { frames, session } = createHarness({
@@ -1806,8 +1751,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(later?.voiceControlPrompt).not.toContain("THE_RESULT");
   });
 
-  test("voice-duplex-handoff on: a user utterance before the silence elapses cancels the announcement", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a user utterance before the silence elapses cancels the announcement", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { frames, session } = createHarness({
@@ -1843,8 +1787,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(announcementOf(calls)).toBeUndefined();
   });
 
-  test("voice-duplex-handoff on: an active turn at fire time announces after the turn becomes idle", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("an active turn at fire time announces after the turn becomes idle", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeNeverCompletingTurnStarter();
     const { frames, session } = createHarness({
@@ -1882,8 +1825,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(announcementOf(calls)?.voiceControlPrompt).toContain("THE_RESULT");
   });
 
-  test("voice-duplex-handoff on: a client interrupt between finish and fire cancels the announcement", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a client interrupt between finish and fire cancels the announcement", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { frames, session } = createHarness({
@@ -1912,8 +1854,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(announcementOf(calls)).toBeUndefined();
   });
 
-  test("voice-duplex-handoff on: closing the session between finish and fire cancels the announcement", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("closing the session between finish and fire cancels the announcement", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { frames, session } = createHarness({
@@ -1942,8 +1883,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(announcementOf(calls)).toBeUndefined();
   });
 
-  test("voice-duplex-handoff on: a barge-in over an announcement spawns no continuation", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a barge-in over an announcement spawns no continuation", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeNeverCompletingTurnStarter();
     const { frames, session } = createHarness({
@@ -1977,8 +1917,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(continuation.spawnBackgroundContinuation.mock.calls.length).toBe(1);
   });
 
-  test("voice-duplex-handoff on: a barge-in over an announcement returns the answer to the stash", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a barge-in over an announcement returns the answer to the stash", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeNeverCompletingTurnStarter();
     const { frames, session } = createHarness({
@@ -2018,8 +1957,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(announcementCount(calls)).toBe(1);
   });
 
-  test("voice-duplex-handoff on: an announcement turn that cannot start hands the answer back to the stash", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("an announcement turn that cannot start hands the answer back to the stash", async () => {
     const continuation = makeControlledContinuation();
     const calls: VoiceTurnOptions[] = [];
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
@@ -2069,8 +2007,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(later?.voiceControlPrompt).toContain("THE_RESULT");
   });
 
-  test("voice-duplex-handoff on: an announcement whose launch throws hands the answer back to the stash", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("an announcement whose launch throws hands the answer back to the stash", async () => {
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { session } = createHarness({
       finals: ["stashed question"],
@@ -2123,8 +2060,7 @@ describe("LiveVoiceSession server VAD", () => {
     ).toContain("THE_RESULT");
   });
 
-  test("voice-duplex-handoff on: closing the room delivers a queued announcement into the conversation", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("closing the room delivers a queued announcement into the conversation", async () => {
     injectMessageIntoParentMock.mockClear();
     const continuation = makeControlledContinuation();
     const { startVoiceTurn } = makeResurfaceTurnStarter();
@@ -2165,8 +2101,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(message).toContain("first question");
   });
 
-  test("voice-duplex-handoff on: a speculatively dispatched turn carries the stashed answer and cancels the announcement", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a speculatively dispatched turn carries the stashed answer and cancels the announcement", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { frames, session, transcribers } = createHarness({
@@ -2215,8 +2150,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(announcementCount(calls)).toBe(0);
   });
 
-  test("voice-duplex-handoff on: a held speculative turn hands the stashed answer back for the replay", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("a held speculative turn hands the stashed answer back for the replay", async () => {
     const continuation = makeControlledContinuation();
     const calls: VoiceTurnOptions[] = [];
     const discard = mock(async () => {});
@@ -2280,8 +2214,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(replay?.voiceControlPrompt).toContain("THE_RESULT");
   });
 
-  test("voice-duplex-handoff on: an announcement waits out the client's queued playback", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("an announcement waits out the client's queued playback", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeNeverCompletingTurnStarter();
     const { frames, session } = createHarness({
@@ -2323,8 +2256,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(announcementOf(calls)?.voiceControlPrompt).toContain("THE_RESULT");
   });
 
-  test("voice-duplex-handoff on: captured push-to-talk audio with no transcript yet defers the announcement", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  test("captured push-to-talk audio with no transcript yet defers the announcement", async () => {
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { session } = createHarness({
       startFrame: MANUAL_START_FRAME,
