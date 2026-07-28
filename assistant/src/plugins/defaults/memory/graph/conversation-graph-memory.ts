@@ -15,7 +15,7 @@ import type {
   ImageContent,
   Message,
 } from "@vellumai/plugin-api";
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, ne, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -246,28 +246,48 @@ export class ConversationGraphMemory {
       // background/scheduled summary fills a remaining slot.
       const selectedKeys: string[] = [];
       let backgroundKey: string | null = null;
-      for (
-        let offset = 0;
-        selectedKeys.length < 3;
-        offset += RECENT_SUMMARY_PAGE_SIZE
-      ) {
-        const page = db
-          .select({ scopeKey: memorySummaries.scopeKey })
+      // Keyset cursor over (updatedAt, scopeKey) in most-recent-first order.
+      // Null on the first page; each page advances it past its last row so the
+      // scan resumes through the index rather than re-walking every prior row as
+      // a growing OFFSET would, which keeps the whole read linear in the rows
+      // actually visited. scopeKey is unique per conversation summary, so the
+      // pair is a stable tiebreaker across equal updatedAt values.
+      let cursor: { updatedAt: number; scopeKey: string } | null = null;
+      while (selectedKeys.length < 3) {
+        const beyondCursor: SQL | undefined = cursor
+          ? or(
+              lt(memorySummaries.updatedAt, cursor.updatedAt),
+              and(
+                eq(memorySummaries.updatedAt, cursor.updatedAt),
+                lt(memorySummaries.scopeKey, cursor.scopeKey),
+              ),
+            )
+          : undefined;
+        const page: Array<{ scopeKey: string; updatedAt: number }> = db
+          .select({
+            scopeKey: memorySummaries.scopeKey,
+            updatedAt: memorySummaries.updatedAt,
+          })
           .from(memorySummaries)
           .where(
             and(
               eq(memorySummaries.scope, "conversation"),
               ne(memorySummaries.scopeKey, this.conversationId),
+              beyondCursor,
             ),
           )
-          .orderBy(desc(memorySummaries.updatedAt))
+          .orderBy(
+            desc(memorySummaries.updatedAt),
+            desc(memorySummaries.scopeKey),
+          )
           .limit(RECENT_SUMMARY_PAGE_SIZE)
-          .offset(offset)
-          .all()
-          .map((r) => r.scopeKey);
+          .all();
         if (page.length === 0) {
           break;
         }
+        const lastRow = page[page.length - 1]!;
+        cursor = { updatedAt: lastRow.updatedAt, scopeKey: lastRow.scopeKey };
+        const pageKeys = page.map((r) => r.scopeKey);
 
         const typeByConversation = new Map<string, string>();
         const rows = db
@@ -276,13 +296,13 @@ export class ConversationGraphMemory {
             type: conversations.conversationType,
           })
           .from(conversations)
-          .where(inArray(conversations.id, page))
+          .where(inArray(conversations.id, pageKeys))
           .all();
         for (const r of rows) {
           typeByConversation.set(r.id, r.type);
         }
 
-        for (const scopeKey of page) {
+        for (const scopeKey of pageKeys) {
           const type = typeByConversation.get(scopeKey);
           if (type === undefined) {
             continue; // its conversation row is gone — skip it
