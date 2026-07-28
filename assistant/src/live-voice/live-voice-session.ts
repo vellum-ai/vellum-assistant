@@ -324,6 +324,13 @@ interface UtteranceCycle {
   // this set at a time — see pumpFinalizeQueue.
   finalizeRequested: boolean;
   transcriber: StreamingTranscriber | null;
+  // Manual (push-to-talk) capture routed at least one chunk into this cycle.
+  // It is the only evidence the user is mid-utterance before STT emits
+  // anything: the pending buffers empty out as soon as the transcriber is
+  // streaming, and the archival buffer only fills when audio archiving is on.
+  // server_vad has the turn detector for the same question, and never sets
+  // this — its ingress is handleServerVadAudio.
+  manualAudioCaptured: boolean;
   pendingAudioChunks: Buffer[];
   pendingAudioBytes: number;
   finalTranscriptSegments: string[];
@@ -753,6 +760,7 @@ function createUtteranceCycle(): UtteranceCycle {
     completed: false,
     finalizeRequested: false,
     transcriber: null,
+    manualAudioCaptured: false,
     pendingAudioChunks: [],
     pendingAudioBytes: 0,
     finalTranscriptSegments: [],
@@ -1390,6 +1398,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
+    // The chunk belongs to an utterance the user is still holding the button
+    // for, whether or not the transcriber has produced any text for it yet.
+    utterance.manualAudioCaptured = true;
     this.collectUserAudio(utterance, chunk);
     if (utterance.phase === "pending") {
       // The transcriber is still arming (session start overlaps the STT
@@ -2125,11 +2136,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return "user_speaking";
     }
     const utterance = this.currentUtterance;
+    // Every transcript-derived signal here trails the STT provider, so on its
+    // own it leaves manual mode blind to a user who is talking right now and
+    // has no text yet — hence the captured-audio flag, which manual ingress
+    // sets from the first chunk.
     if (
       utterance !== null &&
       !utterance.completed &&
       (utterance.released ||
         utterance.assistantTurnStarted ||
+        utterance.manualAudioCaptured ||
         utterance.finalTranscriptSegments.length > 0 ||
         utterance.latestPartialText !== null)
     ) {

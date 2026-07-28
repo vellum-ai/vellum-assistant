@@ -2024,6 +2024,55 @@ describe("LiveVoiceSession server VAD", () => {
     expect(announcementOf(calls)?.voiceControlPrompt).toContain("THE_RESULT");
   });
 
+  test("voice-duplex-handoff on: captured push-to-talk audio with no transcript yet defers the announcement", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
+    const { session } = createHarness({
+      startFrame: MANUAL_START_FRAME,
+      finals: ["ptt question"],
+      startVoiceTurn,
+      continuationAnnounceSilenceMs: 20,
+    });
+
+    await session.start();
+    // Settle the arm so the cycle is streaming: from here audio goes straight
+    // to the transcriber and never lands in the pending buffer.
+    await flushAsyncCallbacks();
+
+    // The user is holding the button and talking. The transcriber emits
+    // nothing until the release, so the cycle has no partial and no final —
+    // every transcript-derived idle signal still reads "nobody is speaking".
+    await session.handleBinaryAudio(LOUD_CHUNK);
+
+    // A manual session reaches the announcement path only through machinery a
+    // server_vad barge-in owns, so the state a finished continuation leaves
+    // behind is staged directly: the stashed answer plus its queued
+    // announcement.
+    const internals = session as unknown as {
+      pendingContinuationResult: string | null;
+      pendingAnnouncement: { request: string; answer: string } | null;
+      scheduleContinuationAnnouncement: () => void;
+    };
+    internals.pendingContinuationResult = "THE_RESULT";
+    internals.pendingAnnouncement = {
+      request: "the first question",
+      answer: "THE_RESULT",
+    };
+    internals.scheduleContinuationAnnouncement();
+
+    // The silence timer and the single retry both find the utterance in
+    // flight, so the session never speaks over the in-progress utterance.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(announcementOf(calls)).toBeUndefined();
+
+    // ...and the answer is still stashed for the turn the user does start.
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => calls.some((c) => c.content === "ptt question"));
+    expect(
+      calls.find((c) => c.content === "ptt question")?.voiceControlPrompt,
+    ).toContain("THE_RESULT");
+  });
+
   test("a late assistant_text_delta after a thinking barge-in never reaches the client", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     const abort = mock();
