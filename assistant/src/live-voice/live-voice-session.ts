@@ -40,6 +40,7 @@ import {
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { isRefusedInReadOnlyPass } from "../daemon/conversation-tool-setup.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import { isInstalledStaticSkillLoad } from "../permissions/checker.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
   listProviderIds,
@@ -700,18 +701,20 @@ function buildDuplexContinuationObjective(interruptedRequest: string): string {
 }
 
 // Built-ins beyond the strict read-only allowlist that cannot contend with a
-// background continuation's writes: they touch no workspace, host, or
-// extension state. `skill_load` reads skill files and registers tool
-// definitions — and it is the FIRST call of a barge-in follow-up that
-// re-enters the skill the interrupted turn was using, so counting it as
-// consequential would kill nearly every continuation doing skill-based work
-// at the moment it matters most.
-// `web_fetch` sits on the core SIDE_EFFECT_TOOLS list because an UNATTENDED
-// run firing off external requests is a permission concern — a different
-// question from this gate's, which is only "can these two writers corrupt the
-// same local state?". A network read cannot, so it does not contend.
+// background continuation's writes, whatever their input: they touch no
+// workspace, host, or extension state. `web_fetch` sits on the core
+// SIDE_EFFECT_TOOLS list because an UNATTENDED run firing off external requests
+// is a permission concern — a different question from this gate's, which is
+// only "can these two writers corrupt the same local state?". A network read
+// cannot, so it does not contend.
+//
+// `skill_load` is exempt per-invocation rather than by name. Re-entering an
+// already-installed static skill is the first call of nearly every barge-in
+// follow-up, and killing the continuation there would defeat the feature at the
+// moment it matters most — but a load that auto-installs a missing skill or
+// renders an inline command expansion writes local state and executes shell, so
+// it contends like anything else.
 const FOREGROUND_NON_CONTENDING_TOOLS: ReadonlySet<string> = new Set([
-  "skill_load",
   "web_fetch",
 ]);
 
@@ -724,16 +727,26 @@ const FOREGROUND_NON_CONTENDING_TOOLS: ReadonlySet<string> = new Set([
 // carry no "writes local state" metadata and some of them (app_*, document_*)
 // very much do. `skill_execute` always contends: it is a dispatcher whose
 // resolved inner tool can mutate.
-function foregroundToolContendsWithContinuation(toolName: string): boolean {
+function foregroundToolContendsWithContinuation(
+  toolName: string,
+  input?: Record<string, unknown>,
+): boolean {
   if (toolName === "skill_execute") {
     return true;
   }
   const ownerKind = getToolOwner(toolName)?.kind;
-  if (
-    FOREGROUND_NON_CONTENDING_TOOLS.has(toolName) &&
-    ownerKind === "default"
-  ) {
-    return false;
+  if (ownerKind === "default") {
+    if (FOREGROUND_NON_CONTENDING_TOOLS.has(toolName)) {
+      return false;
+    }
+    // Last, and behind the name checks above: `isInstalledStaticSkillLoad`
+    // re-reads the skill catalog from disk, so only a `skill_load` pays for it.
+    // Absent input fails closed — an unknown target could be an auto-install.
+    if (toolName === "skill_load") {
+      return (
+        input === undefined || !isInstalledStaticSkillLoad(toolName, input)
+      );
+    }
   }
   return isRefusedInReadOnlyPass(toolName, ownerKind);
 }
@@ -3183,7 +3196,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // background teardown here would stall the live call's turn.
             // This gate already makes voice stricter than that baseline; the
             // residual is bounded to one in-flight call at barge-over time.
-            if (foregroundToolContendsWithContinuation(toolName)) {
+            if (
+              foregroundToolContendsWithContinuation(toolName, detail?.input)
+            ) {
               this.abortDetachedRuns({
                 keepPendingResult: true,
                 reason: "foreground_tool_contends",
