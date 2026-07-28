@@ -13,6 +13,8 @@ import type {
 } from "@vellumai/assistant-api";
 import { Card } from "@vellumai/design-library";
 
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
+
 import { conceptPageQueryOptions } from "../../concept-page-api";
 
 /**
@@ -959,10 +961,13 @@ function CopyButton({ text }: { text: string }): ReactNode {
   useEffect(() => () => { clearTimeout(timerRef.current!); }, []);
 
   const handleCopy = () => {
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      clearTimeout(timerRef.current!);
-      timerRef.current = setTimeout(() => setCopied(false), 1500);
+    copyToClipboard(text, {
+      errorMessage: "Couldn't copy to clipboard.",
+      onCopied: () => {
+        setCopied(true);
+        clearTimeout(timerRef.current!);
+        timerRef.current = setTimeout(() => setCopied(false), 1500);
+      },
     });
   };
 

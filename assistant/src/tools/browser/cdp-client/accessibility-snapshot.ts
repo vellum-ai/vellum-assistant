@@ -49,6 +49,22 @@ export interface AxSnapshotResult {
 /** Default maximum number of interactive elements returned in a snapshot. */
 const DEFAULT_MAX_ELEMENTS = 150;
 
+/** Maximum length of an accessible name. */
+const MAX_NAME_CHARS = 80;
+
+/**
+ * Maximum length of an element `value` or a surfaced attribute value.
+ *
+ * Element count alone does not bound a snapshot: the `url` and
+ * `placeholder` properties carry page-authored strings of arbitrary
+ * length (a data-URI href runs to megabytes). Capping them makes the
+ * formatted snapshot proportional to the element count, which is what
+ * lets the caller pick a fence budget that provably cannot cut the
+ * element list short. Sized above {@link MAX_NAME_CHARS} because a URL
+ * needs more room than a label to stay recognizable.
+ */
+const MAX_VALUE_CHARS = 120;
+
 /**
  * AX roles we consider "interactive" and surface to the LLM. Includes
  * common form controls, links, buttons, and standard ARIA interactive
@@ -250,7 +266,7 @@ function extractAttrs(node: RawAxNode): Record<string, string> {
     const name = prop?.name;
     if (typeof name !== "string") continue;
     if (!PROPERTY_ALLOWLIST.has(name)) continue;
-    attrs[name] = stringifyAxValue(prop.value?.value);
+    attrs[name] = stringifyAxValue(prop.value?.value).slice(0, MAX_VALUE_CHARS);
   }
   return attrs;
 }
@@ -298,12 +314,12 @@ export function transformAxTree(
     if (!isKeeperNode(node)) continue;
 
     const rawName = typeof node.name?.value === "string" ? node.name.value : "";
-    const name = rawName.trim().slice(0, 80);
+    const name = rawName.trim().slice(0, MAX_NAME_CHARS);
 
     const rawValue = node.value?.value;
     const value =
       typeof rawValue === "string" && rawValue.length > 0
-        ? rawValue
+        ? rawValue.slice(0, MAX_VALUE_CHARS)
         : undefined;
 
     const attrs = extractAttrs(node);
