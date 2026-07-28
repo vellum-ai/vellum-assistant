@@ -680,8 +680,20 @@ async function runReconcile(
   assistantId: string,
   parentConversationId: string,
 ): Promise<void> {
-  const requestedAt = Date.now();
   const generation = resetGeneration;
+  // Absence from the response is only evidence about rows the daemon could
+  // have reported — the ones this conversation already held, still active,
+  // when the request went out. Captured before the await rather than inferred
+  // from `spawnedAt` afterwards: history hydration stamps that field at
+  // hydration time, so a row recovered from an older run looks brand new and
+  // would exempt itself from settling forever.
+  const candidateIds = Object.values(get().byId)
+    .filter(
+      (entry) =>
+        entry.parentConversationId === parentConversationId &&
+        isActiveStatus(entry.status),
+    )
+    .map((entry) => entry.subagentId);
   let snapshot: Record<string, ReconciledSubagent>;
   try {
     const { data, response } = await subagentsReconcileGet({
@@ -722,19 +734,21 @@ async function runReconcile(
     );
   }
 
-  // Settle this conversation's orphans. An entry younger than the request
-  // postdates the snapshot, so its absence proves nothing about it.
+  // Settle this conversation's orphans: a candidate the daemon didn't report
+  // died with it, and no terminal event is ever coming. Re-checked against the
+  // store as it stands now — a terminal event that landed during the
+  // round-trip already settled the row truthfully.
   const { byId, changeStatus } = get();
-  for (const entry of Object.values(byId)) {
+  for (const subagentId of candidateIds) {
+    const entry = byId[subagentId];
     if (
-      entry.parentConversationId !== parentConversationId ||
+      !entry ||
       !isActiveStatus(entry.status) ||
-      entry.spawnedAt >= requestedAt ||
-      Object.hasOwn(snapshot, entry.subagentId)
+      Object.hasOwn(snapshot, subagentId)
     ) {
       continue;
     }
-    changeStatus({ subagentId: entry.subagentId, status: "interrupted" });
+    changeStatus({ subagentId, status: "interrupted" });
   }
 }
 
@@ -993,6 +1007,15 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
         ? params.conversationId
         : existing.conversationId;
 
+    // A detail fetch issued while the run was live answers a round-trip late,
+    // so it can still report `running` for a subagent whose terminal event has
+    // since landed. Same rule as every other out-of-band source: a settled
+    // entry never walks back to active (see `shouldApplyStatus`).
+    const status =
+      params.status && shouldApplyStatus(existing.status, params.status)
+        ? params.status
+        : existing.status;
+
     set({
       byId: {
         ...byId,
@@ -1003,7 +1026,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
           // learned from `subagent_spawned` wins (same source of truth).
           label: existing.label || (params.label ?? ""),
           parentToolUseId,
-          status: params.status ?? existing.status,
+          status,
           objective: params.objective ?? existing.objective,
           inputTokens: params.inputTokens ?? existing.inputTokens,
           outputTokens: params.outputTokens ?? existing.outputTokens,

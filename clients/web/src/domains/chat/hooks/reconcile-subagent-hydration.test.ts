@@ -217,6 +217,43 @@ describe("reconcileSubagentStoreFromNotifications", () => {
     expect(store().byId["anchored"]?.parentMessageId).toBe("msg-original");
   });
 
+  test("names a blank stub from the notification", () => {
+    // A stub materialized from a bare `subagent_status_changed` has no label
+    // at all; without this it stays blank for the rest of the session.
+    store().ensureEntry({ subagentId: "stub", timestamp: NOW, status: "running" });
+    expect(store().byId["stub"]?.label).toBe("");
+
+    reconcileSubagentStoreFromNotifications(
+      store(),
+      [
+        {
+          subagentId: "stub",
+          label: "Audit defenses",
+          status: "running",
+          objective: "Check the locks",
+        },
+      ],
+      PARENT,
+      NOW,
+    );
+
+    expect(store().byId["stub"]?.label).toBe("Audit defenses");
+    expect(store().byId["stub"]?.objective).toBe("Check the locks");
+  });
+
+  test("does not overwrite an identity the entry already has", () => {
+    // `subagent_spawned` is the same source of truth, seen first-hand.
+    spawn("named", "running"); // label === "named"
+    reconcileSubagentStoreFromNotifications(
+      store(),
+      [{ subagentId: "named", label: "Different", status: "running" }],
+      PARENT,
+      NOW,
+    );
+
+    expect(store().byId["named"]?.label).toBe("named");
+  });
+
   test("stamps the parent id on a live entry via the merge path", () => {
     spawn("sub", "running");
     reconcileSubagentStoreFromNotifications(

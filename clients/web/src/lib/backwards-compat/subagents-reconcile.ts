@@ -12,7 +12,10 @@
  * a bare `{status}` response from 0.10.0–0.10.12 still updates known
  * entries and stubs unknowns.
  */
-import { assistantSupports } from "@/lib/backwards-compat/utils";
+import {
+  assistantSupports,
+  useAssistantSupports,
+} from "@/lib/backwards-compat/utils";
 
 const MIN_VERSION = "0.10.0";
 
@@ -22,4 +25,17 @@ const MIN_VERSION = "0.10.0";
  */
 export function supportsSubagentsReconcile(): boolean {
   return assistantSupports(MIN_VERSION);
+}
+
+/**
+ * Render-time form of the same gate, for the triggers that fire once.
+ *
+ * The version is hydrated asynchronously by the identity fetch and cleared on
+ * every assistant switch, so the snapshot reads `false` for the first moments
+ * of a cold load. A mount effect that captured that answer would skip its
+ * single pass for good; subscribing instead re-runs it the moment the version
+ * lands.
+ */
+export function useSupportsSubagentsReconcile(): boolean {
+  return useAssistantSupports(MIN_VERSION);
 }

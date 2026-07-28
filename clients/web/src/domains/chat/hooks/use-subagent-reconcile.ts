@@ -22,12 +22,21 @@
  * subagents to reconcile against. Both triggers fire freely: the store
  * throttles per parent conversation, so a flapping stream costs one round-trip
  * per window rather than one per reopen.
+ *
+ * The version gate is read reactively rather than snapshotted: the assistant
+ * version arrives asynchronously and is cleared on every assistant switch, so
+ * a cold load routinely mounts this hook before it is known. Holding the
+ * conversation-load pass until the version resolves is the difference between
+ * that pass running late and it never running at all — the SSE trigger skips
+ * `"fresh"` opens, and the unknown-id kick only fires for subagents that
+ * stream something.
  */
 
 import { useCallback, useEffect } from "react";
 
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { useSupportsSubagentsReconcile } from "@/lib/backwards-compat/subagents-reconcile";
 import type { BusEventPayload } from "@/lib/event-bus";
 
 type SseOpenedCause = BusEventPayload<"sse.opened">["cause"];
@@ -44,14 +53,26 @@ export function useSubagentReconcile(
   conversationId: string | null,
   conversationExistsOnServer: boolean,
 ): void {
+  const supportsReconcile = useSupportsSubagentsReconcile();
+
   const resync = useCallback(() => {
-    if (!assistantId || !conversationId || !conversationExistsOnServer) {
+    if (
+      !supportsReconcile ||
+      !assistantId ||
+      !conversationId ||
+      !conversationExistsOnServer
+    ) {
       return;
     }
     void useSubagentStore
       .getState()
       .reconcileFromDaemon(assistantId, conversationId);
-  }, [assistantId, conversationId, conversationExistsOnServer]);
+  }, [
+    supportsReconcile,
+    assistantId,
+    conversationId,
+    conversationExistsOnServer,
+  ]);
 
   useEffect(() => {
     resync();

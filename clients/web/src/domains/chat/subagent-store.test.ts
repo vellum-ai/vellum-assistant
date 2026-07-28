@@ -1717,6 +1717,45 @@ describe("loadDetail identity backfill", () => {
     expect(getState().byId["sa-1"]?.parentToolUseId).toBe("toolu_original");
     expect(getState().byToolUseId).toBe(byToolUseIdBefore);
   });
+
+  it("never walks a settled entry back to an active status", () => {
+    // The fetch was issued while the run was live; its answer landed after the
+    // terminal event. Nothing further is coming, so a regression here would
+    // strand the card `running` forever.
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      status: "completed",
+      timestamp: NOW,
+    });
+
+    getState().loadDetail({
+      subagentId: "sa-1",
+      events: [],
+      status: "running",
+    });
+
+    expect(getState().byId["sa-1"]?.status).toBe("completed");
+  });
+
+  it("applies a terminal status to a live entry", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      status: "running",
+      timestamp: NOW,
+    });
+
+    getState().loadDetail({
+      subagentId: "sa-1",
+      events: [],
+      status: "completed",
+    });
+
+    expect(getState().byId["sa-1"]?.status).toBe("completed");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -2000,6 +2039,62 @@ describe("reconcileFromDaemon", () => {
     await pending;
 
     expect(getState().byId["sa-late"]?.status).toBe("running");
+  });
+
+  it("leaves an entry hydration materialized mid-flight alone", async () => {
+    // A history page landing during the round-trip describes rows the daemon
+    // was never asked about, so their absence from this response is not
+    // evidence — the next pass, which does see them, decides.
+    reconcileReply = { ok: true, subagents: {} };
+
+    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    reconcileSubagentStoreFromNotifications(
+      getState(),
+      [{ subagentId: "sa-hydrated", label: "Agent", status: "running" }],
+      "conv-parent",
+      Date.now(),
+    );
+    await pending;
+
+    expect(getState().byId["sa-hydrated"]?.status).toBe("running");
+  });
+
+  it("settles a hydrated row that was already present when the request went out", async () => {
+    // Hydration stamps `spawnedAt` at hydration time, so a row it recovered
+    // moments before the request looks younger than it: the old
+    // `spawnedAt >= requestedAt` heuristic exempted exactly the stuck-`running`
+    // rows this pass exists to settle.
+    setSystemTime(new Date(NOW));
+    reconcileSubagentStoreFromNotifications(
+      getState(),
+      [{ subagentId: "sa-hydrated", label: "Agent", status: "running" }],
+      "conv-parent",
+      Date.now(),
+    );
+    reconcileReply = { ok: true, subagents: {} };
+
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent");
+
+    expect(getState().byId["sa-hydrated"]?.status).toBe("interrupted");
+  });
+
+  it("leaves a candidate that settled truthfully during the round-trip alone", async () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "",
+      status: "running",
+      parentConversationId: "conv-parent",
+      timestamp: NOW,
+    });
+    reconcileReply = { ok: true, subagents: {} };
+
+    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    // The terminal event the snapshot predates.
+    getState().changeStatus({ subagentId: "sa-1", status: "completed" });
+    await pending;
+
+    expect(getState().byId["sa-1"]?.status).toBe("completed");
   });
 
   it("leaves an absent entry from another conversation untouched", async () => {
