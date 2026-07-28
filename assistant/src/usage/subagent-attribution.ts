@@ -56,26 +56,11 @@ export function resolveSubagentAttribution(
     return cached;
   }
 
-  let row: { subagent_role: string | null; subagent_spawn_mode: string | null };
-  try {
-    const found = rawGet<{
-      subagent_role: string | null;
-      subagent_spawn_mode: string | null;
-    }>(
-      "usage:subagentAttribution",
-      `SELECT subagent_role, subagent_spawn_mode FROM conversations WHERE id = ?`,
-      conversationId,
-    );
-    if (!found) {
-      // No row (yet). Deliberately NOT cached: caching a miss would pin an
-      // empty result for a conversation whose row lands moments later.
-      return NOT_A_SUBAGENT;
-    }
-    row = found;
-  } catch (err) {
-    // Includes the pre-migration case (column absent) and any DB-unavailable
-    // context such as unit tests that exercise the provider stack alone.
-    log.debug({ err, conversationId }, "Subagent attribution lookup failed");
+  const row = readRow(conversationId);
+  if (!row) {
+    // Either no row yet, or the read failed. Deliberately NOT cached: caching
+    // a miss would pin an empty result for a conversation whose row lands
+    // moments later, or for the whole process after one transient DB error.
     return NOT_A_SUBAGENT;
   }
 
@@ -91,6 +76,30 @@ export function resolveSubagentAttribution(
   }
   cache.set(conversationId, attribution);
   return attribution;
+}
+
+interface ConversationSubagentRow {
+  subagent_role: string | null;
+  subagent_spawn_mode: string | null;
+}
+
+/**
+ * Read the two columns, or `null` when the conversation has no row or the
+ * read fails. Failure covers the pre-migration case (columns absent) and any
+ * DB-unavailable context, such as a unit test exercising the provider stack
+ * alone — attribution must never be able to take a model request down.
+ */
+function readRow(conversationId: string): ConversationSubagentRow | null {
+  try {
+    return rawGet<ConversationSubagentRow>(
+      "usage:subagentAttribution",
+      `SELECT subagent_role, subagent_spawn_mode FROM conversations WHERE id = ?`,
+      conversationId,
+    );
+  } catch (err) {
+    log.debug({ err, conversationId }, "Subagent attribution lookup failed");
+    return null;
+  }
 }
 
 /** Test seam — drops every memoized entry. */
