@@ -11,7 +11,6 @@ import {
 } from "../providers/vellum-model-routing.js";
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
 import {
-  getEffectiveProfile,
   isMatrixProfileKey,
   resolveDefaultProfileForProvider,
 } from "./default-profile-catalog.js";
@@ -57,7 +56,9 @@ import {
  * sits at the top of the chain for every call site.
  *
  * Profile names are resolved against the effective profile catalog
- * (code-defined defaults + workspace `llm.profiles`; see `getEffectiveProfile`).
+ * (code-defined defaults + workspace `llm.profiles`), with default profile
+ * keys resolved through `llm.defaultProvider`'s column of the intent ×
+ * provider matrix (see `resolveDefaultProfileForProvider`).
  * A "mix" profile is expanded to one of its arms by a seeded weighted pick (see
  * `resolveProfileFragment` and `opts.selectionSeed`), uniformly wherever a name
  * is dereferenced. Missing references silently fall through (no throw) so the
@@ -514,8 +515,7 @@ function resolveProfileFragment(
   name: string | undefined,
   llm: z.infer<typeof LLMSchema>,
   opts: ResolveCallSiteOpts,
-  lookupEntry: (name: string) => ProfileEntry | undefined = (n) =>
-    getEffectiveProfile(llm.profiles, n),
+  lookupEntry: (name: string) => ProfileEntry | undefined,
 ): ProfileEntry | undefined {
   if (name == null) {
     return undefined;
