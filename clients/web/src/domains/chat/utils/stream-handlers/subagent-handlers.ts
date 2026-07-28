@@ -6,7 +6,6 @@ import {
 } from "@vellumai/assistant-api";
 
 import { useSubagentStore } from "@/domains/chat/subagent-store";
-import { supportsSubagentDetailSelfLookup } from "@/lib/backwards-compat/subagent-detail-self-lookup";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 
 export function handleSubagentSpawned(
@@ -19,6 +18,7 @@ export function handleSubagentSpawned(
     objective: event.objective,
     isFork: event.isFork,
     timestamp: Date.now(),
+    parentConversationId: event.parentConversationId,
     parentMessageStableId: ctx.currentAssistantMessageIdRef.current,
     parentToolUseId: event.parentToolUseId,
   });
@@ -56,30 +56,42 @@ export function handleSubagentEvent(
   _ctx: StreamHandlerContext,
 ): void {
   const store = useSubagentStore.getState();
+  const inner = event.event;
+
+  // The envelope's `conversationId` is the PARENT conversation (stamped by
+  // `wrappedSendToClient` in `assistant/src/subagent/manager.ts`); the
+  // subagent's own id rides on the inner event, where
+  // `SubagentInnerEventSchema`'s passthrough preserves it without declaring it
+  // on the inferred type — hence the narrow cast.
+  const parentConversationId = event.conversationId || undefined;
+  const innerConversationId = (inner as { conversationId?: string })
+    .conversationId;
+  const childConversationId =
+    typeof innerConversationId === "string" &&
+    innerConversationId.length > 0 &&
+    innerConversationId !== parentConversationId
+      ? innerConversationId
+      : undefined;
+
   // Same recovery as `handleSubagentStatusChanged`: an unknown id means the
-  // spawn event was missed, so materialize a stub. `event.conversationId` is
-  // the PARENT conversation id — only pass it (arming the detail backfill)
-  // when the daemon resolves the subagent's own conversation itself; an
-  // older daemon would parse the parent's messages as the subagent's.
-  const wasKnown = Boolean(store.byId[event.subagentId]);
-  if (!wasKnown) {
+  // spawn event was missed, so materialize a stub. `ensureEntry` decides from
+  // the ids at hand whether the detail backfill can be armed.
+  if (store.byId[event.subagentId]) {
+    if (parentConversationId) {
+      store.setParentConversationId(event.subagentId, parentConversationId);
+    }
+    if (childConversationId) {
+      store.setConversationId(event.subagentId, childConversationId);
+    }
+  } else {
     store.ensureEntry({
       subagentId: event.subagentId,
       timestamp: Date.now(),
-      conversationId: supportsSubagentDetailSelfLookup()
-        ? event.conversationId
-        : undefined,
+      conversationId: childConversationId,
+      parentConversationId,
     });
   }
-  // Don't stamp the parent conversation id onto a stub on a pre-0.10.13
-  // daemon: it would arm the detail auto-fetch with an id the old daemon
-  // trusts verbatim, backfilling the PARENT conversation's messages as the
-  // subagent's. Known entries keep the historical behavior.
-  if (event.conversationId && (wasKnown || supportsSubagentDetailSelfLookup())) {
-    store.setConversationId(event.subagentId, event.conversationId);
-  }
 
-  const inner = event.event;
   if (inner.type === "usage_progress") {
     const parsed = UsageProgressEventSchema.safeParse(inner);
     store.updateUsage({

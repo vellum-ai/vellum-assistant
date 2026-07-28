@@ -4,7 +4,9 @@
  * - Reset subagent tracking state (needed for URL-navigation paths that
  *   bypass the `switchConversation` / `startNewConversation` wrappers)
  * - Auto-fetch detail for subagents reconstructed from conversation history
- *   (entries with a `conversationId` but no events yet)
+ *   (entries with a `conversationId` but no events yet) and for stubs
+ *   recovered from a missed `subagent_spawned` that are awaiting their
+ *   backfill (`hydrationPending`)
  *
  * Note: interaction store cleanup (`dismissQuestion`, `resetAll`) is NOT
  * handled here — `switchToConversation()` in `chat-session-store` already
@@ -14,8 +16,26 @@
 
 import { useEffect, useLayoutEffect } from "react";
 
-import { useSubagentStore } from "@/domains/chat/subagent-store";
+import {
+  useSubagentStore,
+  type SubagentEntry,
+} from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
+
+/**
+ * An entry whose timeline is still empty and that carries an id the daemon can
+ * resolve. `hydrationPending` covers the stub armed with only a parent
+ * conversation id: `fetchDetailIfNeeded` can address it (0.10.13+ daemons
+ * self-resolve the subagent's conversation) even though the child-semantic
+ * `conversationId` is deliberately unset. Without it such a stub would defer
+ * live events forever waiting on a fetch nothing triggers.
+ */
+function needsDetailFetch(entry: SubagentEntry): boolean {
+  return (
+    entry.events.length === 0 &&
+    Boolean(entry.conversationId || entry.hydrationPending)
+  );
+}
 
 export function useConversationChangeEffects(
   assistantId: string | null,
@@ -38,15 +58,13 @@ export function useConversationChangeEffects(
   }, [activeConversationId]);
 
   // Stable signal: changes only when the set of subagent IDs that need a
-  // detail fetch changes (entry appears with conversationId + no events,
-  // or an entry receives events). Immune to loadDetail calls that update
-  // status/objective without changing events, preventing retrigger loops.
+  // detail fetch changes (an entry becomes eligible, or an entry receives
+  // events). Immune to loadDetail calls that update status/objective without
+  // changing events, preventing retrigger loops.
   const unfetchedSubagentKey = useSubagentStore((s) => {
     const ids: string[] = [];
     for (const entry of Object.values(s.byId)) {
-      if (entry.conversationId && entry.events.length === 0) {
-        ids.push(entry.subagentId);
-      }
+      if (needsDetailFetch(entry)) ids.push(entry.subagentId);
     }
     return ids.sort().join(',');
   });
@@ -55,7 +73,7 @@ export function useConversationChangeEffects(
   useEffect(() => {
     if (!assistantId || !unfetchedSubagentKey) return;
     for (const entry of Object.values(useSubagentStore.getState().byId)) {
-      if (entry.conversationId && entry.events.length === 0) {
+      if (needsDetailFetch(entry)) {
         void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, entry.subagentId);
       }
     }

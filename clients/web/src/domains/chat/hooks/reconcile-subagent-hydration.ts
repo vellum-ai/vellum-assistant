@@ -1,11 +1,16 @@
-import type { SubagentStatus } from "@vellumai/assistant-api";
+import { SubagentStatusSchema } from "@vellumai/assistant-api";
 
 import type { SubagentStore } from "@/domains/chat/subagent-store";
 import { isActiveStatus } from "@/utils/subagent-status";
 
 type SubagentStoreSlice = Pick<
   SubagentStore,
-  "byId" | "reset" | "spawnSubagent" | "changeStatus" | "setConversationId"
+  | "byId"
+  | "reset"
+  | "spawnSubagent"
+  | "changeStatus"
+  | "setConversationId"
+  | "setParentConversationId"
 >;
 
 export interface SubagentNotificationLike {
@@ -28,10 +33,15 @@ export interface SubagentNotificationLike {
  * subagent is in flight we merge instead: upsert notified subagents and apply a
  * terminal status to a live entry that just finished, without discarding its
  * streamed events.
+ *
+ * `parentConversationId` is the conversation being hydrated — it scopes the
+ * Active-Subagents overlay. A notification's own `conversationId` is the
+ * subagent's (child) conversation, used only for detail fetch.
  */
 export function reconcileSubagentStoreFromNotifications(
   store: SubagentStoreSlice,
   notifications: Iterable<SubagentNotificationLike>,
+  parentConversationId: string,
   now: number,
 ): void {
   const priorById = store.byId;
@@ -42,20 +52,28 @@ export function reconcileSubagentStoreFromNotifications(
   if (!hasInFlight) store.reset();
 
   for (const n of notifications) {
-    const status = (n.status as SubagentStatus) || "completed";
+    const parsed = SubagentStatusSchema.safeParse(n.status);
     if (hasInFlight && priorById[n.subagentId]) {
-      store.changeStatus({ subagentId: n.subagentId, status });
+      // An unparseable status carries no information about a live entry —
+      // keep whatever the stream told us rather than flipping it terminal.
+      if (parsed.success) {
+        store.changeStatus({ subagentId: n.subagentId, status: parsed.data });
+      }
       if (n.conversationId) {
         store.setConversationId(n.subagentId, n.conversationId);
       }
+      store.setParentConversationId(n.subagentId, parentConversationId);
     } else {
       store.spawnSubagent({
         subagentId: n.subagentId,
         label: n.label,
         objective: "",
-        status,
+        // A notification for an unknown subagent with no parseable status is
+        // historical, so a terminal default is the safe read.
+        status: parsed.success ? parsed.data : "completed",
         error: n.error,
         conversationId: n.conversationId,
+        parentConversationId,
         timestamp: now,
         parentMessageId: n.parentMessageId,
       });

@@ -19,6 +19,7 @@ import { createSelectors } from "@/utils/create-selectors";
 import type { SubagentStatus, SubagentInnerEvent } from "@vellumai/assistant-api";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import { isActiveStatus } from "@/utils/subagent-status";
+import { supportsSubagentDetailSelfLookup } from "@/lib/backwards-compat/subagent-detail-self-lookup";
 import { fetchSubagentDetail } from "./fetch-subagent-detail";
 import { mapDetailEvents } from "./map-detail-events";
 import { setToolUseAnchor } from "./store-helpers/by-tool-use-id-index";
@@ -73,6 +74,12 @@ export interface SubagentEntry {
   events: SubagentTimelineEvent[];
   /** The subagent's own conversation ID, used to fetch detail data. */
   conversationId?: string;
+  /**
+   * Conversation ID of the PARENT conversation whose turn spawned this
+   * subagent. Scopes the Active-Subagents overlay to the viewed conversation
+   * (`useActiveSubagentIds`); never used to fetch detail.
+   */
+  parentConversationId?: string;
   /** StableId of the parent assistant message that spawned this subagent. */
   parentMessageStableId?: string;
   /** Daemon UUID of the parent assistant message. Stable across reloads. */
@@ -157,6 +164,7 @@ export interface SubagentActions {
     isFork?: boolean;
     timestamp: number;
     conversationId?: string;
+    parentConversationId?: string;
     status?: SubagentStatus;
     error?: string;
     parentMessageStableId?: string;
@@ -179,16 +187,20 @@ export interface SubagentActions {
    * because the `subagent_spawned` event was missed (SSE gap, page reload)
    * or the store was reset after it arrived. No-op when the entry exists.
    *
-   * When `conversationId` is provided the stub is marked
-   * `hydrationPending` and left with zero events, which makes the
-   * detail auto-fetch (`fetchDetailIfNeeded`) backfill the authoritative
-   * label/objective/status/timeline. Without one the stub renders from
-   * whatever streams in — a generic but functional card.
+   * The stub is marked `hydrationPending` and left with zero events —
+   * making the detail auto-fetch (`fetchDetailIfNeeded`) backfill the
+   * authoritative label/objective/status/timeline — whenever the ids at hand
+   * can address the subagent's own conversation: either `conversationId`
+   * (the child id, good on every daemon) or, on a daemon that resolves the
+   * subagent's conversation itself, `parentConversationId` as a wire
+   * placeholder. Otherwise the stub renders from whatever streams in — a
+   * generic but functional card.
    */
   ensureEntry: (params: {
     subagentId: string;
     timestamp: number;
     conversationId?: string;
+    parentConversationId?: string;
     status?: SubagentStatus;
   }) => void;
 
@@ -216,7 +228,18 @@ export interface SubagentActions {
     parentToolUseId?: string;
   }) => void;
 
+  /**
+   * Stamp the subagent's own conversation id, used to fetch detail. No-ops
+   * when the entry is unknown or already carries that id, so the per-event
+   * call path doesn't churn store identity.
+   */
   setConversationId: (subagentId: string, conversationId: string) => void;
+
+  /** Same, for the parent conversation id that scopes the overlay. */
+  setParentConversationId: (
+    subagentId: string,
+    parentConversationId: string,
+  ) => void;
 
   /**
    * Attach the durable server `messageId` to every entry currently anchored
@@ -439,6 +462,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       spawnedAt: params.timestamp,
       events: [],
       conversationId: params.conversationId,
+      parentConversationId: params.parentConversationId,
       parentMessageStableId: params.parentMessageStableId,
       parentMessageId: params.parentMessageId,
       parentToolUseId: params.parentToolUseId,
@@ -463,6 +487,15 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
 
   ensureEntry: (params) => {
     if (get().byId[params.subagentId]) return;
+    // The child id addresses the subagent's conversation on every daemon. The
+    // parent id only works as a placeholder on a daemon that self-resolves the
+    // subagent's conversation — and even then it stays out of the
+    // child-semantic `conversationId` field.
+    const armsBackfill =
+      Boolean(params.conversationId) ||
+      (Boolean(params.parentConversationId) &&
+        supportsSubagentDetailSelfLookup());
+
     get().spawnSubagent({
       subagentId: params.subagentId,
       // Placeholder identity — the detail fetch backfills the real label
@@ -471,20 +504,20 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       objective: "",
       status: params.status ?? "running",
       conversationId: params.conversationId,
+      parentConversationId: params.parentConversationId,
       timestamp: params.timestamp,
     });
-    if (params.conversationId) {
-      const { byId } = get();
-      const entry = byId[params.subagentId];
-      if (entry) {
-        set({
-          byId: {
-            ...byId,
-            [params.subagentId]: { ...entry, hydrationPending: true },
-          },
-        });
-      }
-    }
+
+    if (!armsBackfill) return;
+    const { byId } = get();
+    const entry = byId[params.subagentId];
+    if (!entry) return;
+    set({
+      byId: {
+        ...byId,
+        [params.subagentId]: { ...entry, hydrationPending: true },
+      },
+    });
   },
 
   changeStatus: (params) => {
@@ -654,11 +687,26 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     const { byId } = get();
     const existing = byId[subagentId];
     if (!existing) return;
+    if (existing.conversationId === conversationId) return;
 
     set({
       byId: {
         ...byId,
         [subagentId]: { ...existing, conversationId },
+      },
+    });
+  },
+
+  setParentConversationId: (subagentId, parentConversationId) => {
+    const { byId } = get();
+    const existing = byId[subagentId];
+    if (!existing) return;
+    if (existing.parentConversationId === parentConversationId) return;
+
+    set({
+      byId: {
+        ...byId,
+        [subagentId]: { ...existing, parentConversationId },
       },
     });
   },
@@ -716,7 +764,18 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   fetchDetailIfNeeded: async (assistantId, subagentId) => {
     const { byId, fetchedAt } = get();
     const entry = byId[subagentId];
-    if (!entry?.conversationId) return;
+    if (!entry) return;
+    // A stub recovered without its `subagent_spawned` may only know the parent
+    // conversation. 0.10.13+ daemons resolve the subagent's own conversation
+    // and treat this parameter as a fallback, so the parent id is a harmless
+    // wire placeholder there; an older daemon would trust it verbatim and
+    // parse the parent's messages as the subagent's.
+    const queryConversationId =
+      entry.conversationId ??
+      (supportsSubagentDetailSelfLookup()
+        ? entry.parentConversationId
+        : undefined);
+    if (!queryConversationId) return;
     if (entry.events.length > 0) return;
 
     const prev = fetchedAt.get(subagentId);
@@ -727,7 +786,11 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     nextFetchedAt.set(subagentId, entry.spawnedAt);
     set({ fetchedAt: nextFetchedAt });
 
-    const detail = await fetchSubagentDetail(assistantId, subagentId, entry.conversationId);
+    const detail = await fetchSubagentDetail(
+      assistantId,
+      subagentId,
+      queryConversationId,
+    );
 
     const clearMarker = () => {
       const next = new Map(get().fetchedAt);

@@ -15,15 +15,34 @@
  *    preserves in-flight subagents — they stream from SSE, not history
  *    notifications — so this reset is the *only* thing that stops a live
  *    subagent in conversation A from leaking into conversation B.
+ *
+ * 3. The auto-fetch reaches a stub recovered from a missed `subagent_spawned`
+ *    that only knows its parent conversation. Such a stub defers live events
+ *    until its backfill lands, so nothing else would ever un-stick it.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 
-import { useConversationChangeEffects } from "@/domains/chat/hooks/use-conversation-change-effects";
-import { useSubagentStore } from "@/domains/chat/subagent-store";
-import { useWorkflowStore } from "@/domains/chat/workflow-store";
+mock.module("@/lib/backwards-compat/subagent-detail-self-lookup", () => ({
+  supportsSubagentDetailSelfLookup: () => true,
+}));
+
+const fetchSubagentDetail = mock(
+  async (
+    _assistantId: string,
+    _subagentId: string,
+    _conversationId: string,
+  ): Promise<null> => null,
+);
+mock.module("../fetch-subagent-detail", () => ({ fetchSubagentDetail }));
+
+const { useConversationChangeEffects } = await import(
+  "@/domains/chat/hooks/use-conversation-change-effects"
+);
+const { useSubagentStore } = await import("@/domains/chat/subagent-store");
+const { useWorkflowStore } = await import("@/domains/chat/workflow-store");
 
 const NOW = 1700000000000;
 
@@ -31,6 +50,7 @@ afterEach(() => {
   cleanup();
   useWorkflowStore.getState().reset();
   useSubagentStore.getState().reset();
+  fetchSubagentDetail.mockClear();
 });
 
 describe("useConversationChangeEffects — reset ordering", () => {
@@ -94,5 +114,32 @@ describe("useConversationChangeEffects — subagent reset on conversation switch
 
     expect(useSubagentStore.getState().byId["sa-running"]).toBeUndefined();
     expect(useSubagentStore.getState().orderedIds).toEqual([]);
+  });
+});
+
+describe("useConversationChangeEffects — stub detail auto-fetch", () => {
+  function Harness() {
+    useConversationChangeEffects("asst-1", "conv-A");
+    return null;
+  }
+
+  test("hydrates a stub that only knows its parent conversation", async () => {
+    render(<Harness />);
+
+    // A `subagent_event` for an unknown id on a self-lookup daemon: the stub is
+    // armed for backfill but carries no child conversation id.
+    useSubagentStore.getState().ensureEntry({
+      subagentId: "sa-stub",
+      timestamp: NOW,
+      parentConversationId: "conv-A",
+    });
+
+    await waitFor(() =>
+      expect(fetchSubagentDetail).toHaveBeenCalledWith(
+        "asst-1",
+        "sa-stub",
+        "conv-A",
+      ),
+    );
   });
 });
