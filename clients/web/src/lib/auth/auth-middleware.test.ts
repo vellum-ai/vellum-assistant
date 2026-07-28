@@ -682,7 +682,8 @@ describe("authMiddleware — hydration timeout", () => {
   // after the timeout leaves the consent flags at their boot `false`, so the
   // funnel's own gate would read a consented user as un-onboarded and evict
   // them into privacy — losing a paid return's markers, restarting a free
-  // user's onboarding. It admits instead.
+  // user's onboarding. It admits instead. The assistants list is hydrated here,
+  // so the fail-open rests on the consent wait alone.
   test("admits a research funnel entry whose consent hydration hung", async () => {
     isLocalModeMock.mockImplementation(() => false);
     useAuthStore.setState({
@@ -736,6 +737,80 @@ describe("authMiddleware — hydration timeout", () => {
       );
     } finally {
       useOnboardingStore.setState({ consentHydrated: priorConsentHydrated });
+    }
+  });
+
+  // The fail-open belongs to the consent wait alone. Consent that hydrates on
+  // time reports a settled "not consented" whatever the assistants list is
+  // doing, so a stalled list must not launder an unconsented user past the gate
+  // and into a hatch they would be charged for.
+  test("bounces an unconsented research entry when only the assistants list stalls", async () => {
+    isLocalModeMock.mockImplementation(() => false);
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: fakeUser,
+      platformSession: "present",
+    });
+    consentPrefs.tos = false;
+    consentPrefs.privacy = false;
+    const priorConsentHydrated = useOnboardingStore.getState().consentHydrated;
+    const priorAssistantsHydrated =
+      useResolvedAssistantsStore.getState().assistantsHydrated;
+    useOnboardingStore.setState({ consentHydrated: false });
+    useResolvedAssistantsStore.setState({
+      assistants: [],
+      assistantsHydrated: false,
+    });
+
+    try {
+      const pending = runMiddleware(managedFunnel);
+      // Consent lands well inside its (clamped) wait; the assistants fetch
+      // never reports, so only that second wait runs out.
+      setTimeout(() => {
+        useOnboardingStore.setState({ consentHydrated: true });
+      }, 10);
+
+      const res = await pending;
+      expect(res.status).toBe(302);
+      expect(res.headers.get("Location")).toBe(
+        `${routes.onboarding.privacy}?returnTo=${encodeURIComponent(managedFunnel)}`,
+      );
+    } finally {
+      useOnboardingStore.setState({ consentHydrated: priorConsentHydrated });
+      useResolvedAssistantsStore.setState({
+        assistantsHydrated: priorAssistantsHydrated,
+      });
+    }
+  });
+
+  // Both fetches hang, so the consent wait times out on its own account and the
+  // entry falls back to its unconditional admission.
+  test("admits the research entry when both hydration waits stall", async () => {
+    isLocalModeMock.mockImplementation(() => false);
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: fakeUser,
+      platformSession: "present",
+    });
+    consentPrefs.tos = false;
+    consentPrefs.privacy = false;
+    const priorConsentHydrated = useOnboardingStore.getState().consentHydrated;
+    const priorAssistantsHydrated =
+      useResolvedAssistantsStore.getState().assistantsHydrated;
+    useOnboardingStore.setState({ consentHydrated: false });
+    useResolvedAssistantsStore.setState({
+      assistants: [],
+      assistantsHydrated: false,
+    });
+
+    try {
+      const outcome = await runMiddlewareOutcome(managedFunnel);
+      expect(outcome.admitted).toBe(true);
+    } finally {
+      useOnboardingStore.setState({ consentHydrated: priorConsentHydrated });
+      useResolvedAssistantsStore.setState({
+        assistantsHydrated: priorAssistantsHydrated,
+      });
     }
   });
 });
