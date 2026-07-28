@@ -1,5 +1,6 @@
 /**
- * Route-level regression tests for the research-onboarding resume guard.
+ * Route-level regression tests for the research-onboarding resume guard and the
+ * paid-checkout return.
  *
  * The established-assistant guard used to run only on form submit; a restored
  * post-form snapshot (persisted before the verdict settled, or after a transient
@@ -16,6 +17,10 @@
  * — so a refresh re-lands on the keep/redo choice instead of auto-resuming past
  * it.
  *
+ * The paid-return block covers the `post_checkout=1` marker reaching the
+ * background hatch and the failure overlay that surfaces a dead hatch on any
+ * step, with the at-capacity download off-ramp in place of a retry.
+ *
  * Self-contained mocks (run this file solo — `mock.module` leaks across a shared
  * `bun test` run).
  */
@@ -30,6 +35,7 @@ import {
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { type ReactNode } from "react";
 
+import { PLATFORM_HOSTED_DISABLED_MESSAGE } from "@/assistant/lifecycle";
 import {
   readResearchSnapshot,
   writeResearchSnapshot,
@@ -80,13 +86,18 @@ const checkEstablishedAssistantMock = mock(async (_id: string) => {
   return establishedResult;
 });
 
+const retryHatchMock = mock(() => {});
 const backgroundHatch = {
   start: () => {},
+  retry: retryHatchMock,
   ready: true,
   assistantId: "asst-1",
-  error: null as Error | null,
+  error: null as string | null,
   awaitReady: async () => "asst-1",
 };
+const useBackgroundHatchMock = mock(
+  (_options: { postCheckoutReturn?: boolean }) => backgroundHatch,
+);
 
 const noop = () => {};
 
@@ -108,6 +119,12 @@ mock.module("@/lib/auth/gateway-session", () => ({
 
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => false,
+}));
+
+// The real module builds its destinations from `routes` at import time, and the
+// `@/utils/routes` stub below carries only the assistant path.
+mock.module("@/lib/navigation/navigation-resolver", () => ({
+  POST_CHECKOUT_HATCH_PARAM: "post_checkout",
 }));
 
 mock.module("@/stores/auth-store", () => ({
@@ -144,7 +161,7 @@ mock.module("@/domains/onboarding/adopt-existing-assistant", () => ({
 }));
 
 mock.module("@/domains/onboarding/use-background-hatch", () => ({
-  useBackgroundHatch: () => backgroundHatch,
+  useBackgroundHatch: useBackgroundHatchMock,
 }));
 
 mock.module("@/domains/onboarding/research-runner", () => ({
@@ -331,10 +348,14 @@ beforeEach(() => {
   establishedResult = { established: false, assistantName: null };
   establishedCheckGate = null;
   releaseEstablishedCheck = () => {};
+  searchParams.delete("post_checkout");
+  backgroundHatch.error = null;
   navigateMock.mockClear();
   startResearchMock.mockClear();
   hydrateResearchMock.mockClear();
   checkEstablishedAssistantMock.mockClear();
+  useBackgroundHatchMock.mockClear();
+  retryHatchMock.mockClear();
 });
 
 afterEach(() => {
@@ -518,5 +539,69 @@ describe("ResearchOnboardingRoute resume guard", () => {
       expect(screen.getByTestId("existing-step")).toBeTruthy(),
     );
     expect(startResearchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("ResearchOnboardingRoute paid return", () => {
+  function lastHatchOptions() {
+    const call = useBackgroundHatchMock.mock.calls.at(-1);
+    if (!call) {
+      throw new Error("expected useBackgroundHatch to have been called");
+    }
+    return call[0];
+  }
+
+  test("carries the paid marker into the background hatch", async () => {
+    searchParams.set("post_checkout", "1");
+
+    render(<ResearchOnboardingRoute />);
+    await screen.findByTestId("form-submit");
+
+    expect(lastHatchOptions().postCheckoutReturn).toBe(true);
+  });
+
+  test("a free onboarding leaves the purchased-provisioning wait off", async () => {
+    render(<ResearchOnboardingRoute />);
+    await screen.findByTestId("form-submit");
+
+    expect(lastHatchOptions().postCheckoutReturn).toBe(false);
+  });
+
+  test("a terminal hatch failure surfaces a retry over the funnel", async () => {
+    backgroundHatch.error = "Failed to start your assistant. Please try again.";
+
+    render(<ResearchOnboardingRoute />);
+
+    const overlay = await screen.findByRole("alertdialog");
+    expect(overlay.textContent).toContain(
+      "Failed to start your assistant. Please try again.",
+    );
+    // Layered, not swapped in: the funnel keeps its state behind the overlay.
+    expect(screen.getByTestId("form-submit")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(retryHatchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("an at-capacity failure offers the macOS download instead of a retry", async () => {
+    backgroundHatch.error = PLATFORM_HOSTED_DISABLED_MESSAGE;
+
+    render(<ResearchOnboardingRoute />);
+
+    const overlay = await screen.findByRole("alertdialog");
+    expect(overlay.textContent).toContain(
+      "Get started today with a local assistant",
+    );
+    expect(
+      screen.getByRole("link", { name: "Download the macOS app" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  test("a healthy hatch renders no overlay", async () => {
+    render(<ResearchOnboardingRoute />);
+    await screen.findByTestId("form-submit");
+
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 });

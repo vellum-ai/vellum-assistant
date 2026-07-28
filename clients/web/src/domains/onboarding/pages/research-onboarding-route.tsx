@@ -23,12 +23,14 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode } from "@/lib/local-mode";
+import { POST_CHECKOUT_HATCH_PARAM } from "@/lib/navigation/navigation-resolver";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -86,6 +88,7 @@ import {
   LetsChatReadyStep,
 } from "@/domains/onboarding/screens/research-result-steps";
 import { OnboardingTonedBackdrop } from "@/domains/onboarding/components/onboarding-toned-backdrop";
+import { HatchErrorOverlay } from "@/domains/onboarding/components/hatch-error-overlay";
 import {
   OnboardingStageSizeProvider,
   useElementSize,
@@ -280,6 +283,10 @@ export function ResearchOnboardingRoute() {
   // param, pinning adoption to that exact one — a stale selection or leftover
   // lockfile entries from previous sessions can't answer for it.
   const adoptAssistantId = searchParams.get("assistant") ?? undefined;
+  // On the return leg of a completed checkout the hatch also waits out the
+  // purchased resize, so the paid user never starts on a baseline assistant.
+  const postCheckoutReturn =
+    searchParams.get(POST_CHECKOUT_HATCH_PARAM) === "1";
   // The day-2 check-in offer ("letschat" → "meeting") books through the
   // platform's managed Google Calendar OAuth. A local-hosting onboarding can
   // run with no platform session at all (the assistant itself is fully
@@ -289,6 +296,7 @@ export function ResearchOnboardingRoute() {
   const skipCheckinSteps = adoptExistingAssistant;
   const {
     start: startHatch,
+    retry: retryHatch,
     ready: hatchReady,
     assistantId: hatchedAssistantId,
     error: hatchError,
@@ -296,6 +304,7 @@ export function ResearchOnboardingRoute() {
   } = useBackgroundHatch({
     adoptExisting: adoptExistingAssistant,
     adoptAssistantId,
+    postCheckoutReturn,
   });
   const research = useResearchRunner();
   // Stable across renders (useCallback in the runner); safe as effect deps.
@@ -824,6 +833,19 @@ export function ResearchOnboardingRoute() {
     goForwardTo("meeting");
   }
 
+  // A terminal hatch failure is layered over whichever step is on screen — the
+  // assistant is dead at all of them, so the failure shouldn't wait for the
+  // last step to be discovered. Layering (rather than replacing the step) keeps
+  // the funnel's collected state, so a successful retry resumes in place.
+  const withHatchError = (content: ReactNode) => (
+    <>
+      {content}
+      {hatchError !== null && (
+        <HatchErrorOverlay error={hatchError} onRetry={retryHatch} />
+      )}
+    </>
+  );
+
   // The later steps share one persistent toned backdrop (assistant color +
   // eyes + tone characters) so the avatars stay put while the foreground
   // content swaps. Extra edge characters pop in per step to build excitement.
@@ -850,7 +872,7 @@ export function ResearchOnboardingRoute() {
     const peekLevel = ["looking", "results", "suggestions", "finishing"].includes(step)
       ? edgeAvatars
       : 0;
-    return (
+    return withHatchError(
       <div ref={tonedStageRef} data-theme="dark" className="relative h-full overflow-hidden">
         <OnboardingStageSizeProvider size={tonedStageSize}>
         <OnboardingTonedBackdrop
@@ -1096,7 +1118,7 @@ export function ResearchOnboardingRoute() {
           />
         )}
         </OnboardingStageSizeProvider>
-      </div>
+      </div>,
     );
   }
 
@@ -1104,7 +1126,7 @@ export function ResearchOnboardingRoute() {
   // instead of advancing to "face" when the submitted-to assistant already has
   // a life (see handleFormSubmit); a genuinely new user never lands here.
   if (step === "existing") {
-    return (
+    return withHatchError(
       <ExistingAssistantStep
         assistantName={establishedCheck?.assistantName ?? null}
         onKeep={() => {
@@ -1144,24 +1166,24 @@ export function ResearchOnboardingRoute() {
           setGatedFormValues(null);
           goBackTo("form");
         }}
-      />
+      />,
     );
   }
 
   if (step === "intro" && formValues) {
-    return (
+    return withHatchError(
       <IntroductionScreen
         firstName={formValues.firstName}
         assistantName={faceValues?.name}
         onContinue={() => goForwardTo("different")}
         onBack={() => goBackTo("face")}
         onForward={onForward}
-      />
+      />,
     );
   }
 
   if (step === "face" && formValues) {
-    return (
+    return withHatchError(
       <GiveMeAFaceScreen
         onContinue={(face) => {
           setFaceValues(face);
@@ -1169,15 +1191,15 @@ export function ResearchOnboardingRoute() {
         }}
         onBack={() => goBackTo("form")}
         onForward={onForward}
-      />
+      />,
     );
   }
 
-  return (
+  return withHatchError(
     <ResearchOnboardingScreen
       initialFirstName={user?.firstName ?? ""}
       initialLastName={user?.lastName ?? ""}
       onSubmit={handleFormSubmit}
-    />
+    />,
   );
 }
