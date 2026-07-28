@@ -3,3 +3,6 @@
 
 # chore: bulk prettier format all TS source files (#12093)
 cb76abd542b04840a29a7d259bb24397b15b15d0
+
+# chore: bulk prettier format assistant/ and gateway/ (#39317)
+94322f97c78d068b11b7780e442d835c067510b6
