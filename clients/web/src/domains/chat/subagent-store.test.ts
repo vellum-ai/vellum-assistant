@@ -48,6 +48,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 }));
 
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
+// Imported after the SDK mock so it binds to the same mocked store module.
+const { reconcileSubagentStoreFromNotifications } = await import(
+  "@/domains/chat/hooks/reconcile-subagent-hydration"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2058,5 +2062,195 @@ describe("reconcileFromDaemon", () => {
     expect(entry?.objective).toBe("Task");
     expect(entry?.events).toHaveLength(1);
     expect(entry?.hydrationPending).toBeUndefined();
+  });
+
+  it("restores terminal usage and error when the terminal event was lost", async () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      status: "running",
+      parentConversationId: "conv-parent",
+      timestamp: NOW,
+    });
+    // A streamed timeline makes the detail auto-fetch refuse this entry, so
+    // the snapshot is the only thing that can restore its final numbers.
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: {
+        type: "assistant_text_delta",
+        content: "hello",
+      } as SubagentInnerEvent,
+      timestamp: NOW,
+    });
+    getState().updateUsage({
+      subagentId: "sa-1",
+      inputTokens: 100,
+      outputTokens: 20,
+      estimatedCost: 0.001,
+    });
+    reconcileReply = {
+      ok: true,
+      subagents: {
+        "sa-1": {
+          status: "failed",
+          error: "provider timed out",
+          usage: {
+            inputTokens: 1200,
+            outputTokens: 340,
+            estimatedCost: 0.021,
+          },
+        },
+      },
+    };
+
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent");
+
+    const entry = getState().byId["sa-1"];
+    expect(entry?.status).toBe("failed");
+    expect(entry?.error).toBe("provider timed out");
+    expect(entry?.inputTokens).toBe(1200);
+    expect(entry?.outputTokens).toBe(340);
+    expect(entry?.totalCost).toBe(0.021);
+    expect(entry?.events).toHaveLength(1);
+  });
+
+  it("leaves existing tallies intact when the snapshot carries no usage", async () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      status: "running",
+      parentConversationId: "conv-parent",
+      timestamp: NOW,
+    });
+    getState().updateUsage({
+      subagentId: "sa-1",
+      inputTokens: 100,
+      outputTokens: 20,
+      estimatedCost: 0.001,
+    });
+    reconcileReply = {
+      ok: true,
+      subagents: { "sa-1": { status: "completed" } },
+    };
+
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent");
+
+    const entry = getState().byId["sa-1"];
+    expect(entry?.status).toBe("completed");
+    expect(entry?.inputTokens).toBe(100);
+    expect(entry?.outputTokens).toBe(20);
+    expect(entry?.totalCost).toBe(0.001);
+    expect(entry?.error).toBeUndefined();
+  });
+
+  it("stamps usage and error onto an entry materialized from the snapshot", async () => {
+    reconcileReply = {
+      ok: true,
+      subagents: {
+        "sa-1": {
+          status: "failed",
+          label: "Audit defenses",
+          error: "provider timed out",
+          usage: {
+            inputTokens: 900,
+            outputTokens: 120,
+            estimatedCost: 0.014,
+          },
+        },
+      },
+    };
+
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent");
+
+    const entry = getState().byId["sa-1"];
+    expect(entry?.status).toBe("failed");
+    expect(entry?.error).toBe("provider timed out");
+    expect(entry?.inputTokens).toBe(900);
+    expect(entry?.outputTokens).toBe(120);
+    expect(entry?.totalCost).toBe(0.014);
+  });
+
+  it("discards a snapshot that lands after the store was reset", async () => {
+    reconcileReply = {
+      ok: true,
+      subagents: {
+        "sa-1": { status: "running", label: "Agent", objective: "Task" },
+      },
+    };
+
+    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    // The user switched conversation (or assistant) mid-round-trip.
+    getState().reset();
+    await pending;
+
+    expect(getState().byId["sa-1"]).toBeUndefined();
+    expect(getState().orderedIds).toEqual([]);
+  });
+
+  it("does not settle orphans against a store reset mid-flight", async () => {
+    getState().spawnSubagent({
+      subagentId: "sa-old",
+      label: "Agent",
+      objective: "",
+      status: "running",
+      parentConversationId: "conv-parent",
+      timestamp: NOW,
+    });
+    reconcileReply = { ok: true, subagents: {} };
+
+    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    getState().reset();
+    // A row the newly-active context spawned, absent from the stale snapshot.
+    getState().spawnSubagent({
+      subagentId: "sa-new",
+      label: "Agent",
+      objective: "",
+      status: "running",
+      parentConversationId: "conv-parent",
+      timestamp: NOW,
+    });
+    await pending;
+
+    expect(getState().byId["sa-new"]?.status).toBe("running");
+  });
+
+  it("survives a history hydration that lands mid-flight", async () => {
+    reconcileReply = {
+      ok: true,
+      subagents: {
+        "sa-silent": { status: "running", label: "Agent", objective: "Task" },
+      },
+    };
+
+    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    // History for the SAME conversation arrives while the request is out. It
+    // rebuilds from notifications, but with nothing to clear it must not
+    // invalidate the snapshot that recovers a run history never heard about.
+    reconcileSubagentStoreFromNotifications(
+      getState(),
+      [{ subagentId: "sa-history", label: "Historical", status: "completed" }],
+      "conv-parent",
+      NOW,
+    );
+    await pending;
+
+    expect(getState().byId["sa-silent"]?.status).toBe("running");
+    expect(getState().byId["sa-history"]?.status).toBe("completed");
+  });
+
+  it("re-requests after a reset instead of joining the invalidated call", async () => {
+    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    getState().reset();
+    reconcileReply = {
+      ok: true,
+      subagents: { "sa-1": { status: "running", label: "Agent" } },
+    };
+    const next = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    await Promise.all([pending, next]);
+
+    expect(subagentsReconcileGet).toHaveBeenCalledTimes(2);
+    expect(getState().byId["sa-1"]?.label).toBe("Agent");
   });
 });

@@ -301,7 +301,10 @@ export interface SubagentActions {
    * detail auto-fetch can still flesh out. Timeline backfill stays with that
    * auto-fetch — this never touches `events` or `hydrationPending`.
    *
-   * Concurrent calls for the same parent conversation share one request.
+   * Concurrent calls for the same parent conversation share one request. A
+   * `reset()` while one is in flight invalidates it — the snapshot describes
+   * the conversation the user just left, so it is dropped rather than merged
+   * into the store that now belongs to a different chat.
    */
   reconcileFromDaemon: (
     assistantId: string,
@@ -487,6 +490,14 @@ function generateTimelineEventId(): string {
  */
 const reconcileInFlight = new Map<string, Promise<void>>();
 
+/**
+ * Bumped by every `reset()` — i.e. every conversation or assistant switch.
+ * A reconcile round-trip captures the generation before its await; a snapshot
+ * that lands after a bump describes the context the user has already left, so
+ * it is dropped wholesale rather than merged into the freshly-reset store.
+ */
+let resetGeneration = 0;
+
 /** Minimum spacing between `requestSubagentReconcile` kicks. */
 const RECONCILE_KICK_INTERVAL_MS = 5_000;
 
@@ -513,7 +524,19 @@ function applyReconciledSubagent(
     // subagent whose terminal event has since landed over SSE. Settled entries
     // only ever move between terminal states.
     if (isActiveStatus(existing.status) || !isActiveStatus(status)) {
-      store.changeStatus({ subagentId, status });
+      // Usage and error ride along so an entry whose terminal
+      // `subagent_status_changed` was lost still recovers its final totals and
+      // failure reason — the detail auto-fetch won't, since it refuses any
+      // entry that already has events. `changeStatus` preserves what it
+      // already holds when the snapshot omits these.
+      store.changeStatus({
+        subagentId,
+        status,
+        error: info.error,
+        inputTokens: info.usage?.inputTokens,
+        outputTokens: info.usage?.outputTokens,
+        totalCost: info.usage?.estimatedCost,
+      });
     }
     if (info.conversationId) {
       store.setConversationId(subagentId, info.conversationId);
@@ -529,11 +552,25 @@ function applyReconciledSubagent(
       objective: info.objective ?? "",
       status,
       isFork: info.isFork,
+      error: info.error,
       conversationId: info.conversationId,
       parentConversationId,
       timestamp: Date.now(),
       parentToolUseId: info.parentToolUseId,
     });
+    // A spawn starts every tally at zero, so stamp the snapshot's totals
+    // through `changeStatus` — which also marks a terminal entry so a late
+    // usage event can't double-count on top of them.
+    if (info.usage) {
+      store.changeStatus({
+        subagentId,
+        status,
+        error: info.error,
+        inputTokens: info.usage.inputTokens,
+        outputTokens: info.usage.outputTokens,
+        totalCost: info.usage.estimatedCost,
+      });
+    }
     return;
   }
 
@@ -553,6 +590,7 @@ async function runReconcile(
   parentConversationId: string,
 ): Promise<void> {
   const requestedAt = Date.now();
+  const generation = resetGeneration;
   let snapshot: Record<string, ReconciledSubagent>;
   try {
     const { data, response } = await subagentsReconcileGet({
@@ -566,6 +604,15 @@ async function runReconcile(
     snapshot = data.subagents;
   } catch (err) {
     captureError(err, { context: "reconcileFromDaemon", bestEffort: true });
+    return;
+  }
+
+  // The store is global but a snapshot is not: a `reset()` during the
+  // round-trip means the user switched conversation or assistant, so these
+  // rows belong to a context that is no longer on screen. Applying them would
+  // repopulate the fresh store with the previous chat's subagents — and settle
+  // its orphans against the wrong state — so drop the whole step.
+  if (generation !== resetGeneration) {
     return;
   }
 
@@ -1017,11 +1064,18 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       return inFlight;
     }
 
-    const run = runReconcile(get, assistantId, parentConversationId).finally(
-      () => {
+    const run: Promise<void> = runReconcile(
+      get,
+      assistantId,
+      parentConversationId,
+    ).finally(() => {
+      // Only clear our own entry: a `reset()` may have already evicted this
+      // one and a later call may have registered its own request under the
+      // same key, which this settlement says nothing about.
+      if (reconcileInFlight.get(parentConversationId) === run) {
         reconcileInFlight.delete(parentConversationId);
-      },
-    );
+      }
+    });
     reconcileInFlight.set(parentConversationId, run);
     return run;
   },
@@ -1045,6 +1099,11 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     // A reset means a conversation switch, so the next unknown-id kick should
     // fire immediately instead of inheriting the previous chat's window.
     lastReconcileKickAt = 0;
+    // Invalidate every in-flight snapshot (they describe the context being
+    // left) and drop them from the single-flight map so a reconcile for the
+    // new context issues a fresh request instead of joining a doomed one.
+    resetGeneration++;
+    reconcileInFlight.clear();
     set({
       byId: {},
       orderedIds: [],

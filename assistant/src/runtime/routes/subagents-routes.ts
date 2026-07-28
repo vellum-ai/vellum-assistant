@@ -7,7 +7,10 @@
  */
 import { z } from "zod";
 
-import { SubagentStatusSchema } from "../../api/events/subagent-status-changed.js";
+import {
+  SubagentStatusSchema,
+  SubagentUsageStatsSchema,
+} from "../../api/events/subagent-status-changed.js";
 import { SubagentDetailResponseSchema } from "../../api/responses/subagent-detail.js";
 import {
   getMessages,
@@ -194,6 +197,15 @@ const ReconciledSubagentSchema = z.object({
   objective: z.string().optional(),
   isFork: z.boolean().optional(),
   parentToolUseId: z.string().optional(),
+  /**
+   * Terminal metadata a client can otherwise only learn from the
+   * `subagent_status_changed` event — which is exactly the event a
+   * reconciling client may have missed. Carried here so the snapshot can
+   * restore final token/cost totals and a failure reason instead of leaving
+   * them owned by a lost event.
+   */
+  usage: SubagentUsageStatsSchema.optional(),
+  error: z.string().optional(),
 });
 
 export const ROUTES: RouteDefinition[] = [
@@ -207,7 +219,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Reconcile subagent live status",
     description:
-      "Returns the live in-memory state of all subagents known to the assistant for a given parent conversation. Each entry carries enough detail (child conversation id, label, objective) for a client to rebuild its subagent list from scratch, not just refresh statuses. Subagents absent from the response are orphaned or terminal. Only `status` is guaranteed to be present; every other field is optional.",
+      "Returns the live in-memory state of all subagents known to the assistant for a given parent conversation. Each entry carries enough detail (child conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from scratch, not just refresh statuses. Subagents absent from the response are orphaned or terminal. Only `status` is guaranteed to be present; every other field is optional.",
     tags: ["subagents"],
     queryParams: [
       {
@@ -232,6 +244,7 @@ export const ROUTES: RouteDefinition[] = [
         z.infer<typeof ReconciledSubagentSchema>
       > = {};
       for (const child of manager.getChildrenOf(parentConversationId)) {
+        const usage = child.usage;
         subagents[child.config.id] = {
           status: child.status,
           conversationId: child.conversationId,
@@ -239,6 +252,21 @@ export const ROUTES: RouteDefinition[] = [
           objective: child.config.objective,
           isFork: child.isFork,
           parentToolUseId: child.config.parentToolUseId,
+          // A child that has spent nothing reports no usage at all, matching
+          // the detail route — an all-zero snapshot tells a client nothing its
+          // own tally doesn't already say.
+          usage:
+            usage &&
+            (usage.inputTokens > 0 ||
+              usage.outputTokens > 0 ||
+              usage.estimatedCost > 0)
+              ? {
+                  inputTokens: usage.inputTokens,
+                  outputTokens: usage.outputTokens,
+                  estimatedCost: usage.estimatedCost,
+                }
+              : undefined,
+          error: child.error,
         };
       }
       return { subagents };

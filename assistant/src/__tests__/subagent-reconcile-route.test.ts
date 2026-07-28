@@ -115,6 +115,41 @@ describe("reconcileSubagents route", () => {
     expect(subagents["sub-anchored"].parentToolUseId).toBe("toolu-abc");
   });
 
+  test("carries terminal usage and failure reason", () => {
+    upsertSubagentRecord(
+      record({
+        id: "sub-failed",
+        conversationId: "child-conv-failed",
+        label: "failed-run",
+        status: "failed",
+        error: "provider timed out",
+        completedAt: 2000,
+        inputTokens: 1200,
+        outputTokens: 340,
+        estimatedCost: 0.021,
+      }),
+    );
+    getSubagentManager().rehydrateFromDb();
+
+    // The terminal `subagent_status_changed` is exactly the event a
+    // reconciling client may have missed, so the snapshot has to carry what it
+    // would have delivered.
+    expect(reconcile(PARENT_ID).subagents["sub-failed"]).toMatchObject({
+      status: "failed",
+      error: "provider timed out",
+      usage: { inputTokens: 1200, outputTokens: 340, estimatedCost: 0.021 },
+    });
+  });
+
+  test("omits usage and error for a child that has spent nothing", () => {
+    upsertSubagentRecord(record());
+    getSubagentManager().rehydrateFromDb();
+
+    const entry = reconcile(PARENT_ID).subagents["sub-1"];
+    expect(entry.usage).toBeUndefined();
+    expect(entry.error).toBeUndefined();
+  });
+
   test("returns an empty map for a parent with no known children", () => {
     upsertSubagentRecord(record());
     getSubagentManager().rehydrateFromDb();

@@ -29498,9 +29498,9 @@ paths:
       summary: Reconcile subagent live status
       description:
         Returns the live in-memory state of all subagents known to the assistant for a given parent conversation.
-        Each entry carries enough detail (child conversation id, label, objective) for a client to rebuild its subagent
-        list from scratch, not just refresh statuses. Subagents absent from the response are orphaned or terminal. Only
-        `status` is guaranteed to be present; every other field is optional.
+        Each entry carries enough detail (child conversation id, label, objective, token usage, failure reason) for a
+        client to rebuild its subagent list from scratch, not just refresh statuses. Subagents absent from the response
+        are orphaned or terminal. Only `status` is guaranteed to be present; every other field is optional.
       tags:
         - subagents
       parameters:
@@ -29536,6 +29536,22 @@ paths:
                         isFork:
                           type: boolean
                         parentToolUseId:
+                          type: string
+                        usage:
+                          type: object
+                          properties:
+                            inputTokens:
+                              type: number
+                            outputTokens:
+                              type: number
+                            estimatedCost:
+                              type: number
+                          required:
+                            - inputTokens
+                            - outputTokens
+                            - estimatedCost
+                          additionalProperties: false
+                        error:
                           type: string
                       required:
                         - status

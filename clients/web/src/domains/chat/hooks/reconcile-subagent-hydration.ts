@@ -49,7 +49,15 @@ export function reconcileSubagentStoreFromNotifications(
     isActiveStatus(entry.status),
   );
 
-  if (!hasInFlight) store.reset();
+  // An empty store has nothing to clear, and `reset()` is not free: it
+  // invalidates any in-flight `reconcileFromDaemon` as belonging to a
+  // conversation the user left. History hydration races that request on load,
+  // and discarding it would lose exactly the rows it exists to recover — a
+  // mid-run subagent that has streamed nothing and so appears in no
+  // notification.
+  if (!hasInFlight && Object.keys(priorById).length > 0) {
+    store.reset();
+  }
 
   for (const n of notifications) {
     const parsed = SubagentStatusSchema.safeParse(n.status);
