@@ -126,7 +126,9 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("device:llm_log_retention")).toBe("dontRetain");
     expect(localStorage.getItem("device:timezone")).toBe("America/New_York");
     expect(localStorage.getItem("device:media_embeds_enabled")).toBe("false");
-    expect(localStorage.getItem("device:media_embed_domains")).toBe('["youtube.com"]');
+    expect(localStorage.getItem("device:media_embed_domains")).toBe(
+      '["youtube.com"]',
+    );
     expect(localStorage.getItem("device:last_user_id")).toBe("user-123");
   });
 
@@ -205,7 +207,10 @@ describe("clearUserScopedStorage", () => {
     localStorage.setItem("ff:client:darkMode", "true");
     localStorage.setItem("local:lockfile", "{}");
     localStorage.setItem("integrations.bannerDismissed", "true");
-    localStorage.setItem("vellumDebug.flags.impersonateAssistantVersion", "0.8.6");
+    localStorage.setItem(
+      "vellumDebug.flags.impersonateAssistantVersion",
+      "0.8.6",
+    );
     localStorage.setItem("vellum_image_gen_mode", "enabled");
 
     clearUserScopedStorage();
@@ -217,7 +222,9 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("ff:client:darkMode")).toBeNull();
     expect(localStorage.getItem("local:lockfile")).toBeNull();
     expect(localStorage.getItem("integrations.bannerDismissed")).toBeNull();
-    expect(localStorage.getItem("vellumDebug.flags.impersonateAssistantVersion")).toBeNull();
+    expect(
+      localStorage.getItem("vellumDebug.flags.impersonateAssistantVersion"),
+    ).toBeNull();
     expect(localStorage.getItem("vellum_image_gen_mode")).toBeNull();
   });
 
@@ -241,7 +248,9 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("vellum_llm_log_retention")).toBe("dontRetain");
     expect(localStorage.getItem("vellum_timezone")).toBe("America/New_York");
     expect(localStorage.getItem("vellum_media_embeds_enabled")).toBe("false");
-    expect(localStorage.getItem("vellum_media_embed_domains")).toBe('["youtube.com"]');
+    expect(localStorage.getItem("vellum_media_embed_domains")).toBe(
+      '["youtube.com"]',
+    );
     expect(localStorage.getItem("onboarding.lastUserId")).toBe("user-123");
   });
 });

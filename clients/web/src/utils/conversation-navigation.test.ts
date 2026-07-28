@@ -43,9 +43,8 @@ mock.module("@/stores/conversation-store", () => ({
   },
 }));
 
-const { navigateToConversation } = await import(
-  "@/utils/conversation-navigation"
-);
+const { navigateToConversation } =
+  await import("@/utils/conversation-navigation");
 
 beforeEach(() => {
   hapticLight.mockClear();

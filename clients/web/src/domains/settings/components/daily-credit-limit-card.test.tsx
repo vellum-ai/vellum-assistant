@@ -39,9 +39,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
 import { organizationsBillingDailyCreditLimitRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { DailyCreditLimitResponse } from "@/generated/api/types.gen";
 
-const { DailyCreditLimitCard, validateDailyLimit } = await import(
-  "./daily-credit-limit-card"
-);
+const { DailyCreditLimitCard, validateDailyLimit } =
+  await import("./daily-credit-limit-card");
 
 function makeClient(config: DailyCreditLimitResponse): QueryClient {
   const client = new QueryClient({
@@ -91,7 +90,10 @@ describe("validateDailyLimit", () => {
 
 describe("DailyCreditLimitCard", () => {
   test("renders the current limit in the input when set", () => {
-    const { getByTestId } = renderCard({ ...OFF, daily_credit_limit_usd: "25.00" });
+    const { getByTestId } = renderCard({
+      ...OFF,
+      daily_credit_limit_usd: "25.00",
+    });
     const input = getByTestId("daily-credit-limit-input") as HTMLInputElement;
     expect(input.value).toBe("25.00");
   });
@@ -120,7 +122,10 @@ describe("DailyCreditLimitCard", () => {
   });
 
   test("turning the toggle off PUTs daily_credit_limit_usd: null", async () => {
-    const { getByRole } = renderCard({ ...OFF, daily_credit_limit_usd: "25.00" });
+    const { getByRole } = renderCard({
+      ...OFF,
+      daily_credit_limit_usd: "25.00",
+    });
     fireEvent.click(getByRole("switch"));
 
     await waitFor(() => {

@@ -42,7 +42,9 @@ export function mockFetch(
     calls.push({ path: url, init: actualInit ?? {} });
 
     const idx = entries.findIndex((e) => {
-      if (!url.includes(e.path)) return false;
+      if (!url.includes(e.path)) {
+        return false;
+      }
       for (const [key, val] of Object.entries(e.init)) {
         if (
           (actualInit as Record<string, unknown> | undefined)?.[key] !== val

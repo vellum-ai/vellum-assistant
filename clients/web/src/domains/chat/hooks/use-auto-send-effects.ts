@@ -75,13 +75,17 @@ export function useAutoSendEffects({
   const promptConsumedRef = useRef<string | null>(null);
   useEffect(() => {
     const prompt = searchParams.get("prompt");
-    if (!prompt || !activeConversationId) return;
+    if (!prompt || !activeConversationId) {
+      return;
+    }
     // A relay token makes each dispatch unique so repeated identical prompts
     // re-fire; one-shot callers (deep links, doc feedback) omit it and dedupe
     // on the prompt text.
     const relayToken = searchParams.get("relay");
     const key = `${activeConversationId}:${relayToken ?? prompt}`;
-    if (promptConsumedRef.current === key) return;
+    if (promptConsumedRef.current === key) {
+      return;
+    }
     promptConsumedRef.current = key;
     void sendMessage(prompt);
     // One-shot callers (no relay token) dedupe only on this component ref,
@@ -102,8 +106,12 @@ export function useAutoSendEffects({
 
   // 2. Pre-chat reachability probe — eagerly start the probe cycle.
   useEffect(() => {
-    if (!assistantId) return;
-    if (!getPendingInitialMessageRef.current()) return;
+    if (!assistantId) {
+      return;
+    }
+    if (!getPendingInitialMessageRef.current()) {
+      return;
+    }
     if (reachabilityPhase === "idle") {
       reachabilityProbe({ mode: "background" });
     }
@@ -112,10 +120,20 @@ export function useAutoSendEffects({
   // 3. Onboarding initial message — fires once when daemon is reachable.
   const initialMessageConsumedRef = useRef(false);
   useEffect(() => {
-    if (initialMessageConsumedRef.current || !assistantId || !activeConversationId) return;
-    if (reachabilityPhase !== "ready") return;
+    if (
+      initialMessageConsumedRef.current ||
+      !assistantId ||
+      !activeConversationId
+    ) {
+      return;
+    }
+    if (reachabilityPhase !== "ready") {
+      return;
+    }
     const message = getPendingInitialMessageRef.current();
-    if (!message) return;
+    if (!message) {
+      return;
+    }
     initialMessageConsumedRef.current = true;
     const hidden = getPendingInitialMessageHiddenRef.current?.() ?? false;
     void sendMessage(message, [], { hidden });

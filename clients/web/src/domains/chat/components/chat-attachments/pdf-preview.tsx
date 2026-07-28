@@ -1,4 +1,3 @@
-
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
@@ -101,10 +100,14 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
 
   const renderPage = useCallback(
     async (pageNum: number) => {
-      if (!pdf || renderedPages.current.has(pageNum)) return;
+      if (!pdf || renderedPages.current.has(pageNum)) {
+        return;
+      }
 
       const canvas = canvasRefs.current.get(pageNum);
-      if (!canvas) return;
+      if (!canvas) {
+        return;
+      }
 
       renderedPages.current.add(pageNum);
 
@@ -127,16 +130,20 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
   // Avoids layout thrashing from getBoundingClientRect on every scroll tick.
   // @see https://developer.mozilla.org/en-US/docs/Web/API/Intersection_Observer_API
   useEffect(() => {
-    if (!pdf || numPages === 0) return;
+    if (!pdf || numPages === 0) {
+      return;
+    }
 
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const pageNum = Number(
-            (entry.target as HTMLElement).dataset.page,
-          );
-          if (pageNum) void renderPage(pageNum);
+          if (!entry.isIntersecting) {
+            continue;
+          }
+          const pageNum = Number((entry.target as HTMLElement).dataset.page);
+          if (pageNum) {
+            void renderPage(pageNum);
+          }
         }
       },
       { root: containerRef.current, rootMargin: "200px" },

@@ -314,7 +314,9 @@ export class WorkspaceGitService {
    * When open, commit attempts are skipped until the backoff window expires.
    */
   private isBreakerOpen(): boolean {
-    if (this.consecutiveFailures === 0) return false;
+    if (this.consecutiveFailures === 0) {
+      return false;
+    }
     return Date.now() < this.nextAllowedAttemptMs;
   }
 
@@ -359,7 +361,9 @@ export class WorkspaceGitService {
    * When open, init attempts are skipped until the backoff window expires.
    */
   private isInitBreakerOpen(): boolean {
-    if (this.initConsecutiveFailures < 2) return false;
+    if (this.initConsecutiveFailures < 2) {
+      return false;
+    }
     return Date.now() < this.initNextAllowedAttemptMs;
   }
 
@@ -1836,7 +1840,9 @@ export class WorkspaceGitService {
       child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 
       child.on("error", (err: ExecError) => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         clearTimeout(timer);
         reject(
@@ -1853,7 +1859,9 @@ export class WorkspaceGitService {
       child.on(
         "close",
         (code: number | null, signal: NodeJS.Signals | null) => {
-          if (settled) return;
+          if (settled) {
+            return;
+          }
           settled = true;
           clearTimeout(timer);
           const stdout = Buffer.concat(stdoutChunks).toString("utf-8");

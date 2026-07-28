@@ -108,7 +108,9 @@ function clampInteger(
   min: number,
   max: number,
 ): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return defaultValue;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return defaultValue;
+  }
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
@@ -121,7 +123,9 @@ function decodeUrlCredential(value: string): string {
 }
 
 function buildAuthorizationHeader(url: URL): string | undefined {
-  if (!url.username && !url.password) return undefined;
+  if (!url.username && !url.password) {
+    return undefined;
+  }
   const username = decodeUrlCredential(url.username);
   const password = decodeUrlCredential(url.password);
   const encoded = Buffer.from(`${username}:${password}`, "utf8").toString(
@@ -175,7 +179,9 @@ const RESPONSE_STATUS_MIN = 200;
 const RESPONSE_STATUS_MAX = 599;
 
 function toConstructableStatus(status: number): number {
-  if (status === RESPONSE_STATUS_SWITCHING_PROTOCOLS) return status;
+  if (status === RESPONSE_STATUS_SWITCHING_PROTOCOLS) {
+    return status;
+  }
   if (status >= RESPONSE_STATUS_MIN && status <= RESPONSE_STATUS_MAX) {
     return status;
   }
@@ -312,9 +318,13 @@ const defaultRequestExecutor: WebFetchRequestExecutor = async (
 };
 
 function isTextLikeContentType(contentType: string): boolean {
-  if (!contentType) return true;
+  if (!contentType) {
+    return true;
+  }
   const mimeType = parseMimeType(contentType);
-  if (!mimeType) return true;
+  if (!mimeType) {
+    return true;
+  }
   return TEXT_LIKE_CONTENT_TYPES.some((pattern) => {
     if (pattern.endsWith("/")) {
       return mimeType.startsWith(pattern);
@@ -343,13 +353,17 @@ function decodeHtmlEntities(text: string): string {
     (match, entity: string) => {
       if (entity.startsWith("#x") || entity.startsWith("#X")) {
         const value = Number.parseInt(entity.slice(2), 16);
-        if (Number.isNaN(value) || value < 0 || value > 0x10ffff) return match;
+        if (Number.isNaN(value) || value < 0 || value > 0x10ffff) {
+          return match;
+        }
         return String.fromCodePoint(value);
       }
 
       if (entity.startsWith("#")) {
         const value = Number.parseInt(entity.slice(1), 10);
-        if (Number.isNaN(value) || value < 0 || value > 0x10ffff) return match;
+        if (Number.isNaN(value) || value < 0 || value > 0x10ffff) {
+          return match;
+        }
         return String.fromCodePoint(value);
       }
 
@@ -402,9 +416,13 @@ function extractFirstMatch(
   captureGroup = 1,
 ): string | undefined {
   const match = regex.exec(text);
-  if (!match) return undefined;
+  if (!match) {
+    return undefined;
+  }
   const captured = match[captureGroup];
-  if (typeof captured !== "string") return undefined;
+  if (typeof captured !== "string") {
+    return undefined;
+  }
   const value = normalizeText(decodeHtmlEntities(captured));
   return value || undefined;
 }
@@ -423,9 +441,13 @@ function parseHtmlTitle(html: string): string | undefined {
   // Bound the search to the first 200KB to avoid scanning huge bodies.
   const searchRegion = safeStringSlice(html, 0, 200_000);
   const match = /<title[^>]*>([^<]+)<\/title>/i.exec(searchRegion);
-  if (!match) return undefined;
+  if (!match) {
+    return undefined;
+  }
   const decoded = decodeHtmlEntities(match[1]).trim();
-  if (!decoded) return undefined;
+  if (!decoded) {
+    return undefined;
+  }
   return safeStringSlice(decoded, 0, MAX_TITLE_CHARS);
 }
 
@@ -489,8 +511,12 @@ async function readResponseText(
 
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
+    if (done) {
+      break;
+    }
+    if (!value) {
+      continue;
+    }
 
     const nextTotal = total + value.byteLength;
     if (nextTotal > maxBytes) {
@@ -543,8 +569,11 @@ function formatWebFetchOutput(params: {
   markdownTokens?: string;
 }): string {
   let mode = "extracted";
-  if (params.markdown) mode = "markdown";
-  else if (params.raw) mode = "raw";
+  if (params.markdown) {
+    mode = "markdown";
+  } else if (params.raw) {
+    mode = "raw";
+  }
 
   const lines: string[] = [
     `Requested URL: ${params.requestedUrl}`,
@@ -787,7 +816,9 @@ export async function executeWebFetch(
       const location = response.headers.get("location");
       const isRedirect =
         upstreamStatus >= 300 && upstreamStatus < 400 && !!location;
-      if (!isRedirect) break;
+      if (!isRedirect) {
+        break;
+      }
 
       if (redirectCount >= MAX_REDIRECTS) {
         return buildErrorResult(
@@ -1104,11 +1135,19 @@ function getWebFetchProvider(): WebFetchProviderId {
 async function canRouteToFirecrawl(
   input: Record<string, unknown>,
 ): Promise<boolean> {
-  if (input.allow_private_network === true) return false;
+  if (input.allow_private_network === true) {
+    return false;
+  }
   const parsed = parseUrl(input.url);
-  if (!parsed) return false;
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-  if (isPrivateOrLocalHost(parsed.hostname)) return false;
+  if (!parsed) {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return false;
+  }
+  if (isPrivateOrLocalHost(parsed.hostname)) {
+    return false;
+  }
   try {
     const resolution = await resolveRequestAddress(
       parsed.hostname,
@@ -1290,7 +1329,9 @@ export async function executeFirecrawlScrape(
 
       const notices: string[] = [];
       const warning = data.warning ?? json.warning;
-      if (warning) notices.push(`Firecrawl: ${warning}`);
+      if (warning) {
+        notices.push(`Firecrawl: ${warning}`);
+      }
       if (safeEnd < processed.length) {
         notices.push(`Output truncated by max_chars=${maxChars}.`);
       }

@@ -107,7 +107,9 @@ function detectRejection(
   } else if (sourceActorPrincipalId !== targetActorPrincipalId) {
     reason = "mismatch";
   }
-  if (reason == null) return undefined;
+  if (reason == null) {
+    return undefined;
+  }
 
   log.warn(
     {
@@ -149,7 +151,9 @@ export function enforceSameActorOrThrow(
 export function enforceSameActorOrErrorResult(
   args: SameActorLiveArgs,
 ): { content: string; isError: true } | null {
-  if (detectRejection(args) == null) return null;
+  if (detectRejection(args) == null) {
+    return null;
+  }
   return { content: REJECTION_MESSAGE, isError: true };
 }
 
@@ -193,11 +197,15 @@ export function pickSameUserAutoResolve(args: {
   sourceActorPrincipalId: string | undefined;
 }): AutoResolveResult {
   const { hub, capability, sourceActorPrincipalId } = args;
-  if (sourceActorPrincipalId == null) return { kind: "none" };
+  if (sourceActorPrincipalId == null) {
+    return { kind: "none" };
+  }
   const sameUser = hub
     .listClientsByCapability(capability)
     .filter((c) => c.actorPrincipalId === sourceActorPrincipalId);
-  if (sameUser.length === 0) return { kind: "none" };
+  if (sameUser.length === 0) {
+    return { kind: "none" };
+  }
   if (sameUser.length === 1) {
     return { kind: "match", clientId: sameUser[0].clientId };
   }

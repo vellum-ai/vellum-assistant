@@ -125,7 +125,10 @@ export function finalizeRunningToolCalls(
   );
   const contentBlocks = row.contentBlocks?.map((block) =>
     block.type === "tool_use" && isToolCallRunning(block.toolCall)
-      ? { type: "tool_use" as const, toolCall: { ...block.toolCall, completedAt } }
+      ? {
+          type: "tool_use" as const,
+          toolCall: { ...block.toolCall, completedAt },
+        }
       : block,
   );
   return { toolCalls, contentBlocks };

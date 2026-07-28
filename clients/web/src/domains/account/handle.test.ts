@@ -103,9 +103,7 @@ describe("updateAssistantHandle", () => {
   test("returns invalid with code on 400 DRF error", async () => {
     const original = globalThis.fetch;
     globalThis.fetch = mockFetch(400, {
-      handle: [
-        { code: "too_short", string: "Must be at least 3 characters." },
-      ],
+      handle: [{ code: "too_short", string: "Must be at least 3 characters." }],
     });
     try {
       const result = await updateAssistantHandle(ASSISTANT_ID, "ab");

@@ -51,7 +51,9 @@ export function findMostRecentRetrospectiveFor(
       .orderBy(desc(conversations.createdAt))
       .limit(1)
       .get();
-    if (row) return { id: row.id, forkParentConversationId: currentId };
+    if (row) {
+      return { id: row.id, forkParentConversationId: currentId };
+    }
 
     const parent = db
       .select({

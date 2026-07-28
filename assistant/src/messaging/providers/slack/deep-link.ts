@@ -13,7 +13,9 @@ export function buildSlackAppMessageUrl(params: {
   messageTs: string;
 }): string | undefined {
   const teamId = params.teamId?.trim();
-  if (!teamId) return undefined;
+  if (!teamId) {
+    return undefined;
+  }
 
   const search = new URLSearchParams({
     team: teamId,
@@ -25,11 +27,15 @@ export function buildSlackAppMessageUrl(params: {
 
 function normalizeSlackTeamUrl(teamUrl?: string | null): string | undefined {
   const trimmed = teamUrl?.trim();
-  if (!trimmed) return undefined;
+  if (!trimmed) {
+    return undefined;
+  }
 
   try {
     const parsed = new URL(trimmed);
-    if (parsed.protocol !== "https:") return undefined;
+    if (parsed.protocol !== "https:") {
+      return undefined;
+    }
     return parsed.toString().replace(/\/+$/, "");
   } catch {
     return undefined;
@@ -45,7 +51,9 @@ function buildArchivesMessageUrl(
   const baseUrl = `${teamUrl}/archives/${encodeURIComponent(
     channelId,
   )}/p${formatSlackPermalinkTimestamp(messageTs)}`;
-  if (!threadTs) return baseUrl;
+  if (!threadTs) {
+    return baseUrl;
+  }
 
   const search = new URLSearchParams({
     thread_ts: threadTs,
@@ -61,7 +69,9 @@ export function buildSlackWebMessageUrl(params: {
   threadTs?: string;
 }): string | undefined {
   const teamUrl = normalizeSlackTeamUrl(params.teamUrl);
-  if (!teamUrl) return undefined;
+  if (!teamUrl) {
+    return undefined;
+  }
 
   return buildArchivesMessageUrl(
     teamUrl,

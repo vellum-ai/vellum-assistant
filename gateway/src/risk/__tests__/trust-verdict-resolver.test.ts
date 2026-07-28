@@ -6,7 +6,14 @@
  * unknown / blocked actors, plus id-divergence and case-insensitive address
  * matching.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 await import("../../__tests__/test-preload.js");
 const { initGatewayDb, resetGatewayDb, getGatewayDb } =
@@ -90,17 +97,20 @@ function insertSession(args: {
     .run();
 }
 
-beforeEach(async () => {
+beforeAll(async () => {
   resetGatewayDb();
   await initGatewayDb();
-  // initGatewayDb reconnects to the same on-disk DB, so clear any rows a
-  // prior test left behind (channels first — FK cascade from contacts).
+});
+
+beforeEach(() => {
+  // The file-level database remains open. Clear rows left by the prior test
+  // (channels first because contacts have cascading foreign keys).
   getGatewayDb().delete(gwContactChannels).run();
   getGatewayDb().delete(gwContacts).run();
   getGatewayDb().delete(gwVerificationSessions).run();
 });
 
-afterEach(() => {
+afterAll(() => {
   resetGatewayDb();
 });
 

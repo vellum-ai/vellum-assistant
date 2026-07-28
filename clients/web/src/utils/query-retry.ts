@@ -27,10 +27,14 @@ const MAX_RETRIES = 3;
  * Returns `undefined` for network errors / non-HTTP failures.
  */
 export function httpStatusFromError(error: unknown): number | undefined {
-  if (error instanceof ApiError) return error.status;
+  if (error instanceof ApiError) {
+    return error.status;
+  }
   if (error && typeof error === "object") {
     const e = error as { status?: unknown; response?: { status?: unknown } };
-    if (typeof e.status === "number") return e.status;
+    if (typeof e.status === "number") {
+      return e.status;
+    }
     if (e.response && typeof e.response.status === "number") {
       return e.response.status;
     }
@@ -46,9 +50,13 @@ export function shouldRetryQuery(
   failureCount: number,
   error: unknown,
 ): boolean {
-  if (failureCount >= MAX_RETRIES) return false;
+  if (failureCount >= MAX_RETRIES) {
+    return false;
+  }
   const status = httpStatusFromError(error);
-  if (status !== undefined && status >= 400 && status < 500) return false;
+  if (status !== undefined && status >= 400 && status < 500) {
+    return false;
+  }
   return true;
 }
 

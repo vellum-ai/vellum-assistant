@@ -44,7 +44,9 @@ export async function searchPkbFiles(
   // Concept-page memory owns the read path when active and absorbs PKB as a
   // read source, so PKB hint search short-circuits to keep traffic off the
   // v1 collection (avoiding OOM-crash risk from a corrupted sparse segment).
-  if (usesConceptPageMemory(getMemoryConfig())) return [];
+  if (usesConceptPageMemory(getMemoryConfig())) {
+    return [];
+  }
 
   if (isQdrantBreakerOpen()) {
     log.warn("Qdrant circuit breaker open, skipping PKB search");
@@ -139,9 +141,15 @@ export async function searchPkbFiles(
   merged.sort((a, b) => {
     const aHasHybrid = a.hybridScore !== undefined;
     const bHasHybrid = b.hybridScore !== undefined;
-    if (aHasHybrid && !bHasHybrid) return -1;
-    if (!aHasHybrid && bHasHybrid) return 1;
-    if (aHasHybrid && bHasHybrid) return b.hybridScore! - a.hybridScore!;
+    if (aHasHybrid && !bHasHybrid) {
+      return -1;
+    }
+    if (!aHasHybrid && bHasHybrid) {
+      return 1;
+    }
+    if (aHasHybrid && bHasHybrid) {
+      return b.hybridScore! - a.hybridScore!;
+    }
     return b.denseScore - a.denseScore;
   });
 
@@ -161,7 +169,9 @@ function collapseByPath(
   for (const r of results) {
     const payload = r.payload as unknown as { path?: unknown; text?: unknown };
     const path = typeof payload.path === "string" ? payload.path : undefined;
-    if (!path) continue;
+    if (!path) {
+      continue;
+    }
     const snippet = typeof payload.text === "string" ? payload.text : undefined;
     const existing = best.get(path);
     if (existing === undefined || r.score > existing.score) {

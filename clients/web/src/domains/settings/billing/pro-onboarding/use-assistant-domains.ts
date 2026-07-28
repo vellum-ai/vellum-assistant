@@ -19,7 +19,10 @@ export function useAssistantDomains(
   enabled = true,
   preferredAssistantId?: string | null,
 ) {
-  const assistant = usePreferredOrActiveAssistant(preferredAssistantId, enabled);
+  const assistant = usePreferredOrActiveAssistant(
+    preferredAssistantId,
+    enabled,
+  );
   const assistantId = preferredAssistantId ?? assistant?.id;
   const {
     data: domains,

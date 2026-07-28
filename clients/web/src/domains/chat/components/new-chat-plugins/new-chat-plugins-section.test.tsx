@@ -82,9 +82,7 @@ describe("NewChatPluginsSection", () => {
     // Collapsed: the picker is absent.
     expect(screen.queryByText("Add plugins for new chat")).toBeNull();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Manage Plugins" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Manage Plugins" }));
 
     // Revealed: the picker header and one pill per plugin now render.
     expect(screen.getByText("Add plugins for new chat")).toBeTruthy();

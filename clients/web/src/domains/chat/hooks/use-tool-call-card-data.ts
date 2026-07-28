@@ -28,7 +28,9 @@ import {
 function useNow(active: boolean): number | undefined {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      return;
+    }
     setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
@@ -46,9 +48,7 @@ export function useToolCallCardData(
 ): ToolCallCardData {
   const liveWebActivity = useTurnStore.use.liveWebActivity();
   const now = useNow(
-    hasRunningItem(
-      toolCalls.map((tc) => ({ kind: "toolCall", toolCall: tc })),
-    ),
+    hasRunningItem(toolCalls.map((tc) => ({ kind: "toolCall", toolCall: tc }))),
   );
   return computeToolCallCardData(toolCalls, liveWebActivity, now);
 }

@@ -17,23 +17,30 @@ export const bumpStaleProviderStreamTimeoutMigration: WorkspaceMigration = {
     "Bump legacy timeouts.providerStreamTimeoutSec: 300 to 1800 to match the current schema default",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const timeouts = config.timeouts;
-    if (!timeouts || typeof timeouts !== "object" || Array.isArray(timeouts))
+    if (!timeouts || typeof timeouts !== "object" || Array.isArray(timeouts)) {
       return;
+    }
     const timeoutsObj = timeouts as Record<string, unknown>;
 
-    if (timeoutsObj.providerStreamTimeoutSec !== 300) return;
+    if (timeoutsObj.providerStreamTimeoutSec !== 300) {
+      return;
+    }
 
     timeoutsObj.providerStreamTimeoutSec = 1800;
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");

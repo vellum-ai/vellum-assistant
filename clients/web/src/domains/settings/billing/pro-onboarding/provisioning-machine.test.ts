@@ -258,9 +258,8 @@ describe("deriveProvisioningState — STALLED", () => {
 describe("deriveProvisioningState — server verdict overrides", () => {
   test("already_done → DONE even with stale unmet actuals", () => {
     expect(
-      deriveProvisioningState(
-        baseInput({ serverVerdict: "already_done" }),
-      ).state,
+      deriveProvisioningState(baseInput({ serverVerdict: "already_done" }))
+        .state,
     ).toBe("DONE");
   });
 
@@ -279,9 +278,8 @@ describe("deriveProvisioningState — server verdict overrides", () => {
 
   test("not_applicable → NOT_APPLICABLE", () => {
     expect(
-      deriveProvisioningState(
-        baseInput({ serverVerdict: "not_applicable" }),
-      ).state,
+      deriveProvisioningState(baseInput({ serverVerdict: "not_applicable" }))
+        .state,
     ).toBe("NOT_APPLICABLE");
   });
 

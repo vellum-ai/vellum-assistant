@@ -118,7 +118,10 @@ const LOCAL_ONLY_STANDALONE_PATHS: Set<string> = new Set([
 ]);
 
 function isOnboardingPath(pathname: string): boolean {
-  return pathname.startsWith(`${ONBOARDING_PREFIX}/`) || pathname === ONBOARDING_PREFIX;
+  return (
+    pathname.startsWith(`${ONBOARDING_PREFIX}/`) ||
+    pathname === ONBOARDING_PREFIX
+  );
 }
 
 function onboardingEntrypoint(isLocalMode: boolean): string {
@@ -131,26 +134,31 @@ function onboardingEntrypoint(isLocalMode: boolean): string {
  * `BillingRedirectPage` forwards) and the Billing tab's own path, which the
  * native deep-link return and `usageBillingCheckout()` build directly.
  */
-const POST_CHECKOUT_LANDING_PATHS: Set<string> = new Set([
+const POST_CHECKOUT_LANDING_PATHS: ReadonlySet<string> = new Set([
   `${routes.settings.root}/billing`,
   routes.settings.usage,
 ]);
 
-/** Whether `pathnameWithSearch` is a billing landing carrying Stripe's `session_id`. */
-function isPostCheckoutReturn(
-  path: string,
-  pathnameWithSearch: string,
-): boolean {
-  if (!POST_CHECKOUT_LANDING_PATHS.has(path)) {
-    return false;
-  }
-  const qIdx = pathnameWithSearch.indexOf("?");
+/**
+ * Whether `destination` is a billing landing carrying Stripe's `session_id` —
+ * the return leg of a finished purchase rather than a plain visit to the same
+ * page.
+ *
+ * `destination` is a path with its query: the route guard asks about the
+ * location it is deciding on, and `requiresPlatformSession` asks about a
+ * `returnTo`. Both put the same question to the same URL shape, so they share
+ * this answer.
+ */
+export function isPostCheckoutReturn(destination: string): boolean {
+  const qIdx = destination.indexOf("?");
   if (qIdx < 0) {
     return false;
   }
-  return new URLSearchParams(pathnameWithSearch.slice(qIdx + 1)).has(
-    "session_id",
-  );
+  const path = destination.slice(0, qIdx).split("#")[0] ?? "";
+  if (!POST_CHECKOUT_LANDING_PATHS.has(path)) {
+    return false;
+  }
+  return new URLSearchParams(destination.slice(qIdx + 1)).has("session_id");
 }
 
 /**
@@ -328,11 +336,14 @@ function resolveRouteGuard(
   pathnameWithSearch: string,
 ): NavigationDecision {
   const qIdx = pathnameWithSearch.indexOf("?");
-  const path = qIdx >= 0 ? pathnameWithSearch.slice(0, qIdx) : pathnameWithSearch;
+  const path =
+    qIdx >= 0 ? pathnameWithSearch.slice(0, qIdx) : pathnameWithSearch;
 
   for (const step of ROUTE_GUARD_PIPELINE) {
     const decision = step(state, path, pathnameWithSearch);
-    if (decision) return decision;
+    if (decision) {
+      return decision;
+    }
   }
   return { action: "allow" };
 }
@@ -389,7 +400,7 @@ function waitForSession(state: NavigationState): NavigationDecision | null {
  */
 function requirePostCheckoutProvisioning(
   state: NavigationState,
-  path: string,
+  _path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
   // An org with a platform-hosted assistant has a target for the purchase, so
@@ -398,7 +409,7 @@ function requirePostCheckoutProvisioning(
   if (state.hasPlatformHostedAssistant) {
     return null;
   }
-  if (!isPostCheckoutReturn(path, pathnameWithSearch)) {
+  if (!isPostCheckoutReturn(pathnameWithSearch)) {
     return null;
   }
   // Not signed in yet: fall through so `requireAuth` sends the user to login
@@ -447,8 +458,12 @@ function allowGatewayAuth(
   _path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
-  if (!state.isGatewayAuth) return null;
-  if (postCheckoutHatchReturnTo(pathnameWithSearch)) return null;
+  if (!state.isGatewayAuth) {
+    return null;
+  }
+  if (postCheckoutHatchReturnTo(pathnameWithSearch)) {
+    return null;
+  }
   return { action: "allow" };
 }
 
@@ -457,8 +472,12 @@ function stripRemoteGatewayPublicPathPrefix(
   pathnameWithSearch: string,
 ): string {
   const prefix = state.remoteGatewayPublicPathPrefix;
-  if (!state.isRemoteGateway || !prefix) return pathnameWithSearch;
-  if (pathnameWithSearch === prefix) return routes.assistant;
+  if (!state.isRemoteGateway || !prefix) {
+    return pathnameWithSearch;
+  }
+  if (pathnameWithSearch === prefix) {
+    return routes.assistant;
+  }
   if (pathnameWithSearch.startsWith(`${prefix}/`)) {
     return pathnameWithSearch.slice(prefix.length);
   }
@@ -470,9 +489,14 @@ function requireRemoteGatewayPairing(
   _path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
-  if (!state.isRemoteGateway || state.isAuthenticated) return null;
+  if (!state.isRemoteGateway || state.isAuthenticated) {
+    return null;
+  }
 
-  const returnTo = stripRemoteGatewayPublicPathPrefix(state, pathnameWithSearch);
+  const returnTo = stripRemoteGatewayPublicPathPrefix(
+    state,
+    pathnameWithSearch,
+  );
   return {
     action: "redirect",
     to: `${routes.remotePair}?returnTo=${encodeURIComponent(returnTo)}`,
@@ -484,9 +508,14 @@ function requireAuth(
   path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
-  if (state.isAuthenticated) return null;
+  if (state.isAuthenticated) {
+    return null;
+  }
 
-  if (state.isLocalMode && (isOnboardingPath(path) || LOCAL_ONLY_STANDALONE_PATHS.has(path))) {
+  if (
+    state.isLocalMode &&
+    (isOnboardingPath(path) || LOCAL_ONLY_STANDALONE_PATHS.has(path))
+  ) {
     if (path === routes.selectAssistant && !state.hasAssistants) {
       return { action: "redirect", to: routes.onboarding.hosting };
     }
@@ -645,7 +674,9 @@ function requireAssistant(
   path: string,
   pathnameWithSearch: string,
 ): NavigationDecision | null {
-  if (state.hasAssistants) return null;
+  if (state.hasAssistants) {
+    return null;
+  }
 
   // The marketing pricing CTAs deep-link a brand-new user (no assistant yet)
   // straight into Stripe checkout for a chosen package. Exempt that route from
@@ -653,7 +684,9 @@ function requireAssistant(
   // this step, so consent is still enforced before any paid checkout starts.
   // Every other billing surface still funnels a no-assistant user into
   // provisioning first.
-  if (path === routes.checkout) return null;
+  if (path === routes.checkout) {
+    return null;
+  }
 
   if (state.isLocalMode) {
     if (state.platformSession === "unknown") {
@@ -679,7 +712,10 @@ function requireAssistant(
   // A stale toggle must be re-reviewed before provisioning an assistant.
   if (!consentIsCurrent(state)) {
     const returnTo = encodeURIComponent(pathnameWithSearch);
-    return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };
+    return {
+      action: "redirect",
+      to: `${routes.reviewTerms}?returnTo=${returnTo}`,
+    };
   }
   // A consented user with no assistant goes to the standard hatching screen.
   return { action: "redirect", to: routes.onboarding.hatching };
@@ -713,7 +749,10 @@ function requireConsent(
   }
 
   const returnTo = encodeURIComponent(pathnameWithSearch);
-  return { action: "redirect", to: `${routes.reviewTerms}?returnTo=${returnTo}` };
+  return {
+    action: "redirect",
+    to: `${routes.reviewTerms}?returnTo=${returnTo}`,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -724,13 +763,23 @@ function resolveOnboardingIntercept(
   state: NavigationState,
   intendedDestination: string,
 ): NavigationDecision {
-  if (state.isLocalMode && state.hasAssistants) return { action: "allow" };
-  if (hasCompletedOnboarding(state)) return { action: "allow" };
+  if (state.isLocalMode && state.hasAssistants) {
+    return { action: "allow" };
+  }
+  if (hasCompletedOnboarding(state)) {
+    return { action: "allow" };
+  }
 
   const path = extractPathname(intendedDestination);
-  if (!path.startsWith(routes.assistant)) return { action: "allow" };
-  if (path.startsWith(`${routes.assistant}/onboarding`)) return { action: "allow" };
-  if (path === routes.reviewTerms) return { action: "allow" };
+  if (!path.startsWith(routes.assistant)) {
+    return { action: "allow" };
+  }
+  if (path.startsWith(`${routes.assistant}/onboarding`)) {
+    return { action: "allow" };
+  }
+  if (path === routes.reviewTerms) {
+    return { action: "allow" };
+  }
 
   return {
     action: "redirect",
@@ -743,7 +792,9 @@ function resolveOnboardingIntercept(
 // ---------------------------------------------------------------------------
 
 function resolveHatchGate(state: NavigationState): NavigationDecision {
-  if (!state.sessionSettled) return { action: "wait" };
+  if (!state.sessionSettled) {
+    return { action: "wait" };
+  }
   if (!state.isAuthenticated && !state.isLocalMode) {
     return { action: "redirect", to: routes.account.login };
   }

@@ -139,11 +139,15 @@ function normalizeContentOrderEntry(
 export function normalizeContentOrder(
   raw: unknown[] | undefined,
 ): Array<{ type: string; id: string }> | undefined {
-  if (!raw || raw.length === 0) return undefined;
+  if (!raw || raw.length === 0) {
+    return undefined;
+  }
   const result: Array<{ type: string; id: string }> = [];
   for (const entry of raw) {
     const normalized = normalizeContentOrderEntry(entry);
-    if (normalized) result.push(normalized);
+    if (normalized) {
+      result.push(normalized);
+    }
   }
   return result.length > 0 ? result : undefined;
 }
@@ -180,16 +184,22 @@ export function normalizeContentBlocks(
   }
 
   const order = normalizeContentOrder(m.contentOrder);
-  if (!order) return undefined;
+  if (!order) {
+    return undefined;
+  }
 
   const blocks: ConversationContentBlock[] = [];
   for (const { type, id } of order) {
     const idx = Number.parseInt(id, 10);
-    if (Number.isNaN(idx)) continue;
+    if (Number.isNaN(idx)) {
+      continue;
+    }
     switch (type) {
       case "text": {
         const raw = m.textSegments?.[idx];
-        if (raw == null) break;
+        if (raw == null) {
+          break;
+        }
         const { cleanedContent } = parseAttachmentSummariesFromContent(raw);
         if (cleanedContent.trim().length > 0) {
           blocks.push({ type: "text", text: cleanedContent });
@@ -198,7 +208,9 @@ export function normalizeContentBlocks(
       }
       case "thinking": {
         const thinking = m.thinkingSegments?.[idx];
-        if (thinking != null) blocks.push({ type: "thinking", thinking });
+        if (thinking != null) {
+          blocks.push({ type: "thinking", thinking });
+        }
         break;
       }
       case "tool":
@@ -221,12 +233,16 @@ export function normalizeContentBlocks(
       }
       case "surface": {
         const surface = m.surfaces?.[idx];
-        if (surface) blocks.push({ type: "surface", surface });
+        if (surface) {
+          blocks.push({ type: "surface", surface });
+        }
         break;
       }
       case "attachment": {
         const attachment = m.attachments[idx];
-        if (attachment) blocks.push({ type: "attachment", attachment });
+        if (attachment) {
+          blocks.push({ type: "attachment", attachment });
+        }
         break;
       }
     }
@@ -412,7 +428,9 @@ export async function uploadChatAttachment(
     id,
     ...(typeof data.filename === "string" ? { filename: data.filename } : {}),
     ...(typeof data.mimeType === "string" ? { mimeType: data.mimeType } : {}),
-    ...(typeof data.sizeBytes === "number" ? { sizeBytes: data.sizeBytes } : {}),
+    ...(typeof data.sizeBytes === "number"
+      ? { sizeBytes: data.sizeBytes }
+      : {}),
   };
 }
 
@@ -507,7 +525,9 @@ export async function postChatMessage(
   // schema accepts `clientTimezone: z.string().optional()` and forwards it
   // into `resolveTurnTimezoneContext`).
   const clientTimezone = getEffectiveTimezone();
-  if (clientTimezone) body.clientTimezone = clientTimezone;
+  if (clientTimezone) {
+    body.clientTimezone = clientTimezone;
+  }
   const conversationField = pickConversationIdWireField();
   if (conversationId !== null || conversationField !== "conversationId") {
     body[conversationField] = conversationId;
@@ -563,36 +583,48 @@ export async function postChatMessage(
         tasks: normalizedOnboarding.tasks,
         tone: normalizedOnboarding.tone,
       };
-    if (normalizedOnboarding.userName !== undefined)
+    if (normalizedOnboarding.userName !== undefined) {
       onboardingDict.userName = normalizedOnboarding.userName;
-    if (normalizedOnboarding.occupation !== undefined)
+    }
+    if (normalizedOnboarding.occupation !== undefined) {
       onboardingDict.occupation = normalizedOnboarding.occupation;
-    if (normalizedOnboarding.assistantName !== undefined)
+    }
+    if (normalizedOnboarding.assistantName !== undefined) {
       onboardingDict.assistantName = normalizedOnboarding.assistantName;
-    if (normalizedOnboarding.googleConnected !== undefined)
+    }
+    if (normalizedOnboarding.googleConnected !== undefined) {
       onboardingDict.googleConnected = normalizedOnboarding.googleConnected;
-    if (normalizedOnboarding.googleScopes !== undefined)
+    }
+    if (normalizedOnboarding.googleScopes !== undefined) {
       onboardingDict.googleScopes = normalizedOnboarding.googleScopes;
-    if (normalizedOnboarding.priorAssistants !== undefined)
+    }
+    if (normalizedOnboarding.priorAssistants !== undefined) {
       onboardingDict.priorAssistants = normalizedOnboarding.priorAssistants;
-    if (normalizedOnboarding.cohort !== undefined)
+    }
+    if (normalizedOnboarding.cohort !== undefined) {
       onboardingDict.cohort = normalizedOnboarding.cohort;
-    if (normalizedOnboarding.bootstrapTemplate !== undefined)
+    }
+    if (normalizedOnboarding.bootstrapTemplate !== undefined) {
       onboardingDict.bootstrapTemplate = normalizedOnboarding.bootstrapTemplate;
+    }
     if (
       normalizedOnboarding.initialMessage !== undefined &&
       normalizedOnboarding.initialMessage
         .trim()
         .toLowerCase()
         .replace(/[.!?]+$/, "") !== "wake up, my friend"
-    )
+    ) {
       onboardingDict.initialMessage = normalizedOnboarding.initialMessage;
-    if (normalizedOnboarding.skills !== undefined)
+    }
+    if (normalizedOnboarding.skills !== undefined) {
       onboardingDict.skills = normalizedOnboarding.skills;
-    if (normalizedOnboarding.researchFindings !== undefined)
+    }
+    if (normalizedOnboarding.researchFindings !== undefined) {
       onboardingDict.researchFindings = normalizedOnboarding.researchFindings;
-    if (normalizedOnboarding.title !== undefined)
+    }
+    if (normalizedOnboarding.title !== undefined) {
       onboardingDict.title = normalizedOnboarding.title;
+    }
     body.onboarding = onboardingDict;
   }
   if (normalizedOnboarding) {
@@ -729,9 +761,7 @@ function queuedMessageHeaders(conversationId: string) {
  * generation and promoting the message to the head of the queue.
  */
 export type SteerQueuedMessageResult =
-  | "steered"
-  | "not_steerable"
-  | "request_failed";
+  "steered" | "not_steerable" | "request_failed";
 
 export async function steerToMessage(
   assistantId: string,

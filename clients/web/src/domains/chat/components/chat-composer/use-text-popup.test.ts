@@ -27,13 +27,17 @@ import {
 
 /** Local mirror of the hook's wrapping-up navigation. */
 function listIndexUp(current: number, listLength: number): number {
-  if (listLength === 0) return 0;
+  if (listLength === 0) {
+    return 0;
+  }
   return current <= 0 ? listLength - 1 : current - 1;
 }
 
 /** Local mirror of the hook's wrapping-down navigation. */
 function listIndexDown(current: number, listLength: number): number {
-  if (listLength === 0) return 0;
+  if (listLength === 0) {
+    return 0;
+  }
   return current >= listLength - 1 ? 0 : current + 1;
 }
 
@@ -46,9 +50,13 @@ function derivePopupState<T>(
   minFilterLength = 0,
 ): { show: boolean; filter: string; items: T[] } {
   const match = trigger.exec(text);
-  if (!match) return { show: false, filter: "", items: [] };
+  if (!match) {
+    return { show: false, filter: "", items: [] };
+  }
   const filter = match[1] ?? "";
-  if (filter.length < minFilterLength) return { show: false, filter, items: [] };
+  if (filter.length < minFilterLength) {
+    return { show: false, filter, items: [] };
+  }
   const items = search(filter);
   return { show: items.length > 0 && !suppressed, filter, items };
 }
@@ -260,20 +268,30 @@ describe("scenario: dismiss + retype suppression", () => {
 describe("scenario: keyboard navigation wraps at boundaries", () => {
   test("full wrap cycle down through 5 commands", () => {
     let idx = 0;
-    idx = listIndexDown(idx, 5); expect(idx).toBe(1);
-    idx = listIndexDown(idx, 5); expect(idx).toBe(2);
-    idx = listIndexDown(idx, 5); expect(idx).toBe(3);
-    idx = listIndexDown(idx, 5); expect(idx).toBe(4);
-    idx = listIndexDown(idx, 5); expect(idx).toBe(0);
+    idx = listIndexDown(idx, 5);
+    expect(idx).toBe(1);
+    idx = listIndexDown(idx, 5);
+    expect(idx).toBe(2);
+    idx = listIndexDown(idx, 5);
+    expect(idx).toBe(3);
+    idx = listIndexDown(idx, 5);
+    expect(idx).toBe(4);
+    idx = listIndexDown(idx, 5);
+    expect(idx).toBe(0);
   });
 
   test("full wrap cycle up through 5 commands", () => {
     let idx = 0;
-    idx = listIndexUp(idx, 5); expect(idx).toBe(4);
-    idx = listIndexUp(idx, 5); expect(idx).toBe(3);
-    idx = listIndexUp(idx, 5); expect(idx).toBe(2);
-    idx = listIndexUp(idx, 5); expect(idx).toBe(1);
-    idx = listIndexUp(idx, 5); expect(idx).toBe(0);
+    idx = listIndexUp(idx, 5);
+    expect(idx).toBe(4);
+    idx = listIndexUp(idx, 5);
+    expect(idx).toBe(3);
+    idx = listIndexUp(idx, 5);
+    expect(idx).toBe(2);
+    idx = listIndexUp(idx, 5);
+    expect(idx).toBe(1);
+    idx = listIndexUp(idx, 5);
+    expect(idx).toBe(0);
   });
 });
 

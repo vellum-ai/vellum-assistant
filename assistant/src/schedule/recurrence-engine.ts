@@ -30,7 +30,9 @@ function normalizeRruleExpression(expression: string): string {
     .map((line) => {
       const colonIdx = line.indexOf(":");
       const semiIdx = line.indexOf(";");
-      if (colonIdx === -1 && semiIdx === -1) return line;
+      if (colonIdx === -1 && semiIdx === -1) {
+        return line;
+      }
       // Uppercase only the property name (before the first ';' or ':')
       const nameEnd =
         semiIdx !== -1 && (colonIdx === -1 || semiIdx < colonIdx)
@@ -57,15 +59,20 @@ function validateRruleLines(lines: string[]): string | null {
     if (!SUPPORTED_RRULE_PREFIXES.some((p) => upper.startsWith(p))) {
       return `Unsupported recurrence line: ${line}`;
     }
-    if (upper.startsWith("DTSTART")) hasDtstart = true;
-    if (upper.startsWith("RRULE:") || upper.startsWith("RDATE"))
+    if (upper.startsWith("DTSTART")) {
+      hasDtstart = true;
+    }
+    if (upper.startsWith("RRULE:") || upper.startsWith("RDATE")) {
       hasInclusion = true;
+    }
   }
 
-  if (!hasDtstart)
+  if (!hasDtstart) {
     return "RRULE expression must include DTSTART for deterministic scheduling";
-  if (!hasInclusion)
+  }
+  if (!hasInclusion) {
     return "RRULE expression must include at least one RRULE or RDATE";
+  }
   return null;
 }
 
@@ -82,9 +89,12 @@ export function hasSetConstructs(expression: string): boolean {
       upper.startsWith("RDATE") ||
       upper.startsWith("EXDATE") ||
       upper.startsWith("EXRULE")
-    )
+    ) {
       return true;
-    if (upper.startsWith("RRULE:")) rruleCount++;
+    }
+    if (upper.startsWith("RRULE:")) {
+      rruleCount++;
+    }
   }
   return rruleCount > 1;
 }
@@ -117,7 +127,9 @@ export function isValidScheduleExpression(spec: ScheduleSpec): boolean {
     if (spec.syntax === "rrule") {
       const lines = parseRruleLines(spec.expression);
       const error = validateRruleLines(lines);
-      if (error) return false;
+      if (error) {
+        return false;
+      }
 
       const normalized = normalizeRruleExpression(spec.expression);
       const tzid = spec.timezone ?? undefined;
@@ -143,7 +155,9 @@ export function isValidScheduleExpression(spec: ScheduleSpec): boolean {
 export function isSingleFireRRule(expression: string): boolean {
   try {
     const normalized = normalizeRruleExpression(expression);
-    if (hasSetConstructs(normalized)) return false;
+    if (hasSetConstructs(normalized)) {
+      return false;
+    }
     const rule = rrulestr(normalized);
     return !(rule instanceof RRuleSet) && rule.options.count === 1;
   } catch {
@@ -157,12 +171,18 @@ export function isSingleFireRRule(expression: string): boolean {
  * fall back to "Custom recurrence" rather than leaking raw iCalendar text.
  */
 export function describeRRuleExpression(expression: string): string {
-  if (isSingleFireRRule(expression)) return "One-time";
+  if (isSingleFireRRule(expression)) {
+    return "One-time";
+  }
   try {
     const normalized = normalizeRruleExpression(expression);
-    if (hasSetConstructs(normalized)) return "Custom recurrence";
+    if (hasSetConstructs(normalized)) {
+      return "Custom recurrence";
+    }
     const text = rrulestr(normalized).toText();
-    if (!text) return "Custom recurrence";
+    if (!text) {
+      return "Custom recurrence";
+    }
     return text.charAt(0).toUpperCase() + text.slice(1);
   } catch {
     return "Custom recurrence";
@@ -193,7 +213,9 @@ export function computeNextRunAt(spec: ScheduleSpec, nowMs?: number): number {
     const normalized = normalizeRruleExpression(spec.expression);
     const lines = parseRruleLines(normalized);
     const error = validateRruleLines(lines);
-    if (error) throw new Error(error);
+    if (error) {
+      throw new Error(error);
+    }
 
     const useSet = hasSetConstructs(normalized);
     const tzid = spec.timezone ?? undefined;

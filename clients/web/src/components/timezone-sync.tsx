@@ -45,8 +45,15 @@ export function TimezoneSync(): null {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
   const { mutateAsync: patchTimezone } = useMutation({
-    mutationFn: async (vars: { assistantId: string; detectedTimezone: string }) => {
-      const { data } = await client.patch<Record<string, unknown>, unknown, true>({
+    mutationFn: async (vars: {
+      assistantId: string;
+      detectedTimezone: string;
+    }) => {
+      const { data } = await client.patch<
+        Record<string, unknown>,
+        unknown,
+        true
+      >({
         url: `/v1/assistants/{assistant_id}/config`,
         path: { assistant_id: vars.assistantId },
         body: { ui: { detectedTimezone: vars.detectedTimezone } },
@@ -85,10 +92,14 @@ export function TimezoneSync(): null {
   const trySync = useCallback(() => {
     const currentAssistantId = assistantIdRef.current;
     const detectedTimezone = getBrowserTimezone();
-    if (!currentAssistantId || !detectedTimezone) return;
+    if (!currentAssistantId || !detectedTimezone) {
+      return;
+    }
 
     const key = `${currentAssistantId}:${detectedTimezone}`;
-    if (lastSyncedRef.current === key) return;
+    if (lastSyncedRef.current === key) {
+      return;
+    }
 
     // A PATCH is already running: just record the latest desired target so
     // the in-flight PATCH drains to it on settle (no overlapping writes).
@@ -115,7 +126,9 @@ export function TimezoneSync(): null {
         inFlightRef.current = false;
         const pending = pendingKeyRef.current;
         pendingKeyRef.current = null;
-        if (pending && pending !== key) trySyncRef.current();
+        if (pending && pending !== key) {
+          trySyncRef.current();
+        }
       });
   }, [patchTimezone]);
 

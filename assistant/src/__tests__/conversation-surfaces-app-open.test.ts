@@ -8,9 +8,7 @@ import {
   type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
-import type {
-  SurfaceType,
-} from "../daemon/message-protocol.js";
+import type { SurfaceType } from "../daemon/message-protocol.js";
 
 interface ContextOptions {
   hasNoClient?: boolean;

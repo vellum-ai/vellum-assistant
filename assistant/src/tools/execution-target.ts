@@ -21,7 +21,9 @@ export function resolveExecutionTarget(tool: {
   name: string;
   executionTarget?: ExecutionTarget;
 }): ExecutionTarget {
-  if (tool.executionTarget) return tool.executionTarget;
+  if (tool.executionTarget) {
+    return tool.executionTarget;
+  }
   if (tool.name.startsWith("host_") || tool.name.startsWith("computer_use_")) {
     return "host";
   }

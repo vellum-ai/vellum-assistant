@@ -43,7 +43,9 @@ export function IntegrationStep({
   const [claiming, setClaiming] = useState(false);
 
   function handleClaim() {
-    if (claiming) return;
+    if (claiming) {
+      return;
+    }
     setClaiming(true);
     if (reduce) {
       onClaim();
@@ -66,7 +68,8 @@ export function IntegrationStep({
           className="text-[2.6rem] leading-[1.1] max-md:max-w-[80vw]"
           style={{ fontFamily: "var(--font-serif)" }}
         >
-          Here are some free credits<br className="max-md:hidden" /> to get started.
+          Here are some free credits
+          <br className="max-md:hidden" /> to get started.
         </h1>
 
         {/* Coin — drops to the eyes, gets bumped up, then falls away (2D flight
@@ -90,7 +93,9 @@ export function IntegrationStep({
               ease: ["easeIn", "easeOut", "easeIn"],
             }}
             onAnimationComplete={() => {
-              if (claiming) onClaim();
+              if (claiming) {
+                onClaim();
+              }
             }}
           >
             <OnboardingCoin size={88} spinning={claiming && !reduce} />

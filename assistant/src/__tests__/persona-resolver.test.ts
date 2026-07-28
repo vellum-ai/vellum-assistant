@@ -72,7 +72,9 @@ mock.module("../contacts/contact-store.js", () => ({
 
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
   peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) => {
-    if (!input?.channelTypes) return mockGuardianDeliveries;
+    if (!input?.channelTypes) {
+      return mockGuardianDeliveries;
+    }
     return mockGuardianDeliveries.filter((g) =>
       input.channelTypes!.includes(g.channelType),
     );

@@ -38,7 +38,10 @@ export function ActiveAssistantGate() {
     (s) => s.assistantState.kind,
   );
 
-  if (!assistantId || (assistantStateKind !== "active" && assistantStateKind !== "self_hosted")) {
+  if (
+    !assistantId ||
+    (assistantStateKind !== "active" && assistantStateKind !== "self_hosted")
+  ) {
     return <ActiveAssistantPlaceholder />;
   }
 

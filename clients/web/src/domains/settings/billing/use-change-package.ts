@@ -39,13 +39,17 @@ export function useChangePackage() {
           queryKey: organizationsBillingPlansRetrieveQueryKey(),
         }),
         queryClient.invalidateQueries({
-          queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+          queryKey:
+            organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
         }),
       ]);
       return result;
     } catch (error) {
       toast.error(
-        extractMutationError(error, "Failed to change your plan. Please try again."),
+        extractMutationError(
+          error,
+          "Failed to change your plan. Please try again.",
+        ),
       );
       return null;
     }

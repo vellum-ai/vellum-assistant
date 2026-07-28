@@ -43,11 +43,17 @@ export interface ResolvedImage {
 function relativeAge(createdMs: number): string {
   const diffMs = Date.now() - createdMs;
   const mins = Math.floor(diffMs / 60_000);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) {
+    return `${mins}m ago`;
+  }
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
   const days = Math.floor(hours / 24);
-  if (days < 90) return `${days}d ago`;
+  if (days < 90) {
+    return `${days}d ago`;
+  }
   const months = Math.floor(days / 30);
   return `${months}mo ago`;
 }
@@ -278,7 +284,9 @@ export function assembleContextBlock(
     }
   }
 
-  if (parts.length === 0) return "";
+  if (parts.length === 0) {
+    return "";
+  }
   return parts.join("\n\n");
 }
 
@@ -291,7 +299,9 @@ function buildSection(nodes: ScoredNode[], maxItems: number): string[] {
  * Uses the same per-node format as context-load (age + full content).
  */
 export function assembleInjectionBlock(nodes: ScoredNode[]): string {
-  if (nodes.length === 0) return "";
+  if (nodes.length === 0) {
+    return "";
+  }
   return nodes
     .map((scored) => {
       if (isCapabilityNode(scored.node)) {
@@ -325,13 +335,19 @@ export async function resolveInjectionImages(
   const log = getLogger("memory-graph");
   const result = new Map<string, ResolvedImage>();
   for (const scored of nodes) {
-    if (result.size >= maxImages) break;
+    if (result.size >= maxImages) {
+      break;
+    }
     const refs = scored.node.imageRefs;
-    if (!refs || refs.length === 0) continue;
+    if (!refs || refs.length === 0) {
+      continue;
+    }
 
     try {
       const data = await loadImageRefData(refs[0]!);
-      if (!data) continue;
+      if (!data) {
+        continue;
+      }
 
       const optimized = optimizeImageForTransport(
         data.data.toString("base64"),

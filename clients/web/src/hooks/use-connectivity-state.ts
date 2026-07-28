@@ -50,7 +50,9 @@ export function useConnectivityState(): ConnectivityStateHandle {
 
   const applySnapshot = useCallback(
     (next: ConnectivityState | null) => {
-      if (!next) return;
+      if (!next) {
+        return;
+      }
       clearRecoveryTimer();
       setState(next);
     },
@@ -66,7 +68,9 @@ export function useConnectivityState(): ConnectivityStateHandle {
   useEffect(() => {
     const unsub = subscribeToConnectivity((next) => {
       if (next === "online") {
-        if (recoveryTimer.current) return;
+        if (recoveryTimer.current) {
+          return;
+        }
         recoveryTimer.current = setTimeout(() => {
           recoveryTimer.current = null;
           setState("online");

@@ -90,7 +90,9 @@ describe("initSentry commit-pressure enrichment", () => {
   function sendEvent(message: string): ErrorEvent | null {
     initSentry();
     const beforeSend = syncedOptions?.beforeSend;
-    if (!beforeSend) throw new Error("beforeSend not configured");
+    if (!beforeSend) {
+      throw new Error("beforeSend not configured");
+    }
     const event = {
       exception: { values: [{ type: "Error", value: message }] },
     } as ErrorEvent;
@@ -111,8 +113,7 @@ describe("initSentry commit-pressure enrichment", () => {
     );
 
     const pressure = sent?.contexts?.commit_pressure as
-      | { updates: number; sources: Record<string, number> }
-      | undefined;
+      { updates: number; sources: Record<string, number> } | undefined;
     expect(pressure?.updates).toBe(3);
     expect(pressure?.sources["smooth-stream"]).toBe(2);
   });

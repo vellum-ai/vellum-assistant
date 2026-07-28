@@ -28,8 +28,7 @@ export function handleMessageQueued(
   ctx.setRequestIdMapping(requestId, messageId);
 
   if (ctx.consumePendingLocalDeletion(messageId)) {
-    const conversationId =
-      useConversationStore.getState().activeConversationId;
+    const conversationId = useConversationStore.getState().activeConversationId;
     if (ctx.assistantId && conversationId) {
       void confirmQueuedMessageDeletion({
         assistantId: ctx.assistantId,
@@ -44,7 +43,9 @@ export function handleMessageQueued(
       });
     }
   } else {
-    ctx.setOptimisticSends((prev) => setQueuePosition(prev, messageId, position + 1));
+    ctx.setOptimisticSends((prev) =>
+      setQueuePosition(prev, messageId, position + 1),
+    );
   }
 }
 
@@ -71,7 +72,9 @@ export function handleMessageQueuedDeleted(
   ctx.turnActions.deleteQueuedMessage();
   const deletedMessageId = ctx.popRequestIdMapping(event.requestId);
   if (deletedMessageId) {
-    ctx.setOptimisticSends((prev) => removeQueuedMessage(prev, deletedMessageId));
+    ctx.setOptimisticSends((prev) =>
+      removeQueuedMessage(prev, deletedMessageId),
+    );
   }
   patchTranscriptMessages((prev) =>
     removeQueuedMessage(prev, deletedMessageId ?? event.requestId),

@@ -181,7 +181,10 @@ export function VoiceSessionPillHost({
   // the shared hook rather than an inline comparison.
   if (showFailure && error !== null) {
     content = (
-      <VoiceSessionErrorChip message={error} onDismiss={dismissLiveVoiceFailure} />
+      <VoiceSessionErrorChip
+        message={error}
+        onDismiss={dismissLiveVoiceFailure}
+      />
     );
   } else if (visible) {
     content = (

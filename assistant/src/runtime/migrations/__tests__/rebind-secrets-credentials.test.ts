@@ -62,7 +62,9 @@ describe("rebind-secrets-screen credential awareness", () => {
     const screen = deriveRebindSecretsScreenState(wizard, completion);
 
     expect(screen.phase).toBe("active");
-    if (screen.phase !== "active") return;
+    if (screen.phase !== "active") {
+      return;
+    }
 
     const secretsTask = screen.tasks.find((t) => t.id === "re-enter-secrets");
     expect(secretsTask).toBeDefined();
@@ -83,7 +85,9 @@ describe("rebind-secrets-screen credential awareness", () => {
     const screen = deriveRebindSecretsScreenState(wizard, completion);
 
     expect(screen.phase).toBe("active");
-    if (screen.phase !== "active") return;
+    if (screen.phase !== "active") {
+      return;
+    }
 
     const secretsTask = screen.tasks.find((t) => t.id === "re-enter-secrets");
     expect(secretsTask).toBeDefined();
@@ -100,7 +104,9 @@ describe("rebind-secrets-screen credential awareness", () => {
     const screen = deriveRebindSecretsScreenState(wizard, completion);
 
     expect(screen.phase).toBe("active");
-    if (screen.phase !== "active") return;
+    if (screen.phase !== "active") {
+      return;
+    }
 
     const secretsTask = screen.tasks.find((t) => t.id === "re-enter-secrets");
     expect(secretsTask).toBeDefined();
@@ -126,7 +132,9 @@ describe("rebind-secrets-screen credential awareness", () => {
     const screen = deriveRebindSecretsScreenState(wizard, completion);
 
     expect(screen.phase).toBe("active");
-    if (screen.phase !== "active") return;
+    if (screen.phase !== "active") {
+      return;
+    }
 
     // re-enter-secrets is auto-completed, rebind-channels and reconfigure-auth are manually done
     expect(screen.allRequiredComplete).toBe(true);
@@ -143,7 +151,9 @@ describe("rebind-secrets-screen credential awareness", () => {
     const screen = deriveRebindSecretsScreenState(wizard, completion);
 
     expect(screen.phase).toBe("active");
-    if (screen.phase !== "active") return;
+    if (screen.phase !== "active") {
+      return;
+    }
 
     // re-enter-secrets is still pending (partial failure), so not all required complete
     expect(screen.allRequiredComplete).toBe(false);
@@ -160,7 +170,9 @@ describe("rebind-secrets-screen credential awareness", () => {
     const screen = deriveRebindSecretsScreenState(wizard, completion);
 
     expect(screen.phase).toBe("active");
-    if (screen.phase !== "active") return;
+    if (screen.phase !== "active") {
+      return;
+    }
 
     const secretsTask = screen.tasks.find((t) => t.id === "re-enter-secrets");
     expect(secretsTask).toBeDefined();

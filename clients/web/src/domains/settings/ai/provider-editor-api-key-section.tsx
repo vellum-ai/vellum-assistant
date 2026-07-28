@@ -119,7 +119,9 @@ export function ProviderEditorApiKeySection({
                   credential && !hasCurrent
                     ? [{ label: credential, value: credential }, ...baseOptions]
                     : baseOptions;
-                if (dropdownOptions.length === 0) return null;
+                if (dropdownOptions.length === 0) {
+                  return null;
+                }
                 return (
                   <div className="space-y-1">
                     <label className="block text-body-small-default text-[var(--content-tertiary)]">
@@ -156,7 +158,9 @@ export function ProviderEditorApiKeySection({
                       disabled={!newCredentialName.trim()}
                       onClick={() => {
                         const trimmed = newCredentialName.trim();
-                        if (!trimmed) return;
+                        if (!trimmed) {
+                          return;
+                        }
                         const ref = `credential/${provider}/${trimmed}`;
                         onCredentialChange(ref);
                         setIsCreatingNewCredential(false);
@@ -182,9 +186,7 @@ export function ProviderEditorApiKeySection({
                     }
                   }}
                 >
-                  {isCreatingNewCredential
-                    ? "Cancel"
-                    : "+ New Credential"}
+                  {isCreatingNewCredential ? "Cancel" : "+ New Credential"}
                 </Button>
               </div>
             </div>

@@ -4,14 +4,7 @@
  * is viewing it (Part 6 of the LUM-1907 attention-sync fix).
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -60,9 +53,19 @@ mock.module("@/utils/conversation-cache", () => ({
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
-  conversationsSeenPost: (opts: { path: { assistant_id: string }; body: { conversationId: string } }) => {
-    markConversationSeenCalls.push({ assistantId: opts.path.assistant_id, conversationId: opts.body.conversationId });
-    return markConversationSeenImpl().then(() => ({ data: undefined, error: undefined, response: { ok: true } }));
+  conversationsSeenPost: (opts: {
+    path: { assistant_id: string };
+    body: { conversationId: string };
+  }) => {
+    markConversationSeenCalls.push({
+      assistantId: opts.path.assistant_id,
+      conversationId: opts.body.conversationId,
+    });
+    return markConversationSeenImpl().then(() => ({
+      data: undefined,
+      error: undefined,
+      response: { ok: true },
+    }));
   },
 }));
 
@@ -70,9 +73,8 @@ mock.module("@/domains/chat/api/interactions", () => ({
   listConversationIdsWithPendingInteractions: async () => new Set<string>(),
 }));
 
-const { useAttentionTracking } = await import(
-  "@/domains/chat/hooks/use-attention-tracking"
-);
+const { useAttentionTracking } =
+  await import("@/domains/chat/hooks/use-attention-tracking");
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
@@ -195,7 +197,9 @@ describe("useAttentionTracking — mark-seen effect", () => {
     let callCount = 0;
     markConversationSeenImpl = async () => {
       callCount++;
-      if (callCount === 1) throw new Error("429 rate limited");
+      if (callCount === 1) {
+        throw new Error("429 rate limited");
+      }
     };
 
     conversationsImpl = [

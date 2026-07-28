@@ -64,7 +64,9 @@ describe("computeAcpRunChatBlocks ordering", () => {
 
   it("includes user turns (unlike the step projection)", () => {
     const blocks = computeAcpRunChatBlocks([userChunk("u1", "do the thing")]);
-    expect(blocks).toEqual([{ kind: "user", id: "u1", content: "do the thing" }]);
+    expect(blocks).toEqual([
+      { kind: "user", id: "u1", content: "do the thing" },
+    ]);
   });
 });
 
@@ -80,7 +82,12 @@ describe("messageId coalescing", () => {
     ]);
 
     expect(blocks).toEqual([
-      { kind: "agent", messageId: "a1", content: "Hello, world", isComplete: false },
+      {
+        kind: "agent",
+        messageId: "a1",
+        content: "Hello, world",
+        isComplete: false,
+      },
     ]);
   });
 
@@ -91,7 +98,12 @@ describe("messageId coalescing", () => {
     ]);
 
     expect(blocks).toEqual([
-      { kind: "thinking", messageId: "t1", content: "step one", isComplete: false },
+      {
+        kind: "thinking",
+        messageId: "t1",
+        content: "step one",
+        isComplete: false,
+      },
     ]);
   });
 
@@ -151,7 +163,12 @@ describe("id-less stream then snapshot reconciliation", () => {
     ]);
 
     expect(blocks).toEqual([
-      { kind: "agent", messageId: "", content: "first message", isComplete: true },
+      {
+        kind: "agent",
+        messageId: "",
+        content: "first message",
+        isComplete: true,
+      },
       {
         kind: "agent",
         messageId: "m2",
@@ -372,7 +389,10 @@ describe("tool blocks", () => {
     ]);
 
     const tool = blocks[0] as Extract<AcpChatBlock, { kind: "tool" }>;
-    expect(tool.locations).toEqual([{ path: "a.ts", line: 12 }, { path: "b.ts" }]);
+    expect(tool.locations).toEqual([
+      { path: "a.ts", line: 12 },
+      { path: "b.ts" },
+    ]);
   });
 
   it("honors a terminal status on the initial tool_call (no follow-up update)", () => {

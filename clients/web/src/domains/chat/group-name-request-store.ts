@@ -18,12 +18,18 @@ import type { Conversation } from "@/types/conversation-types";
 /**
  * A pending group-name dialog. `create` carries the conversation that will be
  * moved into the newly created group; `rename` carries the target group id and
- * a snapshot of its current name, captured at request time so a background
- * groups refetch can't reset the input mid-edit (mirrors `rename-request-store`).
+ * a snapshot of its current name and icon, captured at request time so a
+ * background groups refetch can't reset the inputs mid-edit (mirrors
+ * `rename-request-store`).
  */
 export type GroupNameRequest =
   | { mode: "create"; conversation: Conversation }
-  | { mode: "rename"; groupId: string; currentName: string };
+  | {
+      mode: "rename";
+      groupId: string;
+      currentName: string;
+      currentIcon: string | null;
+    };
 
 interface GroupNameRequestState {
   groupNameRequest: GroupNameRequest | null;
@@ -31,7 +37,11 @@ interface GroupNameRequestState {
 
 interface GroupNameRequestActions {
   requestCreateGroup: (conversation: Conversation) => void;
-  requestRenameGroup: (groupId: string, currentName: string) => void;
+  requestRenameGroup: (
+    groupId: string,
+    currentName: string,
+    currentIcon: string | null,
+  ) => void;
   clearGroupNameRequest: () => void;
 }
 
@@ -41,8 +51,10 @@ const useGroupNameRequestStoreBase = create<GroupNameRequestStore>((set) => ({
   groupNameRequest: null,
   requestCreateGroup: (conversation) =>
     set({ groupNameRequest: { mode: "create", conversation } }),
-  requestRenameGroup: (groupId, currentName) =>
-    set({ groupNameRequest: { mode: "rename", groupId, currentName } }),
+  requestRenameGroup: (groupId, currentName, currentIcon) =>
+    set({
+      groupNameRequest: { mode: "rename", groupId, currentName, currentIcon },
+    }),
   clearGroupNameRequest: () => set({ groupNameRequest: null }),
 }));
 

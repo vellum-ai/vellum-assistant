@@ -218,13 +218,17 @@ export function extractPushConversationId(data: unknown): string | undefined {
  * calls).
  */
 async function ensureListeners(): Promise<void> {
-  if (listenersRegistered) return;
+  if (listenersRegistered) {
+    return;
+  }
   listenersRegistered = true;
   try {
     const { PushNotifications } = await import("@capacitor/push-notifications");
     await PushNotifications.addListener("registration", (token) => {
       const assistantId = currentAssistantId;
-      if (!assistantId) return;
+      if (!assistantId) {
+        return;
+      }
       trackUpsert(upsertToken(token.value, assistantId));
     });
     await PushNotifications.addListener("registrationError", (err) => {
@@ -267,7 +271,9 @@ async function ensureListeners(): Promise<void> {
 export async function registerForRemotePush(
   assistantId: string,
 ): Promise<void> {
-  if (!isRemotePushSupported()) return;
+  if (!isRemotePushSupported()) {
+    return;
+  }
   currentAssistantId = assistantId;
 
   // If iOS already handed us a token for this device under a different
@@ -282,7 +288,9 @@ export async function registerForRemotePush(
     const { PushNotifications } = await import("@capacitor/push-notifications");
     await ensureListeners();
     const permission = await PushNotifications.requestPermissions();
-    if (permission.receive !== "granted") return;
+    if (permission.receive !== "granted") {
+      return;
+    }
     await PushNotifications.register();
   } catch (err) {
     captureError(err, {
@@ -318,7 +326,9 @@ export async function unregisterFromRemotePush(): Promise<void> {
   lastRegistered = null;
   persistedRegistration.remove();
 
-  if (!registered || !isRemotePushSupported()) return;
+  if (!registered || !isRemotePushSupported()) {
+    return;
+  }
 
   try {
     const result = await assistantsPushTokensDelete({

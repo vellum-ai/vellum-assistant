@@ -39,7 +39,7 @@ import {
   supportsHostProxy,
 } from "../../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
+import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import {
@@ -1449,7 +1449,11 @@ export async function handleSendMessage(
     );
   }
   if (requestedInferenceProfile !== undefined) {
-    const profiles = getEffectiveProfiles(getConfig().llm.profiles);
+    const { llm } = getConfig();
+    const profiles = getEffectiveProfilesForProvider(
+      llm.profiles,
+      llm.defaultProvider ?? null,
+    );
     if (
       !Object.prototype.hasOwnProperty.call(profiles, requestedInferenceProfile)
     ) {

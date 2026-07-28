@@ -118,7 +118,9 @@ describe("130-speech-mode-to-provider", () => {
   });
 
   test("is idempotent", () => {
-    writeConfig({ services: { stt: { mode: "managed", provider: "deepgram" } } });
+    writeConfig({
+      services: { stt: { mode: "managed", provider: "deepgram" } },
+    });
 
     speechModeToProviderMigration.run(workspaceDir);
     const once = readConfig();

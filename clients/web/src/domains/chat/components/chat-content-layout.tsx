@@ -18,7 +18,10 @@ import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-dr
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
-import { ChatMainPanel, type ChatMainPanelProps } from "@/domains/chat/components/chat-route-content";
+import {
+  ChatMainPanel,
+  type ChatMainPanelProps,
+} from "@/domains/chat/components/chat-route-content";
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -48,9 +51,7 @@ const importAcpRunDetailPanel = () =>
 const importWorkflowDetailPanel = () =>
   import("@/domains/chat/components/workflow-detail-panel");
 const importBackgroundTaskDetailPanel = () =>
-  import(
-    "@/domains/chat/components/background-task-detail-panel/background-task-detail-panel"
-  );
+  import("@/domains/chat/components/background-task-detail-panel/background-task-detail-panel");
 const importSkillDetailPanel = () =>
   import("@/domains/chat/components/skill-detail-panel");
 
@@ -86,7 +87,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
   const openedDocumentState = useViewerStore.use.openedDocumentState();
-  const editingConversationId = useConversationStore.use.editingConversationId();
+  const editingConversationId =
+    useConversationStore.use.editingConversationId();
   const activeSubagentId = useViewerStore.use.activeSubagentId();
   const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
@@ -137,19 +139,27 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const handleEditApp = useCallback(() => {
     const oas = useViewerStore.getState().openedAppState;
-    if (oas) editApp(oas);
+    if (oas) {
+      editApp(oas);
+    }
   }, [editApp]);
 
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
     const aid = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (app && aid) void useDeployStore.getState().shareApp(aid, app.appId, app.name);
+    if (app && aid) {
+      void useDeployStore.getState().shareApp(aid, app.appId, app.name);
+    }
   }, []);
 
   const handleDeployApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
     const aid = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (app && aid) void useDeployStore.getState().deployApp(aid, app.appId, app.name, app.html);
+    if (app && aid) {
+      void useDeployStore
+        .getState()
+        .deployApp(aid, app.appId, app.name, app.html);
+    }
   }, []);
 
   const handleAppAction = useCallback(
@@ -167,13 +177,16 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   }, []);
 
   const onStopSubagent = useCallback(
-    (subagentId: string) => void useSubagentStore.getState().abortSubagent(subagentId),
+    (subagentId: string) =>
+      void useSubagentStore.getState().abortSubagent(subagentId),
     [],
   );
 
   const onRequestSubagentDetail = useCallback((id: string) => {
     const aid = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (!aid) return;
+    if (!aid) {
+      return;
+    }
     void useSubagentStore.getState().fetchDetailIfNeeded(aid, id);
   }, []);
 
@@ -188,7 +201,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const onRequestWorkflowJournal = useCallback((runId: string) => {
     const aid = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (!aid) return;
+    if (!aid) {
+      return;
+    }
     void useWorkflowStore.getState().fetchJournalIfNeeded(aid, runId);
   }, []);
 
@@ -214,8 +229,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // -------------------------------------------------------------------------
 
   useEffect(() => {
-    if (!isMobile) return;
-    if (mainView !== "channel-setup" || !activeChannelSetup) return;
+    if (!isMobile) {
+      return;
+    }
+    if (mainView !== "channel-setup" || !activeChannelSetup) {
+      return;
+    }
     const channel = activeChannelSetup.channel;
     // This close is a hand-off, not a dismissal: setup continues on the
     // Channels page, which runs standalone and cannot auto-notify on
@@ -237,8 +256,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // destination the in-chat card uses on mobile). Unlike channel setup, no
   // hand-off notification is needed — the detail page is self-contained.
   useEffect(() => {
-    if (!isMobile) return;
-    if (mainView !== "skill-detail" || !activeSkillDetailId) return;
+    if (!isMobile) {
+      return;
+    }
+    if (mainView !== "skill-detail" || !activeSkillDetailId) {
+      return;
+    }
     useViewerStore.getState().closeSkillDetail();
     navigate(routes.skills.detail(activeSkillDetailId));
   }, [isMobile, mainView, activeSkillDetailId, navigate]);
@@ -260,11 +283,17 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // -------------------------------------------------------------------------
 
   useEffect(() => {
-    if (isMobile) return;
+    if (isMobile) {
+      return;
+    }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.key !== "Escape" || event.defaultPrevented) {
+        return;
+      }
       // Don't intercept IME composition (CJK input confirmation).
-      if (event.isComposing || event.keyCode === 229) return;
+      if (event.isComposing || event.keyCode === 229) {
+        return;
+      }
       const viewer = useViewerStore.getState();
       switch (viewer.mainView) {
         case "tool-detail":

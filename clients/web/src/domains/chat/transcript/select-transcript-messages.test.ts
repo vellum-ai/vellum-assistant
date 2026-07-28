@@ -57,7 +57,12 @@ describe("selectTranscriptMessages", () => {
     // cross-clock case the old sort got wrong). It must still land after
     // history, because the live turn is the current, newest turn.
     const history = [
-      makeRow({ id: "h1", role: "user", ...textBody("first"), timestamp: 1000 }),
+      makeRow({
+        id: "h1",
+        role: "user",
+        ...textBody("first"),
+        timestamp: 1000,
+      }),
       makeRow({
         id: "h2",
         role: "assistant",

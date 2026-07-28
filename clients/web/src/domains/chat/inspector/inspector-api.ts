@@ -76,7 +76,9 @@ function extractErrorCode(error: unknown): string | undefined {
     const inner = (error as { error?: unknown }).error;
     if (inner && typeof inner === "object" && "code" in inner) {
       const code = (inner as { code?: unknown }).code;
-      if (typeof code === "string") return code;
+      if (typeof code === "string") {
+        return code;
+      }
     }
   }
   return undefined;
@@ -167,14 +169,18 @@ export function useConversationCallNumbering(
       conversationId,
     ] as const,
     queryFn: async ({ signal }): Promise<LLMRequestLogEntry[] | null> => {
-      if (!assistantId || !conversationId) return null;
+      if (!assistantId || !conversationId) {
+        return null;
+      }
       const { data, response } = await conversationsLlmcontextGet({
         path: { assistant_id: assistantId },
         query: { conversationId, ...summaryViewQuery() },
         signal,
         throwOnError: false,
       });
-      if (!response || !response.ok || !data) return null;
+      if (!response || !response.ok || !data) {
+        return null;
+      }
       return data.logs ?? [];
     },
     enabled: Boolean(enabled && assistantId && conversationId),
@@ -206,7 +212,9 @@ export function useConversationMessageList(
       "for-inspector",
     ] as const,
     queryFn: async (): Promise<ConversationMessage[]> => {
-      if (!assistantId || !conversationId) return [];
+      if (!assistantId || !conversationId) {
+        return [];
+      }
       const snapshot = await fetchConversationMessages(
         assistantId,
         conversationId,
@@ -337,7 +345,9 @@ async function fetchConversationLlmContextFromPerMessage(
   const seenMessageId = new Set<string>();
   for (const m of messages) {
     const id = m.id;
-    if (!id || seenMessageId.has(id)) continue;
+    if (!id || seenMessageId.has(id)) {
+      continue;
+    }
     seenMessageId.add(id);
     messageIds.push(id);
   }
@@ -368,15 +378,25 @@ async function fetchConversationLlmContextFromPerMessage(
   const allLogs: LLMRequestLogEntry[] = [];
 
   for (const r of perMessage) {
-    if (!r) continue;
-    if (r.conversationKind) conversationKind = r.conversationKind;
+    if (!r) {
+      continue;
+    }
+    if (r.conversationKind) {
+      conversationKind = r.conversationKind;
+    }
     if (r.conversationTotalEstimatedCostUsd != null) {
       conversationTotalEstimatedCostUsd = r.conversationTotalEstimatedCostUsd;
     }
-    if (r.memoryRecall) memoryRecall = r.memoryRecall;
-    if (r.memoryV2Activation) memoryV2Activation = r.memoryV2Activation;
+    if (r.memoryRecall) {
+      memoryRecall = r.memoryRecall;
+    }
+    if (r.memoryV2Activation) {
+      memoryV2Activation = r.memoryV2Activation;
+    }
     for (const log of r.logs ?? []) {
-      if (seenLogId.has(log.id)) continue;
+      if (seenLogId.has(log.id)) {
+        continue;
+      }
       seenLogId.add(log.id);
       allLogs.push(log);
     }
@@ -408,6 +428,8 @@ async function fetchMessageLlmContextTolerant(
     signal,
     throwOnError: false,
   });
-  if (!response || !response.ok || !data) return null;
+  if (!response || !response.ok || !data) {
+    return null;
+  }
   return data;
 }

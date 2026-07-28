@@ -65,7 +65,9 @@ const MAX_CONTEXT_LINES = 20;
 function looksBinary(buf: Buffer): boolean {
   const len = Math.min(buf.length, 8000);
   for (let i = 0; i < len; i++) {
-    if (buf[i] === 0) return true;
+    if (buf[i] === 0) {
+      return true;
+    }
   }
   return false;
 }
@@ -263,7 +265,9 @@ export const codeSearchTool = {
     // Scan a single regular file for matches. Applies the denied-basename guard
     // and per-file size caps. Returns nothing; mutates the shared accumulators.
     const scanFile = (full: string, isExplicitRoot = false): void => {
-      if (truncated) return;
+      if (truncated) {
+        return;
+      }
 
       // Honor the wall-clock deadline / abort signal before doing any stat/size
       // work, not just inside the per-line loop. A tree full of oversized or
@@ -278,7 +282,9 @@ export const codeSearchTool = {
       // Never read files the assistant is forbidden from touching, even if a
       // broad pattern would otherwise match them. Reuses the same denylist as
       // file_read/file_write so the policies stay in sync.
-      if (isDeniedBasename(full)) return;
+      if (isDeniedBasename(full)) {
+        return;
+      }
 
       const rel = relative(root, full);
       // matchBase lets a slash-free pattern like "*.ts" match files at any
@@ -330,7 +336,9 @@ export const codeSearchTool = {
       }
       filesScanned++;
       totalBytes += buf.length;
-      if (looksBinary(buf)) return;
+      if (looksBinary(buf)) {
+        return;
+      }
 
       // Display path: when searching a single file at the root, `rel` is empty;
       // fall back to the basename so output stays readable.
@@ -357,7 +365,9 @@ export const codeSearchTool = {
         const line = fileLines[i];
         // Unanchored partial match anywhere in the line — the RE2 equivalent of
         // RegExp.prototype.test(). The compiled pattern is stateless per call.
-        if (!regex.test(line)) continue;
+        if (!regex.test(line)) {
+          continue;
+        }
         if (matchCount >= maxResults) {
           truncated = true;
           maxResultsHit = true;
@@ -378,23 +388,29 @@ export const codeSearchTool = {
               !pushLine(
                 `${display}:${j + 1}${sep} ${truncateForDisplay(fileLines[j])}`,
               )
-            )
+            ) {
               return;
+            }
           }
-          if (!pushLine("--")) return;
+          if (!pushLine("--")) {
+            return;
+          }
         } else {
           if (
             !pushLine(
               `${display}:${lineNo}: ${truncateForDisplay(fileLines[i])}`,
             )
-          )
+          ) {
             return;
+          }
         }
       }
     };
 
     const walk = (dir: string, isExplicitRoot = false): void => {
-      if (truncated) return;
+      if (truncated) {
+        return;
+      }
       // Bound the traversal itself, not just file reads: a deep/wide tree of
       // directories (or many entries that never get read) could otherwise run
       // the synchronous readdir/stat work far past the advertised deadline.
@@ -418,7 +434,9 @@ export const codeSearchTool = {
         return;
       }
       for (const entry of entries) {
-        if (truncated) return;
+        if (truncated) {
+          return;
+        }
         // Per-entry deadline/abort check (the Date.now()/.aborted reads are
         // negligible) plus a hard entry cap independent of wall-clock time so a
         // pathological tree is bounded even when every operation is fast.
@@ -437,11 +455,15 @@ export const codeSearchTool = {
         }
         const full = join(dir, entry.name);
         if (entry.isDirectory()) {
-          if (IGNORED_DIRS.has(entry.name)) continue;
+          if (IGNORED_DIRS.has(entry.name)) {
+            continue;
+          }
           walk(full);
           continue;
         }
-        if (!entry.isFile()) continue;
+        if (!entry.isFile()) {
+          continue;
+        }
         scanFile(full);
       }
     };

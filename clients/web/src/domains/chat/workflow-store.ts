@@ -36,10 +36,7 @@ import { setToolUseAnchor } from "./store-helpers/by-tool-use-id-index";
 // ---------------------------------------------------------------------------
 
 export type WorkflowLeafStatus =
-  | "running"
-  | "completed"
-  | "failed"
-  | "cancelled";
+  "running" | "completed" | "failed" | "cancelled";
 
 export interface WorkflowLeaf {
   seq: number;
@@ -253,12 +250,16 @@ function makeShellEntry(runId: string, startedAt: number): WorkflowEntry {
  * `backfillFromJournal` so the two cannot diverge.
  */
 function sweepRunningLeavesToCancelled(
-  leaves: Map<number, WorkflowLeaf>
+  leaves: Map<number, WorkflowLeaf>,
 ): Map<number, WorkflowLeaf> {
   let next = leaves;
   for (const [seq, leaf] of leaves) {
-    if (leaf.status !== "running") continue;
-    if (next === leaves) next = new Map(leaves);
+    if (leaf.status !== "running") {
+      continue;
+    }
+    if (next === leaves) {
+      next = new Map(leaves);
+    }
     next.set(seq, { ...leaf, status: "cancelled" });
   }
   return next;
@@ -275,8 +276,12 @@ function journalFetchKey(status: WorkflowRunStatus, runId: string): string {
 
 /** Map a journal leaf's open-string status to a live leaf status. */
 function mapJournalLeafStatus(status: string): WorkflowLeafStatus {
-  if (status === "failed") return "failed";
-  if (status === "running") return "running";
+  if (status === "failed") {
+    return "failed";
+  }
+  if (status === "running") {
+    return "running";
+  }
   // The journal only records finished leaves, so an unknown status is
   // treated as a terminal success.
   return "completed";
@@ -312,7 +317,9 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
       const nextToolUseId = existing.toolUseId ?? params.toolUseId;
       const labelChanged = nextLabel !== existing.label;
       const toolUseIdChanged = nextToolUseId !== existing.toolUseId;
-      if (!labelChanged && !toolUseIdChanged) return;
+      if (!labelChanged && !toolUseIdChanged) {
+        return;
+      }
 
       const updated: WorkflowEntry = {
         ...existing,
@@ -576,7 +583,7 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     // counters as lower bounds (max), so a late stale response cannot flip a
     // finished run back to loading.
     const nextStatus = isActiveStatus(base.status)
-      ? resp.status ?? base.status
+      ? (resp.status ?? base.status)
       : base.status;
 
     // If the journal transitions an active run to terminal (the client missed
@@ -593,15 +600,15 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
       status: nextStatus,
       agentsSpawned: Math.max(
         base.agentsSpawned,
-        resp.agentsSpawned ?? base.agentsSpawned
+        resp.agentsSpawned ?? base.agentsSpawned,
       ),
       inputTokens: Math.max(
         base.inputTokens,
-        resp.inputTokens ?? base.inputTokens
+        resp.inputTokens ?? base.inputTokens,
       ),
       outputTokens: Math.max(
         base.outputTokens,
-        resp.outputTokens ?? base.outputTokens
+        resp.outputTokens ?? base.outputTokens,
       ),
       phase: resp.phase ?? base.phase,
       leaves: finalLeaves,
@@ -616,11 +623,15 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
   fetchJournalIfNeeded: async (assistantId, runId) => {
     const { byId, fetchedAt } = get();
     const entry = byId[runId];
-    if (!entry) return;
+    if (!entry) {
+      return;
+    }
 
     const key = journalFetchKey(entry.status, runId);
     const prev = fetchedAt.get(key);
-    if (prev !== undefined && prev >= entry.startedAt) return;
+    if (prev !== undefined && prev >= entry.startedAt) {
+      return;
+    }
 
     // Mark as fetched before the await to prevent concurrent duplicates.
     const nextFetchedAt = new Map(fetchedAt);
@@ -639,7 +650,9 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
 
     // A conversation switch (reset) during the await invalidates this fetch —
     // backfilling now would leak this run into the new conversation's store.
-    if (get().generation !== generation) return;
+    if (get().generation !== generation) {
+      return;
+    }
 
     get().backfillFromJournal(runId, resp);
   },
@@ -648,9 +661,13 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     const { byId, hydratedRunIds } = get();
     // Already live / hydrated — don't clobber an entry built from live
     // events or a prior hydration.
-    if (byId[runId]) return;
+    if (byId[runId]) {
+      return;
+    }
     // Attempt at most once per run while in flight / after a genuine 404.
-    if (hydratedRunIds.has(runId)) return;
+    if (hydratedRunIds.has(runId)) {
+      return;
+    }
     set({ hydratedRunIds: new Set(hydratedRunIds).add(runId) });
 
     const generation = get().generation;
@@ -658,7 +675,9 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
     // A conversation switch (reset) during the await invalidates this hydration:
     // populating the store now would leak a previous conversation's run (and
     // could reopen a stale detail panel) into the new conversation.
-    if (get().generation !== generation) return;
+    if (get().generation !== generation) {
+      return;
+    }
     // A genuine 404 stays marked so a missing run's card doesn't re-fetch on
     // every render. A transient failure (null — daemon unreachable / 5xx) clears
     // the marker so a later mount can retry instead of leaving the card blank.
@@ -702,7 +721,9 @@ const useWorkflowStoreBase = create<WorkflowStore>()((set, get) => ({
 
   abortRun: async (runId) => {
     const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     try {
       await workflowsRunsByIdAbortPost({
         path: { assistant_id: assistantId, id: runId },

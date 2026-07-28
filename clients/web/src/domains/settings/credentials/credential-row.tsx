@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { credentialsRevealPost } from "@/generated/daemon/sdk.gen";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -222,8 +223,9 @@ function CredentialValue({
     if (revealed == null) {
       return;
     }
-    void navigator.clipboard.writeText(revealed).then(
-      () => {
+    copyToClipboard(revealed, {
+      errorMessage: "Couldn't copy. Reveal and copy manually.",
+      onCopied: () => {
         setJustCopied(true);
         if (copiedTimer.current) {
           clearTimeout(copiedTimer.current);
@@ -233,8 +235,7 @@ function CredentialValue({
           COPIED_FEEDBACK_MS,
         );
       },
-      () => toast.error("Couldn't copy — reveal and copy manually."),
-    );
+    });
   }, [revealed]);
 
   const isRevealed = revealed !== null;

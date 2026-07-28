@@ -113,7 +113,9 @@ function stripRefPrefix(segments: string[], ref: string): string[] {
     return segments;
   }
   for (let i = 0; i < refParts.length; i++) {
-    if (segments[i] !== refParts[i]) return segments;
+    if (segments[i] !== refParts[i]) {
+      return segments;
+    }
   }
   return segments.slice(refParts.length);
 }
@@ -143,7 +145,9 @@ export function parseGitHubPluginSpec(
   // which must be github.com — we don't clone arbitrary hosts.
   const scheme = /^https?:\/\//i.exec(s);
   const hadScheme = scheme !== null;
-  if (scheme) s = s.slice(scheme[0].length);
+  if (scheme) {
+    s = s.slice(scheme[0].length);
+  }
 
   // Strip an optional `github.com` (or `www.github.com`) host prefix.
   const host = /^(?:www\.)?github\.com\//i.exec(s);
@@ -195,13 +199,19 @@ export function parseGitHubPluginSpec(
       ref = override;
       pathSegments = stripRefPrefix(afterMarker, override);
     } else {
-      if (afterMarker.length >= 1) ref = afterMarker[0]!;
+      if (afterMarker.length >= 1) {
+        ref = afterMarker[0]!;
+      }
       pathSegments = afterMarker.slice(1);
       // Only meaningful when a prefix beyond the first segment could be the ref.
-      if (afterMarker.length >= 2) ambiguousTreeSegments = afterMarker;
+      if (afterMarker.length >= 2) {
+        ambiguousTreeSegments = afterMarker;
+      }
     }
   } else {
-    if (override) ref = override;
+    if (override) {
+      ref = override;
+    }
     pathSegments = rest;
   }
 

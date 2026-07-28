@@ -57,7 +57,11 @@ mock.module("@/generated/api/sdk.gen", () => ({
       payment_method_last4: null,
     };
     return Promise.resolve({
-      data: { enabled: false, stubbed: false, message: "Payment method removed" },
+      data: {
+        enabled: false,
+        stubbed: false,
+        message: "Payment method removed",
+      },
       response: { ok: true },
     });
   },
@@ -338,9 +342,9 @@ describe("AutoTopUpCard disabled with a saved card", () => {
     const { container, getByLabelText } = render(wrap(DISABLED_WITH_CARD));
 
     // Precondition: Extra Usage is off but the card row is on file.
-    expect(getByLabelText("Enable Extra Usage").getAttribute("aria-checked")).toBe(
-      "false",
-    );
+    expect(
+      getByLabelText("Enable Extra Usage").getAttribute("aria-checked"),
+    ).toBe("false");
     expect(
       container.querySelector('[data-testid="payment-method-row"]'),
     ).not.toBeNull();
@@ -387,7 +391,9 @@ describe("AutoTopUpCard repeated-decline cutoff notice", () => {
       disabled_due_to_repeated_failures: true,
     });
     expect(html).toContain("auto-top-up-declined-cutoff");
-    expect(html).toContain("We paused automatic reloads after several declined");
+    expect(html).toContain(
+      "We paused automatic reloads after several declined",
+    );
   });
 
   test("does not render the cutoff notice for a normally-disabled config", () => {
@@ -546,9 +552,9 @@ describe("AutoTopUpCard configure_top_up deeplink", () => {
 
     // The toggle-on path ran: the toggle flipped and the configure form opened,
     // exactly as clicking the toggle would — with no update mutation.
-    expect(getByLabelText("Enable Extra Usage").getAttribute("aria-checked")).toBe(
-      "true",
-    );
+    expect(
+      getByLabelText("Enable Extra Usage").getAttribute("aria-checked"),
+    ).toBe("true");
     expect(
       container.querySelector('[data-testid="auto-top-up-save-button"]'),
     ).not.toBeNull();
@@ -568,9 +574,9 @@ describe("AutoTopUpCard configure_top_up deeplink", () => {
     );
 
     // No PM on file → the add-card gate is shown instead of the form.
-    expect(getByLabelText("Enable Extra Usage").getAttribute("aria-checked")).toBe(
-      "true",
-    );
+    expect(
+      getByLabelText("Enable Extra Usage").getAttribute("aria-checked"),
+    ).toBe("true");
     expect(
       container.querySelector('[data-testid="auto-top-up-add-pm-button"]'),
     ).not.toBeNull();
@@ -582,7 +588,9 @@ describe("AutoTopUpCard configure_top_up deeplink", () => {
 
   test("arriving with ?configure_top_up=1 while already enabled is a no-op", () => {
     retrieveResponse = { ...ENABLED_WITH_CARD };
-    const { container } = render(wrap(ENABLED_WITH_CARD, "/?configure_top_up=1"));
+    const { container } = render(
+      wrap(ENABLED_WITH_CARD, "/?configure_top_up=1"),
+    );
 
     // Already enabled: the effect strips the param but does not enter the form
     // or fire a mutation — the enabled summary stays put.
@@ -604,9 +612,9 @@ describe("AutoTopUpCard configure_top_up deeplink", () => {
 
     const { container, getByLabelText } = render(wrap(config, "/"));
 
-    expect(getByLabelText("Enable Extra Usage").getAttribute("aria-checked")).toBe(
-      "false",
-    );
+    expect(
+      getByLabelText("Enable Extra Usage").getAttribute("aria-checked"),
+    ).toBe("false");
     expect(
       container.querySelector('[data-testid="auto-top-up-save-button"]'),
     ).toBeNull();

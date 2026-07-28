@@ -1,11 +1,11 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
-    AlertTriangle,
-    CheckCircle,
-    ChevronDown,
-    Clock,
-    Loader2,
-    XCircle,
+  AlertTriangle,
+  CheckCircle,
+  ChevronDown,
+  Clock,
+  Loader2,
+  XCircle,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -13,9 +13,9 @@ import { Tag } from "@vellumai/design-library";
 
 import { assistantsSystemEventsListInfiniteOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type {
-    AssistantSystemEvent,
-    EventStatusEnum,
-    SystemEventTypeEnum,
+  AssistantSystemEvent,
+  EventStatusEnum,
+  SystemEventTypeEnum,
 } from "@/generated/api/types.gen";
 
 type TagTone = "positive" | "negative" | "warning" | "neutral";
@@ -99,7 +99,9 @@ function eventTypeTone(
     case "crash":
       return "negative";
     case "idle_sleep":
-      if (event && isLongSleep(event)) return "warning";
+      if (event && isLongSleep(event)) {
+        return "warning";
+      }
       return "neutral";
     case "lifecycle":
     case "upgrade":
@@ -232,7 +234,9 @@ export function SystemEventsTab({ assistantId }: SystemEventsTabProps) {
     }),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
-      if (!lastPage.next) return undefined;
+      if (!lastPage.next) {
+        return undefined;
+      }
       const loaded = allPages.reduce(
         (acc, page) => acc + page.results.length,
         0,
@@ -249,8 +253,7 @@ export function SystemEventsTab({ assistantId }: SystemEventsTabProps) {
         className="text-body-medium-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
-        Lifecycle events for your assistant from the last 30 days, newest
-        first.
+        Lifecycle events for your assistant from the last 30 days, newest first.
       </p>
 
       {isLoading ? (

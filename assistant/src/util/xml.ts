@@ -9,8 +9,5 @@ export function escapeXmlAttr(s: string): string {
 
 /** Escape a string for safe inclusion as XML/HTML text content. */
 export function escapeXmlContent(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

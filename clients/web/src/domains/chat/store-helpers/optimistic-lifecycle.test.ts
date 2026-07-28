@@ -30,7 +30,11 @@ function config(
     getStatus: (entry) => entry.status,
     isActive: (status) => status === "running",
     cancelledStatus: "cancelled",
-    applyCancel: (entry) => ({ ...entry, status: "cancelled", completedAt: NOW }),
+    applyCancel: (entry) => ({
+      ...entry,
+      status: "cancelled",
+      completedAt: NOW,
+    }),
     applyRestore: (entry, prev) => ({
       ...entry,
       status: prev,
@@ -61,8 +65,12 @@ describe("optimisticCancel", () => {
   });
 
   it("is a no-op for an already-terminal entry", () => {
-    expect(optimisticCancel(entry({ status: "completed" }), config())).toBeNull();
-    expect(optimisticCancel(entry({ status: "cancelled" }), config())).toBeNull();
+    expect(
+      optimisticCancel(entry({ status: "completed" }), config()),
+    ).toBeNull();
+    expect(
+      optimisticCancel(entry({ status: "cancelled" }), config()),
+    ).toBeNull();
   });
 });
 
@@ -70,7 +78,11 @@ describe("optimisticRestore", () => {
   it("reverts an optimistically-cancelled entry to the prior status", () => {
     const cancelled = entry({ status: "cancelled", completedAt: NOW });
     const next = optimisticRestore(cancelled, "running", config());
-    expect(next).toEqual({ id: "e-1", status: "running", completedAt: undefined });
+    expect(next).toEqual({
+      id: "e-1",
+      status: "running",
+      completedAt: undefined,
+    });
   });
 
   it("is a no-op for an unknown entry", () => {
@@ -103,7 +115,11 @@ describe("optimisticRestore", () => {
       "running",
       config({ isSettled: (e) => e.completedAt != null }),
     );
-    expect(next).toEqual({ id: "e-1", status: "running", completedAt: undefined });
+    expect(next).toEqual({
+      id: "e-1",
+      status: "running",
+      completedAt: undefined,
+    });
   });
 });
 
@@ -119,8 +135,12 @@ describe("optimisticRetire", () => {
   });
 
   it("leaves an already-terminal entry untouched", () => {
-    expect(optimisticRetire(entry({ status: "completed" }), config())).toBeNull();
-    expect(optimisticRetire(entry({ status: "cancelled" }), config())).toBeNull();
+    expect(
+      optimisticRetire(entry({ status: "completed" }), config()),
+    ).toBeNull();
+    expect(
+      optimisticRetire(entry({ status: "cancelled" }), config()),
+    ).toBeNull();
   });
 
   it("is a no-op for an unknown entry", () => {

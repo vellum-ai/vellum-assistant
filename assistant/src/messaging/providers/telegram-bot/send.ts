@@ -70,7 +70,9 @@ function threadIdPayloadFields(
 // ---------------------------------------------------------------------------
 
 function splitText(text: string, maxLen: number): string[] {
-  if (text.length <= maxLen) return [text];
+  if (text.length <= maxLen) {
+    return [text];
+  }
 
   const chunks: string[] = [];
   let cursor = 0;

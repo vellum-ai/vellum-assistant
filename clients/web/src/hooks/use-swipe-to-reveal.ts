@@ -121,7 +121,9 @@ export function useSwipeToReveal({
   const registerOpenRow = useEdgeSwipeArbiterStore.use.registerOpenRow();
   const unregisterOpenRow = useEdgeSwipeArbiterStore.use.unregisterOpenRow();
   useEffect(() => {
-    if (revealedSide === "none") {return;}
+    if (revealedSide === "none") {
+      return;
+    }
     registerOpenRow();
     return unregisterOpenRow;
   }, [revealedSide, registerOpenRow, unregisterOpenRow]);
@@ -149,7 +151,9 @@ export function useSwipeToReveal({
 
   const onTouchStart = useCallback(
     (e: ReactTouchEvent) => {
-      if (!enabled || (!leadingActions && !trailingActions)) {return;}
+      if (!enabled || (!leadingActions && !trailingActions)) {
+        return;
+      }
       if (e.touches.length !== 1) {
         reset();
         return;
@@ -170,13 +174,17 @@ export function useSwipeToReveal({
   const onTouchMove = useCallback(
     (e: ReactTouchEvent) => {
       const g = gesture.current;
-      if (!g) {return;}
+      if (!g) {
+        return;
+      }
       if (e.touches.length !== 1) {
         reset();
         return;
       }
       const t = e.touches[0]!;
-      if (t.identifier !== g.touchId) {return;}
+      if (t.identifier !== g.touchId) {
+        return;
+      }
 
       const dx = t.clientX - g.startX;
       const dy = t.clientY - g.startY;
@@ -197,7 +205,9 @@ export function useSwipeToReveal({
         setIsDragging(true);
       }
 
-      if (g.axis !== "horizontal") {return;}
+      if (g.axis !== "horizontal") {
+        return;
+      }
 
       // Mid-gesture vertical escape (mirrors gallery-swipe).
       if (
@@ -218,12 +228,10 @@ export function useSwipeToReveal({
 
       if (raw > maxRight) {
         // Overdrag past leading actions.
-        raw =
-          maxRight + (raw - maxRight) * OVERDRAG_DAMPING;
+        raw = maxRight + (raw - maxRight) * OVERDRAG_DAMPING;
       } else if (raw < maxLeft) {
         // Overdrag past trailing actions.
-        raw =
-          maxLeft + (raw - maxLeft) * OVERDRAG_DAMPING;
+        raw = maxLeft + (raw - maxLeft) * OVERDRAG_DAMPING;
       }
 
       // If the row started revealed and the user drags past center, allow
@@ -295,13 +303,10 @@ export function useSwipeToReveal({
     },
     [leadingWidth, trailingWidth, reset],
   );
-  const onTouchCancel = useCallback(
-    () => {
-      close();
-      reset();
-    },
-    [close, reset],
-  );
+  const onTouchCancel = useCallback(() => {
+    close();
+    reset();
+  }, [close, reset]);
 
   return {
     offset,

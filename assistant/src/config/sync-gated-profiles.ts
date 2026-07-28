@@ -111,9 +111,15 @@ function enableProfile(
 
   if (previous) {
     // Preserve user-owned overrides across reconciles.
-    if ("label" in previous) next.label = previous.label;
-    if ("status" in previous) next.status = previous.status;
-    if ("topP" in previous) next.topP = previous.topP;
+    if ("label" in previous) {
+      next.label = previous.label;
+    }
+    if ("status" in previous) {
+      next.status = previous.status;
+    }
+    if ("topP" in previous) {
+      next.topP = previous.topP;
+    }
   }
 
   let changed = false;
@@ -145,7 +151,9 @@ function disableProfile(
   profileOrder: string[],
   previous: Record<string, unknown> | null,
 ): boolean {
-  if (!previous) return false;
+  if (!previous) {
+    return false;
+  }
 
   delete profiles[OS_BETA_PROFILE_KEY];
 
@@ -158,14 +166,20 @@ function disableProfile(
   while (cascading) {
     cascading = false;
     for (const [name, profile] of Object.entries(profiles)) {
-      if (removed.has(name)) continue;
-      if (!Array.isArray(profile.mix)) continue;
+      if (removed.has(name)) {
+        continue;
+      }
+      if (!Array.isArray(profile.mix)) {
+        continue;
+      }
       const arms = profile.mix as unknown[];
       const kept = arms.filter((arm) => {
         const armProfile = readObject(arm)?.profile;
         return typeof armProfile !== "string" || !removed.has(armProfile);
       });
-      if (kept.length === arms.length) continue;
+      if (kept.length === arms.length) {
+        continue;
+      }
       if (kept.length >= MIX_MIN_ARMS) {
         profile.mix = kept;
       } else {

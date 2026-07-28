@@ -271,12 +271,15 @@ async function handleHostBrowserResult({ body, headers }: RouteHandlerArgs) {
     headers as Record<string, string | undefined> | undefined,
   );
   if (!resolution.ok) {
-    if (resolution.code === "FORBIDDEN")
+    if (resolution.code === "FORBIDDEN") {
       throw new ForbiddenError(resolution.message);
-    if (resolution.code === "NOT_FOUND")
+    }
+    if (resolution.code === "NOT_FOUND") {
       throw new NotFoundError(resolution.message);
-    if (resolution.code === "CONFLICT")
+    }
+    if (resolution.code === "CONFLICT") {
       throw new ConflictError(resolution.message);
+    }
     throw new BadRequestError(resolution.message);
   }
 

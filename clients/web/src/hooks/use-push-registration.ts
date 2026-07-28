@@ -27,7 +27,9 @@ import { registerForRemotePush } from "@/runtime/push-registration";
  */
 export function usePushRegistration(assistantId: string | null): void {
   useEffect(() => {
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     void registerForRemotePush(assistantId);
   }, [assistantId]);
 }

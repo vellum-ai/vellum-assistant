@@ -44,7 +44,8 @@ mock.module("@/lib/self-hosted/connection", () => ({
 }));
 
 const { GuardianTokenError } = host;
-const { primeLocalGatewayConnectionWithRepair } = await import("@/lib/local-mode");
+const { primeLocalGatewayConnectionWithRepair } =
+  await import("@/lib/local-mode");
 
 const localAssistant: LockfileAssistant = {
   assistantId: "local-a",
@@ -64,7 +65,9 @@ function selectLocalAssistant(): void {
 beforeEach(() => {
   primeShouldSucceed = () => true;
   fetchGuardianTokenHost = mock(async (_id: string) => {
-    if (!primeShouldSucceed()) throw new GuardianTokenError(404, "token gone");
+    if (!primeShouldSucceed()) {
+      throw new GuardianTokenError(404, "token gone");
+    }
     return "tok";
   });
   wakeLocalAssistantHost = mock(async (_id: string) => ({ ok: true }));

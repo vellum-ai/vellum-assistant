@@ -92,9 +92,7 @@ describe("readInboundTrust", () => {
       verdict: VALID_VERDICT,
       admissionPolicy: null,
     });
-    expect(
-      ipcCallLog.some((c) => c.method === FALLBACK_METHOD),
-    ).toBe(false);
+    expect(ipcCallLog.some((c) => c.method === FALLBACK_METHOD)).toBe(false);
   });
 
   test("forwards the correct method, params, and timeout to ipcCall", async () => {
@@ -230,4 +228,3 @@ describe("readPhoneCallerTrust", () => {
     });
   });
 });
-

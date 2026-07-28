@@ -22,8 +22,14 @@ export function isChannelConversation(
   conversation: Pick<Conversation, "originChannel"> | null | undefined,
 ): boolean {
   const origin = conversation?.originChannel;
-  if (!origin) return false;
-  if (origin === "vellum") return false;
-  if (origin.startsWith("notification:")) return false;
+  if (!origin) {
+    return false;
+  }
+  if (origin === "vellum") {
+    return false;
+  }
+  if (origin.startsWith("notification:")) {
+    return false;
+  }
   return true;
 }

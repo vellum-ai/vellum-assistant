@@ -55,7 +55,11 @@ let upgradeRejects = false;
 let holdUpgrade = false;
 let releaseUpgrade: (() => void) | null = null;
 let heldUpgrade: Promise<unknown> | null = null;
-let upgradeData: { status: string; checkout_url: string | null; message: string } = {
+let upgradeData: {
+  status: string;
+  checkout_url: string | null;
+  message: string;
+} = {
   status: "redirect",
   checkout_url: CHECKOUT_URL,
   message: "",
@@ -318,7 +322,7 @@ describe("CheckoutPage", () => {
     await waitFor(() => expect(upgradeCalls.length).toBe(1));
   });
 
-  test("a no_op result navigates to plans and clears any marked stash", async () => {
+  test("a no_op result navigates to plans carrying the package and clears any marked stash", async () => {
     upgradeData = { status: "no_op", checkout_url: null, message: "" };
     // A marked stash from the onboarding signup carry survives into this bounce;
     // the already-Pro no_op must clear it rather than leave it lingering its TTL.
@@ -335,8 +339,11 @@ describe("CheckoutPage", () => {
     const { getByTestId } = renderCheckout("/assistant/checkout?package=super");
 
     await waitFor(() => expect(upgradeCalls.length).toBe(1));
+    // Already Pro is an upgrade request plans can still honor, in place.
     await waitFor(() =>
-      expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
+      expect(getByTestId("loc").textContent).toBe(
+        "/assistant/plans?package=super",
+      ),
     );
     expect(openedUrl).toBeNull();
     expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
@@ -718,8 +725,9 @@ describe("CheckoutPage", () => {
     expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
   });
 
-  test("a no_op result returns to the continuation when one is carried", async () => {
-    // Already Pro mid-onboarding still needs an assistant — plans is not it.
+  test("a no_op result returns to the continuation verbatim, without the package", async () => {
+    // Already Pro mid-onboarding still needs an assistant — plans is not it,
+    // and the resume must not be diverted into the package switch modal.
     upgradeData = { status: "no_op", checkout_url: null, message: "" };
     const { getByTestId } = renderCheckout(ONBOARDING_ENTRY);
 
@@ -727,6 +735,7 @@ describe("CheckoutPage", () => {
     await waitFor(() =>
       expect(getByTestId("loc").textContent).toBe(ONBOARDING_NEXT),
     );
+    expect(getByTestId("loc").textContent).not.toContain("package=");
   });
 
   test("an off-site continuation is rejected in favor of plans", async () => {

@@ -8,10 +8,7 @@ import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { assistantFeatureFlagsGetQueryKey } from "@/generated/gateway/@tanstack/react-query.gen";
 import { featureFlagsClientFlagValuesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
-import {
-  __resetForTesting,
-  publish,
-} from "@/lib/event-bus";
+import { __resetForTesting, publish } from "@/lib/event-bus";
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -108,7 +105,9 @@ describe("useFeatureFlagBusSync", () => {
     });
     emitOpened("error");
     await waitFor(() => {
-      expect(spy).toHaveBeenCalledWith({ queryKey: featureFlagsClientFlagValuesRetrieveQueryKey() });
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
+      });
       expect(spy).toHaveBeenCalledWith({
         queryKey: assistantFeatureFlagsGetQueryKey({
           path: { assistant_id: "asst-1" },
@@ -127,7 +126,9 @@ describe("useFeatureFlagBusSync", () => {
     emitOpened("watchdog");
     emitOpened("resume");
     await waitFor(() => {
-      expect(spy).toHaveBeenCalledWith({ queryKey: featureFlagsClientFlagValuesRetrieveQueryKey() });
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
+      });
       expect(spy).toHaveBeenCalledWith({
         queryKey: assistantFeatureFlagsGetQueryKey({
           path: { assistant_id: "asst-1" },

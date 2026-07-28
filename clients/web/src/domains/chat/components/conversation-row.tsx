@@ -30,6 +30,7 @@ import {
 } from "@/domains/chat/components/thread-status-indicator";
 import type { DragReorderItemProps } from "@/domains/chat/hooks/use-drag-reorder";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import {
   buildMoveToGroupTargets,
   isConversationPinned,
@@ -109,6 +110,9 @@ export function buildMenuProps(
     onShareFeedback: ctx.onShareFeedback,
     onInspect:
       ctx.onInspect && hasId ? () => ctx.onInspect?.(conversation) : undefined,
+    onCopyConversationId: hasId
+      ? () => copyIdToClipboard(conversation.conversationId!, "Conversation ID")
+      : undefined,
   };
 }
 

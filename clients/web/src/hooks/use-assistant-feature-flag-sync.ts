@@ -16,16 +16,20 @@ const VALID_STRING_KEYS = new Set(Object.keys(ASSISTANT_STRING_FLAG_DEFAULTS));
 
 type FeatureFlagEntry = AssistantFeatureFlagsGetResponse["flags"][number];
 
-function mapFlags(
-  entries: FeatureFlagEntry[],
-): { boolFlags: Record<string, boolean>; stringFlags: Record<string, string> } {
+function mapFlags(entries: FeatureFlagEntry[]): {
+  boolFlags: Record<string, boolean>;
+  stringFlags: Record<string, string>;
+} {
   const boolFlags: Record<string, boolean> = {};
   const stringFlags: Record<string, string> = {};
   for (const entry of entries) {
     const storeKey = flagKeyToStoreKey(entry.key);
     if (typeof entry.enabled === "boolean" && VALID_BOOL_KEYS.has(storeKey)) {
       boolFlags[storeKey] = entry.enabled;
-    } else if (typeof entry.enabled === "string" && VALID_STRING_KEYS.has(storeKey)) {
+    } else if (
+      typeof entry.enabled === "string" &&
+      VALID_STRING_KEYS.has(storeKey)
+    ) {
       stringFlags[storeKey] = entry.enabled;
     }
   }
@@ -75,5 +79,3 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
     }
   }, [data]);
 }
-
-

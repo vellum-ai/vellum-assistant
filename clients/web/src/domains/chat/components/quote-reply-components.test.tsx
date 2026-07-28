@@ -153,7 +153,9 @@ describe("TextSelectionPopover", () => {
       expect(popoverContent).toBeTruthy();
       expect(popoverContent?.className).not.toContain("bg-transparent");
       expect(popoverContent?.className).not.toContain("shadow-none");
-      expect(screen.queryByRole("button", { name: "Quote & Reply" })).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Quote & Reply" }),
+      ).toBeNull();
     } finally {
       restoreAnimationFrame();
       restorePointer();
@@ -267,13 +269,17 @@ describe("QuoteReplyBubble", () => {
     expect(quoteBlock.className).toContain("flex-1");
     expect(quoteBlock.parentElement?.className).toContain("mx-0");
     expect(quoteBlock.parentElement?.className).toContain("gap-3");
-    expect(quoteBlock.previousElementSibling?.className).toContain("self-stretch");
+    expect(quoteBlock.previousElementSibling?.className).toContain(
+      "self-stretch",
+    );
     expect(quoteBlock.previousElementSibling?.className).toContain("w-0.5");
     expect(
       screen.getByRole("button", { name: "Cancel" }).getAttribute("data-slot"),
     ).toBe("button");
     expect(
-      screen.getByRole("button", { name: "Add to Chat" }).getAttribute("data-slot"),
+      screen
+        .getByRole("button", { name: "Add to Chat" })
+        .getAttribute("data-slot"),
     ).toBe("button");
     expect(screen.queryByRole("button", { name: "Close reply" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send Now" })).toBeNull();
@@ -307,11 +313,7 @@ describe("QuoteReplyBubble", () => {
       },
     });
 
-    render(
-      <QuoteReplyBubble
-        onAddToChat={() => composerInput.focus()}
-      />,
-    );
+    render(<QuoteReplyBubble onAddToChat={() => composerInput.focus()} />);
 
     const replyInput = await screen.findByPlaceholderText("Type your reply…");
     fireEvent.change(replyInput, { target: { value: "use this context" } });
@@ -350,9 +352,13 @@ describe("StagedQuotesStrip", () => {
     const quoteText = screen.getByText("competitive research");
     expect(quoteText.className).toContain("flex-1");
     expect(quoteText.parentElement?.className).toContain("gap-3");
-    expect(quoteText.previousElementSibling?.className).toContain("self-stretch");
+    expect(quoteText.previousElementSibling?.className).toContain(
+      "self-stretch",
+    );
     expect(
-      screen.getByRole("button", { name: "Remove quote" }).getAttribute("data-slot"),
+      screen
+        .getByRole("button", { name: "Remove quote" })
+        .getAttribute("data-slot"),
     ).toBe("button");
   });
 

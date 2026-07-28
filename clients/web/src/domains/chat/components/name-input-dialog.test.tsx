@@ -27,8 +27,20 @@ function getNameInput(): HTMLInputElement {
   // The Modal portals into document.body, so query against the document
   // rather than the render container.
   const input = document.querySelector<HTMLInputElement>("input");
-  if (!input) throw new Error("expected name input to be in the DOM");
+  if (!input) {
+    throw new Error("expected name input to be in the DOM");
+  }
   return input;
+}
+
+function getIconTile(label: string): HTMLButtonElement {
+  const tile = document.querySelector<HTMLButtonElement>(
+    `button[aria-label="${label}"]`,
+  );
+  if (!tile) {
+    throw new Error(`expected an icon tile labeled "${label}"`);
+  }
+  return tile;
 }
 
 function getButton(label: string): HTMLButtonElement {
@@ -163,7 +175,9 @@ describe("Edit + submit", () => {
     fireEvent.change(getNameInput(), { target: { value: "Paris trip" } });
 
     const form = getNameInput().closest("form");
-    if (!form) throw new Error("expected the input to be inside a <form>");
+    if (!form) {
+      throw new Error("expected the input to be inside a <form>");
+    }
     fireEvent.submit(form);
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -199,7 +213,9 @@ describe("Edit + submit", () => {
         onCancel={() => {}}
       />,
     );
-    fireEvent.change(getNameInput(), { target: { value: "  Trip planning  " } });
+    fireEvent.change(getNameInput(), {
+      target: { value: "  Trip planning  " },
+    });
     expect(getButton("Save").disabled).toBe(true);
   });
 });
@@ -224,6 +240,88 @@ describe("Create variant", () => {
     expect(getButton("Create").disabled).toBe(false);
     fireEvent.click(getButton("Create"));
     expect(onSubmit).toHaveBeenCalledWith("Research");
+  });
+});
+
+describe("Icon picker", () => {
+  test("no picker renders when iconPicker is omitted", () => {
+    render(
+      <NameInputDialog
+        open
+        title="Rename conversation"
+        submitLabel="Save"
+        initialValue="Trip planning"
+        onSubmit={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(document.querySelector('[aria-label="No icon"]')).toBeNull();
+  });
+
+  test("picking an icon enables submit without a name change and passes it to onSubmit", () => {
+    const onSubmit = mock(() => {});
+    render(
+      <NameInputDialog
+        open
+        title="Rename group"
+        submitLabel="Save"
+        initialValue="Research"
+        iconPicker={{ initialIcon: null }}
+        onSubmit={onSubmit}
+        onCancel={() => {}}
+      />,
+    );
+    // Name unchanged and icon unchanged: still a no-op edit.
+    expect(getButton("Save").disabled).toBe(true);
+
+    fireEvent.click(getIconTile("rocket"));
+    expect(getButton("Save").disabled).toBe(false);
+    fireEvent.click(getButton("Save"));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith("Research", "rocket");
+  });
+
+  test("the initial icon renders selected and can be cleared via the no-icon tile", () => {
+    const onSubmit = mock(() => {});
+    render(
+      <NameInputDialog
+        open
+        title="Rename group"
+        submitLabel="Save"
+        initialValue="Research"
+        iconPicker={{ initialIcon: "star" }}
+        onSubmit={onSubmit}
+        onCancel={() => {}}
+      />,
+    );
+    expect(getIconTile("star").getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(getIconTile("No icon"));
+    expect(getIconTile("No icon").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(getButton("Save"));
+
+    expect(onSubmit).toHaveBeenCalledWith("Research", null);
+  });
+
+  test("create with a picker passes the picked icon alongside the name", () => {
+    const onSubmit = mock(() => {});
+    render(
+      <NameInputDialog
+        open
+        title="New group"
+        submitLabel="Create"
+        initialValue=""
+        iconPicker={{ initialIcon: null }}
+        onSubmit={onSubmit}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.change(getNameInput(), { target: { value: "Reading" } });
+    fireEvent.click(getIconTile("book"));
+    fireEvent.click(getButton("Create"));
+
+    expect(onSubmit).toHaveBeenCalledWith("Reading", "book");
   });
 });
 

@@ -36,8 +36,8 @@ mock.module("@vellumai/design-library", () => ({
 }));
 
 import {
-    CollapsedGroupIcon,
-    getGroupIndicatorState,
+  CollapsedGroupIcon,
+  getGroupIndicatorState,
 } from "@/domains/chat/components/collapsed-group-icon";
 import type { Conversation } from "@/types/conversation-types";
 import { Pin } from "lucide-react";
@@ -75,7 +75,10 @@ describe("getGroupIndicatorState", () => {
 
   test("returns 'unread' when a conversation has unseen messages", () => {
     const convos = [
-      makeConversation({ conversationId: "c1", hasUnseenLatestAssistantMessage: true }),
+      makeConversation({
+        conversationId: "c1",
+        hasUnseenLatestAssistantMessage: true,
+      }),
       makeConversation({ conversationId: "c2" }),
     ];
     expect(getGroupIndicatorState(convos, undefined, undefined)).toBe("unread");
@@ -87,7 +90,9 @@ describe("getGroupIndicatorState", () => {
       makeConversation({ conversationId: "c2" }),
     ];
     const processing = new Set(["c2"]);
-    expect(getGroupIndicatorState(convos, processing, undefined)).toBe("processing");
+    expect(getGroupIndicatorState(convos, processing, undefined)).toBe(
+      "processing",
+    );
   });
 
   test("returns 'attention' when a conversation needs attention", () => {
@@ -96,27 +101,39 @@ describe("getGroupIndicatorState", () => {
       makeConversation({ conversationId: "c2" }),
     ];
     const attention = new Set(["c1"]);
-    expect(getGroupIndicatorState(convos, undefined, attention)).toBe("attention");
+    expect(getGroupIndicatorState(convos, undefined, attention)).toBe(
+      "attention",
+    );
   });
 
   test("attention takes priority over processing and unread", () => {
     const convos = [
-      makeConversation({ conversationId: "c1", hasUnseenLatestAssistantMessage: true }),
+      makeConversation({
+        conversationId: "c1",
+        hasUnseenLatestAssistantMessage: true,
+      }),
       makeConversation({ conversationId: "c2" }),
       makeConversation({ conversationId: "c3" }),
     ];
     const processing = new Set(["c1"]);
     const attention = new Set(["c2"]);
-    expect(getGroupIndicatorState(convos, processing, attention)).toBe("attention");
+    expect(getGroupIndicatorState(convos, processing, attention)).toBe(
+      "attention",
+    );
   });
 
   test("processing takes priority over unread", () => {
     const convos = [
-      makeConversation({ conversationId: "c1", hasUnseenLatestAssistantMessage: true }),
+      makeConversation({
+        conversationId: "c1",
+        hasUnseenLatestAssistantMessage: true,
+      }),
       makeConversation({ conversationId: "c2" }),
     ];
     const processing = new Set(["c2"]);
-    expect(getGroupIndicatorState(convos, processing, undefined)).toBe("processing");
+    expect(getGroupIndicatorState(convos, processing, undefined)).toBe(
+      "processing",
+    );
   });
 });
 
@@ -203,7 +220,12 @@ describe("CollapsedGroupIcon", () => {
 describe("CollapsedGroupIcon disabled state", () => {
   test("renders a non-interactive icon with no popover trigger", () => {
     const html = renderToStaticMarkup(
-      <CollapsedGroupIcon icon={Pin} label="Pinned" indicatorState={null} disabled>
+      <CollapsedGroupIcon
+        icon={Pin}
+        label="Pinned"
+        indicatorState={null}
+        disabled
+      >
         <div data-testid="popover-body">Should not render</div>
       </CollapsedGroupIcon>,
     );
@@ -219,7 +241,12 @@ describe("CollapsedGroupIcon disabled state", () => {
 
   test("hover tooltip explains the group is empty rather than repeating the label", () => {
     const html = renderToStaticMarkup(
-      <CollapsedGroupIcon icon={Pin} label="Pinned" indicatorState={null} disabled />,
+      <CollapsedGroupIcon
+        icon={Pin}
+        label="Pinned"
+        indicatorState={null}
+        disabled
+      />,
     );
     // Regression: empty groups keep the "No conversations" affordance instead
     // of just echoing the group name back to the user.
@@ -229,7 +256,12 @@ describe("CollapsedGroupIcon disabled state", () => {
 
   test("never shows an indicator dot when disabled", () => {
     const html = renderToStaticMarkup(
-      <CollapsedGroupIcon icon={Pin} label="Pinned" indicatorState="attention" disabled />,
+      <CollapsedGroupIcon
+        icon={Pin}
+        label="Pinned"
+        indicatorState="attention"
+        disabled
+      />,
     );
     expect(html).not.toContain("rounded-full");
   });

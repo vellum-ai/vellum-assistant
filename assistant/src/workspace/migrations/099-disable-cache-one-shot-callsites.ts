@@ -34,35 +34,51 @@ export const disableCacheOneShotCallsitesMigration: WorkspaceMigration = {
   description:
     "Add disableCache: true to existing one-shot call-site entries so upgraded workspaces match the new shipped defaults",
   run(workspaceDir: string): void {
-    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
+    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) {
+      return;
+    }
 
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown> = {};
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
     const callSites = readObject(llm.callSites);
-    if (callSites === null) return;
+    if (callSites === null) {
+      return;
+    }
 
     let changed = false;
     for (const callSite of ONE_SHOT_CALL_SITES) {
       const entry = readObject(callSites[callSite]);
-      if (entry === null) continue;
-      if ("disableCache" in entry) continue;
+      if (entry === null) {
+        continue;
+      }
+      if ("disableCache" in entry) {
+        continue;
+      }
       entry.disableCache = true;
       callSites[callSite] = entry;
       changed = true;
     }
-    if (!changed) return;
+    if (!changed) {
+      return;
+    }
 
     llm.callSites = callSites;
     config.llm = llm;

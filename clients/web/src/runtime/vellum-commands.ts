@@ -28,12 +28,18 @@ export type CommandHandlers = Partial<
 
 export function useVellumCommands(handlers: CommandHandlers): void {
   const handlersRef = useRef<CommandHandlers>(handlers);
-  useLayoutEffect(() => { handlersRef.current = handlers; });
+  useLayoutEffect(() => {
+    handlersRef.current = handlers;
+  });
 
   useEffect(() => {
-    if (!isElectron()) return;
+    if (!isElectron()) {
+      return;
+    }
     const bridge = window.vellum;
-    if (!bridge) return;
+    if (!bridge) {
+      return;
+    }
     return bridge.commands.on((command) => {
       handlersRef.current[command.kind]?.(command);
     });

@@ -25,7 +25,9 @@ function parseLegacyConversationDirName(
   dirName: string,
 ): { conversationId: string; timestamp: string } | null {
   const match = dirName.match(LEGACY_CONVERSATION_DIR_PATTERN);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
 
   return {
     conversationId: match[1],
@@ -37,7 +39,9 @@ function parseNewConversationDirName(
   dirName: string,
 ): { timestamp: string; conversationId: string } | null {
   const match = dirName.match(NEW_CONVERSATION_DIR_PATTERN);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
 
   return {
     timestamp: match[1],
@@ -52,7 +56,9 @@ export const renameConversationDiskViewDirsMigration: WorkspaceMigration = {
 
   down(workspaceDir: string): void {
     const conversationsDir = join(workspaceDir, "conversations");
-    if (!existsSync(conversationsDir)) return;
+    if (!existsSync(conversationsDir)) {
+      return;
+    }
 
     const entries = readdirSync(conversationsDir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -61,14 +67,20 @@ export const renameConversationDiskViewDirsMigration: WorkspaceMigration = {
 
     for (const dirName of entries) {
       const parsed = parseNewConversationDirName(dirName);
-      if (!parsed) continue;
+      if (!parsed) {
+        continue;
+      }
 
       const sourcePath = join(conversationsDir, dirName);
       const targetName = `${parsed.conversationId}_${parsed.timestamp}`;
       const targetPath = join(conversationsDir, targetName);
 
-      if (sourcePath === targetPath) continue;
-      if (existsSync(targetPath)) continue;
+      if (sourcePath === targetPath) {
+        continue;
+      }
+      if (existsSync(targetPath)) {
+        continue;
+      }
 
       try {
         renameSync(sourcePath, targetPath);
@@ -80,7 +92,9 @@ export const renameConversationDiskViewDirsMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const conversationsDir = join(workspaceDir, "conversations");
-    if (!existsSync(conversationsDir)) return;
+    if (!existsSync(conversationsDir)) {
+      return;
+    }
 
     const entries = readdirSync(conversationsDir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -89,14 +103,20 @@ export const renameConversationDiskViewDirsMigration: WorkspaceMigration = {
 
     for (const dirName of entries) {
       const parsed = parseLegacyConversationDirName(dirName);
-      if (!parsed) continue;
+      if (!parsed) {
+        continue;
+      }
 
       const sourcePath = join(conversationsDir, dirName);
       const targetName = `${parsed.timestamp}_${parsed.conversationId}`;
       const targetPath = join(conversationsDir, targetName);
 
-      if (sourcePath === targetPath) continue;
-      if (existsSync(targetPath)) continue;
+      if (sourcePath === targetPath) {
+        continue;
+      }
+      if (existsSync(targetPath)) {
+        continue;
+      }
 
       try {
         renameSync(sourcePath, targetPath);

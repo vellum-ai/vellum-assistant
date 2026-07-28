@@ -107,8 +107,9 @@ function metadataRow(
       .prepare(
         "SELECT species, metadata FROM assistant_contact_metadata WHERE contact_id = ?",
       )
-      .get(contactId) as { species: string; metadata: string | null } | undefined) ??
-    null
+      .get(contactId) as
+      | { species: string; metadata: string | null }
+      | undefined) ?? null
   );
 }
 
@@ -189,9 +190,9 @@ describe("contacts_mirror_upsert_full", () => {
   test("create display name falls back to first channel address, then 'Unknown'", () => {
     upsertFull({
       contactId: "co-ch",
-      channels: [{ type: "email", address: "a@x.com" }],
+      channels: [{ type: "email", address: "a@example.com" }],
     });
-    expect(contactRow("co-ch")?.display_name).toBe("a@x.com");
+    expect(contactRow("co-ch")?.display_name).toBe("a@example.com");
 
     upsertFull({ contactId: "co-bare" });
     expect(contactRow("co-bare")?.display_name).toBe("Unknown");
@@ -248,7 +249,10 @@ describe("contacts_mirror_upsert_full", () => {
       contactType: "assistant",
       assistantMetadata: { species: "openclaw", metadata: null },
     });
-    expect(metadataRow("co-bot")).toEqual({ species: "openclaw", metadata: null });
+    expect(metadataRow("co-bot")).toEqual({
+      species: "openclaw",
+      metadata: null,
+    });
   });
 
   // ── Channel sync ──────────────────────────────────────────────────────
@@ -259,16 +263,21 @@ describe("contacts_mirror_upsert_full", () => {
     upsertFull({
       contactId: "co-1",
       channels: [
-        { id: "gw-ch-1", type: "email", address: "adopt@x.com", isPrimary: true },
-        { type: "email", address: "minted@x.com" },
+        {
+          id: "gw-ch-1",
+          type: "email",
+          address: "adopt@example.com",
+          isPrimary: true,
+        },
+        { type: "email", address: "minted@example.com" },
       ],
     });
 
-    const adopted = channelByAddress("email", "adopt@x.com");
+    const adopted = channelByAddress("email", "adopt@example.com");
     expect(adopted?.id).toBe("gw-ch-1");
     expect(adopted?.is_primary).toBe(1);
 
-    const minted = channelByAddress("email", "minted@x.com");
+    const minted = channelByAddress("email", "minted@example.com");
     expect(minted?.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
@@ -280,16 +289,16 @@ describe("contacts_mirror_upsert_full", () => {
     seedContact("co-other");
     seedChannel("ch-other", "co-other", {
       type: "email",
-      address: "Taken@X.com",
+      address: "TAKEN@example.com",
     });
 
     // Case-insensitive match — the mirror must skip, not reassign or dupe.
     upsertFull({
       contactId: "co-1",
-      channels: [{ id: "gw-new", type: "email", address: "taken@x.com" }],
+      channels: [{ id: "gw-new", type: "email", address: "taken@example.com" }],
     });
 
-    const row = channelByAddress("email", "taken@x.com");
+    const row = channelByAddress("email", "taken@example.com");
     expect(row?.id).toBe("ch-other");
     expect(row?.contact_id).toBe("co-other");
   });
@@ -307,14 +316,20 @@ describe("contacts_mirror_upsert_full", () => {
       contactId: "co-1",
       channels: [{ type: "telegram", address: "tg-1" }],
     });
-    expect(channelByAddress("telegram", "tg-1")?.external_chat_id).toBe("chat-9");
+    expect(channelByAddress("telegram", "tg-1")?.external_chat_id).toBe(
+      "chat-9",
+    );
 
     // Provided → overwritten.
     upsertFull({
       contactId: "co-1",
-      channels: [{ type: "telegram", address: "tg-1", externalChatId: "chat-10" }],
+      channels: [
+        { type: "telegram", address: "tg-1", externalChatId: "chat-10" },
+      ],
     });
-    expect(channelByAddress("telegram", "tg-1")?.external_chat_id).toBe("chat-10");
+    expect(channelByAddress("telegram", "tg-1")?.external_chat_id).toBe(
+      "chat-10",
+    );
 
     // Explicit null → cleared.
     upsertFull({
@@ -328,16 +343,16 @@ describe("contacts_mirror_upsert_full", () => {
     seedContact("co-1");
     seedChannel("ch-1", "co-1", {
       type: "email",
-      address: "p@x.com",
+      address: "p@example.com",
       isPrimary: 1,
     });
 
     upsertFull({
       contactId: "co-1",
-      channels: [{ type: "email", address: "p@x.com", isPrimary: false }],
+      channels: [{ type: "email", address: "p@example.com", isPrimary: false }],
     });
 
-    expect(channelByAddress("email", "p@x.com")?.is_primary).toBe(1);
+    expect(channelByAddress("email", "p@example.com")?.is_primary).toBe(1);
   });
 
   // ── Validation + atomicity ────────────────────────────────────────────
@@ -357,12 +372,14 @@ describe("contacts_mirror_upsert_full", () => {
       upsertFull({
         contactId: "co-1",
         displayName: "After",
-        channels: [{ id: "gw-dup", type: "email", address: "fresh@x.com" }],
+        channels: [
+          { id: "gw-dup", type: "email", address: "fresh@example.com" },
+        ],
       }),
     ).toThrow();
 
     // Nothing applied — the contact rename rolled back with the channel.
     expect(contactRow("co-1")?.display_name).toBe("Before");
-    expect(channelByAddress("email", "fresh@x.com")).toBeNull();
+    expect(channelByAddress("email", "fresh@example.com")).toBeNull();
   });
 });

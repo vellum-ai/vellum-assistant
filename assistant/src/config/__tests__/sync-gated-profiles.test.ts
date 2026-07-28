@@ -27,7 +27,9 @@ function ensureTestDir(): void {
     join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
   }
 }
 
@@ -68,7 +70,9 @@ function seedBalancedConfig(): void {
 describe("reconcileFlagGatedProfiles", () => {
   beforeEach(() => {
     ensureTestDir();
-    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    if (existsSync(CONFIG_PATH)) {
+      rmSync(CONFIG_PATH, { force: true });
+    }
     delete process.env.IS_PLATFORM;
     setOverridesForTesting({});
     invalidateConfigCache();

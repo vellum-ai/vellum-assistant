@@ -816,7 +816,9 @@ describe("StatusBanner", () => {
       expect(screen.queryByText("Your assistant crashed")).toBeNull();
 
       const resolveWake = wakeResolver.current;
-      if (!resolveWake) throw new Error("wake promise was not started");
+      if (!resolveWake) {
+        throw new Error("wake promise was not started");
+      }
       resolveWake({ ok: true });
       await waitFor(() => {
         expect(triggerReachabilityProbeMock).toHaveBeenCalledTimes(1);

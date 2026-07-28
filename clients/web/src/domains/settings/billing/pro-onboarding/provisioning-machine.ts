@@ -37,10 +37,7 @@ export type ProvisioningStateKind =
  * is still rolling out.
  */
 export type ProvisioningServerVerdict =
-  | "already_done"
-  | "in_progress"
-  | "started"
-  | "not_applicable";
+  "already_done" | "in_progress" | "started" | "not_applicable";
 
 export interface DeriveProvisioningInput {
   planId: string | null | undefined;

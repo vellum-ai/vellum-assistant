@@ -22,7 +22,6 @@ import {
   type CustomPlanSelection,
 } from "@/domains/settings/billing/plans/custom-plan-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
-import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
 import { packageSpecs } from "@/domains/settings/billing/plan-spec";
 import { PlanSpecCard } from "@/domains/settings/billing/plan-spec-card";
 import { captureTakeoverAvatarStash } from "@/domains/settings/billing/pro-onboarding/takeover-avatar-stash";
@@ -353,7 +352,7 @@ function RecommendedUpgrade({
         <PlanPromoCard
           className="lg:flex-[2]"
           title={`Upgrade to ${recommended.name}`}
-          blurb={getPlanTierCopy(recommended.key)?.upgradeBlurb}
+          specs={packageSpecs(recommended)}
           ctaLabel="Upgrade"
           ctaTestId="recommended-upgrade-button"
           pending={isPending}

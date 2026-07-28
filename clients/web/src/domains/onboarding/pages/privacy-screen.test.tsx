@@ -110,9 +110,8 @@ mock.module("@vellumai/design-library/components/toggle", () => ({
   Toggle: () => null,
 }));
 
-const { PrivacyScreen } = await import(
-  "@/domains/onboarding/pages/privacy-screen"
-);
+const { PrivacyScreen } =
+  await import("@/domains/onboarding/pages/privacy-screen");
 
 function clickStart(): void {
   fireEvent.click(screen.getByText("Start"));

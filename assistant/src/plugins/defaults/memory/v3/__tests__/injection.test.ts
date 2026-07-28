@@ -72,7 +72,9 @@ const observeTurnSpy = mock(
     turnIndex: number,
   ): Promise<OrchestrateResult | null> => {
     const value = turnResults.get(turnIndex) ?? null;
-    if (value instanceof Error) throw value;
+    if (value instanceof Error) {
+      throw value;
+    }
     return value;
   },
 );
@@ -261,7 +263,9 @@ const GUARDIAN_TRUST = {
  *  (and the prune-valve schedule) now happens. */
 function commitCardsBlock(block: InjectionBlock | null): void {
   const commit = block?.meta?.[MEMORY_V3_COMMIT_META_KEY];
-  if (typeof commit === "function") (commit as () => void)();
+  if (typeof commit === "function") {
+    (commit as () => void)();
+  }
 }
 
 /** Produce the cards block WITHOUT committing — what assembly observes on a

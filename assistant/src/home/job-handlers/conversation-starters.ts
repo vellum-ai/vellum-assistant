@@ -53,7 +53,9 @@ function buildMemoryRollup(): string {
   }>;
   try {
     const db = getMemoryDb();
-    if (!db) return "";
+    if (!db) {
+      return "";
+    }
     rows = db
       .select({
         type: memoryGraphNodes.type,
@@ -70,7 +72,9 @@ function buildMemoryRollup(): string {
     return "";
   }
 
-  if (rows.length === 0) return "";
+  if (rows.length === 0) {
+    return "";
+  }
 
   const byKind = new Map<string, string[]>();
   for (const item of rows) {
@@ -96,7 +100,9 @@ function buildNewItemsDiff(): string {
   const lastGenAt =
     parseCheckpointInt(getCheckpointValue(checkpointKey(CK_LAST_GEN_AT))) ?? 0;
 
-  if (lastGenAt === 0) return ""; // No previous generation — skip diff
+  if (lastGenAt === 0) {
+    return "";
+  } // No previous generation — skip diff
 
   const newItems = rawMemoryAll<{
     kind: string;
@@ -109,7 +115,9 @@ function buildNewItemsDiff(): string {
     lastGenAt,
   );
 
-  if (newItems.length === 0) return "";
+  if (newItems.length === 0) {
+    return "";
+  }
 
   return (
     "## New since last generation\n" +
@@ -127,7 +135,9 @@ function buildNewItemsDiff(): string {
 function buildSkillsSummary(): string {
   try {
     const catalog = loadSkillCatalog();
-    if (catalog.length === 0) return "";
+    if (catalog.length === 0) {
+      return "";
+    }
 
     const lines = catalog
       .filter((s) => s.description && s.displayName)

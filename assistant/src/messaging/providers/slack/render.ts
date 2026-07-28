@@ -84,7 +84,9 @@ const HEADING_FORMATTING_TYPES = new Set([
  * the input is empty so callers can skip the `blocks` field entirely.
  */
 export function renderSlackBlocks(text: string): KnownBlock[] | undefined {
-  if (!text || text.trim().length === 0) return undefined;
+  if (!text || text.trim().length === 0) {
+    return undefined;
+  }
   const blocks = renderSlack(parseMarkdown(text), text);
   return blocks.length > 0 ? blocks : undefined;
 }
@@ -101,7 +103,9 @@ export function renderSlack(tree: Root, source: string): KnownBlock[] {
 
   const flushRun = (): void => {
     const md = sliceRun(run, source);
-    if (md.length > 0) blocks.push({ type: "markdown", text: md });
+    if (md.length > 0) {
+      blocks.push({ type: "markdown", text: md });
+    }
     run = [];
   };
 
@@ -120,7 +124,9 @@ export function renderSlack(tree: Root, source: string): KnownBlock[] {
         // as its raw table markdown so it still shows, just not as a rendered
         // table.
         const md = sliceNode(node, source).trim();
-        if (md.length > 0) blocks.push({ type: "markdown", text: md });
+        if (md.length > 0) {
+          blocks.push({ type: "markdown", text: md });
+        }
       }
     } else if (node.type === "thematicBreak") {
       flushRun();
@@ -150,7 +156,9 @@ export function renderSlack(tree: Root, source: string): KnownBlock[] {
 function sliceNode(node: RootContent, source: string): string {
   const start = node.position?.start.offset;
   const end = node.position?.end.offset;
-  if (start === undefined || end === undefined) return "";
+  if (start === undefined || end === undefined) {
+    return "";
+  }
   return source.slice(start, end);
 }
 
@@ -161,10 +169,14 @@ function sliceNode(node: RootContent, source: string): string {
  * — is preserved verbatim. Returns "" for an empty run.
  */
 function sliceRun(run: RootContent[], source: string): string {
-  if (run.length === 0) return "";
+  if (run.length === 0) {
+    return "";
+  }
   const start = run[0]?.position?.start.offset;
   const end = run[run.length - 1]?.position?.end.offset;
-  if (start === undefined || end === undefined) return "";
+  if (start === undefined || end === undefined) {
+    return "";
+  }
   return source.slice(start, end).trim();
 }
 
@@ -210,8 +222,12 @@ function imageBlocksFromParagraph(node: Paragraph): ImageBlock[] | null {
       return null;
     }
   }
-  if (images.length === 0) return null;
-  if (!images.every((img) => isHostableImageUrl(img.url))) return null;
+  if (images.length === 0) {
+    return null;
+  }
+  if (!images.every((img) => isHostableImageUrl(img.url))) {
+    return null;
+  }
   return images.map((img) => ({
     type: "image",
     image_url: img.url,
@@ -251,8 +267,12 @@ function tryTableBlock(
 ): { block: TableBlock; cellChars: number } | null {
   const rows = node.children;
   const columnCount = Math.max(0, ...rows.map((row) => row.children.length));
-  if (columnCount === 0 || columnCount > SLACK_TABLE_MAX_COLUMNS) return null;
-  if (rows.length > SLACK_TABLE_MAX_ROWS) return null;
+  if (columnCount === 0 || columnCount > SLACK_TABLE_MAX_COLUMNS) {
+    return null;
+  }
+  if (rows.length > SLACK_TABLE_MAX_ROWS) {
+    return null;
+  }
 
   const cellNodesAt = (row: TableRow, c: number): PhrasingContent[] =>
     row.children[c]?.children ?? [];
@@ -270,8 +290,12 @@ function tryTableBlock(
       sum + row.reduce((rowSum, cell) => rowSum + cellTextLength(cell), 0),
     0,
   );
-  if (cellChars > SLACK_TABLE_MAX_TOTAL_CHARS) return null;
-  if (charsUsed + cellChars > SLACK_TABLE_MAX_TOTAL_CHARS) return null;
+  if (cellChars > SLACK_TABLE_MAX_TOTAL_CHARS) {
+    return null;
+  }
+  if (charsUsed + cellChars > SLACK_TABLE_MAX_TOTAL_CHARS) {
+    return null;
+  }
 
   const columnSettings = columnSettingsFor(node, columnCount);
   const block: TableBlock = columnSettings
@@ -309,13 +333,20 @@ function cellBlock(nodes: PhrasingContent[]): TableCell {
  * empty-alt images is the URL), so the estimate never undercounts the payload.
  */
 function cellTextLength(cell: TableCell): number {
-  if (cell.type === "raw_text") return cell.text.length;
+  if (cell.type === "raw_text") {
+    return cell.text.length;
+  }
   let total = 0;
   for (const section of cell.elements) {
-    if (section.type !== "rich_text_section") continue;
+    if (section.type !== "rich_text_section") {
+      continue;
+    }
     for (const el of section.elements) {
-      if (el.type === "text") total += el.text.length;
-      else if (el.type === "link") total += (el.text ?? el.url).length;
+      if (el.type === "text") {
+        total += el.text.length;
+      } else if (el.type === "link") {
+        total += (el.text ?? el.url).length;
+      }
     }
   }
   return total;
@@ -349,7 +380,9 @@ function hasInlineFormatting(nodes: PhrasingContent[]): boolean {
     ) {
       return true;
     }
-    if ("children" in node && hasInlineFormatting(node.children)) return true;
+    if ("children" in node && hasInlineFormatting(node.children)) {
+      return true;
+    }
   }
   return false;
 }

@@ -31,13 +31,21 @@ describe("isTipEligible", () => {
 
   it("treats an undismissed record as eligible regardless of showings", () => {
     expect(
-      isTipEligible(tip("one"), { lastShownAt: NOW - 2 * DAY, shownCount: 3 }, NOW),
+      isTipEligible(
+        tip("one"),
+        { lastShownAt: NOW - 2 * DAY, shownCount: 3 },
+        NOW,
+      ),
     ).toBe(true);
   });
 
   it("never re-admits a dismissed tip", () => {
     expect(
-      isTipEligible(tip("one"), { dismissedAt: NOW - 100 * DAY, shownCount: 1 }, NOW),
+      isTipEligible(
+        tip("one"),
+        { dismissedAt: NOW - 100 * DAY, shownCount: 1 },
+        NOW,
+      ),
     ).toBe(false);
   });
 });
@@ -68,7 +76,11 @@ describe("selectCurrentTip", () => {
 
   it("advances to the next tip on the next window after a dismissal", () => {
     const records = {
-      one: { dismissedAt: NOW - DAY - 1, lastShownAt: NOW - DAY - 1, shownCount: 1 },
+      one: {
+        dismissedAt: NOW - DAY - 1,
+        lastShownAt: NOW - DAY - 1,
+        shownCount: 1,
+      },
     };
     expect(selectCurrentTip(catalog, records, NOW)?.id).toBe("two");
   });
@@ -77,7 +89,11 @@ describe("selectCurrentTip", () => {
     // Tip two was shown then dismissed within the current window; tip one was
     // dismissed long ago. Nothing shows until the window elapses.
     const records = {
-      one: { dismissedAt: NOW - 5 * DAY, lastShownAt: NOW - 5 * DAY, shownCount: 1 },
+      one: {
+        dismissedAt: NOW - 5 * DAY,
+        lastShownAt: NOW - 5 * DAY,
+        shownCount: 1,
+      },
       two: { dismissedAt: NOW - 1, lastShownAt: NOW - 60_000, shownCount: 1 },
     };
     expect(selectCurrentTip(catalog, records, NOW)).toBeNull();

@@ -52,7 +52,9 @@ export function OnboardingEdgeCharacters() {
   const { w, h } = useViewport();
 
   useEffect(() => {
-    if (components) ensureGenerated(components);
+    if (components) {
+      ensureGenerated(components);
+    }
   }, [components, ensureGenerated]);
 
   const size = edgeSize(w, h);
@@ -65,7 +67,9 @@ export function OnboardingEdgeCharacters() {
   const isMobile = w < 640;
   const HIDDEN_ON_MOBILE = new Set([4, 7, 8, 9, 10]);
 
-  if (!components || characters.length === 0) return null;
+  if (!components || characters.length === 0) {
+    return null;
+  }
 
   // Indices 1–9 sit at edge slots 0–8 (same mapping as the picker); index 0 is
   // the picker's centered avatar and isn't scattered here.
@@ -75,11 +79,17 @@ export function OnboardingEdgeCharacters() {
       className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
     >
       {characters.map((traits, i) => {
-        if (i === 0) return null;
+        if (i === 0) {
+          return null;
+        }
         const slot = i - 1;
-        if (isMobile && HIDDEN_ON_MOBILE.has(slot)) return null;
+        if (isMobile && HIDDEN_ON_MOBILE.has(slot)) {
+          return null;
+        }
         const p = positions[slot];
-        if (!p) return null;
+        if (!p) {
+          return null;
+        }
         const rotation = SLOT_ROTATIONS[slot % SLOT_ROTATIONS.length] ?? 0;
         // Depth pass: a single per-slot layer (shared with the picker screen)
         // drives size, opacity, and stacking so the further-back avatars shrink,

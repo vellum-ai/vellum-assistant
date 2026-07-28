@@ -329,9 +329,9 @@ describe("useMessageQueue", () => {
       await Promise.resolve();
     });
 
-    expect(
-      useChatSessionStore.getState().optimisticSends[0]?.queueStatus,
-    ).toBe("queued");
+    expect(useChatSessionStore.getState().optimisticSends[0]?.queueStatus).toBe(
+      "queued",
+    );
     expect(
       useChatSessionStore.getState().optimisticSends[0]?.queuePosition,
     ).toBe(2);

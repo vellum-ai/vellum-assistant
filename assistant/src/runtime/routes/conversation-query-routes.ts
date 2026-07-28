@@ -140,10 +140,10 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
 };
 
 import {
-  getEffectiveProfile,
-  getEffectiveProfiles,
+  getEffectiveProfilesForProvider,
   INVARIANT_PROFILE_NAMES,
   MANAGED_PROFILE_NAMES,
+  resolveDefaultProfileForProvider,
 } from "../../config/default-profile-catalog.js";
 import { DEFAULT_PROFILE_KEYS } from "../../config/default-profile-names.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -851,10 +851,20 @@ function handleGetConfig() {
  * profile view (code-catalog default bodies + workspace overlays). Default
  * profile CONTENT is code-owned and the workspace holds at most a thin stub,
  * but clients (settings UI, sticky-profile pickers) need the full bodies to
- * render labels/models — so the wire view materializes them. Wire-only:
+ * render labels/models — so the wire view materializes them, resolved through
+ * `llm.defaultProvider`'s column of the intent × provider matrix so a BYO
+ * install sees the provider/model that actually dispatches. Wire-only:
  * `normalizeManagedProfileWrites` reduces echoed bodies back to the
  * workspace-owned fields on the write paths, so a `config get` →
- * `config set` round-trip never persists catalog content.
+ * `config set` round-trip never persists catalog content — the two must
+ * resolve through the same column or honest round-trips are rejected.
+ *
+ * `defaultProvider` deliberately comes from the parsed config, not the raw
+ * object this function mutates: the schema's `.catch(undefined)` shields the
+ * matrix lookup from an invalid persisted value, which a raw read would feed
+ * straight into resolution. The raw profiles and the cached parse cannot
+ * disagree on `defaultProvider` — every write path that touches it
+ * invalidates the config cache.
  */
 function overlayEffectiveProfilesForWire(config: unknown): void {
   const root = readPlainObject(config);
@@ -866,8 +876,9 @@ function overlayEffectiveProfilesForWire(config: unknown): void {
   if (!existingLlm) {
     root.llm = llm;
   }
-  llm.profiles = getEffectiveProfiles(
+  llm.profiles = getEffectiveProfilesForProvider(
     readPlainObject(llm.profiles) as Record<string, ProfileEntry> | undefined,
+    getConfig().llm.defaultProvider ?? null,
   );
 }
 
@@ -999,8 +1010,15 @@ export function normalizeManagedProfileWrites(patch: unknown): void {
       continue;
     }
 
+    // Must resolve through the same provider column as
+    // `overlayEffectiveProfilesForWire`, or an echo of the wire view would
+    // not match `effective` and an honest round-trip would be rejected.
     const effective = readPlainObject(
-      getEffectiveProfile(currentProfiles, name),
+      resolveDefaultProfileForProvider(
+        currentProfiles,
+        name,
+        getConfig().llm.defaultProvider ?? null,
+      ),
     );
     for (const key of Object.keys(entry)) {
       if (key === "source" || key === "status") {
@@ -1733,7 +1751,11 @@ async function handleReplaceInferenceProfile({
     }
     // Validate arms against the effective view (matches the resolver and
     // `LLMSchema.superRefine`), not the raw workspace record.
-    const existingProfiles = getEffectiveProfiles(getConfig().llm.profiles);
+    const { llm: parsedLlm } = getConfig();
+    const existingProfiles = getEffectiveProfilesForProvider(
+      parsedLlm.profiles,
+      parsedLlm.defaultProvider ?? null,
+    );
     parsed.data.mix.forEach((arm, index) => {
       if (arm.profile === name) {
         throw new BadRequestError(

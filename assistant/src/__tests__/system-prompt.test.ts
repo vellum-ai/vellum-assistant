@@ -106,7 +106,9 @@ describe("buildSystemPrompt", () => {
       "channels",
     ]) {
       const p = join(TEST_DIR, name);
-      if (existsSync(p)) rmSync(p, { recursive: true, force: true });
+      if (existsSync(p)) {
+        rmSync(p, { recursive: true, force: true });
+      }
     }
   });
 
@@ -617,8 +619,9 @@ describe("buildSystemPrompt", () => {
     const PREFIX_FRONTMATTER = '---\nenabled: "!excludeCustomPrefix"\n---\n';
 
     afterEach(() => {
-      if (existsSync(SYSTEM_PROMPTS_DIR))
+      if (existsSync(SYSTEM_PROMPTS_DIR)) {
         rmSync(SYSTEM_PROMPTS_DIR, { recursive: true, force: true });
+      }
     });
 
     test("no workspace section files → bundled defaults render directly", () => {
@@ -945,9 +948,11 @@ describe("buildSystemPrompt", () => {
       });
 
       afterEach(() => {
-        if (priorIsContainerized === undefined)
+        if (priorIsContainerized === undefined) {
           delete process.env.IS_CONTAINERIZED;
-        else process.env.IS_CONTAINERIZED = priorIsContainerized;
+        } else {
+          process.env.IS_CONTAINERIZED = priorIsContainerized;
+        }
       });
 
       test("renders the section when IS_CONTAINERIZED=true with {{workspaceDir}} interpolated", () => {
@@ -1392,7 +1397,9 @@ describe("ensurePromptFiles", () => {
       "users",
     ]) {
       const p = join(TEST_DIR, name);
-      if (existsSync(p)) rmSync(p, { recursive: true, force: true });
+      if (existsSync(p)) {
+        rmSync(p, { recursive: true, force: true });
+      }
     }
   });
 

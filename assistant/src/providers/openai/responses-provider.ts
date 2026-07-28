@@ -79,7 +79,9 @@ const VALID_VERBOSITIES = new Set<string>(["low", "medium", "high"]);
 export function mapNeutralToolChoiceForResponses(
   toolChoice: unknown,
 ): string | { type: "function"; name: string } | undefined {
-  if (toolChoice == null || typeof toolChoice !== "object") return undefined;
+  if (toolChoice == null || typeof toolChoice !== "object") {
+    return undefined;
+  }
   const tc = toolChoice as { type?: unknown; name?: unknown };
   switch (tc.type) {
     case "auto":
@@ -508,7 +510,9 @@ export class OpenAIResponsesProvider implements Provider {
                 if (callId) {
                   const entry = toolCallMap.get(callId);
                   if (entry) {
-                    if (event.name) entry.name = event.name;
+                    if (event.name) {
+                      entry.name = event.name;
+                    }
                     entry.args = event.arguments;
                     toolProgress.emitInputJsonDelta(
                       entry.callId,
@@ -688,18 +692,30 @@ export class OpenAIResponsesProvider implements Provider {
           rawBody?: string;
           reason?: ProviderErrorReason;
         } = {};
-        if (retryAfterMs !== undefined)
+        if (retryAfterMs !== undefined) {
           errorOptions.retryAfterMs = retryAfterMs;
-        if (abortReason) errorOptions.abortReason = abortReason;
-        if (normalized.apiErrorCode)
+        }
+        if (abortReason) {
+          errorOptions.abortReason = abortReason;
+        }
+        if (normalized.apiErrorCode) {
           errorOptions.apiErrorCode = normalized.apiErrorCode;
-        if (normalized.apiErrorType)
+        }
+        if (normalized.apiErrorType) {
           errorOptions.apiErrorType = normalized.apiErrorType;
-        if (normalized.apiErrorParam)
+        }
+        if (normalized.apiErrorParam) {
           errorOptions.apiErrorParam = normalized.apiErrorParam;
-        if (normalized.requestId) errorOptions.requestId = normalized.requestId;
-        if (normalized.rawBody) errorOptions.rawBody = normalized.rawBody;
-        if (normalized.reason) errorOptions.reason = normalized.reason;
+        }
+        if (normalized.requestId) {
+          errorOptions.requestId = normalized.requestId;
+        }
+        if (normalized.rawBody) {
+          errorOptions.rawBody = normalized.rawBody;
+        }
+        if (normalized.reason) {
+          errorOptions.reason = normalized.reason;
+        }
         throw new ProviderError(
           formattedMessage,
           this.name,
@@ -943,7 +959,9 @@ export class OpenAIResponsesProvider implements Provider {
           textContent = textContent + "\n" + extraText.join("\n");
         }
         for (const cb of tr.contentBlocks) {
-          if (cb.type === "image") toolResultImages.push(cb);
+          if (cb.type === "image") {
+            toolResultImages.push(cb);
+          }
         }
       }
       result.push({

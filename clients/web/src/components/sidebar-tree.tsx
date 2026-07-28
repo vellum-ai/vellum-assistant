@@ -35,13 +35,20 @@ export function SidebarTree({
   const navigate = useNavigate();
   const isMobile = useIsMobile();
 
-  const renderItem = (item: SidebarItem, isLast: boolean, isIndexItem: boolean) => {
+  const renderItem = (
+    item: SidebarItem,
+    isLast: boolean,
+    isIndexItem: boolean,
+  ) => {
     const { href, onSelect } = item;
     const isActive =
       href != null &&
       (pathname === href ||
         pathname.startsWith(href + "/") ||
-        (!isMobile && isIndexItem && indexPath != null && pathname === indexPath));
+        (!isMobile &&
+          isIndexItem &&
+          indexPath != null &&
+          pathname === indexPath));
     return (
       <Fragment key={item.id}>
         <SideMenu.Item
@@ -87,7 +94,11 @@ export function SidebarTree({
       className="flex min-h-full flex-col md:gap-2 md:px-6 md:pb-4"
     >
       {items.map((item, index) =>
-        renderItem(item, index === items.length - 1 && !bottomItems?.length, index === 0),
+        renderItem(
+          item,
+          index === items.length - 1 && !bottomItems?.length,
+          index === 0,
+        ),
       )}
 
       {bottomItems && bottomItems.length > 0 && (

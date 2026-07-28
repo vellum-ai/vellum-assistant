@@ -219,8 +219,13 @@ beforeEach(() => {
   revalidateMock.mockClear();
   liveRouter = null;
   useAuthStore.setState(initialAuthState, true);
-  useResolvedAssistantsStore.setState({ assistants: [], activeAssistantId: null });
-  useAssistantLifecycleStore.setState({ assistantState: { kind: "error", message: "no assistant" } });
+  useResolvedAssistantsStore.setState({
+    assistants: [],
+    activeAssistantId: null,
+  });
+  useAssistantLifecycleStore.setState({
+    assistantState: { kind: "error", message: "no assistant" },
+  });
 });
 
 afterEach(async () => {
@@ -809,12 +814,9 @@ describe("authMiddleware — hydration timeout", () => {
       const pending = runMiddleware(managedFunnel);
       // Past the (clamped) consent wait but inside the assistants one, which
       // never reports.
-      setTimeout(
-        () => {
-          useOnboardingStore.setState({ consentHydrated: true });
-        },
-        WAIT_TIMEOUT_CLAMP_MS + 30,
-      );
+      setTimeout(() => {
+        useOnboardingStore.setState({ consentHydrated: true });
+      }, WAIT_TIMEOUT_CLAMP_MS + 30);
 
       const res = await pending;
       expect(res.status).toBe(302);

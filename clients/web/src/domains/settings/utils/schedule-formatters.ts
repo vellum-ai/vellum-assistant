@@ -13,13 +13,14 @@ import type { TagTone } from "@vellumai/design-library/components/tag";
 import { fetchScheduleUsageSummary } from "@/domains/settings/api/schedules";
 import { resolveScheduleUsageWindow } from "@/domains/settings/utils/schedule-usage-window";
 
-
 // ---------------------------------------------------------------------------
 // Timestamp / duration / cost formatting
 // ---------------------------------------------------------------------------
 
 export function formatTimestamp(ts: number | null | undefined): string {
-  if (!ts) return "—";
+  if (!ts) {
+    return "—";
+  }
   return new Date(ts).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
@@ -30,8 +31,12 @@ export function formatTimestamp(ts: number | null | undefined): string {
 }
 
 export function formatDuration(ms: number | null | undefined): string {
-  if (ms == null) return "—";
-  if (ms < 1000) return `${ms}ms`;
+  if (ms == null) {
+    return "—";
+  }
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
@@ -43,7 +48,9 @@ const costFormatter = new Intl.NumberFormat(undefined, {
 });
 
 export function formatScheduleCost(cost: number | null | undefined): string {
-  if (cost == null || !Number.isFinite(cost)) return "—";
+  if (cost == null || !Number.isFinite(cost)) {
+    return "—";
+  }
   return costFormatter.format(cost);
 }
 
@@ -68,12 +75,16 @@ export function formatInterval(ms: number): string {
 export function flattenRunPages(
   pages: { runs: ScheduleRun[] }[] | undefined,
 ): ScheduleRun[] | undefined {
-  if (!pages) return undefined;
+  if (!pages) {
+    return undefined;
+  }
   const seen = new Set<string>();
   const runs: ScheduleRun[] = [];
   for (const page of pages) {
     for (const run of page.runs) {
-      if (seen.has(run.id)) continue;
+      if (seen.has(run.id)) {
+        continue;
+      }
       seen.add(run.id);
       runs.push(run);
     }
@@ -151,7 +162,9 @@ export function isBookkeepingRun(run: Pick<ScheduleRun, "status">): boolean {
  */
 export function isExecutedRun(run: Pick<ScheduleRun, "status">): boolean {
   return (
-    run.status !== "skipped" && run.status !== "missed" && !isBookkeepingRun(run)
+    run.status !== "skipped" &&
+    run.status !== "missed" &&
+    !isBookkeepingRun(run)
   );
 }
 
@@ -239,7 +252,9 @@ function isPastOneTime(schedule: Schedule, now: number): boolean {
   if (schedule.status === "fired" || schedule.status === "cancelled") {
     return true;
   }
-  if (schedule.status === "firing") return false;
+  if (schedule.status === "firing") {
+    return false;
+  }
   // active: an enabled one-shot still fires on the next daemon wake even if
   // overdue; a disabled one whose time has passed never will.
   return (
@@ -267,7 +282,9 @@ export function groupSchedules(
   }
 
   recurring.sort((a, b) => {
-    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+    if (a.enabled !== b.enabled) {
+      return a.enabled ? -1 : 1;
+    }
     return (a.nextRunAt ?? Infinity) - (b.nextRunAt ?? Infinity);
   });
 
@@ -323,7 +340,11 @@ export function scheduleUsageSummaryQueryOptions(
   // key would create a new cache entry on every render. The queryFn computes
   // the fresh window at fetch time; staleTime controls refetch cadence.
   const stableKey = [
-    { _id: "schedulesUsagesummaryGet" as const, path: { assistant_id: assistantId ?? "" }, _tz: tz },
+    {
+      _id: "schedulesUsagesummaryGet" as const,
+      path: { assistant_id: assistantId ?? "" },
+      _tz: tz,
+    },
   ];
   return {
     queryKey: stableKey,
@@ -361,7 +382,9 @@ export function summarizeRunsForUsage(
   // the run count without representing anything that ran or cost money.
   const runsInRange = (runs ?? []).filter((run) => {
     const startedAt = run.startedAt ?? run.createdAt;
-    return isExecutedRun(run) && startedAt >= range.from && startedAt <= range.to;
+    return (
+      isExecutedRun(run) && startedAt >= range.from && startedAt <= range.to
+    );
   });
 
   return {

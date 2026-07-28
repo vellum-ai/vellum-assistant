@@ -14,6 +14,7 @@ import {
   listAssistantBackups,
   restoreAssistantBackup,
 } from "@/assistant/api";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { type TagTone, Tag } from "@vellumai/design-library/components/tag";
@@ -37,13 +38,17 @@ function BackupTypeBadge({ type }: { type: string }) {
 }
 
 function formatTimestamp(value: unknown): string {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) {
+    return "—";
+  }
   let str = String(value);
   if (!/Z|[+-]\d{2}:?\d{2}$/.test(str)) {
     str = str + "Z";
   }
   const d = new Date(str);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) {
+    return "—";
+  }
   return d.toLocaleString("en-US", {
     year: "numeric",
     month: "short",
@@ -68,9 +73,12 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
   const [copiedSnapshot, setCopiedSnapshot] = useState<string | null>(null);
 
   const handleCopySnapshotName = useCallback((name: string) => {
-    navigator.clipboard.writeText(name).then(() => {
-      setCopiedSnapshot(name);
-      setTimeout(() => setCopiedSnapshot(null), 2000);
+    copyToClipboard(name, {
+      errorMessage: "Couldn't copy the snapshot name.",
+      onCopied: () => {
+        setCopiedSnapshot(name);
+        setTimeout(() => setCopiedSnapshot(null), 2000);
+      },
     });
   }, []);
 
@@ -81,7 +89,9 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
 
     listAssistantBackups(assistantId)
       .then((result) => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         if (result.ok) {
           setBackups(result.data);
           setError(null);
@@ -95,7 +105,9 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
         setResolvedId(assistantId);
       })
       .catch(() => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         setError("Failed to load backups.");
         setResolvedId(assistantId);
       });
@@ -106,7 +118,9 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
   }, [assistantId, refreshKey]);
 
   const handleRestoreConfirm = useCallback(async () => {
-    if (!pendingBackup) return;
+    if (!pendingBackup) {
+      return;
+    }
 
     const backup = pendingBackup;
     setPendingBackup(null);
@@ -307,9 +321,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                 </code>
                 <button
                   type="button"
-                  onClick={() =>
-                    handleCopySnapshotName(backup.snapshot_name)
-                  }
+                  onClick={() => handleCopySnapshotName(backup.snapshot_name)}
                   className="shrink-0 text-[var(--content-secondary)] hover:text-[var(--content-default)]"
                   title="Copy snapshot name"
                 >
@@ -339,9 +351,7 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                   )
                 }
                 onClick={() => setPendingBackup(backup)}
-                disabled={
-                  restoringSnapshot !== null || !backup.ready_to_use
-                }
+                disabled={restoringSnapshot !== null || !backup.ready_to_use}
                 title={
                   !backup.ready_to_use
                     ? "Backup is not ready to use"

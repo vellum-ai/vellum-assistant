@@ -117,20 +117,24 @@ ruleTester.run("no-cross-domain-imports", noCrossDomainImports, {
 });
 
 // TSImportType is only parsed by the TS parser, so it gets its own tester.
-tsRuleTester.run("no-cross-domain-imports (TSImportType)", noCrossDomainImports, {
-  valid: [
-    // Same-domain inline type query is fine.
-    {
-      filename: fixtureUnder("account"),
-      code: `type T = import("@/domains/account/foo.js").Foo;`,
-    },
-  ],
-  invalid: [
-    // Cross-domain inline type query is a violation.
-    {
-      filename: fixtureUnder("account"),
-      code: `type T = import("@/domains/onboarding/foo.js").Foo;`,
-      errors: [{ messageId: "crossDomain" }],
-    },
-  ],
-});
+tsRuleTester.run(
+  "no-cross-domain-imports (TSImportType)",
+  noCrossDomainImports,
+  {
+    valid: [
+      // Same-domain inline type query is fine.
+      {
+        filename: fixtureUnder("account"),
+        code: `type T = import("@/domains/account/foo.js").Foo;`,
+      },
+    ],
+    invalid: [
+      // Cross-domain inline type query is a violation.
+      {
+        filename: fixtureUnder("account"),
+        code: `type T = import("@/domains/onboarding/foo.js").Foo;`,
+        errors: [{ messageId: "crossDomain" }],
+      },
+    ],
+  },
+);

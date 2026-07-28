@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 
-import { computeTransforms, resolveDefinitions } from "@/utils/avatar-svg-compositor";
-import type { CharacterComponents, CharacterTraits, EyePathDefinition } from "@/types/avatar";
+import {
+  computeTransforms,
+  resolveDefinitions,
+} from "@/utils/avatar-svg-compositor";
+import type {
+  CharacterComponents,
+  CharacterTraits,
+  EyePathDefinition,
+} from "@/types/avatar";
 
 interface AnimatedAvatarProps {
   components: CharacterComponents;
@@ -69,9 +76,7 @@ function wobblePath(
     const refVal = isX ? center.x : center.y;
     const pairedIdx = isX ? currentIdx + 1 : currentIdx - 1;
     const pairedVal =
-      pairedIdx >= 0 && pairedIdx < nums.length
-        ? nums[pairedIdx]!
-        : refVal;
+      pairedIdx >= 0 && pairedIdx < nums.length ? nums[pairedIdx]! : refVal;
 
     const px = isX ? val : pairedVal;
     const py = isX ? pairedVal : val;
@@ -189,27 +194,38 @@ export function AnimatedAvatar({
     let cancelled = false;
 
     function scheduleBlink() {
-      const timer = setTimeout(() => {
-        if (cancelled) return;
-        setIsBlinking(true);
-        setTimeout(() => {
-          if (cancelled) return;
-          setIsBlinking(false);
-          if (Math.random() < 0.2) {
-            setTimeout(() => {
-              if (cancelled) return;
-              setIsBlinking(true);
-              setTimeout(() => {
-                if (cancelled) return;
-                setIsBlinking(false);
-                scheduleBlink();
-              }, 150);
-            }, 200);
-          } else {
-            scheduleBlink();
+      const timer = setTimeout(
+        () => {
+          if (cancelled) {
+            return;
           }
-        }, 150);
-      }, randomBetween(3000, 7000));
+          setIsBlinking(true);
+          setTimeout(() => {
+            if (cancelled) {
+              return;
+            }
+            setIsBlinking(false);
+            if (Math.random() < 0.2) {
+              setTimeout(() => {
+                if (cancelled) {
+                  return;
+                }
+                setIsBlinking(true);
+                setTimeout(() => {
+                  if (cancelled) {
+                    return;
+                  }
+                  setIsBlinking(false);
+                  scheduleBlink();
+                }, 150);
+              }, 200);
+            } else {
+              scheduleBlink();
+            }
+          }, 150);
+        },
+        randomBetween(3000, 7000),
+      );
 
       return timer;
     }
@@ -234,17 +250,23 @@ export function AnimatedAvatar({
     let cancelled = false;
 
     function scheduleTwitch() {
-      const timer = setTimeout(() => {
-        if (cancelled) return;
-        const angle =
-          (Math.random() < 0.5 ? -1 : 1) * randomBetween(1, 2);
-        setTwitchAngle(angle);
-        setTimeout(() => {
-          if (cancelled) return;
-          setTwitchAngle(0);
-          scheduleTwitch();
-        }, 200);
-      }, randomBetween(8000, 15000));
+      const timer = setTimeout(
+        () => {
+          if (cancelled) {
+            return;
+          }
+          const angle = (Math.random() < 0.5 ? -1 : 1) * randomBetween(1, 2);
+          setTwitchAngle(angle);
+          setTimeout(() => {
+            if (cancelled) {
+              return;
+            }
+            setTwitchAngle(0);
+            scheduleTwitch();
+          }, 200);
+        },
+        randomBetween(8000, 15000),
+      );
 
       return timer;
     }
@@ -270,7 +292,9 @@ export function AnimatedAvatar({
   // so an unrelated re-render never clobbers the imperative value.
   useEffect(() => {
     const el = bodyPathRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const basePath = morphPaths[0] ?? bodyShape.svgPath;
     if (!isAssistantBusy || reduce || morphPaths.length <= 1) {
       el.setAttribute("d", basePath);
@@ -281,7 +305,9 @@ export function AnimatedAvatar({
     const timer = setInterval(() => {
       idx = (idx + 1) % morphPaths.length;
       const next = morphPaths[idx];
-      if (next) el.setAttribute("d", next);
+      if (next) {
+        el.setAttribute("d", next);
+      }
     }, 150);
 
     return () => {
@@ -355,12 +381,7 @@ export function AnimatedAvatar({
         }}
       >
         {eyeStyle.paths.map((p: EyePathDefinition, i: number) => (
-          <path
-            key={i}
-            d={p.svgPath}
-            fill={p.color}
-            transform={eyeTransform}
-          />
+          <path key={i} d={p.svgPath} fill={p.color} transform={eyeTransform} />
         ))}
       </g>
     </svg>

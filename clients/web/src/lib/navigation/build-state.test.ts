@@ -31,9 +31,8 @@ mock.module("@/domains/onboarding/prefs", () => ({
 const { buildNavigationState } = await import("./build-state");
 const { useAuthStore } = await import("@/stores/auth-store");
 const { useOrganizationStore } = await import("@/stores/organization-store");
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 
 const initialAuthState = useAuthStore.getState();
 

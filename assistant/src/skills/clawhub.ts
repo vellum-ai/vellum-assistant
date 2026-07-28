@@ -44,7 +44,9 @@ function getIntegrityPath(): string {
 
 function loadIntegrityManifest(): IntegrityManifest {
   const path = getIntegrityPath();
-  if (!existsSync(path)) return {};
+  if (!existsSync(path)) {
+    return {};
+  }
   try {
     return JSON.parse(readFileSync(path, "utf-8")) as IntegrityManifest;
   } catch {
@@ -253,13 +255,17 @@ function findInstalledClawhubSkillDir(
     }
   }
 
-  if (!projectRoot || !existsSync(skillsDir)) return null;
+  if (!projectRoot || !existsSync(skillsDir)) {
+    return null;
+  }
 
   const stagedSkills = readdirSync(skillsDir, { withFileTypes: true }).filter(
     (entry) =>
       entry.isDirectory() && hasRootSkillFile(join(skillsDir, entry.name)),
   );
-  if (stagedSkills.length !== 1) return null;
+  if (stagedSkills.length !== 1) {
+    return null;
+  }
 
   const skillId = stagedSkills[0]!.name;
   return { skillId, skillDir: join(skillsDir, skillId) };
@@ -436,7 +442,9 @@ async function clawhubExplore(opts?: {
   try {
     const parsed = JSON.parse(result.stdout);
     const items = parsed.items ?? parsed;
-    if (!Array.isArray(items)) return { skills: [] };
+    if (!Array.isArray(items)) {
+      return { skills: [] };
+    }
 
     // Normalize explore response to ClawhubSearchResultItem shape
     const skills: ClawhubSearchResultItem[] = items.map(
@@ -565,7 +573,9 @@ export async function clawhubInspectFile(
   slug: string,
   filePath: string,
 ): Promise<string | null> {
-  if (!validateSlug(slug)) return null;
+  if (!validateSlug(slug)) {
+    return null;
+  }
 
   try {
     const result = await runClawhub([
@@ -575,7 +585,9 @@ export async function clawhubInspectFile(
       "--file",
       filePath,
     ]);
-    if (result.exitCode !== 0) return null;
+    if (result.exitCode !== 0) {
+      return null;
+    }
 
     try {
       const parsed = JSON.parse(result.stdout);

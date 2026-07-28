@@ -171,7 +171,9 @@ export async function generateImage(
       const result = await makeSingleCall();
       const title = extractTitle(result.text);
       if (title) {
-        for (const img of result.images) img.title = title;
+        for (const img of result.images) {
+          img.title = title;
+        }
       }
       return {
         images: result.images,
@@ -188,7 +190,9 @@ export async function generateImage(
     for (const result of results) {
       const title = extractTitle(result.text);
       if (title) {
-        for (const img of result.images) img.title = title;
+        for (const img of result.images) {
+          img.title = title;
+        }
       }
       allImages.push(...result.images);
       if (result.text) {
@@ -275,9 +279,13 @@ const TITLE_RE = /^Title:\s*(.+)/im;
  * Looks for a line starting with "Title: " and sanitizes it for use as a filename.
  */
 function extractTitle(text?: string): string | undefined {
-  if (!text) return undefined;
+  if (!text) {
+    return undefined;
+  }
   const match = TITLE_RE.exec(text);
-  if (!match?.[1]) return undefined;
+  if (!match?.[1]) {
+    return undefined;
+  }
   return match[1]
     .trim()
     .replace(/[^\w\s-]/g, "")
@@ -291,7 +299,9 @@ function extractTitle(text?: string): string | undefined {
  * the tool result content shown to the user.
  */
 function stripTitleLine(text?: string): string | undefined {
-  if (!text) return undefined;
+  if (!text) {
+    return undefined;
+  }
   const stripped = text
     .replace(TITLE_RE, "")
     .replace(/\n{3,}/g, "\n\n")

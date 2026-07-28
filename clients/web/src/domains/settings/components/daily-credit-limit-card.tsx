@@ -2,12 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ChangeEvent } from "react";
 
 import {
-    organizationsBillingDailyCreditLimitRetrieveOptions,
-    organizationsBillingDailyCreditLimitRetrieveQueryKey,
-    organizationsBillingDailyCreditLimitRetrieveSetQueryData,
-    organizationsBillingDailyCreditLimitUpdateMutation,
-    organizationsBillingSummaryRetrieveOptions,
-    organizationsBillingSummaryRetrieveQueryKey,
+  organizationsBillingDailyCreditLimitRetrieveOptions,
+  organizationsBillingDailyCreditLimitRetrieveQueryKey,
+  organizationsBillingDailyCreditLimitRetrieveSetQueryData,
+  organizationsBillingDailyCreditLimitUpdateMutation,
+  organizationsBillingSummaryRetrieveOptions,
+  organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
@@ -86,7 +86,9 @@ export function DailyCreditLimitCard() {
   if (limitQuery.isError || !limitQuery.data) {
     return (
       <div data-testid="daily-credit-limit-card">
-        <Notice tone="error">Failed to load daily credit limit settings.</Notice>
+        <Notice tone="error">
+          Failed to load daily credit limit settings.
+        </Notice>
       </div>
     );
   }
@@ -95,7 +97,7 @@ export function DailyCreditLimitCard() {
   const hasLimit = config.daily_credit_limit_usd != null;
   const enabled = hasLimit || pendingEnable;
 
-  const value = draft ?? (config.daily_credit_limit_usd ?? "");
+  const value = draft ?? config.daily_credit_limit_usd ?? "";
   const clientError = validateDailyLimit(value);
 
   const summary = summaryQuery.data;
@@ -214,8 +216,8 @@ export function DailyCreditLimitCard() {
                 className="text-body-small-default text-[var(--content-tertiary)]"
                 data-testid="daily-credit-limit-progress"
               >
-                {formatUsd(dailySpend)} of {formatUsd(config.daily_credit_limit_usd)}{" "}
-                spent today
+                {formatUsd(dailySpend)} of{" "}
+                {formatUsd(config.daily_credit_limit_usd)} spent today
               </p>
             )}
 

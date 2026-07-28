@@ -50,7 +50,9 @@ export async function buildConversationSummaryJob(
   config: AssistantConfig,
 ): Promise<void> {
   const conversationId = asString(job.payload.conversationId);
-  if (!conversationId) return;
+  if (!conversationId) {
+    return;
+  }
   const db = getDb();
 
   const existing = db
@@ -81,7 +83,9 @@ export async function buildConversationSummaryJob(
     .where(and(...conditions))
     .orderBy(asc(memorySegments.createdAt))
     .all();
-  if (rows.length === 0) return;
+  if (rows.length === 0) {
+    return;
+  }
 
   // Build segment text for LLM input (already in chronological order)
   const segmentTexts = rows
@@ -235,13 +239,17 @@ function buildFallbackSummary(
   label: string,
 ): string {
   const lines = newContent.split("\n").filter((l) => l.trim().length > 0);
-  if (lines.length === 0) return existingSummary ?? `${label} (no content)`;
+  if (lines.length === 0) {
+    return existingSummary ?? `${label} (no content)`;
+  }
   const head = lines.slice(0, 3).map((l) => `- ${truncate(l.trim(), 200)}`);
   const tail =
     lines.length > 6
       ? lines.slice(-3).map((l) => `- ${truncate(l.trim(), 200)}`)
       : [];
   const parts = [`${label} summary`, "", ...head];
-  if (tail.length > 0) parts.push("", "...", "", ...tail);
+  if (tail.length > 0) {
+    parts.push("", "...", "", ...tail);
+  }
   return parts.join("\n");
 }

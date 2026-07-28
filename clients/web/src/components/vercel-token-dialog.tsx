@@ -2,7 +2,13 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { integrationsVercelConfigPost } from "@/generated/daemon/sdk.gen";
-import { Button, Input, Modal, toast, Typography } from "@vellumai/design-library";
+import {
+  Button,
+  Input,
+  Modal,
+  toast,
+  Typography,
+} from "@vellumai/design-library";
 
 export interface VercelTokenDialogProps {
   open: boolean;
@@ -22,7 +28,9 @@ export function VercelTokenDialog({
   const [error, setError] = useState<string | null>(null);
 
   const handleSave = useCallback(async () => {
-    if (!token.trim()) return;
+    if (!token.trim()) {
+      return;
+    }
 
     setIsSaving(true);
     setError(null);
@@ -90,7 +98,9 @@ export function VercelTokenDialog({
             variant="primary"
             onClick={handleSave}
             disabled={isSaving || !token.trim()}
-            leftIcon={isSaving ? <Loader2 className="animate-spin" /> : undefined}
+            leftIcon={
+              isSaving ? <Loader2 className="animate-spin" /> : undefined
+            }
           >
             {isSaving ? "Saving…" : "Save"}
           </Button>

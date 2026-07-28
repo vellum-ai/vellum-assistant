@@ -57,8 +57,12 @@ const MULAW_SEG_TABLE = [0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3];
 function linearToMulaw(sample: number): number {
   // Determine sign and clamp magnitude
   const sign = (sample >> 8) & 0x80;
-  if (sign !== 0) sample = -sample;
-  if (sample > MULAW_CLIP) sample = MULAW_CLIP;
+  if (sign !== 0) {
+    sample = -sample;
+  }
+  if (sample > MULAW_CLIP) {
+    sample = MULAW_CLIP;
+  }
   sample += MULAW_BIAS;
 
   // Determine segment
@@ -73,7 +77,9 @@ function segmentSearch(val: number): number {
   let shifted = val >> 7;
   if (shifted >= 16) {
     shifted >>= 4;
-    if (shifted >= 16) return 7;
+    if (shifted >= 16) {
+      return 7;
+    }
     return MULAW_SEG_TABLE[shifted] + 4;
   }
   return MULAW_SEG_TABLE[shifted];

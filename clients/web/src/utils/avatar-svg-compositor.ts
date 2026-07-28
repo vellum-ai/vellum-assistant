@@ -26,7 +26,10 @@ function computeBodyPlacement(
   return { bodyScale, bodyTx, bodyTy };
 }
 
-function computeBodyTransform(bodyShape: BodyShapeDefinition, size: number): string {
+function computeBodyTransform(
+  bodyShape: BodyShapeDefinition,
+  size: number,
+): string {
   const { bodyScale, bodyTx, bodyTy } = computeBodyPlacement(bodyShape, size);
   return `matrix(${bodyScale},0,0,${bodyScale},${bodyTx},${bodyTy})`;
 }
@@ -102,14 +105,20 @@ export function resolveDefinitions(
   color: ColorDefinition;
 } {
   const bodyShape = components.bodyShapes.find((b) => b.id === bodyShapeId);
-  if (!bodyShape) throw new Error(`Unknown body shape: "${bodyShapeId}"`);
+  if (!bodyShape) {
+    throw new Error(`Unknown body shape: "${bodyShapeId}"`);
+  }
   let eyeStyle: EyeStyleDefinition | undefined;
   if (eyeStyleId != null) {
     eyeStyle = components.eyeStyles.find((e) => e.id === eyeStyleId);
-    if (!eyeStyle) throw new Error(`Unknown eye style: "${eyeStyleId}"`);
+    if (!eyeStyle) {
+      throw new Error(`Unknown eye style: "${eyeStyleId}"`);
+    }
   }
   const color = components.colors.find((c) => c.id === colorId);
-  if (!color) throw new Error(`Unknown color: "${colorId}"`);
+  if (!color) {
+    throw new Error(`Unknown color: "${colorId}"`);
+  }
   return { bodyShape, eyeStyle, color };
 }
 
@@ -134,7 +143,13 @@ export function composeSvg(
     eyeStyleId,
     colorId,
   );
-  return composeSvgFromDefinitions(bodyShape, eyeStyle, color, components, size);
+  return composeSvgFromDefinitions(
+    bodyShape,
+    eyeStyle,
+    color,
+    components,
+    size,
+  );
 }
 
 export function composeSvgFromDefinitions(
@@ -151,7 +166,12 @@ export function composeSvgFromDefinitions(
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${bodyPath}</svg>`;
   }
 
-  const { bodyTransform, eyeTransform } = computeTransforms(bodyShape, eyeStyle, components, size);
+  const { bodyTransform, eyeTransform } = computeTransforms(
+    bodyShape,
+    eyeStyle,
+    components,
+    size,
+  );
 
   const bodyPath = `<path d="${escapeAttr(bodyShape.svgPath)}" fill="${escapeAttr(color.hex)}" transform="${bodyTransform}"/>`;
 

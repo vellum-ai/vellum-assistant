@@ -29,7 +29,11 @@ function statValue(label: string): string | undefined {
 
 describe("AcpUsageMeter", () => {
   test("shows only Input and Output when no cost is reported", () => {
-    render(<AcpUsageMeter entry={entry({ inputTokens: 12000, outputTokens: 3400 })} />);
+    render(
+      <AcpUsageMeter
+        entry={entry({ inputTokens: 12000, outputTokens: 3400 })}
+      />,
+    );
 
     expect(screen.getByTestId("acp-usage-meter")).toBeDefined();
     expect(statValue("input")).toBe("12,000");

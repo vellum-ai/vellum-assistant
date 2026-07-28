@@ -48,7 +48,9 @@ function makeLockfile(assistants: Array<Record<string, unknown>>): string {
 function setupFs(fileContents: Record<string, string>): void {
   existsSyncFn.mockImplementation((path: string) => path in fileContents);
   readFileSyncFn.mockImplementation((path: string, _enc: string) => {
-    if (path in fileContents) return fileContents[path];
+    if (path in fileContents) {
+      return fileContents[path];
+    }
     throw new Error(`ENOENT: ${path}`);
   });
 }

@@ -45,13 +45,21 @@ function respond(status: number) {
 }
 
 const enableSpy = mock(async (_options: unknown) => {
-  if (toggleGate) await toggleGate;
-  if (enableFails) throw new Error("enable failed");
+  if (toggleGate) {
+    await toggleGate;
+  }
+  if (enableFails) {
+    throw new Error("enable failed");
+  }
   return respond(enableStatus);
 });
 const disableSpy = mock(async (_options: unknown) => {
-  if (toggleGate) await toggleGate;
-  if (disableFails) throw new Error("disable failed");
+  if (toggleGate) {
+    await toggleGate;
+  }
+  if (disableFails) {
+    throw new Error("disable failed");
+  }
   return respond(disableStatus);
 });
 
@@ -73,12 +81,10 @@ mock.module("@vellumai/design-library", () => ({
   }),
 }));
 
-const { pluginsGetQueryKey } = await import(
-  "@/generated/daemon/@tanstack/react-query.gen"
-);
-const { usePluginToggle } = await import(
-  "@/domains/intelligence/plugins/use-plugin-toggle"
-);
+const { pluginsGetQueryKey } =
+  await import("@/generated/daemon/@tanstack/react-query.gen");
+const { usePluginToggle } =
+  await import("@/domains/intelligence/plugins/use-plugin-toggle");
 
 const LIST_KEY = pluginsGetQueryKey({
   path: { assistant_id: ASSISTANT_ID },
@@ -132,7 +138,10 @@ function mountToggle(client: QueryClient) {
 
 function renderToggle({ enabled = true }: { enabled?: boolean } = {}) {
   const client = newClient();
-  client.setQueryData<PluginsGetResponse>(LIST_KEY, listOf([{ name: NAME, enabled }]));
+  client.setQueryData<PluginsGetResponse>(
+    LIST_KEY,
+    listOf([{ name: NAME, enabled }]),
+  );
   const invalidateSpy = mock(client.invalidateQueries.bind(client));
   client.invalidateQueries = invalidateSpy;
 

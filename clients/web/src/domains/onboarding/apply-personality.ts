@@ -87,7 +87,9 @@ export async function applyPersonality({
       throwOnError: false,
     });
     conversationId = conversation.data?.id;
-    if (!conversation.response?.ok || !conversationId) return;
+    if (!conversation.response?.ok || !conversationId) {
+      return;
+    }
 
     const body: MessagesPostData["body"] = {
       conversationId,
@@ -101,7 +103,9 @@ export async function applyPersonality({
       body,
       throwOnError: false,
     });
-    if (!posted.response?.ok) return;
+    if (!posted.response?.ok) {
+      return;
+    }
 
     // Persist the raw dial positions as the workspace sidecar the About
     // Assistant personality page and the overview's radar read — the prose
@@ -154,7 +158,9 @@ export async function applyPersonality({
           throwOnError: false,
         });
       } catch (err) {
-        captureError(err, { context: "research_onboarding_personality_archive" });
+        captureError(err, {
+          context: "research_onboarding_personality_archive",
+        });
       }
     }
   }

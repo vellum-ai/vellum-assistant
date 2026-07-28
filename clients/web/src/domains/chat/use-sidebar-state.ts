@@ -13,10 +13,22 @@
  * @see {@link https://react.dev/reference/react/useMemo}
  */
 
-import { useCallback, useEffect, useMemo, useState, startTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  startTransition,
+} from "react";
 
-import type { Conversation, ConversationGroup } from "@/types/conversation-types";
-import { groupConversations, type CustomGroup } from "@/domains/chat/utils/group-conversations";
+import type {
+  Conversation,
+  ConversationGroup,
+} from "@/types/conversation-types";
+import {
+  groupConversations,
+  type CustomGroup,
+} from "@/domains/chat/utils/group-conversations";
 import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
 import {
   channelSectionKey,
@@ -117,7 +129,6 @@ export interface SidebarState {
 
   effectiveOpenCustomGroups: string[];
   onOpenCustomGroupsChange: (next: string[]) => void;
-
 }
 
 // ---------------------------------------------------------------------------
@@ -251,26 +262,30 @@ export function useSidebarState({
   const hasAttentionIn = useCallback(
     (convs: Conversation[]) =>
       attentionConversationIds
-        ? convs.some((c) =>
-            attentionConversationIds.has(c.conversationId),
-          )
+        ? convs.some((c) => attentionConversationIds.has(c.conversationId))
         : false,
     [attentionConversationIds],
   );
 
   const effectiveOpenCategories = useMemo(() => {
-    if (!attentionConversationIds || attentionConversationIds.size === 0)
+    if (!attentionConversationIds || attentionConversationIds.size === 0) {
       return openCategories;
+    }
     const extra: string[] = [];
     for (const section of grouped.channelSections) {
       if (
         section.conversations.length > 0 &&
         hasAttentionIn(section.conversations)
-      )
+      ) {
         extra.push(channelSectionKey(section.channelId));
+      }
     }
-    if (extra.length === 0) return openCategories;
-    if (extra.every((c) => openCategories.includes(c))) return openCategories;
+    if (extra.length === 0) {
+      return openCategories;
+    }
+    if (extra.every((c) => openCategories.includes(c))) {
+      return openCategories;
+    }
     return [...new Set([...openCategories, ...extra])];
   }, [
     openCategories,
@@ -280,8 +295,9 @@ export function useSidebarState({
   ]);
 
   const effectiveOpenCustomGroups = useMemo(() => {
-    if (!attentionConversationIds || attentionConversationIds.size === 0)
+    if (!attentionConversationIds || attentionConversationIds.size === 0) {
       return openCustomGroups;
+    }
     const extra: string[] = [];
     for (const group of grouped.customGroups) {
       if (
@@ -292,26 +308,42 @@ export function useSidebarState({
         extra.push(group.id);
       }
     }
-    if (extra.length === 0) return openCustomGroups;
-    if (extra.every((g) => openCustomGroups.includes(g)))
+    if (extra.length === 0) {
       return openCustomGroups;
+    }
+    if (extra.every((g) => openCustomGroups.includes(g))) {
+      return openCustomGroups;
+    }
     return [...new Set([...openCustomGroups, ...extra])];
   }, [openCustomGroups, attentionConversationIds, grouped.customGroups]);
 
   // Pinned and Chats default open; force-open still applies if the user
   // collapsed one and a conversation in it needs attention.
   const effectiveOpenPrimary = useMemo(() => {
-    if (!attentionConversationIds || attentionConversationIds.size === 0)
+    if (!attentionConversationIds || attentionConversationIds.size === 0) {
       return openPrimary;
+    }
     const extra: string[] = [];
-    if (grouped.pinned.length > 0 && hasAttentionIn(grouped.pinned))
+    if (grouped.pinned.length > 0 && hasAttentionIn(grouped.pinned)) {
       extra.push("pinned");
-    if (grouped.recents.length > 0 && hasAttentionIn(grouped.recents))
+    }
+    if (grouped.recents.length > 0 && hasAttentionIn(grouped.recents)) {
       extra.push("recents");
-    if (extra.length === 0) return openPrimary;
-    if (extra.every((k) => openPrimary.includes(k))) return openPrimary;
+    }
+    if (extra.length === 0) {
+      return openPrimary;
+    }
+    if (extra.every((k) => openPrimary.includes(k))) {
+      return openPrimary;
+    }
     return [...new Set([...openPrimary, ...extra])];
-  }, [openPrimary, attentionConversationIds, grouped.pinned, grouped.recents, hasAttentionIn]);
+  }, [
+    openPrimary,
+    attentionConversationIds,
+    grouped.pinned,
+    grouped.recents,
+    hasAttentionIn,
+  ]);
 
   // Pinned/Chats and the channel sections render in one accordion root, so
   // their two storage buckets are merged into a single value array here and

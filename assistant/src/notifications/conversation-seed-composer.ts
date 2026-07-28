@@ -56,7 +56,9 @@ export function resolveVerbosity(
   }
 
   const defaultIface = CHANNEL_DEFAULT_INTERFACE[channel];
-  if (defaultIface && RICH_INTERFACES.has(defaultIface)) return "rich";
+  if (defaultIface && RICH_INTERFACES.has(defaultIface)) {
+    return "rich";
+  }
   return "compact";
 }
 
@@ -67,12 +69,20 @@ export function resolveVerbosity(
  * Min-length is 3 (not higher) to support concise CJK text.
  */
 export function isConversationSeedSane(value: unknown): value is string {
-  if (typeof value !== "string") return false;
+  if (typeof value !== "string") {
+    return false;
+  }
   const trimmed = value.trim();
-  if (trimmed.length < 3) return false;
-  if (trimmed.length > 2000) return false;
+  if (trimmed.length < 3) {
+    return false;
+  }
+  if (trimmed.length > 2000) {
+    return false;
+  }
   // Reject raw JSON dumps
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return false;
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    return false;
+  }
   return true;
 }
 
@@ -83,7 +93,9 @@ export function isConversationSeedSane(value: unknown): value is string {
  */
 function humanizeEventName(eventName: string): string {
   const words = eventName.replace(/[._]/g, " ").trim();
-  if (words.length === 0) return "Notification";
+  if (words.length === 0) {
+    return "Notification";
+  }
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
@@ -169,7 +181,9 @@ export function composeConversationSeed(
     if (usableTitle && (copy.conversationTitle || !hasBody)) {
       parts.push(usableTitle);
     }
-    if (hasBody) parts.push(copy.body);
+    if (hasBody) {
+      parts.push(copy.body);
+    }
     const alreadyMentionsAction = parts.some((part) =>
       /\baction required\b/i.test(part),
     );

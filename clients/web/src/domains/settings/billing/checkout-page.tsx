@@ -20,7 +20,7 @@ import {
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl } from "@/runtime/browser";
 import { useOrganizationStore } from "@/stores/organization-store";
-import { routes } from "@/utils/routes";
+import { PACKAGE_PARAM, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
 /**
@@ -75,8 +75,8 @@ function abandonCheckout() {
  *   - Org header still resolving → hold on the spinner; resolution over with no
  *     organization → the retryable error, whose retry re-runs that resolution.
  *   - Gate `"full"` → fire the upgrade once and either redirect to Stripe
- *     (`redirect`), fall back to plans (`no_op`, already Pro), or surface a
- *     retryable error. It never dead-ends.
+ *     (`redirect`), fall back to plans carrying the requested package (`no_op`,
+ *     already Pro), or surface a retryable error. It never dead-ends.
  *
  * Every "no purchase happens here" exit honors the `continue` param when one is
  * present (see `checkout-continuation`), so a caller mid-flow — onboarding —
@@ -92,7 +92,7 @@ function abandonCheckout() {
 export function CheckoutPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const packageKey = searchParams.get("package") ?? "";
+  const packageKey = searchParams.get(PACKAGE_PARAM) ?? "";
   // Default (session-only) gate: a signed-in platform session reads `"full"`
   // even without an active assistant. See `use-platform-gate.ts`.
   //
@@ -176,10 +176,19 @@ export function CheckoutPage() {
       }
       // `no_op` — already Pro, nothing to provision. Clear the stashes so an
       // already-Pro bounce doesn't leave them lingering for their TTL, then
-      // hand off rather than stranding the user on a blank splash.
+      // hand off rather than stranding the user on a blank splash. Pro→Pro is
+      // an in-place package switch, never Stripe Checkout, so the requested
+      // package rides along to plans, which opens that switch from it. A
+      // carried continuation owns the destination instead — an onboarding
+      // resume must not divert into the switch modal.
       phaseRef.current = "settled";
       abandonCheckout();
-      navigate(bailTarget, { replace: true });
+      navigate(
+        bailTarget === routes.plans && packageKey
+          ? routes.plansForPackage(packageKey)
+          : bailTarget,
+        { replace: true },
+      );
     } catch {
       if (phaseRef.current !== "running") {
         return;

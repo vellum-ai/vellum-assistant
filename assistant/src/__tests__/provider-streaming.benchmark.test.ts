@@ -55,7 +55,9 @@ function makeStreamingProvider(
       }
 
       for (let i = 0; i < tokenCount; i++) {
-        if (signal?.aborted) break;
+        if (signal?.aborted) {
+          break;
+        }
         onEvent?.({ type: "text_delta", text: `word${i} ` });
         if (i < tokenCount - 1) {
           await new Promise((r) => setTimeout(r, delayPerToken));
@@ -268,7 +270,9 @@ describe("Provider streaming benchmark", () => {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          break;
+        }
 
         buffer += decoder.decode(value, { stream: true });
 
@@ -277,9 +281,13 @@ describe("Provider streaming benchmark", () => {
         buffer = parts.pop()!; // keep incomplete last part
 
         for (const part of parts) {
-          if (!part.trim()) continue;
+          if (!part.trim()) {
+            continue;
+          }
           const dataLine = part.split("\n").find((l) => l.startsWith("data: "));
-          if (!dataLine) continue;
+          if (!dataLine) {
+            continue;
+          }
 
           const json = JSON.parse(dataLine.slice(6));
           if (json.type === "content_block_delta") {

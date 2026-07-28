@@ -46,14 +46,20 @@ export interface BackendDimensionProbe {
 export async function probeBackendDimension(
   config: AssistantConfig,
 ): Promise<BackendDimensionProbe | null> {
-  if (isEmbeddingBillingBreakerOpen()) return null;
+  if (isEmbeddingBillingBreakerOpen()) {
+    return null;
+  }
 
   try {
     const { backend } = await selectEmbeddingBackend(config);
-    if (!backend) return null;
+    if (!backend) {
+      return null;
+    }
 
     const dim = await resolveBackendDimension(backend);
-    if (dim == null) return null;
+    if (dim == null) {
+      return null;
+    }
     return { provider: backend.provider, model: backend.model, dim };
   } catch (err) {
     // `selectEmbeddingBackend` resolves provider credentials and can reject on a
@@ -88,7 +94,9 @@ export async function readConceptPageCollectionDim(
     checkCompatibility: false,
   });
   const exists = await client.collectionExists(MEMORY_V2_COLLECTION);
-  if (!exists.exists) return null;
+  if (!exists.exists) {
+    return null;
+  }
 
   const info = await client.getCollection(MEMORY_V2_COLLECTION);
   const vectors = info.config?.params?.vectors as

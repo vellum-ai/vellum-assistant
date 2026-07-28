@@ -368,7 +368,9 @@ export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
 // ---------------------------------------------------------------------------
 
 /** Whether `state` is a live session phase (anything but idle/failed). */
-export function isLiveVoiceSessionActive(state: LiveVoiceSessionState): boolean {
+export function isLiveVoiceSessionActive(
+  state: LiveVoiceSessionState,
+): boolean {
   return state !== "idle" && state !== "failed";
 }
 
@@ -479,7 +481,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   appendAssistantTranscript: (delta) =>
     set((s) => ({ assistantTranscript: s.assistantTranscript + delta })),
   clearAssistantTranscript: () => set({ assistantTranscript: "" }),
-  clearUserTranscripts: () => set({ partialTranscript: "", finalTranscript: "" }),
+  clearUserTranscripts: () =>
+    set({ partialTranscript: "", finalTranscript: "" }),
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
   setMuted: (muted) => set({ muted }),
   setHandsFree: (handsFree) => set({ handsFree }),

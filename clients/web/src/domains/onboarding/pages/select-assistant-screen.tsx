@@ -32,12 +32,16 @@ import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
 function assistantLabel(a: ResolvedAssistant): string {
-  if (a.name) return a.name;
+  if (a.name) {
+    return a.name;
+  }
   return a.isLocal ? "Local Assistant" : "Cloud Assistant";
 }
 
 function assistantSubtitle(a: ResolvedAssistant): string | undefined {
-  if (!a.hatchedAt) return undefined;
+  if (!a.hatchedAt) {
+    return undefined;
+  }
   return `Created ${formatRelativeDate(a.hatchedAt)}`;
 }
 
@@ -80,7 +84,9 @@ export function SelectAssistantScreen() {
   // Default selection: the app's known selected assistant when accessible,
   // else the first accessible assistant.
   useEffect(() => {
-    if (selected != null || accessibleAssistants.length === 0) return;
+    if (selected != null || accessibleAssistants.length === 0) {
+      return;
+    }
     const resolved = resolveSelectedAssistantId(currentOrganizationId);
     const match = accessibleAssistants.find((a) => a.id === resolved);
     setSelected(match?.id ?? accessibleAssistants[0].id);
@@ -134,7 +140,9 @@ export function SelectAssistantScreen() {
   const handleRecoveryRepair = async () => {
     // recoveryPending also guards re-entry: a second click can land before
     // React flushes the pending state into the dialog's disabled buttons.
-    if (!recoveryAssistant || recoveryPending) return;
+    if (!recoveryAssistant || recoveryPending) {
+      return;
+    }
     setRecoveryPending(true);
     setRecoveryError(null);
     // try/catch, not just the result branch: a thrown fetch/transport error
@@ -164,7 +172,9 @@ export function SelectAssistantScreen() {
   };
 
   const handleRecoveryRetire = async () => {
-    if (!recoveryAssistant || recoveryPending) return;
+    if (!recoveryAssistant || recoveryPending) {
+      return;
+    }
     setRecoveryPending(true);
     setRecoveryError(null);
     try {
@@ -187,19 +197,27 @@ export function SelectAssistantScreen() {
   // (e.g. from settings or the Developer menu) — let them see the chooser.
   // Reactive to assistants so it fires when the store populates after mount.
   useEffect(() => {
-    if (fromLogin || noAutoSkip) return;
-    if (connecting || autoSkipping) return;
-    if (assistants.length === 0) return;
+    if (fromLogin || noAutoSkip) {
+      return;
+    }
+    if (connecting || autoSkipping) {
+      return;
+    }
+    if (assistants.length === 0) {
+      return;
+    }
     if (assistants.length === 1 && accessibleAssistants.length === 1) {
       setAutoSkipping(true);
       void handleConnect(accessibleAssistants[0]);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assistants.length, accessibleAssistants.length]);
 
   const onContinue = () => {
     const assistant = assistants.find((a) => a.id === selected);
-    if (assistant) void handleConnect(assistant);
+    if (assistant) {
+      void handleConnect(assistant);
+    }
   };
 
   const onBack = () => {
@@ -224,9 +242,15 @@ export function SelectAssistantScreen() {
 
   return (
     <OnboardingLayout>
-      <div className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-16"} text-[var(--content-default)]`}>
+      <div
+        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-16"} text-[var(--content-default)]`}
+      >
         <h1
-          className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}
+          className={
+            electron
+              ? "text-title-large"
+              : "text-3xl font-semibold tracking-tight"
+          }
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
           Choose an Assistant
@@ -256,9 +280,15 @@ export function SelectAssistantScreen() {
                 assistant={assistant}
                 selected={selected === assistant.id}
                 disabled={!accessible}
-                badge={!accessible && assistant.isPlatformHosted ? "Requires Account" : undefined}
+                badge={
+                  !accessible && assistant.isPlatformHosted
+                    ? "Requires Account"
+                    : undefined
+                }
                 onSelect={() => {
-                  if (accessible) setSelected(assistant.id);
+                  if (accessible) {
+                    setSelected(assistant.id);
+                  }
                 }}
               />
             );
@@ -321,7 +351,9 @@ export function SelectAssistantScreen() {
       </div>
       <ConnectRecoveryDialog
         open={recoveryAssistant != null}
-        assistantName={recoveryAssistant ? assistantLabel(recoveryAssistant) : ""}
+        assistantName={
+          recoveryAssistant ? assistantLabel(recoveryAssistant) : ""
+        }
         isPending={recoveryPending}
         errorMessage={recoveryError ?? undefined}
         onCancel={clearRecoveryState}
@@ -390,13 +422,17 @@ function AssistantCard({
             {assistantLabel(assistant)}
           </span>
           {badge && (
-            <span className={`rounded-full bg-[var(--surface-tertiary)] px-2 py-0.5 text-[var(--content-tertiary)] ${electron ? "text-label-medium-default" : "text-body-small-default"}`}>
+            <span
+              className={`rounded-full bg-[var(--surface-tertiary)] px-2 py-0.5 text-[var(--content-tertiary)] ${electron ? "text-label-medium-default" : "text-body-small-default"}`}
+            >
               {badge}
             </span>
           )}
         </div>
         {subtitle && (
-          <span className={`mt-0.5 block text-[var(--content-tertiary)] ${electron ? "text-label-medium-default" : "text-body-small-default"}`}>
+          <span
+            className={`mt-0.5 block text-[var(--content-tertiary)] ${electron ? "text-label-medium-default" : "text-body-small-default"}`}
+          >
             {subtitle}
           </span>
         )}
@@ -411,7 +447,12 @@ function AssistantCard({
               : "border-[var(--border-element)] group-hover:border-[var(--content-tertiary)]",
           ].join(" ")}
         >
-          {selected && <Check className="h-3 w-3 text-[var(--surface-base)]" strokeWidth={3} />}
+          {selected && (
+            <Check
+              className="h-3 w-3 text-[var(--surface-base)]"
+              strokeWidth={3}
+            />
+          )}
         </div>
       )}
     </button>

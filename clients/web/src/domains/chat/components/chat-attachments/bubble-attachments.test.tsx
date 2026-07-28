@@ -95,9 +95,9 @@ describe("BubbleAttachments", () => {
 
     fireEvent.click(getByRole("button", { name: "photo.png" }));
 
-    expect(getByTestId("preview-modal").getAttribute("data-attachment-id")).toBe(
-      "img-1",
-    );
+    expect(
+      getByTestId("preview-modal").getAttribute("data-attachment-id"),
+    ).toBe("img-1");
   });
 
   test("preserves the original attachment order for a mixed list", () => {
@@ -111,8 +111,7 @@ describe("BubbleAttachments", () => {
     // The pdf chip must appear before the image preview in document order,
     // matching the input order [pdf, image].
     expect(
-      pdfEl.compareDocumentPosition(imgEl) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      pdfEl.compareDocumentPosition(imgEl) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 

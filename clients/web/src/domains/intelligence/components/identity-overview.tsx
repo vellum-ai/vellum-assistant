@@ -41,7 +41,10 @@ import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { contrastForeground } from "@/utils/avatar-tone";
 
 import { applyRename } from "../identity-actions/apply-rename";
-import { memoryStatsOptions } from "../memory-graph/get-memory-stats";
+import {
+  conceptPageCount,
+  memoryStatsOptions,
+} from "../memory-graph/get-memory-stats";
 import {
   assistantIdentityDetailsQueryKey,
   useAssistantIdentityDetails,
@@ -58,7 +61,10 @@ import {
 } from "./amoeba-avatar";
 import { AssistantNameEditor } from "./assistant-name-editor";
 import { resolveAvatarHex } from "./assistant-stage";
-import { buildIdentitySections, type IdentitySection } from "./identity-sections";
+import {
+  buildIdentitySections,
+  type IdentitySection,
+} from "./identity-sections";
 import { PersonalityRadar } from "./personality-radar";
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
@@ -106,7 +112,7 @@ const MINI_SECTION_KEYS = [
  * the greeting becomes his commentary on whatever you're pointing at.
  */
 const CARD_HOVER_LINES: Record<string, string> = {
-  personality: "Go ahead — tweak my soul",
+  personality: "Go ahead, tweak my soul",
   superpowers: "Everything I know how to do",
   memory: "Everything I remember",
   library: "The apps and docs I've made for you",
@@ -115,7 +121,6 @@ const CARD_HOVER_LINES: Record<string, string> = {
   contacts: "The people I know and trust",
   channels: "All the places you can reach me",
 };
-
 
 /** "14 Jul, 9:00 am" — compact next-fire time for the schedules preview. */
 function formatNextRun(nextRunAt: number): string {
@@ -205,26 +210,22 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
   });
   // The Memory card's measurement is the cheap page-index concept count
   // (get-memory-stats) — NOT the concept-graph build, which is kept off
-  // identity-page load. Fetched unconditionally: the card's visibility now
-  // follows the same call's `graphSupported` capability bit, so the Memory
-  // concept graph is only offered where the backend can build it (memory v3
-  // live) rather than dead-ending on a "not available" graph.
+  // identity-page load. The card itself is unconditional; only its count is
+  // conditional, so an assistant whose backend can't draw the graph still has
+  // a way into the Memory tab (which explains why, and offers the fix).
   const memoryStats = useQuery(memoryStatsOptions(assistantId));
-  const showMemory =
-    memoryStats.data?.kind === "ready" && memoryStats.data.graphSupported;
+  // Only measured where concept pages are actually the substrate (memory tier
+  // v2/v3). A loading query, an older daemon predating `/memory/stats`, a v1
+  // assistant (memory lives in the legacy graph) and a memory-off one all read
+  // `undefined` and leave the measurement off, rather than render a "0
+  // memories" that says "I remember nothing about you".
+  const memories = conceptPageCount(memoryStats.data);
   const sectionStats: Record<string, IdentitySectionStat | undefined> = {
     ...stats,
-    // Only show a count when the daemon actually answered one (`ready`). An
-    // older daemon predating `/memory/stats` reads `unsupported`, and a loading
-    // query is `undefined` — both leave the measurement off (as the card was
-    // before this feature) rather than render a wrong "0 memories".
     memory:
-      memoryStats.data?.kind === "ready"
-        ? {
-            value: memoryStats.data.concepts,
-            label: memoryStats.data.concepts === 1 ? "memory" : "memories",
-          }
-        : undefined,
+      memories === undefined
+        ? undefined
+        : { value: memories, label: memories === 1 ? "memory" : "memories" },
   };
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -239,8 +240,11 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           void queryClient.invalidateQueries({
             queryKey: assistantIdentityDetailsQueryKey(assistantId),
           });
-          const { version, assistantId: hydratedAssistantId, setIdentity } =
-            useAssistantIdentityStore.getState();
+          const {
+            version,
+            assistantId: hydratedAssistantId,
+            setIdentity,
+          } = useAssistantIdentityStore.getState();
           // Preserve the owner tag: a rename changes the name, not which
           // assistant the hydrated identity belongs to.
           setIdentity(newName, version, hydratedAssistantId);
@@ -257,9 +261,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
     invalidateAvatar();
   }, [invalidateAvatar]);
 
-  const sections = buildIdentitySections({
-    showMemory,
-  });
+  const sections = buildIdentitySections();
   const isLoading = isAvatarLoading || identityQuery.isLoading;
   const avatarHex = resolveAvatarHex(components, traits);
   // Custom image (no character color): the page background becomes the
@@ -278,7 +280,10 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
       }
     >
       {photoBackdrop && customImageUrl && (
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+        >
           {/* Scaled up so the blur never bleeds transparent edges in.
               Dimmed via brightness (not a flat scrim) so bright photos
               darken naturally — highlights keep their hue, like the dark
@@ -962,7 +967,10 @@ function OverviewBento({
                         : "text-[var(--content-secondary)]"
                     }`}
                   >
-                    <PersonalityRadar values={radar} className="h-auto w-full" />
+                    <PersonalityRadar
+                      values={radar}
+                      className="h-auto w-full"
+                    />
                   </span>
                 )}
               </Link>
@@ -988,8 +996,12 @@ function OverviewBento({
   // it) and Schedules the right, both the same height above the strip,
   // and everything else (Skills, Plugins, Workspace, Contacts, Channels)
   // runs as compact mini cards in a full-width bottom strip.
-  const mainSections = sections.filter((s) => !MINI_SECTION_KEYS.includes(s.key));
-  const miniSections = sections.filter((s) => MINI_SECTION_KEYS.includes(s.key));
+  const mainSections = sections.filter(
+    (s) => !MINI_SECTION_KEYS.includes(s.key),
+  );
+  const miniSections = sections.filter((s) =>
+    MINI_SECTION_KEYS.includes(s.key),
+  );
 
   // Top row is a centered trio — Personality, the greeting, Schedules —
   // and the rows below stay open so the page-anchored avatar shows

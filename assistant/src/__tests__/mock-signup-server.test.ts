@@ -17,12 +17,16 @@ import {
 /** Extract Set-Cookie value from a response and merge with existing cookies. */
 function extractCookies(res: Response, existing: string): string {
   const setCookie = res.headers.get("set-cookie");
-  if (!setCookie) return existing;
+  if (!setCookie) {
+    return existing;
+  }
   // Parse existing cookies into a map, then overlay new ones.
   const map = new Map<string, string>();
   for (const part of existing.split("; ")) {
     const eqIdx = part.indexOf("=");
-    if (eqIdx > 0) map.set(part.slice(0, eqIdx), part.slice(eqIdx + 1));
+    if (eqIdx > 0) {
+      map.set(part.slice(0, eqIdx), part.slice(eqIdx + 1));
+    }
   }
   // The Set-Cookie header may contain attributes like Path, HttpOnly; we only care about the name=value.
   const firstSemicolon = setCookie.indexOf(";");
@@ -46,7 +50,9 @@ async function followRedirect(
 ): Promise<{ res: Response; cookies: string }> {
   const newCookies = extractCookies(res, cookies);
   const location = res.headers.get("location");
-  if (!location) throw new Error("Expected redirect but no Location header");
+  if (!location) {
+    throw new Error("Expected redirect but no Location header");
+  }
   const target = location.startsWith("/") ? `${baseUrl}${location}` : location;
   const nextRes = await fetch(target, {
     redirect: "manual",

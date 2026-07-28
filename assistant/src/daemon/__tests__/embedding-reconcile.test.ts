@@ -86,7 +86,9 @@ function makeDeps(opts: {
         : { provider: "gemini" as const, model: "m", dim: opts.probeDim },
     ),
     readConceptPageCollectionDim: mock(async () => {
-      if (opts.committedDimError) {throw opts.committedDimError;}
+      if (opts.committedDimError) {
+        throw opts.committedDimError;
+      }
       return opts.committedDim ?? null;
     }),
     decideEmbeddingReconcile: mock(() => opts.decision),

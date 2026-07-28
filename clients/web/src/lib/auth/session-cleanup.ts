@@ -61,8 +61,12 @@ const LEGACY_DEVICE_KEYS = new Set([
 ]);
 
 function isUserScopedKey(key: string): boolean {
-  if (key.startsWith(USER_PREFIX)) return true;
-  if (LEGACY_DEVICE_KEYS.has(key)) return false;
+  if (key.startsWith(USER_PREFIX)) {
+    return true;
+  }
+  if (LEGACY_DEVICE_KEYS.has(key)) {
+    return false;
+  }
   return LEGACY_USER_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 

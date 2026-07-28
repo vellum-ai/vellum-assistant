@@ -125,7 +125,9 @@ export function completeHeartbeatRun(
     .from(heartbeatRuns)
     .where(eq(heartbeatRuns.id, runId))
     .get();
-  if (!row) return false;
+  if (!row) {
+    return false;
+  }
 
   const durationMs = row.startedAt != null ? now - row.startedAt : null;
 

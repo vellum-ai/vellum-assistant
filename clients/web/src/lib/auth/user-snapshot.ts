@@ -15,7 +15,9 @@ import type { AuthUser } from "@/stores/auth-store";
 const SNAPSHOT_KEY = "vellum:auth:userSnapshot";
 
 export function persistUserSnapshot(user: AuthUser | null): void {
-  if (!user) return;
+  if (!user) {
+    return;
+  }
   try {
     localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(user));
   } catch {
@@ -26,9 +28,13 @@ export function persistUserSnapshot(user: AuthUser | null): void {
 export function readUserSnapshot(): AuthUser | null {
   try {
     const raw = localStorage.getItem(SNAPSHOT_KEY);
-    if (!raw) return null;
+    if (!raw) {
+      return null;
+    }
     const parsed = JSON.parse(raw) as Partial<AuthUser> | null;
-    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
     // Field-by-field coercion so a malformed or stale-schema snapshot
     // degrades to safe defaults instead of poisoning the auth state.
     return {

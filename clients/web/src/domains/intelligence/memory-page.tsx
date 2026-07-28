@@ -19,12 +19,12 @@ interface MemoryPageProps {
 
 /**
  * The Memory tab (`/assistant/memory`): a full-bleed home for the assistant's
- * memory concept graph. A native surface — no feature flag — whose entry point
- * on the identity overview is gated on graph availability (memory v3 live), so
- * it is only offered where the graph can build. The graph view handles its own
- * loading / empty / unsupported states, so a direct visit against a backend
- * that doesn't expose a graph shows the graph's "not available" copy rather
- * than a blank tab. The skills constellation stays on the Identity tab.
+ * memory concept graph. A native surface — no feature flag — and its entry
+ * point on the identity overview is unconditional, so every assistant can get
+ * here. The graph view handles its own loading / empty / unsupported states;
+ * against a backend that can't build a graph (memory off, or a pre-v3 engine)
+ * it renders the upgrade prompt, which names that reason and offers the fix.
+ * The skills constellation stays on the Identity tab.
  */
 export function MemoryPage({ onOpenThread }: MemoryPageProps) {
   const assistantId = useActiveAssistantId();
@@ -47,8 +47,7 @@ export function MemoryPage({ onOpenThread }: MemoryPageProps) {
   const memoryGraph = useQuery(memoryGraphOptions(assistantId));
   const memoryStats = useQuery(memoryStatsOptions(assistantId));
   const showCreate =
-    memoryGraph.data?.kind === "ready" &&
-    memoryStats.data?.kind === "ready";
+    memoryGraph.data?.kind === "ready" && memoryStats.data?.kind === "ready";
 
   // Report the tab open exactly once per mount. The ref guard keeps React
   // strict-mode's double-invoke (dev) from emitting a duplicate.

@@ -100,14 +100,22 @@ const bulkStatusResponseSchema = z.object({
 
 export function computeGreeting(now: Date): string {
   const hour = now.getHours();
-  if (hour >= 5 && hour < 12) return "Good morning";
-  if (hour >= 12 && hour < 17) return "Good afternoon";
-  if (hour >= 17 && hour < 22) return "Good evening";
+  if (hour >= 5 && hour < 12) {
+    return "Good morning";
+  }
+  if (hour >= 12 && hour < 17) {
+    return "Good afternoon";
+  }
+  if (hour >= 17 && hour < 22) {
+    return "Good evening";
+  }
   return "Welcome back";
 }
 
 export function formatRelativeTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 60) return "just now";
+  if (!Number.isFinite(seconds) || seconds < 60) {
+    return "just now";
+  }
   if (seconds < 3600) {
     const mins = Math.floor(seconds / 60);
     return `${mins} minute${mins === 1 ? "" : "s"} ago`;
@@ -116,16 +124,26 @@ export function formatRelativeTime(seconds: number): string {
     const hours = Math.floor(seconds / 3600);
     return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   }
-  if (seconds < 172800) return "yesterday";
+  if (seconds < 172800) {
+    return "yesterday";
+  }
   const days = Math.floor(seconds / 86400);
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 function timeAwayBucket(seconds: number): string {
-  if (seconds < 1800) return "<1800";
-  if (seconds < 14400) return "1800-14400";
-  if (seconds < 43200) return "14400-43200";
-  if (seconds < 86400) return "43200-86400";
+  if (seconds < 1800) {
+    return "<1800";
+  }
+  if (seconds < 14400) {
+    return "1800-14400";
+  }
+  if (seconds < 43200) {
+    return "14400-43200";
+  }
+  if (seconds < 86400) {
+    return "43200-86400";
+  }
   return ">=86400";
 }
 
@@ -270,34 +288,49 @@ export function handleListHomeFeed({
   const feed = readHomeFeed();
 
   const filtered = feed.items.filter((item) => {
-    if (statusFilter && !statusFilter.has(item.status)) return false;
+    if (statusFilter && !statusFilter.has(item.status)) {
+      return false;
+    }
     if (urgencySet) {
-      if (!item.urgency || !urgencySet.has(item.urgency)) return false;
+      if (!item.urgency || !urgencySet.has(item.urgency)) {
+        return false;
+      }
     }
     if (categorySet) {
-      if (!item.category || !categorySet.has(item.category)) return false;
+      if (!item.category || !categorySet.has(item.category)) {
+        return false;
+      }
     }
     if (
       params.conversationId !== undefined &&
       item.conversationId !== params.conversationId
-    )
+    ) {
       return false;
+    }
     if (
       params.fromAssistant !== undefined &&
       (item.fromAssistant ?? false) !== params.fromAssistant
-    )
+    ) {
       return false;
+    }
     if (
       params.noteworthy !== undefined &&
       (item.noteworthy ?? false) !== params.noteworthy
-    )
+    ) {
       return false;
+    }
 
     if (beforeMs !== undefined || afterMs !== undefined) {
       const createdMs = Date.parse(item.createdAt);
-      if (Number.isNaN(createdMs)) return false;
-      if (beforeMs !== undefined && createdMs >= beforeMs) return false;
-      if (afterMs !== undefined && createdMs <= afterMs) return false;
+      if (Number.isNaN(createdMs)) {
+        return false;
+      }
+      if (beforeMs !== undefined && createdMs >= beforeMs) {
+        return false;
+      }
+      if (afterMs !== undefined && createdMs <= afterMs) {
+        return false;
+      }
     }
 
     return true;

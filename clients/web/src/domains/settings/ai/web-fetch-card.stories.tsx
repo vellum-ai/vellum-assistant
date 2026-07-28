@@ -19,7 +19,9 @@ const meta: Meta<typeof WebFetchCard> = {
     (Story) => {
       // The card reads the active assistant id from the resolved-assistants
       // store; seed it so `useActiveAssistantId()` doesn't throw.
-      useResolvedAssistantsStore.setState({ activeAssistantId: "story-assistant" });
+      useResolvedAssistantsStore.setState({
+        activeAssistantId: "story-assistant",
+      });
       return (
         <QueryClientProvider client={queryClient}>
           <div style={{ maxWidth: 640, padding: 24 }}>

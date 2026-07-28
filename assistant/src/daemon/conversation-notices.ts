@@ -23,7 +23,9 @@ function touchConversation(
   }
   if (pendingNotices.size >= MAX_TRACKED_CONVERSATIONS) {
     const oldest = pendingNotices.keys().next().value;
-    if (oldest !== undefined) pendingNotices.delete(oldest);
+    if (oldest !== undefined) {
+      pendingNotices.delete(oldest);
+    }
   }
   const next = new Map<string, PendingConversationNotice>();
   pendingNotices.set(conversationId, next);
@@ -42,7 +44,9 @@ export function drainConversationNotices(
   conversationId: string,
 ): ConversationNoticeEvent[] {
   const notices = pendingNotices.get(conversationId);
-  if (!notices) return [];
+  if (!notices) {
+    return [];
+  }
   pendingNotices.delete(conversationId);
   return Array.from(notices.values(), (notice) => ({
     type: "conversation_notice" as const,

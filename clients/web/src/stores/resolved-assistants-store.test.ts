@@ -112,7 +112,8 @@ describe("setFromLockfile", () => {
     };
     useResolvedAssistantsStore.getState().setFromLockfile(lockfile);
 
-    const [entry, otherEntry] = useResolvedAssistantsStore.getState().assistants;
+    const [entry, otherEntry] =
+      useResolvedAssistantsStore.getState().assistants;
     expect(entry?.id).toBe("asst-local");
     expect(entry?.cloud).toBe("local");
     expect(entry?.isActiveLockfileAssistant).toBe(false);
@@ -318,7 +319,9 @@ describe("setSelectedAssistant", () => {
     expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBe("asst-1");
 
     useResolvedAssistantsStore.getState().setSelectedAssistant(null);
-    expect(useResolvedAssistantsStore.getState().selectedAssistantId).toBeNull();
+    expect(
+      useResolvedAssistantsStore.getState().selectedAssistantId,
+    ).toBeNull();
     expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBeNull();
   });
 });
@@ -330,7 +333,9 @@ describe("selection reconcile on hydration", () => {
       assistants: [localAssistant],
       activeAssistant: null,
     });
-    expect(useResolvedAssistantsStore.getState().selectedAssistantId).toBeNull();
+    expect(
+      useResolvedAssistantsStore.getState().selectedAssistantId,
+    ).toBeNull();
     expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBeNull();
   });
 
@@ -356,7 +361,9 @@ describe("selection reconcile on hydration", () => {
     } as Parameters<
       ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
     >[0];
-    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-other-org");
+    useResolvedAssistantsStore
+      .getState()
+      .setSelectedAssistant("asst-other-org");
     useResolvedAssistantsStore.getState().setFromApi([apiEntry]);
     expect(useResolvedAssistantsStore.getState().selectedAssistantId).toBe(
       "asst-other-org",

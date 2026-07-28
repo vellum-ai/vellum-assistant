@@ -84,8 +84,12 @@ describe("service-contracts import discipline", () => {
 
     const files = grepOutput.split("\n").filter((f) => f.length > 0);
     const violations = files.filter((f) => {
-      if (isTestFile(f)) return false;
-      if (CES_CONTRACTS_ALLOWLIST.has(f)) return false;
+      if (isTestFile(f)) {
+        return false;
+      }
+      if (CES_CONTRACTS_ALLOWLIST.has(f)) {
+        return false;
+      }
       return true;
     });
 
@@ -148,8 +152,12 @@ describe("service-contracts import discipline", () => {
 
     const files = grepOutput.split("\n").filter((f) => f.length > 0);
     const violations = files.filter((f) => {
-      if (isTestFile(f)) return false;
-      if (AGGREGATE_ROOT_ALLOWLIST.has(f)) return false;
+      if (isTestFile(f)) {
+        return false;
+      }
+      if (AGGREGATE_ROOT_ALLOWLIST.has(f)) {
+        return false;
+      }
       return true;
     });
 

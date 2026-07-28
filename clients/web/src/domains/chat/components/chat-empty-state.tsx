@@ -1,4 +1,3 @@
-
 import { BusyIndicator } from "@/domains/chat/components/busy-indicator";
 import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants";
 

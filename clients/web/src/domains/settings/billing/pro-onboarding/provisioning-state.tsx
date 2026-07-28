@@ -481,7 +481,11 @@ function TargetChips({
   fromSnapshot: ProvisioningDimensions;
   done?: boolean;
 }) {
-  const changes = buildResourceChanges({ targets, fromSnapshot, credits: null });
+  const changes = buildResourceChanges({
+    targets,
+    fromSnapshot,
+    credits: null,
+  });
   return (
     <ChipRow>
       {changes.map((change) => (

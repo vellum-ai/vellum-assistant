@@ -18,24 +18,25 @@
  */
 
 import {
-    Archive,
-    CircleCheck,
-    MoreHorizontal,
-    Pencil,
-    Trash2,
+  Archive,
+  CircleCheck,
+  Copy,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
-    buildPanelMenuItem,
-    PanelMenuDivider,
+  buildPanelMenuItem,
+  PanelMenuDivider,
 } from "@/domains/chat/components/panel-menu-item";
 import {
-    BottomSheet,
-    ContextMenu,
-    Menu,
-    Popover,
+  BottomSheet,
+  ContextMenu,
+  Menu,
+  Popover,
 } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,11 @@ export interface GroupMenuItemsProps {
   hasConversations?: boolean;
   onRename?: () => void;
   onDelete?: () => void;
+  /**
+   * Copy the group's id to the clipboard. Lets users paste a precise
+   * reference into chat (the assistant resolves group ids directly).
+   */
+  onCopyGroupId?: () => void;
 }
 
 /**
@@ -66,12 +72,14 @@ export function hasAnyGroupMenuAction({
   onArchiveAll,
   onRename,
   onDelete,
+  onCopyGroupId,
 }: GroupMenuItemsProps): boolean {
   return (
     onMarkAllRead != null ||
     onArchiveAll != null ||
     onRename != null ||
-    onDelete != null
+    onDelete != null ||
+    onCopyGroupId != null
   );
 }
 
@@ -83,9 +91,11 @@ export function renderGroupMenuItems({
   hasConversations = false,
   onRename,
   onDelete,
+  onCopyGroupId,
 }: GroupMenuItemsProps & { Primitive: GroupMenuPrimitive }): ReactNode {
   const hasBulkActions = onMarkAllRead != null || onArchiveAll != null;
-  const hasIndividualActions = onRename != null || onDelete != null;
+  const hasIndividualActions =
+    onRename != null || onDelete != null || onCopyGroupId != null;
 
   return (
     <>
@@ -118,6 +128,11 @@ export function renderGroupMenuItems({
           {hasConversations ? "Delete group…" : "Delete group"}
         </Primitive.Item>
       ) : null}
+      {onCopyGroupId ? (
+        <Primitive.Item leftIcon={<Copy size={14} />} onSelect={onCopyGroupId}>
+          Copy group ID
+        </Primitive.Item>
+      ) : null}
     </>
   );
 }
@@ -133,10 +148,12 @@ export function renderGroupMenuItemsAsPanelItems({
   hasConversations = false,
   onRename,
   onDelete,
+  onCopyGroupId,
   onClose,
 }: GroupMenuItemsProps & { onClose: () => void }): ReactNode {
   const hasBulkActions = onMarkAllRead != null || onArchiveAll != null;
-  const hasIndividualActions = onRename != null || onDelete != null;
+  const hasIndividualActions =
+    onRename != null || onDelete != null || onCopyGroupId != null;
 
   return (
     <>
@@ -179,6 +196,15 @@ export function renderGroupMenuItemsAsPanelItems({
             onClose,
           })
         : null}
+      {onCopyGroupId
+        ? buildPanelMenuItem({
+            key: "copy-group-id",
+            icon: Copy,
+            label: "Copy group ID",
+            run: onCopyGroupId,
+            onClose,
+          })
+        : null}
     </>
   );
 }
@@ -197,7 +223,10 @@ export interface GroupActionsMenuProps extends GroupMenuItemsProps {
  * menu items, so this menu and the header's right-click menu always offer the
  * same actions.
  */
-export function GroupActionsMenu({ label, ...menuProps }: GroupActionsMenuProps) {
+export function GroupActionsMenu({
+  label,
+  ...menuProps
+}: GroupActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
   const closeMenu = () => setOpen(false);

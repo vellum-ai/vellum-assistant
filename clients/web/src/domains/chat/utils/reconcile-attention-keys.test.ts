@@ -4,14 +4,7 @@
  * pending-interactions snapshot.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
@@ -33,9 +26,8 @@ mock.module("@/utils/conversation-cache", () => ({
   getConversations: () => conversationsImpl,
 }));
 
-const { reconcileAttentionKeys } = await import(
-  "@/domains/chat/utils/reconcile-attention-keys"
-);
+const { reconcileAttentionKeys } =
+  await import("@/domains/chat/utils/reconcile-attention-keys");
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -29,6 +29,8 @@ export interface SentryFlavor {
  * must use the same version-matched client our captures resolve against.
  */
 export function selectSentryFlavor(): SentryFlavor {
-  if (isNativePlatform() && !isElectron()) return capacitorFlavor;
+  if (isNativePlatform() && !isElectron()) {
+    return capacitorFlavor;
+  }
   return reactFlavor;
 }

@@ -87,15 +87,23 @@ function buildHunks(entries: DiffEntry[]): Hunk[] {
     let oldLine = 1,
       newLine = 1;
     for (let i = 0; i < contextStart; i++) {
-      if (entries[i].type === "same" || entries[i].type === "remove") oldLine++;
-      if (entries[i].type === "same" || entries[i].type === "add") newLine++;
+      if (entries[i].type === "same" || entries[i].type === "remove") {
+        oldLine++;
+      }
+      if (entries[i].type === "same" || entries[i].type === "add") {
+        newLine++;
+      }
     }
 
     let oldCount = 0,
       newCount = 0;
     for (const entry of hunkEntries) {
-      if (entry.type === "same" || entry.type === "remove") oldCount++;
-      if (entry.type === "same" || entry.type === "add") newCount++;
+      if (entry.type === "same" || entry.type === "remove") {
+        oldCount++;
+      }
+      if (entry.type === "same" || entry.type === "add") {
+        newCount++;
+      }
     }
 
     hunks.push({
@@ -150,7 +158,9 @@ export function formatDiff(
   filePath: string,
   options: FormatDiffOptions = {},
 ): string {
-  if (oldContent === newContent) return "";
+  if (oldContent === newContent) {
+    return "";
+  }
 
   const oldLines = oldContent.split("\n");
   const newLines = newContent.split("\n");
@@ -164,7 +174,9 @@ export function formatDiff(
   const entries = computeLineDiff(oldLines, newLines);
   const hunks = buildHunks(entries);
 
-  if (hunks.length === 0) return "";
+  if (hunks.length === 0) {
+    return "";
+  }
 
   let output = `${DIM}--- a/${filePath}${RESET}\n`;
   output += `${DIM}+++ b/${filePath}${RESET}\n`;

@@ -283,7 +283,9 @@ function VoiceRoomOverlay() {
           {/* Same state caption + gating as the color look (stands down while
               the assistant transcript is on), in the same shared lower zone —
               both looks name the beat from one baseline. */}
-          {!showAssistantTranscript ? <VoiceStateCaption visual={visual} /> : null}
+          {!showAssistantTranscript ? (
+            <VoiceStateCaption visual={visual} />
+          ) : null}
         </>
       )}
 

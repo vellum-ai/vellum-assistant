@@ -101,9 +101,13 @@ export function resetTaskProgressNudgeStateForTests(): void {
  * server-side normalization tolerance.
  */
 function isTaskProgressShowInput(input: unknown): boolean {
-  if (input === null || typeof input !== "object") return false;
+  if (input === null || typeof input !== "object") {
+    return false;
+  }
   const record = input as Record<string, unknown>;
-  if (record.template === "task_progress") return true;
+  if (record.template === "task_progress") {
+    return true;
+  }
   const data = record.data;
   return (
     data !== null &&
@@ -132,19 +136,27 @@ function scanTurn(messages: ReadonlyArray<Message>): {
           block.type === "tool_result" ||
           block.type === "web_search_tool_result",
       );
-      if (!carriesToolResult) break; // genuine user prompt — turn boundary
+      if (!carriesToolResult) {
+        break;
+      } // genuine user prompt — turn boundary
       continue;
     }
-    if (message.role !== "assistant") continue;
+    if (message.role !== "assistant") {
+      continue;
+    }
     let hasToolUse = false;
     for (const block of message.content) {
-      if (block.type !== "tool_use") continue;
+      if (block.type !== "tool_use") {
+        continue;
+      }
       hasToolUse = true;
       if (block.name === "ui_show" && isTaskProgressShowInput(block.input)) {
         taskProgressShown = true;
       }
     }
-    if (hasToolUse) rounds++;
+    if (hasToolUse) {
+      rounds++;
+    }
   }
   return { rounds, taskProgressShown };
 }
@@ -155,9 +167,15 @@ const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
   // `subagentSpawn`, background work under its own call sites), on a client
   // that can actually render the card, driven by a model family this nudge
   // targets.
-  if (ctx.callSite !== "mainAgent") return;
-  if (!ctx.supportsDynamicUi) return;
-  if (!NUDGE_TARGET_MODEL_PATTERN.test(ctx.model)) return;
+  if (ctx.callSite !== "mainAgent") {
+    return;
+  }
+  if (!ctx.supportsDynamicUi) {
+    return;
+  }
+  if (!NUDGE_TARGET_MODEL_PATTERN.test(ctx.model)) {
+    return;
+  }
 
   const { rounds, taskProgressShown } = scanTurn(ctx.messages);
 
@@ -176,8 +194,12 @@ const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
     return;
   }
 
-  if (rounds < TASK_PROGRESS_NUDGE_ROUND_THRESHOLD) return;
-  if (lastNudged !== 0) return; // already nudged this turn
+  if (rounds < TASK_PROGRESS_NUDGE_ROUND_THRESHOLD) {
+    return;
+  }
+  if (lastNudged !== 0) {
+    return;
+  } // already nudged this turn
 
   lastNudgedRoundsByConversation.set(ctx.conversationId, rounds);
   ctx.logger.info(

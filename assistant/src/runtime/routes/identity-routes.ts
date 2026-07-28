@@ -127,7 +127,9 @@ function getContainerCpuCores(): number {
     const envLimit = getCpuLimit();
     if (envLimit) {
       const parsed = parseK8sCpuCores(envLimit);
-      if (parsed !== null) return parsed;
+      if (parsed !== null) {
+        return parsed;
+      }
     }
   } catch {
     /* env var parsing failed – fall through */
@@ -194,7 +196,9 @@ function getContainerCpuUsageUs(): number | null {
     for (const line of stat.split("\n")) {
       if (line.startsWith("usage_usec")) {
         const val = parseInt(line.split(/\s+/)[1], 10);
-        if (!isNaN(val) && val > 0) return val;
+        if (!isNaN(val) && val > 0) {
+          return val;
+        }
       }
     }
   } catch {
@@ -207,7 +211,9 @@ function getContainerCpuUsageUs(): number | null {
       readFileSync("/sys/fs/cgroup/cpuacct/cpuacct.usage", "utf-8").trim(),
       10,
     );
-    if (!isNaN(ns) && ns > 0) return ns / 1000; // convert ns → µs
+    if (!isNaN(ns) && ns > 0) {
+      return ns / 1000;
+    } // convert ns → µs
   } catch {
     /* not available */
   }
@@ -240,7 +246,9 @@ let _cachedCpuPercent = 0;
 setInterval(() => {
   const now = Date.now();
   const elapsedMs = now - _lastCpuTime;
-  if (elapsedMs <= 0) return;
+  if (elapsedMs <= 0) {
+    return;
+  }
 
   const numCores = getContainerCpuCores();
   if (numCores <= 0) {
@@ -382,7 +390,9 @@ function dbMigrationUnavailableBody(dbMigrations: UnreadyDbMigrationReadiness) {
 
 export function dbMigrationUnavailableResponse(): Response | null {
   const dbMigrations = getDbMigrationReadiness();
-  if (dbMigrations.ready) return null;
+  if (dbMigrations.ready) {
+    return null;
+  }
 
   return Response.json(dbMigrationUnavailableBody(dbMigrations), {
     status: 503,

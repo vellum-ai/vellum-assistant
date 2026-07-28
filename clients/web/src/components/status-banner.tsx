@@ -283,7 +283,9 @@ function failedOperationActions(
   showDoctorAction: boolean,
   onDismiss?: () => void,
 ): ReactNode | undefined {
-  if (!showDoctorAction && !onDismiss) return undefined;
+  if (!showDoctorAction && !onDismiss) {
+    return undefined;
+  }
   return (
     <>
       {showDoctorAction ? doctorAction() : null}
@@ -307,7 +309,9 @@ function operationalStatusBannerConfig(
   showDoctorAction: boolean,
   onDismissFailedOperation?: () => void,
 ): BannerConfig | null {
-  if (!status || isHealthyOperationalStatus(status)) return null;
+  if (!status || isHealthyOperationalStatus(status)) {
+    return null;
+  }
 
   // A transient operation (upgrade, resize, restart, …) can fail while the
   // reported `state` is still the in-progress operation. The platform signals
@@ -605,7 +609,9 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const [recentlyRestartingAssistantId, setRecentlyRestartingAssistantId] =
     useState<string | null>(null);
   useEffect(() => {
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     if (operationalStatus?.state === "restarting") {
       // A failed restart disarms the suppression so a follow-up
       // crash_loop surfaces immediately instead of reading as a restart.
@@ -668,7 +674,9 @@ function useAssistantBannerConfig(): BannerConfig | null {
   >(null);
 
   useEffect(() => {
-    if (!isLocalWakeSettling) return;
+    if (!isLocalWakeSettling) {
+      return;
+    }
     const timeout = setTimeout(() => {
       setIsLocalWakeSettling(false);
     }, LOCAL_WAKE_SETTLING_MS);
@@ -690,7 +698,9 @@ function useAssistantBannerConfig(): BannerConfig | null {
   }, [activeAssistantId]);
 
   const handleExitMaintenanceMode = useCallback(async () => {
-    if (!assistantId || isExitingMaintenanceMode) return;
+    if (!assistantId || isExitingMaintenanceMode) {
+      return;
+    }
 
     setIsExitingMaintenanceMode(true);
     setMaintenanceModeExitError(null);
@@ -720,7 +730,9 @@ function useAssistantBannerConfig(): BannerConfig | null {
   }, [assistantId, isExitingMaintenanceMode, refetchOperationalStatus]);
 
   const handleWakeLocalAssistant = useCallback(async () => {
-    if (!activeAssistantId || isWakingLocalAssistant) return;
+    if (!activeAssistantId || isWakingLocalAssistant) {
+      return;
+    }
 
     setIsWakingLocalAssistant(true);
     setIsLocalWakeSettling(true);

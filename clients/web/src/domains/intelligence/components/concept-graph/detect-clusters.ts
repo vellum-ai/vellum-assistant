@@ -26,7 +26,9 @@ export function detectClusters(
   edges: readonly { fromId: string; toId: string }[],
 ): Map<string, number> {
   const n = nodes.length;
-  if (n === 0) {return new Map();}
+  if (n === 0) {
+    return new Map();
+  }
 
   const indexById = new Map<string, number>();
   nodes.forEach((node, i) => indexById.set(node.id, i));
@@ -36,7 +38,9 @@ export function detectClusters(
   for (const edge of edges) {
     const a = indexById.get(edge.fromId);
     const b = indexById.get(edge.toId);
-    if (a === undefined || b === undefined || a === b) {continue;}
+    if (a === undefined || b === undefined || a === b) {
+      continue;
+    }
     neighbors[a].push(b);
     neighbors[b].push(a);
   }
@@ -47,7 +51,9 @@ export function detectClusters(
   for (let pass = 0; pass < PASSES; pass++) {
     for (let i = 0; i < n; i++) {
       const adjacent = neighbors[i];
-      if (adjacent.length === 0) {continue;}
+      if (adjacent.length === 0) {
+        continue;
+      }
 
       // Tally neighbor labels, then take the most frequent — lowest label wins
       // ties so the outcome never depends on iteration/insertion order.

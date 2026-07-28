@@ -221,7 +221,9 @@ export function ChatBody({
     }
 
     const el = bottomBannerOverlayRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
 
     const updateHeight = () => {
       const nextHeight = Math.ceil(el.getBoundingClientRect().height);
@@ -232,7 +234,9 @@ export function ChatBody({
 
     updateHeight();
 
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
 
     const observer = new ResizeObserver(updateHeight);
     observer.observe(el);
