@@ -4725,12 +4725,25 @@ export function createLiveVoiceSession(
 // silent (never spoken unprompted); its final answer is RETURNED so the session
 // can fold it into the next turn the user starts. The `signal` aborts the child
 // on a stop/interrupt (spawnAndAwait then rejects).
-async function defaultSpawnBackgroundContinuation(args: {
+//
+// Exported for tests only: every production caller reaches it through the
+// `spawnBackgroundContinuation` option default in `createLiveVoiceSession`.
+export async function defaultSpawnBackgroundContinuation(args: {
   parentConversationId: string;
   objective: string;
   label: string;
   signal: AbortSignal;
 }): Promise<string> {
+  // Trust first, before anything can hydrate: the bridge stamps trust per-turn
+  // and clears it at teardown, which has settled by now — inheriting from the
+  // parent would read the cleared window and run the continuation fail-closed
+  // as `unknown`, denying every consequential tool. Resolve the same guardian
+  // trust the foreground turn ran under and pass it explicitly (resolution
+  // itself stays fail-closed: on a miss the continuation runs as `unknown`,
+  // exactly as an unstamped turn does).
+  const trustContext = await resolveLocalLiveVoiceTrustContext(
+    args.parentConversationId,
+  );
   // getOrCreateConversation (not a raw registry read): it rebuilds a stale
   // instance and awaits loadFromDb, so the snapshot below sees the persisted
   // history. A raw findConversation can return a cold instance whose in-memory
@@ -4740,23 +4753,39 @@ async function defaultSpawnBackgroundContinuation(args: {
   const parentConversation = await getOrCreateConversation(
     args.parentConversationId,
   );
-  // Belt-and-suspenders for a resident-but-unhydrated instance: the teardown
-  // settle that gated this spawn guarantees the interrupted turn's partial is
-  // persisted, so an empty in-memory history on a conversation that has rows
-  // means the instance is cold — hydrate before snapshotting. A genuinely new
-  // conversation loads zero rows; harmless.
-  if (parentConversation.getMessages().length === 0) {
+  // Hydration runs under the resolved trust: `loadFromDb` filters history by
+  // the instance's own trust class, so a load with no trust context drops
+  // memory blocks and forces the compaction summary to null — the fork would
+  // inherit a lobotomized snapshot. Stamp for the duration of the load and
+  // restore the prior value, the same set-load-restore idiom
+  // `elevatePointerConversationToGuardian` uses to un-filter a cold pointer
+  // turn. The restore matters: the bridge owns this conversation's trust
+  // per-turn and expects the window between turns to be empty.
+  //
+  // `ensureActorScopedHistory` reloads exactly when the resident history was
+  // loaded under a different trust class — covering both the never-loaded cold
+  // instance and the untrusted load `getOrCreateConversation` may have just
+  // run — and no-ops when the history is already guardian-scoped. Without a
+  // guardian to stamp there is nothing to re-scope, so an unhydrated instance
+  // falls back to a plain load; a genuinely new conversation reads zero rows,
+  // harmless.
+  const priorTrustContext = parentConversation.trustContext;
+  if (trustContext) {
+    const stampedTrustContext = { ...trustContext };
+    parentConversation.setTrustContext(stampedTrustContext);
+    try {
+      await parentConversation.ensureActorScopedHistory();
+    } finally {
+      // Only undo the stamp this block installed: the user's next foreground
+      // turn can start during the load and stamp its own trust, and clearing
+      // that would run the live turn fail-closed.
+      if (parentConversation.trustContext === stampedTrustContext) {
+        parentConversation.setTrustContext(priorTrustContext ?? null);
+      }
+    }
+  } else if (parentConversation.getMessages().length === 0) {
     await parentConversation.loadFromDb();
   }
-  // The bridge stamps trust per-turn and clears it at teardown, which has
-  // settled by now — inheriting from the parent would read the cleared window
-  // and run the continuation fail-closed as `unknown`, denying every
-  // consequential tool. Resolve the same guardian trust the foreground turn
-  // ran under and pass it explicitly (resolution itself stays fail-closed:
-  // on a miss the continuation runs as `unknown`, exactly as before).
-  const trustContext = await resolveLocalLiveVoiceTrustContext(
-    args.parentConversationId,
-  );
   return await getSubagentManager().spawnAndAwait(
     {
       parentConversationId: args.parentConversationId,
