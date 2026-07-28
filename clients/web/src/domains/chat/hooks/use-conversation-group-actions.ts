@@ -93,7 +93,7 @@ export function useConversationGroupActions({
       try {
         const created = await createGroupAsync({
           path: { assistant_id: assistantId },
-          // `icon` is gated behind useSupportsGroupIcons at the dialog —
+          // `icon` is gated behind useSupportsGroupIcons at the dialog:
           // callers pass `undefined` against assistants that predate it,
           // which keeps the field off the wire.
           body: icon != null ? { name: trimmed, icon } : { name: trimmed },

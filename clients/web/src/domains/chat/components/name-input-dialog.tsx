@@ -61,7 +61,7 @@ interface NameInputDialogProps {
 
 /**
  * Grid of selectable group icons plus a leading "no icon" tile. Local to the
- * dialog — the design library has no icon-grid/toggle-group primitive, so
+ * dialog: the design library has no icon-grid/toggle-group primitive, so
  * this stays an app-layer composition styled with the sidebar's tile tokens.
  */
 function GroupIconPicker({

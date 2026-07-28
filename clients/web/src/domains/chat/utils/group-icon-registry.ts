@@ -1,5 +1,5 @@
 /**
- * Custom-group icon registry — the single source of truth for the icons a
+ * Custom-group icon registry: the single source of truth for the icons a
  * user can assign to a sidebar group (folder), keyed by the stable name the
  * daemon stores on the group row.
  *

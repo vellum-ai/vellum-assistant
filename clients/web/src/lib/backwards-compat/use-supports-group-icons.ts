@@ -10,7 +10,7 @@
  * New behavior (≥ MIN_VERSION): groups persist a nullable `icon` name; the
  * dialog shows the picker and group writes include the field.
  *
- * Reading needs no gate — an older daemon simply omits `icon` from
+ * Reading needs no gate: an older daemon simply omits `icon` from
  * `GET /v1/groups` and the sidebar falls back to its default rendering.
  */
 import { useAssistantSupports } from "./utils";

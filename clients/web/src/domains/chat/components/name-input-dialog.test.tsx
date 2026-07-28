@@ -265,7 +265,7 @@ describe("Icon picker", () => {
         onCancel={() => {}}
       />,
     );
-    // Name unchanged and icon unchanged — still a no-op edit.
+    // Name unchanged and icon unchanged: still a no-op edit.
     expect(getButton("Save").disabled).toBe(true);
 
     fireEvent.click(getIconTile("rocket"));
