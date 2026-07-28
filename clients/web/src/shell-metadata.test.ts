@@ -5,9 +5,9 @@ import { describe, expect, test } from "bun:test";
 
 /**
  * nginx serves `index.html` for every SPA route, so the Open Graph tags in it
- * are the *only* link-preview metadata `/account/signup`, `/account/login`,
- * and `/assistant/...` will ever have. These tests pin that contract — the
- * tags are easy to drop by accident and the loss is invisible until someone
+ * are the *only* link preview metadata `/account/signup`, `/account/login`,
+ * and `/assistant/...` will ever have. These tests pin that contract. The tags
+ * are easy to drop by accident, and the loss stays invisible until someone
  * pastes a link somewhere and gets a bare URL.
  */
 const INDEX_HTML = readFileSync(
@@ -33,7 +33,7 @@ function nameTag(name: string): string | null {
 const EXPECTED_TITLE = "Vellum: Your Personal Intelligence";
 const EXPECTED_IMAGE = "https://www.vellum.ai/og-cover-v2.jpg";
 
-describe("SPA shell — Open Graph metadata", () => {
+describe("SPA shell: Open Graph metadata", () => {
   test("declares the tags an unfurler needs for a large image card", () => {
     expect(ogTag("og:title")).toBe(EXPECTED_TITLE);
     expect(ogTag("og:description")).toBeTruthy();
@@ -73,8 +73,8 @@ describe("SPA shell — Open Graph metadata", () => {
     }
   });
 
-  // og:url would have to name one route, and unfurlers treat it as canonical —
-  // a /account/signup link would unfurl as whichever route we hardcoded.
+  // og:url can only name one route, and unfurlers treat it as canonical, so a
+  // /account/signup link would unfurl as whichever route was hardcoded.
   test("omits og:url so each crawler uses the URL it fetched", () => {
     expect(ogTag("og:url")).toBeNull();
   });
