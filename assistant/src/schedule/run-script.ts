@@ -163,7 +163,9 @@ function collectStream(stream: ReadableStream<Uint8Array>): StreamCollector {
     try {
       for (;;) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          break;
+        }
         text += decoder.decode(value, { stream: true });
       }
     } catch {
