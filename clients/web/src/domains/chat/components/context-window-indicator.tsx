@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { showContextWindowIndicator } from "@/utils/composer-settings";
 import { BottomSheet, Button } from "@vellumai/design-library";
 
 export interface ContextWindowUsage {
@@ -205,12 +206,20 @@ function MobileSheetContent({
   );
 }
 
+/**
+ * Composer ring showing how full the context window is.
+ *
+ * Opt-in via Settings → General → Preferences ("Show context window usage");
+ * hidden by default. Gating lives here rather than at the mount site so every
+ * caller inherits the preference.
+ */
 export function ContextWindowIndicator({
   usage,
   assistantName,
   onClearContext,
 }: ContextWindowIndicatorProps) {
   const assistantDisplayName = assistantName?.trim() || "Your assistant";
+  const enabled = showContextWindowIndicator.useValue();
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
@@ -245,7 +254,7 @@ export function ContextWindowIndicator({
     setTooltipPosition({ top, left: clampedLeft });
   }, [isHovered, usage]);
 
-  if (!usage || usage.fillRatio == null) {
+  if (!enabled || !usage || usage.fillRatio == null) {
     return null;
   }
 

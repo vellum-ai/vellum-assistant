@@ -52,6 +52,10 @@ import {
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
+import {
+  deepRepairHistory,
+  isRepairableOrderingError,
+} from "./history-repair/history-repair.js";
 
 const log = getLogger("agent-loop");
 
@@ -1020,6 +1024,10 @@ export class AgentLoop {
     let newMessagesStart = history.length;
     let toolUseTurns = 0;
     let postModelCallContinues = 0;
+    // One deep history-repair recovery per turn: a second consecutive ordering
+    // rejection means the repair could not recover, so the error surfaces
+    // instead of looping. Turn-scoped, so each turn recovers afresh.
+    let orderingRepairAttempted = false;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
     // Armed at the end of a tool-use iteration so the budget gate runs at the
@@ -2461,6 +2469,31 @@ export class AgentLoop {
             // onto the new array; the repaired history is the base the retry's
             // output appends after.
             newMessagesStart = history.length;
+            continue;
+          }
+
+          // Built-in history-repair recovery. A provider rejection on a
+          // tool_use/tool_result pairing or ordering violation is recoverable
+          // by deep-repairing the history and re-issuing the call. Bounded to
+          // one pass per turn (a second consecutive ordering rejection means
+          // the repair could not recover), and to the same per-run backstop as
+          // the hook-driven retries above.
+          if (
+            isRepairableOrderingError(err.message) &&
+            !orderingRepairAttempted &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
+          ) {
+            orderingRepairAttempted = true;
+            postModelCallContinues++;
+            history = deepRepairHistory(history).messages;
+            // Deep repair merges and drops messages, so the prior input
+            // boundary no longer maps onto the new array; the repaired history
+            // is the base the retry's output appends after.
+            newMessagesStart = history.length;
+            rlog.warn(
+              { turn: toolUseTurns, messageCount: history.length },
+              "Provider ordering error — recovering via history deep-repair",
+            );
             continue;
           }
         }

@@ -3,7 +3,7 @@
  *
  * - Reset subagent tracking state (needed for URL-navigation paths that
  *   bypass the `switchConversation` / `startNewConversation` wrappers)
- * - Reconcile-on-load (0.10.13+): materialize store entries for every
+ * - Reconcile-on-load (0.11.0+): materialize store entries for every
  *   subagent the daemon knows about in this conversation, so subagents
  *   whose `subagent_spawned` this client never saw (page reload mid-run,
  *   another device, a store reset) get cards without waiting for their
@@ -54,7 +54,7 @@ export function useConversationChangeEffects(
   // stream event would also recover it via `ensureEntry`, but only when it
   // next emits). Runs as a passive effect, i.e. after the layout reset
   // above, so a conversation change can't wipe what this seeds. Version
-  // gated: pre-0.10.13 daemons return status-only reconcile data, which
+  // gated: pre-0.11.0 daemons return status-only reconcile data, which
   // can't seed a usable entry.
   const supportsRecovery = useSupportsSubagentRecovery();
   useEffect(() => {

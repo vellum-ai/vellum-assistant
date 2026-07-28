@@ -7,6 +7,7 @@
  * unarchive, pin, rename, mark read/unread) live in `useConversationActions`.
  */
 
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
   useCallback,
@@ -264,13 +265,20 @@ export function useConversationSecondaryActions({
     }
     for (const msg of transcriptRef.current) {
       const text = messagePlainText(msg);
-      if (!text.trim()) continue;
+      if (!text.trim()) {
+        continue;
+      }
       const sender = msg.role === "user" ? "You" : name;
       parts.push(`### ${sender}\n${text}`);
     }
-    if (parts.length === 0) return;
+    if (parts.length === 0) {
+      return;
+    }
     const markdown = parts.join("\n\n---\n\n");
-    void navigator.clipboard.writeText(markdown);
+    copyToClipboard(markdown, {
+      successMessage: "Conversation copied to clipboard.",
+      errorMessage: "Couldn't copy the conversation.",
+    });
   }, [activeConversation?.title]);
 
   return {

@@ -17,3 +17,17 @@ export const cmdEnterToSend = createStorageAccessor<boolean>({
   serialize: String,
   fallback: false,
 });
+
+/**
+ * Opt-in for the composer's context-window fill ring. Off by default: the
+ * assistant compacts its own context, so a gauge climbing toward "full"
+ * reads as an impending failure the user is expected to manage. `/status`
+ * reports the same numbers on demand for anyone who wants them.
+ */
+export const showContextWindowIndicator = createStorageAccessor<boolean>({
+  key: "device:show_context_window_indicator",
+  scope: "device",
+  parse: parseBool,
+  serialize: String,
+  fallback: false,
+});

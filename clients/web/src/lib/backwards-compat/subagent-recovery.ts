@@ -1,7 +1,7 @@
 /**
  * Backwards-compat gate: subagent recovery for a missed `subagent_spawned`.
  *
- * From assistant 0.10.13 the daemon carries everything a client needs to
+ * From assistant 0.11.0 the daemon carries everything a client needs to
  * rebuild subagent store entries it never saw spawn:
  *
  * - `GET /subagents/:id` resolves the subagent's own conversation id from
@@ -29,7 +29,7 @@ import {
   useAssistantSupports,
 } from "@/lib/backwards-compat/utils";
 
-const MIN_VERSION = "0.10.13";
+const MIN_VERSION = "0.11.0";
 
 /**
  * Snapshot check (safe outside React — stream handlers, store actions):
