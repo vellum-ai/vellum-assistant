@@ -21,7 +21,14 @@ import { postTelemetryEvents } from "@/lib/telemetry/ingest";
 const MEMORY_FUNNEL_VERSION = "memory_tab_v1";
 
 /** Which Memory-tab interaction is being reported. */
-type MemoryStep = "opened" | "search" | "node_opened" | "chat_from_node";
+type MemoryStep =
+  | "opened"
+  | "search"
+  | "node_opened"
+  | "chat_from_node"
+  /** The unavailable-graph surface's CTA to migrate this assistant to memory
+   * v3 — the conversion signal for the tab's one dead-end state. */
+  | "upgrade_v3_clicked";
 
 /**
  * Per-page-load session id, generated once when this module first loads. Ties

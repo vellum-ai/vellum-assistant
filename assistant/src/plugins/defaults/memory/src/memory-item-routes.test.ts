@@ -1407,5 +1407,27 @@ describe("Memory Item Routes", () => {
       };
       expect(body.graph_supported).toBe(false);
     });
+
+    // `tier` is what lets a client explain an unavailable graph instead of
+    // stating a bare "not available": the opt-out and a legacy engine are
+    // different problems with different fixes.
+    test.each([
+      ["off", { enabled: false, v3: { live: true } }],
+      ["v3", { enabled: true, v3: { live: true } }],
+      ["v2", { enabled: true, v2: { enabled: true }, v3: { live: false } }],
+      ["v1", { enabled: true, v2: { enabled: false }, v3: { live: false } }],
+    ] as const)("reports tier %s", async (tier, memory) => {
+      setConfig("memory", memory);
+      const res = await callHandler(route);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        tier: string;
+        graph_supported: boolean;
+      };
+      expect(body.tier).toBe(tier);
+      // The capability bit and its explanation are derived from the same gate,
+      // so they can never disagree.
+      expect(body.graph_supported).toBe(tier === "v3");
+    });
   });
 });
