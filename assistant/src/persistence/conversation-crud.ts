@@ -116,6 +116,7 @@ import {
   toolInvocations,
 } from "./schema/index.js";
 import { timeSyncSection } from "./slow-sync-log.js";
+import { deleteSubagentRecordsByParent } from "./subagent-store.js";
 
 const log = getLogger("conversation-store");
 
@@ -1878,6 +1879,10 @@ export function deleteConversation(id: string): DeletedMemoryIds {
         .where(eq(toolInvocations.conversationId, id))
         .run();
     }
+
+    // Raw SQL on the same bun:sqlite handle Drizzle wraps, so the subagent rows
+    // commit or roll back with the conversation row they describe.
+    deleteSubagentRecordsByParent(id);
 
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });

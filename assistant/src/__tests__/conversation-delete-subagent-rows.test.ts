@@ -1,8 +1,8 @@
 /**
- * A conversation's durable subagent rows are purged only after the conversation
- * delete commits. The rows are a child's only durable metadata, so dropping
- * them first would lose them for good when the delete throws, while the
- * conversation they describe survives, intact for a retried delete.
+ * A conversation's durable subagent rows are purged inside the conversation
+ * delete's own transaction. The rows are a child's only durable metadata, so a
+ * delete that fails has to leave them addressable: the conversation they
+ * describe survives too, intact for a retried delete.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -19,7 +19,7 @@ mock.module("../daemon/handlers/conversations.js", () => ({
   undoLastMessage: async () => null,
 }));
 
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
 import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/356-add-subagent-parent-tool-use-id.js";
@@ -127,6 +127,73 @@ describe("DELETE /conversations/:id - subagent row purge order", () => {
     // only durable metadata has to still be there too.
     expect(getConversation(conv.id)).not.toBeNull();
     expect(getSubagentRecordById("child-kept")).toBeDefined();
+  });
+});
+
+describe("deleteConversation purges subagent rows transactionally", () => {
+  beforeEach(() => {
+    migrateCreateSubagentsTable();
+    migrateAddSubagentParentToolUseId(getDb());
+    resetTestTables("subagents");
+    failNextDelete = false;
+  });
+
+  test("the persistence primitive purges the parent's rows on its own", () => {
+    const conv = createConversation("primitive-parent");
+    const other = createConversation("primitive-unrelated-parent");
+    seedRow("child-primitive", conv.id);
+    seedRow("child-primitive-other", other.id);
+
+    realDeleteConversation(conv.id);
+
+    expect(getConversation(conv.id)).toBeNull();
+    expect(getSubagentRecordById("child-primitive")).toBeUndefined();
+    expect(getSubagentRecordById("child-primitive-other")).toBeDefined();
+  });
+
+  test("a mid-transaction failure rolls the purge back with the delete", () => {
+    const conv = createConversation("rollback-parent");
+    seedRow("child-rollback", conv.id);
+
+    // Abort the transaction after it has begun and after the row purge has
+    // already run, so only a shared transaction can undo the purge.
+    getSqlite().exec(
+      "CREATE TRIGGER t_fail BEFORE DELETE ON conversations BEGIN SELECT RAISE(ABORT, 'boom'); END",
+    );
+    try {
+      expect(() => realDeleteConversation(conv.id)).toThrow();
+    } finally {
+      getSqlite().exec("DROP TRIGGER t_fail");
+    }
+
+    // Both survive, so a retried delete still resolves the conversation and
+    // still finds its children's durable metadata.
+    expect(getConversation(conv.id)).not.toBeNull();
+    expect(getSubagentRecordById("child-rollback")).toBeDefined();
+
+    realDeleteConversation(conv.id);
+
+    expect(getConversation(conv.id)).toBeNull();
+    expect(getSubagentRecordById("child-rollback")).toBeUndefined();
+  });
+
+  test("a failed row purge takes the conversation delete down with it", () => {
+    const conv = createConversation("purge-failure-parent");
+    seedRow("child-purge-failure", conv.id);
+
+    // The purge is the failing statement here, so a conversation row that
+    // survived would be one whose children's metadata is unreachable.
+    getSqlite().exec(
+      "CREATE TRIGGER t_purge_fail BEFORE DELETE ON subagents BEGIN SELECT RAISE(ABORT, 'boom'); END",
+    );
+    try {
+      expect(() => realDeleteConversation(conv.id)).toThrow();
+    } finally {
+      getSqlite().exec("DROP TRIGGER t_purge_fail");
+    }
+
+    expect(getConversation(conv.id)).not.toBeNull();
+    expect(getSubagentRecordById("child-purge-failure")).toBeDefined();
   });
 });
 

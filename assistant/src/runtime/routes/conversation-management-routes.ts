@@ -67,7 +67,6 @@ import {
 } from "../../persistence/conversation-key-store.js";
 import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
-import { deleteSubagentRecordsByParent } from "../../persistence/subagent-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { safeParseRecord } from "../../util/json.js";
@@ -480,13 +479,10 @@ async function handleDeleteConversation({
 
   await cancelScheduleIfLast(resolvedId);
 
-  // The subagent rows are the children's only durable metadata, so they are
-  // purged after the conversation delete commits: `deleteConversation` can
-  // throw, and dropping them first would lose them for good while leaving the
-  // conversation they describe intact for a retried delete.
+  // In-memory teardown only: `deleteConversation` drops the durable subagent
+  // rows inside its own transaction.
   destroyActiveConversation(resolvedId, { keepSubagentRecords: true });
   const deleted = deleteConversation(resolvedId);
-  deleteSubagentRecordsByParent(resolvedId);
   for (const segId of deleted.segmentIds) {
     enqueueMemoryJob("delete_qdrant_vectors", {
       targetType: "segment",
