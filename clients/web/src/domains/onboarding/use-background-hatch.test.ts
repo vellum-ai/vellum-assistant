@@ -31,7 +31,27 @@ let healthzResult: GetHealthzResult = {
   data: {} as never,
 };
 
-const hatchAssistantMock = mock(async (): Promise<HatchResult> => hatchResult);
+// Local-gateway routing state. A managed hatch drops both before it POSTs so
+// discovery, healthz and the onboarding writes address the platform.
+const clearGatewayTokenMock = mock(() => {});
+const setSelfHostedConnectionMock = mock((_connection: unknown) => {});
+mock.module("@/lib/auth/gateway-session", () => ({
+  clearGatewayToken: clearGatewayTokenMock,
+}));
+mock.module("@/lib/self-hosted/connection", () => ({
+  setSelfHostedConnection: setSelfHostedConnectionMock,
+}));
+// Clear counts sampled when the hatch POST fires, so ordering is asserted
+// rather than mere occurrence.
+let clearsAtHatch = { gateway: 0, selfHosted: 0 };
+
+const hatchAssistantMock = mock(async (): Promise<HatchResult> => {
+  clearsAtHatch = {
+    gateway: clearGatewayTokenMock.mock.calls.length,
+    selfHosted: setSelfHostedConnectionMock.mock.calls.length,
+  };
+  return hatchResult;
+});
 const getAssistantMock = mock(
   async (_id?: string): Promise<GetAssistantResult> => getAssistantResult,
 );
@@ -182,6 +202,9 @@ beforeEach(() => {
   getLockfileAssistantMock.mockClear();
   awaitPurchasedProvisioningMock.mockClear();
   seedHatchAvatarMock.mockClear();
+  clearGatewayTokenMock.mockClear();
+  setSelfHostedConnectionMock.mockClear();
+  clearsAtHatch = { gateway: 0, selfHosted: 0 };
 });
 
 describe("useBackgroundHatch", () => {
@@ -662,5 +685,92 @@ describe("useBackgroundHatch", () => {
 
     await waitFor(() => expect(result.current.ready).toBe(true));
     expect(saveLockfileAssistantMock).not.toHaveBeenCalled();
+  });
+
+  // -- local gateway routing ------------------------------------------------
+  //
+  // The paid funnel routes an org whose only assistants are local/self-hosted
+  // to the managed hatch (`hosting=vellum-cloud`), so `adoptExisting` is false
+  // while the desktop build still holds a live gateway token and a primed
+  // self-hosted connection. Both would rewrite discovery, healthz and the
+  // onboarding writes to the old local gateway.
+
+  test("a managed hatch in local mode drops the local gateway before the hatch POST", async () => {
+    localMode = true;
+
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(clearGatewayTokenMock).toHaveBeenCalledTimes(1);
+    expect(setSelfHostedConnectionMock).toHaveBeenCalledWith(null);
+    expect(clearsAtHatch).toEqual({ gateway: 1, selfHosted: 1 });
+  });
+
+  test("an adopting hatch keeps its gateway session", async () => {
+    // Adoption resolves the live local assistant through that very session —
+    // dropping it would strand the flow on an unreachable gateway.
+    localMode = true;
+
+    const { result } = renderHook(() =>
+      useBackgroundHatch({ adoptExisting: true }),
+    );
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(clearGatewayTokenMock).not.toHaveBeenCalled();
+    expect(setSelfHostedConnectionMock).not.toHaveBeenCalled();
+  });
+
+  test("a non-local build leaves the routing state untouched", async () => {
+    // In a browser there is no local gateway to address, so the free web hatch
+    // makes no routing write at all.
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(clearGatewayTokenMock).not.toHaveBeenCalled();
+    expect(setSelfHostedConnectionMock).not.toHaveBeenCalled();
+  });
+
+  test("retry() re-clears the routing state harmlessly", async () => {
+    localMode = true;
+    hatchResult = {
+      ok: false,
+      status: 400,
+      error: { detail: "Bad hatch request" },
+    };
+
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.error).toBe("Bad hatch request"));
+    expect(clearsAtHatch).toEqual({ gateway: 1, selfHosted: 1 });
+
+    hatchResult = {
+      ok: true,
+      status: 201,
+      data: { id: "ast-research" } as never,
+    };
+
+    act(() => {
+      result.current.retry();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(clearsAtHatch).toEqual({ gateway: 2, selfHosted: 2 });
+    expect(setSelfHostedConnectionMock.mock.calls).toEqual([[null], [null]]);
   });
 });

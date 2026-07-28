@@ -19,12 +19,14 @@ import {
   MAX_HATCH_WAIT_MS,
   POLL_INTERVAL_MS,
 } from "@/domains/onboarding/purchased-provisioning";
+import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import {
   getLockfileAssistant,
   isLocalMode,
   probeLocalGatewayReady,
   saveManagedLockfileAssistant,
 } from "@/lib/local-mode";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { extractErrorMessage } from "@/utils/api-errors";
@@ -238,6 +240,18 @@ export function useBackgroundHatch(
         ? adoptAssistantId
         : undefined;
       if (!adoptExisting) {
+        // A managed hatch in a local-mode build must address the platform, not
+        // the machine's own gateway: `getAssistant()` answers from the selected
+        // lockfile entry while a gateway token is held, and daemon SDK calls
+        // (the healthz probe below, and the research/personality writes that
+        // follow) rewrite to the local gateway while a self-hosted connection
+        // is primed. Same handoff the hatching screen performs for its managed
+        // path. Both are module-level writes — idempotent under `retry()`, and
+        // no auth/org store slice moves, so nothing remounts this hook.
+        if (isLocalMode()) {
+          clearGatewayToken();
+          setSelfHostedConnection(null);
+        }
         try {
           const result = await hatchAssistant();
           if (result.ok) {
