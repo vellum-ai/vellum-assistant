@@ -28,7 +28,10 @@ type MemoryStep =
   | "chat_from_node"
   /** The unavailable-graph surface's CTA to migrate this assistant to memory
    * v3 — the conversion signal for the tab's one dead-end state. */
-  | "upgrade_v3_clicked";
+  | "upgrade_v3_clicked"
+  /** Its sibling on a memory-off assistant: hand the `memory.enabled` flip to
+   * the assistant, for users who can't reach the Developer page's toggle. */
+  | "enable_memory_clicked";
 
 /**
  * Per-page-load session id, generated once when this module first loads. Ties

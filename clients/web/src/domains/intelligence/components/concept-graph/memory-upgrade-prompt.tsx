@@ -16,12 +16,15 @@ import { useNavigate } from "react-router";
 
 import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
 import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
+import { useAssistantCapability } from "@/hooks/use-assistant-capability";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library";
 
 import { CenteredMessage } from "./centered-message";
 import {
   describeMemoryUnavailable,
+  MEMORY_ENABLE_PROMPT,
   MEMORY_V3_UPGRADE_PROMPT,
 } from "./memory-unavailable-copy";
 
@@ -41,6 +44,16 @@ export function MemoryUpgradePrompt({
   // Deduped with the Memory page's own stats query by React Query, so this
   // costs no extra request.
   const stats = useQuery(memoryStatsOptions(assistantId));
+  // The Memory toggle lives on the Memory tab of the flag-gated Developer
+  // page, which redirects to General Settings when the flag is off — so link
+  // there only when the destination is actually reachable, gated exactly as
+  // the schedules surface gates the same link. Without it the CTA would look
+  // like a way out and land somewhere that can't turn memory on.
+  const hasMemoryOptOut = useAssistantCapability("memoryOptOut");
+  const settingsDeveloperNav =
+    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const canOpenMemorySettings =
+    hasMemoryOptOut && settingsDeveloperNav === true;
 
   // Say nothing until the tier is known: the fallback copy would otherwise
   // flash "isn't available" for a beat before resolving into "upgrade".
@@ -68,7 +81,7 @@ export function MemoryUpgradePrompt({
         Upgrade memory
       </Button>
     );
-  } else if (copy.action === "settings") {
+  } else if (copy.action === "settings" && canOpenMemorySettings) {
     action = (
       <Button
         variant="outlined"
@@ -77,6 +90,22 @@ export function MemoryUpgradePrompt({
         onClick={() => navigate(`${routes.settings.developer}?tab=memory`)}
       >
         Memory settings
+      </Button>
+    );
+  } else if (copy.action === "settings" && onOpenThread) {
+    // No reachable toggle, so hand it to the assistant — which can set
+    // `memory.enabled` regardless of which settings pages this user can see.
+    action = (
+      <Button
+        variant="primary"
+        size="compact"
+        leftIcon={<Sparkles />}
+        onClick={() => {
+          emitMemoryEvent("enable_memory_clicked");
+          onOpenThread(MEMORY_ENABLE_PROMPT);
+        }}
+      >
+        Turn memory on
       </Button>
     );
   }

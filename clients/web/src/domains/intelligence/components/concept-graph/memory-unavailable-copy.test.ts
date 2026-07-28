@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   describeMemoryUnavailable,
+  MEMORY_ENABLE_PROMPT,
   MEMORY_V3_UPGRADE_PROMPT,
 } from "./memory-unavailable-copy";
 
@@ -18,6 +19,15 @@ describe("describeMemoryUnavailable", () => {
     // The owner switched memory off themselves; telling them to migrate to v3
     // would name a fix that isn't the problem.
     expect(copy.detail).not.toContain("v3");
+  });
+
+  test("memory-off does not promise the graph will appear", () => {
+    // `off` masks the underlying tier: an assistant can be both memory-off and
+    // pre-v3, and turning memory on restores remembering without building any
+    // graph. Promise only what the toggle delivers.
+    const { detail } = describeMemoryUnavailable("off");
+    expect(detail).not.toMatch(/build/i);
+    expect(detail).toContain("start remembering again");
   });
 
   test.each(["v1", "v2"] as const)(
@@ -34,6 +44,15 @@ describe("describeMemoryUnavailable", () => {
     const copy = describeMemoryUnavailable(undefined);
     expect(copy.action).toBe("none");
     expect(copy.title).toBe("Memory graph isn't available");
+  });
+
+  test("the unknown-tier fallback does not claim an update reaches v3", () => {
+    // Updating ships the code but never flips `memory.v3.live` — existing
+    // workspaces only get there through the corpus migration. What the update
+    // does buy is the `tier` field, and with it a specific answer here.
+    const { detail } = describeMemoryUnavailable(undefined);
+    expect(detail).toContain("Update your assistant");
+    expect(detail).not.toMatch(/moves it to memory v3|to memory v3\./i);
   });
 
   test("a v3 tier reporting no graph falls back to neutral copy", () => {
@@ -58,5 +77,15 @@ describe("MEMORY_V3_UPGRADE_PROMPT", () => {
     expect(MEMORY_V3_UPGRADE_PROMPT).toContain("v3");
     expect(MEMORY_V3_UPGRADE_PROMPT.toLowerCase()).toContain("empty");
     expect(MEMORY_V3_UPGRADE_PROMPT.toLowerCase()).toContain("before");
+  });
+});
+
+describe("MEMORY_ENABLE_PROMPT", () => {
+  test("asks for the memory switch, not for a migration", () => {
+    // This one runs for users who can't reach the Developer page's toggle, so
+    // it must stay a plain request to flip `memory.enabled` — conflating it
+    // with the v3 upgrade would start a corpus rewrite nobody asked for.
+    expect(MEMORY_ENABLE_PROMPT.toLowerCase()).toContain("memory back on");
+    expect(MEMORY_ENABLE_PROMPT).not.toContain("v3");
   });
 });
