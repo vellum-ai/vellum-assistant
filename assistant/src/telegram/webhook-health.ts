@@ -40,6 +40,12 @@
  * riding the heartbeat would mute this check exactly when it matters most.
  * One unauthenticated-cost HTTP GET has none of that token pressure, so it runs
  * on its own interval alongside the other daemon sweeps.
+ *
+ * That choice carries an obligation: AGENTS.md ("No LLM Work at Daemon
+ * Startup") bars LLM providers from unconditional timers and exempts the
+ * heartbeat, and this sweep gave up that exemption. So the alert deliberately
+ * takes the decision engine's verbatim pass-through — see notifyWebhookFailure.
+ * Anything added here that reaches an LLM has to re-answer that rule.
  */
 
 import { z } from "zod";
