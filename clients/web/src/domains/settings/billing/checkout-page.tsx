@@ -59,8 +59,8 @@ type CheckoutPhase = "idle" | "running" | "handed_off" | "settled";
  *   - Org header still resolving → hold on the spinner; resolution over with no
  *     organization → the retryable error, whose retry re-runs that resolution.
  *   - Gate `"full"` → fire the upgrade once and either redirect to Stripe
- *     (`redirect`), fall back to plans (`no_op`, already Pro), or surface a
- *     retryable error. It never dead-ends.
+ *     (`redirect`), fall back to plans carrying the requested package (`no_op`,
+ *     already Pro), or surface a retryable error. It never dead-ends.
  *
  * Every "no purchase happens here" exit honors the `continue` param when one is
  * present (see `checkout-continuation`), so a caller mid-flow — onboarding —
@@ -158,10 +158,19 @@ export function CheckoutPage() {
       }
       // `no_op` — already Pro, nothing to provision. Clear the marked stash so
       // an already-Pro bounce doesn't leave it lingering for its TTL, then hand
-      // off rather than stranding the user on a blank splash.
+      // off rather than stranding the user on a blank splash. Pro→Pro is an
+      // in-place package switch, never Stripe Checkout, so the requested
+      // package rides along to plans, which opens that switch from it. A
+      // carried continuation owns the destination instead — an onboarding
+      // resume must not divert into the switch modal.
       phaseRef.current = "settled";
       clearCheckoutIntent();
-      navigate(bailTarget, { replace: true });
+      navigate(
+        bailTarget === routes.plans && packageKey
+          ? `${routes.plans}?package=${encodeURIComponent(packageKey)}`
+          : bailTarget,
+        { replace: true },
+      );
     } catch {
       if (phaseRef.current !== "running") {
         return;
