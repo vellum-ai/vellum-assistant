@@ -12,8 +12,13 @@
  * The `?package=<key>` deep link reuses that same click handler, so it inherits
  * every guard: it opens the confirm modal for an eligible Pro sub, bails to
  * `?adjust_plan` for an ineligible one, no-ops on the current or an unknown
- * key, and never starts a checkout for a non-Pro user. The param is stripped
+ * key, never starts a checkout for a non-Pro user, and never treats `free` — a
+ * cancellation, not a package — as a switch target. The param is stripped
  * either way and consumed exactly once.
+ *
+ * The last block covers the ordering between the strip and whatever the handler
+ * navigates to. Those are two router navigations, and on the app's route shape
+ * the second aborts the first, so it runs on a data router built to match.
  *
  * Strategy mirrors adjust-plan-modal.test.tsx: mock the generated SDK to
  * capture the upgrade body and return a redirect, mock `openUrl` to capture the
@@ -30,7 +35,12 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, useLocation } from "react-router";
+import {
+  createMemoryRouter,
+  MemoryRouter,
+  RouterProvider,
+  useLocation,
+} from "react-router";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
@@ -41,6 +51,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
   PlanListResponse,
+  ProPlan,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import {
@@ -90,12 +101,16 @@ mock.module("@/runtime/browser", () => ({
 }));
 
 // Force the platform-hosted gate open so the page mounts its pricing body
-// instead of firing the self-hosted / not-ready redirect effect.
+// instead of firing the self-hosted / not-ready redirect effect. Mutable so a
+// test can start with hosting unresolved — the state the deep-link effect waits
+// through — and flip it to ready mid-test.
+let platformHosted = true;
+let lifecycleLoading = false;
 mock.module("@/hooks/use-platform-gate", () => ({
   ...platformGate,
   usePlatformGate: () => "full",
-  useActiveAssistantIsPlatformHosted: () => true,
-  useActiveAssistantLifecycleIsLoading: () => false,
+  useActiveAssistantIsPlatformHosted: () => platformHosted,
+  useActiveAssistantLifecycleIsLoading: () => lifecycleLoading,
 }));
 
 // Render avatar placeholders; skip the lazy compositor bundle in the DOM test.
@@ -134,6 +149,19 @@ function fullCatalog(): PlanListResponse {
         packages: [MIGHTY, SUPER, ULTRA],
       },
     ],
+  };
+}
+
+/** A Pro plan with no packages — what the catalog reads with `pro-packages` off. */
+function emptyPackagesCatalog(): PlanListResponse {
+  const catalog = fullCatalog();
+  return {
+    plans: catalog.plans.map((plan) => {
+      if (plan.id !== "pro") {
+        return plan;
+      }
+      return { ...(plan as ProPlan), packages: [] };
+    }),
   };
 }
 
@@ -199,9 +227,78 @@ function renderPage(
   };
 }
 
+/**
+ * Data-mode harness that mirrors the app's route shape: `/assistant` carries
+ * middleware (`authMiddleware` in `routes.tsx`), and middleware is what keeps
+ * React Router off its synchronous no-loader commit path — so a second
+ * navigation started in the same tick aborts the first. Declarative
+ * `MemoryRouter` cannot reproduce that, which is why the deep-link navigation
+ * tests build a data router instead.
+ *
+ * Returns the ordered list of *committed* locations, which is the observable
+ * that distinguishes a strip that landed from one that was thrown away.
+ */
+function renderRouted(
+  subscription: SubscriptionResponse,
+  entry: string,
+  catalog: PlanListResponse = fullCatalog(),
+) {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, staleTime: Infinity, refetchOnMount: false },
+    },
+  });
+  client.setQueryData(
+    organizationsBillingSubscriptionRetrieveQueryKey(),
+    subscription,
+  );
+  client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), catalog);
+
+  const committed: string[] = [];
+  const record = (location: { pathname: string; search: string }) => {
+    // Emptying the query leaves React Router with a bare "?"; normalize it away
+    // so the sequence reads as the URLs a user would see.
+    const search = location.search === "?" ? "" : location.search;
+    const value = `${location.pathname}${search}`;
+    if (committed[committed.length - 1] !== value) {
+      committed.push(value);
+    }
+  };
+
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/assistant",
+        middleware: [(_args, next) => next()],
+        HydrateFallback: () => null,
+        children: [
+          { path: "plans", element: <PlansPage /> },
+          { path: "settings/usage", element: <div data-testid="usage-page" /> },
+        ],
+      },
+    ],
+    { initialEntries: [entry], future: { v8_middleware: true } },
+  );
+  record(router.state.location);
+  router.subscribe((state) => record(state.location));
+
+  return {
+    client,
+    committed,
+    router,
+    ...render(
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    ),
+  };
+}
+
 beforeEach(() => {
   upgradeCall = null;
   openedUrl = null;
+  platformHosted = true;
+  lifecycleLoading = false;
   // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
   // leaves a prior test's intent readable.
   clearCheckoutIntent();
@@ -340,18 +437,67 @@ describe("PlansPage — ?package= deep link", () => {
     expect(queryByTestId("confirm-package-switch-button")).toBeNull();
   });
 
-  test("the param is consumed once — a later query settle doesn't reopen the modal", async () => {
-    const { client, findByText, findByRole, getByTestId, queryByTestId } =
+  test("`free` names a cancellation, not a package — it never opens the confirm", async () => {
+    const { getByTestId, queryAllByTestId } = renderPage(
+      proMightySubscription(),
+      "/assistant/plans?package=free",
+    );
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toMatch(ON_PLANS_WITHOUT_PARAM),
+    );
+    expect(queryAllByTestId("confirm-free-downgrade-button").length).toBe(0);
+    expect(queryAllByTestId("confirm-package-switch-button").length).toBe(0);
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("the param is consumed once — later subscription changes don't reopen the modal", async () => {
+    // Hold the effect on unresolved hosting so the param survives the first
+    // render; flipping hosting ready is then a real dep change that drives the
+    // one and only consume.
+    platformHosted = false;
+    lifecycleLoading = true;
+    const { client, findByText, findByRole, getByTestId, queryAllByTestId } =
       renderPage(proMightySubscription(), "/assistant/plans?package=super");
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe(
+        "/assistant/plans?package=super",
+      ),
+    );
+    expect(queryAllByTestId("confirm-package-switch-button").length).toBe(0);
+
+    act(() => {
+      platformHosted = true;
+      lifecycleLoading = false;
+      // Wakes the subscribed component so the hooks re-read the gate. The
+      // payload has to differ structurally: React Query's structural sharing
+      // keeps the previous reference for a deep-equal one, and no reference
+      // change means no re-render.
+      client.setQueryData(organizationsBillingSubscriptionRetrieveQueryKey(), {
+        ...proMightySubscription(),
+        current_period_end: "2026-08-10T00:00:00Z",
+      });
+    });
 
     await findByText("Upgrade to Super");
     fireEvent.click(await findByRole("button", { name: "Cancel" }));
     await waitFor(() =>
-      expect(queryByTestId("confirm-package-switch-button")).toBeNull(),
+      expect(queryAllByTestId("confirm-package-switch-button").length).toBe(0),
     );
 
-    // A subscription refetch settling re-runs the effect; the one-shot ref (and
-    // the already-stripped URL) keep it from reopening.
+    // `isProUser` is a dependency of the deep-link effect, so dropping to Free
+    // and back to Pro genuinely re-runs it — twice. What keeps the modal closed
+    // is the consumed-param guard, not React skipping the effect.
+    act(() => {
+      client.setQueryData(
+        organizationsBillingSubscriptionRetrieveQueryKey(),
+        freeSubscription(),
+      );
+    });
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toMatch(ON_PLANS_WITHOUT_PARAM),
+    );
     act(() => {
       client.setQueryData(
         organizationsBillingSubscriptionRetrieveQueryKey(),
@@ -362,6 +508,50 @@ describe("PlansPage — ?package= deep link", () => {
     await waitFor(() =>
       expect(getByTestId("loc").textContent).toMatch(ON_PLANS_WITHOUT_PARAM),
     );
-    expect(queryByTestId("confirm-package-switch-button")).toBeNull();
+    expect(queryAllByTestId("confirm-package-switch-button").length).toBe(0);
+    expect(upgradeCall).toBeNull();
+  });
+});
+
+// The param strip and anything `selectTier` navigates to are both router
+// navigations. Starting the second while the first is still pending aborts it,
+// and with middleware on the route tree the first is *always* still pending —
+// so these run on a data router shaped like the app's.
+describe("PlansPage — ?package= deep link navigation", () => {
+  test("the strip commits before the ineligible-Pro bail", async () => {
+    const { committed, router } = renderRouted(
+      { ...proMightySubscription(), cancel_at_period_end: true },
+      "/assistant/plans?package=super",
+    );
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe("/assistant/settings/usage"),
+    );
+    expect(committed).toEqual([
+      "/assistant/plans?package=super",
+      "/assistant/plans",
+      "/assistant/settings/usage?tab=billing&adjust_plan",
+    ]);
+
+    // Back must never land on the deep link: that entry re-fires the effect and
+    // pushes the user straight out again, with no way onto the plans page.
+    await act(async () => {
+      await router.navigate(-1);
+    });
+    expect(router.state.location.search).not.toContain("package=");
+  });
+
+  test("the strip does not abort the catalog-empty bail", async () => {
+    const { router } = renderRouted(
+      proMightySubscription(),
+      "/assistant/plans?package=super",
+      emptyPackagesCatalog(),
+    );
+
+    await waitFor(() =>
+      expect(
+        `${router.state.location.pathname}${router.state.location.search}`,
+      ).toBe("/assistant/settings/usage?tab=billing&adjust_plan"),
+    );
   });
 });

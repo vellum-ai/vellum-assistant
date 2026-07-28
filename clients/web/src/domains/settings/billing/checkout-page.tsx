@@ -16,7 +16,7 @@ import {
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl } from "@/runtime/browser";
 import { useOrganizationStore } from "@/stores/organization-store";
-import { routes } from "@/utils/routes";
+import { PACKAGE_PARAM, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
 /**
@@ -76,7 +76,7 @@ type CheckoutPhase = "idle" | "running" | "handed_off" | "settled";
 export function CheckoutPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const packageKey = searchParams.get("package") ?? "";
+  const packageKey = searchParams.get(PACKAGE_PARAM) ?? "";
   // Default (session-only) gate: a signed-in platform session reads `"full"`
   // even without an active assistant. See `use-platform-gate.ts`.
   //
@@ -167,7 +167,7 @@ export function CheckoutPage() {
       clearCheckoutIntent();
       navigate(
         bailTarget === routes.plans && packageKey
-          ? `${routes.plans}?package=${encodeURIComponent(packageKey)}`
+          ? routes.plansForPackage(packageKey)
           : bailTarget,
         { replace: true },
       );

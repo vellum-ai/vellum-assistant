@@ -69,7 +69,7 @@ import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
-import { routes } from "@/utils/routes";
+import { PACKAGE_PARAM, routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -202,6 +202,9 @@ export function PlansPage() {
   // `?package=<key>` is a one-shot deep link (from marketing / the checkout
   // no-op bail); once acted on it must never re-fire.
   const packageParamConsumedRef = useRef(false);
+  // The requested package, held from the moment the param is stripped until
+  // the stripped URL commits. See the deep-link effects below.
+  const [pendingPackage, setPendingPackage] = useState<string | null>(null);
 
   const subscription = subscriptionQuery.data;
   const proPlan = plansQuery.data?.plans.find(
@@ -332,7 +335,13 @@ export function PlansPage() {
     }
   };
 
-  const selectTier = (tierKey: string) => {
+  // `replaceOnBail` replaces the current history entry when routing to the
+  // billing manage surface instead of pushing. The deep link sets it so the
+  // consumed `?package=` URL leaves no live entry behind for Back to land on.
+  const selectTier = (
+    tierKey: string,
+    options?: { replaceOnBail?: boolean },
+  ) => {
     if (!subscription) {
       return;
     }
@@ -367,7 +376,9 @@ export function PlansPage() {
       // posting a change-package that can only fail (the same fallback the
       // Pro → Free case uses).
       if (!isPackageSwitchEligible(subscription)) {
-        navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
+        navigate(`${routes.settings.usageBilling}&adjust_plan`, {
+          replace: options?.replaceOnBail === true,
+        });
         return;
       }
       setSwitchTarget(pkg);
@@ -385,7 +396,7 @@ export function PlansPage() {
     });
   };
 
-  // The deep-link effect below fires at most once, so it reads the handler
+  // The deep-link effects below act at most once, so they read the handler
   // through a ref rather than depending on an identity that changes every
   // render.
   const selectTierRef = useRef(selectTier);
@@ -395,14 +406,19 @@ export function PlansPage() {
 
   // `?package=<key>` opens the switch flow for the requested package exactly
   // once, reusing `selectTier` so the deep link inherits every guard a click
-  // gets. Non-Pro users get no checkout from a URL — but the param is still
-  // dropped so it can't fire later once they are Pro.
-  const packageParam = searchParams.get("package");
+  // gets. Non-Pro users get no checkout from a URL, and `free` names a
+  // cancellation rather than a package — but the param is dropped either way so
+  // it can't fire later once they are Pro.
+  const packageParam = searchParams.get(PACKAGE_PARAM);
   useEffect(() => {
     if (packageParam == null || packageParamConsumedRef.current) {
       return;
     }
+    // The redirect effect above is already navigating away this tick. Stripping
+    // now would abort it, and its deps never change again, so it would never
+    // re-fire — stranding the user on the spinner.
     if (
+      cannotResolve ||
       !platformReady ||
       !subscriptionQuery.isSuccess ||
       !plansQuery.isSuccess
@@ -410,18 +426,19 @@ export function PlansPage() {
       return;
     }
     packageParamConsumedRef.current = true;
+    if (isProUser && packageParam !== "free") {
+      setPendingPackage(packageParam);
+    }
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
-        next.delete("package");
+        next.delete(PACKAGE_PARAM);
         return next;
       },
       { replace: true },
     );
-    if (isProUser) {
-      selectTierRef.current(packageParam);
-    }
   }, [
+    cannotResolve,
     packageParam,
     platformReady,
     subscriptionQuery.isSuccess,
@@ -429,6 +446,18 @@ export function PlansPage() {
     isProUser,
     setSearchParams,
   ]);
+
+  // The strip above is a router navigation, and `selectTier` may start another
+  // one. Two navigations in the same tick abort each other — with middleware on
+  // the route tree the strip always loses — so wait for the stripped URL to
+  // commit before acting on the held key.
+  useEffect(() => {
+    if (pendingPackage == null || packageParam != null) {
+      return;
+    }
+    setPendingPackage(null);
+    selectTierRef.current(pendingPackage, { replaceOnBail: true });
+  }, [packageParam, pendingPackage]);
 
   let body: ReactNode;
   if (subscription && proPlan && hasPackages) {
