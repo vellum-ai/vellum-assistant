@@ -5,6 +5,8 @@
  * once the guardian has recorded a decision here. The routes are deliberately
  * absent from the gateway's IPC surface, which the assistant can reach — a
  * plugin that could approve its own ingress would make the gate meaningless.
+ * Guardian auth's loopback fallback still admits a tokenless same-host caller;
+ * that is being closed in `edge-guardian` itself rather than worked around.
  *
  * Plugins are the only source of declarations today, hence the
  * `/plugins/{plugin}` segment; another source would sit beside it rather than

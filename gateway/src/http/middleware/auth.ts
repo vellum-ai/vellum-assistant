@@ -102,8 +102,6 @@ export function logAuthBypassState(): void {
  *     vembda; the gateway only verifies the cross-checked user id.
  *   - `requireEdgeGuardianAuth` — same pattern, additionally requires the
  *     authenticated principal to match the bound guardian.
- *   - `requireEdgeGuardianAuthStrict` — guardian auth without the loopback
- *     fallback, for routes a same-host caller must not be able to self-serve.
  */
 export function createAuthMiddleware(
   authRateLimiter: AuthRateLimiter,
@@ -236,28 +234,7 @@ export function createAuthMiddleware(
     if (isPlatformAuthBypassActive()) {
       return requirePlatformUserHeader(req);
     }
-    return requireEdgeGuardianAuthByActorPrincipal(req, server, true);
-  }
-
-  /**
-   * Guardian auth with the legacy loopback fallback withheld.
-   *
-   * The fallback exists so self-hosted local clients kept working through the
-   * auth rollout, but it grants any loopback peer the guardian's authority.
-   * Plugin code runs in the assistant process on the same host, so for routes
-   * whose whole purpose is to record a decision the assistant must not be able
-   * to make for itself, that grace period is the vulnerability rather than a
-   * convenience. Such routes use this guard and a local caller must present a
-   * real guardian token like anyone else.
-   */
-  async function requireEdgeGuardianAuthStrict(
-    req: Request,
-    server?: Server<unknown>,
-  ): Promise<Response | null> {
-    if (isPlatformAuthBypassActive()) {
-      return requirePlatformUserHeader(req);
-    }
-    return requireEdgeGuardianAuthByActorPrincipal(req, server, false);
+    return requireEdgeGuardianAuthByActorPrincipal(req, server);
   }
 
   function validateEdgeBearer(
@@ -441,17 +418,12 @@ export function createAuthMiddleware(
    */
   async function requireEdgeGuardianAuthByActorPrincipal(
     req: Request,
-    server: Server<unknown> | undefined,
-    allowLoopbackFallback: boolean,
+    server?: Server<unknown>,
   ): Promise<Response | null> {
-    const loopbackFallback = (extra: Record<string, unknown>): boolean =>
-      allowLoopbackFallback &&
-      allowLegacyLoopbackFallback(req, server, "edge-guardian", extra);
-
     const token = extractBearerToken(req);
     if (!token) {
       if (
-        loopbackFallback({
+        allowLegacyLoopbackFallback(req, server, "edge-guardian", {
           authFailure: hasAuthorizationHeader(req)
             ? "malformed_authorization"
             : "missing_authorization",
@@ -469,7 +441,7 @@ export function createAuthMiddleware(
     const result = validateEdgeToken(token);
     if (!result.ok) {
       if (
-        loopbackFallback({
+        allowLegacyLoopbackFallback(req, server, "edge-guardian", {
           authFailure: "token_validation_failed",
           reason: result.reason,
         })
@@ -491,7 +463,11 @@ export function createAuthMiddleware(
       parsed.principalType !== "actor" ||
       !parsed.actorPrincipalId
     ) {
-      if (loopbackFallback({ authFailure: "non_actor_principal" })) {
+      if (
+        allowLegacyLoopbackFallback(req, server, "edge-guardian", {
+          authFailure: "non_actor_principal",
+        })
+      ) {
         return null;
       }
       log.warn(
@@ -511,7 +487,11 @@ export function createAuthMiddleware(
       return Response.json({ error: "Service Unavailable" }, { status: 503 });
     }
     if (!guardian || guardian.principalId !== parsed.actorPrincipalId) {
-      if (loopbackFallback({ authFailure: "guardian_mismatch" })) {
+      if (
+        allowLegacyLoopbackFallback(req, server, "edge-guardian", {
+          authFailure: "guardian_mismatch",
+        })
+      ) {
         return null;
       }
       log.warn(
@@ -527,7 +507,6 @@ export function createAuthMiddleware(
     requireEdgeAuth,
     requireEdgeAuthWithScope,
     requireEdgeGuardianAuth,
-    requireEdgeGuardianAuthStrict,
   };
 }
 

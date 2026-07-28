@@ -26,9 +26,6 @@ export type GetRawPeerIp = () => string;
  *                      caller is asserted via X-Vellum-User-Id forwarded by
  *                      vembda, cross-referenced with the stored
  *                      vellum:platform_user_id credential.
- * - "edge-guardian-strict" — as "edge-guardian", minus the loopback fallback.
- *                      For routes a same-host caller must not be able to
- *                      self-serve; see requireEdgeGuardianAuthStrict.
  * - "track-failures" — no gateway-level auth, but downstream 401s are
  *                      recorded against the rate limiter
  * - "custom"       — the handler manages auth internally
@@ -38,7 +35,6 @@ type AuthStrategy =
   | "edge"
   | "edge-scoped"
   | "edge-guardian"
-  | "edge-guardian-strict"
   | "track-failures"
   | "custom";
 
@@ -179,22 +175,6 @@ export function createRouter(
             trustProxy,
           );
           const authError = await requireEdgeGuardianAuth(req, server);
-          if (authError) return authError;
-          return route.handler(
-            req,
-            matchResult.params,
-            getClientIp,
-            getRawPeerIp,
-          );
-        }
-
-        case "edge-guardian-strict": {
-          const { requireEdgeGuardianAuthStrict } = createAuthMiddleware(
-            authRateLimiter,
-            getClientIp,
-            trustProxy,
-          );
-          const authError = await requireEdgeGuardianAuthStrict(req, server);
           if (authError) return authError;
           return route.handler(
             req,

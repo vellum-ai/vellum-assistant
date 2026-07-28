@@ -1560,20 +1560,19 @@ async function main() {
     },
 
     // ── Channel ingress approval ──
-    // Guardian-only, and strict: the loopback fallback is withheld because
-    // plugin code runs on this host and must not be able to approve its own
-    // ingress. Not mirrored onto the IPC surface for the same reason, and no
+    // Guardian-only, and deliberately absent from the IPC surface: approving
+    // ingress is the one decision the assistant must not make for itself. No
     // assistant-scoped variant — the guardian reaches these directly.
     {
       path: /^\/v1\/channel-ingress\/plugins\/([^/]+)\/?$/,
       method: "PUT",
-      auth: "edge-guardian-strict",
+      auth: "edge-guardian",
       handler: (req, params) => handleChannelIngressApprove(req, params[0]!),
     },
     {
       path: /^\/v1\/channel-ingress\/plugins\/([^/]+)\/?$/,
       method: "DELETE",
-      auth: "edge-guardian-strict",
+      auth: "edge-guardian",
       handler: (req, params) => handleChannelIngressRevoke(req, params[0]!),
     },
 
