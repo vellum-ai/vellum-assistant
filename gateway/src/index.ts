@@ -1559,11 +1559,13 @@ async function main() {
         handleChannelAdmissionPolicyDelete(req, params[0]),
     },
 
-    // ── Channel ingress approval — flat routes ──
-    // Same shape as channel-permission-overrides below, with one difference:
+    // ── Channel ingress approval ──
+    // Same shape as channel-permission-overrides below, with two differences:
     // auth is edge-guardian rather than edge-scoped, because approving ingress
-    // is the decision the assistant must not make for itself. Deliberately
-    // absent from the IPC surface for the same reason. POST verb paths — a
+    // is the decision the assistant must not make for itself; and there are no
+    // assistant-scoped variants, because the guardian reaches these directly
+    // rather than through the platform proxy. Deliberately absent from the IPC
+    // surface for the same reason as the auth choice. POST verb paths — a
     // grant has no id of its own until a guardian creates one.
     {
       path: /^\/v1\/channel-ingress\/([^/]+)\/approve\/?$/,
@@ -1573,22 +1575,6 @@ async function main() {
     },
     {
       path: /^\/v1\/channel-ingress\/([^/]+)\/revoke\/?$/,
-      method: "POST",
-      auth: "edge-guardian",
-      handler: (req, params) => handleChannelIngressRevoke(req, params[0]!),
-    },
-
-    // ── Channel ingress approval — assistant-scoped variants ──
-    // Approvals are gateway-global, so the assistant id is matched and
-    // discarded — same precedent as channel-admission-policy above.
-    {
-      path: /^\/v1\/assistants\/[^/]+\/channel-ingress\/([^/]+)\/approve\/?$/,
-      method: "POST",
-      auth: "edge-guardian",
-      handler: (req, params) => handleChannelIngressApprove(req, params[0]!),
-    },
-    {
-      path: /^\/v1\/assistants\/[^/]+\/channel-ingress\/([^/]+)\/revoke\/?$/,
       method: "POST",
       auth: "edge-guardian",
       handler: (req, params) => handleChannelIngressRevoke(req, params[0]!),

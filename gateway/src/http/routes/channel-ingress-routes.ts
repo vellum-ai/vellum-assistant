@@ -5,11 +5,11 @@ import type { GatewayRouteDefinition } from "./types.js";
 /**
  * OpenAPI route metadata for the channel-ingress approval API.
  *
- * These schemas are the codegen source of truth for the generated gateway
- * SDK (see scripts/generate-openapi.ts). Clients consume the operations
- * through the SDK, which targets the assistant-scoped
- * `/v1/assistants/{assistant_id}/channel-ingress/...` routes registered in
- * `index.ts` alongside the flat paths documented here.
+ * These schemas are the codegen source of truth (see
+ * scripts/generate-openapi.ts). Unlike the neighbouring channel APIs there
+ * are no assistant-scoped `/v1/assistants/{assistant_id}/...` variants: the
+ * guardian reaches these flat paths directly rather than through the
+ * platform proxy.
  *
  * The handlers live in `channel-ingress.ts`; that module imports
  * `ApproveChannelIngressRequestSchema` so wire validation and the published
