@@ -24,7 +24,7 @@ interface CopyToClipboardOptions {
  * restrictions), so `errorMessage` is required: every caller surfaces an
  * error toast instead of failing silently. Failures are also reported via
  * `captureError`. The Clipboard API itself may be absent (insecure
- * contexts, older webviews) — that takes the same error path.
+ * contexts, older webviews); that takes the same error path.
  *
  * Call sites that render a transient copied icon keep that state themselves
  * and flip it in `onCopied`. `useCopyToClipboard` from
