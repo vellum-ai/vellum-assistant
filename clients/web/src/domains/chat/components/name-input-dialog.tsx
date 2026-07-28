@@ -1,16 +1,10 @@
-import {
-  type FormEvent,
-  type ReactNode,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { Ban } from "lucide-react";
 
 import { Button, Input, Modal } from "@vellumai/design-library";
-import { cn } from "@vellumai/design-library/utils/cn";
 
+import { IconTile } from "@/domains/chat/components/icon-tile";
 import {
   getGroupIcon,
   GROUP_ICON_NAMES,
@@ -60,9 +54,9 @@ interface NameInputDialogProps {
 }
 
 /**
- * Grid of selectable group icons plus a leading "no icon" tile. Local to the
- * dialog: the design library has no icon-grid/toggle-group primitive, so
- * this stays an app-layer composition styled with the sidebar's tile tokens.
+ * Grid of selectable group icons plus a leading "no icon" tile, built from
+ * the shared {@link IconTile} (the collapsed sidebar rail uses the same
+ * tile), so a group's picker tile and its rail tile render identically.
  */
 function GroupIconPicker({
   value,
@@ -79,10 +73,10 @@ function GroupIconPicker({
       <div className="flex flex-wrap gap-1">
         <IconTile
           label="No icon"
-          selected={value === null}
-          onSelect={() => onChange(null)}
+          aria-pressed={value === null}
+          onClick={() => onChange(null)}
         >
-          <Ban size={16} />
+          <Ban size={14} />
         </IconTile>
         {GROUP_ICON_NAMES.map((name) => {
           const Icon = getGroupIcon(name);
@@ -93,45 +87,15 @@ function GroupIconPicker({
             <IconTile
               key={name}
               label={name}
-              selected={value === name}
-              onSelect={() => onChange(name)}
+              aria-pressed={value === name}
+              onClick={() => onChange(name)}
             >
-              <Icon size={16} />
+              <Icon size={14} />
             </IconTile>
           );
         })}
       </div>
     </fieldset>
-  );
-}
-
-function IconTile({
-  label,
-  selected,
-  onSelect,
-  children,
-}: {
-  label: string;
-  selected: boolean;
-  onSelect: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={selected}
-      title={label}
-      onClick={onSelect}
-      className={cn(
-        "flex h-8 w-8 cursor-pointer items-center justify-center rounded-[6px] transition-colors",
-        selected
-          ? "bg-[var(--surface-active)] text-[var(--content-default)] ring-1 ring-[var(--border-active)]"
-          : "text-[var(--content-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 
