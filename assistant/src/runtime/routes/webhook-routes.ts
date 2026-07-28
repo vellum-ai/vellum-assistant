@@ -19,7 +19,7 @@ import {
 } from "../../inbound/platform-callback-registration.js";
 import {
   getPublicBaseUrl,
-  type IngressConfig,
+  isPublicIngressDisabled,
 } from "../../inbound/public-ingress-urls.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -99,18 +99,6 @@ async function registerWithPlatform(
     throw new InternalError(`Failed to register callback route: ${msg}`);
   }
   return { callbackUrl, type, path: webhookPath, mode: "platform" };
-}
-
-/**
- * True when the user has explicitly switched public ingress off.
- *
- * An explicit opt-out is a decision not to accept inbound webhooks at all, so
- * it must not be silently routed around via platform callbacks. An *absent*
- * ingress config is merely "not set up yet" and is eligible for the platform
- * fallback.
- */
-function isPublicIngressDisabled(config: IngressConfig): boolean {
-  return config.ingress?.enabled === false;
 }
 
 // ---------------------------------------------------------------------------
