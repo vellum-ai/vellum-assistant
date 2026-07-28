@@ -12,6 +12,7 @@ import {
   describeAuthEntryContract,
   entryUrl,
   mockAuthStore,
+  mockHardNavigate,
   mockNativeAuth,
   renderAuthEntry,
   setupAuthEntry,
@@ -19,6 +20,7 @@ import {
 
 mock.module("@/stores/auth-store", mockAuthStore);
 mock.module("@/runtime/native-auth", mockNativeAuth);
+mock.module("@/lib/auth/hard-navigate", mockHardNavigate);
 
 const { SignupPage } = await import("@/domains/account/pages/signup-page");
 
@@ -43,6 +45,7 @@ describe("SignupPage waiting shell", () => {
     );
 
     expect(container.querySelector(".signup")).toBeTruthy();
+    expect(screen.getByLabelText("Loading")).toBeTruthy();
     expect(screen.queryByText("Continue")).toBeNull();
   });
 });

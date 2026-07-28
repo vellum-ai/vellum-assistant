@@ -13,6 +13,7 @@ import {
   describeAuthEntryContract,
   entryUrl,
   mockAuthStore,
+  mockHardNavigate,
   mockNativeAuth,
   renderAuthEntry,
   setupAuthEntry,
@@ -20,6 +21,7 @@ import {
 
 mock.module("@/stores/auth-store", mockAuthStore);
 mock.module("@/runtime/native-auth", mockNativeAuth);
+mock.module("@/lib/auth/hard-navigate", mockHardNavigate);
 
 const { LoginPage } = await import("@/domains/account/pages/login-page");
 
@@ -43,6 +45,7 @@ describe("LoginPage native split", () => {
     const { container } = renderEntry();
 
     expect(container.querySelector(".dark")).toBeTruthy();
+    expect(screen.getByLabelText("Loading")).toBeTruthy();
     expect(screen.queryByText("Sign in to Vellum")).toBeNull();
   });
 

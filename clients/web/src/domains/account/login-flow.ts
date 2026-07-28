@@ -1,5 +1,6 @@
 import {
   POST_CHECKOUT_LANDING_PATHS,
+  postCheckoutHatchReturnTo,
   resolveNavigation,
 } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
@@ -50,40 +51,62 @@ export function requiresFullPageNavigation(destination: string): boolean {
 }
 
 /**
- * In-SPA destinations that mean nothing without a live platform account: the
- * checkout / plans / billing funnel and the platform account pages. Each runs
- * its own platform gate on arrival and bails when the session is missing —
- * `CheckoutPage` drops the selected package and bounces to plans — so landing
- * there on a local gateway identity throws the deep link away.
+ * In-SPA surfaces that only do their job against a live platform account.
+ * Reached on a gateway-only identity, each throws away what the link asked for:
+ * `checkout` and `plans` drop the requested package, the Billing settings
+ * surface — including its `upgrade/success` and `upgrade/cancel` Stripe
+ * returns — falls back to the Usage tab, and `/account` reports a signed-in
+ * state for an account that is not there. Matched by prefix, so sub-paths
+ * count.
  */
-const PLATFORM_DEPENDENT_PATHS: readonly string[] = [
+const PLATFORM_ONLY_PATHS: readonly string[] = [
   routes.checkout,
   routes.plans,
-  // Shared with the route guard rather than restated, so the legacy
-  // `/assistant/settings/billing` landing — the platform's hardcoded Stripe
-  // `success_url` — can never fall out of one list and stay in the other.
-  ...POST_CHECKOUT_LANDING_PATHS,
-  routes.settings.upgradeSuccess,
-  routes.settings.upgradeCancel,
+  `${routes.settings.root}/billing`,
   routes.account.root,
 ];
+
+/** Whether `destination` carries Stripe's `session_id` — a finished checkout. */
+function carriesStripeSession(destination: string): boolean {
+  const qIdx = destination.indexOf("?");
+  if (qIdx < 0) {
+    return false;
+  }
+  return new URLSearchParams(destination.slice(qIdx + 1)).has("session_id");
+}
 
 /**
  * Does landing on `destination` need a live platform session, or is a local
  * gateway identity enough?
  *
- * Anything served by the platform rather than by this SPA needs one — the
- * Django account routes, the API, the marketing import funnel and any
- * vellum.ai URL all sit behind the same session. So do the in-app surfaces
- * above. Everything else is daemon-served and works on a local session.
+ * Three families need one. Anything the platform serves rather than this SPA:
+ * the Django account routes, the API, the marketing import funnel and any
+ * vellum.ai URL. The platform-only in-app surfaces above. And the returns that
+ * carry a finished purchase — a billing landing holding Stripe's `session_id`,
+ * and the managed hatch, which reads the purchased ceiling server-side and
+ * hatches at the baseline plan without a session.
+ *
+ * Everything else is daemon-served and works on a local session, including a
+ * bare `/assistant/settings/usage`: the Usage tab reads from the local daemon,
+ * so only the `session_id` return leg of it is platform-bound.
  */
 export function requiresPlatformSession(destination: string): boolean {
   if (requiresFullPageNavigation(destination)) {
     return true;
   }
   const path = destination.split(/[?#]/)[0] ?? destination;
-  return PLATFORM_DEPENDENT_PATHS.some(
-    (candidate) => path === candidate || path.startsWith(`${candidate}/`),
+  if (
+    PLATFORM_ONLY_PATHS.some(
+      (candidate) => path === candidate || path.startsWith(`${candidate}/`),
+    )
+  ) {
+    return true;
+  }
+  if (postCheckoutHatchReturnTo(destination) !== null) {
+    return true;
+  }
+  return (
+    POST_CHECKOUT_LANDING_PATHS.has(path) && carriesStripeSession(destination)
   );
 }
 

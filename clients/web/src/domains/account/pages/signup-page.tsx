@@ -1,6 +1,7 @@
+import { AuthWaitSpinner } from "@/domains/account/components/auth-wait-spinner";
 import { SignupScreen } from "@/domains/account/components/signup-screen";
 import { SignupShell } from "@/domains/account/components/signup-shell";
-import { useReturnToShortCircuit } from "@/domains/account/components/use-return-to-short-circuit";
+import { useReturnToShortCircuit } from "@/domains/account/hooks/use-return-to-short-circuit";
 
 /**
  * Signup entry. Renders the branded sign-up screen for everyone: a rotating
@@ -16,7 +17,11 @@ export function SignupPage() {
   const shortCircuit = useReturnToShortCircuit();
 
   if (shortCircuit.kind === "wait") {
-    return <SignupShell>{null}</SignupShell>;
+    return (
+      <SignupShell>
+        <AuthWaitSpinner />
+      </SignupShell>
+    );
   }
   if (shortCircuit.kind === "redirect") {
     return shortCircuit.node;

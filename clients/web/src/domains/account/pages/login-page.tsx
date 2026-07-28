@@ -2,13 +2,14 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { NativeSplash } from "@/components/native-splash";
+import { AuthWaitSpinner } from "@/domains/account/components/auth-wait-spinner";
 import {
   DarkLoginShell,
   LoginCard,
   LoginErrorText,
   LoginHeading,
 } from "@/domains/account/components/login-shell";
-import { useReturnToShortCircuit } from "@/domains/account/components/use-return-to-short-circuit";
+import { useReturnToShortCircuit } from "@/domains/account/hooks/use-return-to-short-circuit";
 import {
   PROVIDER_ID,
   buildProviderCallbackUrl,
@@ -173,7 +174,9 @@ export function LoginPage() {
     return isNative ? (
       <NativeSplash />
     ) : (
-      <DarkLoginShell>{null}</DarkLoginShell>
+      <DarkLoginShell>
+        <AuthWaitSpinner />
+      </DarkLoginShell>
     );
   }
   if (shortCircuit.kind === "redirect") {
