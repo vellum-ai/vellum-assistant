@@ -172,14 +172,26 @@ export const POST_CHECKOUT_HATCH_PARAM = "post_checkout";
 const MANAGED_PROVISIONING_DESTINATION = `${routes.onboarding.hatching}?hosting=vellum-cloud&${POST_CHECKOUT_HATCH_PARAM}=1`;
 
 /**
+ * The provisioning funnel entries a paid return can name: the foreground
+ * hatching screen (native, and local/Docker hosting) and the headless research
+ * onboarding (web). Both provision the purchased assistant, so both are
+ * consent-gated and both are resumable from the privacy screen.
+ */
+const PROVISIONING_FUNNEL_PATHS: Set<string> = new Set([
+  routes.onboarding.hatching,
+  routes.onboarding.research,
+]);
+
+/**
  * `value` when it names a paid managed hatch, else `null`.
  *
  * Narrower than {@link sanitizeReturnTo}'s open-redirect check: the onboarding
  * privacy screen navigates here in place of the standard onboarding step once
  * consent is recorded, so admitting any same-origin path would let a crafted
- * link skip the rest of the funnel. Only the hatching route carrying
- * {@link POST_CHECKOUT_HATCH_PARAM} qualifies, which only
- * {@link MANAGED_PROVISIONING_DESTINATION} produces.
+ * link skip the rest of the funnel. Only a {@link PROVISIONING_FUNNEL_PATHS}
+ * entry carrying {@link POST_CHECKOUT_HATCH_PARAM} qualifies — the screen
+ * resumes either the foreground or the headless paid provisioning entry, and
+ * that closed set of two keeps the anti-open-redirect property.
  */
 export function postCheckoutHatchReturnTo(
   value: string | null | undefined,
@@ -189,7 +201,7 @@ export function postCheckoutHatchReturnTo(
     return null;
   }
   const qIdx = destination.indexOf("?");
-  if (qIdx < 0 || destination.slice(0, qIdx) !== routes.onboarding.hatching) {
+  if (qIdx < 0 || !PROVISIONING_FUNNEL_PATHS.has(destination.slice(0, qIdx))) {
     return null;
   }
   const params = new URLSearchParams(destination.slice(qIdx + 1));
@@ -475,12 +487,12 @@ function enforceModeBoundary(
 }
 
 /**
- * Where an unconsented user who reached the hatching screen is sent.
+ * Where an unconsented user who reached a provisioning funnel entry is sent.
  *
- * A paid return carries its hatching URL as `returnTo`, the same contract
+ * A paid return carries its funnel URL as `returnTo`, the same contract
  * `review-terms` uses, and the privacy screen resumes it on Start. Without the
  * carry the funnel's markers are lost on the bounce and the paying user
- * finishes the hatch at the baseline plan. Every other hatching bounce — and
+ * finishes the hatch at the baseline plan. Every other funnel bounce — and
  * local mode, whose entrypoint is `welcome` and reads no `returnTo` — gets the
  * bare entrypoint.
  */
@@ -509,7 +521,21 @@ function allowSetupRoutes(
   }
 
   if (isOnboardingPath(path)) {
-    if (path === routes.onboarding.hatching && !hasCompletedOnboarding(state)) {
+    // The research route is the headless funnel entry, so it is the one reached
+    // by a cold paid deep link — the consent flags are still at their boot
+    // defaults there, and bouncing on them would send an already-consented user
+    // to privacy. Local mode is excluded for the same reason as in
+    // `requireConsent`: its consent either hydrates synchronously during session
+    // init or never does, so waiting would hang navigation.
+    if (
+      path === routes.onboarding.research &&
+      !state.isLocalMode &&
+      !state.consentHydrated
+    ) {
+      return { action: "wait" };
+    }
+
+    if (PROVISIONING_FUNNEL_PATHS.has(path) && !hasCompletedOnboarding(state)) {
       return {
         action: "redirect",
         to: consentBounceDestination(state, pathnameWithSearch),
