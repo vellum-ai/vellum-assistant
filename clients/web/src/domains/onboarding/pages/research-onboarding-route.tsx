@@ -23,12 +23,14 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode } from "@/lib/local-mode";
+import { POST_CHECKOUT_HATCH_PARAM } from "@/lib/navigation/navigation-resolver";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -86,6 +88,7 @@ import {
   LetsChatReadyStep,
 } from "@/domains/onboarding/screens/research-result-steps";
 import { OnboardingTonedBackdrop } from "@/domains/onboarding/components/onboarding-toned-backdrop";
+import { HatchErrorOverlay } from "@/domains/onboarding/components/hatch-error-overlay";
 import {
   OnboardingStageSizeProvider,
   useElementSize,
@@ -280,6 +283,10 @@ export function ResearchOnboardingRoute() {
   // param, pinning adoption to that exact one — a stale selection or leftover
   // lockfile entries from previous sessions can't answer for it.
   const adoptAssistantId = searchParams.get("assistant") ?? undefined;
+  // On the return leg of a completed checkout the hatch also waits out the
+  // purchased resize, so the paid user never starts on a baseline assistant.
+  const postCheckoutReturn =
+    searchParams.get(POST_CHECKOUT_HATCH_PARAM) === "1";
   // The day-2 check-in offer ("letschat" → "meeting") books through the
   // platform's managed Google Calendar OAuth. A local-hosting onboarding can
   // run with no platform session at all (the assistant itself is fully
@@ -289,6 +296,7 @@ export function ResearchOnboardingRoute() {
   const skipCheckinSteps = adoptExistingAssistant;
   const {
     start: startHatch,
+    retry: retryHatch,
     ready: hatchReady,
     assistantId: hatchedAssistantId,
     error: hatchError,
@@ -296,6 +304,7 @@ export function ResearchOnboardingRoute() {
   } = useBackgroundHatch({
     adoptExisting: adoptExistingAssistant,
     adoptAssistantId,
+    postCheckoutReturn,
   });
   const research = useResearchRunner();
   // Stable across renders (useCallback in the runner); safe as effect deps.
@@ -362,7 +371,12 @@ export function ResearchOnboardingRoute() {
   // personality step rewrites the persona, so an already-customized assistant
   // must never be run through them silently. The submit handler awaits this
   // verdict (briefly) and branches to the "existing" guard step.
-  useEffect(() => {
+  //
+  // The ref both memoizes the verdict and marks the CURRENT hatch attempt as
+  // covered, so a retry must clear it (see `handleHatchRetry`) — otherwise the
+  // fail-open verdict a dead hatch produced would outlive it and let a
+  // recovered, already-established assistant through the gate.
+  const armEstablishedCheck = useCallback(() => {
     if (establishedCheckRef.current) return;
     const check = awaitHatchReady()
       .then((id) => checkEstablishedAssistant(id))
@@ -371,6 +385,10 @@ export function ResearchOnboardingRoute() {
     establishedCheckRef.current = check;
     void check.then(setEstablishedCheck);
   }, [awaitHatchReady]);
+
+  useEffect(() => {
+    armEstablishedCheck();
+  }, [armEstablishedCheck]);
 
   // Resolve the established-assistant verdict for a gate decision: race the
   // in-flight check (kicked off at mount, above) against a short timeout so a
@@ -387,6 +405,37 @@ export function ResearchOnboardingRoute() {
         }),
       ]),
     [],
+  );
+
+  // Fire the research turn; the runner awaits hatch readiness internally, so it
+  // starts at the later of the caller's submit and the background hatch. Every
+  // start goes through here — a submit, a resume, a redo, or a restart after the
+  // hatch died — so a run always re-attaches to the conversation this journey
+  // already minted instead of posting a second search alongside the first.
+  const fireResearch = useCallback(
+    (values: ResearchOnboardingValues) => {
+      // A fresh run produces fresh drops — re-arm the one-shot scrub below.
+      syncDroppedClaimsScrubbed(false);
+      startResearch({
+        awaitAssistantId: awaitHatchReady,
+        subject: researchSubjectFrom(values),
+        conversationTitle: researchTitleFor(values),
+        ...(researchConversationId
+          ? { resumeConversationId: researchConversationId }
+          : {}),
+        onConversationCreated: setResearchConversationId,
+        // The "Let's chat" final step replaces suggestions when personality
+        // onboarding is on, so don't ask the model to generate any.
+        includeSuggestions: !personalityEnabled,
+      });
+    },
+    [
+      syncDroppedClaimsScrubbed,
+      startResearch,
+      awaitHatchReady,
+      researchConversationId,
+      personalityEnabled,
+    ],
   );
 
   // Resume a journey saved by a previous session (a page refresh). Runs once,
@@ -552,16 +601,7 @@ export function ResearchOnboardingRoute() {
       // search; a hydrated "done" journey keeps its restored results.
       setResumeGuardPending(false);
       if (wasIdle) {
-        startResearch({
-          awaitAssistantId: awaitHatchReady,
-          subject: researchSubjectFrom(values),
-          conversationTitle: researchTitleFor(values),
-          ...(researchConversationId
-            ? { resumeConversationId: researchConversationId }
-            : {}),
-          onConversationCreated: setResearchConversationId,
-          includeSuggestions: !personalityEnabled,
-        });
+        fireResearch(values);
       }
     })();
     return () => {
@@ -573,22 +613,22 @@ export function ResearchOnboardingRoute() {
   }, [
     restored,
     formValues,
-    researchConversationId,
     research.status,
-    startResearch,
-    awaitHatchReady,
-    personalityEnabled,
+    fireResearch,
     resolveEstablishedGate,
   ]);
 
   // If we're sitting on the results step when the research turn resolves empty
   // (it was still streaming when we arrived), skip ahead to the suggestions.
+  // A dead hatch settles the turn "error" with no claims, which is emptiness we
+  // may still recover from — hold here so a successful retry can refill this
+  // step instead of the user having been walked past it.
   useEffect(() => {
-    if (step === "results" && noClaims) {
+    if (step === "results" && noClaims && hatchError === null) {
       setForwardStack([]);
       setStep("suggestions");
     }
-  }, [step, noClaims]);
+  }, [step, noClaims, hatchError]);
 
   // Scrub the hidden aggregator-only drops from the assistant's memory when the
   // results step won't do it itself. The results step folds drops into its own
@@ -602,7 +642,11 @@ export function ResearchOnboardingRoute() {
     if (droppedClaimsScrubbedRef.current) return;
     if (researchLoading) return;
     if (research.droppedClaims.length === 0) return;
-    if (!researchConversationId || !hatchedAssistantId) return;
+    // Only against a live hatch: the guard flips before the request, so a scrub
+    // posted at an unreachable assistant would be marked sent and never retried.
+    // A resumed journey hydrates results while the hatch is still coming up (or
+    // has died), so this waits — and re-fires once a retry lands.
+    if (!researchConversationId || !hatchedAssistantId || !hatchReady) return;
     // With card claims present the results step owns the scrub — unless we've
     // resumed straight onto the suggestions step, past that correction.
     if (research.claims.length > 0 && step !== "suggestions") return;
@@ -619,6 +663,7 @@ export function ResearchOnboardingRoute() {
     research.droppedClaims,
     researchConversationId,
     hatchedAssistantId,
+    hatchReady,
     step,
     syncDroppedClaimsScrubbed,
   ]);
@@ -742,20 +787,19 @@ export function ResearchOnboardingRoute() {
     );
   }
 
-  // Fire the research turn; the runner awaits hatch readiness internally, so
-  // it starts at the later of the caller's submit and the background hatch.
-  function fireResearch(values: ResearchOnboardingValues) {
-    // A fresh run produces fresh drops — re-arm the one-shot scrub above.
-    syncDroppedClaimsScrubbed(false);
-    research.start({
+  // Hand the collected sliders to the assistant's persona on a throwaway side
+  // thread (it awaits hatch readiness internally, then archives). The rewrite
+  // turn runs during the later steps; the promise (and pending flag) let the
+  // loading steps hold for it and the chat handoff await it, so the persona is
+  // reshaped before the first real chat. Best-effort; it never rejects.
+  function startPersonalityApply() {
+    setPersonalityPending(true);
+    personalityAppliedRef.current = applyPersonality({
       awaitAssistantId: awaitHatchReady,
-      subject: researchSubjectFrom(values),
-      conversationTitle: researchTitleFor(values),
-      onConversationCreated: setResearchConversationId,
-      // The "Let's chat" final step replaces suggestions when personality
-      // onboarding is on, so don't ask the model to generate any.
-      includeSuggestions: !personalityEnabled,
-    });
+      values: personalityValues,
+      userName: formValues?.firstName?.trim() || undefined,
+      assistantName: faceValues?.name?.trim() || undefined,
+    }).finally(() => setPersonalityPending(false));
   }
 
   async function handleFormSubmit(values: ResearchOnboardingValues) {
@@ -824,6 +868,49 @@ export function ResearchOnboardingRoute() {
     goForwardTo("meeting");
   }
 
+  // "Try again" restarts the hatch AND everything that resolved against the
+  // dead one. Reaching this handler proves no attempt has ever readied (the
+  // hatch settles once, and a ready one can't later error), so every
+  // hatch-dependent effect started so far was rejected — each is re-armed below,
+  // and none of them can be healthy work this would redo. Every restart runs
+  // after `retryHatch()` has cleared the terminal state, so its waiters park on
+  // the fresh attempt; each awaits readiness inside its own work rather than
+  // here, so nothing runs ahead of the new hatch.
+  function handleHatchRetry() {
+    // The verdict failed open on the rejected `awaitReady`; keeping it would let
+    // a recovered, already-established assistant through the gate.
+    establishedCheckRef.current = null;
+    retryHatch();
+    armEstablishedCheck();
+    if (research.status === "error" && formValues) {
+      // The turn settled "error" still holding its subject key, so an identical
+      // resubmit would dedupe to nothing — release it, then re-fire (onto the
+      // same research conversation when this journey already minted one).
+      research.reset();
+      fireResearch(formValues);
+    } else if (research.status === "done") {
+      // Results restored from a snapshot: the search doesn't re-run, but the
+      // installs re-enqueued alongside them caught the dead hatch and resolved
+      // having installed nothing, while the runner stayed `done`.
+      research.reinstallPlugins(research.installedPlugins, awaitHatchReady);
+    }
+    if (personalityLocked) {
+      // The apply swallowed the same rejection and left the sliders locked as if
+      // it had landed — re-apply the user's choices to the recovered assistant.
+      startPersonalityApply();
+    }
+  }
+
+  // Layered over whichever step is on screen (see HatchErrorOverlay).
+  const withHatchError = (content: ReactNode) => (
+    <>
+      {content}
+      {hatchError !== null && (
+        <HatchErrorOverlay error={hatchError} onRetry={handleHatchRetry} />
+      )}
+    </>
+  );
+
   // The later steps share one persistent toned backdrop (assistant color +
   // eyes + tone characters) so the avatars stay put while the foreground
   // content swaps. Extra edge characters pop in per step to build excitement.
@@ -850,7 +937,7 @@ export function ResearchOnboardingRoute() {
     const peekLevel = ["looking", "results", "suggestions", "finishing"].includes(step)
       ? edgeAvatars
       : 0;
-    return (
+    return withHatchError(
       <div ref={tonedStageRef} data-theme="dark" className="relative h-full overflow-hidden">
         <OnboardingStageSizeProvider size={tonedStageSize}>
         <OnboardingTonedBackdrop
@@ -885,23 +972,11 @@ export function ResearchOnboardingRoute() {
             }
             locked={personalityLocked}
             onContinue={() => {
-              // First continue applies the sliders to the assistant's persona on
-              // a throwaway side thread (awaits hatch readiness internally, then
-              // archives) and locks them — the prompt has been sent, so a later
-              // step-back can't silently diverge. The rewrite turn runs during
-              // the later steps; we track its promise (and pending flag) so the
-              // looking-you-up loader holds until it settles and the chat handoff
-              // awaits it, guaranteeing the persona is reshaped before the first
-              // real chat. Best-effort; it never rejects. A continue while
-              // already locked just advances.
+              // First continue applies the sliders and locks them — the prompt
+              // has been sent, so a later step-back can't silently diverge. A
+              // continue while already locked just advances.
               if (!personalityLocked) {
-                setPersonalityPending(true);
-                personalityAppliedRef.current = applyPersonality({
-                  awaitAssistantId: awaitHatchReady,
-                  values: personalityValues,
-                  userName: formValues?.firstName?.trim() || undefined,
-                  assistantName: faceValues?.name?.trim() || undefined,
-                }).finally(() => setPersonalityPending(false));
+                startPersonalityApply();
                 setPersonalityLocked(true);
               }
               goForwardTo("integration");
@@ -955,7 +1030,11 @@ export function ResearchOnboardingRoute() {
             // decoupled in the background and is finished off in its own step
             // right before the chat handoff (see the "finishing" step), so this
             // quick loading state isn't held hostage to the persona turn.
-            ready={!researchLoading}
+            // A hatch failure holds the carousel too: the turn settles "error"
+            // the moment the hatch dies, and advancing would walk the user past
+            // the result steps into a handoff behind the failure banner, out
+            // from under its retry.
+            ready={!researchLoading && hatchError === null}
           />
         )}
         {step === "results" && (
@@ -1021,8 +1100,18 @@ export function ResearchOnboardingRoute() {
             installedPlugins={research.installedPlugins}
             pluginCatalog={research.pluginCatalog}
             // Hold the handoff until a resumed done journey's guard settles, so
-            // it can't fire against an established assistant before the verdict.
-            disabled={resumeGuardPending}
+            // it can't fire against an established assistant before the verdict
+            // — and until the hatch has a live assistant to hand off to, since a
+            // resumed COMPLETED snapshot lands straight here (past the gated
+            // carousel) and the handoff would clear the snapshot and navigate to
+            // a null assistant. Readiness is its own condition: a retry clears
+            // the error while the fresh attempt is still provisioning.
+            disabled={
+              resumeGuardPending ||
+              hatchError !== null ||
+              !hatchReady ||
+              hatchedAssistantId === null
+            }
             onStart={async () => {
               // Terminal step: the handoff leaves via enterAssistant, not
               // goForwardTo, so emit the completion here (mirrors SuggestionsStep).
@@ -1090,13 +1179,16 @@ export function ResearchOnboardingRoute() {
           <FinishingUpStep
             // Hold the carousel until the personality rewrite settles, then hand
             // off. `finishAndEnterChat` also awaits the (usually already-resolved)
-            // plugin installs + correction before dropping into chat.
-            ready={!personalityPending}
+            // plugin installs + correction before dropping into chat. A hatch
+            // failure holds it too: the rewrite settles the moment the hatch
+            // rejects, and handing off would clear the snapshot and navigate away
+            // behind the failure overlay, out from under its retry.
+            ready={!personalityPending && hatchError === null}
             onDone={() => void finishAndEnterChat()}
           />
         )}
         </OnboardingStageSizeProvider>
-      </div>
+      </div>,
     );
   }
 
@@ -1104,7 +1196,7 @@ export function ResearchOnboardingRoute() {
   // instead of advancing to "face" when the submitted-to assistant already has
   // a life (see handleFormSubmit); a genuinely new user never lands here.
   if (step === "existing") {
-    return (
+    return withHatchError(
       <ExistingAssistantStep
         assistantName={establishedCheck?.assistantName ?? null}
         onKeep={() => {
@@ -1144,24 +1236,24 @@ export function ResearchOnboardingRoute() {
           setGatedFormValues(null);
           goBackTo("form");
         }}
-      />
+      />,
     );
   }
 
   if (step === "intro" && formValues) {
-    return (
+    return withHatchError(
       <IntroductionScreen
         firstName={formValues.firstName}
         assistantName={faceValues?.name}
         onContinue={() => goForwardTo("different")}
         onBack={() => goBackTo("face")}
         onForward={onForward}
-      />
+      />,
     );
   }
 
   if (step === "face" && formValues) {
-    return (
+    return withHatchError(
       <GiveMeAFaceScreen
         onContinue={(face) => {
           setFaceValues(face);
@@ -1169,15 +1261,15 @@ export function ResearchOnboardingRoute() {
         }}
         onBack={() => goBackTo("form")}
         onForward={onForward}
-      />
+      />,
     );
   }
 
-  return (
+  return withHatchError(
     <ResearchOnboardingScreen
       initialFirstName={user?.firstName ?? ""}
       initialLastName={user?.lastName ?? ""}
       onSubmit={handleFormSubmit}
-    />
+    />,
   );
 }

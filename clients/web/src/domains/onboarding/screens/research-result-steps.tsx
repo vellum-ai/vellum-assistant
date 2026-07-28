@@ -924,9 +924,10 @@ export function LetsChatReadyStep({
   /** Redo into this step — only set when the user has stepped back. */
   onForward?: () => void;
   /**
-   * Externally hold the "Let's chat" CTA (e.g. a resumed completed journey
-   * still waiting on the established-assistant guard). Disables the button and
-   * no-ops the handoff until cleared, so the CTA can't fire before the verdict.
+   * Externally hold the "Let's chat" CTA (a resumed completed journey still
+   * waiting on the established-assistant guard, or a dead hatch with no
+   * assistant to hand off to). Disables the button and no-ops the handoff until
+   * cleared. Back-navigation stays interactive.
    */
   disabled?: boolean;
 }) {

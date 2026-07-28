@@ -27,7 +27,7 @@ import { hasLivePlatformSession } from "@/stores/session-status";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "vellum_active_organization_id";
 
-type OrganizationStatus = "idle" | "loading" | "ready" | "error";
+export type OrganizationStatus = "idle" | "loading" | "ready" | "error";
 
 interface OrganizationState {
   organizations: OrganizationRead[];

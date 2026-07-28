@@ -7,6 +7,7 @@ import {
 } from "@/lib/billing/checkout-intent";
 
 import {
+  postCheckoutHatchReturnTo,
   resolveNavigation,
   resolveLoginReturnTo,
   type NavigationState,
@@ -19,6 +20,8 @@ const base: NavigationState = {
   isRemoteGateway: false,
   remoteGatewayPublicPathPrefix: "",
   isGatewayAuth: false,
+  // Web/Electron by default; the native fork is exercised explicitly.
+  isNative: false,
   hasAssistants: true,
   hasPlatformHostedAssistant: true,
   sessionSettled: true,
@@ -46,6 +49,16 @@ function redirectPath(decision: NavigationDecision): string | null {
   const qIdx = decision.to.indexOf("?");
   return qIdx < 0 ? decision.to : decision.to.slice(0, qIdx);
 }
+
+// The two provisioning funnel entries a paid return can name. Both carry the
+// managed-hatch marker, so a local-mode client provisions on the platform
+// instead of letting its own gateway answer for the assistant and skipping the
+// purchased-provisioning wait, plus the post-checkout marker that tells that
+// wait a still-base subscription read is a lagging webhook, not a free org.
+const RESEARCH_FUNNEL_URL =
+  "/assistant/onboarding/research?hosting=vellum-cloud&post_checkout=1";
+const HATCHING_FUNNEL_URL =
+  "/assistant/onboarding/hatching?hosting=vellum-cloud&post_checkout=1";
 
 const ALLOW: NavigationDecision = { action: "allow" };
 const WAIT: NavigationDecision = { action: "wait" };
@@ -593,14 +606,17 @@ describe("resolveNavigation", () => {
     const POST_CHECKOUT_BILLING =
       "/assistant/settings/billing?session_id=cs_test_123";
 
-    // The funnel entry carries the managed-hatch marker, so a local-mode
-    // client provisions on the platform instead of letting its own gateway
-    // answer for the assistant and skipping the purchased-provisioning wait,
-    // plus the post-checkout marker that tells the hatching screen a
-    // still-base subscription read is a lagging webhook, not a free org.
+    // Web and Electron land the paid return on the headless research
+    // onboarding, which runs the purchased-provisioning wait behind the form.
     const MANAGED_FUNNEL: NavigationDecision = {
       action: "redirect",
-      to: "/assistant/onboarding/hatching?hosting=vellum-cloud&post_checkout=1",
+      to: RESEARCH_FUNNEL_URL,
+    };
+    // The native shell has no research flow, so it keeps the foreground
+    // hatching screen.
+    const NATIVE_MANAGED_FUNNEL: NavigationDecision = {
+      action: "redirect",
+      to: HATCHING_FUNNEL_URL,
     };
 
     // A brand-new org: nothing resolved at all.
@@ -617,10 +633,24 @@ describe("resolveNavigation", () => {
       hasPlatformHostedAssistant: false,
     } as const;
 
-    test("funnels a no-assistant post-checkout return into hatching", () => {
+    test("funnels a no-assistant post-checkout return into the research onboarding", () => {
       expect(guard(s(EMPTY_ORG), POST_CHECKOUT_BILLING)).toEqual(
         MANAGED_FUNNEL,
       );
+    });
+
+    // The research flow isn't wired for the Capacitor shell, so the native paid
+    // return still gets the foreground hatching screen.
+    test("keeps the foreground hatching entry on native", () => {
+      expect(
+        guard(s({ ...EMPTY_ORG, isNative: true }), POST_CHECKOUT_BILLING),
+      ).toEqual(NATIVE_MANAGED_FUNNEL);
+      expect(
+        guard(
+          s({ ...NO_MANAGED_ASSISTANT, isNative: true }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual(NATIVE_MANAGED_FUNNEL);
     });
 
     // The decision is "does a managed plan have a target", not "is the list
@@ -800,30 +830,38 @@ describe("resolveNavigation", () => {
     });
 
     const UNCONSENTED = { tosAccepted: false, privacyConsent: false } as const;
-    const MANAGED_FUNNEL_URL =
-      "/assistant/onboarding/hatching?hosting=vellum-cloud&post_checkout=1";
 
-    // Consent is enforced at the destination, not skipped: the funnel entry is
-    // an onboarding path, and re-resolving it bounces an unconsented user on.
+    // Either toggle going stale forces the same re-review, so the cases below
+    // assert against both.
+    const STALE_TOGGLES = [
+      { analyticsConsentCurrent: false },
+      { diagnosticsConsentCurrent: false },
+    ] as const;
+
+    // Consent is enforced at the destination, not skipped: both funnel entries
+    // are onboarding paths, and re-resolving one bounces an unconsented user on.
     test("consent is still enforced once the funnel destination is resolved", () => {
       expect(
         guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), POST_CHECKOUT_BILLING),
       ).toEqual(MANAGED_FUNNEL);
-      expect(
-        redirectPath(guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), MANAGED_FUNNEL_URL)),
-      ).toBe("/assistant/onboarding/privacy");
+      for (const url of [RESEARCH_FUNNEL_URL, HATCHING_FUNNEL_URL]) {
+        expect(
+          redirectPath(guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), url)),
+        ).toBe("/assistant/onboarding/privacy");
+      }
     });
 
     // The bounce carries the funnel URL as `returnTo` — the same contract
     // review-terms uses — so the privacy screen resumes it on Start. Dropping
     // it loses the paid-return marker, and the paying user finishes the hatch
-    // at the baseline plan.
+    // at the baseline plan. The hatching form round-trips too, because a
+    // `returnTo` stashed by an older client names it.
     test("carries the paid funnel destination through the consent bounce", () => {
       expect(
-        guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), MANAGED_FUNNEL_URL),
+        guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), HATCHING_FUNNEL_URL),
       ).toEqual({
         action: "redirect",
-        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(MANAGED_FUNNEL_URL)}`,
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(HATCHING_FUNNEL_URL)}`,
       });
     });
 
@@ -846,19 +884,276 @@ describe("resolveNavigation", () => {
     // `returnTo`, so its bounce stays bare.
     test("a local-mode hatching bounce keeps the bare welcome entrypoint", () => {
       expect(
-        guard(s({ isLocalMode: true, ...UNCONSENTED }), MANAGED_FUNNEL_URL),
+        guard(s({ isLocalMode: true, ...UNCONSENTED }), HATCHING_FUNNEL_URL),
       ).toEqual({ action: "redirect", to: "/assistant/welcome" });
+    });
+
+    // The research route is the headless paid provisioning entry, so it bounces
+    // and carries exactly like the hatching entry does.
+    test("carries a paid research destination through the consent bounce", () => {
+      expect(
+        guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), RESEARCH_FUNNEL_URL),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+      });
+    });
+
+    // The research funnel provisions an assistant, so an unconsented user does
+    // not reach it by navigating there directly either.
+    test("bounces an unconsented bare research visit to the entrypoint", () => {
+      expect(guard(s(UNCONSENTED), "/assistant/onboarding/research")).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
+      });
+      expect(
+        guard(s({ isLocalMode: true, ...UNCONSENTED }), "/assistant/onboarding/research"),
+      ).toEqual({ action: "redirect", to: "/assistant/welcome" });
+    });
+
+    test("allows a consented user on the research route", () => {
+      expect(guard(s({}), "/assistant/onboarding/research")).toEqual(ALLOW);
+      expect(
+        guard(s({ hasAssistants: false }), "/assistant/onboarding/research"),
+      ).toEqual(ALLOW);
+      expect(guard(s({}), RESEARCH_FUNNEL_URL)).toEqual(ALLOW);
+    });
+
+    // Onboarding is complete but a toggle went stale: the terms are re-reviewed
+    // before the purchased hatch, with the funnel URL (markers intact) as
+    // `returnTo` so the plan is not lost on the round trip. The marker is what
+    // scopes this — an ordinary research visit keeps its onboarding exemption.
+    test("sends a stale-consent paid research return to review-terms", () => {
+      for (const stale of STALE_TOGGLES) {
+        expect(guard(s({ ...EMPTY_ORG, ...stale }), RESEARCH_FUNNEL_URL)).toEqual({
+          action: "redirect",
+          to: `/assistant/review-terms?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+        });
+        expect(
+          guard(s({ ...EMPTY_ORG, ...stale }), "/assistant/onboarding/research"),
+        ).toEqual(ALLOW);
+      }
+    });
+
+    // A cold paid deep link reaches the research route before the consent flags
+    // hydrate, and they boot false — deciding there would bounce an established
+    // user to privacy, and a `redirect` gives the auth middleware nothing to
+    // wait on.
+    test("waits on the research route until consent hydrates", () => {
+      for (const url of ["/assistant/onboarding/research", RESEARCH_FUNNEL_URL]) {
+        expect(
+          guard(s({ ...EMPTY_ORG, ...UNCONSENTED, consentHydrated: false }), url),
+        ).toEqual(WAIT);
+        // Same wait for an already-consented user whose flags have not been
+        // confirmed yet: hydration is read before the flags either way.
+        expect(guard(s({ consentHydrated: false }), url)).toEqual(WAIT);
+      }
+    });
+
+    // The wait is research-only: the foreground hatching entry is reached from
+    // in-app navigation, never a cold deep link, and it bounces immediately.
+    test("the hatching bounce does not wait on consent hydration", () => {
+      expect(
+        guard(
+          s({ ...UNCONSENTED, consentHydrated: false }),
+          HATCHING_FUNNEL_URL,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(HATCHING_FUNNEL_URL)}`,
+      });
+    });
+
+    // The auth middleware forces `consentHydrated` once its wait runs out, so
+    // the flags underneath are still their boot `false`. Bouncing on them
+    // evicts an already-consented user mid-funnel — a paid return loses its
+    // markers, a free one restarts onboarding — so the research entry falls
+    // back to the unconditional admission it had before it joined the funnel.
+    test("admits the research route when consent hydration timed out", () => {
+      for (const url of ["/assistant/onboarding/research", RESEARCH_FUNNEL_URL]) {
+        expect(
+          guard(
+            s({
+              ...EMPTY_ORG,
+              ...UNCONSENTED,
+              consentHydrated: true,
+              consentHydrationTimedOut: true,
+            }),
+            url,
+          ),
+        ).toEqual(ALLOW);
+      }
+      // The stale-toggle gate reads the same unhydrated flags, so it fails open
+      // too rather than sending a paid return to review-terms it can't answer.
+      expect(
+        guard(
+          s({
+            ...EMPTY_ORG,
+            analyticsConsentCurrent: false,
+            diagnosticsConsentCurrent: false,
+            consentHydrated: true,
+            consentHydrationTimedOut: true,
+          }),
+          RESEARCH_FUNNEL_URL,
+        ),
+      ).toEqual(ALLOW);
+    });
+
+    // Fail-open is scoped to the unhydrated read: a hydration that actually
+    // landed on an unconsented user still bounces.
+    test("still bounces a genuinely hydrated unconsented research visit", () => {
+      expect(
+        guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), RESEARCH_FUNNEL_URL),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+      });
+    });
+
+    // The hatching entry never waits on hydration, so it never sees the forced
+    // flag either — its bounce is unchanged by the fail-open.
+    test("the hatching bounce is unaffected by a consent hydration timeout", () => {
+      expect(
+        guard(
+          s({
+            ...UNCONSENTED,
+            consentHydrated: true,
+            consentHydrationTimedOut: true,
+          }),
+          HATCHING_FUNNEL_URL,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(HATCHING_FUNNEL_URL)}`,
+      });
+    });
+
+    // Local mode is excluded from hydration waits everywhere in the pipeline —
+    // its consent hydrates during session init or not at all — so its research
+    // bounce decides immediately.
+    test("a local-mode research bounce decides without waiting on hydration", () => {
+      expect(
+        guard(
+          s({ isLocalMode: true, ...UNCONSENTED, consentHydrated: false }),
+          RESEARCH_FUNNEL_URL,
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/welcome" });
+      expect(
+        guard(
+          s({ isLocalMode: true, ...UNCONSENTED, consentHydrated: false }),
+          "/assistant/onboarding/research",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/welcome" });
+    });
+
+    // A gateway session short-circuits the pipeline to "allow" before any
+    // consent step runs, so the paid funnel entries suspend that bypass —
+    // otherwise an Electron paid return starts the purchased hatch with no
+    // consent recorded. The Electron desktop shape: gateway auth against a
+    // local assistant, with a platform session to provision into.
+    const ELECTRON_PAID = {
+      isGatewayAuth: true,
+      isLocalMode: true,
+      platformSession: "present",
+      ...NO_MANAGED_ASSISTANT,
+    } as const;
+
+    // Local mode's entrypoint is `welcome`, which reads no `returnTo` — the
+    // same bare bounce the hatching screen's own gate already gave this user.
+    test("bounces an unconsented gateway-auth paid return to the local entrypoint", () => {
+      for (const url of [RESEARCH_FUNNEL_URL, HATCHING_FUNNEL_URL]) {
+        expect(guard(s({ ...ELECTRON_PAID, ...UNCONSENTED }), url)).toEqual({
+          action: "redirect",
+          to: "/assistant/welcome",
+        });
+      }
+    });
+
+    // Suspending the bypass must not bounce a consented paid return: it is the
+    // whole point of the funnel that it reaches the hatch.
+    test("allows a consented gateway-auth paid return", () => {
+      for (const url of [RESEARCH_FUNNEL_URL, HATCHING_FUNNEL_URL]) {
+        expect(guard(s(ELECTRON_PAID), url)).toEqual(ALLOW);
+      }
+    });
+
+    // Onboarding is complete but a toggle went stale, so the terms are
+    // re-reviewed before the purchased hatch — with the funnel URL as
+    // `returnTo`, so the markers survive and the plan is not lost.
+    test("sends a stale-consent gateway-auth paid research return to review-terms", () => {
+      for (const stale of STALE_TOGGLES) {
+        expect(
+          guard(s({ ...ELECTRON_PAID, ...stale }), RESEARCH_FUNNEL_URL),
+        ).toEqual({
+          action: "redirect",
+          to: `/assistant/review-terms?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+        });
+      }
+    });
+
+    // The stale-toggle gate is research-only. The hatching entry — where the
+    // native paid return lands, and where a `returnTo` stashed by an older
+    // client still points — resolves `allow` here and re-reviews stale terms at
+    // the screen's own `hatch-gate` instead.
+    test("leaves a stale-consent paid hatching return on its allow", () => {
+      for (const stale of STALE_TOGGLES) {
+        expect(
+          guard(s({ ...ELECTRON_PAID, ...stale }), HATCHING_FUNNEL_URL),
+        ).toEqual(ALLOW);
+        expect(
+          guard(
+            s({ ...EMPTY_ORG, isNative: true, ...stale }),
+            HATCHING_FUNNEL_URL,
+          ),
+        ).toEqual(ALLOW);
+      }
+    });
+
+    // Only the paid marker suspends the bypass. The local adopt flow reaches
+    // the research entry unmarked and keeps the bypass it has always had.
+    test("keeps the gateway-auth bypass on an unmarked funnel entry", () => {
+      for (const url of [
+        "/assistant/onboarding/research",
+        "/assistant/onboarding/research?hosting=vellum-cloud",
+        "/assistant/onboarding/hatching",
+        "/assistant/onboarding/hatching?post_checkout=0",
+      ]) {
+        expect(
+          guard(s({ ...ELECTRON_PAID, ...UNCONSENTED }), url),
+        ).toEqual(ALLOW);
+      }
+    });
+
+    // A remote-gateway session is gateway auth too. Paired (authenticated), it
+    // passes the pairing step untouched; unpaired it pairs first, and the
+    // pairing `returnTo` keeps the markers so the funnel resumes after.
+    test("leaves remote-gateway pairing intact on a paid funnel entry", () => {
+      expect(
+        guard(
+          s({ ...ELECTRON_PAID, isRemoteGateway: true }),
+          RESEARCH_FUNNEL_URL,
+        ),
+      ).toEqual(ALLOW);
+      expect(
+        guard(
+          s({ ...ELECTRON_PAID, isRemoteGateway: true, isAuthenticated: false }),
+          RESEARCH_FUNNEL_URL,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/pair?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+      });
     });
 
     // The funnel destination must not itself read as a checkout return, or the
     // redirect would loop.
     test("the funnel destination is not treated as a post-checkout return", () => {
-      expect(
-        guard(
-          s(EMPTY_ORG),
-          "/assistant/onboarding/hatching?session_id=cs_test_123",
-        ),
-      ).toEqual(ALLOW);
+      for (const url of [
+        "/assistant/onboarding/hatching?session_id=cs_test_123",
+        "/assistant/onboarding/research?session_id=cs_test_123",
+      ]) {
+        expect(guard(s(EMPTY_ORG), url)).toEqual(ALLOW);
+      }
     });
 
     test("redirects brand-new platform user with no assistant to privacy, unaffected by stale-toggle gate", () => {
@@ -1204,6 +1499,64 @@ describe("resolveNavigation", () => {
       expect(
         resolveLoginReturnTo(s({}), "/assistant/onboarding/hosting"),
       ).toBe("/assistant/onboarding/hosting");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // postCheckoutHatchReturnTo
+  // -----------------------------------------------------------------------
+  describe("postCheckoutHatchReturnTo", () => {
+    test("accepts the headless research funnel entry", () => {
+      expect(postCheckoutHatchReturnTo(RESEARCH_FUNNEL_URL)).toBe(
+        RESEARCH_FUNNEL_URL,
+      );
+    });
+
+    // A `returnTo` stashed on the privacy screen by an older client names the
+    // hatching entry; it must still resume rather than drop the paid markers.
+    test("accepts the foreground hatching funnel entry", () => {
+      expect(postCheckoutHatchReturnTo(HATCHING_FUNNEL_URL)).toBe(
+        HATCHING_FUNNEL_URL,
+      );
+    });
+
+    test("rejects any other path, even carrying the marker", () => {
+      for (const url of [
+        "/assistant/onboarding/privacy?post_checkout=1",
+        "/assistant/settings/billing?post_checkout=1",
+        "/assistant?post_checkout=1",
+        "/assistant/onboarding/research-mock?post_checkout=1",
+      ]) {
+        expect(postCheckoutHatchReturnTo(url)).toBeNull();
+      }
+    });
+
+    test("rejects a funnel path without the paid marker", () => {
+      for (const url of [
+        "/assistant/onboarding/research",
+        "/assistant/onboarding/research?hosting=vellum-cloud",
+        "/assistant/onboarding/research?post_checkout=0",
+        "/assistant/onboarding/hatching",
+        "/assistant/onboarding/hatching?hosting=vellum-cloud",
+      ]) {
+        expect(postCheckoutHatchReturnTo(url)).toBeNull();
+      }
+    });
+
+    test("rejects absolute and protocol-relative URLs", () => {
+      for (const url of [
+        "https://evil.example.com/assistant/onboarding/research?post_checkout=1",
+        "//evil.example.com/assistant/onboarding/research?post_checkout=1",
+        "http://localhost/assistant/onboarding/hatching?post_checkout=1",
+      ]) {
+        expect(postCheckoutHatchReturnTo(url)).toBeNull();
+      }
+    });
+
+    test("rejects absent values", () => {
+      expect(postCheckoutHatchReturnTo(null)).toBeNull();
+      expect(postCheckoutHatchReturnTo(undefined)).toBeNull();
+      expect(postCheckoutHatchReturnTo("")).toBeNull();
     });
   });
 });

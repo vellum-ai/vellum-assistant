@@ -213,6 +213,30 @@ export async function saveLockfileAssistant(assistant: {
 }
 
 /**
+ * Record a managed (platform) assistant in the lockfile. The desktop build's
+ * assistant list and switcher are lockfile-driven, so every managed hatch —
+ * foreground hatching screen or headless background hatch — registers its
+ * assistant here, stamped with the org whose session hatched it.
+ *
+ * The org id is a parameter because the organization store imports back through
+ * the auth store into this module; reading it here would cycle.
+ */
+export async function saveManagedLockfileAssistant(
+  assistantId: string,
+  name: string | undefined,
+  organizationId: string | undefined,
+): Promise<void> {
+  await saveLockfileAssistant({
+    assistantId,
+    name,
+    cloud: "vellum",
+    runtimeUrl: getPlatformRuntimeUrl(),
+    hatchedAt: new Date().toISOString(),
+    organizationId,
+  });
+}
+
+/**
  * Update an existing assistant entry without changing the lockfile's active
  * assistant pointer.
  */
