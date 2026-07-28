@@ -211,6 +211,32 @@ describe("resolveMessageContentBlocks", () => {
     );
   });
 
+  test("validates an LLM-emitted surface with an arbitrary display value", () => {
+    // Surfaces written by the `ui_show` tool carry whatever the model chose:
+    // `CurrentTurnSurface.display` is a bare string, NOT the inline/panel enum
+    // of the `ui_surface_show` wire event. Narrowing it here would send every
+    // LLM surface back through the per-block repair — the read-path noise this
+    // variant exists to stop. Daemon-only riders must survive too.
+    const llmSurfaceRow = [
+      {
+        type: "ui_surface",
+        surfaceId: "surface-1",
+        surfaceType: "card",
+        title: "Pick one",
+        data: { title: "Pick one", options: ["a", "b"] },
+        actions: [{ id: "a", label: "A" }],
+        display: "modal",
+        persistent: true,
+        toolCallId: "tu-1",
+        activationMoment: "commit",
+      },
+    ];
+    expect(contentBlockArraySchema.safeParse(llmSurfaceRow).success).toBe(true);
+    expect(resolveMessageContentBlocks(JSON.stringify(llmSurfaceRow))).toEqual(
+      llmSurfaceRow as unknown as ContentBlock[],
+    );
+  });
+
   test("wraps type-less values in a text block carrying the payload", () => {
     const historical = [{ payload: 1 }, "bare string"];
     expect(resolveMessageContentBlocks(JSON.stringify(historical))).toEqual([

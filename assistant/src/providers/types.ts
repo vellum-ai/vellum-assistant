@@ -149,7 +149,12 @@ export interface UiSurfaceContent {
   title?: string;
   data?: Record<string, unknown>;
   actions?: unknown[];
-  display?: "inline" | "panel";
+  /**
+   * Free-form, matching `CurrentTurnSurface.display` — NOT the `inline` /
+   * `panel` enum of the `ui_surface_show` wire event. Persisted surfaces carry
+   * whatever the `ui_show` tool wrote, so this must not narrow.
+   */
+  display?: string;
   completed?: boolean;
 }
 

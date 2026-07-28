@@ -132,11 +132,16 @@ const webSearchToolResultContentSchema = z
   .passthrough();
 
 /**
- * Client-rendered surface cards. `data`/`actions` stay loose because the
- * concrete shape is chosen per `surfaceType` by `daemon/message-types/
- * surfaces.ts` — validating them strictly here would reject renderable
- * surfaces at the read boundary, which is exactly the failure this variant
- * exists to prevent.
+ * Client-rendered surface cards. `data`, `actions`, and `display` stay loose
+ * because the concrete shape is chosen per `surfaceType` by
+ * `daemon/message-types/surfaces.ts` — validating them strictly here would
+ * reject renderable surfaces at the read boundary, which is exactly the
+ * failure this variant exists to prevent.
+ *
+ * `display` is a bare string, not the `inline`/`panel` enum the
+ * `ui_surface_show` WIRE event uses: persisted surfaces carry whatever the
+ * `ui_show` tool wrote (`CurrentTurnSurface.display` is `string`), so an
+ * LLM-chosen value must not fail the row.
  */
 const uiSurfaceContentSchema = z
   .object({
@@ -146,7 +151,7 @@ const uiSurfaceContentSchema = z
     title: z.string().optional(),
     data: z.record(z.string(), z.unknown()).optional(),
     actions: z.array(z.unknown()).optional(),
-    display: z.enum(["inline", "panel"]).optional(),
+    display: z.string().optional(),
     completed: z.boolean().optional(),
   })
   .passthrough();
