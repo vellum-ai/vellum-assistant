@@ -14505,8 +14505,9 @@ paths:
       operationId: inference_profiles_by_name_patch
       summary: Update an inference profile
       description:
-        Partial update of a custom profile with the same write-time validation as create, including the
-        dispatch-availability guard and its allowUnavailable escape hatch. Managed default profiles are read-only.
+        Partial update of a custom profile with the same write-time validation as create. The dispatch-availability
+        guard (and its allowUnavailable escape hatch) applies when the update changes provider, model, or connection;
+        metadata-only edits skip it. Managed default profiles are read-only.
       tags:
         - inference
       parameters:
