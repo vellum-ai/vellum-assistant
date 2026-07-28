@@ -337,6 +337,38 @@ describe("in-memory mirror on a same-document return", () => {
   });
 });
 
+test("a failed overwrite serves the fresh mirror over the stale stored stash", () => {
+  saveTakeoverAvatarStash({
+    assistantId: "a1",
+    components: BUNDLED_COMPONENTS,
+    traits: TRAITS,
+  });
+  const realStorage = sessionStorage;
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    get: () => ({
+      getItem: (key: string) => realStorage.getItem(key),
+      setItem: () => {
+        throw new Error("quota exceeded");
+      },
+      removeItem: (key: string) => realStorage.removeItem(key),
+    }),
+  });
+  try {
+    saveTakeoverAvatarStash({
+      assistantId: "a2",
+      components: BUNDLED_COMPONENTS,
+      traits: TRAITS,
+    });
+    expect(readTakeoverAvatarStash()?.assistantId).toBe("a2");
+  } finally {
+    Object.defineProperty(globalThis, "sessionStorage", {
+      configurable: true,
+      get: () => realStorage,
+    });
+  }
+});
+
 describe("captureTakeoverAvatarStash", () => {
   let queryClient: QueryClient;
 

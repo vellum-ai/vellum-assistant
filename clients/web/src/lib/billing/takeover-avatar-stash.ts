@@ -104,6 +104,12 @@ export function readTakeoverAvatarStash(): TakeoverAvatarStash | null {
   if (typeof sessionStorage === "undefined") {
     return readInMemoryStash();
   }
+  // A failed write means the mirror is strictly newer than anything persisted:
+  // a stale earlier stash may still sit in storage, and serving it would show
+  // the previous capture's avatar over the fresh one.
+  if (storageWriteFailed) {
+    return readInMemoryStash();
+  }
   let raw: string | null;
   try {
     raw = sessionStorage.getItem(STORAGE_KEY);
@@ -112,9 +118,6 @@ export function readTakeoverAvatarStash(): TakeoverAvatarStash | null {
     return readInMemoryStash();
   }
   if (!raw) {
-    if (storageWriteFailed) {
-      return readInMemoryStash();
-    }
     // Readable-empty is authoritative for a stash that did reach storage, so a
     // logout wipe takes the mirror with it.
     inMemoryStash = null;
