@@ -267,6 +267,37 @@ body {
   height: calc(var(--provision-avatar-size) * var(--provision-avatar-growth));
 }
 
+/* While the avatar is withheld, an identity-neutral glow breathes on the
+ * creature's resting footprint so the reserved stage doesn't read as a hole.
+ * Centering is `margin-inline`, not a translate — the breathe owns `transform`. */
+.provision-avatar-placeholder {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: var(--provision-avatar-size);
+  width: calc(var(--provision-avatar-size) * 0.8);
+  margin-inline: auto;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--content-emphasised) 12%, transparent),
+    transparent 72%
+  );
+  transform-origin: bottom center;
+  transition: opacity var(--provision-reveal) ease-out;
+  animation: provision-placeholder-breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes provision-placeholder-breathe {
+  0%, 100% { transform: scale(0.94); opacity: 0.65; }
+  50% { transform: scale(1.05); opacity: 1; }
+}
+
+/* Fades out on the same beat the creature reveals on, then costs nothing. */
+.provision-avatar-placeholder.is-resolved {
+  opacity: 0;
+  animation: none;
+}
+
 .provision-avatar-layer {
   position: absolute;
   inset-inline: 0;
@@ -348,6 +379,15 @@ body {
   }
 
   .provision-surface-settle {
+    transition: none;
+  }
+
+  /* A static glow still marks where the creature lands. */
+  .provision-avatar-placeholder {
+    animation: none;
+  }
+
+  .provision-avatar-placeholder.is-resolved {
     transition: none;
   }
 }
