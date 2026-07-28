@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -18,7 +19,7 @@ import { deleteSkillCapabilityNode } from "../plugins/defaults/memory/graph/capa
 import { isDeniedBasename } from "../tools/shared/filesystem/path-policy.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspaceSkillsDir } from "../util/platform.js";
-import { writeInstallMeta } from "./install-meta.js";
+import { readInstallMeta, writeInstallMeta } from "./install-meta.js";
 
 const log = getLogger("managed-store");
 
@@ -472,4 +473,232 @@ export function deleteManagedSkill(id: string): DeleteManagedSkillResult {
   log.info({ id, path: skillDir }, "Deleted managed skill");
 
   return { deleted: true };
+}
+
+// ─── Companion files ─────────────────────────────────────────────────────────
+
+/**
+ * Resolve a managed skill directory for a companion operation, enforcing the
+ * two gates every companion mutation shares: the skill must already exist as a
+ * managed skill, and it must be verifiably assistant-authored.
+ *
+ * The ownership gate is UNCONDITIONAL here, unlike the origin-scoped backstop
+ * in the `scaffold_managed_skill` tool. These functions back an `assistant
+ * skills companion …` CLI verb, and a CLI process carries no request origin:
+ * every provenance signal a caller could present (an env var, a flag) is
+ * written by whoever composed the command line, so an unattended agent could
+ * always choose to present none. Authority must therefore not depend on a
+ * claim — the strict rule applies to every caller, and a human who needs to
+ * drop a file into a skill they authored themselves has a real shell and does
+ * not need this verb.
+ */
+function resolveAssistantAuthoredSkillDir(
+  skillId: string,
+): { skillDir: string } | { error: string } {
+  const validationError = validateManagedSkillId(skillId);
+  if (validationError) {
+    return { error: validationError };
+  }
+
+  const skillDir = getManagedSkillDir(skillId);
+  if (!existsSync(join(skillDir, "SKILL.md"))) {
+    return {
+      error: `Managed skill "${skillId}" not found. Run 'assistant skills list' to see managed skills.`,
+    };
+  }
+
+  // Mirrors the scaffold tool's ownership backstop: `readInstallMeta` returns
+  // null for a skill whose install-meta is missing or corrupt, so gating on an
+  // exact "assistant" author fails closed on user-authored, untagged, and
+  // unverifiable skills alike.
+  if (readInstallMeta(skillDir)?.author !== "assistant") {
+    return {
+      error: `Managed skill "${skillId}" is not verifiably assistant-authored; companion files may only be written into skills the assistant authored.`,
+    };
+  }
+
+  return { skillDir };
+}
+
+export interface AddCompanionFileParams {
+  skillId: string;
+  /** Destination path relative to the skill directory. */
+  path: string;
+  /** Absolute path of the file to copy in. */
+  sourcePath: string;
+  /** Replace an existing companion file at the destination. */
+  overwrite?: boolean;
+}
+
+export interface AddCompanionFileResult {
+  added: boolean;
+  path?: string;
+  error?: string;
+}
+
+/**
+ * Copy an on-disk file into an assistant-authored managed skill as a companion
+ * file (a `scripts/` helper, a reference doc).
+ *
+ * Destination policy is the whole security surface and is unchanged from the
+ * scaffold write path: `validateCompanionPath` keeps the write inside the skill
+ * directory and off the store-owned files (notably TOOLS.json, whose manifest
+ * would let a companion write register executable tools), and the shared
+ * filesystem denylist rejects key-material basenames.
+ *
+ * The SOURCE is read with no path policy of its own, deliberately. Reaching
+ * this function requires shell authority, and what a shell may read is decided
+ * by the bash risk registry — the same classification that governs `cat` and
+ * `cp`, including its escalation for sensitive paths. Re-deciding it here would
+ * fork that policy into a second, weaker copy. The checks below are usability
+ * guards (clear errors for a missing file, a directory, an implausible size),
+ * not a trust boundary.
+ */
+export function addCompanionFile(
+  params: AddCompanionFileParams,
+): AddCompanionFileResult {
+  const resolved = resolveAssistantAuthoredSkillDir(params.skillId);
+  if ("error" in resolved) {
+    return { added: false, error: resolved.error };
+  }
+  const { skillDir } = resolved;
+
+  const { resolvedPath, error } = validateCompanionPath(skillDir, params.path);
+  if (error || !resolvedPath) {
+    return { added: false, error: error ?? "invalid companion file path" };
+  }
+  if (isDeniedBasename(resolvedPath)) {
+    return {
+      added: false,
+      error: `companion file path is a denied filename: "${params.path}"`,
+    };
+  }
+  if (existsSync(resolvedPath)) {
+    if (statSync(resolvedPath).isDirectory()) {
+      return {
+        added: false,
+        error: `companion file path resolves to an existing directory: "${params.path}"`,
+      };
+    }
+    if (!params.overwrite) {
+      return {
+        added: false,
+        error: `companion file "${params.path}" already exists in skill "${params.skillId}". Pass --overwrite to replace it.`,
+      };
+    }
+  }
+
+  if (!params.sourcePath || !isAbsolute(params.sourcePath)) {
+    return {
+      added: false,
+      error: `source must be an absolute path: "${params.sourcePath}"`,
+    };
+  }
+  let sourceStat;
+  try {
+    sourceStat = statSync(params.sourcePath);
+  } catch {
+    return { added: false, error: `source not found: "${params.sourcePath}"` };
+  }
+  if (!sourceStat.isFile()) {
+    return {
+      added: false,
+      error: `source is not a regular file: "${params.sourcePath}"`,
+    };
+  }
+  if (sourceStat.size > MAX_COMPANION_SOURCE_BYTES) {
+    return {
+      added: false,
+      error: `source exceeds ${MAX_COMPANION_SOURCE_BYTES} bytes: "${params.sourcePath}"`,
+    };
+  }
+
+  const content = readFileSync(params.sourcePath, "utf-8");
+  mkdirSync(dirname(resolvedPath), { recursive: true });
+  atomicWriteFile(resolvedPath, content);
+
+  log.info(
+    { id: params.skillId, path: resolvedPath },
+    "Added companion file to managed skill",
+  );
+
+  return { added: true, path: resolvedPath };
+}
+
+export interface CompanionFileEntry {
+  /** Path relative to the skill directory, POSIX-separated. */
+  path: string;
+  bytes: number;
+}
+
+/**
+ * List a managed skill's companion files (everything under the skill directory
+ * except the store-owned top-level files). Read-only, so it applies neither the
+ * ownership gate nor the destination policy.
+ */
+export function listCompanionFiles(
+  skillId: string,
+): { files: CompanionFileEntry[] } | { error: string } {
+  const validationError = validateManagedSkillId(skillId);
+  if (validationError) {
+    return { error: validationError };
+  }
+  const skillDir = getManagedSkillDir(skillId);
+  if (!existsSync(join(skillDir, "SKILL.md"))) {
+    return {
+      error: `Managed skill "${skillId}" not found. Run 'assistant skills list' to see managed skills.`,
+    };
+  }
+
+  const files: CompanionFileEntry[] = [];
+  for (const entry of readdirSync(skillDir, { recursive: true })) {
+    const rel = String(entry).replaceAll(sep, "/");
+    if (RESERVED_COMPANION_NAMES.has(rel.toLowerCase())) {
+      continue;
+    }
+    const absolute = join(skillDir, rel);
+    const stat = statSync(absolute);
+    if (!stat.isFile()) {
+      continue;
+    }
+    files.push({ path: rel, bytes: stat.size });
+  }
+  files.sort((a, b) => a.path.localeCompare(b.path));
+  return { files };
+}
+
+/**
+ * Remove one companion file from an assistant-authored managed skill. Shares
+ * the ownership gate and destination policy with {@link addCompanionFile}, so
+ * the store-owned files can never be deleted through this path.
+ */
+export function removeCompanionFile(
+  skillId: string,
+  filePath: string,
+): { removed: boolean; error?: string } {
+  const resolved = resolveAssistantAuthoredSkillDir(skillId);
+  if ("error" in resolved) {
+    return { removed: false, error: resolved.error };
+  }
+
+  const { resolvedPath, error } = validateCompanionPath(
+    resolved.skillDir,
+    filePath,
+  );
+  if (error || !resolvedPath) {
+    return { removed: false, error: error ?? "invalid companion file path" };
+  }
+  if (!existsSync(resolvedPath) || !statSync(resolvedPath).isFile()) {
+    return {
+      removed: false,
+      error: `companion file "${filePath}" not found in skill "${skillId}". Run 'assistant skills companion list ${skillId}' to see companion files.`,
+    };
+  }
+
+  rmSync(resolvedPath);
+  log.info(
+    { id: skillId, path: resolvedPath },
+    "Removed companion file from managed skill",
+  );
+  return { removed: true };
 }

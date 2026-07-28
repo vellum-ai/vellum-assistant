@@ -155,5 +155,111 @@ Examples:
   $ assistant skills add vercel-labs/skills/find-skills
   $ assistant skills add vercel-labs/skills@find-skills --overwrite`,
     },
+    {
+      name: "companion",
+      description:
+        "Manage companion files (scripts, reference docs) inside a managed skill",
+      helpText: `
+Companion files are the files a skill ships alongside its SKILL.md — most often
+a scripts/ helper the skill body invokes. Copy a proven script in with 'add'
+instead of pasting its contents into the skill body, so the skill reruns the
+exact code that worked.
+
+These verbs write only into skills the assistant authored itself (install-meta
+author "assistant"). A skill you wrote by hand is yours to edit directly with
+your own tools; there is deliberately no flag to override that.
+
+Creating the skill itself is a separate operation — see the skill-management
+skill's scaffold_managed_skill tool.
+
+Examples:
+  $ assistant skills companion add export-report --path scripts/export.py --from /tmp/export.py
+  $ assistant skills companion list export-report
+  $ assistant skills companion remove export-report --path scripts/export.py`,
+      subcommands: [
+        {
+          name: "add",
+          args: "<skill-id>",
+          description: "Copy an on-disk file into a managed skill",
+          options: [
+            {
+              flags: "--path <relative-path>",
+              description:
+                "Destination path inside the skill, e.g. scripts/export.py",
+              required: true,
+            },
+            {
+              flags: "--from <absolute-path>",
+              description: "Absolute path of the existing file to copy in",
+              required: true,
+            },
+            {
+              flags: "--overwrite",
+              description: "Replace an existing companion file at --path",
+            },
+            { flags: "--json", description: "Machine-readable JSON output" },
+          ],
+          helpText: `
+Arguments:
+  skill-id   Managed skill to copy into. Run 'assistant skills list' to see
+             managed skills.
+
+Notes:
+  --path is relative to the skill directory and may not escape it or overwrite
+  the store-owned files (SKILL.md, TOOLS.json, install-meta.json, version.json).
+  --from must be an absolute path to a regular file of at most 1 MiB.
+  The skill must be assistant-authored; the command fails otherwise.
+
+Examples:
+  $ assistant skills companion add export-report --path scripts/export.py --from /tmp/export.py
+  $ assistant skills companion add export-report --path scripts/export.py --from /tmp/v2.py --overwrite`,
+        },
+        {
+          name: "list",
+          args: "<skill-id>",
+          description: "List a managed skill's companion files",
+          options: [
+            { flags: "--json", description: "Machine-readable JSON output" },
+          ],
+          helpText: `
+Arguments:
+  skill-id   Managed skill to inspect. Run 'assistant skills list' to see
+             managed skills.
+
+Lists every file in the skill directory except the store-owned files, with its
+size in bytes.
+
+Examples:
+  $ assistant skills companion list export-report
+  $ assistant skills companion list export-report --json`,
+        },
+        {
+          name: "remove",
+          args: "<skill-id>",
+          description: "Delete one companion file from a managed skill",
+          options: [
+            {
+              flags: "--path <relative-path>",
+              description:
+                "Companion file to delete, as shown by 'companion list'",
+              required: true,
+            },
+            { flags: "--json", description: "Machine-readable JSON output" },
+          ],
+          helpText: `
+Arguments:
+  skill-id   Managed skill to delete from. Run 'assistant skills list' to see
+             managed skills.
+
+Notes:
+  Deletes a single file and cannot remove the store-owned files. The skill must
+  be assistant-authored. To delete the whole skill, use
+  'assistant skills uninstall <skill-id>'.
+
+Examples:
+  $ assistant skills companion remove export-report --path scripts/export.py`,
+        },
+      ],
+    },
   ],
 };

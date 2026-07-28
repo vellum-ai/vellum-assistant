@@ -614,3 +614,136 @@ describe("skills search", () => {
     expect(parsed.community).toHaveLength(0);
   });
 });
+
+// ===========================================================================
+// skills companion
+// ===========================================================================
+
+describe("skills companion", () => {
+  test("add forwards skillId, path and source to skills_companion_add", async () => {
+    mockIpcResults = [
+      { ok: true, result: { path: "/ws/skills/export/scripts/x.py" } },
+    ];
+
+    const { exitCode } = await runCommand([
+      "skills",
+      "companion",
+      "add",
+      "export",
+      "--path",
+      "scripts/x.py",
+      "--from",
+      "/tmp/x.py",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toHaveLength(1);
+    expect(ipcCalls[0]!.method).toBe("skills_companion_add");
+    expect(ipcCalls[0]!.params).toEqual({
+      body: {
+        skillId: "export",
+        path: "scripts/x.py",
+        from: "/tmp/x.py",
+        overwrite: false,
+      },
+    });
+  });
+
+  test("add passes overwrite through", async () => {
+    mockIpcResults = [{ ok: true, result: { path: "/ws/x" } }];
+
+    await runCommand([
+      "skills",
+      "companion",
+      "add",
+      "export",
+      "--path",
+      "scripts/x.py",
+      "--from",
+      "/tmp/x.py",
+      "--overwrite",
+    ]);
+
+    expect(
+      (ipcCalls[0]!.params as { body: { overwrite: boolean } }).body.overwrite,
+    ).toBe(true);
+  });
+
+  test("add surfaces a daemon rejection as a non-zero exit", async () => {
+    mockIpcResults = [
+      {
+        ok: false,
+        error: "not verifiably assistant-authored",
+        statusCode: 400,
+      },
+    ];
+
+    const { exitCode } = await runCommand([
+      "skills",
+      "companion",
+      "add",
+      "hand-written",
+      "--path",
+      "scripts/x.py",
+      "--from",
+      "/tmp/x.py",
+    ]);
+
+    expect(exitCode).not.toBe(0);
+  });
+
+  test("add requires --path and --from", async () => {
+    const missingFrom = await runCommand([
+      "skills",
+      "companion",
+      "add",
+      "export",
+      "--path",
+      "scripts/x.py",
+    ]);
+    expect(missingFrom.exitCode).not.toBe(0);
+    expect(ipcCalls).toHaveLength(0);
+  });
+
+  test("list renders companion files as JSON", async () => {
+    mockIpcResults = [
+      {
+        ok: true,
+        result: { files: [{ path: "scripts/x.py", bytes: 12 }] },
+      },
+    ];
+
+    const { stdout } = await runCommand([
+      "skills",
+      "companion",
+      "list",
+      "export",
+      "--json",
+    ]);
+
+    expect(ipcCalls[0]!.method).toBe("skills_companion_list");
+    expect(JSON.parse(stdout)).toEqual({
+      ok: true,
+      skillId: "export",
+      files: [{ path: "scripts/x.py", bytes: 12 }],
+    });
+  });
+
+  test("remove forwards the companion path", async () => {
+    mockIpcResults = [{ ok: true, result: { removed: true } }];
+
+    await runCommand([
+      "skills",
+      "companion",
+      "remove",
+      "export",
+      "--path",
+      "scripts/x.py",
+    ]);
+
+    expect(ipcCalls[0]!.method).toBe("skills_companion_remove");
+    expect(ipcCalls[0]!.params).toEqual({
+      body: { skillId: "export", path: "scripts/x.py" },
+    });
+  });
+});

@@ -275,6 +275,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "skills install",
   "skills uninstall",
   "skills add",
+  "skills companion",
+  "skills companion add",
+  "skills companion list",
+  "skills companion remove",
   "status",
   "stt",
   "stt transcribe",
@@ -854,6 +858,28 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "skills install", risk: "high" },
   { path: "skills uninstall", risk: "medium" },
   { path: "skills add", risk: "high" },
+  // `skills install` / `skills add` are high because they fetch and install a
+  // whole skill — arbitrary remote content, including a TOOLS.json manifest
+  // whose executors the daemon dynamically imports. A companion add is a much
+  // smaller action deliberately classified below them: it copies ONE local file
+  // into a skill the assistant already authored, the daemon rejects any
+  // destination outside that skill directory or on the store-owned files
+  // (SKILL.md, TOOLS.json, install-meta.json, version.json), and it can
+  // therefore never register an executable tool. Low is what lets a background
+  // pass bundle a script it just ran without a human in the loop; the arg rule
+  // below re-escalates the sensitive-source case.
+  {
+    path: "skills companion add",
+    risk: "low",
+    reason:
+      "Copies one local file into an assistant-authored skill; cannot register tools",
+  },
+  { path: "skills companion list", risk: "low" },
+  {
+    path: "skills companion remove",
+    risk: "medium",
+    reason: "Deletes a companion file from a managed skill",
+  },
   { path: "stt transcribe", risk: "medium" },
   { path: "tts synthesize", risk: "medium" },
   // Mutates the active provider's voice config (via config_set) — same
@@ -957,5 +983,28 @@ const scheduleCreateArgRules: ArgRule[] = [
 const scheduleCreateNode = getExistingPath(spec, "schedules create");
 scheduleCreateNode.argRules = scheduleCreateArgRules;
 scheduleCreateNode.argSchema = { valueFlags: ["--mode", "--script"] };
+
+// A companion add reads its `--from` source with the caller's own filesystem
+// authority, so what may be read is decided here — the same place `cat` and
+// `cp` are decided — rather than by a second path policy inside the daemon.
+// The pattern mirrors `cat:sensitive`: copying a key, a credentials file, or a
+// dotfile config into a skill folder would persist it where the model reads it
+// back as skill content, so those sources escalate to high and stop being
+// something an unattended pass can do without a human.
+const skillsCompanionAddArgRules: ArgRule[] = [
+  {
+    id: "assistant-skills-companion-add:sensitive-source",
+    flags: ["--from"],
+    valuePattern: "(?:^|/)(?:\\.ssh|\\.gnupg|\\.aws|\\.config|\\.env)\\b",
+    risk: "high",
+    reason: "Copies a sensitive file into a skill folder",
+  },
+];
+const skillsCompanionAddNode = getExistingPath(spec, "skills companion add");
+skillsCompanionAddNode.argRules = skillsCompanionAddArgRules;
+// Both flags consume the next token as a value; declare them so the arg parser
+// pairs `--from <path>` / `--path <rel>` correctly (and so the rule above sees
+// the source path as the flag's value, not as a bare positional).
+skillsCompanionAddNode.argSchema = { valueFlags: ["--from", "--path"] };
 
 export default spec;

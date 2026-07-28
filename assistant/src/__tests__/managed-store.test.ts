@@ -2,11 +2,13 @@ import * as fs from "node:fs";
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
@@ -16,9 +18,12 @@ const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 import { loadSkillCatalog } from "../config/skills.js";
 import {
+  addCompanionFile,
   buildSkillMarkdown,
   createManagedSkill,
   deleteManagedSkill,
+  listCompanionFiles,
+  removeCompanionFile,
   validateCompanionPath,
   validateManagedSkillId,
 } from "../skills/managed-store.js";
@@ -1357,5 +1362,251 @@ describe("YAML metadata round-trip", () => {
     expect(skill!.displayName).toBe("YAML Nested Skill");
     expect(skill!.emoji).toBe("🧪");
     expect(skill!.includes).toEqual(["child-a", "child-b"]);
+  });
+});
+
+describe("companion file CLI store surface", () => {
+  /** Create an assistant-authored managed skill to copy companions into. */
+  function seedAssistantSkill(id: string): void {
+    const result = createManagedSkill({
+      id,
+      name: id,
+      description: `${id} description`,
+      bodyMarkdown: "Body.",
+      author: "assistant",
+    });
+    expect(result.created).toBe(true);
+  }
+
+  test("copies an on-disk source into an assistant-authored skill", () => {
+    seedAssistantSkill("companion-add");
+    const sourcePath = join(TEST_DIR, "proven.py");
+    writeFileSync(sourcePath, "print('proven')\n", "utf-8");
+
+    const result = addCompanionFile({
+      skillId: "companion-add",
+      path: "scripts/proven.py",
+      sourcePath,
+    });
+
+    expect(result.added).toBe(true);
+    expect(
+      readFileSync(
+        join(TEST_DIR, "skills", "companion-add", "scripts", "proven.py"),
+        "utf-8",
+      ),
+    ).toBe("print('proven')\n");
+  });
+
+  test("copies from outside the workspace — source policy is the shell's, not the store's", () => {
+    seedAssistantSkill("companion-outside");
+    const outsideDir = mkdtempSync(join(tmpdir(), "companion-source-"));
+    const sourcePath = join(outsideDir, "outside.py");
+    writeFileSync(sourcePath, "print('outside')\n", "utf-8");
+
+    try {
+      const result = addCompanionFile({
+        skillId: "companion-outside",
+        path: "scripts/outside.py",
+        sourcePath,
+      });
+
+      expect(result.added).toBe(true);
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a skill that is not verifiably assistant-authored", () => {
+    createManagedSkill({
+      id: "companion-user-authored",
+      name: "User Authored",
+      description: "Authored by the user",
+      bodyMarkdown: "Body.",
+      author: "user",
+    });
+    const sourcePath = join(TEST_DIR, "user-authored.py");
+    writeFileSync(sourcePath, "x", "utf-8");
+
+    const result = addCompanionFile({
+      skillId: "companion-user-authored",
+      path: "scripts/x.py",
+      sourcePath,
+    });
+
+    expect(result.added).toBe(false);
+    expect(result.error).toContain("not verifiably assistant-authored");
+    expect(
+      existsSync(
+        join(TEST_DIR, "skills", "companion-user-authored", "scripts", "x.py"),
+      ),
+    ).toBe(false);
+  });
+
+  test("refuses a missing skill", () => {
+    const sourcePath = join(TEST_DIR, "orphan.py");
+    writeFileSync(sourcePath, "x", "utf-8");
+
+    const result = addCompanionFile({
+      skillId: "companion-missing",
+      path: "scripts/x.py",
+      sourcePath,
+    });
+
+    expect(result.added).toBe(false);
+    expect(result.error).toContain("not found");
+  });
+
+  test.each([
+    ["tools.json", "TOOLS.json manifest"],
+    ["TOOLS.json", "case-varied manifest"],
+    ["SKILL.md", "skill body"],
+    ["install-meta.json", "install metadata"],
+  ])("refuses to overwrite the store-owned %s (%s)", (reservedPath) => {
+    seedAssistantSkill("companion-reserved");
+    const sourcePath = join(TEST_DIR, "manifest.json");
+    writeFileSync(sourcePath, '{"tools":[]}', "utf-8");
+
+    const result = addCompanionFile({
+      skillId: "companion-reserved",
+      path: reservedPath,
+      sourcePath,
+      overwrite: true,
+    });
+
+    expect(result.added).toBe(false);
+    expect(result.error).toContain("store-owned file");
+  });
+
+  test("refuses a destination that escapes the skill directory", () => {
+    seedAssistantSkill("companion-escape");
+    const sourcePath = join(TEST_DIR, "escape.py");
+    writeFileSync(sourcePath, "x", "utf-8");
+
+    const result = addCompanionFile({
+      skillId: "companion-escape",
+      path: "../other-skill/scripts/x.py",
+      sourcePath,
+    });
+
+    expect(result.added).toBe(false);
+    expect(result.error).toContain("..");
+  });
+
+  test("refuses to replace an existing companion without overwrite", () => {
+    seedAssistantSkill("companion-clobber");
+    const sourcePath = join(TEST_DIR, "v1.py");
+    writeFileSync(sourcePath, "v1", "utf-8");
+    expect(
+      addCompanionFile({
+        skillId: "companion-clobber",
+        path: "scripts/x.py",
+        sourcePath,
+      }).added,
+    ).toBe(true);
+
+    writeFileSync(sourcePath, "v2", "utf-8");
+    const second = addCompanionFile({
+      skillId: "companion-clobber",
+      path: "scripts/x.py",
+      sourcePath,
+    });
+
+    expect(second.added).toBe(false);
+    expect(second.error).toContain("already exists");
+    expect(
+      readFileSync(
+        join(TEST_DIR, "skills", "companion-clobber", "scripts", "x.py"),
+        "utf-8",
+      ),
+    ).toBe("v1");
+
+    expect(
+      addCompanionFile({
+        skillId: "companion-clobber",
+        path: "scripts/x.py",
+        sourcePath,
+        overwrite: true,
+      }).added,
+    ).toBe(true);
+    expect(
+      readFileSync(
+        join(TEST_DIR, "skills", "companion-clobber", "scripts", "x.py"),
+        "utf-8",
+      ),
+    ).toBe("v2");
+  });
+
+  test("refuses a relative source path", () => {
+    seedAssistantSkill("companion-relative");
+
+    const result = addCompanionFile({
+      skillId: "companion-relative",
+      path: "scripts/x.py",
+      sourcePath: "relative.py",
+    });
+
+    expect(result.added).toBe(false);
+    expect(result.error).toContain("absolute path");
+  });
+
+  test("refuses a directory source", () => {
+    seedAssistantSkill("companion-dir-source");
+    const sourceDir = join(TEST_DIR, "a-directory");
+    mkdirSync(sourceDir, { recursive: true });
+
+    const result = addCompanionFile({
+      skillId: "companion-dir-source",
+      path: "scripts/x.py",
+      sourcePath: sourceDir,
+    });
+
+    expect(result.added).toBe(false);
+    expect(result.error).toContain("not a regular file");
+  });
+
+  test("lists companion files and omits the store-owned files", () => {
+    seedAssistantSkill("companion-list");
+    const sourcePath = join(TEST_DIR, "listed.py");
+    writeFileSync(sourcePath, "12345", "utf-8");
+    addCompanionFile({
+      skillId: "companion-list",
+      path: "scripts/listed.py",
+      sourcePath,
+    });
+
+    const result = listCompanionFiles("companion-list");
+
+    expect("error" in result).toBe(false);
+    const files = (result as { files: { path: string; bytes: number }[] })
+      .files;
+    expect(files).toEqual([{ path: "scripts/listed.py", bytes: 5 }]);
+  });
+
+  test("removes a companion file but never a store-owned file", () => {
+    seedAssistantSkill("companion-remove");
+    const sourcePath = join(TEST_DIR, "removable.py");
+    writeFileSync(sourcePath, "x", "utf-8");
+    addCompanionFile({
+      skillId: "companion-remove",
+      path: "scripts/removable.py",
+      sourcePath,
+    });
+
+    expect(removeCompanionFile("companion-remove", "SKILL.md").removed).toBe(
+      false,
+    );
+    expect(
+      existsSync(join(TEST_DIR, "skills", "companion-remove", "SKILL.md")),
+    ).toBe(true);
+
+    expect(
+      removeCompanionFile("companion-remove", "scripts/removable.py").removed,
+    ).toBe(true);
+    expect(
+      existsSync(
+        join(TEST_DIR, "skills", "companion-remove", "scripts", "removable.py"),
+      ),
+    ).toBe(false);
   });
 });

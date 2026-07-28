@@ -469,6 +469,96 @@ export function registerSkillsCommand(program: Command): void {
           }
         },
       );
+
+      const companion = subcommand(skills, "companion");
+
+      subcommand(companion, "add").action(
+        async (
+          skillId: string,
+          opts: {
+            path: string;
+            from: string;
+            overwrite?: boolean;
+            json?: boolean;
+          },
+          _cmd,
+        ) => {
+          const json = opts.json ?? false;
+          const r = await cliIpcCall<{ path: string }>("skills_companion_add", {
+            body: {
+              skillId,
+              path: opts.path,
+              from: opts.from,
+              overwrite: opts.overwrite ?? false,
+            },
+          });
+          if (!r.ok)
+            return exitFromCliResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              json,
+            );
+          if (json) {
+            console.log(
+              JSON.stringify({ ok: true, skillId, path: r.result?.path }),
+            );
+          } else {
+            log.info(`Added "${opts.path}" to skill "${skillId}".`);
+          }
+        },
+      );
+
+      subcommand(companion, "list").action(
+        async (skillId: string, opts: { json?: boolean }, _cmd) => {
+          const json = opts.json ?? false;
+          const r = await cliIpcCall<{
+            files: Array<{ path: string; bytes: number }>;
+          }>("skills_companion_list", { body: { skillId } });
+          if (!r.ok)
+            return exitFromCliResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              json,
+            );
+          const files = r.result?.files ?? [];
+          if (json) {
+            console.log(JSON.stringify({ ok: true, skillId, files }));
+            return;
+          }
+          if (files.length === 0) {
+            log.info(`Skill "${skillId}" has no companion files.`);
+            return;
+          }
+          const pathWidth = Math.max(4, ...files.map((f) => f.path.length));
+          log.info(`Companion files in "${skillId}" (${files.length}):\n`);
+          log.info(`  ${"PATH".padEnd(pathWidth)}  BYTES`);
+          for (const file of files) {
+            log.info(`  ${file.path.padEnd(pathWidth)}  ${file.bytes}`);
+          }
+        },
+      );
+
+      subcommand(companion, "remove").action(
+        async (
+          skillId: string,
+          opts: { path: string; json?: boolean },
+          _cmd,
+        ) => {
+          const json = opts.json ?? false;
+          const r = await cliIpcCall<{ removed: boolean }>(
+            "skills_companion_remove",
+            { body: { skillId, path: opts.path } },
+          );
+          if (!r.ok)
+            return exitFromCliResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              json,
+            );
+          if (json) {
+            console.log(JSON.stringify({ ok: true, skillId, path: opts.path }));
+          } else {
+            log.info(`Removed "${opts.path}" from skill "${skillId}".`);
+          }
+        },
+      );
     },
   });
 }

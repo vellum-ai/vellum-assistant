@@ -1084,6 +1084,33 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("high");
   });
 
+  test("assistant skills companion add → low (bundles a script into an owned skill)", async () => {
+    const result = await classifier.classify({
+      command:
+        "assistant skills companion add export-report --path scripts/export.py --from /tmp/export.py",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("assistant skills companion add from a sensitive source → high", async () => {
+    const result = await classifier.classify({
+      command:
+        "assistant skills companion add export-report --path scripts/key.txt --from /home/assistant/.ssh/id_rsa",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("assistant skills companion remove → medium", async () => {
+    const result = await classifier.classify({
+      command:
+        "assistant skills companion remove export-report --path scripts/export.py",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
   test("assistant bash ls → high", async () => {
     const result = await classifier.classify({
       command: "assistant bash ls",
