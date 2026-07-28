@@ -45,7 +45,7 @@ export function LoginErrorText({
 }
 
 /** Forced-dark full-screen shell with the branded gradient background. */
-export function DarkLoginShell({ children }: { children: ReactNode }) {
+export function DarkLoginShell({ children }: { children?: ReactNode }) {
   return (
     <div className="dark">
       <div className="relative min-h-screen overflow-x-hidden bg-[var(--surface-base)] text-[var(--content-default)]">
