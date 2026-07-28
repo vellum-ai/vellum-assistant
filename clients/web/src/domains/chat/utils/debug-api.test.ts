@@ -63,7 +63,7 @@ const DEFAULT_UI_CONTEXT: UIContext = {
   hasPendingContactRequest: false,
   hasUncompletedVisibleSurface: false,
   activeConversationIsProcessing: false,
-  hasPendingAssistantResponse: false,
+  streamAheadOfServer: false,
 };
 
 const DEFAULT_PENDING_INTERACTIONS: PendingInteractionsSnapshot = {
@@ -359,16 +359,14 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.done.lastTerminalReason).toBeNull();
   });
 
-  test("initial state → hidden with notSendingAndNotRestoredProcessing flag and terminal=true", () => {
+  test("initial state → hidden with notLive flag and terminal=true", () => {
     const refs = makeRefs();
     const api = createChatDebugApi(refs);
 
     const snapshot = api.thinkingIndicator();
 
     expect(snapshot.visible).toBe(false);
-    expect(snapshot.failingConditions).toEqual([
-      "notSendingAndNotRestoredProcessing",
-    ]);
+    expect(snapshot.failingConditions).toEqual(["notLive"]);
     expect(snapshot.done.terminal).toBe(true);
     expect(snapshot.done.phase).toBe("idle");
     expect(snapshot.done.lastTerminalReason).toBeNull();
@@ -461,26 +459,25 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     }
   });
 
-  test("restoredProcessing keeps the indicator visible after a conversation switch", () => {
-    // Mirrors the resumed-conversation case: reducer is idle (because the
-    // local turn state machine was reset by the switch) but the active
-    // conversation list says this conversation is still processing AND there's
-    // a user message with no assistant reply yet.
+  test("server-live snapshot keeps the indicator visible after a conversation switch", () => {
+    // Mirrors the resumed-conversation case: the reducer is idle (the local
+    // turn state machine was reset by the switch), but the reseed carried the
+    // server's `processing: true` onto the snapshot, so the single liveness
+    // source keeps the dots up without a separate row-flag restore path.
     const refs = makeRefs({
       turn: INITIAL_TURN_STATE,
       uiContext: {
-        activeConversationIsProcessing: true,
-        hasPendingAssistantResponse: true,
+        snapshotProcessing: true,
       },
     });
     const api = createChatDebugApi(refs);
 
     const snapshot = api.thinkingIndicator();
 
-    expect(snapshot.conditions.restoredProcessing).toBe(true);
+    expect(snapshot.conditions.isActiveTurnLive).toBe(true);
     expect(snapshot.visible).toBe(true);
     expect(snapshot.failingConditions).toEqual([]);
-    // Phase is still idle locally — but `restoredProcessing` overrides.
+    // Phase is still idle locally — but the server-live snapshot overrides.
     expect(snapshot.done.terminal).toBe(true);
   });
 
@@ -550,26 +547,38 @@ describe("createChatDebugApi.streamingRing", () => {
     expect(ring.isAssistantBusy).toBe(false);
   });
 
-  test("streamingRing shows isAssistantBusy true when the cached snapshot is stale after the turn ends", () => {
-    // The hang case: the local turn is terminal (idle, complete) but the
-    // cached `conversation.isProcessing` snapshot is still true, so
-    // `isAssistantBusy` keeps the ring visible.
+  test("THE INCIDENT: ring stays busy when genuinely processing behind a stale snapshot", () => {
+    // The reported `streamingRing()` state, now correct: the local turn phase
+    // is idle, the snapshot reads a stale `processing: false`, but the live
+    // stream is ahead of the durable snapshot (L > S) — so the turn is live and
+    // the ring exposes exactly why.
     const refs = makeRefs({
-      turn: {
-        ...INITIAL_TURN_STATE,
-        phase: "idle",
-        lastTerminalReason: "complete",
-      },
-      uiContext: { activeConversationIsProcessing: true },
+      turn: { ...INITIAL_TURN_STATE, phase: "thinking", activeTurnId: "turn-1" },
+      uiContext: { snapshotProcessing: false, streamAheadOfServer: true },
     });
     const api = createChatDebugApi(refs);
 
-    const snapshot = api.thinkingIndicator();
     const ring = api.streamingRing();
 
-    expect(snapshot.done.terminal).toBe(true);
+    expect(ring.isActiveTurnLive).toBe(true);
     expect(ring.isAssistantBusy).toBe(true);
-    expect(ring.activeConversationIsProcessing).toBe(true);
+    expect(ring.snapshotProcessing).toBe(false);
+    expect(ring.streamAheadOfServer).toBe(true);
+  });
+
+  test("streamingRing settles once the snapshot is authoritatively idle (S >= L)", () => {
+    // Same stale-looking phase, but the snapshot has caught up and reports idle
+    // — the server-authoritative close settles the ring even though phase lags.
+    const refs = makeRefs({
+      turn: { ...INITIAL_TURN_STATE, phase: "thinking", activeTurnId: "turn-1" },
+      uiContext: { snapshotProcessing: false, streamAheadOfServer: false },
+    });
+    const api = createChatDebugApi(refs);
+
+    const ring = api.streamingRing();
+
+    expect(ring.isActiveTurnLive).toBe(false);
+    expect(ring.isAssistantBusy).toBe(false);
   });
 });
 

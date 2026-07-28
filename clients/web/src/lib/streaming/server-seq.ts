@@ -29,6 +29,8 @@
  * load overwrites the same conversation's entry.
  */
 
+import { getLocalSeq } from "@/lib/streaming/local-seq";
+
 const serverSeqByConversation = new Map<string, number>();
 
 /**
@@ -59,4 +61,28 @@ export function getServerSeq(conversationId: string): number | null {
 /** Reset state. Test-only. */
 export function __resetServerSeqForTesting(): void {
   serverSeqByConversation.clear();
+}
+
+/**
+ * Whether the live SSE stream has advanced a conversation past the durable
+ * `/messages` snapshot — `L > S`, the "stream is ahead" half of the monotonic
+ * merge this module documents.
+ *
+ * When true, the snapshot's view (content AND its `processing` flag) is stale
+ * relative to events the stream has already applied, so a snapshot-sourced
+ * `processing: false` must not be trusted to close the turn — it predates the
+ * live turn. When false (`S >= L`, or either watermark unknown) the snapshot
+ * has seen everything the stream applied and is authoritative.
+ *
+ * Reuses the two recorded watermarks (`getServerSeq` = S, `getLocalSeq` = L);
+ * a missing watermark means "no honest position to gate on", so we default to
+ * NOT-ahead (snapshot authoritative) rather than manufacturing a stall.
+ */
+export function isStreamAheadOfServerSnapshot(conversationId: string): boolean {
+  const serverSeq = getServerSeq(conversationId);
+  const localSeq = getLocalSeq(conversationId);
+  if (serverSeq === null || localSeq === null) {
+    return false;
+  }
+  return localSeq > serverSeq;
 }

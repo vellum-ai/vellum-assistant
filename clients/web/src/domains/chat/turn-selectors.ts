@@ -24,20 +24,28 @@ export interface UIContext {
   hasPendingQuestion: boolean;
   hasPendingContactRequest: boolean;
   hasUncompletedVisibleSurface: boolean;
-  /** True when the active conversation is known to be processing even though
-   * the local turn reducer was reset by a conversation switch. */
+  /** Legacy (pre-0.8.8) conversation-processing signal — the conversation-row
+   * `isProcessing` flag OR'd with the client optimistic mirror. Consulted ONLY
+   * when `snapshotProcessing` is `undefined` (older daemons / cold snapshot),
+   * where there is no server-folded flag; on 0.8.8+ the seq-folded
+   * `snapshotProcessing` is authoritative and this is ignored. */
   activeConversationIsProcessing?: boolean;
-  /** True when the latest non-queued user message has no following assistant
-   * message yet. Used with `activeConversationIsProcessing` to restore the
-   * thinking indicator after switching back to an in-flight conversation. */
-  hasPendingAssistantResponse?: boolean;
-  /** The daemon's authoritative per-conversation `processing` flag, carried on
-   * the rolling snapshot (`PaginatedHistoryResult.processing`) and refreshed by
-   * every `/messages` reseed. Consumed as an authoritative CLOSE-gate: `false`
-   * means the server considers the turn over, so a `phase` left stuck by a
-   * dropped terminal SSE event stops driving the indicator. `undefined` (older
-   * daemons, or a cold snapshot) leaves phase-only behavior untouched. */
+  /** The daemon's authoritative per-conversation `processing` flag, seq-folded
+   * onto the rolling snapshot (`rolling-snapshot.ts:nextProcessingState`) from
+   * the live stream and reseeded by every `/messages` page. It owns the turn
+   * CLOSE: `false` settles the turn — but only when the snapshot is
+   * authoritative (see {@link isActiveTurnLive} and `streamAheadOfServer`).
+   * `true` means the server considers a turn live. `undefined` (older daemons /
+   * cold snapshot) means "no server signal", so liveness falls back to `phase`. */
   snapshotProcessing?: boolean;
+  /** True when the live SSE stream has advanced this conversation past the
+   * durable `/messages` snapshot (`L > S`; see
+   * `server-seq.isStreamAheadOfServerSnapshot`). While true the snapshot — and
+   * its `snapshotProcessing` flag — predates events the stream already applied,
+   * so a stale `snapshotProcessing: false` must NOT close a genuinely live turn.
+   * This is the seq arbiter that also covers the just-sent window (sending
+   * advances the local frontier past the server's). */
+  streamAheadOfServer?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,13 +53,65 @@ export interface UIContext {
 // ---------------------------------------------------------------------------
 
 /**
+ * Whether an assistant turn is live on the active conversation — the single
+ * liveness source both the avatar/stop selector and the thinking indicator
+ * derive from.
+ *
+ * Ownership is a handoff between the client and the server, and that handoff
+ * is what retired the old three-signal reconciliation (a client `phase`, the
+ * conversation-row `isProcessing`, and a snapshot close-gate that could
+ * disagree):
+ *
+ *   - The optimistic client `phase` owns the OPEN. The spinner shows the
+ *     instant you send — before the server has round-tripped a single event —
+ *     because `isSending(phase)` flips on the local send.
+ *   - The server's seq-folded `snapshotProcessing` owns the CLOSE. A
+ *     `processing: false` settles the turn even if `phase` is stuck (a terminal
+ *     SSE event dropped on a disconnect) — BUT only when the snapshot is
+ *     authoritative, i.e. the live stream has NOT advanced past the durable
+ *     `/messages` snapshot (`!streamAheadOfServer`). While the stream is ahead,
+ *     the snapshot predates the live turn, so its `false` is stale and the
+ *     optimistic `phase` keeps leading. `streamAheadOfServer` is the seq arbiter
+ *     (`L > S`) and also covers the just-sent window — sending advances the
+ *     local frontier past the server's on its own.
+ *
+ * `snapshotProcessing === undefined` (pre-0.8.8 / cold snapshot) carries no
+ * server signal, so liveness is `phase` alone.
+ */
+export function isActiveTurnLive(
+  phase: TurnPhase,
+  ctx: Pick<
+    UIContext,
+    "snapshotProcessing" | "streamAheadOfServer" | "activeConversationIsProcessing"
+  >,
+): boolean {
+  if (ctx.snapshotProcessing === undefined) {
+    // Pre-0.8.8 / cold snapshot: no server-folded flag, so fall back to the
+    // legacy union of the optimistic client `phase` and the conversation-row
+    // processing signal (the only local proof of an external-channel turn).
+    return isSending(phase) || ctx.activeConversationIsProcessing === true;
+  }
+  if (ctx.snapshotProcessing === true) {
+    return true;
+  }
+  if (!ctx.streamAheadOfServer) {
+    // Server-authoritative close: the snapshot says idle and has caught up to
+    // everything the stream applied. The turn is over regardless of `phase`.
+    return false;
+  }
+  // `false` while the stream is ahead of the snapshot (stale close): the
+  // optimistic client `phase` is the only fresh signal, so it leads.
+  return isSending(phase);
+}
+
+/**
  * Whether the "Thinking..." indicator should be visible.
  *
  * Mirrors macOS TranscriptProjector.wouldShowThinking:
  *   isSending && (isThinking || !hasStreamingAssistantMessage) && !hasActiveToolCall
  *
- * Show the indicator whenever the turn is actively processing, no assistant
- * text is streaming yet, and no tool call is in-flight. The fallback
+ * Show the indicator whenever a turn is live ({@link isActiveTurnLive}), no
+ * assistant text is streaming yet, and no tool call is in-flight. The fallback
  * `!hasStreamingAssistantMessage` keeps it visible even after the phase
  * moves past "thinking" (e.g. after a tool call completes before any text
  * arrives).
@@ -79,29 +139,14 @@ export function shouldShowThinkingIndicator(
   activeToolCallCount: number,
   ctx: UIContext,
 ): boolean {
-  // Authoritative close: when the daemon reports this conversation idle
-  // (`snapshotProcessing === false`, 0.8.8+) the turn is over — even if the
-  // local `phase` never saw the terminal SSE event (dropped while the stream
-  // was disconnected). Guarded by `hasPendingAssistantResponse` so the window
-  // right after a send — before the first token, where the snapshot still
-  // legitimately reads the prior idle — keeps showing the dots. `undefined`
-  // (older daemons / cold snapshot) leaves the phase-driven behavior untouched.
-  if (ctx.snapshotProcessing === false && !ctx.hasPendingAssistantResponse) {
-    return false;
-  }
-
-  const restoredProcessing =
-    ctx.activeConversationIsProcessing === true &&
-    ctx.hasPendingAssistantResponse === true;
-
   return (
-    (isSending(phase) || restoredProcessing) &&
+    isActiveTurnLive(phase, ctx) &&
     !ctx.hasPendingSecret &&
     !ctx.hasPendingConfirmation &&
     !ctx.hasPendingQuestion &&
     !ctx.hasPendingContactRequest &&
     !ctx.hasUncompletedVisibleSurface &&
-    (isThinking(phase) || restoredProcessing || !ctx.hasStreamingAssistantMessage) &&
+    (isThinking(phase) || !ctx.hasStreamingAssistantMessage) &&
     // Inline SingleActivity owns the loading state once reasoning is present.
     !ctx.hasStreamingAssistantThinking &&
     activeToolCallCount === 0
@@ -115,29 +160,20 @@ export function shouldShowThinkingIndicator(
  * When the assistant is waiting for the user to resolve a prompt (secret,
  * confirmation, question, contact request) or an interactive surface, it is
  * not busy — the prompt IS the UI, and neither a spinner nor a stop button
- * should be shown. Not-busy is driven exclusively by an actually-pending
- * prompt or surface: `phase` alone does not suppress busy, so a turn that
- * keeps streaming after a prompt resolves stays busy even if the phase is
- * momentarily stale at `awaiting_user_input`.
+ * should be shown. Otherwise busy tracks {@link isActiveTurnLive} directly, so
+ * the same seq-arbitrated close that settles the thinking dots settles the
+ * spinner and stop button — no independent close condition to drift.
  *
  * External-channel conversations (Slack, Telegram, phone) can stream into an
- * already-open web tab without the web app ever calling `requestSend()`. In
- * that case the live transcript or conversation processing marker is the only
- * local proof that there is an active turn.
- *
- * Authoritative close-gate: `snapshotProcessing === false` means the daemon
- * says the turn is done, even if `phase` is stuck. The
- * `hasPendingAssistantResponse` guard keeps the window right after a send
- * (before the first token) covered.
+ * already-open web tab without the web app ever calling `requestSend()`. That
+ * case is covered because the server's `snapshotProcessing` (folded from the
+ * incoming stream) marks the turn live even though the local `phase` never left
+ * idle — {@link isActiveTurnLive} returns true on `snapshotProcessing === true`.
  */
 export function isAssistantBusy(
   phase: TurnPhase,
   ctx: UIContext,
 ): boolean {
-  if (ctx.snapshotProcessing === false && !ctx.hasPendingAssistantResponse) {
-    return false;
-  }
-
   // Only an actually-pending prompt or interactive surface suppresses busy —
   // the `phase` can lag at `awaiting_user_input` after a prompt resolves while
   // the turn keeps streaming, so it must not gate this on its own.
@@ -151,11 +187,7 @@ export function isAssistantBusy(
     return false;
   }
 
-  return (
-    isSending(phase) ||
-    ctx.hasStreamingAssistantMessage ||
-    ctx.activeConversationIsProcessing === true
-  );
+  return isActiveTurnLive(phase, ctx);
 }
 
 /**

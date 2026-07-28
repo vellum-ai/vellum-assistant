@@ -59,6 +59,7 @@ import {
 } from "@/domains/chat/turn-store";
 import {
   type UIContext,
+  isActiveTurnLive,
   isAssistantBusy,
   shouldShowThinkingIndicator,
 } from "@/domains/chat/turn-selectors";
@@ -81,9 +82,9 @@ export interface ChatDebugThinkingConditions {
   isSending: boolean;
   /** {@link isThinking} — phase === "thinking". */
   isThinking: boolean;
-  /** activeConversationIsProcessing && hasPendingAssistantResponse — restores
-   *  the indicator after a conversation switch. */
-  restoredProcessing: boolean;
+  /** {@link isActiveTurnLive} — the single liveness source: server owns the
+   *  close (seq-arbitrated), the optimistic `phase` owns the open. */
+  isActiveTurnLive: boolean;
   /** Number of in-flight tool calls. Predicate requires `=== 0`. */
   activeToolCallCount: number;
   /** Daemon-provided activity label (e.g. "Processing bash results"). */
@@ -98,8 +99,13 @@ export interface ChatDebugThinkingConditions {
   /** True when the live assistant message already has reasoning content, so the
    * inline `SingleActivity` owns the loading state and the dots row defers. */
   hasStreamingAssistantThinking: boolean;
+  /** Legacy (pre-0.8.8) conversation-processing signal. Informational — only
+   *  consulted by {@link isActiveTurnLive} when `snapshotProcessing` is
+   *  `undefined`. */
   activeConversationIsProcessing: boolean;
-  hasPendingAssistantResponse: boolean;
+  /** Seq arbiter (`L > S`): the live stream is ahead of the durable snapshot,
+   *  so a `snapshotProcessing: false` is stale and must not close the turn. */
+  streamAheadOfServer: boolean;
 }
 
 /**
@@ -159,6 +165,16 @@ export interface PendingInteractionsSnapshot {
 export interface ChatDebugStreamingRing {
   isAssistantBusy: boolean;
   shouldShowThinkingIndicator: boolean;
+  /** The single liveness source both selectors derive from. */
+  isActiveTurnLive: boolean;
+  /** Server CLOSE authority (seq-folded). `false` settles the turn only when
+   *  `streamAheadOfServer` is false. */
+  snapshotProcessing: boolean | undefined;
+  /** Seq arbiter (`L > S`): while true, a `snapshotProcessing: false` is stale
+   *  and the optimistic `phase` keeps the turn live. */
+  streamAheadOfServer: boolean | undefined;
+  /** Legacy (pre-0.8.8) conversation-row signal — only consulted when
+   *  `snapshotProcessing` is `undefined`. */
   activeConversationIsProcessing: boolean | undefined;
 }
 
@@ -562,14 +578,10 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     const turnState = refs.getTurnState();
     const uiContext = refs.getUIContext();
 
-    const restoredProcessing =
-      uiContext.activeConversationIsProcessing === true &&
-      uiContext.hasPendingAssistantResponse === true;
-
     const conditions: ChatDebugThinkingConditions = {
       isSending: isSending(turnState.phase),
       isThinking: isThinking(turnState.phase),
-      restoredProcessing,
+      isActiveTurnLive: isActiveTurnLive(turnState.phase, uiContext),
       activeToolCallCount: turnState.activeToolCallCount,
       statusText: turnState.statusText,
       hasPendingSecret: uiContext.hasPendingSecret,
@@ -581,16 +593,15 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       hasStreamingAssistantThinking: uiContext.hasStreamingAssistantThinking,
       activeConversationIsProcessing:
         uiContext.activeConversationIsProcessing === true,
-      hasPendingAssistantResponse:
-        uiContext.hasPendingAssistantResponse === true,
+      streamAheadOfServer: uiContext.streamAheadOfServer === true,
     };
 
     // Mirror the AND-clauses of `shouldShowThinkingIndicator` exactly so a
     // false `visible` lines up with the list of blocking clauses. Order here
     // matches the order in the predicate body.
     const failingConditions: string[] = [];
-    if (!(conditions.isSending || conditions.restoredProcessing)) {
-      failingConditions.push("notSendingAndNotRestoredProcessing");
+    if (!conditions.isActiveTurnLive) {
+      failingConditions.push("notLive");
     }
     if (conditions.hasPendingSecret) {
       failingConditions.push("hasPendingSecret");
@@ -608,11 +619,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       failingConditions.push("hasUncompletedVisibleSurface");
     }
     if (
-      !(
-        conditions.isThinking ||
-        conditions.restoredProcessing ||
-        !conditions.hasStreamingAssistantMessage
-      )
+      !(conditions.isThinking || !conditions.hasStreamingAssistantMessage)
     ) {
       failingConditions.push("streamingAssistantMessageActive");
     }
@@ -661,6 +668,9 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     return {
       isAssistantBusy: isAssistantBusy(turnState.phase, uiContext),
       shouldShowThinkingIndicator: shouldShowThinkingIndicator(turnState.phase, turnState.activeToolCallCount, uiContext),
+      isActiveTurnLive: isActiveTurnLive(turnState.phase, uiContext),
+      snapshotProcessing: uiContext.snapshotProcessing,
+      streamAheadOfServer: uiContext.streamAheadOfServer,
       activeConversationIsProcessing: uiContext.activeConversationIsProcessing,
     };
   }
@@ -815,7 +825,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
-      "  .streamingRing()           raw values for avatar ring + thinking dots — .isAssistantBusy / .shouldShowThinkingIndicator / .activeConversationIsProcessing",
+      "  .streamingRing()           avatar ring + thinking dots — .isAssistantBusy / .shouldShowThinkingIndicator / .isActiveTurnLive",
+      "                              plus the inputs: .snapshotProcessing (server close) / .streamAheadOfServer (seq arbiter, L>S)",
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
       "  .serverMessages()          [experimental] fetch /v1/history and return the server snapshot response (messages + seq)",
       "                              (diff against getClientMessages() manually in the console)",

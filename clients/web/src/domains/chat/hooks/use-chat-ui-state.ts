@@ -16,14 +16,16 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import {
+  isActiveTurnLive,
   isAssistantBusy as isAssistantBusySelector,
   isSendDisabled,
   shouldShowThinkingIndicator,
   type UIContext,
 } from "@/domains/chat/turn-selectors";
-import { hasAnyInteractiveSurface, hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
+import { hasAnyInteractiveSurface } from "@/domains/chat/utils/chat";
 import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
+import { isStreamAheadOfServerSnapshot } from "@/lib/streaming/server-seq";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
@@ -83,21 +85,41 @@ export function useChatUIState(): ChatUIState {
 
   // Authoritative processing flag off the rolling snapshot; narrow selector so it re-renders only when the flag flips.
   const snapshotProcessing = useChatSessionStore((s) => s.snapshot?.processing);
+  // The snapshot's fold frontier. Read reactively so this hook re-renders when a
+  // stream fold or a `/messages` reseed moves the local/server watermarks — the
+  // inputs to `streamAheadOfServer` below.
+  const snapshotSeq = useChatSessionStore((s) => s.snapshot?.seq);
 
   // TanStack Query — deduped with any other call for the same conversation.
   const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
 
   // --- Derived values (memoized) ------------------------------------------
 
-  // Conversation processing. The daemon's `isProcessing` flag is the single
-  // source of truth on 0.8.8+; older daemons fall back to the client
-  // optimistic mirror. See `lib/backwards-compat/conversation-processing-state`.
-  const activeConversationIsProcessing = useActiveConversationIsProcessing();
+  // Legacy (pre-0.8.8) conversation-processing signal — consulted by
+  // `isActiveTurnLive` only when the daemon omits the seq-folded snapshot flag.
+  const conversationRowIsProcessing = useActiveConversationIsProcessing();
 
-  const activeConversationHasPendingAssistantResponse = useMemo(
-    () => hasPendingAssistantResponse(transcript),
-    [transcript],
-  );
+  // Whether the live stream has run past the durable `/messages` snapshot
+  // (`L > S`). This is the seq arbiter for the turn CLOSE: while true, a
+  // snapshot `processing: false` predates the live turn and must not settle it.
+  // Computed inline (two map lookups) rather than memoized: the seq watermarks
+  // are non-reactive module state, so recomputing every render — which the
+  // reactive `snapshotSeq` read guarantees happens on every fold/reseed — is
+  // both cheaper and staleness-free.
+  void snapshotSeq;
+  const streamAheadOfServer =
+    activeConversationId != null &&
+    isStreamAheadOfServerSnapshot(activeConversationId);
+
+  // The single liveness source: server owns the close (seq-arbitrated), the
+  // optimistic `phase` owns the open. Everything downstream — the avatar/stop
+  // selector, the thinking dots, `liveAssistantRowId`, and the returned
+  // `activeConversationIsProcessing` — derives from this one value.
+  const activeConversationIsProcessing = isActiveTurnLive(phase, {
+    snapshotProcessing,
+    streamAheadOfServer,
+    activeConversationIsProcessing: conversationRowIsProcessing,
+  });
 
   // `liveAssistantRowId` operates on raw (unsanitized) messages. This is
   // correct: sanitisation only removes blank user rows and sorts — it never
@@ -136,9 +158,9 @@ export function useChatUIState(): ChatUIState {
       hasPendingQuestion: !!pendingQuestion,
       hasPendingContactRequest: !!pendingContactRequest,
       hasUncompletedVisibleSurface,
-      activeConversationIsProcessing,
-      hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
+      activeConversationIsProcessing: conversationRowIsProcessing,
       snapshotProcessing,
+      streamAheadOfServer,
     }),
     [
       hasStreamingAssistantMessage,
@@ -148,9 +170,9 @@ export function useChatUIState(): ChatUIState {
       pendingQuestion,
       pendingContactRequest,
       hasUncompletedVisibleSurface,
-      activeConversationIsProcessing,
-      activeConversationHasPendingAssistantResponse,
+      conversationRowIsProcessing,
       snapshotProcessing,
+      streamAheadOfServer,
     ],
   );
 

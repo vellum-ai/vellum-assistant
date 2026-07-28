@@ -1444,28 +1444,32 @@ describe("shouldShowThinkingIndicator", () => {
   });
 
   test("shows after switching back to a processing conversation that has no assistant response yet", () => {
+    // Phase is idle (local turn reducer reset by the switch), but the reseed
+    // carried the server's `processing: true` onto the snapshot — the single
+    // liveness source now restores the dots without a separate row-flag path.
     expect(
       shouldShowThinkingIndicator(
         INITIAL_TURN_STATE.phase,
         INITIAL_TURN_STATE.activeToolCallCount,
         {
           ...defaultCtx,
-          activeConversationIsProcessing: true,
-          hasPendingAssistantResponse: true,
+          snapshotProcessing: true,
         },
       ),
     ).toBe(true);
   });
 
   test("does not show restored processing dots once the conversation has assistant progress", () => {
+    // A streaming assistant bubble already renders the progress, so the
+    // standalone dots defer even though the turn is still live.
     expect(
       shouldShowThinkingIndicator(
         INITIAL_TURN_STATE.phase,
         INITIAL_TURN_STATE.activeToolCallCount,
         {
           ...defaultCtx,
-          activeConversationIsProcessing: true,
-          hasPendingAssistantResponse: false,
+          snapshotProcessing: true,
+          hasStreamingAssistantMessage: true,
         },
       ),
     ).toBe(false);
@@ -1548,8 +1552,7 @@ describe("shouldShowThinkingIndicator", () => {
         INITIAL_TURN_STATE.activeToolCallCount,
         {
           ...defaultCtx,
-          activeConversationIsProcessing: true,
-          hasPendingAssistantResponse: true,
+          snapshotProcessing: true,
           hasPendingConfirmation: true,
         },
       ),
@@ -1603,18 +1606,25 @@ describe("isAssistantBusy", () => {
   });
 
   test("visible for an externally-originated streaming assistant message", () => {
+    // A Slack/Telegram turn streaming into an open tab: no local send (phase
+    // idle), but the stream folds the server's `processing: true` onto the
+    // snapshot — the single liveness source marks the turn busy.
     expect(
       isAssistantBusy(INITIAL_TURN_STATE.phase, {
         ...defaultCtx,
+        snapshotProcessing: true,
         hasStreamingAssistantMessage: true,
       }),
     ).toBe(true);
   });
 
-  test("visible after switching back to a processing conversation", () => {
+  test("visible after switching back to a processing conversation (pre-0.8.8 row flag)", () => {
+    // Legacy fallback: no server-folded flag, so the conversation-row signal
+    // restores busy after the local turn reducer was reset by the switch.
     expect(
       isAssistantBusy(INITIAL_TURN_STATE.phase, {
         ...defaultCtx,
+        snapshotProcessing: undefined,
         activeConversationIsProcessing: true,
       }),
     ).toBe(true);

@@ -49,7 +49,7 @@ const EMPTY_UI_CONTEXT: UIContext = {
   hasPendingContactRequest: false,
   hasUncompletedVisibleSurface: false,
   activeConversationIsProcessing: false,
-  hasPendingAssistantResponse: false,
+  streamAheadOfServer: false,
 };
 
 export function useChatDebugRegistration({
