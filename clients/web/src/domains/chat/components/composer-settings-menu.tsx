@@ -161,14 +161,17 @@ export function ComposerSettingsMenu({
   // while the real/draft id lives in the conversation store. If the user
   // already picked a model for that id, the selection is stashed there (not
   // written to the global default) — reflect it so the checkmark survives a
-  // remount and matches what the first message / promotion will apply. See
+  // remount and matches what the first message / promotion will apply. A
+  // defined prop can also carry a stash: a draft stub's id (no server row
+  // yet), or a loaded row whose promotion hasn't landed. In both cases the
+  // stash is the latest intent, so it wins there too. See
   // `pendingDraftProfiles` in `conversation-store`.
   const activeConversationId = useConversationStore.use.activeConversationId();
   const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
-  const draftProfileSelection =
-    !conversationId && activeConversationId
-      ? (pendingDraftProfiles.get(activeConversationId) ?? null)
-      : null;
+  const stashKey = conversationId ?? activeConversationId;
+  const draftProfileSelection = stashKey
+    ? (pendingDraftProfiles.get(stashKey) ?? null)
+    : null;
 
   const profileActiveKey =
     optimisticActiveProfile ?? draftProfileSelection ?? serverEffectiveProfile;
@@ -358,6 +361,22 @@ export function ComposerSettingsMenu({
         // optimistic checkmark rather than leave it stranded.
         setOptimisticActiveProfile(lastConfirmedProfileRef.current);
         return false;
+      }
+
+      // A draft stub (optimistically prepended on first send, `draft: true`)
+      // has no server row yet — a PUT against its client-minted id 404s
+      // (ATL-1136). Stash like the no-row branch above; the send path forwards
+      // the stash, and `use-send-message` re-keys it to the server-minted id
+      // so the promotion effect persists it once the real row exists.
+      if (
+        findConversation(queryClient, assistantId, capturedConversationId)
+          ?.draft
+      ) {
+        useConversationStore
+          .getState()
+          .setPendingDraftProfile(capturedConversationId, name);
+        lastConfirmedProfileRef.current = name;
+        return true;
       }
 
       // A direct selection supersedes any stash recorded for this conversation

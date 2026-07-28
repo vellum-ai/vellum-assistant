@@ -402,8 +402,17 @@ export function useSendMessage({
       // The draft's stashed profile (if any) has now been persisted on the
       // minted conversation; drop this draft's entry so it can't re-apply to a
       // later send. Cleared only on success — a failed draft send keeps the
-      // stash so a retry still carries the chosen profile.
-      if (inferenceProfileForSend) {
+      // stash so a retry still carries the chosen profile — and only while the
+      // stash still holds the value that was sent: a newer selection made
+      // mid-flight must survive so the mint-time re-key below can carry it to
+      // the minted conversation.
+      if (
+        inferenceProfileForSend &&
+        useConversationStore
+          .getState()
+          .pendingDraftProfiles.get(requestConversationId) ===
+          inferenceProfileForSend
+      ) {
         useConversationStore
           .getState()
           .clearPendingDraftProfile(requestConversationId);
@@ -869,6 +878,22 @@ export function useSendMessage({
             .transferProcessingConversationId(activeConversationId, newConversationId);
           resolveDraftKey(queryClient, assistantId, activeConversationId, newConversationId);
           resolveEditChatDraftConversationId(activeConversationId, newConversationId);
+
+          // A profile picked while the mint was in flight is stashed under the
+          // draft id after the POST already read the stash — re-key it to the
+          // minted id so the composer's promotion effect persists it now that
+          // the real row exists (ATL-1136).
+          const stashedProfile = useConversationStore
+            .getState()
+            .pendingDraftProfiles.get(activeConversationId);
+          if (stashedProfile !== undefined) {
+            useConversationStore
+              .getState()
+              .setPendingDraftProfile(newConversationId, stashedProfile);
+            useConversationStore
+              .getState()
+              .clearPendingDraftProfile(activeConversationId);
+          }
 
           // Only update active view state if the user is still on this conversation.
           if (useConversationStore.getState().activeConversationId === activeConversationId) {

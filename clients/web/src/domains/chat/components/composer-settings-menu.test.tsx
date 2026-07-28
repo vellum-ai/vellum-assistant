@@ -176,6 +176,8 @@ import { ComposerSettingsMenu } from "@/domains/chat/components/composer-setting
 // Real store (not mocked) — the component reads the draft conversation id and
 // the pending-profile stash from it.
 import { useConversationStore } from "@/stores/conversation-store";
+import type { Conversation } from "@/types/conversation-types";
+import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
 
 function renderMenu() {
   const queryClient = new QueryClient({
@@ -529,5 +531,60 @@ describe("Profile selection with no active conversation (new draft chat)", () =>
     // is written (no server conversation exists yet).
     expect(configPatchMock).not.toHaveBeenCalled();
     expect(inferenceprofilePut).not.toHaveBeenCalled();
+  });
+});
+
+describe("Profile selection on a draft stub conversation (ATL-1136)", () => {
+  test("stashes the selection instead of PUTting against the unminted id", async () => {
+    configGetMock.mockImplementation(async () => ({
+      data: {
+        llm: {
+          profileOrder: ["smart"],
+          profiles: { smart: { label: "Smart" } },
+          activeProfile: "smart",
+        },
+      },
+    }));
+    // First send in flight: the optimistic draft stub is in the foreground
+    // list cache, so the composer's `conversationId` prop is the client-minted
+    // draft id — which has no server row yet, so a PUT against it would 404.
+    useConversationStore.getState().setActiveConversationId("draft-xyz");
+    const qc = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    qc.setQueryData(conversationsQueryKey("assistant-1"), [
+      { conversationId: "draft-xyz", draft: true } as Conversation,
+    ]);
+    render(
+      createElement(
+        QueryClientProvider,
+        { client: qc },
+        createElement(ComposerSettingsMenu, {
+          assistantId: "assistant-1",
+          conversationId: "draft-xyz",
+        }),
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getAllByText("Smart").length).toBeGreaterThan(0),
+    );
+    const smart = screen
+      .getAllByTestId("menu-item")
+      .find((b) => b.textContent?.includes("Smart"));
+    fireEvent.click(smart!);
+
+    // The selection lands in the stash (the send path / mint-time re-key
+    // applies it), with no network write and no error toast.
+    await waitFor(() => {
+      expect(
+        useConversationStore.getState().pendingDraftProfiles.get("draft-xyz"),
+      ).toBe("smart");
+    });
+    expect(inferenceprofilePut).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
   });
 });
