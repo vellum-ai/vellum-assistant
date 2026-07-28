@@ -69,7 +69,7 @@ After gathering the data, present findings in a format the user can act on. User
 
 1. **One-line headline** with total monthly cost.
 2. **Conversations table** — the user's own activity, sorted by cost descending. Columns: conversation name, turns, cost, and a brief note on why it was expensive (e.g. "One heavy session drove 65% of your total spend"). Roll up small conversations into an "All other conversations" row to keep the table to 4-6 rows.
-3. **"What I'd change to cut costs"** — 2-3 bullets in plain English, biggest lever first. No jargon. Instead of "drop the balanced profile effort from high to medium," say "your chat model is set to high effort — dropping to medium would save ~$X/week." Each bullet states what to change, why it helps, and the estimated savings.
+3. **"What I'd change to cut costs"** — 2-3 bullets in plain English, biggest lever first. No jargon. Instead of "drop the balanced profile effort from high to medium," say "your chat model is set to high effort — dropping to medium would save ~\$X/week." Each bullet states what to change, why it helps, and the estimated savings.
 4. **A clear ask** — "Want me to make either of those changes?"
 
 **What to omit from the user-facing presentation:**
@@ -77,7 +77,6 @@ After gathering the data, present findings in a format the user can act on. User
 - **Background work** (memory processing, heartbeats, health checks) — users can't control these individually and they're already on cheap models by default. Mentioning them adds noise without actionable signal.
 - **Call site names, inference profile names, token counts, cache ratios** — these are diagnostic internals. Use them to figure out what's expensive, then translate to plain English.
 - **Recurring automation costs** unless one is a significant contributor (>$4/month). A monthly $0.17 digest doesn't need its own line in the summary.
-
 
 ## Step 2 — Read the effective configuration
 
