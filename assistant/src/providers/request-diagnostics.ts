@@ -2,7 +2,7 @@
  * Per-request outbound diagnostics for LLM provider calls.
  *
  * Diagnosing a provider failure requires knowing what the client actually put
- * on the wire — the resolved URL and path, the model ID sent, the connection
+ * on the wire: the resolved URL and path, the model ID sent, the connection
  * whose credential was used, the HTTP status, and the verbatim upstream error
  * body. Provider SDKs surface only a fraction of that (`@google/genai`'s
  * `ApiError` carries a status and a message and nothing else), and error
@@ -21,7 +21,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 /**
  * Whether a raw upstream error body was captured, and if not, why. Callers
  * must be able to tell an upstream that answered with no body from one whose
- * body never reached the diagnostics layer — those point at different bugs.
+ * body never reached the diagnostics layer, and those point at different bugs.
  */
 export type UpstreamErrorBodyState =
   | "captured"
@@ -76,8 +76,12 @@ export function redactUrl(url: string): string {
   } catch {
     return url;
   }
-  if (parsed.username) parsed.username = REDACTED;
-  if (parsed.password) parsed.password = REDACTED;
+  if (parsed.username) {
+    parsed.username = REDACTED;
+  }
+  if (parsed.password) {
+    parsed.password = REDACTED;
+  }
   for (const name of [...parsed.searchParams.keys()]) {
     if (CREDENTIAL_QUERY_PARAMS.has(name.toLowerCase())) {
       parsed.searchParams.set(name, REDACTED);
@@ -118,7 +122,7 @@ export function recordProviderRequestDiagnostics(
 /**
  * Run `fn` with a diagnostics recorder bound to its async context and return
  * everything observed, whether `fn` resolved or threw. The failure path is the
- * one that matters — a probe reports the URL and upstream body of the request
+ * one that matters: a probe reports the URL and upstream body of the request
  * that failed.
  */
 export async function runWithProviderRequestDiagnostics<T>(
@@ -150,7 +154,9 @@ let installed = false;
  * are read from a `clone()` so the SDK's own read is unaffected.
  */
 export function installOutboundHttpDiagnostics(): void {
-  if (installed) return;
+  if (installed) {
+    return;
+  }
   installed = true;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async function instrumentedFetch(
@@ -158,7 +164,9 @@ export function installOutboundHttpDiagnostics(): void {
     init?: RequestInit,
   ): Promise<Response> {
     const recorder = recorderStorage.getStore();
-    if (!recorder) return originalFetch(input, init);
+    if (!recorder) {
+      return originalFetch(input, init);
+    }
     const url = requestUrl(input);
     try {
       const response = await originalFetch(input, init);
@@ -171,15 +179,21 @@ export function installOutboundHttpDiagnostics(): void {
       }
       return response;
     } catch (error) {
-      if (url) recorder.record({ resolved_url: redactUrl(url) });
+      if (url) {
+        recorder.record({ resolved_url: redactUrl(url) });
+      }
       throw error;
     }
   } as typeof globalThis.fetch;
 }
 
 function requestUrl(input: RequestInfo | URL): string | undefined {
-  if (typeof input === "string") return input;
-  if (input instanceof URL) return input.toString();
+  if (typeof input === "string") {
+    return input;
+  }
+  if (input instanceof URL) {
+    return input.toString();
+  }
   return typeof input?.url === "string" ? input.url : undefined;
 }
 

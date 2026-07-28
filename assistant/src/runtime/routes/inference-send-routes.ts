@@ -161,7 +161,9 @@ function upstreamFailure(
   error: unknown,
   diagnostics: ProviderRequestDiagnostics,
 ): Error {
-  if (error instanceof BadRequestError) return error;
+  if (error instanceof BadRequestError) {
+    return error;
+  }
   const message = error instanceof Error ? error.message : String(error);
   return new UpstreamProviderError(message, {
     error_class: error instanceof Error ? error.name : "UnknownError",

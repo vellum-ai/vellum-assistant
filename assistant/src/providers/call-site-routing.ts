@@ -261,16 +261,18 @@ export class CallSiteRoutingProvider implements Provider {
     }
 
     if (connectionName) {
-      // The connection whose credential the call will authenticate with is only
-      // known here; diagnostics for a failed request are unactionable without
-      // it ("which key was this?").
-      recordProviderRequestDiagnostics({ connection_name: connectionName });
       const connectionProvider = await this.resolveByConnection(
         connectionName,
         resolved.provider,
         resolved.model,
       );
       if (connectionProvider) {
+        // The connection whose credential the call authenticates with is only
+        // known here, and diagnostics for a failed request are unactionable
+        // without it ("which key was this?"). Recorded once the adapter exists,
+        // so a connection that fell back to the default transport is not
+        // reported as the one that signed the request.
+        recordProviderRequestDiagnostics({ connection_name: connectionName });
         return connectionProvider;
       }
       // Soft credential failure: the routed connection yielded no usable
