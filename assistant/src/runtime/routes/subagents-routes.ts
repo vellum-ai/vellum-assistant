@@ -286,11 +286,10 @@ function settledRecordStatus(
 /**
  * Cap on the terminal subagents the reconcile snapshot carries per parent,
  * applied to the durable pass and the live pass alike. Rows live as long as the
- * conversation and `SubagentManager.rehydrateFromDb()` loads every one of them
- * back into memory, so both sides of an old chat hold every subagent it ever
- * spawned; a client rebuilding its list needs the recent ones, not the full
- * history. Subagents that are not terminal are never capped, a client's
- * stuck-active entry has to be settled at any age.
+ * conversation, so an old chat holds every subagent it ever spawned and a
+ * restart rehydrates hundreds of them into memory; a client rebuilding its list
+ * needs the recent ones, not the full history. Subagents that are not terminal
+ * are never capped, a client's stuck-active entry has to be settled at any age.
  */
 const MAX_RECONCILED_TERMINAL_RECORDS = 20;
 
@@ -379,10 +378,10 @@ export const ROUTES: RouteDefinition[] = [
         };
       }
 
-      // The live pass carries the same bound. `rehydrateFromDb()` loads every
-      // durable row, terminal ones included, back into the manager, so for a
-      // whole retention window after a restart the in-memory children of an old
-      // parent are exactly as unbounded as the table the query above capped.
+      // The live pass carries the same bound. `rehydrateFromDb()` applies a
+      // much larger cap of its own, so for a whole retention window after a
+      // restart the in-memory children of an old parent far outnumber what this
+      // snapshot should ship.
       const liveTerminal: SubagentState[] = [];
       for (const child of manager.getChildrenOf(parentConversationId)) {
         if (TERMINAL_STATUSES.has(child.status)) {
@@ -436,10 +435,12 @@ export const ROUTES: RouteDefinition[] = [
     handler: ({ pathParams, queryParams }) => {
       const manager = getSubagentManager();
       const state = manager.getState(pathParams!.id);
-      // Durable rows outlive manager state, the TTL sweep evicts in-memory
-      // metadata but keeps the row, and after a restart the row answers until
-      // `rehydrateFromDb()` runs, so they supply the conversation, label,
-      // status and spawn anchor once the live state is gone.
+      // Durable rows outlive manager state: the TTL sweep evicts in-memory
+      // metadata but keeps the row, after a restart the row answers until
+      // `rehydrateFromDb()` runs, and that rehydration rebuilds only the most
+      // recently finished terminal subagents, so the row stays the only answer
+      // for older ones. It supplies the conversation, label, status and spawn
+      // anchor once the live state is gone.
       const record = state ? undefined : getSubagentRecordById(pathParams!.id);
 
       // Prefer the authoritative child-conversation id the daemon holds.

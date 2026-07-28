@@ -302,15 +302,42 @@ describe("reconcileSubagents route", () => {
         }),
       );
     }
-    // Rehydration loads every durable row back into memory, terminal ones
-    // included, so for a whole retention window after a restart the live pass
-    // sees exactly the history the durable query bounded.
+    // Rehydration rebuilds terminal rows too, so for a whole retention window
+    // after a restart the live pass sees more history than this snapshot ships.
     getSubagentManager().rehydrateFromDb();
 
     const { subagents } = reconcile(PARENT_ID);
 
     expect(Object.keys(subagents).sort()).toEqual(
       Array.from({ length: 20 }, (_, i) => `sub-done-${i + 5}`).sort(),
+    );
+  });
+
+  test("reports the recent terminal runs past the rehydration bound", () => {
+    // Startup rehydration caps the terminal subagents it rebuilds in memory.
+    // That bound is an in-process concern: this route reads the table, so its
+    // own cap decides the payload and the answer must not move when memory
+    // holds a different slice of the history.
+    for (let i = 0; i < 210; i++) {
+      upsertSubagentRecord(
+        record({
+          id: `sub-done-${String(i).padStart(3, "0")}`,
+          conversationId: `child-conv-done-${i}`,
+          label: `done-${i}`,
+          status: "completed",
+          completedAt: 10_000 + i,
+        }),
+      );
+    }
+    getSubagentManager().rehydrateFromDb();
+
+    const { subagents } = reconcile(PARENT_ID);
+
+    expect(Object.keys(subagents).sort()).toEqual(
+      Array.from(
+        { length: 20 },
+        (_, i) => `sub-done-${String(i + 190).padStart(3, "0")}`,
+      ).sort(),
     );
   });
 

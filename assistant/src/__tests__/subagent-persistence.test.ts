@@ -6,6 +6,7 @@ import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/356
 import { resetTestTables } from "../persistence/raw-query.js";
 import {
   deleteSubagentRecordsByParent,
+  getSubagentRecordById,
   loadAllSubagentRecords,
   type SubagentRecord,
   upsertSubagentRecord,
@@ -34,6 +35,9 @@ function record(over: Partial<SubagentRecord> = {}): SubagentRecord {
     ...over,
   };
 }
+
+/** Mirrors `MAX_REHYDRATED_TERMINAL_RECORDS` in `subagent/manager.ts`. */
+const REHYDRATION_CAP = 200;
 
 beforeEach(() => {
   // Idempotent; the table may already exist from a prior run.
@@ -161,6 +165,60 @@ describe("SubagentManager.rehydrateFromDb", () => {
   test("returns zero counts when there are no persisted records", () => {
     const mgr = new SubagentManager();
     expect(mgr.rehydrateFromDb()).toEqual({ rehydrated: 0, interrupted: 0 });
+    mgr.disposeAll();
+  });
+
+  test("loads only the most recent terminal records, plus every unsettled one", () => {
+    // Rows live as long as the parent conversation, so an old chat accumulates
+    // them without limit and a boot that materialized the lot would scale its
+    // startup work with the whole history.
+    for (let i = 0; i < REHYDRATION_CAP + 5; i++) {
+      upsertSubagentRecord(
+        record({
+          id: `done-${i}`,
+          conversationId: `conv-done-${i}`,
+          label: `done-${i}`,
+          status: "completed",
+          completedAt: 10_000 + i,
+        }),
+      );
+    }
+    // Older than every terminal row above and never settled: no cap may reach
+    // it, or the process forgets a subagent it still owes an `interrupted`.
+    upsertSubagentRecord(
+      record({
+        id: "stale-active",
+        conversationId: "conv-stale-active",
+        label: "stale-active",
+        status: "running",
+        createdAt: 1,
+        completedAt: null,
+      }),
+    );
+
+    const mgr = new SubagentManager();
+    const { rehydrated, interrupted } = mgr.rehydrateFromDb();
+
+    expect(rehydrated).toBe(REHYDRATION_CAP + 1);
+    expect(interrupted).toBe(1);
+    expect(mgr.getState("stale-active")?.status).toBe("interrupted");
+
+    const terminalIds = mgr
+      .getChildrenOf("parent-1")
+      .map((child) => child.config.id)
+      .filter((id) => id !== "stale-active")
+      .sort();
+    expect(terminalIds).toEqual(
+      Array.from({ length: REHYDRATION_CAP }, (_, i) => `done-${i + 5}`).sort(),
+    );
+
+    // The five oldest fell outside the bound. They are gone from memory and
+    // still durable, which is what the record-backed route surfaces read.
+    for (let i = 0; i < 5; i++) {
+      expect(mgr.getState(`done-${i}`)).toBeUndefined();
+      expect(getSubagentRecordById(`done-${i}`)?.status).toBe("completed");
+    }
+
     mgr.disposeAll();
   });
 });

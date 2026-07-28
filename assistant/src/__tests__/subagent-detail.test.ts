@@ -334,6 +334,31 @@ describe("getSubagentDetail route resolution", () => {
     expect(result.status).toBe("aborted");
   });
 
+  test("serves a subagent past the startup rehydration bound", () => {
+    // A restart rebuilds only the most recently finished terminal subagents, so
+    // an older one is absent from the manager exactly as if it had been swept.
+    // The row is the only thing left that can resolve it, and detail on a card
+    // scrolled far enough back must not go blank because of that bound.
+    seedConversation("beyond-cap-conv", "beyond-cap transcript");
+    durableRecords.set("sub-beyond-cap", {
+      conversationId: "beyond-cap-conv",
+      label: "Beyond cap label",
+      status: "completed",
+      parentToolUseId: "toolu-beyond-cap",
+    });
+
+    // Client recovering from a missed spawn only knows the PARENT id.
+    const result = fetchDetail("sub-beyond-cap", "parent-conv");
+
+    expect(result.events.map((e) => e.content)).toContain(
+      "beyond-cap transcript",
+    );
+    expect(result.conversationId).toBe("beyond-cap-conv");
+    expect(result.label).toBe("Beyond cap label");
+    expect(result.status).toBe("completed");
+    expect(result.parentToolUseId).toBe("toolu-beyond-cap");
+  });
+
   test("settles a durable row still marked active into interrupted", () => {
     // `setDbReady(true)` precedes `rehydrateFromDb()` during daemon startup, so
     // a record can still carry its pre-crash status while the manager knows

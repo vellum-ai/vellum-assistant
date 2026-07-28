@@ -23,7 +23,7 @@ import { bootstrapConversation } from "../persistence/conversation-bootstrap.js"
 import {
   deleteAllSubagentRecords,
   deleteSubagentRecordsByParent,
-  loadAllSubagentRecords,
+  loadRehydratableSubagentRecords,
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
@@ -54,6 +54,16 @@ const log = getLogger("subagent-manager");
 const TERMINAL_RETENTION_MS = 30 * 60 * 1000; // 30 minutes
 /** How often to sweep expired terminal entries (ms). */
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+/**
+ * Cap on the terminal subagents a restart rebuilds in memory. Rows live as long
+ * as their parent conversation, so the table is unbounded history, while a
+ * rehydrated terminal entry only serves the in-process subagent tools for the
+ * current session. Both route surfaces read the durable table directly and
+ * carry their own bounds, so this one is invisible to them. Subagents that are
+ * not terminal are never capped: an unsettled row has to be settled to
+ * `interrupted` at any age.
+ */
+const MAX_REHYDRATED_TERMINAL_RECORDS = 200;
 
 // ── Skill ID merge helper ──────────────────────────────────────────────
 
@@ -1335,11 +1345,18 @@ export class SubagentManager {
    * carry a no-op sender and no live conversation, and are swept on the normal
    * TTL like any other terminal subagent.
    *
+   * Bounded by `MAX_REHYDRATED_TERMINAL_RECORDS`: every row still unsettled
+   * loads however old it is, plus the most recently finished terminal ones.
+   * Older terminal subagents stay in the table and are read from there.
+   *
    * Best-effort and idempotent: a second restart re-reads `interrupted` rows
    * and leaves them unchanged.
    */
   rehydrateFromDb(): { rehydrated: number; interrupted: number } {
-    const records = loadAllSubagentRecords();
+    const records = loadRehydratableSubagentRecords({
+      terminalStatuses: [...TERMINAL_STATUSES],
+      maxTerminal: MAX_REHYDRATED_TERMINAL_RECORDS,
+    });
     let interrupted = 0;
     const now = Date.now();
     for (const rec of records) {

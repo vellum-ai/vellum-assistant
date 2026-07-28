@@ -121,11 +121,45 @@ export function upsertSubagentRecord(rec: SubagentRecord): void {
   );
 }
 
-/** Load every persisted subagent record. Used once at startup to rehydrate. */
+/** Load every persisted subagent record, unbounded. */
 export function loadAllSubagentRecords(): SubagentRecord[] {
   return rawAll<SubagentRow>("subagent:loadAll", `SELECT * FROM subagents`).map(
     rowToRecord,
   );
+}
+
+/**
+ * The subagent records a restart should rebuild in memory. Rows live as long as
+ * their parent conversation, so the table is unbounded history while a
+ * rehydrated entry only serves the current session, and the result is bounded:
+ * every row whose status is NOT in `bound.terminalStatuses` is returned (an
+ * unsettled row has to be settled at any age), plus the `bound.maxTerminal`
+ * most recently finished terminal rows. Recency is `completed_at` falling back
+ * to `created_at`, since a row settled at rehydration records no completion
+ * time.
+ *
+ * The terminal status set is supplied by the caller so this layer stays
+ * decoupled from the subagent domain's status enum.
+ */
+export function loadRehydratableSubagentRecords(bound: {
+  terminalStatuses: readonly string[];
+  maxTerminal: number;
+}): SubagentRecord[] {
+  const placeholders = bound.terminalStatuses.map(() => "?").join(", ");
+  return rawAll<SubagentRow>(
+    "subagent:loadRehydratable",
+    `SELECT * FROM subagents WHERE status NOT IN (${placeholders})
+     UNION ALL
+     SELECT * FROM (
+       SELECT * FROM subagents
+         WHERE status IN (${placeholders})
+         ORDER BY COALESCE(completed_at, created_at) DESC
+         LIMIT ?
+     )`,
+    ...bound.terminalStatuses,
+    ...bound.terminalStatuses,
+    bound.maxTerminal,
+  ).map(rowToRecord);
 }
 
 /**
@@ -148,8 +182,8 @@ export function getSubagentRecordByConversationId(
 
 /**
  * Look up a subagent record by its own id. This is the durable fallback for
- * subagents the live SubagentManager no longer holds, evicted by the TTL sweep
- * or not yet rehydrated after a restart.
+ * subagents the live SubagentManager no longer holds, evicted by the TTL sweep,
+ * not yet rehydrated after a restart, or past the rehydration bound.
  */
 export function getSubagentRecordById(id: string): SubagentRecord | undefined {
   const row = rawGet<SubagentRow>(
