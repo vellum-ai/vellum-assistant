@@ -50,6 +50,24 @@ describe("runScript orphan reaping", () => {
     expect(await waitUntilDead(childPid)).toBe(true);
   });
 
+  test("resolves and keeps partial output when an escaped process holds the pipe open", async () => {
+    // Spawning a detached child that inherits stdout mimics a daemonized
+    // process: it leaves the script's process group, so it survives the
+    // sweep while still holding the pipe's write end.
+    const escape =
+      'const p = Bun.spawn(["sleep", "600"], { detached: true, stdout: "inherit" }); p.unref(); console.log(p.pid);';
+    const result = await runScript(`bun -e '${escape}'`, {
+      cwd: tmpdir(),
+      scheduleId: "sched-escape",
+      scheduleRunId: "run-escape",
+    });
+    expect(result.exitCode).toBe(0);
+    const escapeePid = Number(result.stdout.trim());
+    expect(escapeePid).toBeGreaterThan(0);
+    expect(() => process.kill(escapeePid, 0)).not.toThrow();
+    process.kill(escapeePid, "SIGKILL");
+  }, 15_000);
+
   test("reaps background children when the script times out", async () => {
     const result = await runScript("sleep 600 & echo $!; sleep 600", {
       cwd: tmpdir(),

@@ -73,9 +73,9 @@ export async function runScript(
   });
 
   // Start consuming streams immediately so buffered output is available even on timeout.
-  // When the process group is killed the pipe fds close and these promises resolve on their own.
-  const stdoutPromise = new Response(proc.stdout).text();
-  const stderrPromise = new Response(proc.stderr).text();
+  // When the process group is killed the pipe fds close and the collectors finish on their own.
+  const stdoutCollector = collectStream(proc.stdout);
+  const stderrCollector = collectStream(proc.stderr);
 
   let timedOut = false;
 
@@ -96,8 +96,8 @@ export async function runScript(
     if (!timedOut) throw err;
     // Collect whatever the process wrote before the group was killed.
     const [stdoutStr, stderrStr] = await drainStreams(
-      stdoutPromise,
-      stderrPromise,
+      stdoutCollector,
+      stderrCollector,
     );
     const stdout = truncate(stdoutStr);
     const timeoutMsg = `Script timed out after ${timeoutMs}ms`;
@@ -117,8 +117,8 @@ export async function runScript(
   killProcessGroup(proc.pid);
 
   const [stdoutStr, stderrStr] = await drainStreams(
-    stdoutPromise,
-    stderrPromise,
+    stdoutCollector,
+    stderrCollector,
   );
   const stdout = truncate(stdoutStr);
   const stderr = truncate(stderrStr);
@@ -144,23 +144,60 @@ function killProcessGroup(pid: number): void {
   }
 }
 
+interface StreamCollector {
+  /** Resolves with the text read so far once the stream ends or is cancelled. */
+  promise: Promise<string>;
+  cancel: () => void;
+}
+
 /**
- * Collect both output streams, giving up on any stream that has not reached
- * EOF within {@link DRAIN_TIMEOUT_MS}.
+ * Read a stream to EOF, accumulating text. `cancel` closes the underlying
+ * pipe fd and settles the promise with whatever was read so far, so a run
+ * never leaves a reader holding the pipe open after it is over.
  */
-function drainStreams(
-  stdoutPromise: Promise<string>,
-  stderrPromise: Promise<string>,
+function collectStream(stream: ReadableStream<Uint8Array>): StreamCollector {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  const promise = (async () => {
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+      }
+    } catch {
+      // Cancelled or the pipe errored; keep what was read.
+    }
+    return text + decoder.decode();
+  })();
+  return {
+    promise,
+    cancel: () => void reader.cancel().catch(() => {}),
+  };
+}
+
+/**
+ * Wait for both output streams, cancelling any stream that has not reached
+ * EOF within {@link DRAIN_TIMEOUT_MS}. Cancelling matters when a process
+ * escaped the group kill and still holds the pipe's write end: without it the
+ * readers would keep the pipe fds alive until that process exits, leaking
+ * two fds per firing of a schedule that leaves such a process behind.
+ */
+async function drainStreams(
+  stdout: StreamCollector,
+  stderr: StreamCollector,
 ): Promise<[string, string]> {
-  const giveUp = (): Promise<string> =>
-    new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(""), DRAIN_TIMEOUT_MS);
-      timer.unref();
-    });
-  return Promise.all([
-    Promise.race([stdoutPromise, giveUp()]),
-    Promise.race([stderrPromise, giveUp()]),
-  ]);
+  const deadline = setTimeout(() => {
+    stdout.cancel();
+    stderr.cancel();
+  }, DRAIN_TIMEOUT_MS);
+  deadline.unref();
+  try {
+    return await Promise.all([stdout.promise, stderr.promise]);
+  } finally {
+    clearTimeout(deadline);
+  }
 }
 
 function truncate(text: string): string {
