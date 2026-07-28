@@ -529,9 +529,9 @@ export function PlansPage() {
         <div className="mt-6 grid w-full max-w-[1312px] grid-cols-1 items-start gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
           <PlanColumnCard
             tierKey="free"
-            name="Free"
+            name="Base"
             tagline={freeCopy?.tagline ?? ""}
-            priceLabel="$0/month"
+            priceLabel="Free"
             priceCaption={freeCopy?.priceCaption ?? "Forever"}
             ctaLabel={
               freeRelation === "downgrade"
