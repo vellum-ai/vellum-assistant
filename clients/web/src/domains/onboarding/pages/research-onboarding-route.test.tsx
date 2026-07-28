@@ -58,6 +58,8 @@ const startResearchMock = mock((_opts: unknown) => {
 });
 const hydrateResearchMock = mock((_results: unknown, _await?: unknown) => {});
 const resetResearchMock = mock(() => {});
+const reinstallPluginsMock = mock((_names: string[], _await: unknown) => {});
+let installedPlugins: string[] = [];
 const researchRunner = {
   get status() {
     return researchStatus;
@@ -65,11 +67,14 @@ const researchRunner = {
   claims: [] as unknown[],
   droppedClaims: [] as string[],
   suggestions: [] as unknown[],
-  installedPlugins: [] as string[],
+  get installedPlugins() {
+    return installedPlugins;
+  },
   pluginCatalog: {} as Record<string, string>,
   start: startResearchMock,
   hydrate: hydrateResearchMock,
   reset: resetResearchMock,
+  reinstallPlugins: reinstallPluginsMock,
   awaitPluginInstalls: async () => {},
 };
 
@@ -147,7 +152,7 @@ mock.module("@/lib/navigation/navigation-resolver", () => ({
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     use: {
-      user: () => ({ id: USER_ID, firstName: "Ada", lastName: "Lovelace" }),
+      user: () => ({ id: USER_ID, firstName: "Alice", lastName: "Example" }),
     },
   },
 }));
@@ -189,8 +194,10 @@ mock.module("@/domains/onboarding/send-research-correction", () => ({
   sendResearchCorrection: async () => {},
 }));
 
+const applyPersonalityMock = mock(async (_options: unknown) => {});
+
 mock.module("@/domains/onboarding/apply-personality", () => ({
-  applyPersonality: async () => {},
+  applyPersonality: applyPersonalityMock,
 }));
 
 mock.module("@/domains/onboarding/lets-chat-kickoff", () => ({
@@ -247,8 +254,8 @@ mock.module("@/domains/onboarding/screens/research-onboarding-screen", () => ({
       data-testid="form-submit"
       onClick={() =>
         props.onSubmit({
-          firstName: "Ada",
-          lastName: "Lovelace",
+          firstName: "Alice",
+          lastName: "Example",
           role: "Engineer",
           hobbies: [],
         })
@@ -275,8 +282,30 @@ mock.module("@/domains/onboarding/screens/integration-step", () => ({
   IntegrationStep: () => <div data-testid="integration-step" />,
 }));
 
+// Renders the real step's contract: sliders that write back through
+// `onValueChange`, and a continue that fires the one-shot persona apply.
 mock.module("@/domains/onboarding/screens/create-personality-step", () => ({
-  CreatePersonalityStep: () => <div data-testid="personality-step" />,
+  CreatePersonalityStep: (props: {
+    onValueChange: (axisId: string, value: number) => void;
+    onContinue: () => void;
+  }) => (
+    <div data-testid="personality-step">
+      <button
+        type="button"
+        data-testid="personality-slide"
+        onClick={() => props.onValueChange("warmth", 80)}
+      >
+        slide
+      </button>
+      <button
+        type="button"
+        data-testid="personality-continue"
+        onClick={props.onContinue}
+      >
+        continue
+      </button>
+    </div>
+  ),
 }));
 
 mock.module("@/domains/onboarding/screens/lets-chat-tomorrow-step", () => ({
@@ -346,8 +375,8 @@ function postFormSnapshot(
   return {
     step: "looking",
     formValues: {
-      firstName: "Ada",
-      lastName: "Lovelace",
+      firstName: "Alice",
+      lastName: "Example",
       role: "Engineer",
       hobbies: ["chess"],
     },
@@ -362,6 +391,7 @@ function postFormSnapshot(
 beforeEach(() => {
   localStorage.clear();
   researchStatus = "idle";
+  installedPlugins = [];
   establishedResult = { established: false, assistantName: null };
   establishedCheckGate = null;
   releaseEstablishedCheck = () => {};
@@ -376,6 +406,8 @@ beforeEach(() => {
   checkEstablishedAssistantMock.mockClear();
   useBackgroundHatchMock.mockClear();
   retryHatchMock.mockClear();
+  reinstallPluginsMock.mockClear();
+  applyPersonalityMock.mockClear();
 });
 
 afterEach(() => {
@@ -628,9 +660,12 @@ describe("ResearchOnboardingRoute paid return", () => {
 
 // Retrying the hatch must restart everything that already resolved against the
 // dead one: the established-assistant verdict (otherwise it stays fail-open
-// from the rejected `awaitReady`) and a research turn that settled "error"
-// while holding its subject key (otherwise an identical resubmit dedupes to a
-// no-op).
+// from the rejected `awaitReady`), a research turn that settled "error" while
+// holding its subject key (otherwise an identical resubmit dedupes to a no-op),
+// the persona apply that swallowed the same rejection behind locked sliders,
+// and the restored plugin installs that resolved having installed nothing. The
+// retried research turn also keeps the conversation the journey already minted,
+// so recovery never posts a second search alongside the first.
 describe("ResearchOnboardingRoute hatch retry", () => {
   const HATCH_ERROR = "Failed to start your assistant. Please try again.";
 
@@ -709,5 +744,142 @@ describe("ResearchOnboardingRoute hatch retry", () => {
 
     expect(resetResearchMock).not.toHaveBeenCalled();
     expect(startResearchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // The runner only mints a conversation AFTER the hatch resolves, so a turn
+  // that died with the hatch never made one — the id it re-attaches to is the
+  // one a prior session persisted. Re-firing without it posts a second research
+  // conversation while the first is still there.
+  test("re-attaches the retried turn to the conversation the journey already minted", async () => {
+    writeResearchSnapshot(
+      USER_ID,
+      postFormSnapshot({ researchConversationId: "conv-1" }),
+    );
+
+    const { rerender } = render(<ResearchOnboardingRoute />);
+    await waitFor(() => expect(startResearchMock).toHaveBeenCalledTimes(1));
+    const resumed = startResearchMock.mock.calls[0]?.[0] as {
+      resumeConversationId?: string;
+    };
+    expect(resumed.resumeConversationId).toBe("conv-1");
+
+    researchStatus = "error";
+    backgroundHatch.error = HATCH_ERROR;
+    rerender(<ResearchOnboardingRoute />);
+
+    recoverOnRetry();
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+
+    expect(startResearchMock).toHaveBeenCalledTimes(2);
+    const refired = startResearchMock.mock.calls[1]?.[0] as {
+      resumeConversationId?: string;
+    };
+    expect(refired.resumeConversationId).toBe("conv-1");
+    // A re-run owns its own installs — the restored-install path is not it.
+    expect(reinstallPluginsMock).not.toHaveBeenCalled();
+  });
+
+  test("a journey with no research conversation re-fires without one", async () => {
+    const { rerender } = render(<ResearchOnboardingRoute />);
+    fireEvent.click(await screen.findByTestId("form-submit"));
+    await waitFor(() => expect(startResearchMock).toHaveBeenCalledTimes(1));
+
+    researchStatus = "error";
+    backgroundHatch.error = HATCH_ERROR;
+    rerender(<ResearchOnboardingRoute />);
+
+    recoverOnRetry();
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+
+    const refired = startResearchMock.mock.calls[1]?.[0] as {
+      resumeConversationId?: string;
+    };
+    expect(refired.resumeConversationId).toBeUndefined();
+  });
+
+  // A completed snapshot hydrates to "done" and re-enqueues its persisted
+  // installs against the hatch. Those catch a dead hatch and resolve having
+  // installed nothing while the runner stays "done" — so nothing re-runs them
+  // and the handoff promises capabilities that were never materialized.
+  test("re-enqueues restored plugin installs that settled against the dead hatch", async () => {
+    researchStatus = "done";
+    installedPlugins = ["admin-copilot"];
+    writeResearchSnapshot(
+      USER_ID,
+      postFormSnapshot({
+        step: "suggestions",
+        research: {
+          status: "done",
+          claims: [],
+          droppedClaims: [],
+          suggestions: [],
+          installedPlugins: ["admin-copilot"],
+          pluginCatalog: {},
+        },
+      }),
+    );
+    failFirstHatch();
+
+    render(<ResearchOnboardingRoute />);
+    await screen.findByRole("alertdialog");
+
+    recoverOnRetry();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(checkEstablishedAssistantMock).toHaveBeenCalled());
+    expect(reinstallPluginsMock).toHaveBeenCalledTimes(1);
+    const [names, awaitAssistantId] = reinstallPluginsMock.mock.calls[0] ?? [];
+    expect(names).toEqual(["admin-copilot"]);
+    // Ordering stays the runner's job: the installs await the retried hatch
+    // themselves rather than the handler awaiting readiness first.
+    expect(awaitAssistantId).toBe(backgroundHatch.awaitReady);
+    // The restored results stand — only the installs are redone.
+    expect(startResearchMock).not.toHaveBeenCalled();
+    expect(resetResearchMock).not.toHaveBeenCalled();
+  });
+
+  // `applyPersonality` awaits the hatch and swallows its rejection, so a hatch
+  // that dies while the user walks the later steps leaves the sliders locked as
+  // if the persona had been rewritten — it never was.
+  test("re-applies the personality that died with the hatch", async () => {
+    writeResearchSnapshot(USER_ID, postFormSnapshot({ step: "personality" }));
+
+    const { rerender } = render(<ResearchOnboardingRoute />);
+    fireEvent.click(await screen.findByTestId("personality-slide"));
+    fireEvent.click(screen.getByTestId("personality-continue"));
+    await waitFor(() => expect(applyPersonalityMock).toHaveBeenCalledTimes(1));
+
+    backgroundHatch.error = HATCH_ERROR;
+    rerender(<ResearchOnboardingRoute />);
+
+    recoverOnRetry();
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(applyPersonalityMock).toHaveBeenCalledTimes(2));
+    const reapplied = applyPersonalityMock.mock.calls[1]?.[0] as {
+      values: Record<string, number>;
+      awaitAssistantId: () => Promise<string>;
+    };
+    // The user's own choices, against the retried hatch.
+    expect(reapplied.values).toEqual({ warmth: 80 });
+    expect(reapplied.awaitAssistantId).toBe(backgroundHatch.awaitReady);
+  });
+
+  test("does not apply a personality the user never chose", async () => {
+    failFirstHatch();
+    writeResearchSnapshot(USER_ID, postFormSnapshot());
+
+    render(<ResearchOnboardingRoute />);
+    await screen.findByRole("alertdialog");
+
+    recoverOnRetry();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    // The retry did re-arm what the dead hatch poisoned…
+    await waitFor(() => expect(checkEstablishedAssistantMock).toHaveBeenCalled());
+    // …but the sliders were never locked in, so there is no persona write to
+    // redo — and an idle turn has no restored installs to re-enqueue either.
+    expect(applyPersonalityMock).not.toHaveBeenCalled();
+    expect(reinstallPluginsMock).not.toHaveBeenCalled();
   });
 });

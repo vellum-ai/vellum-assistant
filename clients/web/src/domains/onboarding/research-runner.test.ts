@@ -231,6 +231,76 @@ describe("useResearchRunner reset", () => {
   });
 });
 
+describe("useResearchRunner reinstallPlugins", () => {
+  const restored = {
+    status: "done" as const,
+    claims: [],
+    droppedClaims: [],
+    suggestions: [],
+    installedPlugins: ["admin-copilot"],
+    pluginCatalog: {},
+  };
+
+  function renderRunner() {
+    const queryClient = new QueryClient();
+    return renderHook(() => useResearchRunner(), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client: queryClient }, children),
+    });
+  }
+
+  /** Did the install gate settle, or is it still holding the handoff? */
+  async function raceInstallGate(gate: Promise<void>): Promise<string> {
+    return Promise.race([
+      gate.then(() => "settled"),
+      new Promise<string>((resolve) => {
+        setTimeout(() => resolve("holding"), 20);
+      }),
+    ]);
+  }
+
+  test("re-arms installs that resolved against a dead hatch", async () => {
+    const { result } = renderRunner();
+
+    // A resume enqueues the restored installs; the hatch they await then dies,
+    // so each swallows the rejection and the gate lets the handoff through with
+    // nothing installed.
+    act(() => {
+      result.current.hydrate(restored, () =>
+        Promise.reject(new Error("hatch failed")),
+      );
+    });
+    expect(await raceInstallGate(result.current.awaitPluginInstalls())).toBe(
+      "settled",
+    );
+
+    // Re-enqueued against the retried hatch, the gate holds again — the handoff
+    // waits for the capabilities to genuinely land this time.
+    act(() => {
+      result.current.reinstallPlugins(
+        restored.installedPlugins,
+        () => new Promise<string>(() => {}),
+      );
+    });
+    expect(await raceInstallGate(result.current.awaitPluginInstalls())).toBe(
+      "holding",
+    );
+  });
+
+  test("tracks nothing when the run installed nothing", async () => {
+    const { result } = renderRunner();
+
+    act(() => {
+      result.current.reinstallPlugins([], () => new Promise<string>(() => {}));
+    });
+
+    // No installs to redo — the click gate must not start blocking.
+    expect(await raceInstallGate(result.current.awaitPluginInstalls())).toBe(
+      "settled",
+    );
+  });
+});
+
 describe("shouldArchiveCompletedResearchConversation", () => {
   test("archives when a complete payload was observed", () => {
     expect(

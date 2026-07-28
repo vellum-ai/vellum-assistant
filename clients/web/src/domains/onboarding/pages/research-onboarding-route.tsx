@@ -407,6 +407,37 @@ export function ResearchOnboardingRoute() {
     [],
   );
 
+  // Fire the research turn; the runner awaits hatch readiness internally, so it
+  // starts at the later of the caller's submit and the background hatch. Every
+  // start goes through here — a submit, a resume, a redo, or a restart after the
+  // hatch died — so a run always re-attaches to the conversation this journey
+  // already minted instead of posting a second search alongside the first.
+  const fireResearch = useCallback(
+    (values: ResearchOnboardingValues) => {
+      // A fresh run produces fresh drops — re-arm the one-shot scrub below.
+      syncDroppedClaimsScrubbed(false);
+      startResearch({
+        awaitAssistantId: awaitHatchReady,
+        subject: researchSubjectFrom(values),
+        conversationTitle: researchTitleFor(values),
+        ...(researchConversationId
+          ? { resumeConversationId: researchConversationId }
+          : {}),
+        onConversationCreated: setResearchConversationId,
+        // The "Let's chat" final step replaces suggestions when personality
+        // onboarding is on, so don't ask the model to generate any.
+        includeSuggestions: !personalityEnabled,
+      });
+    },
+    [
+      syncDroppedClaimsScrubbed,
+      startResearch,
+      awaitHatchReady,
+      researchConversationId,
+      personalityEnabled,
+    ],
+  );
+
   // Resume a journey saved by a previous session (a page refresh). Runs once,
   // as soon as the user id is known, BEFORE the persistence write / research
   // re-fire effects below (which gate on `restored`). useLayoutEffect so we
@@ -570,16 +601,7 @@ export function ResearchOnboardingRoute() {
       // search; a hydrated "done" journey keeps its restored results.
       setResumeGuardPending(false);
       if (wasIdle) {
-        startResearch({
-          awaitAssistantId: awaitHatchReady,
-          subject: researchSubjectFrom(values),
-          conversationTitle: researchTitleFor(values),
-          ...(researchConversationId
-            ? { resumeConversationId: researchConversationId }
-            : {}),
-          onConversationCreated: setResearchConversationId,
-          includeSuggestions: !personalityEnabled,
-        });
+        fireResearch(values);
       }
     })();
     return () => {
@@ -591,11 +613,8 @@ export function ResearchOnboardingRoute() {
   }, [
     restored,
     formValues,
-    researchConversationId,
     research.status,
-    startResearch,
-    awaitHatchReady,
-    personalityEnabled,
+    fireResearch,
     resolveEstablishedGate,
   ]);
 
@@ -620,7 +639,11 @@ export function ResearchOnboardingRoute() {
     if (droppedClaimsScrubbedRef.current) return;
     if (researchLoading) return;
     if (research.droppedClaims.length === 0) return;
-    if (!researchConversationId || !hatchedAssistantId) return;
+    // Only against a live hatch: the guard flips before the request, so a scrub
+    // posted at an unreachable assistant would be marked sent and never retried.
+    // A resumed journey hydrates results while the hatch is still coming up (or
+    // has died), so this waits — and re-fires once a retry lands.
+    if (!researchConversationId || !hatchedAssistantId || !hatchReady) return;
     // With card claims present the results step owns the scrub — unless we've
     // resumed straight onto the suggestions step, past that correction.
     if (research.claims.length > 0 && step !== "suggestions") return;
@@ -637,6 +660,7 @@ export function ResearchOnboardingRoute() {
     research.droppedClaims,
     researchConversationId,
     hatchedAssistantId,
+    hatchReady,
     step,
     syncDroppedClaimsScrubbed,
   ]);
@@ -760,20 +784,19 @@ export function ResearchOnboardingRoute() {
     );
   }
 
-  // Fire the research turn; the runner awaits hatch readiness internally, so
-  // it starts at the later of the caller's submit and the background hatch.
-  function fireResearch(values: ResearchOnboardingValues) {
-    // A fresh run produces fresh drops — re-arm the one-shot scrub above.
-    syncDroppedClaimsScrubbed(false);
-    research.start({
+  // Hand the collected sliders to the assistant's persona on a throwaway side
+  // thread (it awaits hatch readiness internally, then archives). The rewrite
+  // turn runs during the later steps; the promise (and pending flag) let the
+  // loading steps hold for it and the chat handoff await it, so the persona is
+  // reshaped before the first real chat. Best-effort; it never rejects.
+  function startPersonalityApply() {
+    setPersonalityPending(true);
+    personalityAppliedRef.current = applyPersonality({
       awaitAssistantId: awaitHatchReady,
-      subject: researchSubjectFrom(values),
-      conversationTitle: researchTitleFor(values),
-      onConversationCreated: setResearchConversationId,
-      // The "Let's chat" final step replaces suggestions when personality
-      // onboarding is on, so don't ask the model to generate any.
-      includeSuggestions: !personalityEnabled,
-    });
+      values: personalityValues,
+      userName: formValues?.firstName?.trim() || undefined,
+      assistantName: faceValues?.name?.trim() || undefined,
+    }).finally(() => setPersonalityPending(false));
   }
 
   async function handleFormSubmit(values: ResearchOnboardingValues) {
@@ -843,18 +866,35 @@ export function ResearchOnboardingRoute() {
   }
 
   // "Try again" restarts the hatch AND everything that resolved against the
-  // dead one. The established verdict failed open on the rejected `awaitReady`,
-  // and a research turn fired before the failure settled to "error" while
-  // keeping its subject key (so an identical resubmit would dedupe to nothing).
-  // Both re-arm against the new attempt; research goes through the runner's own
-  // hatch await, so it still can't run ahead of readiness.
+  // dead one. Reaching this handler proves no attempt has ever readied (the
+  // hatch settles once, and a ready one can't later error), so every
+  // hatch-dependent effect started so far was rejected — each is re-armed below,
+  // and none of them can be healthy work this would redo. Every restart runs
+  // after `retryHatch()` has cleared the terminal state, so its waiters park on
+  // the fresh attempt; each awaits readiness inside its own work rather than
+  // here, so nothing runs ahead of the new hatch.
   function handleHatchRetry() {
+    // The verdict failed open on the rejected `awaitReady`; keeping it would let
+    // a recovered, already-established assistant through the gate.
     establishedCheckRef.current = null;
     retryHatch();
     armEstablishedCheck();
     if (research.status === "error" && formValues) {
+      // The turn settled "error" still holding its subject key, so an identical
+      // resubmit would dedupe to nothing — release it, then re-fire (onto the
+      // same research conversation when this journey already minted one).
       research.reset();
       fireResearch(formValues);
+    } else if (research.status === "done") {
+      // Results restored from a snapshot: the search doesn't re-run, but the
+      // installs re-enqueued alongside them caught the dead hatch and resolved
+      // having installed nothing, while the runner stayed `done`.
+      research.reinstallPlugins(research.installedPlugins, awaitHatchReady);
+    }
+    if (personalityLocked) {
+      // The apply swallowed the same rejection and left the sliders locked as if
+      // it had landed — re-apply the user's choices to the recovered assistant.
+      startPersonalityApply();
     }
   }
 
@@ -932,23 +972,11 @@ export function ResearchOnboardingRoute() {
             }
             locked={personalityLocked}
             onContinue={() => {
-              // First continue applies the sliders to the assistant's persona on
-              // a throwaway side thread (awaits hatch readiness internally, then
-              // archives) and locks them — the prompt has been sent, so a later
-              // step-back can't silently diverge. The rewrite turn runs during
-              // the later steps; we track its promise (and pending flag) so the
-              // looking-you-up loader holds until it settles and the chat handoff
-              // awaits it, guaranteeing the persona is reshaped before the first
-              // real chat. Best-effort; it never rejects. A continue while
-              // already locked just advances.
+              // First continue applies the sliders and locks them — the prompt
+              // has been sent, so a later step-back can't silently diverge. A
+              // continue while already locked just advances.
               if (!personalityLocked) {
-                setPersonalityPending(true);
-                personalityAppliedRef.current = applyPersonality({
-                  awaitAssistantId: awaitHatchReady,
-                  values: personalityValues,
-                  userName: formValues?.firstName?.trim() || undefined,
-                  assistantName: faceValues?.name?.trim() || undefined,
-                }).finally(() => setPersonalityPending(false));
+                startPersonalityApply();
                 setPersonalityLocked(true);
               }
               goForwardTo("integration");
@@ -1137,8 +1165,11 @@ export function ResearchOnboardingRoute() {
           <FinishingUpStep
             // Hold the carousel until the personality rewrite settles, then hand
             // off. `finishAndEnterChat` also awaits the (usually already-resolved)
-            // plugin installs + correction before dropping into chat.
-            ready={!personalityPending}
+            // plugin installs + correction before dropping into chat. A hatch
+            // failure holds it too: the rewrite settles the moment the hatch
+            // rejects, and handing off would clear the snapshot and navigate away
+            // behind the failure overlay, out from under its retry.
+            ready={!personalityPending && hatchError === null}
             onDone={() => void finishAndEnterChat()}
           />
         )}

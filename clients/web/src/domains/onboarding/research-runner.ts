@@ -400,6 +400,18 @@ export interface UseResearchRunner extends ResearchRunnerState {
     awaitAssistantId?: () => Promise<string>,
   ) => void;
   /**
+   * Re-enqueue installs for `names` against a fresh assistant promise, replacing
+   * whatever the run is tracking. For a settled run whose installs raced a hatch
+   * that then died: each one swallowed the rejection and resolved without
+   * installing anything while the run stayed `done`, so `awaitPluginInstalls`
+   * lets the handoff through on capabilities that aren't there. Idempotent and
+   * best-effort, like every other install path.
+   */
+  reinstallPlugins: (
+    names: string[],
+    awaitAssistantId: () => Promise<string>,
+  ) => void;
+  /**
    * Drop the run's subject key and results so a following `start` with the SAME
    * subject re-fires instead of deduping to a no-op. For restarting a turn that
    * died with the dependency it was waiting on — a failed hatch rejects
@@ -451,6 +463,30 @@ export function useResearchRunner(): UseResearchRunner {
   // aren't frozen until the whole reply settles.
   const pluginsReadyRef = useRef<Promise<void>>(Promise.resolve());
   const queryClient = useQueryClient();
+
+  // Track an install per name against a hatch promise, replacing the map. Used
+  // by both the resume hydrate and a post-retry re-enqueue, so the click gate
+  // always awaits installs bound to the CURRENT hatch attempt.
+  const enqueuePluginInstalls = useCallback(
+    (names: string[], awaitAssistantId: () => Promise<string>) => {
+      const installs = installPromisesRef.current;
+      installs.clear();
+      for (const name of names) {
+        installs.set(
+          name,
+          (async () => {
+            try {
+              const assistantId = await awaitAssistantId();
+              await installCapabilityBestEffort(assistantId, name);
+            } catch {
+              // Hatch never readied / install failed — don't block the click.
+            }
+          })(),
+        );
+      }
+    },
+    [],
+  );
 
   const start = useCallback(
     ({
@@ -827,25 +863,18 @@ export function useResearchRunner(): UseResearchRunner {
       // suggestion click awaits real promises rather than an empty map. Idempotent
       // and best-effort: a failed hatch / install never blocks the click.
       if (awaitAssistantId && results.installedPlugins.length > 0) {
-        const installs = installPromisesRef.current;
-        installs.clear();
-        for (const name of results.installedPlugins) {
-          installs.set(
-            name,
-            (async () => {
-              try {
-                const assistantId = await awaitAssistantId();
-                await installCapabilityBestEffort(assistantId, name);
-              } catch {
-                // Hatch never readied / install failed — don't block the click.
-              }
-            })(),
-          );
-        }
+        enqueuePluginInstalls(results.installedPlugins, awaitAssistantId);
       }
     },
-    [],
+    [enqueuePluginInstalls],
   );
 
-  return { ...state, start, awaitPluginInstalls, hydrate, reset };
+  return {
+    ...state,
+    start,
+    awaitPluginInstalls,
+    hydrate,
+    reinstallPlugins: enqueuePluginInstalls,
+    reset,
+  };
 }
