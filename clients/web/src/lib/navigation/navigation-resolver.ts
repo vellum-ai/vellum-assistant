@@ -1,5 +1,6 @@
 import type { PlatformSessionStatus } from "@/stores/session-status";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
+import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import { resolveSignupCheckoutDestination } from "@/lib/billing/post-auth-checkout";
 import { routes } from "@/utils/routes";
 
@@ -13,6 +14,13 @@ export interface NavigationState {
   isRemoteGateway: boolean;
   remoteGatewayPublicPathPrefix: string;
   isGatewayAuth: boolean;
+  /**
+   * Whether this is the native Capacitor shell (iOS/Android).
+   *
+   * The research onboarding is not wired for the native shell (see
+   * `onboarding-destination.ts`), so the paid provisioning funnel forks on it.
+   */
+  isNative: boolean;
   hasAssistants: boolean;
   /**
    * Whether the active organization has a **platform-hosted** assistant — the
@@ -145,14 +153,15 @@ function isPostCheckoutReturn(
 }
 
 /**
- * The hatching-screen query param naming a hatch that is the return leg of a
- * completed Stripe Checkout. Only {@link MANAGED_PROVISIONING_DESTINATION} sets
+ * The onboarding query param naming a hatch that is the return leg of a
+ * completed Stripe Checkout. Only {@link managedProvisioningDestination} sets
  * it, and only for a billing landing carrying Stripe's `session_id`.
  *
  * Deliberately separate from `hosting=vellum-cloud`, which says only that the
- * hatch is managed — a hosting choice a free user can make too. The hatching
- * screen holds for a lagging subscription webhook on this param alone, so
- * conflating the two would park every free managed hatch on a spinner.
+ * hatch is managed — a hosting choice a free user can make too. The purchased-
+ * provisioning wait holds for a lagging subscription webhook on this param
+ * alone, so conflating the two would park every free managed hatch on a
+ * spinner.
  */
 export const POST_CHECKOUT_HATCH_PARAM = "post_checkout";
 
@@ -162,14 +171,28 @@ export const POST_CHECKOUT_HATCH_PARAM = "post_checkout";
  *
  * `hosting=vellum-cloud` is the onboarding flow's managed-hatch marker (see
  * `adopt-existing-assistant`): it names a managed hatch even in a local-mode
- * build, where the hatching screen would otherwise let the local gateway answer
- * for the assistant and skip the purchased-provisioning wait.
+ * build, where the client would otherwise let the local gateway answer for the
+ * assistant and skip the purchased-provisioning wait. Carrying it onto the
+ * research entry is load-bearing on Electron for exactly that reason —
+ * `shouldAdoptExistingAssistant` reads it to force the managed hatch instead of
+ * adopting a local gateway assistant.
  *
  * {@link POST_CHECKOUT_HATCH_PARAM} adds the narrower fact that money has
- * already changed hands, which is what lets the hatching screen treat a
- * still-base subscription read as a pending webhook rather than a free org.
+ * already changed hands, which is what lets the hatch treat a still-base
+ * subscription read as a pending webhook rather than a free org.
  */
-const MANAGED_PROVISIONING_DESTINATION = `${routes.onboarding.hatching}?hosting=vellum-cloud&${POST_CHECKOUT_HATCH_PARAM}=1`;
+function managedProvisioningDestination(state: NavigationState): string {
+  // The same shell fork the consent step takes: native has no research flow and
+  // keeps the foreground hatching screen, while web and Electron take the
+  // headless research entry, which runs the purchased-provisioning wait behind
+  // the onboarding form. `isLocalHatch` is false by construction —
+  // `hosting=vellum-cloud` forces the managed hatch.
+  const route = onboardingDestinationAfterConsent({
+    isNative: state.isNative,
+    isLocalHatch: false,
+  });
+  return `${route}?hosting=vellum-cloud&${POST_CHECKOUT_HATCH_PARAM}=1`;
+}
 
 /**
  * The provisioning funnel entries a paid return can name: the foreground
@@ -277,7 +300,7 @@ export function resolveNavigation(
 // Conceptual layers:
 //   1. Readiness          — is the session ready?
 //   2. Paid return        — a checkout return with nothing provisioned yet
-//   3. Bypass             — gateway auth skips everything
+//   3. Bypass             — gateway auth skips everything but a paid return
 //   4. Identity           — is the user authenticated?
 //   5. Mode boundary      — is this path valid for the user's mode?
 //   6. Setup exemptions   — onboarding/consent paths are always reachable
@@ -329,11 +352,11 @@ function waitForSession(state: NavigationState): NavigationDecision | null {
  * billing landing. Every billing surface mounts under `ActiveAssistantGate`,
  * which renders a "Connecting to your assistant…" placeholder for as long as
  * no assistant resolves — so the paid return dead-ends on a spinner. Send it
- * into the hatching funnel instead, which provisions the assistant and applies
- * the purchased specs.
+ * into the provisioning funnel instead, which provisions the assistant and
+ * applies the purchased specs.
  *
- * The destination is {@link MANAGED_PROVISIONING_DESTINATION}: the marker is
- * what makes a local-mode client provision on the platform and hold for the
+ * The destination is {@link managedProvisioningDestination}: its marker is what
+ * makes a local-mode client provision on the platform and hold for the
  * purchased machine and storage instead of letting its own gateway answer for
  * the assistant.
  *
@@ -361,9 +384,10 @@ function waitForSession(state: NavigationState): NavigationDecision | null {
  * Electron takes the `"native"` checkout return, but its deep-link handler
  * lands on the same in-app billing path carrying `session_id`, so it resolves
  * through this pipeline too.
- * Consent is still enforced: the destination is an onboarding path, and
- * `onboardingCompletedMiddleware` re-runs this pipeline there, where
- * `allowSetupRoutes` bounces an unconsented user to the privacy screen.
+ * Consent is still enforced: re-resolving the destination runs
+ * `allowSetupRoutes`, which bounces an unconsented user to the consent
+ * entrypoint. `allowGatewayAuth` suspends its bypass for exactly these URLs so
+ * a gateway session reaches that step.
  */
 function requirePostCheckoutProvisioning(
   state: NavigationState,
@@ -406,11 +430,28 @@ function requirePostCheckoutProvisioning(
       return null;
     }
   }
-  return { action: "redirect", to: MANAGED_PROVISIONING_DESTINATION };
+  return { action: "redirect", to: managedProvisioningDestination(state) };
 }
 
-function allowGatewayAuth(state: NavigationState): NavigationDecision | null {
-  return state.isGatewayAuth ? { action: "allow" } : null;
+/**
+ * A gateway session answers for itself, so it skips the rest of the pipeline —
+ * except on a paid return to a provisioning funnel entry.
+ *
+ * The bypass runs before `allowSetupRoutes`, so leaving it unconditional would
+ * let an Electron paid return reach the headless research entry and start the
+ * purchased hatch with no consent recorded. Suspending it only for a
+ * {@link postCheckoutHatchReturnTo} URL keeps every other gateway-auth surface
+ * — including the local adopt flow's unmarked research entry — on today's
+ * bypass, and hands exactly the paid case to the consent steps below.
+ */
+function allowGatewayAuth(
+  state: NavigationState,
+  _path: string,
+  pathnameWithSearch: string,
+): NavigationDecision | null {
+  if (!state.isGatewayAuth) return null;
+  if (postCheckoutHatchReturnTo(pathnameWithSearch)) return null;
+  return { action: "allow" };
 }
 
 function stripRemoteGatewayPublicPathPrefix(
@@ -535,11 +576,31 @@ function allowSetupRoutes(
       return { action: "wait" };
     }
 
-    if (PROVISIONING_FUNNEL_PATHS.has(path) && !hasCompletedOnboarding(state)) {
-      return {
-        action: "redirect",
-        to: consentBounceDestination(state, pathnameWithSearch),
-      };
+    if (PROVISIONING_FUNNEL_PATHS.has(path)) {
+      if (!hasCompletedOnboarding(state)) {
+        return {
+          action: "redirect",
+          to: consentBounceDestination(state, pathnameWithSearch),
+        };
+      }
+      // A stale toggle must be re-reviewed before a hatch the user paid for.
+      // `requireConsent` can't reach this — every onboarding path is allowed
+      // above — so the paid funnel enforces it here, scoped to the paid marker
+      // so the ordinary funnel keeps its exemption. Gated on a live platform
+      // session for the same reason as `requireConsent`: there is nothing to
+      // re-review against without one.
+      if (
+        postCheckoutHatchReturnTo(pathnameWithSearch) &&
+        !state.isPlatformDisabled &&
+        state.platformSession === "present" &&
+        !consentIsCurrent(state)
+      ) {
+        const returnTo = encodeURIComponent(pathnameWithSearch);
+        return {
+          action: "redirect",
+          to: `${routes.reviewTerms}?returnTo=${returnTo}`,
+        };
+      }
     }
     return { action: "allow" };
   }
