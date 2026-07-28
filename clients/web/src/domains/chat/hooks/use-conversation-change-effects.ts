@@ -64,14 +64,18 @@ export function useConversationChangeEffects(
   const unfetchedSubagentKey = useSubagentStore((s) => {
     const ids: string[] = [];
     for (const entry of Object.values(s.byId)) {
-      if (needsDetailFetch(entry)) ids.push(entry.subagentId);
+      if (needsDetailFetch(entry)) {
+        ids.push(entry.subagentId);
+      }
     }
     return ids.sort().join(',');
   });
 
   // Auto-fetch details for subagents reconstructed from history
   useEffect(() => {
-    if (!assistantId || !unfetchedSubagentKey) return;
+    if (!assistantId || !unfetchedSubagentKey) {
+      return;
+    }
     for (const entry of Object.values(useSubagentStore.getState().byId)) {
       if (needsDetailFetch(entry)) {
         void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, entry.subagentId);
