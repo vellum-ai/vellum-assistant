@@ -19,7 +19,7 @@ type SdkNetworkOption = NonNullable<
   Parameters<ReplaySdk["init"]>[1]
 >["network"];
 
-export type SessionReplaySurface = "web" | "macos" | "ios";
+export type SessionReplaySurface = "web" | "macos" | "ios" | "android";
 
 export interface SessionReplayInitOptions {
   environment: string;

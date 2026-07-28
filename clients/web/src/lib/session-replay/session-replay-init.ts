@@ -7,14 +7,19 @@ import {
 } from "@/lib/session-replay/session-replay-control";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { detectClientOs } from "@/runtime/platform-detection";
 
 /**
  * Detect the host surface. Electron is checked first since its renderer also
  * runs the web bundle (mirrors `resolveDsn()` in `sentry-init.ts`).
  */
 function sessionReplaySurface(): SessionReplayConfig["surface"] {
-  if (isElectron()) return "macos";
-  if (isNativePlatform()) return "ios";
+  if (isElectron()) {
+    return "macos";
+  }
+  if (isNativePlatform()) {
+    return detectClientOs() === "android" ? "android" : "ios";
+  }
   return "web";
 }
 
@@ -26,7 +31,9 @@ function sessionReplaySurface(): SessionReplayConfig["surface"] {
  */
 export function initSessionReplay(): void {
   const appId = import.meta.env.VITE_SESSION_REPLAY_APP_ID;
-  if (!appId) return;
+  if (!appId) {
+    return;
+  }
   const config: SessionReplayConfig = {
     appId,
     surface: sessionReplaySurface(),
