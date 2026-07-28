@@ -19,9 +19,12 @@
  *
  * The paid-return block covers the `post_checkout=1` marker reaching the
  * background hatch and the failure overlay that surfaces a dead hatch on any
- * step, with the at-capacity download off-ramp in place of a retry. The retry
- * block covers what that overlay's "Try again" has to un-poison: route state
- * that resolved against the dead hatch and would otherwise survive the retry.
+ * step, with the at-capacity download off-ramp in place of a retry. That
+ * surface is a banner rather than a modal, so it also covers the funnel staying
+ * usable underneath and the auto-advancing loading step holding its own
+ * position while the hatch is dead. The retry block covers what the banner's
+ * "Try again" has to un-poison: route state that resolved against the dead
+ * hatch and would otherwise survive the retry.
  *
  * Self-contained mocks (run this file solo — `mock.module` leaks across a shared
  * `bun test` run).
@@ -113,7 +116,7 @@ const backgroundHatch = {
   start: () => {},
   retry: retryHatchMock,
   ready: true,
-  assistantId: "asst-1",
+  assistantId: "asst-1" as string | null,
   error: null as string | null,
   awaitReady: () => awaitHatchReady(),
 };
@@ -308,13 +311,40 @@ mock.module("@/domains/onboarding/screens/create-personality-step", () => ({
   ),
 }));
 
+// Renders the real step's contract: the connect action can't enable until the
+// hatch is ready, and "Skip for now" is revealed early on a failed hatch so the
+// user is never trapped behind a button that can never enable.
 mock.module("@/domains/onboarding/screens/lets-chat-tomorrow-step", () => ({
-  LetsChatTomorrowStep: () => <div data-testid="letschat-step" />,
+  LetsChatTomorrowStep: (props: {
+    assistantId: string | null;
+    assistantReady: boolean;
+    hatchError?: string | null;
+    onSkip: () => void;
+  }) => {
+    const waitingForAssistant = !props.assistantId || !props.assistantReady;
+    return (
+      <div data-testid="letschat-step">
+        {!waitingForAssistant || props.hatchError ? (
+          <button
+            type="button"
+            data-testid="letschat-skip"
+            onClick={props.onSkip}
+          >
+            Skip for now
+          </button>
+        ) : null}
+      </div>
+    );
+  },
 }));
 
 mock.module("@/domains/onboarding/screens/research-result-steps", () => ({
   MeetingCreatedStep: () => <div data-testid="meeting-step" />,
-  LookingYouUpStep: () => <div data-testid="looking-step" />,
+  // Surfaces the `ready` gate so a test can pin when the carousel is allowed to
+  // advance out of the loading state.
+  LookingYouUpStep: (props: { ready: boolean }) => (
+    <div data-testid="looking-step" data-ready={String(props.ready)} />
+  ),
   FinishingUpStep: () => <div data-testid="finishing-step" />,
   ResearchResultsStep: () => <div data-testid="results-step" />,
   SuggestionsStep: () => <div data-testid="suggestions-step" />,
@@ -397,6 +427,8 @@ beforeEach(() => {
   releaseEstablishedCheck = () => {};
   searchParams.delete("post_checkout");
   backgroundHatch.error = null;
+  backgroundHatch.ready = true;
+  backgroundHatch.assistantId = "asst-1";
   awaitHatchReady = async () => "asst-1";
   onRetryHatch = () => {};
   navigateMock.mockClear();
@@ -624,7 +656,7 @@ describe("ResearchOnboardingRoute paid return", () => {
 
     render(<ResearchOnboardingRoute />);
 
-    const overlay = await screen.findByRole("alertdialog");
+    const overlay = await screen.findByRole("alert");
     expect(overlay.textContent).toContain(
       "Failed to start your assistant. Please try again.",
     );
@@ -640,7 +672,7 @@ describe("ResearchOnboardingRoute paid return", () => {
 
     render(<ResearchOnboardingRoute />);
 
-    const overlay = await screen.findByRole("alertdialog");
+    const overlay = await screen.findByRole("alert");
     expect(overlay.textContent).toContain(
       "Get started today with a local assistant",
     );
@@ -654,7 +686,59 @@ describe("ResearchOnboardingRoute paid return", () => {
     render(<ResearchOnboardingRoute />);
     await screen.findByTestId("form-submit");
 
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  // The failure surface is a banner, not a modal: it must not hide the funnel
+  // from assistive tech nor swallow the escapes the steps deliberately expose
+  // while the hatch is dead.
+  test("leaves the funnel's own escapes usable behind the failure banner", async () => {
+    writeResearchSnapshot(USER_ID, postFormSnapshot({ step: "letschat" }));
+    backgroundHatch.error = "Failed to start your assistant. Please try again.";
+    backgroundHatch.ready = false;
+    backgroundHatch.assistantId = null;
+
+    const { container } = render(<ResearchOnboardingRoute />);
+    await screen.findByRole("alert");
+
+    // The funnel behind is still exposed, not inerted by a modal layer.
+    expect(container.getAttribute("aria-hidden")).toBeNull();
+
+    // The calendar step reveals "Skip for now" precisely because the hatch
+    // failed — and the banner leaves it clickable, so the skip lands.
+    fireEvent.click(await screen.findByTestId("letschat-skip"));
+    expect(screen.getByTestId("looking-step")).toBeTruthy();
+  });
+
+  // The banner blocks input, not the step machine — so the auto-advancing
+  // loading step has to hold on its own while the hatch is dead, or the user is
+  // walked past the result steps and a recovered turn has nowhere to show.
+  test("holds the looking carousel while the hatch is dead, and resumes after a retry", async () => {
+    researchStatus = "error";
+    writeResearchSnapshot(USER_ID, postFormSnapshot({ step: "looking" }));
+    backgroundHatch.error = "Failed to start your assistant. Please try again.";
+
+    const { rerender } = render(<ResearchOnboardingRoute />);
+
+    // The turn has settled, but a dead hatch means its emptiness isn't final.
+    const looking = await screen.findByTestId("looking-step");
+    expect(looking.dataset.ready).toBe("false");
+
+    onRetryHatch = () => {
+      backgroundHatch.error = null;
+    };
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    // The retry re-fires the turn, so the step is legitimately loading again.
+    rerender(<ResearchOnboardingRoute />);
+    expect(screen.getByTestId("looking-step").dataset.ready).toBe("false");
+
+    // Once the recovered turn settles, the held carousel resumes — the
+    // re-fetched results get their step instead of having been skipped past.
+    researchStatus = "done";
+    rerender(<ResearchOnboardingRoute />);
+    await waitFor(() =>
+      expect(screen.getByTestId("looking-step").dataset.ready).toBe("true"),
+    );
   });
 });
 
@@ -687,7 +771,7 @@ describe("ResearchOnboardingRoute hatch retry", () => {
     establishedResult = { established: true, assistantName: "Viper" };
 
     render(<ResearchOnboardingRoute />);
-    await screen.findByRole("alertdialog");
+    await screen.findByRole("alert");
     // The dead hatch never got far enough to ask.
     expect(checkEstablishedAssistantMock).not.toHaveBeenCalled();
 
@@ -821,7 +905,7 @@ describe("ResearchOnboardingRoute hatch retry", () => {
     failFirstHatch();
 
     render(<ResearchOnboardingRoute />);
-    await screen.findByRole("alertdialog");
+    await screen.findByRole("alert");
 
     recoverOnRetry();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
@@ -870,7 +954,7 @@ describe("ResearchOnboardingRoute hatch retry", () => {
     writeResearchSnapshot(USER_ID, postFormSnapshot());
 
     render(<ResearchOnboardingRoute />);
-    await screen.findByRole("alertdialog");
+    await screen.findByRole("alert");
 
     recoverOnRetry();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));

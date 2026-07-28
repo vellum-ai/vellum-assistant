@@ -620,12 +620,15 @@ export function ResearchOnboardingRoute() {
 
   // If we're sitting on the results step when the research turn resolves empty
   // (it was still streaming when we arrived), skip ahead to the suggestions.
+  // A dead hatch settles the turn "error" with no claims, which is emptiness we
+  // may still recover from — hold here so a successful retry can refill this
+  // step instead of the user having been walked past it.
   useEffect(() => {
-    if (step === "results" && noClaims) {
+    if (step === "results" && noClaims && hatchError === null) {
       setForwardStack([]);
       setStep("suggestions");
     }
-  }, [step, noClaims]);
+  }, [step, noClaims, hatchError]);
 
   // Scrub the hidden aggregator-only drops from the assistant's memory when the
   // results step won't do it itself. The results step folds drops into its own
@@ -901,7 +904,8 @@ export function ResearchOnboardingRoute() {
   // A terminal hatch failure is layered over whichever step is on screen — the
   // assistant is dead at all of them, so the failure shouldn't wait for the
   // last step to be discovered. Layering (rather than replacing the step) keeps
-  // the funnel's collected state, so a successful retry resumes in place.
+  // the funnel's collected state, so a successful retry resumes in place; the
+  // banner is non-modal, so each step's own escapes stay usable while it's up.
   const withHatchError = (content: ReactNode) => (
     <>
       {content}
@@ -1030,7 +1034,11 @@ export function ResearchOnboardingRoute() {
             // decoupled in the background and is finished off in its own step
             // right before the chat handoff (see the "finishing" step), so this
             // quick loading state isn't held hostage to the persona turn.
-            ready={!researchLoading}
+            // A hatch failure holds the carousel too: the turn settles "error"
+            // the moment the hatch dies, and advancing would walk the user past
+            // the result steps into a handoff behind the failure banner, out
+            // from under its retry.
+            ready={!researchLoading && hatchError === null}
           />
         )}
         {step === "results" && (
