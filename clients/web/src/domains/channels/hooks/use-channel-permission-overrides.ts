@@ -183,11 +183,15 @@ export function useChannelPermissionOverrides({
   // (the same resolver the runtime evaluator uses over IPC) with the same
   // coordinates the evaluator queries for this adapter's rooms — no
   // conversation type, so broader-scope cells apply exactly as they would
-  // at tool time. POST-with-body read; the generated SDK has no query
-  // factory for it, so the queryFn calls the SDK directly. Fail-soft with
-  // no retries: the resolve route ships after the rest of the surface
-  // (0.10.7 gateways 404 it deterministically), and an errored query just
-  // leaves the badge at a plain "Default".
+  // at tool time. A successful resolve with no cell returns null; the
+  // section composes the owner's global interactive threshold as the
+  // fall-through, mirroring the runtime's room default, and the display
+  // layer collapses it to the channel's two levels. POST-with-body read;
+  // the generated SDK has no query factory for it, so the queryFn calls
+  // the SDK directly. Fail-soft with no retries: the resolve route ships
+  // after the rest of the surface (0.10.7 gateways 404 it
+  // deterministically), and an errored query just leaves the badge at a
+  // plain "Default".
   const defaultQuery = useQuery({
     queryKey: resolveQueryKey,
     queryFn: async () => {

@@ -292,3 +292,98 @@ describe("NotificationBroadcaster platform deep-link from contextPayload", () =>
     expect(sends[0]?.payload.deepLinkTarget).toBeUndefined();
   });
 });
+
+// The card context is built once per broadcast (adapters render only); an
+// answer-mode pending_question with structured options renders them as
+// tappable card actions in the answer-token scheme the reply router
+// recognizes.
+describe("NotificationBroadcaster question option actions", () => {
+  function questionSignal(payload: Record<string, unknown>) {
+    return makeSignal({
+      sourceEventName: "guardian.question",
+      contextPayload: payload,
+    });
+  }
+
+  const decisionForPlatform = () =>
+    makeDecision({
+      selectedChannels: ["platform"],
+      renderedCopy: { platform: { title: "Question", body: "Which fruit?" } },
+    });
+
+  test("renders pending_question options as answer-token actions plus Skip", async () => {
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      questionSignal({
+        requestKind: "pending_question",
+        requestId: "req-q1",
+        requestCode: "abc123",
+        questionText: "Which fruit?",
+        options: [
+          { id: "apple", label: "Apple" },
+          { id: "banana", label: "Banana" },
+        ],
+      }),
+      decisionForPlatform(),
+    );
+
+    expect(sends.length).toBe(1);
+    const approval = sends[0]?.payload.approvalContext;
+    expect(approval?.requestId).toBe("req-q1");
+    expect(approval?.actions).toEqual([
+      { id: "answer_0", label: "Apple" },
+      { id: "answer_1", label: "Banana" },
+      { id: "answer_skip", label: "Skip" },
+    ]);
+    // The plain-text fallback keeps the answer-mode request-code instruction.
+    expect(approval?.plainTextFallback).toContain("ABC123");
+    expect(approval?.plainTextFallback).toContain("your answer");
+  });
+
+  test("an option-less pending_question (voice) carries no card actions", async () => {
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      questionSignal({
+        requestKind: "pending_question",
+        requestId: "req-v1",
+        requestCode: "def456",
+        questionText: "What time works?",
+        callSessionId: "call-1",
+        activeGuardianRequestCount: 1,
+      }),
+      decisionForPlatform(),
+    );
+
+    expect(sends.length).toBe(1);
+    // Answer-mode without options renders as plain text with request-code
+    // instructions — no approve/reject pair is ever attached to a question.
+    expect(sends[0]?.payload.approvalContext).toBeUndefined();
+  });
+
+  test("tool_approval payloads keep the approve/reject action pair", async () => {
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      questionSignal({
+        requestKind: "tool_approval",
+        requestId: "req-t1",
+        requestCode: "ghi789",
+        questionText: "Approve tool: bash",
+        toolName: "bash",
+      }),
+      decisionForPlatform(),
+    );
+
+    expect(sends.length).toBe(1);
+    const approval = sends[0]?.payload.approvalContext;
+    expect(approval?.actions?.map((a) => a.id)).toEqual([
+      "approve_once",
+      "reject",
+    ]);
+  });
+});

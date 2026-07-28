@@ -239,6 +239,98 @@ describe("handleHostAppControlResult", () => {
     ).toThrow(BadRequestError);
   });
 
+  test("malformed body (empty requestId): throws BadRequestError", () => {
+    expect(() =>
+      handleHostAppControlResult({ body: { requestId: "", state: "running" } }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("malformed body (non-string requestId): throws BadRequestError", () => {
+    expect(() =>
+      handleHostAppControlResult({ body: { requestId: 42, state: "running" } }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("malformed body (wrong-typed optional): throws BadRequestError", () => {
+    expect(() =>
+      handleHostAppControlResult({
+        body: { requestId: "abc", state: "running", pngBase64: 123 },
+      }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("malformed body (windowBounds not an object): throws BadRequestError", () => {
+    expect(() =>
+      handleHostAppControlResult({
+        body: { requestId: "abc", state: "running", windowBounds: "nope" },
+      }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("malformed body (windowBounds missing a side): throws BadRequestError", () => {
+    expect(() =>
+      handleHostAppControlResult({
+        body: {
+          requestId: "abc",
+          state: "running",
+          windowBounds: { x: 1, y: 2, width: 800 },
+        },
+      }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("malformed body (non-numeric windowBounds side): throws BadRequestError", () => {
+    expect(() =>
+      handleHostAppControlResult({
+        body: {
+          requestId: "abc",
+          state: "running",
+          windowBounds: { x: 1, y: 2, width: "800", height: 600 },
+        },
+      }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("validates before consuming the pending interaction", async () => {
+    const requestId = "ac-req-invalid-stays";
+    pending.set(requestId, {
+      conversationId: "conv-1",
+      kind: "host_app_control",
+    });
+
+    await handleHostAppControlResult({
+      body: { requestId, state: "exploded" },
+    }).catch(() => {
+      // expected
+    });
+
+    expect(pending.has(requestId)).toBe(true);
+  });
+
+  test("unknown keys are stripped, not rejected (client passthrough result)", async () => {
+    const requestId = "ac-req-extra-keys";
+    const conversationId = "conv-extra";
+    pending.set(requestId, { conversationId, kind: "host_app_control" });
+
+    const resolveCalls: Array<{ payload: unknown }> = [];
+    conversations.set(conversationId, {
+      conversationId,
+      hostAppControlProxy: {
+        resolve(_rid, payload) {
+          resolveCalls.push({ payload });
+        },
+      },
+    });
+
+    const result = await handleHostAppControlResult({
+      body: { requestId, state: "running", helperDiagnostics: { pid: 4242 } },
+    });
+
+    expect(result).toEqual({ accepted: true });
+    expect(resolveCalls).toHaveLength(1);
+    expect(resolveCalls[0].payload).toEqual({ requestId, state: "running" });
+  });
+
   test("payload omits undefined optional fields (no leaking undefined keys)", async () => {
     const requestId = "ac-req-min";
     const conversationId = "conv-min";

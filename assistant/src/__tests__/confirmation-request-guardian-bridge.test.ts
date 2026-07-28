@@ -143,6 +143,11 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(emittedSignals[0].sourceEventName).toBe("guardian.question");
     expect(emittedSignals[0].sourceChannel).toBe("telegram");
     expect(emittedSignals[0].sourceContextId).toBe("conv-1");
+    // The in-app card is pinned to the conversation the confirmation was
+    // emitted in — never left to LLM conversation routing.
+    expect(emittedSignals[0].conversationAffinityHint).toEqual({
+      vellum: "conv-1",
+    });
 
     const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
     expect(payload.requestId).toBe(guardianRequest.id);

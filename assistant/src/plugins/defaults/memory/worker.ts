@@ -13,6 +13,7 @@
 import { writeFileSync } from "node:fs";
 
 import { getConfig } from "../../../config/loader.js";
+import { isMemoryEnabled } from "../../../config/memory-v3-gate.js";
 import { rehydratePlatformCredentials } from "../../../config/platform-rehydration.js";
 import { resetDb } from "../../../persistence/db-connection.js";
 import { disableStreamSeqStamping } from "../../../runtime/assistant-stream-state.js";
@@ -34,7 +35,7 @@ async function main(): Promise<void> {
   const config = getConfig();
   const pidPath = getMemoryWorkerPidPath();
 
-  if (config.memory.enabled === false) {
+  if (!isMemoryEnabled(config)) {
     log.info("Memory is disabled in config; worker process exiting");
     process.exit(0);
   }

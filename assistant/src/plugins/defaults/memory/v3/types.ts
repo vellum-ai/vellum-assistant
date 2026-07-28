@@ -96,7 +96,9 @@ export interface MemoryRoutingTurn {
  * frecency hot set, modification-recency fresh set); `needle` / `dense` /
  * `edge` are the per-turn finder lanes over the user's message; `reply` marks
  * finder candidates first surfaced by the reply-query pass (needle + dense
- * re-run over the assistant's previous message); `learned` marks candidates
+ * re-run over the assistant's previous message); `span` marks candidates first
+ * surfaced by the span-query pass (dense re-run over the current message's
+ * clause chunks as separate queries); `learned` marks candidates
  * surfaced by the co-selection NPMI association graph; `entity` marks
  * candidates surfaced because the message named an entity that titles a section
  * heading (the heading-anchored entity lane).
@@ -114,6 +116,7 @@ export const SELECTION_SOURCES = [
   "dense",
   "edge",
   "reply",
+  "span",
   "learned",
   "entity",
 ] as const;

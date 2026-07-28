@@ -1,11 +1,11 @@
+import {
+  ORDERING_ERROR_PATTERNS,
+  WEB_SEARCH_ORDERING_PATTERNS,
+} from "../agent/history-repair/history-repair.js";
 import type {
   ConversationErrorCode,
   ConversationErrorEvent,
 } from "../api/events/conversation-error.js";
-import {
-  ORDERING_ERROR_PATTERNS,
-  WEB_SEARCH_ORDERING_PATTERNS,
-} from "../plugins/defaults/history-repair/terminal.js";
 import {
   isImageDimensionsTooLargeError,
   isImageMediaTypeMismatchError,

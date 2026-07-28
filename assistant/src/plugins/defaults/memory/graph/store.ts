@@ -54,6 +54,7 @@ function memoryDb(): DrizzleDb {
 // Row ↔ Domain conversion helpers
 // ---------------------------------------------------------------------------
 
+/** Project a `memory_graph_nodes` row onto its domain node. */
 function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
   return {
     id: row.id,

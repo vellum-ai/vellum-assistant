@@ -19,8 +19,7 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
  *   `groupId === "system:scheduled"`.
  * - `background` — all background threads
  *   (`conversationType === "background"` or `groupId === "system:background"`),
- *   including auto-analysis (reflections). Sub-grouping by `source` is
- *   handled downstream by `backgroundSubGroups.ts`.
+ *   including auto-analysis (reflections).
  * - `recents` — everything else (foreground, non-pinned), sorted by
  *   `lastMessageAt` descending. Background/scheduled conversations with a
  *   non-null `surfacedAt` (explicitly promoted via the daemon's surface API)
@@ -37,6 +36,9 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 export interface CustomGroup {
   id: string;
   name: string;
+  /** Stored icon name from the group row; null when none was chosen
+   *  (older assistants omit the field entirely). */
+  icon: string | null;
   conversations: Conversation[];
 }
 
@@ -188,7 +190,12 @@ export function groupConversations(
   if (options?.groups) {
     for (const g of options.groups) {
       if (g.isSystemGroup) continue;
-      const bucket: CustomGroup = { id: g.id, name: g.name, conversations: [] };
+      const bucket: CustomGroup = {
+        id: g.id,
+        name: g.name,
+        icon: g.icon ?? null,
+        conversations: [],
+      };
       groupLookup.set(g.id, bucket);
       customGroupsList.push(bucket);
     }

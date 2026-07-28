@@ -1218,6 +1218,59 @@ describe("useProProvisioning — ensure-provisioned reconcile", () => {
   );
 
   test(
+    "a not_applicable / no_provisionable_assistants verdict is never adopted and is retried once",
+    async () => {
+      // The org holds the entitlement but has no settled assistant to apply it
+      // to, so the reconcile queued nothing — the same non-answer as the
+      // entitlement race.
+      ensureResponse = makeEnsureResponse(
+        "not_applicable",
+        "no_provisionable_assistants",
+      );
+      subscriptionPlanId = "pro";
+      renderProbe();
+
+      await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
+      await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+        timeout: 5000,
+      });
+
+      // The assistant settles by the single automatic re-ask.
+      ensureResponse = makeEnsureResponse("started");
+      await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
+      await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+        timeout: 5000,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(ensureCalls).toBe(2);
+    },
+    20_000,
+  );
+
+  test(
+    "a dead-end no_provisionable_assistants surfaces its own reason in kickError",
+    async () => {
+      ensureResponse = makeEnsureResponse(
+        "not_applicable",
+        "no_provisionable_assistants",
+      );
+      subscriptionPlanId = "pro";
+      renderProbe();
+
+      await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
+      await waitFor(
+        () =>
+          expect(latest!.kickError).toEqual({
+            error: "no_provisionable_assistants",
+          }),
+        { timeout: 5000 },
+      );
+      expect(latest!.state).toBe("WAITING");
+    },
+    20_000,
+  );
+
+  test(
     "a 503 on the automatic call never blocks the flow but is captured in kickError",
     async () => {
       ensureError = { error: "provisioning_submission_failed" };

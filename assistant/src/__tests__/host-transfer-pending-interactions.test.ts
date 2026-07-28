@@ -3,7 +3,7 @@
  * registration.
  *
  * Verifies:
- * - HostTransferRequestEvent and HostTransferCancelEvent are part of ServerMessage
+ * - HostTransferRequestEvent and HostTransferCancelEvent are part of AssistantEvent
  * - "host_transfer" is a valid PendingInteraction kind
  * - host_transfer interactions survive removeByConversation (not auto-denied)
  */
@@ -13,7 +13,7 @@ import type {
   HostTransferCancelEvent,
   HostTransferRequestEvent,
 } from "../api/events/host-transfer.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 // ---------------------------------------------------------------------------
@@ -21,7 +21,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 // ---------------------------------------------------------------------------
 
 describe("HostTransfer message types", () => {
-  test("host_transfer to_host request is assignable to ServerMessage", () => {
+  test("host_transfer to_host request is assignable to AssistantEvent", () => {
     const msg: HostTransferRequestEvent = {
       type: "host_transfer_request",
       requestId: "req-1",
@@ -33,11 +33,11 @@ describe("HostTransfer message types", () => {
       sha256: "abc123",
       overwrite: false,
     };
-    const _sm: ServerMessage = msg;
+    const _sm: AssistantEvent = msg;
     expect(_sm.type).toBe("host_transfer_request");
   });
 
-  test("host_transfer to_sandbox request is assignable to ServerMessage", () => {
+  test("host_transfer to_sandbox request is assignable to AssistantEvent", () => {
     const msg: HostTransferRequestEvent = {
       type: "host_transfer_request",
       requestId: "req-2",
@@ -46,17 +46,17 @@ describe("HostTransfer message types", () => {
       transferId: "xfer-2",
       sourcePath: "/home/user/file.txt",
     };
-    const _sm: ServerMessage = msg;
+    const _sm: AssistantEvent = msg;
     expect(_sm.type).toBe("host_transfer_request");
   });
 
-  test("HostTransferCancelEvent is assignable to ServerMessage", () => {
+  test("HostTransferCancelEvent is assignable to AssistantEvent", () => {
     const msg: HostTransferCancelEvent = {
       type: "host_transfer_cancel",
       requestId: "req-3",
       conversationId: "conv-1",
     };
-    const _sm: ServerMessage = msg;
+    const _sm: AssistantEvent = msg;
     expect(_sm.type).toBe("host_transfer_cancel");
   });
 

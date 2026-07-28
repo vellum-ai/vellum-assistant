@@ -22,7 +22,6 @@ import {
   type CustomPlanSelection,
 } from "@/domains/settings/billing/plans/custom-plan-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
-import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
 import { packageSpecs } from "@/domains/settings/billing/plan-spec";
 import { PlanSpecCard } from "@/domains/settings/billing/plan-spec-card";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
@@ -351,7 +350,7 @@ function RecommendedUpgrade({
         <PlanPromoCard
           className="lg:flex-[2]"
           title={`Upgrade to ${recommended.name}`}
-          blurb={getPlanTierCopy(recommended.key)?.upgradeBlurb}
+          specs={packageSpecs(recommended)}
           ctaLabel="Upgrade"
           ctaTestId="recommended-upgrade-button"
           pending={isPending}
@@ -361,6 +360,7 @@ function RecommendedUpgrade({
           open={confirmOpen}
           relation={relation}
           packageName={recommended.name}
+          targetPackage={recommended}
           pending={isPending}
           onConfirm={() => void handleConfirmChange()}
           onCancel={() => setConfirmOpen(false)}

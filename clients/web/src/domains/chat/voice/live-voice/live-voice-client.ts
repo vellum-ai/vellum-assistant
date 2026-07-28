@@ -28,6 +28,7 @@ import {
   type LiveVoiceClientStartFrame,
   LIVE_VOICE_AUDIO_FORMAT,
   type LiveVoiceMetricsServerFrame,
+  type LiveVoiceMinimizeRoomServerFrame,
   type LiveVoiceReadyServerFrame,
   type LiveVoiceSpeechStartedServerFrame,
   type LiveVoiceSttFinalServerFrame,
@@ -112,6 +113,8 @@ export interface LiveVoiceClientEventMap {
   ttsDone: LiveVoiceTtsDoneServerFrame;
   /** Barge-in aborted the turn — drop buffered tts_audio; no tts_done follows. */
   turnCancelled: LiveVoiceTurnCancelledServerFrame;
+  /** The completed turn asked the client to dismiss the full-screen room. */
+  minimizeRoom: LiveVoiceMinimizeRoomServerFrame;
   metrics: LiveVoiceMetricsServerFrame;
   archived: LiveVoiceArchivedServerFrame;
   busy: LiveVoiceBusyServerFrame;
@@ -194,6 +197,7 @@ export class LiveVoiceChannelClient {
     ttsAudio: new Set(),
     ttsDone: new Set(),
     turnCancelled: new Set(),
+    minimizeRoom: new Set(),
     metrics: new Set(),
     archived: new Set(),
     busy: new Set(),
@@ -419,6 +423,9 @@ export class LiveVoiceChannelClient {
         return;
       case "turn_cancelled":
         this.emit("turnCancelled", frame);
+        return;
+      case "minimize_room":
+        this.emit("minimizeRoom", frame);
         return;
       case "metrics":
         this.emit("metrics", frame);

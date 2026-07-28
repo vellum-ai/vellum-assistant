@@ -7,13 +7,15 @@
  *
  * No source-module imports
  * ------------------------
- * This file has ZERO imports from `src/`. It accesses the store-path
+ * This file has ZERO runtime imports from `src/`. It accesses the store-path
  * override state via the shared `globalThis.vellumAssistant.storePathOverride`
- * slot that `src/security/store-path-override.ts` also reads/writes. The
- * slot shape is duplicated here on purpose: keeping this file off the
- * production import graph is what protects the test preload from a
- * broken `node_modules` symlink (DB ghost #3). The two declarations MUST
- * stay in sync — if you change one, change the other.
+ * slot that `src/security/store-path-override.ts` also reads/writes, typed by
+ * the shared ambient `VellumStorePathOverride` (declared in
+ * `src/vellum-assistant-namespace.d.ts`). That ambient type is pure
+ * compile-time information — referencing it adds nothing to this file's runtime
+ * import graph — so keeping the helper off the production import graph (what
+ * protects the test preload from a broken `node_modules` symlink, DB ghost #3)
+ * still holds.
  *
  * Most tests no longer need these overrides: the test preload places
  * `VELLUM_WORKSPACE_DIR` at `<tmpRoot>/workspace`, so `getProtectedDir()`
@@ -22,20 +24,8 @@
  * (env-var fallbacks, migration corner cases, etc.).
  */
 
-// Mirrors `src/security/store-path-override.ts`. Duplicated by design — see
-// the "No source-module imports" section above.
-type PathSlot = {
-  storePath: string | null;
-  storeKeyPath: string | null;
-};
-
-type VellumAssistantNamespace = {
-  storePathOverride?: PathSlot;
-};
-
-function pathSlot(): PathSlot {
-  const g = globalThis as { vellumAssistant?: VellumAssistantNamespace };
-  const ns = (g.vellumAssistant ??= {});
+function pathSlot(): VellumStorePathOverride {
+  const ns = (globalThis.vellumAssistant ??= {});
   return (ns.storePathOverride ??= { storePath: null, storeKeyPath: null });
 }
 

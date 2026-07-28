@@ -85,7 +85,10 @@ mock.module("@/runtime/browser", () => ({
   openUrlFinishedListener: () => () => {},
 }));
 
-import { readCheckoutIntent } from "@/lib/billing/checkout-intent";
+import {
+  clearCheckoutIntent,
+  readCheckoutIntent,
+} from "@/lib/billing/checkout-intent";
 import { AdjustPlanModal } from "./adjust-plan-modal";
 
 const CREDIT_TIERS: CreditTier[] = [
@@ -259,7 +262,9 @@ beforeEach(() => {
   changeMachineTierCall = null;
   changeStorageTierCall = null;
   openedUrl = null;
-  sessionStorage.clear();
+  // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
+  // leaves a prior test's intent readable.
+  clearCheckoutIntent();
 });
 
 afterEach(() => {

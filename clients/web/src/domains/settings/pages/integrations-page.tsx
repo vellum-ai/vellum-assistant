@@ -15,7 +15,7 @@ import { McpPage } from "@/domains/settings/mcp/mcp-page";
 import { assistantsOauthConnectionsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { oauthProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
-import { useManagedOAuthPlatformAssistantId } from "@/hooks/use-managed-oauth-platform-assistant-id";
+import { usePlatformAssistantId } from "@/hooks/use-platform-assistant-id";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
@@ -96,7 +96,7 @@ function IntegrationsPanelInner() {
   const {
     platformAssistantId,
     isLoading: platformAssistantIdLoading,
-  } = useManagedOAuthPlatformAssistantId(assistant?.id, platformGate === "full");
+  } = usePlatformAssistantId(assistant?.id, platformGate === "full");
 
   const {
     data: providers,

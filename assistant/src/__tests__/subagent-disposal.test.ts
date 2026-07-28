@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 
@@ -13,7 +13,7 @@ interface FakeManagedSubagent {
       role: string;
       content: Array<{ type: string; text: string }>;
     }>;
-    sendToClient: (msg: ServerMessage) => void;
+    sendToClient: (msg: AssistantEvent) => void;
     persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
     enqueueMessage?: () => { rejected: boolean; queued: boolean };
@@ -25,7 +25,7 @@ interface FakeManagedSubagent {
     subagentDeniedToolNames: Set<string>;
   } | null;
   state: SubagentState;
-  parentSendToClient: (msg: ServerMessage) => void;
+  parentSendToClient: (msg: AssistantEvent) => void;
   retainedUntil?: number;
   hadEnqueuedMessages?: boolean;
 }
@@ -34,6 +34,7 @@ interface FakeManagedSubagent {
 interface ManagerInternals {
   subagents: Map<string, FakeManagedSubagent>;
   parentToChildren: Map<string, Set<string>>;
+  labelIndex: Map<string, string>;
   runSubagent: (subagentId: string, objective: string) => Promise<void>;
   sweepTerminal: () => void;
   stopSweep: () => void;
@@ -60,7 +61,7 @@ function injectFakeSubagent(
   manager: SubagentManager,
   subagentId: string,
   state: SubagentState,
-  parentSendToClient?: (msg: ServerMessage) => void,
+  parentSendToClient?: (msg: AssistantEvent) => void,
   conversation?: FakeManagedSubagent["conversation"],
 ): void {
   const internals = asInternals(manager);
@@ -77,6 +78,10 @@ function injectFakeSubagent(
     internals.parentToChildren.set(parentId, new Set());
   }
   internals.parentToChildren.get(parentId)!.add(subagentId);
+  internals.labelIndex.set(
+    `${parentId}:${state.config.label.toLowerCase().trim()}`,
+    subagentId,
+  );
 }
 
 function makeState(
@@ -210,10 +215,34 @@ describe("SubagentManager terminal disposal", () => {
     expect(manager.getState("sub-1")).toBeDefined();
 
     // Parent disposal should remove it.
-    manager.abortAllForParent("parent-sess-1");
+    manager.disposeAllForParent("parent-sess-1");
 
     expect(manager.getState("sub-1")).toBeUndefined();
     expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(0);
+  });
+
+  test("parent cancel keeps a completed child readable within its retention window", () => {
+    const manager = new SubagentManager();
+    injectFakeSubagent(
+      manager,
+      "sub-done",
+      makeState("sub-done", { status: "completed" }),
+      undefined,
+      null, // conversation released, metadata retained
+    );
+    asInternals(manager).subagents.get("sub-done")!.retainedUntil =
+      Date.now() + 60_000;
+
+    // A user stop / idle eviction aborts in-flight children only.
+    manager.abortAllForParent("parent-sess-1");
+
+    // The completed child's result must remain resolvable by id and by label
+    // so the parent can still subagent_read it after the cancel.
+    expect(manager.getState("sub-done")?.status).toBe("completed");
+    expect(
+      manager.getByLabel("Test subagent", "parent-sess-1")?.config.id,
+    ).toBe("sub-done");
+    expect(manager.getChildrenOf("parent-sess-1")).toHaveLength(1);
   });
 
   test("TTL sweep removes expired terminal entries but not active subagents", () => {
@@ -332,8 +361,8 @@ describe("SubagentManager terminal disposal", () => {
 describe("SubagentManager.abort usage", () => {
   test("emits the conversation's latest usage on abort, not zeros", () => {
     const manager = new SubagentManager();
-    const sent: ServerMessage[] = [];
-    const sender = (msg: ServerMessage) => sent.push(msg);
+    const sent: AssistantEvent[] = [];
+    const sender = (msg: AssistantEvent) => sent.push(msg);
 
     const subagentId = "sa-abort-usage";
     // state.usage starts at {0,0,0}; the live (fake) conversation has accrued
@@ -347,7 +376,7 @@ describe("SubagentManager.abort usage", () => {
     expect(aborted).toBe(true);
 
     const statusMsg = sent.find(
-      (m): m is Extract<ServerMessage, { type: "subagent_status_changed" }> =>
+      (m): m is Extract<AssistantEvent, { type: "subagent_status_changed" }> =>
         m.type === "subagent_status_changed",
     );
     expect(statusMsg).toBeDefined();
@@ -365,8 +394,8 @@ describe("SubagentManager.abort usage", () => {
 
   test("keeps the last-known state.usage when the conversation was already released", () => {
     const manager = new SubagentManager();
-    const sent: ServerMessage[] = [];
-    const sender = (msg: ServerMessage) => sent.push(msg);
+    const sent: AssistantEvent[] = [];
+    const sender = (msg: AssistantEvent) => sent.push(msg);
 
     const subagentId = "sa-abort-no-conv";
     // No live conversation (released), but state carries a last-known usage —
@@ -381,7 +410,7 @@ describe("SubagentManager.abort usage", () => {
     });
 
     const statusMsg = sent.find(
-      (m): m is Extract<ServerMessage, { type: "subagent_status_changed" }> =>
+      (m): m is Extract<AssistantEvent, { type: "subagent_status_changed" }> =>
         m.type === "subagent_status_changed",
     );
     expect(statusMsg!.usage).toEqual({

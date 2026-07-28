@@ -9,6 +9,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { buildA2AInviteLink } from "@/domains/contacts/a2a-invite";
 import { integrationsA2aInvitePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 export interface GenerateInviteLinkDialogProps {
   open: boolean;
@@ -69,10 +70,15 @@ export function GenerateInviteLinkDialog({
   }, [onClose]);
 
   const handleCopy = useCallback((url: string) => {
-    void navigator.clipboard.writeText(url).then(() => {
-      setCopied(true);
-      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-      copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
+    copyToClipboard(url, {
+      errorMessage: "Couldn't copy the invite link.",
+      onCopied: () => {
+        setCopied(true);
+        if (copiedTimerRef.current) {
+          clearTimeout(copiedTimerRef.current);
+        }
+        copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
+      },
     });
   }, []);
 

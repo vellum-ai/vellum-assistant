@@ -1,3 +1,4 @@
+import type { AssistantEvent } from "../api/index.js";
 import { getConfig } from "../config/loader.js";
 import { updateConversationUsage } from "../persistence/conversation-crud.js";
 import { recordUsageEvent } from "../persistence/llm-usage-store.js";
@@ -16,7 +17,7 @@ import {
   resolvePricingForUsageWithOverrides,
   usesAnthropicPricingRules,
 } from "../util/pricing.js";
-import type { ServerMessage, UsageStats } from "./message-protocol.js";
+import type { UsageStats } from "./message-protocol.js";
 
 const log = getLogger("conversation-usage");
 
@@ -27,12 +28,12 @@ export interface UsageContext {
 }
 
 function normalizeTokenCount(value: number | null | undefined): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  if (typeof value !== "number" || !Number.isFinite(value)) {return 0;}
   return Math.max(value, 0);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value == null) return null;
+  if (typeof value !== "object" || value == null) {return null;}
   return value as Record<string, unknown>;
 }
 
@@ -42,7 +43,7 @@ function extractAnthropicCacheCreationFromResponse(
   const rawResponse = asRecord(response);
   const usage = asRecord(rawResponse?.usage);
   const cacheCreation = asRecord(usage?.cache_creation);
-  if (!cacheCreation) return null;
+  if (!cacheCreation) {return null;}
 
   return {
     ephemeral_5m_input_tokens: normalizeTokenCount(
@@ -64,7 +65,7 @@ function extractAnthropicCacheCreation(
 
   for (const response of responses) {
     const details = extractAnthropicCacheCreationFromResponse(response);
-    if (!details) continue;
+    if (!details) {continue;}
     foundDetails = true;
     ephemeral5mInputTokens += normalizeTokenCount(
       details.ephemeral_5m_input_tokens,
@@ -74,7 +75,7 @@ function extractAnthropicCacheCreation(
     );
   }
 
-  if (!foundDetails) return null;
+  if (!foundDetails) {return null;}
 
   return {
     ephemeral_5m_input_tokens: ephemeral5mInputTokens,
@@ -96,8 +97,8 @@ function extractAnthropicSpeed(
   for (const response of responses) {
     const rec = asRecord(response);
     const usage = asRecord(rec?.usage);
-    if (usage?.speed === "fast") return "fast";
-    if (usage?.speed === "standard") foundStandard = true;
+    if (usage?.speed === "fast") {return "fast";}
+    if (usage?.speed === "standard") {foundStandard = true;}
   }
   return foundStandard ? "standard" : null;
 }
@@ -143,7 +144,7 @@ function resolveAttribution(
     | null
     | undefined,
 ): UsageAttributionSnapshot | null {
-  if (attribution == null) return null;
+  if (attribution == null) {return null;}
   return isUsageAttributionSnapshot(attribution)
     ? attribution
     : resolveUsageAttribution(attribution);
@@ -154,7 +155,7 @@ export function recordUsage(
   inputTokens: number,
   outputTokens: number,
   model: string,
-  onEvent: (msg: ServerMessage) => void,
+  onEvent: (msg: AssistantEvent) => void,
   actor: UsageActor,
   requestId: string | null = null,
   cacheCreationInputTokens = 0,
@@ -165,7 +166,7 @@ export function recordUsage(
   attribution?: UsageAttributionInput | UsageAttributionSnapshot | null,
   cronRunId: string | null = null,
 ): void {
-  if (inputTokens <= 0 && outputTokens <= 0) return;
+  if (inputTokens <= 0 && outputTokens <= 0) {return;}
 
   const normalizedCacheCreationInputTokens = normalizeTokenCount(
     cacheCreationInputTokens,

@@ -1,19 +1,18 @@
 /**
- * Gating behavior of the overview's drill-down section list: Memory only
- * appears where the memory-concept graph is available (memory v3 live),
- * Channels is always present (the surface is no longer flag-gated), and the
- * stable sections keep their order.
+ * The overview's drill-down section list: every section is unconditional, in a
+ * stable order. Memory used to be gated on memory-concept-graph availability
+ * and would vanish from the mosaic; it is now always present, and the Memory
+ * tab itself explains an unavailable graph.
  */
 import { describe, expect, test } from "bun:test";
 
 import { buildIdentitySections } from "./identity-sections";
 
-const keys = (gates: Parameters<typeof buildIdentitySections>[0]) =>
-  buildIdentitySections(gates).map((s) => s.key);
+const keys = () => buildIdentitySections().map((s) => s.key);
 
 describe("buildIdentitySections", () => {
-  test("includes every section when the memory graph is available", () => {
-    expect(keys({ showMemory: true })).toEqual([
+  test("includes every section, in order", () => {
+    expect(keys()).toEqual([
       "personality",
       "schedules",
       "superpowers",
@@ -25,12 +24,19 @@ describe("buildIdentitySections", () => {
     ]);
   });
 
-  test("hides Memory while the memory-concept graph is unavailable", () => {
-    expect(keys({ showMemory: false })).not.toContain("memory");
+  test("never hides Memory — the card is the way into the Memory tab", () => {
+    expect(keys()).toContain("memory");
   });
 
   test("always includes Channels", () => {
-    expect(keys({ showMemory: true })).toContain("channels");
-    expect(keys({ showMemory: false })).toContain("channels");
+    expect(keys()).toContain("channels");
+  });
+
+  test("every section carries a label, description and path", () => {
+    for (const section of buildIdentitySections()) {
+      expect(section.label.length).toBeGreaterThan(0);
+      expect(section.description.length).toBeGreaterThan(0);
+      expect(section.to.startsWith("/")).toBe(true);
+    }
   });
 });

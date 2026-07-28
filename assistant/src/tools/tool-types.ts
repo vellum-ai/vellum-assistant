@@ -240,6 +240,13 @@ export interface ToolContext {
    * equivalent instead of emitting a surface the channel silently drops.
    */
   supportsDynamicUi?: boolean;
+  /**
+   * Whether a parked `ask_question` on this turn's channel can be delivered as
+   * a guardian-request card with tappable answer options; `undefined`/`false`
+   * means no card delivery is possible. See the ToolContext field of the same
+   * name in `types.ts`.
+   */
+  supportsGuardianQuestionCards?: boolean;
   /** When true, tools with side effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
   /**

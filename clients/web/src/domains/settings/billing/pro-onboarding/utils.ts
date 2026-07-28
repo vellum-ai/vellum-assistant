@@ -19,8 +19,8 @@ export const PROVISION_MIN_DWELL_MS = 2_500;
 export const PROVISION_PHASE_MIN_MS = 900;
 /**
  * How long to wait before re-asking ensure-provisioned when it answered
- * `not_applicable` / `no_active_pro` — the subscription flipped to Pro but the
- * entitlement wasn't visible to the reconcile yet. One retry only.
+ * `not_applicable` with a race reason — the entitlement or the assistant
+ * wasn't visible to the reconcile yet. One retry only.
  */
 export const ENSURE_PROVISIONED_RACE_RETRY_MS = 2_000;
 
@@ -41,6 +41,8 @@ export const ONBOARDING_ERROR_CODE_MESSAGES: Record<string, string> = {
     "We couldn't queue your upgrade just now. Try again in a moment.",
   no_active_pro:
     "We couldn't confirm your Pro plan yet. Try again in a moment.",
+  no_provisionable_assistants:
+    "We couldn't find an assistant to upgrade yet. Try again in a moment.",
 };
 
 export function extractOnboardingErrorMessage(

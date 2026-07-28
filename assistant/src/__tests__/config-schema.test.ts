@@ -68,7 +68,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.services["image-generation"].model).toBe(
       "gemini-3.1-flash-image-preview",
     );
-    expect(result.services["image-generation"].mode).toBe("your-own");
+    expect(result.services["image-generation"]).not.toHaveProperty("mode");
     expect(result.services["web-search"].provider).toBe(
       "inference-provider-native",
     );
@@ -939,11 +939,12 @@ describe("AssistantConfigSchema", () => {
         endpointMaxExtensions: 2,
         ackFirstDeltaTimeoutMs: 2500,
         ackGenerationTimeoutMs: 600,
-        llmAckText: false,
         progress: {
           enabled: true,
           opsThreshold: 3,
           idleIntervalMs: 5000,
+          maxSilenceMs: 35000,
+          longOpMs: 15000,
           minGapMs: 6000,
           generationTimeoutMs: 1500,
         },

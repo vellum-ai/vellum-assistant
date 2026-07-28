@@ -29,13 +29,13 @@ mock.module("../../../runtime/sync/resource-sync-events.js", () => ({
   },
 }));
 
+import type { AssistantEventEnvelope } from "../../../api/index.js";
 import type { EventHandlerState } from "../../../daemon/conversation-agent-loop-handlers.js";
 import { DB_MIGRATION_READINESS_EXEMPT_OPERATIONS } from "../../../daemon/daemon-readiness.js";
 import {
   registerInflightTurn,
   unregisterInflightTurn,
 } from "../../../daemon/inflight-turn-registry.js";
-import type { AssistantEvent } from "../../../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   stampAndBuffer,
@@ -50,7 +50,7 @@ function stampEvent(): void {
   stampAndBuffer({
     conversationId: "conv-x",
     message: { type: "assistant_text_delta", text: "x" },
-  } as unknown as AssistantEvent);
+  } as unknown as AssistantEventEnvelope);
 }
 
 describe("conversation-sync IPC route", () => {

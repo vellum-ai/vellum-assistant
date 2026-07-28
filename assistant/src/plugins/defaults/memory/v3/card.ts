@@ -1,5 +1,5 @@
 import { FRONTMATTER_REGEX, parseFrontmatterFields } from "../frontmatter.js";
-import { injectedConceptHeader } from "./substrate/injected-block-slugs.js";
+import { injectedConceptHeader } from "../substrate/injected-block-slugs.js";
 import type { Slug } from "./types.js";
 
 /**
@@ -32,7 +32,9 @@ const SECTION_HEADING_REGEX = /^## (.*)$/m;
  */
 function renderLinkEntry(entry: string): string {
   const sep = entry.indexOf(" — ");
-  if (sep === -1) return entry.trim();
+  if (sep === -1) {
+    return entry.trim();
+  }
   const target = entry.slice(0, sep).trim();
   let note = entry.slice(sep + " — ".length).trim();
   if (note.length > LINK_NOTE_MAX_CHARS) {
@@ -59,13 +61,17 @@ function renderTocLine(
       .filter((entry): entry is string => typeof entry === "string")
       .map(renderLinkEntry)
       .filter((entry) => entry.length > 0);
-    if (entries.length > 0) return `[linked: ${entries.join(" · ")}]`;
+    if (entries.length > 0) {
+      return `[linked: ${entries.join(" · ")}]`;
+    }
   }
 
   const headings = [...body.matchAll(new RegExp(SECTION_HEADING_REGEX, "gm"))]
     .map((match) => match[1]!.trim())
     .filter((heading) => heading.length > 0);
-  if (headings.length === 0) return null;
+  if (headings.length === 0) {
+    return null;
+  }
   return `[sections: ${headings.map((h) => `§${h}`).join(" · ")}]`;
 }
 
@@ -81,9 +87,13 @@ const CURRENT_MAX_CHARS = 280;
  */
 function renderCurrentLine(fields: Record<string, unknown>): string | null {
   const current = fields.current;
-  if (typeof current !== "string") return null;
+  if (typeof current !== "string") {
+    return null;
+  }
   const collapsed = current.replace(/\s+/g, " ").trim();
-  if (collapsed.length === 0) return null;
+  if (collapsed.length === 0) {
+    return null;
+  }
   const capped =
     collapsed.length > CURRENT_MAX_CHARS
       ? `${collapsed.slice(0, CURRENT_MAX_CHARS).trimEnd()}…`
@@ -138,14 +148,20 @@ export function renderCard(
 
   let card = injectedConceptHeader(slug);
   const current = renderCurrentLine(fields);
-  if (current !== null) card += `\n${current}`;
+  if (current !== null) {
+    card += `\n${current}`;
+  }
   if (annotation !== undefined && annotation.length > 0) {
     card += `\n${annotation}`;
   }
-  if (head.length > 0) card += `\n${head}`;
+  if (head.length > 0) {
+    card += `\n${head}`;
+  }
 
   const toc = renderTocLine(body, fields);
-  if (toc !== null) card += `\n\n${toc}`;
+  if (toc !== null) {
+    card += `\n\n${toc}`;
+  }
 
   return card;
 }

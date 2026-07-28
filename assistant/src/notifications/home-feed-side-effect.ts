@@ -159,6 +159,7 @@ const EVENT_CATEGORY_MAP: Record<string, FeedItemCategory> = {
   "guardian.question": "security",
   "guardian.channel_activation": "security",
   "ingress.access_request": "security",
+  "telegram.webhook_health_alert": "system",
 };
 
 function deriveCategory(signal: NotificationSignal): FeedItemCategory {
@@ -269,6 +270,9 @@ const NOTEWORTHY_EVENT_NAMES: ReadonlySet<string> = new Set([
   "guardian.channel_activation",
   "ingress.access_request",
   "credential.health_alert",
+  // A dark messaging channel is inbox-worthy: the guardian may be waiting on
+  // replies that are silently queueing at Telegram.
+  "telegram.webhook_health_alert",
 ]);
 
 function deriveNoteworthy(signal: NotificationSignal): boolean {

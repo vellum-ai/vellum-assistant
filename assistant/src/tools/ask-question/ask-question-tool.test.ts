@@ -342,6 +342,71 @@ describe("AskQuestionTool text fallback (supportsDynamicUi === false)", () => {
     expect(calls).toHaveLength(0);
     expect(result.content.toLowerCase()).toContain("no interactive user");
   });
+
+  test("parks a single guardian question on a card-capable channel", async () => {
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+
+    // A guardian's single-question turn on a channel with a card-rendering
+    // notification adapter parks on the prompter: the guardian-request
+    // pipeline delivers it as a tappable card, so falling back to text would
+    // regress it to an untappable message.
+    await askQuestionTool.execute(
+      validInput,
+      makeContext({
+        supportsDynamicUi: false,
+        supportsGuardianQuestionCards: true,
+        trustClass: "guardian",
+      }),
+    );
+
+    expect(calls).toHaveLength(1);
+  });
+
+  test("text fallback when the channel has no question-card delivery", async () => {
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({
+        supportsDynamicUi: false,
+        supportsGuardianQuestionCards: false,
+        trustClass: "guardian",
+      }),
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(result.content.toLowerCase()).toContain("plain-text");
+  });
+
+  test("text fallback for a non-guardian channel turn even with card delivery", async () => {
+    // The pipeline delivers cards to the guardian; a non-guardian chatter
+    // would never see one, so their turn degrades to text.
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({
+        supportsDynamicUi: false,
+        supportsGuardianQuestionCards: true,
+        trustClass: "trusted_contact",
+      }),
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(result.content.toLowerCase()).toContain("plain-text");
+  });
+
+  test("text fallback for a multi-question batch on a channel", async () => {
+    // One card carries one answer; multi-question batches stay text on
+    // channels (the app card still handles them when dynamic UI is present).
+    const result = await askQuestionTool.execute(
+      { questions: [singleQ, { ...singleQ, question: "Which size?" }] },
+      makeContext({
+        supportsDynamicUi: false,
+        supportsGuardianQuestionCards: true,
+        trustClass: "guardian",
+      }),
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(result.content.toLowerCase()).toContain("plain-text");
+  });
 });
 
 describe("formatQuestionsAsTextFallback", () => {

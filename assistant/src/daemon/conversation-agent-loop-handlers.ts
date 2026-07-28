@@ -11,6 +11,7 @@ import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -54,7 +55,7 @@ import { endSection, markSection } from "../persistence/slow-sync-log.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
-import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/memory-v2-activation-log-store.js";
+import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/v2/activation-log-store.js";
 import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory/v3/shadow-plugin.js";
 import { resolveMediaSourceData } from "../providers/media-resolve.js";
 import type {
@@ -131,7 +132,6 @@ import {
 } from "./inflight-message-content.js";
 import type {
   CardSurfaceData,
-  ServerMessage,
   SurfaceAction,
   UiSurfaceShow,
 } from "./message-protocol.js";
@@ -511,7 +511,7 @@ export interface EventHandlerState {
 /** Immutable context shared across event handlers within a single agent loop run. */
 export interface EventHandlerDeps {
   readonly ctx: Conversation;
-  readonly onEvent: (msg: ServerMessage) => void;
+  readonly onEvent: (msg: AssistantEvent) => void;
   readonly reqId: string;
   readonly isFirstMessage: boolean;
   /** Whether the conversation title is replaceable — controls firstAssistantText accumulation for title generation. */
@@ -3309,7 +3309,7 @@ export async function dispatchAgentEvent(
       case "compaction_circuit_open":
       case "compaction_circuit_closed":
         // Circuit-breaker transitions are already in wire-contract shape
-        // (a subset of ServerMessage), so forward them to the client sink
+        // (a subset of AssistantEvent), so forward them to the client sink
         // unchanged. They drive the client's "auto-compaction paused"
         // banner.
         deps.onEvent(event);

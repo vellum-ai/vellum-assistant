@@ -72,7 +72,7 @@ export function ensureActivationLogsSchema(memoryRaw: Database): void {
  * 326). One row is appended per activation pass, so housing the table with
  * the other high-churn memory state keeps the main DB and its WAL out of
  * that write path; the accessors in
- * `plugins/defaults/memory/memory-v2-activation-log-store.ts` read/write it
+ * `plugins/defaults/memory/v2/activation-log-store.ts` read/write it
  * over the dedicated memory connection.
  *
  * Registered with `dependsOn` on migrations 234 (creator) and 256 (whose

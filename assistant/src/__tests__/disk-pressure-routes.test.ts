@@ -21,11 +21,18 @@ mock.module("../runtime/assistant-event.js", () => ({
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   AssistantEventHub: class {},
-  broadcastMessage: () => {},
+  broadcastMessage: (message: unknown, conversationId?: string) => {
+    const event = { message, conversationId };
+    for (const callback of eventSubscribers) {
+      callback(event);
+    }
+  },
   capabilityForMessageType: () => undefined,
   assistantEventHub: {
     publish: async (event: unknown) => {
-      for (const callback of eventSubscribers) callback(event);
+      for (const callback of eventSubscribers) {
+        callback(event);
+      }
     },
     subscribe: ({ callback }: { callback: (event: unknown) => void }) => {
       eventSubscribers.add(callback);
@@ -87,7 +94,9 @@ function getRoute(endpoint: string, method: string) {
   const route = ROUTES.find(
     (r) => r.endpoint === endpoint && r.method === method,
   );
-  if (!route) throw new Error(`${method} ${endpoint} route not registered`);
+  if (!route) {
+    throw new Error(`${method} ${endpoint} route not registered`);
+  }
   return route;
 }
 

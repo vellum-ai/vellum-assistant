@@ -179,7 +179,7 @@ mock.module("../lib/nginx-ingress.js", () => ({
   startRemoteWebIngress: startRemoteWebIngressMock,
 }));
 
-const { wake } = await import("../commands/wake.js");
+const { wake, WEB_INGRESS_FLAG_RETRY } = await import("../commands/wake.js");
 
 let tempDir: string;
 let originalArgv: string[];
@@ -408,8 +408,18 @@ describe("vellum wake — web ingress restore", () => {
     ingress: { enabled: true, publicBaseUrl: "https://assistant.example.com" },
   };
 
+  const originalRetry = { ...WEB_INGRESS_FLAG_RETRY };
+
   beforeEach(() => {
     process.argv = ["bun", "vellum", "wake", "local-assistant"];
+    // Shrink the startup-window retry so failure-path tests stay fast.
+    WEB_INGRESS_FLAG_RETRY.attempts = 3;
+    WEB_INGRESS_FLAG_RETRY.intervalMs = 5;
+  });
+
+  afterEach(() => {
+    WEB_INGRESS_FLAG_RETRY.attempts = originalRetry.attempts;
+    WEB_INGRESS_FLAG_RETRY.intervalMs = originalRetry.intervalMs;
   });
 
   test("restores the edge when ingress is enabled, the flag is on, and it is not already running", async () => {
@@ -515,8 +525,35 @@ describe("vellum wake — web ingress restore", () => {
 
     await wake();
 
+    // The probe retries through the startup window before giving up.
+    expect(isAssistantFeatureFlagEnabledMock.mock.calls.length).toBe(3);
     expect(startRemoteWebIngressMock).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith("Wake complete.");
+  });
+
+  test("a flag probe that fails while the gateway is starting retries and then restores", async () => {
+    loadRawConfigMock.mockReturnValue(enabledConfig);
+    isAssistantFeatureFlagEnabledMock
+      .mockRejectedValueOnce(
+        new Error(
+          'Failed to fetch feature flags: HTTP 503 {"status":"starting"}',
+        ),
+      )
+      .mockRejectedValueOnce(
+        new Error(
+          'Failed to fetch feature flags: HTTP 503 {"status":"starting"}',
+        ),
+      )
+      .mockResolvedValueOnce(true);
+
+    await wake();
+
+    expect(isAssistantFeatureFlagEnabledMock.mock.calls.length).toBe(3);
+    expect(logSpy).toHaveBeenCalledWith(
+      "   Waiting for the gateway before restoring the web ingress edge...",
+    );
+    expect(startRemoteWebIngressMock).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith("Wake complete.");
   });
 });

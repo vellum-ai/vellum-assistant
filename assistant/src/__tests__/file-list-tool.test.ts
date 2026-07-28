@@ -172,7 +172,8 @@ describe("FileListTool", () => {
       makeToolContext(dir),
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("path is required and must be a string");
+    expect(result.content).toContain('Invalid input for tool "file_list"');
+    expect(result.content).toContain("path:");
   });
 
   test("execute() returns error for nonexistent directory", async () => {

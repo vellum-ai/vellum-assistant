@@ -1790,8 +1790,8 @@ export class AnthropicProvider implements Provider {
               ),
           );
 
-        // Preserve assistant turns that would otherwise become empty after filtering
-        // unknown block types (e.g. ui_surface). Dropping these messages can violate
+        // Preserve assistant turns that would otherwise become empty after
+        // filtering unknown block types. Dropping these messages can violate
         // Anthropic's role alternation requirement.
         if (
           content.length === 0 &&
@@ -1940,10 +1940,13 @@ export class AnthropicProvider implements Provider {
   }
 
   /**
-   * Convert a content block to Anthropic format, returning null for unknown
-   * block types instead of throwing.  Unknown types (e.g. ui_surface stored
-   * in DB) are silently dropped so they don't prevent the request from being
-   * sent or break tool_use/tool_result pairing.
+   * Convert a content block to Anthropic format, returning null for blocks the
+   * Messages API cannot carry instead of throwing, so they don't prevent the
+   * request from being sent or break tool_use/tool_result pairing.
+   *
+   * Two distinct null cases: `ui_surface` is a known client-rendering block
+   * dropped by design, while a block reaching `default` is genuinely
+   * unrecognised and warns so the gap is visible.
    */
   private toAnthropicBlockSafe(
     block: ContentBlock,
@@ -2086,6 +2089,12 @@ export class AnthropicProvider implements Provider {
           tool_use_id: block.tool_use_id,
           content: block.content,
         } as unknown as Anthropic.ContentBlockParam;
+      case "ui_surface":
+        // A client rendering instruction, not model context. Dropped by
+        // design: the producer's sibling `_surfaceFallback` text block is what
+        // the model reads. `buildSentMessages` projects the surface to text
+        // for legacy rows that have no fallback sibling.
+        return null;
       default: {
         log.warn(
           { blockType: (block as { type: string }).type },

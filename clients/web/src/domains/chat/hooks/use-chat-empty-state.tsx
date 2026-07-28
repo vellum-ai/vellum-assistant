@@ -12,6 +12,7 @@ import { type ReactNode, useMemo } from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
+import { ComposerPeek } from "@/domains/chat/components/composer-peek";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid";
 import {
   SuggestionFeaturedRow,
@@ -69,6 +70,12 @@ export interface ChatEmptyStateResult {
   dockStartersToBottom: boolean;
   renderAvatar: (() => ReactNode) | undefined;
   emptyStatePlaceholder: string;
+  /**
+   * The composer's hover peek for the empty state (see `ComposerPeek`):
+   * mount it once alongside the chat body. `undefined` outside the plain
+   * empty state (active conversation, app editing).
+   */
+  composerPeekSlot: ReactNode | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +114,12 @@ export function useChatEmptyState({
       ? { name: openedAppState.name, dirName: openedAppState.dirName }
       : null;
 
+  // The avatar's presence on the empty state lives entirely in
+  // `ComposerPeek` (hanging from the top of the screen while idle,
+  // peeking behind the input while it's focused) — the greeting headline
+  // renders alone.
+  const actsEnabled = isEmptyConversation && !editingApp;
+
   // Behind the flag, the new suggestions library replaces the starter chips
   // on a fresh thread. The app-editing override keeps its bespoke chips
   // regardless of the flag, so it stays on the grid path. The library also
@@ -127,20 +140,6 @@ export function useChatEmptyState({
   );
 
   const emptyStateProps: ChatEmptyStateProps = {
-    avatarSlot:
-      avatarComponents || avatarImageUrl ? (
-        <ChatAvatar
-          components={avatarComponents}
-          traits={avatarTraits}
-          customImageUrl={avatarImageUrl}
-          size={40}
-          interactive
-          isAssistantBusy={isAssistantBusy}
-          // The empty-state greeting avatar — the room's entrance grows from
-          // here on a fresh chat.
-          originAnchor
-        />
-      ) : null,
     greeting: editingApp ? buildEditAppGreeting(editingApp) : emptyStateGreeting,
     isGenerating: editingApp ? false : greetingIsGenerating,
   };
@@ -161,14 +160,36 @@ export function useChatEmptyState({
       <SuggestionGroups groups={groups} onSelect={onSelectSuggestion} />
     );
   } else if (isEmptyConversation && emptyStateStarters.length > 0) {
-    startersSlot = (
-      <div className="mt-4">
-        <ConversationStarterGrid
-          starters={emptyStateStarters}
-          onSelect={onSelectStarter}
-        />
-      </div>
-    );
+    if (editingApp) {
+      // The app-editing side panel keeps its bespoke chips inline under
+      // the composer.
+      startersSlot = (
+        <div className="mt-4">
+          <ConversationStarterGrid
+            starters={emptyStateStarters}
+            onSelect={onSelectStarter}
+          />
+        </div>
+      );
+    } else {
+      // Plain empty state: the chips dock to the bottom of the first
+      // viewport in a subtle panel with a muted caption (Figma: New-App
+      // 7471-25035; the Figma's 1×3 row stays a 2×2 grid here). Top
+      // corners only, and `-mb-3` swallows the dock wrapper's bottom
+      // padding so the panel sits flush against the viewport's bottom
+      // edge.
+      startersSlot = (
+        <div className="-mb-3 rounded-t-2xl bg-[var(--surface-active)] px-6 pt-5 pb-6">
+          <p className="mb-4 text-center text-body-medium-default text-[var(--content-tertiary)]">
+            Suggestions
+          </p>
+          <ConversationStarterGrid
+            starters={emptyStateStarters}
+            onSelect={onSelectStarter}
+          />
+        </div>
+      );
+    }
   }
 
   // Stable callback so the latest-turn avatar slot isn't rebuilt on every
@@ -200,12 +221,29 @@ export function useChatEmptyState({
     ],
   );
 
+  // Portal component — mounting location doesn't matter, but it only runs
+  // on the plain empty state (never over the app-editing side panel, whose
+  // composer shares the same DOM anchor).
+  const composerPeekSlot = actsEnabled ? (
+    <ComposerPeek
+      components={avatarComponents}
+      traits={avatarTraits}
+      active={actsEnabled}
+    />
+  ) : undefined;
+
   return {
     emptyStateProps,
     startersSlot,
     belowFoldSlot,
-    dockStartersToBottom: showSuggestionLibrary,
+    // Both the suggestions library and the plain chip dock pin the
+    // starters to the bottom of the first viewport; only the app-editing
+    // side panel keeps them inline under the composer.
+    dockStartersToBottom:
+      showSuggestionLibrary ||
+      (isEmptyConversation && !editingApp && emptyStateStarters.length > 0),
     renderAvatar,
     emptyStatePlaceholder,
+    composerPeekSlot,
   };
 }

@@ -219,7 +219,10 @@ describe("Shell tool input validation", () => {
       baseContext,
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("command is required");
+    expect(result.content).toContain('Invalid input for tool "bash"');
+    expect(result.content).toContain(
+      "command: Too small: expected string to have >=1 characters",
+    );
   });
 
   test("rejects non-string command", async () => {
@@ -228,7 +231,10 @@ describe("Shell tool input validation", () => {
       baseContext,
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("command is required");
+    expect(result.content).toContain('Invalid input for tool "bash"');
+    expect(result.content).toContain(
+      "command: Invalid input: expected string, received number",
+    );
   });
 
   test("rejects command with null bytes", async () => {
@@ -243,7 +249,10 @@ describe("Shell tool input validation", () => {
   test("rejects missing command", async () => {
     const result = await shellTool.execute({ reason: "test" }, baseContext);
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("command is required");
+    expect(result.content).toContain('Invalid input for tool "bash"');
+    expect(result.content).toContain(
+      "command: Invalid input: expected string, received undefined",
+    );
   });
 
   test("executes simple command successfully", async () => {

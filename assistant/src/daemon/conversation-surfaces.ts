@@ -2,6 +2,7 @@ import { v4 as uuid, v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
 import { SurfaceActionSchema } from "../api/events/ui-surface-show.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   CardSurfaceDataSchema,
   ChoiceSurfaceDataSchema,
@@ -17,11 +18,10 @@ import {
   SurfaceTypeSchema,
 } from "../api/surfaces.js";
 import {
-  addAppConversationId,
   getApp,
   getAppDirPath,
   getAppPreview,
-  listAppsByConversation,
+  linkAppToConversationLineage,
   resolveAppDir,
   resolveEffectiveAppHtml,
   updateApp,
@@ -52,6 +52,7 @@ import {
   activationStepNameForMomentParam,
   isActivationMomentParam,
 } from "../telemetry/activation-funnel.js";
+import { resolveAppId } from "../tools/apps/resolve-app-id.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -76,7 +77,6 @@ import type {
   DynamicPagePreview,
   DynamicPageSurfaceData,
   FormSurfaceData,
-  ServerMessage,
   SurfaceAction,
   SurfaceData,
   SurfaceType,
@@ -818,7 +818,7 @@ export interface SurfaceConversationContext {
     channel: string;
     supportsDynamicUi: boolean;
   };
-  sendToClient(msg: ServerMessage): void;
+  sendToClient(msg: AssistantEvent): void;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   lastSurfaceAction: Map<
     string,
@@ -2001,7 +2001,7 @@ export async function handleSurfaceAction(
     // Pass conversationId so events without an inline conversationId (e.g.
     // text_delta) are published with the correct conversation scope and
     // reach the SSE subscriber filtered to this conversation.
-    const onEvent = (msg: ServerMessage) =>
+    const onEvent = (msg: AssistantEvent) =>
       broadcastMessage(msg, ctx.conversationId);
 
     const result = ctx.enqueueMessage({
@@ -2228,7 +2228,7 @@ export async function handleSurfaceAction(
   // Pass conversationId so events without an inline conversationId (e.g.
   // text_delta) are published with the correct conversation scope and
   // reach the SSE subscriber filtered to this conversation.
-  const onEvent = (msg: ServerMessage) =>
+  const onEvent = (msg: AssistantEvent) =>
     broadcastMessage(msg, ctx.conversationId);
 
   log.info(
@@ -3387,13 +3387,7 @@ export async function surfaceProxyResolver(
       };
     }
 
-    // Weaker models routinely omit app_id even though the active app is in
-    // context. Fall back to the conversation's most-recently-updated app
-    // rather than failing with "Invalid ID: undefined".
-    let appId = typeof input.app_id === "string" ? input.app_id : "";
-    if (appId.trim().length === 0) {
-      appId = listAppsByConversation(ctx.conversationId)[0]?.id ?? "";
-    }
+    const appId = resolveAppId(input, ctx.conversationId) ?? "";
     const preview = isPlainObject(input.preview)
       ? DynamicPagePreviewSchema.parse(input.preview)
       : undefined;
@@ -3411,7 +3405,7 @@ export async function surfaceProxyResolver(
 
     // Track conversation association (best-effort — failures must not break open flow).
     try {
-      addAppConversationId(appId, ctx.conversationId);
+      linkAppToConversationLineage(appId, ctx.conversationId);
     } catch (err) {
       log.warn({ err, appId }, "Failed to track conversation ID on app_open");
     }

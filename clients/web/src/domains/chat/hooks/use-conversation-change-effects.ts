@@ -3,8 +3,13 @@
  *
  * - Reset subagent tracking state (needed for URL-navigation paths that
  *   bypass the `switchConversation` / `startNewConversation` wrappers)
- * - Auto-fetch detail for subagents reconstructed from conversation history
- *   (entries with a `conversationId` but no events yet)
+ * - Reconcile-on-load (0.11.0+): materialize store entries for every
+ *   subagent the daemon knows about in this conversation, so subagents
+ *   whose `subagent_spawned` this client never saw (page reload mid-run,
+ *   another device, a store reset) get cards without waiting for their
+ *   next stream event
+ * - Auto-fetch detail for subagents reconstructed from history or
+ *   reconcile (entries with a `conversationId` but no events yet)
  *
  * Note: interaction store cleanup (`dismissQuestion`, `resetAll`) is NOT
  * handled here — `switchToConversation()` in `chat-session-store` already
@@ -14,8 +19,13 @@
 
 import { useEffect, useLayoutEffect } from "react";
 
+import { SubagentStatusSchema } from "@vellumai/assistant-api";
+
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { subagentsReconcileGet } from "@/generated/daemon/sdk.gen";
+import { useSupportsSubagentRecovery } from "@/lib/backwards-compat/subagent-recovery";
+import { useConversationStore } from "@/stores/conversation-store";
 
 export function useConversationChangeEffects(
   assistantId: string | null,
@@ -36,6 +46,62 @@ export function useConversationChangeEffects(
     useSubagentStore.getState().reset();
     useWorkflowStore.getState().reset();
   }, [activeConversationId]);
+
+  // Reconcile-on-load: ask the daemon which subagents belong to this
+  // conversation and materialize entries for any the store doesn't have.
+  // This is the recovery path that needs no stream evidence at all — a
+  // subagent that stays quiet after a reset/reload still gets its card (a
+  // stream event would also recover it via `ensureEntry`, but only when it
+  // next emits). Runs as a passive effect, i.e. after the layout reset
+  // above, so a conversation change can't wipe what this seeds. Version
+  // gated: pre-0.11.0 daemons return status-only reconcile data, which
+  // can't seed a usable entry.
+  const supportsRecovery = useSupportsSubagentRecovery();
+  useEffect(() => {
+    if (!assistantId || !activeConversationId || !supportsRecovery) {
+      return;
+    }
+    const requestedConversationId = activeConversationId;
+    void (async () => {
+      try {
+        const { data, response } = await subagentsReconcileGet({
+          path: { assistant_id: assistantId },
+          query: { parentConversationId: requestedConversationId },
+          throwOnError: false,
+        });
+        if (!response?.ok || !data) {
+          return;
+        }
+        // A switch while the request was in flight: these subagents belong
+        // to a conversation no longer in view.
+        if (
+          useConversationStore.getState().activeConversationId !==
+          requestedConversationId
+        ) {
+          return;
+        }
+        const store = useSubagentStore.getState();
+        for (const [subagentId, info] of Object.entries(
+          data.subagents ?? {},
+        )) {
+          if (store.byId[subagentId]) {
+            continue;
+          }
+          const status = SubagentStatusSchema.safeParse(info.status);
+          store.ensureEntry({
+            subagentId,
+            timestamp: Date.now(),
+            conversationId: info.conversationId,
+            ...(status.success ? { status: status.data } : {}),
+            label: info.label,
+            parentToolUseId: info.parentToolUseId,
+          });
+        }
+      } catch {
+        // Best-effort — stream evidence and history hydration still recover.
+      }
+    })();
+  }, [assistantId, activeConversationId, supportsRecovery]);
 
   // Stable signal: changes only when the set of subagent IDs that need a
   // detail fetch changes (entry appears with conversationId + no events,

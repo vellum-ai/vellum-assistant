@@ -3,6 +3,8 @@ import { and, asc, desc, eq, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
+import { getGroup } from "../persistence/group-crud.js";
+import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { rawChanges } from "../persistence/raw-query.js";
 import { scheduleJobs, scheduleRuns } from "../persistence/schema/index.js";
 import { publishSchedulesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -71,6 +73,13 @@ export interface ScheduleJob {
    * LLM-executed runs; null = default main-agent model selection.
    */
   inferenceProfile: string | null;
+  /**
+   * Sidebar group (`conversation_groups` id) for conversations created by
+   * the schedule's runs; null = the default `system:scheduled`. Resolve via
+   * {@link resolveScheduleConversationGroupId}, since the group may have
+   * been deleted since it was set.
+   */
+  groupId: string | null;
   createdFromConversationId: string | null;
   createdBy: string;
   mode: ScheduleMode;
@@ -130,6 +139,7 @@ export async function createSchedule(params: {
   retryBackoffMs?: number;
   timeoutMs?: number | null;
   inferenceProfile?: string | null;
+  groupId?: string | null;
   createdFromConversationId?: string | null;
 }): Promise<ScheduleJob> {
   const expression = params.expression ?? params.cronExpression ?? null;
@@ -175,6 +185,7 @@ export async function createSchedule(params: {
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
   const timeoutMs = params.timeoutMs ?? null;
   const inferenceProfile = params.inferenceProfile ?? null;
+  const groupId = params.groupId ?? null;
   const createdFromConversationId = params.createdFromConversationId ?? null;
   const description = normalizeDescription(
     params.description,
@@ -216,6 +227,7 @@ export async function createSchedule(params: {
     retryBackoffMs,
     timeoutMs,
     inferenceProfile,
+    groupId,
     createdFromConversationId,
     createdBy: params.createdBy ?? "agent",
     mode,
@@ -234,6 +246,21 @@ export async function createSchedule(params: {
   });
   notifySchedulesChanged();
   return parseJobRow(row);
+}
+
+/**
+ * Sidebar group for conversations created by a schedule's runs. The job's
+ * `groupId` wins only while the group still exists: a schedule may outlive
+ * its custom group, and creating a conversation with a dangling group id
+ * would violate the conversations->conversation_groups FK.
+ */
+export function resolveScheduleConversationGroupId(
+  job: Pick<ScheduleJob, "groupId">,
+): string {
+  if (job.groupId && getGroup(job.groupId)) {
+    return job.groupId;
+  }
+  return "system:scheduled";
 }
 
 export function getSchedule(id: string): ScheduleJob | null {
@@ -324,6 +351,7 @@ export async function updateSchedule(
     retryBackoffMs?: number;
     timeoutMs?: number | null;
     inferenceProfile?: string | null;
+    groupId?: string | null;
     createdFromConversationId?: string | null;
   },
 ): Promise<ScheduleJob | null> {
@@ -410,6 +438,7 @@ export async function updateSchedule(
   if (updates.timeoutMs !== undefined) set.timeoutMs = updates.timeoutMs;
   if (updates.inferenceProfile !== undefined)
     set.inferenceProfile = updates.inferenceProfile;
+  if (updates.groupId !== undefined) set.groupId = updates.groupId;
   if (updates.createdFromConversationId !== undefined)
     set.createdFromConversationId = updates.createdFromConversationId;
 
@@ -465,6 +494,15 @@ export async function deleteSchedule(id: string): Promise<boolean> {
  * next_run_at <= now and enabled = true and cron_expression IS NULL.
  */
 export async function claimDueSchedules(now: number): Promise<ScheduleJob[]> {
+  // Drain gate: while a quiesce lease is active, claim nothing so in-flight
+  // runs can drain before a stop. The check lives here — immediately before
+  // the claim writes — rather than at the tick boundary, to shrink the window
+  // in which a lease armed mid-tick could miss a claim that already passed an
+  // earlier check. Fail-open via the lease read.
+  if (isLifecycleQuiesced()) {
+    return [];
+  }
+
   const db = getDb();
   const claimed: ScheduleJob[] = [];
 
@@ -748,6 +786,27 @@ export async function createScheduleRun(
     { op: "createScheduleRun", context: { scheduleId: jobId, runId: id } },
   );
   return id;
+}
+
+/** Currently-running schedule runs with their job names, oldest first. */
+export function listRunningScheduleRuns(): Array<{
+  runId: string;
+  scheduleName: string | null;
+  startedAt: number;
+}> {
+  const db = getDb();
+  return db
+    .select({
+      runId: scheduleRuns.id,
+      scheduleName: scheduleJobs.name,
+      startedAt: scheduleRuns.startedAt,
+    })
+    .from(scheduleRuns)
+    .leftJoin(scheduleJobs, eq(scheduleRuns.jobId, scheduleJobs.id))
+    .where(eq(scheduleRuns.status, "running"))
+    .orderBy(asc(scheduleRuns.startedAt))
+    .limit(20)
+    .all();
 }
 
 export async function setScheduleRunConversationId(
@@ -1083,6 +1142,45 @@ export function describeCronExpression(expr: string | null): string {
 }
 
 /**
+ * Return a claimed-but-not-started schedule to the queue (drain deferral).
+ *
+ * Restores everything the claim mutated before any execution began:
+ * `nextRunAt` is pulled to `nextRetryAt`, a one-shot's `firing` reverts to
+ * `active`, and `enabled` is restored — a bounded recurring schedule's final
+ * occurrence is claimed by exhausting the job (`enabled = false`,
+ * `nextRunAt = 0`), so without the restore that deferred final occurrence
+ * would never fire.
+ */
+export async function deferClaimedSchedule(
+  id: string,
+  nextRetryAt: number,
+): Promise<void> {
+  const db = getDb();
+  const now = Date.now();
+  await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({ nextRunAt: nextRetryAt, enabled: true, updatedAt: now })
+        .where(eq(scheduleJobs.id, id))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "deferClaimedSchedule.requeue", context: { scheduleId: id } },
+  );
+  await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({ status: "active", updatedAt: now })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "deferClaimedSchedule.status", context: { scheduleId: id } },
+  );
+  notifySchedulesChanged();
+}
+
+/**
  * Set the next retry time for a schedule and revert one-shot status from
  * "firing" to "active" so the scheduler will claim it again when nextRetryAt
  * arrives. No-op for recurring schedules (they stay in their current status).
@@ -1218,6 +1316,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     retryBackoffMs: row.retryBackoffMs ?? 60000,
     timeoutMs: row.timeoutMs ?? null,
     inferenceProfile: row.inferenceProfile ?? null,
+    groupId: row.groupId ?? null,
     createdFromConversationId: row.createdFromConversationId ?? null,
     createdBy: row.createdBy,
     mode: (row.mode ?? "execute") as ScheduleMode,

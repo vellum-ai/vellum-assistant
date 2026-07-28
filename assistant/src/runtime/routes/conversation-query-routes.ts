@@ -55,6 +55,10 @@ import {
 } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { ServiceModeSchema } from "../../config/schemas/services.js";
+import {
+  describeShadowedConfigSet,
+  findSubstrateShadowing,
+} from "../../config/substrate-twin-shadowing.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
 import {
   getEmbeddingConfigInfo,
@@ -88,9 +92,9 @@ import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embeddi
 import { getLlmRequestLogSource } from "../../persistence/llm-request-log-source.js";
 import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
-import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/memory-v2-activation-log-store.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/substrate/constants.js";
+import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/v2/activation-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/v3/substrate/constants.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
 import {
@@ -136,10 +140,10 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
 };
 
 import {
-  getEffectiveProfile,
-  getEffectiveProfiles,
+  getEffectiveProfilesForProvider,
   INVARIANT_PROFILE_NAMES,
   MANAGED_PROFILE_NAMES,
+  resolveDefaultProfileForProvider,
 } from "../../config/default-profile-catalog.js";
 import { DEFAULT_PROFILE_KEYS } from "../../config/default-profile-names.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -703,7 +707,10 @@ const ConfigGetResponseSchema = z
           .passthrough()
           .optional(),
         "image-generation": z
-          .object({ mode: ServiceModeSchema.optional() })
+          .object({
+            provider: z.string().optional(),
+            model: z.string().optional(),
+          })
           .passthrough()
           .optional(),
         inference: z
@@ -807,7 +814,10 @@ const ConfigPatchRequestSchema = z
           .nullable()
           .optional(),
         "image-generation": z
-          .object({ mode: ServiceModeSchema.optional() })
+          .object({
+            provider: z.string().optional(),
+            model: z.string().optional(),
+          })
           .passthrough()
           .nullable()
           .optional(),
@@ -841,10 +851,20 @@ function handleGetConfig() {
  * profile view (code-catalog default bodies + workspace overlays). Default
  * profile CONTENT is code-owned and the workspace holds at most a thin stub,
  * but clients (settings UI, sticky-profile pickers) need the full bodies to
- * render labels/models — so the wire view materializes them. Wire-only:
+ * render labels/models — so the wire view materializes them, resolved through
+ * `llm.defaultProvider`'s column of the intent × provider matrix so a BYO
+ * install sees the provider/model that actually dispatches. Wire-only:
  * `normalizeManagedProfileWrites` reduces echoed bodies back to the
  * workspace-owned fields on the write paths, so a `config get` →
- * `config set` round-trip never persists catalog content.
+ * `config set` round-trip never persists catalog content — the two must
+ * resolve through the same column or honest round-trips are rejected.
+ *
+ * `defaultProvider` deliberately comes from the parsed config, not the raw
+ * object this function mutates: the schema's `.catch(undefined)` shields the
+ * matrix lookup from an invalid persisted value, which a raw read would feed
+ * straight into resolution. The raw profiles and the cached parse cannot
+ * disagree on `defaultProvider` — every write path that touches it
+ * invalidates the config cache.
  */
 function overlayEffectiveProfilesForWire(config: unknown): void {
   const root = readPlainObject(config);
@@ -856,8 +876,9 @@ function overlayEffectiveProfilesForWire(config: unknown): void {
   if (!existingLlm) {
     root.llm = llm;
   }
-  llm.profiles = getEffectiveProfiles(
+  llm.profiles = getEffectiveProfilesForProvider(
     readPlainObject(llm.profiles) as Record<string, ProfileEntry> | undefined,
+    getConfig().llm.defaultProvider ?? null,
   );
 }
 
@@ -989,8 +1010,15 @@ export function normalizeManagedProfileWrites(patch: unknown): void {
       continue;
     }
 
+    // Must resolve through the same provider column as
+    // `overlayEffectiveProfilesForWire`, or an echo of the wire view would
+    // not match `effective` and an honest round-trip would be rejected.
     const effective = readPlainObject(
-      getEffectiveProfile(currentProfiles, name),
+      resolveDefaultProfileForProvider(
+        currentProfiles,
+        name,
+        getConfig().llm.defaultProvider ?? null,
+      ),
     );
     for (const key of Object.keys(entry)) {
       if (key === "source" || key === "status") {
@@ -1449,6 +1477,28 @@ export async function commitConfigWrite(
   }
 }
 
+/**
+ * Web clients pair provider writes with a legacy `mode` key so their saves
+ * stay valid on daemons whose schemas still carry it. The provider-only
+ * services (web-search, image-generation) parse-strip that key, but the
+ * deep-merge would still persist it to raw config.json on every save —
+ * scrub it so the removed field cannot be resurrected on disk.
+ */
+function scrubRemovedServiceModes(raw: Record<string, unknown>): void {
+  const services = raw.services as
+    | Record<string, Record<string, unknown> | undefined>
+    | undefined;
+  if (!services) {
+    return;
+  }
+  for (const key of ["web-search", "image-generation"]) {
+    const entry = services[key];
+    if (entry && typeof entry === "object" && "mode" in entry) {
+      delete entry.mode;
+    }
+  }
+}
+
 async function handlePatchConfig({ body }: RouteHandlerArgs) {
   if (
     !body ||
@@ -1467,6 +1517,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   const patch = body as Record<string, unknown>;
   backfillNewCallSiteEntries(raw, patch);
   deepMergeOverwrite(raw, patch);
+  scrubRemovedServiceModes(raw);
 
   await commitConfigWrite(raw, "patch");
 
@@ -1568,6 +1619,17 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
   }
 
   await commitConfigWrite(raw, "set");
+  // A `memory.v2` substrate tunable whose `memory.substrate` twin is set does
+  // not mean what an unpaired write means: the substrate namespace wins in
+  // `resolveSubstrateTuning`, and for the three twins the v2 injection engine
+  // reads directly the two namespaces diverge instead. Report which case this
+  // is alongside the success so the caller can tell the operator.
+  const shadowing = findSubstrateShadowing(raw, path);
+  if (shadowing) {
+    const warning = describeShadowedConfigSet(shadowing, path);
+    log.warn({ path, substratePath: shadowing.substratePath }, warning);
+    return { ok: true, warning };
+  }
   return { ok: true };
 }
 
@@ -1689,7 +1751,11 @@ async function handleReplaceInferenceProfile({
     }
     // Validate arms against the effective view (matches the resolver and
     // `LLMSchema.superRefine`), not the raw workspace record.
-    const existingProfiles = getEffectiveProfiles(getConfig().llm.profiles);
+    const { llm: parsedLlm } = getConfig();
+    const existingProfiles = getEffectiveProfilesForProvider(
+      parsedLlm.profiles,
+      parsedLlm.defaultProvider ?? null,
+    );
     parsed.data.mix.forEach((arm, index) => {
       if (arm.profile === name) {
         throw new BadRequestError(

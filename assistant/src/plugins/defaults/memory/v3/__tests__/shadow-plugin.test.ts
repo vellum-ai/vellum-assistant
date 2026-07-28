@@ -62,16 +62,16 @@ const realOrchestrate = { ...(await import("../orchestrate.js")) };
 const realLearnedEdges = { ...(await import("../learned-edges.js")) };
 const realPlatform = { ...(await import("../../../../../util/platform.js")) };
 const realPageStore = {
-  ...(await import("../substrate/page-store.js")),
+  ...(await import("../../substrate/page-store.js")),
 };
 const realConversationCrud = {
   ...(await import("../../../../../persistence/conversation-crud.js")),
 };
 const realSkillStore = {
-  ...(await import("../substrate/skill-store.js")),
+  ...(await import("../../substrate/skill-store.js")),
 };
 const realCliCommandStore = {
-  ...(await import("../substrate/cli-command-store.js")),
+  ...(await import("../../substrate/cli-command-store.js")),
 };
 const realCoreSet = { ...(await import("../core-set.js")) };
 const realHotSet = { ...(await import("../hot-set.js")) };
@@ -102,9 +102,6 @@ let extraRealConceptPages = 0;
 // Mutable mocked config knob (orchestrate-only) for asserting per-turn tuning
 // re-resolution from a live config edit.
 let selectorEnabledCfg = false;
-// Drives the `memory-v3-injection-gate` feature flag through the shared
-// assistant-feature-flags mock below (default off).
-let gateFlagEnabled = false;
 // Mutable `memory.v3.gate.enabled` config kill-switch carried by the mocked
 // config (default on, mirroring the schema default).
 let gateEnabledCfg = true;
@@ -112,8 +109,7 @@ let messages: Array<{ role: string; content: string }> = [];
 
 // Schema defaults for `memory.v3.gate` (the tuning the mocked config carries
 // and the gate-config threading test asserts against). Includes the default-on
-// `enabled` kill-switch; `observeTurn` overwrites `enabled` with the effective
-// flag AND config value.
+// `enabled` kill-switch that `observeTurn` threads through to orchestrate.
 const GATE_DEFAULTS = MemoryV3GateSchema.parse({});
 
 // A synthetic skill capability slug the page index carries. Its rendered
@@ -217,11 +213,7 @@ const FAKE_SECTION_INDEX: SectionIndex = {
 
 mock.module("../../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) =>
-    key === "memory-v3-live"
-      ? liveEnabled
-      : key === "memory-v3-injection-gate"
-        ? gateFlagEnabled
-        : false,
+    key === "memory-v3-live" ? liveEnabled : false,
 }));
 
 // `observeTurn` and the injector resolve their tuning through the real
@@ -251,9 +243,8 @@ function seedMemoryConfig(): void {
       },
       edge: { hubDegree: 30, seedCount: 6, perSeed: 1, cap: 6 },
       entity: { enabled: true, idfFloor: 4, cap: 8 },
-      // Gate tuning (schema defaults) with the mutable `enabled` kill-switch;
-      // `observeTurn` spreads this and overwrites `enabled` with the effective
-      // flag AND config value before passing to orchestrate.
+      // Gate tuning (schema defaults) with the mutable `enabled` kill-switch,
+      // threaded through to orchestrate as-is.
       gate: { ...GATE_DEFAULTS, enabled: gateEnabledCfg },
     },
     qdrant: { vectorSize: 8, onDisk: false },
@@ -274,7 +265,9 @@ mock.module("../hot-set.js", () => ({
   computeHotSet: (
     ...args: Parameters<typeof realHotSet.computeHotSet>
   ): HotSetEntry[] => {
-    if (!shadowMockActive) return realHotSet.computeHotSet(...args);
+    if (!shadowMockActive) {
+      return realHotSet.computeHotSet(...args);
+    }
     hotSetOpts = args[0];
     return hotSetResult;
   },
@@ -295,7 +288,7 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
     memoryDbAvailable ? drizzle(memorySqlite, { schema }) : null,
 }));
 
-mock.module("../substrate/page-index.js", () => ({
+mock.module("../../substrate/page-index.js", () => ({
   getPageIndex: async () => ({
     entries: [
       {
@@ -341,7 +334,7 @@ mock.module("../substrate/page-index.js", () => ({
 }));
 
 // `pageContent` (live mode) reads the full page via `readPage`/`renderPageContent`.
-mock.module("../substrate/page-store.js", () => ({
+mock.module("../../substrate/page-store.js", () => ({
   ...realPageStore,
   readPage: async (workspaceDir: string, slug: string) =>
     shadowMockActive
@@ -374,7 +367,7 @@ mock.module("../../../../../util/platform.js", () => ({
 // synthetic slugs through these. Spread the real module so the prefix
 // predicates (`isSkillSlug`/`isCliCommandSlug`) stay intact; override only the
 // content lookup so the capability slug resolves.
-mock.module("../substrate/skill-store.js", () => ({
+mock.module("../../substrate/skill-store.js", () => ({
   ...realSkillStore,
   getSkillCapability: (idOrSlug: string) =>
     shadowMockActive
@@ -384,7 +377,7 @@ mock.module("../substrate/skill-store.js", () => ({
       : realSkillStore.getSkillCapability(idOrSlug),
 }));
 
-mock.module("../substrate/cli-command-store.js", () => ({
+mock.module("../../substrate/cli-command-store.js", () => ({
   ...realCliCommandStore,
   getCliCommandCapability: (idOrSlug: string) =>
     shadowMockActive
@@ -397,7 +390,9 @@ mock.module("../sections.js", () => ({
   buildSectionIndex: async (
     ...args: Parameters<typeof realSections.buildSectionIndex>
   ) => {
-    if (!shadowMockActive) return realSections.buildSectionIndex(...args);
+    if (!shadowMockActive) {
+      return realSections.buildSectionIndex(...args);
+    }
     sectionBuilds++;
     // Capture the `pageBody` resolver so a test can exercise the capability
     // branch directly. Returning the FAKE index keeps the other tests cheap.
@@ -411,7 +406,9 @@ mock.module("../section-needle.js", () => ({
   buildSectionNeedle: (
     ...args: Parameters<typeof realSectionNeedle.buildSectionNeedle>
   ) => {
-    if (!shadowMockActive) return realSectionNeedle.buildSectionNeedle(...args);
+    if (!shadowMockActive) {
+      return realSectionNeedle.buildSectionNeedle(...args);
+    }
     needleBuilds++;
     return { query: () => [], bestSection: () => -1 };
   },
@@ -422,7 +419,9 @@ mock.module("../edge.js", () => ({
   buildEdgeGraph: async (
     ...args: Parameters<typeof realEdge.buildEdgeGraph>
   ) => {
-    if (!shadowMockActive) return realEdge.buildEdgeGraph(...args);
+    if (!shadowMockActive) {
+      return realEdge.buildEdgeGraph(...args);
+    }
     edgeBuilds++;
     return { adjacency: new Map(), hubs: new Set(), slugs: new Set() };
   },
@@ -433,8 +432,9 @@ mock.module("../learned-edges.js", () => ({
   computeLearnedEdgeGraph: (
     ...args: Parameters<typeof realLearnedEdges.computeLearnedEdgeGraph>
   ) => {
-    if (!shadowMockActive)
+    if (!shadowMockActive) {
       return realLearnedEdges.computeLearnedEdgeGraph(...args);
+    }
     learnedGraphBuilds++;
     return { adjacency: new Map(), hubs: new Set(), slugs: new Set() };
   },
@@ -449,7 +449,9 @@ mock.module("../section-dense-store.js", () => ({
       return realSectionDenseStore.ensureSectionCollection(...args);
     }
     ensureCollectionCalls++;
-    if (ensureCollectionThrows) throw new Error("qdrant unavailable");
+    if (ensureCollectionThrows) {
+      throw new Error("qdrant unavailable");
+    }
   },
 }));
 
@@ -469,7 +471,9 @@ mock.module("../lanes-version-store.js", () => ({
     }
     // The store swallows read errors and returns `undefined`; mirror that so
     // `getLanes` exercises its "cannot judge staleness → serve memo" branch.
-    if (lanesVersionReadThrows) return undefined;
+    if (lanesVersionReadThrows) {
+      return undefined;
+    }
     return mockLanesVersion;
   },
   bumpLanesVersion: (workspaceDir: string) => {
@@ -523,7 +527,6 @@ beforeEach(() => {
   learnedEdgesCap = 0;
   extraRealConceptPages = 0;
   selectorEnabledCfg = false;
-  gateFlagEnabled = false;
   gateEnabledCfg = true;
   messages = [
     {
@@ -565,7 +568,9 @@ async function produce(conversationId: string, turnIndex: number) {
     trust: {} as never,
   });
   const commit = block?.meta?.[MEMORY_V3_COMMIT_META_KEY];
-  if (typeof commit === "function") (commit as () => void)();
+  if (typeof commit === "function") {
+    (commit as () => void)();
+  }
   return block;
 }
 
@@ -775,41 +780,26 @@ describe("memory-v3 engine", () => {
     expect(secondDeps.selectorEnabled).toBe(true);
   });
 
-  test("flag on → threads the gate tuning plus enabled:true into orchestrate", async () => {
-    gateFlagEnabled = true;
+  test("gate enabled (default) → threads the gate tuning plus enabled:true into orchestrate", async () => {
     await observeTurn("conv-1", 0);
 
     const deps = (
       orchestrateSpy.mock.calls as unknown as unknown[][]
     )[0]![1] as { gateConfig?: unknown };
-    // The spread is the live gate config: the `memory.v3.gate` tuning with the
-    // flag-derived `enabled` folded in.
+    // The live gate config is the `memory.v3.gate` tuning, including the
+    // default-on `enabled` kill-switch.
     expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: true });
   });
 
-  test("flag off (default) → gate config threads inert (enabled:false, schema-default tuning)", async () => {
-    // gateFlagEnabled defaults to false in beforeEach.
-    await observeTurn("conv-1", 0);
-
-    const deps = (
-      orchestrateSpy.mock.calls as unknown as unknown[][]
-    )[0]![1] as { gateConfig?: { enabled?: boolean } };
-    // Flag off → the gate is wired in but inert, and the tuning fields are the
-    // schema defaults the config carries.
-    expect(deps.gateConfig?.enabled).toBe(false);
-    expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: false });
-  });
-
-  test("flag on + gate.enabled:false config kill-switch → gate threads inert", async () => {
-    gateFlagEnabled = true;
+  test("gate.enabled:false config kill-switch → gate threads inert", async () => {
     gateEnabledCfg = false;
     await observeTurn("conv-1", 0);
 
     const deps = (
       orchestrateSpy.mock.calls as unknown as unknown[][]
     )[0]![1] as { gateConfig?: unknown };
-    // The config kill-switch wins over the flag: the effective `enabled` is
-    // false, so selection always runs.
+    // The kill-switch makes the effective `enabled` false, so selection
+    // always runs.
     expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: false });
   });
 

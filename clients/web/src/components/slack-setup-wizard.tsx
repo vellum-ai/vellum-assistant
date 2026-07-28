@@ -1,44 +1,72 @@
-import { ClipboardCopy, ExternalLink, Plus } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button, Input, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
+import { Button, Input, Typography } from "@vellumai/design-library";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { buildSlackManifestUrl } from "@/utils/slack-manifest";
+import { buildSlackManifest } from "@/utils/slack-manifest";
 
 export type MutationStatus = "idle" | "pending" | "success" | "error";
 
-const WIZARD_STEP_IDS = ["create-app", "app-token", "install-and-connect"] as const;
-type WizardStepId = (typeof WIZARD_STEP_IDS)[number];
+/**
+ * Slack's create-app entry point. Deliberately carries no `manifest_json`
+ * payload: Slack's modal intercepts this URL and ignores the parameter, so
+ * the manifest travels via the clipboard instead.
+ */
+const SLACK_NEW_APP_URL = "https://api.slack.com/apps?new_app=1";
 
-const WIZARD_STEPS: StepperStep[] = [
-  { id: "create-app", label: "Create App" },
-  { id: "app-token", label: "App Token" },
-  { id: "install-and-connect", label: "Install & Connect" },
-];
+const BOT_TOKEN_PREFIX = "xoxb-";
+const APP_TOKEN_PREFIX = "xapp-";
+
+/**
+ * Shortest plausible Slack token. Real tokens run far longer; this only needs
+ * to catch a truncated paste, not to validate the credential.
+ */
+const TOKEN_MIN_LENGTH = 20;
+
+/**
+ * Format-check a pasted Slack token. Returns an error string, or null when the
+ * value is acceptable *or* still empty — an untouched field is not an error.
+ */
+export function validateSlackToken(
+  value: string,
+  prefix: string,
+  label: string,
+): string | null {
+  const token = value.trim();
+  if (!token) {return null;}
+  if (!token.startsWith(prefix)) {
+    return `${label} should start with "${prefix}".`;
+  }
+  if (token.length < TOKEN_MIN_LENGTH) {
+    return `${label} looks truncated — copy the whole value from Slack.`;
+  }
+  return null;
+}
 
 export interface SlackSetupWizardProps {
   assistantName: string;
-  initialStepId?: WizardStepId;
   onSave?: (botToken: string, appToken: string) => void;
   saveStatus?: MutationStatus;
   saveError?: string | null;
 }
 
 /**
- * Three-step guided setup for connecting a Slack app: create the app from
- * a manifest, generate the app-level token, then install and paste the bot
- * token. Settings for an already-connected Slack (thread behavior) live in
- * `SlackThreadBehavior`.
+ * Single-step guided setup for connecting a Slack app.
+ *
+ * Slack's create-app modal ignores manifest deep links and mints both the bot
+ * and app-level tokens itself on Create and Install, so the flow is: copy the
+ * manifest, hand it to the modal's "From a manifest" option, then bring both
+ * tokens back here. Settings for an already-connected Slack (thread behavior)
+ * live in `SlackThreadBehavior`.
  */
 export function SlackSetupWizard({
   assistantName,
-  initialStepId = "create-app",
   onSave,
   saveStatus = "idle",
   saveError = null,
 }: SlackSetupWizardProps) {
-  const [stepId, setStepId] = useState<WizardStepId>(initialStepId);
   const [slackAppName, setSlackAppName] = useState(assistantName);
+  const [description, setDescription] = useState("");
   const userEditedName = useRef(false);
 
   useEffect(() => {
@@ -47,260 +75,217 @@ export function SlackSetupWizard({
     }
   }, [assistantName]);
 
-  const [appToken, setAppToken] = useState("");
   const [botToken, setBotToken] = useState("");
+  const [appToken, setAppToken] = useState("");
 
-  const stepIndex = WIZARD_STEP_IDS.indexOf(stepId);
+  const { copy, copied } = useCopyToClipboard();
 
-  const handleCreateApp = useCallback(() => {
-    const name = slackAppName.trim() || "My Assistant";
-    const url = buildSlackManifestUrl(name);
-    window.open(url, "_blank", "noopener,noreferrer");
-  }, [slackAppName]);
-
-  const handleSave = useCallback(() => {
-    onSave?.(botToken.trim(), appToken.trim());
-  }, [onSave, botToken, appToken]);
-
-  const handleStepSelect = useCallback(
-    (index: number) => {
-      if (index < stepIndex) {
-        setStepId(WIZARD_STEP_IDS[index]);
-      }
-    },
-    [stepIndex],
+  const manifestJson = useMemo(
+    () => JSON.stringify(buildSlackManifest(slackAppName, description), null, 2),
+    [slackAppName, description],
   );
 
-  const goNext = useCallback(() => {
-    const next = stepIndex + 1;
-    if (next < WIZARD_STEP_IDS.length) {
-      setStepId(WIZARD_STEP_IDS[next]);
-    }
-  }, [stepIndex]);
+  const nameValid = slackAppName.trim().length > 0;
+
+  const botTokenError = validateSlackToken(
+    botToken,
+    BOT_TOKEN_PREFIX,
+    "Bot token",
+  );
+  const appTokenError = validateSlackToken(
+    appToken,
+    APP_TOKEN_PREFIX,
+    "App token",
+  );
+
+  const canSave =
+    botToken.trim().length > 0 &&
+    appToken.trim().length > 0 &&
+    !botTokenError &&
+    !appTokenError &&
+    saveStatus !== "pending";
+
+  const handleCopyManifest = useCallback(() => {
+    copy(manifestJson);
+  }, [copy, manifestJson]);
+
+  const handleOpenSlack = useCallback(() => {
+    window.open(SLACK_NEW_APP_URL, "_blank", "noopener,noreferrer");
+  }, []);
+
+  const handleSave = useCallback(() => {
+    if (!canSave) {return;}
+    onSave?.(botToken.trim(), appToken.trim());
+  }, [canSave, onSave, botToken, appToken]);
+
 
   return (
     <div data-slot="slack-setup-wizard">
-      <div className="flex flex-col gap-4">
-        <Stepper
-          steps={WIZARD_STEPS}
-          current={stepIndex}
-          onStepSelect={handleStepSelect}
-          disabled={saveStatus === "pending"}
-        />
-
-        <div className="rounded-lg bg-[var(--surface-sunken)] p-4">
-          {stepId === "create-app" && (
-            <CreateAppStep
-              slackAppName={slackAppName}
-              onSlackAppNameChange={(v) => { userEditedName.current = true; setSlackAppName(v); }}
-              onCreateApp={handleCreateApp}
-              onNext={goNext}
-            />
-          )}
-
-          {stepId === "app-token" && (
-            <AppTokenStep
-              tokenName={slackAppName.trim() || assistantName}
-              appToken={appToken}
-              onAppTokenChange={setAppToken}
-              onNext={goNext}
-            />
-          )}
-
-          {stepId === "install-and-connect" && (
-            <InstallAndConnectStep
-              botToken={botToken}
-              saveStatus={saveStatus}
-              saveError={saveError}
-              onBotTokenChange={setBotToken}
-              onSave={handleSave}
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Step 1 — Create Slack App
-// ---------------------------------------------------------------------------
-
-interface CreateAppStepProps {
-  slackAppName: string;
-  onSlackAppNameChange: (value: string) => void;
-  onCreateApp: () => void;
-  onNext: () => void;
-}
-
-function CreateAppStep({ slackAppName, onSlackAppNameChange, onCreateApp, onNext }: CreateAppStepProps) {
-  const nameValid = slackAppName.trim().length > 0;
-
-  return (
-    <div className="flex flex-col gap-4">
-      <Typography as="p" variant="body-medium-lighter" className="text-[color:var(--content-default)]">
-        Name your Slack app, then click below to create it. All permissions and
-        settings will be pre-configured automatically.
-      </Typography>
-      <Input
-        label="App Name"
-        value={slackAppName}
-        onChange={(e) => onSlackAppNameChange(e.target.value.slice(0, 35))}
-        placeholder="My Assistant"
-        fullWidth
-      />
-      <div className="flex items-center gap-3">
-        <Button
-          type="button"
-          disabled={!nameValid}
-          onClick={() => {
-            onCreateApp();
-            onNext();
-          }}
-          leftIcon={<Plus aria-hidden className="size-4" />}
-          rightIcon={<ExternalLink aria-hidden className="size-4" />}
-        >
-          Create Slack App
-        </Button>
-      </div>
-      <Typography as="p" variant="body-small-default" className="text-[color:var(--content-faint)]">
-        Already have a Slack app?{" "}
-        <Button variant="link" onClick={onNext}>
-          Skip to next step
-        </Button>
-      </Typography>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Step 2 — Generate App Token
-// ---------------------------------------------------------------------------
-
-interface AppTokenStepProps {
-  tokenName: string;
-  appToken: string;
-  onAppTokenChange: (value: string) => void;
-  onNext: () => void;
-}
-
-function AppTokenStep({
-  tokenName,
-  appToken,
-  onAppTokenChange,
-  onNext,
-}: AppTokenStepProps) {
-  const { copy, copied } = useCopyToClipboard();
-
-  return (
-    <div className="flex flex-col gap-4">
-      <Typography as="p" variant="body-medium-lighter" className="text-[color:var(--content-default)]">
-        On your app&apos;s settings page in Slack:
-      </Typography>
-      <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
-        <li>Go to <strong>Basic Information</strong> &rarr; <strong>App-Level Tokens</strong></li>
-        <li>Click <strong>Generate Token and Scopes</strong></li>
-        <li>
-          Name it{" "}
-          <Button
-            variant="ghost"
-            size="compact"
-            onClick={() => copy(tokenName)}
-            className="inline-flex gap-1 rounded bg-[var(--surface-base)] px-1.5 py-0.5 font-mono text-body-small-default text-[color:var(--content-strong)] hover:bg-[var(--surface-hover)] h-auto"
-            tooltip="Click to copy"
+      <div className="flex flex-col gap-5 rounded-lg bg-[var(--surface-sunken)] p-4">
+        <div className="flex flex-col gap-4">
+          <Typography
+            as="p"
+            variant="body-medium-lighter"
+            className="text-[color:var(--content-default)]"
           >
-            {tokenName}
-            <ClipboardCopy aria-hidden className="size-3" />
-          </Button>
-          {copied && <Typography as="span" variant="body-small-default" className="ml-1 text-[color:var(--content-positive)]">Copied!</Typography>}
-          {" "}and add the <strong>connections:write</strong> scope
-        </li>
-        <li>Click <strong>Generate</strong> and copy the token</li>
-      </ol>
-      <div className="flex items-end gap-3">
-        <div className="flex-1">
+            Name your Slack app, copy its manifest, then create it in Slack. All
+            permissions and settings come pre-configured.
+          </Typography>
+
           <Input
-            label="App Token"
-            type="password"
-            value={appToken}
-            onChange={(e) => onAppTokenChange(e.target.value)}
-            placeholder="xapp-..."
+            label="App Name"
+            value={slackAppName}
+            onChange={(e) => {
+              userEditedName.current = true;
+              setSlackAppName(e.target.value.slice(0, 35));
+            }}
+            placeholder="My Assistant"
+            fullWidth
+          />
+
+          <Input
+            label="Description (optional)"
+            value={description}
+            onChange={(e) => setDescription(e.target.value.slice(0, 140))}
+            placeholder="What this assistant helps with"
+            helperText="Shown on the app's Slack profile."
             fullWidth
           />
         </div>
-        <Button
-          type="button"
-          variant="primary"
-          onClick={onNext}
-          disabled={!appToken.trim()}
-        >
-          Next &gt;
-        </Button>
-      </div>
-    </div>
-  );
-}
 
-// ---------------------------------------------------------------------------
-// Step 3 — Install & Connect
-// ---------------------------------------------------------------------------
+        <div className="flex flex-col gap-3">
+          <Typography
+            as="p"
+            variant="body-medium-lighter"
+            className="text-[color:var(--content-default)]"
+          >
+            In Slack:
+          </Typography>
+          <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
+            <li>
+              Under <strong>Or start your own way</strong>, pick{" "}
+              <strong>From a manifest</strong>, then <strong>Continue</strong>
+            </li>
+            <li>Choose your workspace and give it the manifest you copied</li>
+            <li>
+              Review the permissions, then click{" "}
+              <strong>Create and Install</strong>
+            </li>
+            <li>
+              Expand <strong>Your app credentials</strong> and copy both the{" "}
+              <strong>Bot token</strong> and <strong>App token</strong>
+            </li>
+          </ol>
 
-interface InstallAndConnectStepProps {
-  botToken: string;
-  saveStatus: MutationStatus;
-  saveError: string | null;
-  onBotTokenChange: (value: string) => void;
-  onSave: () => void;
-}
+          <Typography
+            as="p"
+            variant="body-small-default"
+            className="text-[color:var(--content-faint)]"
+          >
+            Slack&apos;s last screen also offers a command-line walkthrough and
+            a <strong>Download app files</strong> button. Skip both — they set
+            up a separate local app, and this assistant needs only the two
+            tokens.
+          </Typography>
 
-function InstallAndConnectStep({
-  botToken,
-  saveStatus,
-  saveError,
-  onBotTokenChange,
-  onSave,
-}: InstallAndConnectStepProps) {
-  return (
-    <div className="flex flex-col gap-4">
-      <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
-        <li>Go to <strong>Install App</strong> in the sidebar</li>
-        <li>Click <strong>Install to Workspace</strong> and approve the permissions</li>
-        <li>Copy the <strong>Bot User OAuth Token</strong> shown on the page</li>
-      </ol>
-      <Typography as="p" variant="body-small-default" className="text-[color:var(--content-faint)]">
-        If Slack shows &ldquo;Request approval&rdquo; instead, a workspace admin
-        needs to approve the app first.
-      </Typography>
-      <div className="flex items-end gap-3">
-        <div className="flex-1">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              variant="outlined"
+              disabled={!nameValid}
+              onClick={handleCopyManifest}
+              leftIcon={
+                copied ? (
+                  <Check aria-hidden className="size-4" />
+                ) : (
+                  <ClipboardCopy aria-hidden className="size-4" />
+                )
+              }
+            >
+              {copied ? "Copied!" : "Copy manifest JSON"}
+            </Button>
+            <Button
+              type="button"
+              disabled={!nameValid}
+              onClick={handleOpenSlack}
+              rightIcon={<ExternalLink aria-hidden className="size-4" />}
+            >
+              Open Slack
+            </Button>
+          </div>
+
+          <Typography
+            as="p"
+            variant="body-small-default"
+            className="text-[color:var(--content-faint)]"
+          >
+            If Slack shows &ldquo;Request approval&rdquo; instead of{" "}
+            <strong>Install</strong>, a workspace admin needs to approve the app
+            first.
+          </Typography>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <Typography
+            as="p"
+            variant="body-medium-lighter"
+            className="text-[color:var(--content-default)]"
+          >
+            Paste both tokens from Slack&apos;s <strong>Your app
+            credentials</strong> panel:
+          </Typography>
+
           <Input
             label="Bot Token"
             type="password"
             value={botToken}
-            onChange={(e) => onBotTokenChange(e.target.value)}
-            placeholder="xoxb-..."
+            onChange={(e) => setBotToken(e.target.value)}
+            placeholder={`${BOT_TOKEN_PREFIX}...`}
+            errorText={botTokenError ?? undefined}
             fullWidth
           />
+
+          <Input
+            label="App Token"
+            type="password"
+            value={appToken}
+            onChange={(e) => setAppToken(e.target.value)}
+            placeholder={`${APP_TOKEN_PREFIX}...`}
+            errorText={appTokenError ?? undefined}
+            fullWidth
+          />
+
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="primary"
+              onClick={handleSave}
+              disabled={!canSave}
+            >
+              {saveStatus === "pending" ? "Connecting…" : "Connect Slack"}
+            </Button>
+          </div>
+
+          {saveStatus === "success" && (
+            <Typography
+              as="p"
+              variant="body-small-default"
+              className="text-[color:var(--content-positive)]"
+            >
+              Credentials saved.
+            </Typography>
+          )}
+          {saveStatus === "error" && saveError && (
+            <Typography
+              as="p"
+              variant="body-small-default"
+              className="text-[color:var(--system-negative-strong)]"
+            >
+              {saveError}
+            </Typography>
+          )}
         </div>
-        <Button
-          type="button"
-          variant="primary"
-          onClick={onSave}
-          disabled={!botToken.trim() || saveStatus === "pending"}
-        >
-          {saveStatus === "pending" ? "Saving\u2026" : "Save"}
-        </Button>
       </div>
-      {saveStatus === "success" && (
-        <Typography as="p" variant="body-small-default" className="text-[color:var(--content-positive)]">
-          Credentials saved.
-        </Typography>
-      )}
-      {saveStatus === "error" && saveError && (
-        <Typography as="p" variant="body-small-default" className="text-[color:var(--system-negative-strong)]">
-          {saveError}
-        </Typography>
-      )}
     </div>
   );
 }

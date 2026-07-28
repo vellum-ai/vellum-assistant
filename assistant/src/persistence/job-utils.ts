@@ -230,8 +230,39 @@ export async function embedAndUpsert(
       ? generateSparseEmbedding(normalized.text)
       : undefined;
 
-  // Persist embedding in SQLite for cross-restart cache
   const now = Date.now();
+  const qdrant = requireQdrantClient();
+
+  try {
+    const modality = normalized.type;
+    await withQdrantBreaker(() =>
+      qdrant.upsert(
+        targetType,
+        targetId,
+        vector,
+        {
+          text: payloadText,
+          modality,
+          created_at: (extraPayload?.created_at as number) ?? now,
+          ...(extraPayload as Record<string, unknown> | undefined),
+        },
+        sparseVector,
+      ),
+    );
+  } catch (err) {
+    log.warn(
+      { err, targetType, targetId },
+      "Failed to upsert embedding to Qdrant",
+    );
+    throw err;
+  }
+
+  // Persist the embedding in SQLite for the cross-restart cache, after the
+  // point is live in Qdrant. Consumers read a row as "this target is indexed"
+  // — the graph-node orphan sweep does — so a row written ahead of the upsert
+  // would mark a missing point as embedded and suppress the re-embed that
+  // would restore it. Best-effort in the other direction: a write failure logs
+  // and leaves the point in place, and the next run re-embeds.
   try {
     const blobValue = vectorToBlob(vector);
     db.insert(memoryEmbeddings)
@@ -266,31 +297,5 @@ export async function embedAndUpsert(
       .run();
   } catch (err) {
     log.warn({ err, targetType, targetId }, "Failed to write embedding cache");
-  }
-
-  const qdrant = requireQdrantClient();
-
-  try {
-    const modality = normalized.type;
-    await withQdrantBreaker(() =>
-      qdrant.upsert(
-        targetType,
-        targetId,
-        vector,
-        {
-          text: payloadText,
-          modality,
-          created_at: (extraPayload?.created_at as number) ?? now,
-          ...(extraPayload as Record<string, unknown> | undefined),
-        },
-        sparseVector,
-      ),
-    );
-  } catch (err) {
-    log.warn(
-      { err, targetType, targetId },
-      "Failed to upsert embedding to Qdrant",
-    );
-    throw err;
   }
 }

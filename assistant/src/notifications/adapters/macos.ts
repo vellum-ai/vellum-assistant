@@ -18,8 +18,8 @@
  * does not match their own identity.
  */
 
+import type { AssistantEvent } from "../../api/index.js";
 import type { InterfaceId } from "../../channels/types.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   ChannelAdapter,
@@ -44,7 +44,7 @@ export interface BroadcastFnOptions {
 }
 
 export type BroadcastFn = (
-  msg: ServerMessage,
+  msg: AssistantEvent,
   conversationId?: string,
   options?: BroadcastFnOptions,
 ) => void;
@@ -107,7 +107,7 @@ export class VellumAdapter implements ChannelAdapter {
         deepLinkMetadata: payload.deepLinkTarget,
         targetGuardianPrincipalId,
         silent,
-      } as ServerMessage);
+      } as AssistantEvent);
 
       log.info(
         {

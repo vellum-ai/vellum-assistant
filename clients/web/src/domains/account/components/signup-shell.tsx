@@ -11,7 +11,7 @@ import "@/domains/account/components/signup.css";
  * screen and the post-OAuth name/occupation step so the experience stays
  * visually consistent across the flow.
  */
-export function SignupShell({ children }: { children: ReactNode }) {
+export function SignupShell({ children }: { children?: ReactNode }) {
   return (
     // Force the dark palette regardless of the app theme — the demo always sits
     // on a dark surface. `data-theme="dark"` re-declares the design tokens for

@@ -101,7 +101,7 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
       emitInChatTourExposed();
       if (isInChatTourOn(readInChatTourVariant())) {
         useInChatOnboardingStore.getState().startPrototype();
-        emitInChatTourStarted("auto");
+        emitInChatTourStarted();
       }
     }
     void navigate(routes.conversation(draftId), { replace: true });

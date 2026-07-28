@@ -36,6 +36,7 @@ import {
   getSchedule,
   getScheduleRuns,
   listSchedules,
+  resolveScheduleConversationGroupId,
   type ScheduleJob,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
@@ -80,6 +81,7 @@ const scheduleSchema = z.object({
   retryBackoffMs: z.number(),
   timeoutMs: z.number().nullable(),
   inferenceProfile: z.string().nullable(),
+  groupId: z.string().nullable(),
   createdFromConversationId: z.string().nullable(),
   createdFromConversationExists: z.boolean(),
   createdFromConversationArchivedAt: z.number().nullable(),
@@ -211,6 +213,7 @@ function serializeSchedule(
     retryBackoffMs: j.retryBackoffMs,
     timeoutMs: j.timeoutMs,
     inferenceProfile: j.inferenceProfile,
+    groupId: j.groupId,
     createdFromConversationId: j.createdFromConversationId,
     createdFromConversationExists: sourceConversation.exists,
     createdFromConversationArchivedAt: sourceConversation.archivedAt,
@@ -1108,7 +1111,7 @@ async function handleRunScheduleNow(id: string) {
   if (!conversationId) {
     const conversation = await bootstrapConversation({
       source: "schedule",
-      groupId: "system:scheduled",
+      groupId: resolveScheduleConversationGroupId(schedule),
       origin: "schedule",
       systemHint: `Schedule (manual): ${schedule.name}`,
     });

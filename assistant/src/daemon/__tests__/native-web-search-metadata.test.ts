@@ -29,6 +29,7 @@ mock.module("../../persistence/llm-request-log-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
+import type { AssistantEvent } from "../../api/index.js";
 import { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } from "../../tools/network/web-search-error.js";
 import type {
   EventHandlerDeps,
@@ -38,17 +39,16 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
 } from "../conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../message-protocol.js";
 
-type ToolResultEvent = Extract<ServerMessage, { type: "tool_result" }>;
+type ToolResultEvent = Extract<AssistantEvent, { type: "tool_result" }>;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function createCollectorDeps(providerName = "anthropic"): {
   deps: EventHandlerDeps;
-  events: ServerMessage[];
+  events: AssistantEvent[];
 } {
-  const events: ServerMessage[] = [];
+  const events: AssistantEvent[] = [];
   const deps = {
     ctx: {
       conversationId: "conv-native-meta",
@@ -58,7 +58,7 @@ function createCollectorDeps(providerName = "anthropic"): {
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
     } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (msg: ServerMessage) => events.push(msg),
+    onEvent: (msg: AssistantEvent) => events.push(msg),
     reqId: "req-native-meta",
     isFirstMessage: false,
     shouldGenerateTitle: false,

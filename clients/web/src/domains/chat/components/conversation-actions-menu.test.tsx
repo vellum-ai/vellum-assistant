@@ -212,6 +212,29 @@ describe("renderConversationMenuItems", () => {
     expect(html).toContain("Pin");
     expect(html).toContain("Rename");
   });
+
+  test("renders Copy conversation ID in both variants when wired", () => {
+    for (const variant of ["sidebar", "header"] as const) {
+      const html = renderToStaticMarkup(
+        <>{renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          variant,
+          onCopyConversationId: () => {},
+        })}</>,
+      );
+      expect(html).toContain("Copy conversation ID");
+    }
+  });
+
+  test("omits Copy conversation ID when not wired", () => {
+    const html = renderToStaticMarkup(
+      <>{renderConversationMenuItems({
+        Primitive: Menu as unknown as ConversationMenuPrimitive,
+        onRename: () => {},
+      })}</>,
+    );
+    expect(html).not.toContain("Copy conversation ID");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -376,8 +399,12 @@ describe("ConversationActionsMenu — mobile panel details", () => {
       />,
     );
     expect(html).toContain("Mark as unread");
-    expect(html).toContain("pointer-events-none");
-    expect(html).toContain("opacity-50");
+    // Disabled is expressed through PanelItem's own `disabled` prop, which
+    // keeps the row's button semantics, plus the dim styling the design
+    // library's menu surfaces use.
+    expect(html).toContain("disabled=\"\"");
+    expect(html).toContain("cursor-not-allowed");
+    expect(html).toContain("text-[var(--content-disabled)]");
   });
 
   test("hides Open in New Window on native iOS bottom sheet", () => {

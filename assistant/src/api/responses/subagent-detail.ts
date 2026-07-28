@@ -58,6 +58,19 @@ export const SubagentDetailResponseSchema = z.object({
   status: SubagentStatusSchema.optional(),
   usage: SubagentUsageStatsSchema.optional(),
   events: z.array(SubagentDetailEventSchema),
+  /**
+   * The subagent's task label, from the live manager state. Lets a client
+   * that missed the `subagent_spawned` event (SSE gap, store reset, page
+   * reload mid-run) recover the display name it would otherwise only learn
+   * at spawn time.
+   */
+  label: z.string().optional(),
+  /**
+   * Tool-use id of the spawning `subagent_spawn` call, from the live manager
+   * state. Lets a recovering client re-anchor the inline card to the exact
+   * spawn tool call (same role as the field on `subagent_spawned`).
+   */
+  parentToolUseId: z.string().optional(),
 });
 
 export type SubagentDetailResponse = z.infer<

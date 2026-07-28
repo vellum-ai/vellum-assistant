@@ -15,10 +15,12 @@
  * - conversation-usage.ts        — recordUsage
  */
 
+import { repairHistory } from "../agent/history-repair/history-repair.js";
 import type { AgentLoopConfig } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
+import type { AssistantEvent } from "../api/index.js";
 import { decideGuardianRequest } from "../channels/gateway-guardian-requests.js";
 import type {
   ChannelId,
@@ -63,7 +65,6 @@ import {
   type ContextWindowResult,
   createContextSummaryMessage,
 } from "../plugins/defaults/compaction/window-manager.js";
-import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import {
   unwrapMemoryBlock,
@@ -125,6 +126,7 @@ import { registerConversationNotifiers } from "./conversation-notifiers.js";
 import type { ProcessMessageOptions } from "./conversation-process.js";
 import {
   drainQueue as drainQueueImpl,
+  kickQueueDrain as kickQueueDrainImpl,
   processMessage as processMessageImpl,
 } from "./conversation-process.js";
 import type {
@@ -163,11 +165,7 @@ import { canonicalizeTimeZone } from "./date-context.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { shouldAttachHostProxyForCapability } from "./host-proxy-preactivation.js";
-import type {
-  ServerMessage,
-  SurfaceType,
-  UsageStats,
-} from "./message-protocol.js";
+import type { SurfaceType, UsageStats } from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
@@ -320,7 +318,7 @@ export class Conversation {
   /** @internal */ prompter: PermissionPrompter;
   /** @internal */ secretPrompter: SecretPrompter;
   private executor: ToolExecutor;
-  /** @internal */ sendToClient: (msg: ServerMessage) => void;
+  /** @internal */ sendToClient: (msg: AssistantEvent) => void;
   /** @internal */ workingDir: string;
   /** @internal */ allowedToolNames?: Set<string>;
   /**
@@ -345,6 +343,15 @@ export class Conversation {
    * @internal
    */
   subagentDenySideEffects?: boolean;
+  /**
+   * When true, mid-run subagent → parent notifications (`notify_parent`) are
+   * suppressed for this child. Set on synchronous (spawnAndAwait) subagents:
+   * the awaiting caller is their only parent channel, so injecting a
+   * user-role turn into the live parent mid-await would start an unsolicited
+   * parent run. Checked in `notifyParentFromChild`.
+   * @internal
+   */
+  subagentSuppressParentNotifications?: boolean;
   /**
    * Tool names a subagent attempted but that its role allowlist
    * ({@link subagentAllowedTools}) denied. Recorded by the tool executor;
@@ -672,7 +679,7 @@ export class Conversation {
   originChannel: ChannelId | undefined = undefined;
   /** @internal */ activityVersion = 0;
   /** Last emitted activity state message, retained for replay on SSE reconnection. */
-  /** @internal */ lastActivityStateMsg: ServerMessage | null = null;
+  /** @internal */ lastActivityStateMsg: AssistantEvent | null = null;
   /** Set by the agent loop to track confirmation outcomes for persistence. */
   onConfirmationOutcome?: (
     requestId: string,
@@ -685,7 +692,7 @@ export class Conversation {
     conversationId: string,
     provider: Provider,
     systemPrompt: string,
-    sendToClient: (msg: ServerMessage) => void,
+    sendToClient: (msg: AssistantEvent) => void,
     workingDir: string,
     options?: ConversationConstructorOptions,
   ) {
@@ -1431,7 +1438,7 @@ export class Conversation {
   }
 
   updateClient(
-    sendToClient: (msg: ServerMessage) => void,
+    sendToClient: (msg: AssistantEvent) => void,
     hasNoClient = false,
   ): void {
     this.sendToClient = sendToClient;
@@ -1453,7 +1460,7 @@ export class Conversation {
   }
 
   /** Returns the current sendToClient reference for identity comparison. */
-  getCurrentSender(): (msg: ServerMessage) => void {
+  getCurrentSender(): (msg: AssistantEvent) => void {
     return this.sendToClient;
   }
 
@@ -1463,6 +1470,10 @@ export class Conversation {
 
   setSubagentDenySideEffects(deny: boolean): void {
     this.subagentDenySideEffects = deny;
+  }
+
+  setSubagentSuppressParentNotifications(suppress: boolean): void {
+    this.subagentSuppressParentNotifications = suppress;
   }
 
   /**
@@ -1866,10 +1877,10 @@ export class Conversation {
   emitConfirmationStateChanged(
     params: Omit<ConfirmationStateChangedEvent, "type">,
   ): void {
-    const msg: ServerMessage = {
+    const msg: AssistantEvent = {
       type: "confirmation_state_changed",
       ...params,
-    } as ServerMessage;
+    } as AssistantEvent;
     try {
       this.sendToClient(msg);
     } catch (err) {
@@ -1891,7 +1902,7 @@ export class Conversation {
   ): void {
     const { anchor = "assistant_turn", requestId, statusText } = options ?? {};
     this.activityVersion++;
-    const msg: ServerMessage = {
+    const msg: AssistantEvent = {
       type: "assistant_activity_state",
       conversationId: this.conversationId,
       activityVersion: this.activityVersion,
@@ -1900,7 +1911,7 @@ export class Conversation {
       requestId,
       reason,
       ...(statusText ? { statusText } : {}),
-    } as ServerMessage;
+    } as AssistantEvent;
     this.lastActivityStateMsg = msg;
     try {
       this.sendToClient(msg);
@@ -2454,7 +2465,7 @@ export class Conversation {
     content: string,
     userMessageId: string,
     options?: {
-      onEvent?: (msg: ServerMessage) => void;
+      onEvent?: (msg: AssistantEvent) => void;
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
@@ -2491,6 +2502,18 @@ export class Conversation {
 
   drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
     return drainQueueImpl(this, reason);
+  }
+
+  /**
+   * Never-rejecting drain trigger for fire-and-forget call sites. See
+   * `kickQueueDrain` in conversation-process.ts for the retry/notify
+   * semantics.
+   */
+  kickDrainQueue(
+    reason: QueueDrainReason = "loop_complete",
+    origin?: string,
+  ): Promise<void> {
+    return kickQueueDrainImpl(this, reason, origin);
   }
 
   async processMessage(options: ProcessMessageOptions): Promise<string> {

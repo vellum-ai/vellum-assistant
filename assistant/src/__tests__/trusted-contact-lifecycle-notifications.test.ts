@@ -206,8 +206,9 @@ describe("trusted contact lifecycle notification signals", () => {
 
     await handleChannelInbound(guardianReq, undefined, TEST_BEARER_TOKEN);
 
-    // Should emit guardian_decision and denied signals
-
+    // A denial emits exactly one lifecycle signal — guardian_decision with
+    // decision: "denied". A second event for the same verdict would escape
+    // dedupe (distinct keys) and duplicate the guardian-facing notification.
     const guardianDecisionSignals = emitSignalCalls.filter(
       (c) => c.sourceEventName === "ingress.trusted_contact.guardian_decision",
     );
@@ -216,7 +217,7 @@ describe("trusted contact lifecycle notification signals", () => {
     );
 
     expect(guardianDecisionSignals.length).toBe(1);
-    expect(deniedSignals.length).toBe(1);
+    expect(deniedSignals.length).toBe(0);
 
     // Verify guardian_decision payload
     const gdPayload = guardianDecisionSignals[0].contextPayload as Record<
@@ -229,18 +230,9 @@ describe("trusted contact lifecycle notification signals", () => {
     expect(gdPayload.requesterDisplayName).toBe("Alice Requester");
     expect(gdPayload.decidedByDisplayName).toBe("Guardian Bob");
 
-    // Verify denied payload
-    const dPayload = deniedSignals[0].contextPayload as Record<string, unknown>;
-    expect(dPayload.decision).toBe("denied");
-    expect(dPayload.requesterExternalUserId).toBe("requester-user-456");
-    expect(dPayload.requesterDisplayName).toBe("Alice Requester");
-    expect(dPayload.decidedByDisplayName).toBe("Guardian Bob");
-
-    // Verify deduplication keys are distinct
     expect(guardianDecisionSignals[0].dedupeKey).toContain(
       "trusted-contact:guardian-decision:",
     );
-    expect(deniedSignals[0].dedupeKey).toContain("trusted-contact:denied:");
   });
 
   test("guardian approve emits guardian_decision and verification_sent signals with display names", async () => {
@@ -381,8 +373,11 @@ describe("trusted contact lifecycle notification signals", () => {
         typeof c.dedupeKey === "string" &&
         (c.dedupeKey as string).includes(approval.id),
     );
-    // guardian_decision and denied — both keyed on approval.id
-    expect(signals.length).toBe(2);
+    // Exactly one lifecycle signal per denial, keyed on the request id.
+    expect(signals.length).toBe(1);
+    expect(signals[0].sourceEventName).toBe(
+      "ingress.trusted_contact.guardian_decision",
+    );
   });
 
   test("display name fields fall back to null when contacts have no display name", async () => {
@@ -451,12 +446,8 @@ describe("trusted contact lifecycle notification signals", () => {
     const guardianDecisionSignals = emitSignalCalls.filter(
       (c) => c.sourceEventName === "ingress.trusted_contact.guardian_decision",
     );
-    const deniedSignals = emitSignalCalls.filter(
-      (c) => c.sourceEventName === "ingress.trusted_contact.denied",
-    );
 
     expect(guardianDecisionSignals.length).toBe(1);
-    expect(deniedSignals.length).toBe(1);
 
     // Verify display names fall back to null/empty when contacts have no
     // display name set.
@@ -469,10 +460,6 @@ describe("trusted contact lifecycle notification signals", () => {
     // The signal enrichment resolves displayName from the contact record,
     // so decidedByDisplayName will be "" (empty string) rather than null.
     expect(gdPayload.decidedByDisplayName).toBe("");
-
-    const dPayload = deniedSignals[0].contextPayload as Record<string, unknown>;
-    expect(dPayload.requesterDisplayName).toBeNull();
-    expect(dPayload.decidedByDisplayName).toBe("");
   });
 });
 

@@ -13,7 +13,7 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { Message } from "../providers/types.js";
 
 // ── Fake Conversation ───────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ interface FakeConversationConfig {
    */
   resolveOnAbort?: boolean;
   /** Deltas to emit through sendToClient before runAgentLoop resolves. */
-  emitDeltas?: ServerMessage[];
+  emitDeltas?: AssistantEvent[];
   /**
    * Invoked synchronously at the very start of runAgentLoop (after the loop has
    * begun, so the run is past the early-terminal guard and marked "running").
@@ -54,6 +54,13 @@ let runLoopInvoked = false;
 let lastPersistedUserMessage: string | undefined;
 /** Records `setSubagentDenySideEffects` on the most recent FakeConversation. */
 let lastDenySideEffects: boolean | undefined;
+/**
+ * Records `setSubagentSuppressParentNotifications` on the most recent
+ * FakeConversation.
+ */
+let lastSuppressParentNotifications: boolean | undefined;
+/** Records `setTrustContext` on the most recent FakeConversation. */
+let lastTrustContext: unknown;
 /** Options the most recent `bootstrapConversation` call received. */
 let lastBootstrapOptions: Record<string, unknown> | undefined;
 
@@ -64,7 +71,7 @@ class FakeConversation {
   conversationType = "background";
   hasSystemPromptOverride = false;
 
-  private sendToClient: (msg: ServerMessage) => void;
+  private sendToClient: (msg: AssistantEvent) => void;
   private readonly cfg: FakeConversationConfig;
   private aborted = false;
   private resolveAbort?: () => void;
@@ -73,7 +80,7 @@ class FakeConversation {
     _id: string,
     _provider: unknown,
     _systemPrompt: string,
-    sendToClient: (msg: ServerMessage) => void,
+    sendToClient: (msg: AssistantEvent) => void,
     _workingDir: string,
     _options?: unknown,
   ) {
@@ -82,13 +89,15 @@ class FakeConversation {
     this.messages = this.cfg.messages ?? [];
   }
 
-  updateClient(sendToClient: (msg: ServerMessage) => void) {
+  updateClient(sendToClient: (msg: AssistantEvent) => void) {
     // The manager re-points sendToClient via updateClient; honor it so the
     // wrappedSendToClient tap is the one the deltas flow through.
     this.sendToClient = sendToClient;
   }
 
-  setTrustContext() {}
+  setTrustContext(ctx: unknown) {
+    lastTrustContext = ctx;
+  }
   setAuthContext() {}
   getAuthContext() {
     return undefined;
@@ -98,6 +107,9 @@ class FakeConversation {
   setSubagentAllowedTools() {}
   setSubagentDenySideEffects(deny: boolean) {
     lastDenySideEffects = deny;
+  }
+  setSubagentSuppressParentNotifications(suppress: boolean) {
+    lastSuppressParentNotifications = suppress;
   }
   setPreactivatedSkillIds() {}
   getCurrentSystemPrompt() {
@@ -125,7 +137,9 @@ class FakeConversation {
           this.resolveAbort = resolve;
         });
       }
-      if (this.cfg.resolveOnAbort) return;
+      if (this.cfg.resolveOnAbort) {
+        return;
+      }
       throw new Error("aborted");
     }
     if (this.cfg.runError) {
@@ -199,7 +213,7 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
 }
 
 /** Statuses broadcast to the parent via `subagent_status_changed` events. */
-function broadcastStatuses(events: ServerMessage[]): string[] {
+function broadcastStatuses(events: AssistantEvent[]): string[] {
   return events
     .filter((m) => m.type === "subagent_status_changed")
     .map((m) => (m as { status: string }).status);
@@ -228,6 +242,8 @@ describe("SubagentManager.spawnAndAwait", () => {
   // `undefined` across the opaque spawnAndAwait call.
   beforeEach(() => {
     lastDenySideEffects = undefined;
+    lastSuppressParentNotifications = undefined;
+    lastTrustContext = undefined;
   });
 
   test("wires denySideEffectTools onto the subagent conversation (read-only)", async () => {
@@ -249,6 +265,38 @@ describe("SubagentManager.spawnAndAwait", () => {
     await manager.spawnAndAwait(makeConfig(), () => {});
 
     expect(lastDenySideEffects).toBeUndefined();
+  });
+
+  test("an explicit config trustContext lands on the subagent conversation", async () => {
+    nextConversationConfig = {};
+
+    const manager = new SubagentManager();
+    // No parent conversation is registered here, so inheritance would leave
+    // trust unset — the explicit config value must be applied regardless (the
+    // live-voice continuation path, where the parent's per-turn trust has
+    // already been cleared at spawn time).
+    await manager.spawnAndAwait(
+      makeConfig({
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      }),
+      () => {},
+    );
+
+    expect(lastTrustContext).toMatchObject({
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    });
+  });
+
+  test("suppresses mid-run parent notifications on the synchronous path", async () => {
+    nextConversationConfig = {};
+
+    const manager = new SubagentManager();
+    await manager.spawnAndAwait(makeConfig(), () => {});
+
+    // The awaiting caller is the child's only parent channel: notify_parent
+    // must not inject a user-role turn into the live parent mid-await.
+    expect(lastSuppressParentNotifications).toBe(true);
   });
 
   test("stamps the parent conversation id on the subagent's conversation", async () => {
@@ -326,14 +374,14 @@ describe("SubagentManager.spawnAndAwait", () => {
         { role: "assistant", content: [{ type: "text", text: "done" }] },
       ],
       emitDeltas: [
-        { type: "assistant_text_delta", text: "Hello " } as ServerMessage,
+        { type: "assistant_text_delta", text: "Hello " } as AssistantEvent,
         {
           type: "assistant_thinking_delta",
           thinking: "(pondering) ",
-        } as ServerMessage,
-        { type: "assistant_text_delta", text: "world" } as ServerMessage,
+        } as AssistantEvent,
+        { type: "assistant_text_delta", text: "world" } as AssistantEvent,
         // Non-delta events must not be forwarded to onText.
-        { type: "subagent_status_changed" } as ServerMessage,
+        { type: "subagent_status_changed" } as AssistantEvent,
       ],
     };
 
@@ -382,7 +430,7 @@ describe("SubagentManager.spawnAndAwait", () => {
     // terminal first so this is recorded and broadcast as "aborted".
     nextConversationConfig = { resolveOnAbort: true };
 
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const controller = new AbortController();
     const manager = new SubagentManager();
     const promise = manager.spawnAndAwait(
@@ -441,7 +489,7 @@ describe("SubagentManager.spawnAndAwait", () => {
     const controller = new AbortController();
     controller.abort();
 
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const manager = new SubagentManager();
     await expect(
       manager.spawnAndAwait(makeConfig(), (msg) => events.push(msg), {

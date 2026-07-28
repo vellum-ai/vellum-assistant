@@ -2,6 +2,7 @@ import {
     CircleCheck,
     ExternalLink,
     Info,
+    Loader2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -14,6 +15,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import { credentialsInspectPost } from "@/generated/daemon/sdk.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { usePlatformAssistantId } from "@/hooks/use-platform-assistant-id";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useEnvironmentStore } from "@/stores/environment-store";
@@ -58,6 +60,21 @@ export function EmailServiceCard() {
     const raw = getLocalSetting(LS_EMAIL_BYO_PROVIDER, "resend");
     return raw === "mailgun" || raw === "resend" ? raw : "resend";
   });
+
+  // Managed email lives on the platform API, whose assistant routes key on
+  // the platform UUID — the local-mode lockfile id is a slug that no
+  // platform route matches. Resolve the platform id before rendering the
+  // managed form; on resolution failure fall back to the raw id so the
+  // platform can still answer with a real per-request error.
+  const {
+    platformAssistantId,
+    error: platformAssistantIdError,
+  } = usePlatformAssistantId(
+    assistantId,
+    platformGate === "full" && mode === "managed",
+  );
+  const managedAssistantId =
+    platformAssistantId ?? (platformAssistantIdError ? assistantId : null);
 
   // -- BYO credential check (your-own mode) ----------------------------------
   const byoCredentialQuery = useQuery({
@@ -203,9 +220,14 @@ export function EmailServiceCard() {
             <PlatformLoginNotice>
               Log in to the Vellum platform to manage email settings.
             </PlatformLoginNotice>
+          ) : managedAssistantId === null ? (
+            <div className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)]">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Connecting to the Vellum platform…
+            </div>
           ) : (
             <EmailManagedContent
-              assistantId={assistantId}
+              assistantId={managedAssistantId}
               assistantHandle={assistantHandle}
               emailRootDomain={emailRootDomain}
             />

@@ -7,6 +7,7 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
+import type { AssistantEvent } from "../../../api/index.js";
 import {
   extractMessageTsFromCallbackUrl,
   extractThreadTsFromCallbackUrl,
@@ -18,7 +19,6 @@ import {
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
-import type { ServerMessage } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import {
   getSiblingStreamedReplyTs,
@@ -238,7 +238,7 @@ export function processChannelMessageInBackground(
         // the redelivery path can reuse to edit the reply in place.
         onStreamOpen: (streamTs) => storeStreamedReplyTs(eventId, streamTs),
       });
-      const observeAgentEvent = (msg: ServerMessage): void => {
+      const observeAgentEvent = (msg: AssistantEvent): void => {
         if (
           msg.type === "message_complete" &&
           (msg.source === undefined || msg.source === "main") &&
@@ -447,7 +447,7 @@ function startTelegramTypingHeartbeat(
 // ---------------------------------------------------------------------------
 
 type SlackThinkingStatusController = {
-  observeEvent: (msg: ServerMessage) => void;
+  observeEvent: (msg: AssistantEvent) => void;
   stop: () => void;
 };
 
@@ -533,7 +533,7 @@ function createSlackThinkingStatusController(params: {
     slackThinkingStatus?.updateLoadingMessages(currentLoadingMessages);
   };
 
-  const observeTaskProgress = (msg: ServerMessage): void => {
+  const observeTaskProgress = (msg: AssistantEvent): void => {
     if (msg.type === "ui_surface_show") {
       const progress = getTaskProgressDataFromSurfaceData(msg.data);
       if (!progress) {

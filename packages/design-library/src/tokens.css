@@ -19,6 +19,13 @@
  *   Dark:  node 2674:20730
  * --------------------------------------------------------------------------- */
 
+/* The library declares its own Tailwind scan target, so every consumer that
+ * imports these tokens picks it up — `@source` resolves relative to this file.
+ * `.ts` as well as `.tsx`: shared class strings live in plain modules too
+ * (`utils/menu-styles.ts`), and a `.tsx`-only glob drops any utility that
+ * appears nowhere else, including its `data-[disabled]:` variants. */
+@source "./**/*.{ts,tsx}";
+
 /* ---------------------------------------------------------------------------
  * Brand fonts.
  *

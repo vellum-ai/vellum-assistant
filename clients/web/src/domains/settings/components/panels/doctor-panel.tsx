@@ -53,10 +53,12 @@ import {
 } from "@/generated/api/sdk.gen";
 import type { AssistantsDoctorSessionsCreateData } from "@/generated/api/types.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
 import { isPointerCoarse } from "@/utils/pointer";
+import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 
 // ---------------------------------------------------------------------------
 // CopySessionButton
@@ -76,9 +78,9 @@ function CopySessionButton({ entries }: { entries: ChatEntry[] }) {
 
   const handleCopy = useCallback(() => {
     const text = serializeSessionToText(entries);
-    navigator.clipboard
-      .writeText(text)
-      .then(() => {
+    copyToClipboard(text, {
+      errorMessage: "Couldn't copy the session.",
+      onCopied: () => {
         setCopied(true);
         if (timerRef.current) {
           clearTimeout(timerRef.current);
@@ -87,8 +89,8 @@ function CopySessionButton({ entries }: { entries: ChatEntry[] }) {
           setCopied(false);
           timerRef.current = null;
         }, 1500);
-      })
-      .catch(() => {});
+      },
+    });
   }, [entries]);
 
   return (
@@ -138,6 +140,11 @@ export function DoctorPanel() {
 
   const platformGate = usePlatformGate();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // `/doctor <message>` slash command: the first message to send once the
+  // auto-started session becomes active, and a one-shot guard so the
+  // hand-off-driven start fires only once per navigation.
+  const pendingInitialMessageRef = useRef<string | null>(null);
+  const autoStartHandledRef = useRef(false);
 
   // ---------------------------------------------------------------------------
   // SSE hook (owns only the AbortController lifecycle)
@@ -515,6 +522,11 @@ export function DoctorPanel() {
   // preserves the active session and replay cursor, while useDoctorSSE's
   // AbortController is owned by the mounted hook instance.
   useEffect(() => {
+    // A pending /doctor slash command auto-starts a fresh session below; skip
+    // the resume/rediscover path so it doesn't race that start.
+    if (useDoctorHandoffStore.getState().pendingPrompt !== null) {
+      return;
+    }
     const store = useDoctorPanelStore.getState();
     if (
       store.lastAssistantId === assistantId &&
@@ -556,6 +568,35 @@ export function DoctorPanel() {
     };
   }, [abort]);
 
+  // Auto-start from the chat `/doctor <message>` slash command: the composer
+  // parks the first message in the hand-off store and navigates here. Start a
+  // fresh session and stash the message to send once it's active. The store's
+  // one-shot read (and the instance guard) keep a reload or back-nav from
+  // restarting the session. The prompt is consumed only once an assistant is
+  // resolved so it isn't dropped during the lifecycle loading window.
+  useEffect(() => {
+    if (autoStartHandledRef.current) {
+      return;
+    }
+    if (!assistantId) {
+      return;
+    }
+    const prompt = useDoctorHandoffStore.getState().consumePendingPrompt();
+    if (prompt === null) {
+      return;
+    }
+    autoStartHandledRef.current = true;
+
+    const store = useDoctorPanelStore.getState();
+    abort();
+    if (store.sessionId) {
+      cleanupServerSession(assistantId, store.sessionId);
+    }
+    store.resetForNewSession();
+    pendingInitialMessageRef.current = prompt.length > 0 ? prompt : null;
+    startMutation.mutate({ path: { assistant_id: assistantId } });
+  }, [assistantId, abort, startMutation]);
+
   // ---------------------------------------------------------------------------
   // Derived state
   // ---------------------------------------------------------------------------
@@ -570,6 +611,23 @@ export function DoctorPanel() {
     historyListQuery.isLoading ||
     (!!latestHistorySessionId && historyDetailQuery.isLoading)
   );
+
+  // Once the auto-started session is active, send the stashed first message.
+  useEffect(() => {
+    const message = pendingInitialMessageRef.current;
+    if (!message) {
+      return;
+    }
+    if (!isSessionActive || !sessionId) {
+      return;
+    }
+    pendingInitialMessageRef.current = null;
+    scrollToLatest();
+    sendMutation.mutate({
+      path: { assistant_id: assistantId, session_id: sessionId },
+      body: { content: message },
+    });
+  }, [isSessionActive, sessionId, assistantId, scrollToLatest, sendMutation]);
 
   // ---------------------------------------------------------------------------
   // Render

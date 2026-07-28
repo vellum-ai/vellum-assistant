@@ -12,7 +12,6 @@ import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
 import { NotificationsBell } from "@/domains/home/components/notifications-bell";
 import { InChatOnboardingController } from "@/domains/chat/in-chat-onboarding/in-chat-onboarding-controller";
-import { InChatOnboardingLaunchButton } from "@/domains/chat/in-chat-onboarding/in-chat-onboarding-launch-button";
 import { NotFound } from "@/components/not-found";
 import { RouteErrorBoundary } from "@/components/route-error-boundary";
 import { RootHydrateFallback } from "@/components/root-hydrate-fallback";
@@ -64,17 +63,10 @@ function AdvancedSettingsRedirect() {
 function ChatLayoutRoute() {
   return (
     <>
-      <ChatLayout
-        topBarAccessory={
-          <>
-            <InChatOnboardingLaunchButton />
-            <NotificationsBell />
-          </>
-        }
-      />
-      {/* SPIKE — in-chat onboarding prototype orchestrator. Renders only
-          portals (stage panel, avatar tour, narration takeover) over the
-          real chat; inert until the header's sparkles button activates it. */}
+      <ChatLayout topBarAccessory={<NotificationsBell />} />
+      {/* In-chat onboarding tour orchestrator. Renders only portals
+          (stage panel, avatar tour, narration takeover) over the real
+          chat; inert until the post-onboarding hand-off activates it. */}
       <InChatOnboardingController />
     </>
   );
@@ -287,6 +279,17 @@ export const routeTree = [
               lazy: { Component: () => import("@/domains/onboarding/pages/hatching-screen").then((m) => m.HatchingScreen) },
             },
           ],
+        },
+
+        // Deep-link checkout — starts Stripe checkout for a package chosen on
+        // the marketing pricing page. Placed OUTSIDE ActiveAssistantGate (and
+        // the onboarding-completed guard) so a brand-new user with no assistant
+        // yet can reach it; `authMiddleware` on `/assistant` still applies, and
+        // the navigation resolver exempts it from the no-assistant funnel
+        // redirect. The page gates on the session-only platform gate itself.
+        {
+          path: "checkout",
+          lazy: { Component: () => import("@/domains/settings/billing/checkout-page").then((m) => m.CheckoutPage) },
         },
 
         // Settings and logs require a resolved assistant. The gate

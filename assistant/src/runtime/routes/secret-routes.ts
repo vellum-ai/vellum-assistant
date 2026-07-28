@@ -32,13 +32,14 @@ import {
 } from "../../daemon/credential-transcript-scrub.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
-import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/v3/substrate/memory-v2-startup.js";
+import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/substrate/boot-maintenance.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateBasetenApiKey } from "../../providers/baseten/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
+import { validatePoolsideApiKey } from "../../providers/poolside/client.js";
 import { API_KEY_PROVIDERS } from "../../providers/provider-secret-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -228,6 +229,15 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         }
       } else if (name === "baseten") {
         const validation = await validateBasetenApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
+      } else if (name === "poolside") {
+        const validation = await validatePoolsideApiKey(value);
         if (!validation.valid) {
           log.warn(
             { provider: name, reason: validation.reason },
