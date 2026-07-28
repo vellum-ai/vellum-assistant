@@ -121,8 +121,14 @@ export function BillingOnboardingModal({
   // backgrounded resize still resolves while the user sets up their domain.
   const provisioning = useProProvisioning({ open });
 
+  // Whether this wizard has actually been opened, so the reset branch below can
+  // tell a close from the mount of an instance that is simply rendered closed
+  // (the billing page mounts two of these; only one opens).
+  const hasOpenedRef = useRef(false);
+
   useEffect(() => {
     if (open) {
+      hasOpenedRef.current = true;
       setIntent(isResize ? null : readPurchasedCheckoutIntent());
       // Fence the domains freshness check to this open before any domains fetch
       // can land, so a pre-open cached list never reads as fresh.
@@ -138,6 +144,13 @@ export function BillingOnboardingModal({
     setDisplayedPhase(null);
     setDomainsOpenedAt(null);
     setBackgroundConfirmOpen(false);
+    if (hasOpenedRef.current) {
+      hasOpenedRef.current = false;
+      // On close, not at the complete step: the takeover's exit sheet still
+      // paints from this surface, so bumping the stash version mid-fade would
+      // slide an otherwise-empty avatar query's tint to bundled green.
+      clearTakeoverAvatarStash();
+    }
   }, [open, isResize]);
 
   useEffect(
@@ -150,7 +163,6 @@ export function BillingOnboardingModal({
   useEffect(() => {
     if (step === "complete") {
       clearCheckoutIntent();
-      clearTakeoverAvatarStash();
     }
   }, [step]);
 

@@ -209,7 +209,11 @@ beforeEach(() => {
   sessionStorage.removeItem(INTENT_KEY);
   // Also resets the stash module's in-memory mirror, which outlives storage.
   clearTakeoverAvatarStash();
-  useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: null,
+    assistants: [],
+    assistantsHydrated: false,
+  });
 });
 
 afterEach(() => {
@@ -220,7 +224,12 @@ describe("CheckoutPage", () => {
   test("valid package + full gate fires the upgrade, stashes intent and avatar, opens Stripe", async () => {
     const client = freshQueryClient();
     seedCachedAvatar(client, "a1");
-    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    // Capture only stashes for a hydrated list holding exactly one assistant.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "a1",
+      assistants: [{ id: "a1", isLocal: false, isPlatformHosted: true }],
+      assistantsHydrated: true,
+    });
     render(checkoutTree("/assistant/checkout?package=super", client));
 
     await waitFor(() => expect(upgradeCalls.length).toBe(1));

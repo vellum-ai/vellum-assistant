@@ -281,6 +281,37 @@ describe("avatar stash", () => {
     expect(result.current.tintHex.toLowerCase()).toBe(PURPLE_SURFACE);
   });
 
+  test("a target resolving to another assistant mid-flight keeps the drawn stash", () => {
+    // Dropping `ready` here would unmount the creature and restart the
+    // placeholder, so a stash already on screen stays until live data lands.
+    seedStash("primary-assistant", "purple");
+    avatar.isLoading = true;
+
+    const { rerender, result } = renderHook(
+      ({ id }: { id?: string | null }) => useTakeoverSurface(id),
+      { initialProps: { id: null } as { id?: string | null } },
+    );
+    expect(result.current.ready).toBe(true);
+    expect(result.current.avatar.traits).toEqual(traits("purple"));
+
+    rerender({ id: "other-assistant" });
+
+    expect(result.current.ready).toBe(true);
+    expect(result.current.avatar.traits).toEqual(traits("purple"));
+    expect(result.current.tintHex.toLowerCase()).toBe(PURPLE_SURFACE);
+
+    avatar = {
+      components: BUNDLED_COMPONENTS,
+      traits: traits("orange"),
+      customImageUrl: null,
+      isLoading: false,
+    };
+    rerender({ id: "other-assistant" });
+
+    expect(result.current.avatar.traits).toEqual(traits("orange"));
+    expect(result.current.tintHex.toLowerCase()).toBe(ORANGE_SURFACE);
+  });
+
   test("a settle with no data at all keeps the stash", () => {
     // The daemon erroring while the machine restarts settles the query empty.
     // The stashed creature beats falling through to the bundled green one.

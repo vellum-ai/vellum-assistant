@@ -273,7 +273,11 @@ beforeEach(() => {
   // leaves a prior test's intent readable.
   clearCheckoutIntent();
   clearTakeoverAvatarStash();
-  useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: null,
+    assistants: [],
+    assistantsHydrated: false,
+  });
 });
 
 afterEach(() => {
@@ -324,8 +328,13 @@ describe("AdjustPlanModal upgrade — checkout intent stash", () => {
       subscription("base", null),
       proPlansResponse(CREDIT_TIERS),
     );
-    // The live avatar key appends a `supportsManifest` boolean.
-    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    // The live avatar key appends a `supportsManifest` boolean, and capture only
+    // stashes for a hydrated list holding exactly one assistant.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "a1",
+      assistants: [{ id: "a1", isLocal: false, isPlatformHosted: true }],
+      assistantsHydrated: true,
+    });
     client.setQueryData([...avatarQueryKey("a1"), true], {
       components: BUNDLED_COMPONENTS,
       traits: { bodyShape: "blob", eyeStyle: "default", color: "purple" },

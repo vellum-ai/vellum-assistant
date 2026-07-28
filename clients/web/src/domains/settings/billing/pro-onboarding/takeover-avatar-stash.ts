@@ -1,9 +1,12 @@
 import type { QueryClient } from "@tanstack/react-query";
 
-import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
-import { isCharacterTraits } from "@/types/avatar";
+import {
+  isCharacterTraits,
+  type CharacterComponents,
+  type CharacterTraits,
+} from "@/types/avatar";
 
 /**
  * The render inputs of the active assistant's avatar, captured at the moment a
@@ -15,10 +18,10 @@ import { isCharacterTraits } from "@/types/avatar";
  * dies with the tab) under a 30-minute TTL: a checkout abandoned longer than
  * that shouldn't resurface as a phantom avatar.
  *
- * Only ever a single-assistant org's snapshot, since
- * {@link captureTakeoverAvatarStash} skips orgs holding more than one. That is
- * what lets the takeover draw it before the target assistant resolves: with
- * one creature in the org there is no other one it could be aiming at.
+ * Only ever the snapshot of an org positively known to hold one assistant,
+ * since {@link captureTakeoverAvatarStash} skips every other case. That is what
+ * lets the takeover draw it before the target assistant resolves: with one
+ * creature in the org there is no other one it could be aiming at.
  */
 export interface TakeoverAvatarStash {
   assistantId: string;
@@ -31,13 +34,6 @@ export interface TakeoverAvatarStash {
   savedAt: number;
 }
 
-/** The cached avatar-query payload this module reads from. */
-interface CachedAvatar {
-  components: CharacterComponents | null;
-  traits: CharacterTraits | null;
-  customImageUrl: string | null;
-}
-
 const STORAGE_KEY = "vellum.pro-takeover-avatar";
 const MAX_AGE_MS = 30 * 60 * 1000;
 
@@ -48,6 +44,10 @@ const MAX_AGE_MS = 30 * 60 * 1000;
  * the redirect tears the document down, so a browser whose sessionStorage
  * throws keeps no stash at all and the takeover draws its breathing
  * placeholder through the wait instead.
+ *
+ * Served ONLY when sessionStorage is unreachable, never when it is readable and
+ * empty: a readable null is authoritative absence, which is what makes logout's
+ * blanket `sessionStorage.clear()` able to kill the stash outright.
  */
 let inMemoryStash: TakeoverAvatarStash | null = null;
 
@@ -57,6 +57,10 @@ let inMemoryStash: TakeoverAvatarStash | null = null;
  * browser without unloading the document: the takeover's host is already
  * mounted when the stash is written, so a once-per-mount read would keep
  * serving the null it saw before the hand-off.
+ *
+ * Read during render with no subscription, so a bump only lands on the next
+ * externally-triggered render; the takeover's open flip guarantees one on the
+ * path that matters.
  */
 let version = 0;
 
@@ -82,20 +86,22 @@ export function saveTakeoverAvatarStash(
 /**
  * The stashed avatar, or `null` when absent, unparsable, malformed, or older
  * than the TTL: anything unusable is cleared so it can't resurface. Falls back
- * to the in-memory mirror when sessionStorage is unreachable or empty.
+ * to the in-memory mirror only when sessionStorage is unreachable; a readable
+ * sessionStorage is authoritative, empty included.
  */
 export function readTakeoverAvatarStash(): TakeoverAvatarStash | null {
-  let raw: string | null = null;
-  if (typeof sessionStorage !== "undefined") {
-    try {
-      raw = sessionStorage.getItem(STORAGE_KEY);
-    } catch {
-      // sessionStorage unreachable, fall back to the in-memory mirror.
-      return readInMemoryStash();
-    }
+  if (typeof sessionStorage === "undefined") {
+    return readInMemoryStash();
+  }
+  let raw: string | null;
+  try {
+    raw = sessionStorage.getItem(STORAGE_KEY);
+  } catch {
+    // sessionStorage unreachable, fall back to the in-memory mirror.
+    return readInMemoryStash();
   }
   if (!raw) {
-    return readInMemoryStash();
+    return null;
   }
 
   let parsed: unknown;
@@ -129,21 +135,26 @@ export function clearTakeoverAvatarStash(): void {
  * Capture the active assistant's cached avatar into the stash, or clear the
  * stash when there is nothing drawable to capture.
  *
- * Every Stripe redirect site calls this, and every call either writes a fresh
- * stash or removes a stale one, so a previous user's (or a previous avatar's)
- * stash can never ride along with a new checkout.
+ * Every pro-checkout redirect site calls this, and every call either writes a
+ * fresh stash or removes a stale one, so a previous user's (or a previous
+ * avatar's) stash can never ride along with a new checkout.
  *
- * Orgs holding more than one assistant are skipped: the takeover draws the
- * onboarding payload's primary, which need not be the active one, and it draws
- * before that target resolves. Capturing only where the two cannot disagree
- * costs those orgs the instant avatar and buys the guarantee outright.
+ * Only a hydrated list holding exactly one assistant is captured: the takeover
+ * draws the onboarding payload's primary, which need not be the active one, and
+ * it draws before that target resolves. Capturing only where the two cannot
+ * disagree costs everyone else the instant avatar and buys the guarantee
+ * outright.
  */
 export function captureTakeoverAvatarStash(queryClient: QueryClient): void {
-  const { activeAssistantId: assistantId, assistants } =
-    useResolvedAssistantsStore.getState();
-  // Cross-org entries count too: overcounting only forfeits the instant
-  // avatar, undercounting draws the wrong creature.
-  if (!assistantId || assistants.length > 1) {
+  const {
+    activeAssistantId: assistantId,
+    assistants,
+    assistantsHydrated,
+  } = useResolvedAssistantsStore.getState();
+  // The single-assistant org has to be positively known: the list starts empty
+  // while a persisted `activeAssistantId` already reads through, so an
+  // unhydrated read cannot tell a solo org from a multi-assistant one.
+  if (!assistantId || !assistantsHydrated || assistants.length !== 1) {
     clearTakeoverAvatarStash();
     return;
   }
@@ -174,15 +185,15 @@ export function captureTakeoverAvatarStash(queryClient: QueryClient): void {
 function freshestCachedAvatar(
   queryClient: QueryClient,
   assistantId: string,
-): CachedAvatar | undefined {
+): AvatarData | undefined {
   const matches = queryClient
     .getQueryCache()
     .findAll({ queryKey: avatarQueryKey(assistantId) });
 
-  let freshest: CachedAvatar | undefined;
+  let freshest: AvatarData | undefined;
   let freshestAt = -Infinity;
   for (const query of matches) {
-    const data = query.state.data as CachedAvatar | undefined;
+    const data = query.state.data as AvatarData | undefined;
     if (data === undefined || query.state.dataUpdatedAt < freshestAt) {
       continue;
     }

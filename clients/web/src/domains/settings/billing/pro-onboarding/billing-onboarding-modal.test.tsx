@@ -73,7 +73,6 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
     isLoading: false,
     invalidate: () => {},
   }),
-  avatarQueryKey: (assistantId: string) => ["assistantAvatar", assistantId],
 }));
 
 // Capture the escape toast so the exit-on-escape path can assert its message;
@@ -320,11 +319,11 @@ function renderModal({
     client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), plans);
   }
   const onClose = mock(() => {});
-  const view = render(
+  const tree = (open: boolean) => (
     <MemoryRouter>
       <QueryClientProvider client={client}>
         <BillingOnboardingModal
-          open
+          open={open}
           onClose={onClose}
           dwellMs={TEST_DWELL_MS}
           phaseMinMs={0}
@@ -332,9 +331,12 @@ function renderModal({
           resizeCredits={resizeCredits}
         />
       </QueryClientProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
-  return { client, onClose, ...view };
+  const view = render(tree(true));
+  /** Flips `open` to false, which is what the parent does on close. */
+  const close = () => view.rerender(tree(false));
+  return { client, onClose, close, ...view };
 }
 
 beforeEach(() => {
@@ -359,8 +361,8 @@ beforeEach(() => {
   dateNowOffsetMs = 0;
   toastInfoCalls.length = 0;
   sessionStorage.clear();
-  // Resets the stash module's in-memory mirror, which sessionStorage.clear()
-  // leaves behind.
+  // Also resets the stash module's in-memory mirror, which sessionStorage.clear()
+  // leaves in place (it is simply never served while storage is readable).
   clearTakeoverAvatarStash();
 });
 
@@ -430,7 +432,7 @@ describe("BillingOnboardingModal", () => {
     expect(queryByText("Super package")).toBeNull();
   });
 
-  test("domain_setup_available false skips straight to complete and clears the intent and avatar stashes", async () => {
+  test("domain_setup_available false skips straight to complete, clearing the intent there and the avatar stash on close", async () => {
     saveCheckoutIntent({ kind: "package", packageKey: "super" });
     saveTakeoverAvatarStash({
       assistantId: "assistant-1",
@@ -439,7 +441,7 @@ describe("BillingOnboardingModal", () => {
     });
     subscriptionPlanId = "pro";
     onboardingResponse = makeOnboarding({ domain_setup_available: false });
-    const { client, getByText, queryByText } = renderModal();
+    const { client, close, getByText, queryByText } = renderModal();
 
     await waitFor(
       () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
@@ -459,9 +461,14 @@ describe("BillingOnboardingModal", () => {
     });
     expect(queryByText("Assistant Email")).toBeNull();
     expect(readCheckoutIntent()).toBeNull();
-    expect(readTakeoverAvatarStash()).toBeNull();
+    // The stash outlives the step flip: the exit sheet still paints from the
+    // surface it feeds, so clearing here would slide that tint mid-fade.
+    expect(readTakeoverAvatarStash()).not.toBeNull();
     // Checkout mode never fires the modal-level domains query.
     expect(domainsCalls).toBe(0);
+
+    close();
+    expect(readTakeoverAvatarStash()).toBeNull();
   });
 
   test(

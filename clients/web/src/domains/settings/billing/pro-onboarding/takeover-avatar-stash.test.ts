@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
+import type { AvatarData } from "@/hooks/use-assistant-avatar";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import type { CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 import {
@@ -29,12 +30,6 @@ const OTHER_TRAITS: CharacterTraits = {
   color: "green",
 };
 
-interface AvatarCacheEntry {
-  components: CharacterComponents | null;
-  traits: CharacterTraits | null;
-  customImageUrl: string | null;
-}
-
 beforeEach(() => {
   sessionStorage.clear();
   // Reset the module-level in-memory mirror so it can't leak across tests.
@@ -42,11 +37,21 @@ beforeEach(() => {
   useResolvedAssistantsStore.setState({
     activeAssistantId: null,
     assistants: [],
+    assistantsHydrated: false,
   });
 });
 
 function assistant(id: string): ResolvedAssistant {
   return { id, isLocal: false, isPlatformHosted: true };
+}
+
+/** A hydrated list holding exactly one assistant: the only shape capture stashes. */
+function soloOrg(id: string): void {
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: id,
+    assistants: [assistant(id)],
+    assistantsHydrated: true,
+  });
 }
 
 describe("saveTakeoverAvatarStash / readTakeoverAvatarStash", () => {
@@ -229,7 +234,7 @@ describe("takeoverAvatarStashVersion", () => {
 });
 
 describe("in-memory mirror on a same-document return", () => {
-  test("the mirror serves the stash back after a throwing setItem", () => {
+  test("the mirror serves the stash back when sessionStorage throws", () => {
     // The native path: checkout opens in an external browser, so the document
     // is never unloaded and the module is still alive to answer. happy-dom's
     // Storage is a Proxy, so overwriting `setItem` on it just writes a storage
@@ -239,7 +244,9 @@ describe("in-memory mirror on a same-document return", () => {
       "sessionStorage",
     )!;
     const throwing = {
-      getItem: () => null,
+      getItem: () => {
+        throw new Error("sessionStorage unavailable");
+      },
       setItem: () => {
         throw new Error("sessionStorage unavailable");
       },
@@ -261,6 +268,19 @@ describe("in-memory mirror on a same-document return", () => {
       Object.defineProperty(globalThis, "sessionStorage", original);
     }
   });
+
+  test("the mirror does not resurrect a stash sessionStorage no longer holds", () => {
+    // Logout wipes sessionStorage wholesale, so a readable-but-empty store has
+    // to read as absence or the previous account's avatar survives the wipe.
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: TRAITS,
+    });
+    sessionStorage.clear();
+
+    expect(readTakeoverAvatarStash()).toBeNull();
+  });
 });
 
 describe("captureTakeoverAvatarStash", () => {
@@ -277,7 +297,7 @@ describe("captureTakeoverAvatarStash", () => {
    */
   function seed(
     assistantId: string,
-    data: AvatarCacheEntry,
+    data: AvatarData,
     options?: { supportsManifest?: boolean; updatedAt?: number },
   ) {
     queryClient.setQueryData(
@@ -297,7 +317,7 @@ describe("captureTakeoverAvatarStash", () => {
   }
 
   test("stashes the active assistant's cached avatar", () => {
-    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    soloOrg("a1");
     seed("a1", {
       components: BUNDLED_COMPONENTS,
       traits: TRAITS,
@@ -313,7 +333,7 @@ describe("captureTakeoverAvatarStash", () => {
   });
 
   test("stashes a null-traits avatar", () => {
-    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    soloOrg("a1");
     seed("a1", {
       components: BUNDLED_COMPONENTS,
       traits: null,
@@ -332,6 +352,7 @@ describe("captureTakeoverAvatarStash", () => {
     useResolvedAssistantsStore.setState({
       activeAssistantId: "a1",
       assistants: [assistant("a1")],
+      assistantsHydrated: true,
     });
     seed("a1", {
       components: BUNDLED_COMPONENTS,
@@ -344,12 +365,51 @@ describe("captureTakeoverAvatarStash", () => {
     expect(readTakeoverAvatarStash()).toMatchObject({ assistantId: "a1" });
   });
 
+  test("clears instead of stashing before the list has hydrated", () => {
+    // A persisted `activeAssistantId` reads through pre-hydration, so a list
+    // that happens to show one assistant proves nothing about the org yet.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "a1",
+      assistants: [assistant("a1")],
+      assistantsHydrated: false,
+    });
+    seed("a1", {
+      components: BUNDLED_COMPONENTS,
+      traits: TRAITS,
+      customImageUrl: null,
+    });
+    preexistingStash();
+
+    captureTakeoverAvatarStash(queryClient);
+
+    expect(readTakeoverAvatarStash()).toBeNull();
+  });
+
+  test("clears instead of stashing when the hydrated list is empty", () => {
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "a1",
+      assistants: [],
+      assistantsHydrated: true,
+    });
+    seed("a1", {
+      components: BUNDLED_COMPONENTS,
+      traits: TRAITS,
+      customImageUrl: null,
+    });
+    preexistingStash();
+
+    captureTakeoverAvatarStash(queryClient);
+
+    expect(readTakeoverAvatarStash()).toBeNull();
+  });
+
   test("clears instead of stashing when a second assistant exists", () => {
     // The takeover targets the onboarding payload's primary, which need not be
     // the active assistant, and it draws before that target resolves.
     useResolvedAssistantsStore.setState({
       activeAssistantId: "a1",
       assistants: [assistant("a1"), assistant("a2")],
+      assistantsHydrated: true,
     });
     seed("a1", {
       components: BUNDLED_COMPONENTS,
@@ -372,7 +432,7 @@ describe("captureTakeoverAvatarStash", () => {
   });
 
   test("clears a pre-existing stash when the avatar is not cached", () => {
-    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    soloOrg("a1");
     preexistingStash();
 
     captureTakeoverAvatarStash(queryClient);
@@ -381,7 +441,7 @@ describe("captureTakeoverAvatarStash", () => {
   });
 
   test("clears a pre-existing stash for a custom-image avatar", () => {
-    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    soloOrg("a1");
     seed("a1", {
       components: BUNDLED_COMPONENTS,
       traits: null,
@@ -395,7 +455,7 @@ describe("captureTakeoverAvatarStash", () => {
   });
 
   test("clears a pre-existing stash when components are null", () => {
-    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    soloOrg("a1");
     seed("a1", {
       components: null,
       traits: TRAITS,
@@ -409,7 +469,7 @@ describe("captureTakeoverAvatarStash", () => {
   });
 
   test("stashes the freshest entry when the stale variant was cached first", () => {
-    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    soloOrg("a1");
     const now = Date.now();
     seed(
       "a1",
@@ -432,7 +492,7 @@ describe("captureTakeoverAvatarStash", () => {
   });
 
   test("stashes the freshest entry when the stale variant was cached last", () => {
-    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    soloOrg("a1");
     const now = Date.now();
     seed(
       "a1",
@@ -455,7 +515,7 @@ describe("captureTakeoverAvatarStash", () => {
   });
 
   test("a stale custom-image entry does not veto the freshest avatar", () => {
-    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    soloOrg("a1");
     const now = Date.now();
     seed(
       "a1",
@@ -481,7 +541,7 @@ describe("captureTakeoverAvatarStash", () => {
   });
 
   test("a fresh custom-image entry clears a stale drawable one", () => {
-    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    soloOrg("a1");
     const now = Date.now();
     seed(
       "a1",
