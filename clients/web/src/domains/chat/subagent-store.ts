@@ -84,6 +84,19 @@ export interface SubagentEntry {
    * `byToolUseId`. Optional — older daemons omit it.
    */
   parentToolUseId?: string;
+  /**
+   * True on a stub entry created from mid-run evidence (a `subagent_event`
+   * or `subagent_status_changed` for an id with no entry — the
+   * `subagent_spawned` event was missed or the store was reset) whose
+   * authoritative detail fetch is still outstanding. While set,
+   * `receiveEvent` drops incoming timeline events instead of appending:
+   * they're already part of the daemon-side history the fetch returns, and
+   * appending them would make `loadDetail` discard that full history in
+   * favor of the partial live suffix. Cleared by `loadDetail`, and by
+   * `fetchDetailIfNeeded`'s failure path so the live stream degrades to
+   * append-only instead of dropping forever.
+   */
+  hydrationPending?: boolean;
 }
 
 export interface SubagentState {
@@ -160,6 +173,25 @@ export interface SubagentActions {
     totalCost?: number;
   }) => void;
 
+  /**
+   * Create a stub entry for a subagent known only from mid-run evidence —
+   * a `subagent_event` or `subagent_status_changed` whose id has no entry
+   * because the `subagent_spawned` event was missed (SSE gap, page reload)
+   * or the store was reset after it arrived. No-op when the entry exists.
+   *
+   * When `conversationId` is provided the stub is marked
+   * `hydrationPending` and left with zero events, which makes the
+   * detail auto-fetch (`fetchDetailIfNeeded`) backfill the authoritative
+   * label/objective/status/timeline. Without one the stub renders from
+   * whatever streams in — a generic but functional card.
+   */
+  ensureEntry: (params: {
+    subagentId: string;
+    timestamp: number;
+    conversationId?: string;
+    status?: SubagentStatus;
+  }) => void;
+
   receiveEvent: (params: {
     subagentId: string;
     event: SubagentInnerEvent;
@@ -174,6 +206,14 @@ export interface SubagentActions {
     outputTokens?: number;
     totalCost?: number;
     events: SubagentTimelineEvent[];
+    /** Backfills a stub entry's placeholder label (0.10.13+ daemons). */
+    label?: string;
+    /**
+     * Backfills a stub entry's spawn anchor and registers it in
+     * `byToolUseId` (0.10.13+ daemons), restoring exact message anchoring
+     * for entries recovered without their `subagent_spawned` event.
+     */
+    parentToolUseId?: string;
   }) => void;
 
   setConversationId: (subagentId: string, conversationId: string) => void;
@@ -421,6 +461,32 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     });
   },
 
+  ensureEntry: (params) => {
+    if (get().byId[params.subagentId]) return;
+    get().spawnSubagent({
+      subagentId: params.subagentId,
+      // Placeholder identity — the detail fetch backfills the real label
+      // and objective on 0.10.13+ daemons (see `loadDetail`).
+      label: "",
+      objective: "",
+      status: params.status ?? "running",
+      conversationId: params.conversationId,
+      timestamp: params.timestamp,
+    });
+    if (params.conversationId) {
+      const { byId } = get();
+      const entry = byId[params.subagentId];
+      if (entry) {
+        set({
+          byId: {
+            ...byId,
+            [params.subagentId]: { ...entry, hydrationPending: true },
+          },
+        });
+      }
+    }
+  },
+
   changeStatus: (params) => {
     const { byId } = get();
     const existing = byId[params.subagentId];
@@ -463,6 +529,12 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     const { byId } = get();
     const existing = byId[params.subagentId];
     if (!existing) return;
+
+    // A stub awaiting its detail backfill: the daemon-side history the
+    // in-flight fetch returns already contains this event, and appending it
+    // here would make `loadDetail` keep the partial live suffix over the
+    // full timeline (see the `hydrationPending` doc on `SubagentEntry`).
+    if (existing.hydrationPending) return;
 
     const eventType = mapInnerEventType(params.event);
 
@@ -543,11 +615,23 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     const existing = byId[params.subagentId];
     if (!existing) return;
 
+    // Backfill the spawn anchor for a recovered stub and register it in the
+    // tool-use index so the inline card re-anchors to its exact spawn call.
+    const parentToolUseId = existing.parentToolUseId ?? params.parentToolUseId;
+    const nextByToolUseId =
+      parentToolUseId && !existing.parentToolUseId
+        ? setToolUseAnchor(get().byToolUseId, parentToolUseId, params.subagentId)
+        : get().byToolUseId;
+
     set({
       byId: {
         ...byId,
         [params.subagentId]: {
           ...existing,
+          // A stub's placeholder label yields to the fetched one; a label
+          // learned from `subagent_spawned` wins (same source of truth).
+          label: existing.label || (params.label ?? ""),
+          parentToolUseId,
           status: params.status ?? existing.status,
           objective: params.objective ?? existing.objective,
           inputTokens: params.inputTokens ?? existing.inputTokens,
@@ -557,8 +641,12 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
             params.events.length > 0 && existing.events.length === 0
               ? params.events
               : existing.events,
+          // The authoritative snapshot has landed (or definitively has no
+          // events yet) — resume appending live stream events either way.
+          hydrationPending: false,
         },
       },
+      byToolUseId: nextByToolUseId,
     });
   },
 
@@ -649,6 +737,17 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
 
     if (!detail) {
       clearMarker();
+      // A stub whose backfill failed must not keep dropping live events —
+      // degrade to append-only so the card still accrues a timeline.
+      const entry = get().byId[subagentId];
+      if (entry?.hydrationPending) {
+        set({
+          byId: {
+            ...get().byId,
+            [subagentId]: { ...entry, hydrationPending: false },
+          },
+        });
+      }
       return;
     }
 
@@ -666,6 +765,8 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       outputTokens: detail.usage?.outputTokens,
       totalCost: detail.usage?.estimatedCost,
       events,
+      label: detail.label,
+      parentToolUseId: detail.parentToolUseId,
     });
   },
 

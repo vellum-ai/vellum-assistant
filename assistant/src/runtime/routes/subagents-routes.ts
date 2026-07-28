@@ -253,22 +253,32 @@ export const ROUTES: RouteDefinition[] = [
       {
         name: "conversationId",
         schema: { type: "string" },
-        description: "Parent conversation ID (required)",
+        description:
+          "The subagent's own conversation ID. Fallback only — when the " +
+          "daemon knows the subagent (live or rehydrated), it resolves the " +
+          "conversation itself and this parameter is ignored.",
       },
     ],
     responseBody: SubagentDetailResponseSchema,
     handler: ({ pathParams, queryParams }) => {
-      const conversationId = queryParams?.conversationId;
+      const manager = getSubagentManager();
+      const state = manager.getState(pathParams!.id);
+
+      // Prefer the authoritative child-conversation id from manager state.
+      // Clients recovering from a missed `subagent_spawned` only know the
+      // PARENT conversation id (that's what `subagent_event` carries), so a
+      // caller-supplied id may point at the wrong conversation entirely.
+      const conversationId =
+        state?.conversationId ?? queryParams?.conversationId;
       if (!conversationId) {
         throw new BadRequestError("conversationId query parameter is required");
       }
 
-      const manager = getSubagentManager();
-      const state = manager.getState(pathParams!.id);
-
       return {
         ...getSubagentDetail(pathParams!.id, conversationId),
         status: state?.status,
+        label: state?.config.label,
+        parentToolUseId: state?.config.parentToolUseId,
       };
     },
   },
