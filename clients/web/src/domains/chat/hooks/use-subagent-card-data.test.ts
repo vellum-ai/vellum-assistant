@@ -397,7 +397,9 @@ describe("computeSubagentCardData — step mapping", () => {
     expect(data.steps).toHaveLength(2);
     const tool = data.steps[0]!;
     const err = data.steps[1]!;
-    if (tool.kind === "tool") expect(tool.status).toBe("error");
+    if (tool.kind === "tool") {
+      expect(tool.status).toBe("error");
+    }
     expect(err.kind).toBe("tool_error");
     if (err.kind === "tool_error") {
       expect(err.message).toBe("Out of context window");
@@ -428,8 +430,12 @@ describe("computeSubagentCardData — step mapping", () => {
     expect(data.steps).toHaveLength(2);
     const bash = data.steps[0]!;
     const fileRead = data.steps[1]!;
-    if (bash.kind === "tool") expect(bash.status).toBe("completed");
-    if (fileRead.kind === "tool") expect(fileRead.status).toBe("completed");
+    if (bash.kind === "tool") {
+      expect(bash.status).toBe("completed");
+    }
+    if (fileRead.kind === "tool") {
+      expect(fileRead.status).toBe("completed");
+    }
   });
 
   test("parallel calls to the same tool are disambiguated by toolUseId", () => {
@@ -1823,7 +1829,9 @@ describe("computeSubagentSteps / applyTimelineEvent reproduce computeSubagentCar
     test(`${name}: applyTimelineEvent folded by hand matches computeSubagentSteps`, () => {
       const steps: ToolCallCardStep[] = [];
       const toolMeta: Array<ToolMeta | undefined> = [];
-      for (const event of events) applyTimelineEvent(steps, toolMeta, event);
+      for (const event of events) {
+        applyTimelineEvent(steps, toolMeta, event);
+      }
       expect(steps).toEqual(computeSubagentSteps(events).steps);
     });
   }
@@ -1872,7 +1880,12 @@ describe("heavy projections are memoizable on entry.events", () => {
       1,
     ),
     makeEvent(
-      { type: "tool_result", toolName: "bash", toolUseId: "tu-1", result: "ok" },
+      {
+        type: "tool_result",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        result: "ok",
+      },
       2,
     ),
   ];

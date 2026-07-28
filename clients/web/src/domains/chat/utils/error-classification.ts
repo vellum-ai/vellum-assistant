@@ -9,9 +9,7 @@ export interface ChatErrorLike {
 }
 
 export type ChatBillingBannerDecision =
-  | "managed_credits"
-  | "provider_billing"
-  | "daily_limit";
+  "managed_credits" | "provider_billing" | "daily_limit";
 
 const PROVIDER_BILLING_CODE = "PROVIDER_BILLING";
 const PROVIDER_NOT_CONFIGURED_CODE = "PROVIDER_NOT_CONFIGURED";
@@ -30,9 +28,7 @@ function isManagedCreditsExhausted(
   return error.errorCategory.endsWith(MANAGED_CREDITS_EXHAUSTED_CATEGORY);
 }
 
-function isProviderBilling(
-  error: ChatErrorLike | null | undefined,
-): boolean {
+function isProviderBilling(error: ChatErrorLike | null | undefined): boolean {
   if (!error?.errorCategory) {
     return false;
   }
@@ -40,9 +36,7 @@ function isProviderBilling(
   return error.errorCategory.endsWith(PROVIDER_BILLING_CATEGORY);
 }
 
-function isDailyLimitReached(
-  error: ChatErrorLike | null | undefined,
-): boolean {
+function isDailyLimitReached(error: ChatErrorLike | null | undefined): boolean {
   if (!error?.errorCategory) {
     return false;
   }

@@ -66,9 +66,8 @@ mock.module("react-router", () => ({
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 // Imported after the mocks so the card resolves against the stubs.
-const { VoiceFirstRunCard } = await import(
-  "@/domains/chat/voice/voice-room/voice-first-run-card"
-);
+const { VoiceFirstRunCard } =
+  await import("@/domains/chat/voice/voice-room/voice-first-run-card");
 
 const SETTINGS_LINK = "Voice settings";
 
@@ -131,7 +130,9 @@ describe("VoiceFirstRunCard", () => {
   test("Start wired to markFirstRunSeen (as the composer does) consumes the first run", () => {
     // Mirror the composer's onStart handler: committing marks the first run
     // seen so a second entry would skip the card entirely.
-    const onStart = mock(() => useVoicePrefsStore.getState().markFirstRunSeen());
+    const onStart = mock(() =>
+      useVoicePrefsStore.getState().markFirstRunSeen(),
+    );
     const { getByText } = render(
       <VoiceFirstRunCard assistantId="asst_test" onStart={onStart} />,
     );

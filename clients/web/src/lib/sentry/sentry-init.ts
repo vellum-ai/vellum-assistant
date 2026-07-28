@@ -41,8 +41,12 @@ function isReactError185(message: string): boolean {
 }
 
 function resolveDsn(): string | undefined {
-  if (isElectron()) return import.meta.env.VITE_SENTRY_DSN_MACOS;
-  if (isNativePlatform()) return import.meta.env.VITE_SENTRY_DSN_IOS;
+  if (isElectron()) {
+    return import.meta.env.VITE_SENTRY_DSN_MACOS;
+  }
+  if (isNativePlatform()) {
+    return import.meta.env.VITE_SENTRY_DSN_IOS;
+  }
   return import.meta.env.VITE_SENTRY_DSN;
 }
 
@@ -102,9 +106,13 @@ const options: BrowserOptions = {
     const raisedMaxUpdateDepth = event.exception?.values?.some(
       (value) => value.value != null && isReactError185(value.value),
     );
-    if (!raisedMaxUpdateDepth) return event;
+    if (!raisedMaxUpdateDepth) {
+      return event;
+    }
     const pressure = snapshotCommitPressure();
-    if (!pressure) return event;
+    if (!pressure) {
+      return event;
+    }
     return {
       ...event,
       contexts: { ...event.contexts, commit_pressure: { ...pressure } },
@@ -112,11 +120,15 @@ const options: BrowserOptions = {
   },
   beforeBreadcrumb(breadcrumb) {
     const data = breadcrumb.data;
-    if (!data || typeof data !== "object") return breadcrumb;
+    if (!data || typeof data !== "object") {
+      return breadcrumb;
+    }
     const next: Record<string, unknown> = { ...data };
     for (const key of ["url", "to", "from"] as const) {
       const value = next[key];
-      if (typeof value === "string") next[key] = sanitizeUrl(value);
+      if (typeof value === "string") {
+        next[key] = sanitizeUrl(value);
+      }
     }
     return { ...breadcrumb, data: next };
   },

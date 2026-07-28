@@ -282,7 +282,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     expect(result.current).toBe("full");
   });
 
-  test('ignores VELLUM_DISABLE_PLATFORM when active assistant is platform-hosted', () => {
+  test("ignores VELLUM_DISABLE_PLATFORM when active assistant is platform-hosted", () => {
     // The env var gates the daemon-side API interceptor in local mode —
     // it has no bearing on UI that targets a platform-hosted assistant.
     isLocalModeMock.mockImplementation(() => true);
@@ -389,25 +389,19 @@ describe("useActiveAssistantIsPlatformHosted", () => {
 describe("useActiveAssistantLifecycleIsLoading", () => {
   test("returns true for kind: loading", () => {
     setLifecycle({ kind: "loading" });
-    const { result } = renderHook(() =>
-      useActiveAssistantLifecycleIsLoading(),
-    );
+    const { result } = renderHook(() => useActiveAssistantLifecycleIsLoading());
     expect(result.current).toBe(true);
   });
 
   test("returns false for kind: self_hosted (resolved)", () => {
     setLifecycle({ kind: "self_hosted" });
-    const { result } = renderHook(() =>
-      useActiveAssistantLifecycleIsLoading(),
-    );
+    const { result } = renderHook(() => useActiveAssistantLifecycleIsLoading());
     expect(result.current).toBe(false);
   });
 
   test("returns false for kind: active (resolved)", () => {
     setLifecycle({ kind: "active", isLocal: false });
-    const { result } = renderHook(() =>
-      useActiveAssistantLifecycleIsLoading(),
-    );
+    const { result } = renderHook(() => useActiveAssistantLifecycleIsLoading());
     expect(result.current).toBe(false);
   });
 
@@ -417,9 +411,7 @@ describe("useActiveAssistantLifecycleIsLoading", () => {
     // `!isPlatformHosted` as the race-window signal would treat them as
     // resolving forever and stick on a spinner / disabled button.
     setLifecycle({ kind: "error", message: "boom" });
-    const { result } = renderHook(() =>
-      useActiveAssistantLifecycleIsLoading(),
-    );
+    const { result } = renderHook(() => useActiveAssistantLifecycleIsLoading());
     expect(result.current).toBe(false);
   });
 

@@ -26,7 +26,9 @@ export const createMeetsDirMigration: WorkspaceMigration = {
     // Best-effort: only remove the seeded .keep file and the meets/ directory
     // itself if it is otherwise empty. Never delete user/meeting content.
     const meetsDir = join(workspaceDir, "meets");
-    if (!existsSync(meetsDir)) return;
+    if (!existsSync(meetsDir)) {
+      return;
+    }
 
     const keepPath = join(meetsDir, ".keep");
     if (existsSync(keepPath)) {

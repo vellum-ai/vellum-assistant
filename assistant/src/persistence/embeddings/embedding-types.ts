@@ -45,7 +45,9 @@ export type EmbeddingInput = string | MultimodalEmbeddingInput;
 export function normalizeEmbeddingInput(
   input: EmbeddingInput,
 ): MultimodalEmbeddingInput {
-  if (typeof input === "string") return { type: "text", text: input };
+  if (typeof input === "string") {
+    return { type: "text", text: input };
+  }
   return input;
 }
 

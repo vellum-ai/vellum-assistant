@@ -85,9 +85,8 @@ mock.module("@/stores/auth-store", () => ({
   },
 }));
 
-const { reloadPlatformAssistants, setupPlatformAssistantsSync } = await import(
-  "@/assistant/platform-assistants-sync"
-);
+const { reloadPlatformAssistants, setupPlatformAssistantsSync } =
+  await import("@/assistant/platform-assistants-sync");
 
 /** Move the mocked auth store to `next` (keeping the user) and notify. */
 function transition(next: PlatformSessionStatus): void {
@@ -206,7 +205,12 @@ describe("reloadPlatformAssistants", () => {
 
   test("populates the resolved store from a successful listAssistants", async () => {
     const data = [
-      { id: "a1", name: "One", is_local: false, created: "2026-01-01T00:00:00Z" },
+      {
+        id: "a1",
+        name: "One",
+        is_local: false,
+        created: "2026-01-01T00:00:00Z",
+      },
     ];
     mockListAssistantsResult = { ok: true, status: 200, data };
     authState = { platformSession: "present", user: { id: "u1" } };

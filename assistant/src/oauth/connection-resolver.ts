@@ -251,7 +251,9 @@ export function resolveEffectiveBaseUrl(
   fallbackBaseUrl: string,
   rawMetadata: unknown,
 ): string {
-  if (provider !== "salesforce") return fallbackBaseUrl;
+  if (provider !== "salesforce") {
+    return fallbackBaseUrl;
+  }
 
   const metadata = parseConnectionMetadata(rawMetadata);
   const instanceUrl = metadata?.instance_url;
@@ -264,11 +266,15 @@ export function resolveEffectiveBaseUrl(
 function parseConnectionMetadata(
   raw: unknown,
 ): Record<string, unknown> | undefined {
-  if (raw == null) return undefined;
+  if (raw == null) {
+    return undefined;
+  }
   if (typeof raw === "object") {
     return raw as Record<string, unknown>;
   }
-  if (typeof raw !== "string") return undefined;
+  if (typeof raw !== "string") {
+    return undefined;
+  }
   try {
     const parsed = JSON.parse(raw);
     return typeof parsed === "object" && parsed !== null
@@ -483,7 +489,9 @@ function partitionByScopes<T>(
 
 /** Best-effort parse of a connection row's JSON-encoded granted-scopes column. */
 function parseGrantedScopes(raw: string | null | undefined): string[] {
-  if (!raw) return [];
+  if (!raw) {
+    return [];
+  }
   try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed)

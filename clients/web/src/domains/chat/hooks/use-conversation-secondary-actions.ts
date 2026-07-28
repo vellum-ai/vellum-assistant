@@ -9,11 +9,7 @@
 
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { captureError } from "@/lib/sentry/capture-error";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-} from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { useNavigate } from "react-router";
 import { toast } from "@vellumai/design-library";
@@ -108,8 +104,10 @@ export function useConversationSecondaryActions({
 
   const handleForkConversation = useCallback(
     async (throughMessageId: string) => {
-      const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-      const activeConversationId = useConversationStore.getState().activeConversationId;
+      const assistantId =
+        useResolvedAssistantsStore.getState().activeAssistantId;
+      const activeConversationId =
+        useConversationStore.getState().activeConversationId;
       if (!assistantId || !activeConversationId) {
         return;
       }
@@ -141,8 +139,10 @@ export function useConversationSecondaryActions({
   // history invalidation here.
   const handleSummarizeUpToMessage = useCallback(
     async (beforeMessageId: string) => {
-      const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-      const activeConversationId = useConversationStore.getState().activeConversationId;
+      const assistantId =
+        useResolvedAssistantsStore.getState().activeAssistantId;
+      const activeConversationId =
+        useConversationStore.getState().activeConversationId;
       if (!assistantId || !activeConversationId) {
         return;
       }
@@ -173,7 +173,8 @@ export function useConversationSecondaryActions({
   // local state to update here.
   const handleRetryLatestTurn = useCallback(async () => {
     const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-    const activeConversationId = useConversationStore.getState().activeConversationId;
+    const activeConversationId =
+      useConversationStore.getState().activeConversationId;
     if (!assistantId || !activeConversationId) {
       return;
     }
@@ -195,24 +196,21 @@ export function useConversationSecondaryActions({
   }, []);
 
   const handleForkConversationFromMenu = useCallback(() => {
-    const latestPersisted = transcriptRef.current.findLast(
-      (m) => m.id != null,
-    );
+    const latestPersisted = transcriptRef.current.findLast((m) => m.id != null);
     const throughMessageId = latestPersisted?.id;
-    if (!throughMessageId) return;
+    if (!throughMessageId) {
+      return;
+    }
     void handleForkConversation(throughMessageId);
   }, [handleForkConversation]);
 
-  const handleOpenInNewWindow = useCallback(
-    (conversation: Conversation) => {
-      if (isElectron()) {
-        void openPopoutWindow(conversation.conversationId);
-      } else {
-        window.open(routes.conversation(conversation.conversationId), "_blank");
-      }
-    },
-    [],
-  );
+  const handleOpenInNewWindow = useCallback((conversation: Conversation) => {
+    if (isElectron()) {
+      void openPopoutWindow(conversation.conversationId);
+    } else {
+      window.open(routes.conversation(conversation.conversationId), "_blank");
+    }
+  }, []);
 
   // Navigate to the per-conversation LLM context inspector. The
   // conversation lives in the path;
@@ -227,7 +225,8 @@ export function useConversationSecondaryActions({
   const handleInspectConversation = useCallback(
     (conversation: Conversation) => {
       const params = new URLSearchParams();
-      const currentActiveId = useConversationStore.getState().activeConversationId;
+      const currentActiveId =
+        useConversationStore.getState().activeConversationId;
       if (conversation.conversationId === currentActiveId) {
         const latestUser = transcriptRef.current.findLast(
           (m) => m.role === "user" && m.id != null,
@@ -246,10 +245,16 @@ export function useConversationSecondaryActions({
 
   const handleInspectMessage = useCallback(
     (messageId: string) => {
-      const activeConversationId = useConversationStore.getState().activeConversationId;
-      if (!activeConversationId) return;
+      const activeConversationId =
+        useConversationStore.getState().activeConversationId;
+      if (!activeConversationId) {
+        return;
+      }
       const params = new URLSearchParams();
-      params.set("messageId", turnHeadMessageId(messageId, transcriptRef.current));
+      params.set(
+        "messageId",
+        turnHeadMessageId(messageId, transcriptRef.current),
+      );
       void navigate(
         `${routes.inspect(activeConversationId)}?${params.toString()}`,
       );

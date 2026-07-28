@@ -25,10 +25,14 @@ export function useLiveToolCall(
 ): ChatMessageToolCall | null {
   const messages = useTranscriptMessages();
   return useMemo(() => {
-    if (!toolCallId) return null;
+    if (!toolCallId) {
+      return null;
+    }
     for (const m of messages) {
       const tc = m.toolCalls?.find((t) => t.id === toolCallId);
-      if (tc) return tc;
+      if (tc) {
+        return tc;
+      }
     }
     return null;
   }, [messages, toolCallId]);

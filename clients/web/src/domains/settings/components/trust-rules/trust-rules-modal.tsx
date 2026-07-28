@@ -1,5 +1,12 @@
 import { Pencil, ShieldCheck, Trash2 } from "lucide-react";
-import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 
 import { deleteTrustRule, fetchTrustRules } from "@/lib/trust-rules-api";
@@ -35,7 +42,9 @@ function mergeRulesForAllDefaults(
     }
   }
   return merged.sort((a, b) => {
-    if (a.tool !== b.tool) return a.tool.localeCompare(b.tool);
+    if (a.tool !== b.tool) {
+      return a.tool.localeCompare(b.tool);
+    }
     return a.description.localeCompare(b.description);
   });
 }
@@ -60,7 +69,10 @@ export interface TrustRulesModalProps {
   onClose: () => void;
 }
 
-export function TrustRulesModal({ assistantId, onClose }: TrustRulesModalProps) {
+export function TrustRulesModal({
+  assistantId,
+  onClose,
+}: TrustRulesModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const [rules, setRules] = useState<TrustRuleItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -115,7 +127,9 @@ export function TrustRulesModal({ assistantId, onClose }: TrustRulesModalProps) 
           );
         }
       } finally {
-        if (!stale) setIsLoading(false);
+        if (!stale) {
+          setIsLoading(false);
+        }
       }
     })();
     return () => {
@@ -124,7 +138,9 @@ export function TrustRulesModal({ assistantId, onClose }: TrustRulesModalProps) 
   }, [fetchRulesForState, showAllDefaults]);
 
   const handleDelete = useCallback(async () => {
-    if (!ruleToDelete) return;
+    if (!ruleToDelete) {
+      return;
+    }
     try {
       await deleteTrustRule(assistantId, ruleToDelete.id);
       void loadRules();
@@ -139,14 +155,18 @@ export function TrustRulesModal({ assistantId, onClose }: TrustRulesModalProps) 
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+      }
     },
     [onClose],
   );
 
   const handleBackdropClick = useCallback(
     (e: MouseEvent) => {
-      if (e.target === dialogRef.current) onClose();
+      if (e.target === dialogRef.current) {
+        onClose();
+      }
     },
     [onClose],
   );
@@ -176,7 +196,9 @@ export function TrustRulesModal({ assistantId, onClose }: TrustRulesModalProps) 
                 onChange={setShowAllDefaults}
                 label="Show all defaults"
               />
-              <Button variant="outlined" onClick={onClose}>Done</Button>
+              <Button variant="outlined" onClick={onClose}>
+                Done
+              </Button>
             </div>
           </div>
 
@@ -203,10 +225,7 @@ export function TrustRulesModal({ assistantId, onClose }: TrustRulesModalProps) 
                 {rules.map((rule) => {
                   const isDefault = isDefaultRule(rule);
                   return (
-                    <li
-                      key={rule.id}
-                      className="flex items-start gap-3 py-3"
-                    >
+                    <li key={rule.id} className="flex items-start gap-3 py-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="text-body-medium-default text-[var(--content-default)]">

@@ -178,7 +178,9 @@ export function updateExternalChatName(
 ): void {
   const db = getDb();
   const trimmedName = externalChatName.trim();
-  if (!trimmedName) return;
+  if (!trimmedName) {
+    return;
+  }
 
   db.update(externalConversationBindings)
     .set({
@@ -316,7 +318,9 @@ export function deleteBindingByChannelChatThread(
 export function getBindingsForConversations(
   conversationIds: string[],
 ): Map<string, ExternalConversationBinding> {
-  if (conversationIds.length === 0) return new Map();
+  if (conversationIds.length === 0) {
+    return new Map();
+  }
 
   const db = getDb();
   const result = new Map<string, ExternalConversationBinding>();

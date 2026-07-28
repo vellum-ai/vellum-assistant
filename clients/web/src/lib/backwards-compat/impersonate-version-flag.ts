@@ -28,7 +28,11 @@
 //   impersonateVersion(null)     — clear + reload
 //   impersonateVersion()         — log + return current value, no reload
 
-import { getLocalSetting, setLocalSetting, removeLocalSetting } from "@/utils/local-settings";
+import {
+  getLocalSetting,
+  setLocalSetting,
+  removeLocalSetting,
+} from "@/utils/local-settings";
 
 const STORAGE_KEY = "vellum:debug:impersonateAssistantVersion";
 
@@ -63,7 +67,9 @@ export function getImpersonatedAssistantVersion(): string | null {
 export function setImpersonatedAssistantVersion(
   value?: string | null,
 ): string | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined") {
+    return null;
+  }
 
   // Inspect-only branch — explicitly no-op, no reload.
   if (value === undefined) {

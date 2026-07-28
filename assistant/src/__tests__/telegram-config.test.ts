@@ -73,7 +73,9 @@ mock.module("../oauth/manual-token-connection.js", () => ({
   removeManualTokenConnection: () => {},
   syncManualTokenConnection: async (provider: string, accountInfo?: string) => {
     syncCalls.push({ provider, accountInfo });
-    if (provider !== "telegram") return;
+    if (provider !== "telegram") {
+      return;
+    }
     const hasBotToken =
       !!secureKeyStore[credentialKey("telegram", "bot_token")];
     const hasWebhookSecret =

@@ -69,7 +69,9 @@ describe("buildResearchPrompt — capabilities", () => {
     expect(prompt).toContain('"plugins"');
     // The canonical "exactly this shape" example must show plugins first, so a
     // model following the schema literally still emits the install list.
-    expect(prompt.indexOf('"plugins"')).toBeLessThan(prompt.indexOf('"claims"'));
+    expect(prompt.indexOf('"plugins"')).toBeLessThan(
+      prompt.indexOf('"claims"'),
+    );
   });
 
   test("caps the injected list so a large catalog can't bloat the prompt", () => {
@@ -90,7 +92,9 @@ describe("buildResearchPrompt — capabilities", () => {
       "Treat the name, role, and hobby I provided above as first-party context from me.",
     );
     expect(prompt).toContain("not to override or correct it");
-    expect(prompt).toContain("keep claims and suggestions aligned with my stated role");
+    expect(prompt).toContain(
+      "keep claims and suggestions aligned with my stated role",
+    );
   });
 });
 
@@ -124,7 +128,9 @@ describe("buildResearchPrompt — suggestions toggle", () => {
     // Plugins + claims are still requested, plugins still first in the shape.
     expect(prompt).toContain('"plugins"');
     expect(prompt).toContain('"claims"');
-    expect(prompt.indexOf('"plugins"')).toBeLessThan(prompt.indexOf('"claims"'));
+    expect(prompt.indexOf('"plugins"')).toBeLessThan(
+      prompt.indexOf('"claims"'),
+    );
     // The closing fallback no longer references suggestions.
     expect(prompt).not.toContain("broadly useful suggestions");
   });

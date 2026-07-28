@@ -220,7 +220,9 @@ export async function runNarrativeRefinement(
 
   // Apply updates
   for (const update of input.updates ?? []) {
-    if (!candidateIds.has(update.id)) continue;
+    if (!candidateIds.has(update.id)) {
+      continue;
+    }
 
     const changes: Partial<MemoryNode> = { lastConsolidated: Date.now() };
     let hasChange = false;

@@ -64,7 +64,9 @@ export function CallSiteOverridesModal({
     <Modal.Root
       open={isOpen}
       onOpenChange={(next) => {
-        if (!next && !savingRef.current) onClose();
+        if (!next && !savingRef.current) {
+          onClose();
+        }
       }}
     >
       {isOpen ? (
@@ -170,7 +172,9 @@ function CallSiteOverridesModalInner({
   // user edits made this session. When the user hasn't touched a row,
   // it falls through to the persisted override (or empty).
   const drafts = useMemo((): Record<string, CallSiteOverrideDraft | null> => {
-    if (!isSeeded) return {};
+    if (!isSeeded) {
+      return {};
+    }
     const merged: Record<string, CallSiteOverrideDraft | null> = {};
     for (const id of catalogCallSiteIds) {
       if (id in draftEdits) {
@@ -203,9 +207,13 @@ function CallSiteOverridesModalInner({
   );
 
   const hasUnsavedDrafts = useMemo(() => {
-    if (!isSeeded) return false;
+    if (!isSeeded) {
+      return false;
+    }
     for (const id of Object.keys(drafts)) {
-      if (!draftsEqual(drafts[id], persistedOverrides[id])) return true;
+      if (!draftsEqual(drafts[id], persistedOverrides[id])) {
+        return true;
+      }
     }
     return false;
   }, [isSeeded, drafts, persistedOverrides]);
@@ -228,7 +236,9 @@ function CallSiteOverridesModalInner({
   );
 
   const handleApplyAll = useCallback(() => {
-    if (!applyAllProfile) return;
+    if (!applyAllProfile) {
+      return;
+    }
     const next: Record<string, CallSiteOverrideDraft | null> = {};
     for (const id of catalogCallSiteIds) {
       next[id] = { profile: applyAllProfile };
@@ -253,7 +263,9 @@ function CallSiteOverridesModalInner({
   );
 
   const filteredCallSites = useMemo(() => {
-    if (!search.trim()) return gatedCallSites;
+    if (!search.trim()) {
+      return gatedCallSites;
+    }
     const q = search.toLowerCase();
     return gatedCallSites.filter(
       (cs) =>
@@ -264,7 +276,9 @@ function CallSiteOverridesModalInner({
   }, [gatedCallSites, search]);
 
   const groupedCallSites = useMemo(() => {
-    if (!catalog) return [];
+    if (!catalog) {
+      return [];
+    }
     const domainOrder = catalog.domains.map((d) => d.id);
     const domainMap = new Map(catalog.domains.map((d) => [d.id, d]));
     const groups: { domain: CallSiteDomain; sites: CallSiteEntry[] }[] = [];
@@ -478,8 +492,12 @@ function CallSiteOverridesModalInner({
                     {sites.map((cs) => {
                       const profileVal = (() => {
                         const d = drafts[cs.id] ?? null;
-                        if (!d || !isDraftActive(d)) return "";
-                        if (d.provider || d.model) return CUSTOM_SENTINEL;
+                        if (!d || !isDraftActive(d)) {
+                          return "";
+                        }
+                        if (d.provider || d.model) {
+                          return CUSTOM_SENTINEL;
+                        }
                         return d.profile ?? "";
                       })();
                       const defaultProfileLabel = cs.defaultProfile

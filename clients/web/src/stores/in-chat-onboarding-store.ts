@@ -58,8 +58,7 @@ const useInChatOnboardingStoreBase = create<InChatOnboardingStore>((set) => ({
     })),
   finishTour: () => set({ prototypeActive: false, stage: "done" }),
   setNavTourActive: (active) => set({ navTourActive: active }),
-  setTourSidebarRevealed: (revealed) =>
-    set({ tourSidebarRevealed: revealed }),
+  setTourSidebarRevealed: (revealed) => set({ tourSidebarRevealed: revealed }),
 }));
 
 export const useInChatOnboardingStore = createSelectors(

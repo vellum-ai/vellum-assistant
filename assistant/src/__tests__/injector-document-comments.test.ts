@@ -302,7 +302,9 @@ describe("document-comments injector", () => {
     let callCount = 0;
     listCommentsMock = mock(() => {
       callCount++;
-      if (callCount === 1) return [];
+      if (callCount === 1) {
+        return [];
+      }
       return [makeComment({ id: "c1", content: "Needs work" })];
     });
 

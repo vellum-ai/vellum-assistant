@@ -29,7 +29,9 @@ function upsertMemoryItem(opts: {
   importance: number;
 }): void {
   const db = getMemoryDb();
-  if (!db) return;
+  if (!db) {
+    return;
+  }
   const now = Date.now();
   const content = `${opts.subject}\n${opts.statement}`;
 
@@ -142,7 +144,9 @@ export async function run(
     }
 
     for (const contact of result.contactObservations) {
-      if (!contact.name || !contact.toneNote) continue;
+      if (!contact.name || !contact.toneNote) {
+        continue;
+      }
       const subject = `${provider.id} relationship: ${contact.name}`;
       upsertMemoryItem({
         kind: "relationship",

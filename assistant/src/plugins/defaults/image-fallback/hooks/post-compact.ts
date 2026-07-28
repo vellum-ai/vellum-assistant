@@ -29,7 +29,9 @@ import { findVisionProfile } from "../src/vision-caption.js";
 
 const postCompact: HookFunction<PostCompactContext> = async (ctx) => {
   // If the turn's model already supports vision, leave images in place.
-  if (!needsImageFallback(ctx.modelProfileKey)) return;
+  if (!needsImageFallback(ctx.modelProfileKey)) {
+    return;
+  }
 
   // Find a vision-capable profile for captioning.
   const visionProfileKey = findVisionProfile();

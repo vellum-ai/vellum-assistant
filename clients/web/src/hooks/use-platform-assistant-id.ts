@@ -37,7 +37,9 @@ export function usePlatformAssistantId(
 
     void resolveLocalAssistantPlatformIdentity(assistantId)
       .then((resolvedPlatformAssistantId) => {
-        if (!active) return;
+        if (!active) {
+          return;
+        }
         setState({
           platformAssistantId: resolvedPlatformAssistantId,
           isLoading: false,
@@ -45,7 +47,9 @@ export function usePlatformAssistantId(
         });
       })
       .catch((error: unknown) => {
-        if (!active) return;
+        if (!active) {
+          return;
+        }
         setState({
           platformAssistantId: null,
           isLoading: false,

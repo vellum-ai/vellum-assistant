@@ -44,22 +44,30 @@ export const memoryRouterCostOptimizedProfileMigration: WorkspaceMigration = {
   description:
     "Set callSites.memoryRouter to the shipped cost-optimized default (with 1M context) for workspaces still carrying the 087-seeded balanced profile",
   run(workspaceDir: string): void {
-    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
+    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) {
+      return;
+    }
 
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown> = {};
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     const explicitProvider = readString(readObject(llm.default)?.provider);
     if (explicitProvider !== undefined && explicitProvider !== "anthropic") {
@@ -67,10 +75,14 @@ export const memoryRouterCostOptimizedProfileMigration: WorkspaceMigration = {
     }
 
     const callSites = readObject(llm.callSites);
-    if (callSites === null) return;
+    if (callSites === null) {
+      return;
+    }
 
     const existing = readObject(callSites.memoryRouter);
-    if (existing === null || !needsCostOptimizedUpgrade(existing)) return;
+    if (existing === null || !needsCostOptimizedUpgrade(existing)) {
+      return;
+    }
 
     callSites.memoryRouter = { ...MEMORY_ROUTER_COST_OPTIMIZED };
     llm.callSites = callSites;
@@ -93,7 +105,9 @@ export const memoryRouterCostOptimizedProfileMigration: WorkspaceMigration = {
 // shape, the two-key entry no longer matches.
 function needsCostOptimizedUpgrade(entry: Record<string, unknown>): boolean {
   const keys = Object.keys(entry);
-  if (keys.length !== 1) return false;
+  if (keys.length !== 1) {
+    return false;
+  }
   return entry.profile === "balanced" || entry.profile === "cost-optimized";
 }
 

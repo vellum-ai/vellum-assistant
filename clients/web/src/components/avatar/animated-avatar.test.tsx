@@ -9,13 +9,7 @@
  * registers via setTimeout and invoke it from `act()` — same approach as
  * website-carousel.test.tsx.
  */
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act } from "react";
 import { cleanup, render } from "@testing-library/react";
 

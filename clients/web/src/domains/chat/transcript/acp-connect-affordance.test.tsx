@@ -108,9 +108,7 @@ describe("AcpConnectAffordance", () => {
 
     render(<AcpConnectAffordance assistantId="assistant-123" />);
 
-    expect(
-      screen.getByRole("button", { name: "Connect" }),
-    ).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Connect" })).not.toBeNull();
   });
 
   test("renders nothing when the daemon is too old to support Connect", () => {
@@ -118,9 +116,7 @@ describe("AcpConnectAffordance", () => {
 
     render(<AcpConnectAffordance assistantId="assistant-123" />);
 
-    expect(
-      screen.queryByRole("button", { name: "Connect" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
     expect(screen.queryByTestId("acp-connect-affordance")).toBeNull();
   });
 
@@ -185,9 +181,7 @@ describe("AcpConnectAffordance", () => {
 
     // Once the daemon reports manual, the paste field + Save must appear.
     await waitFor(() =>
-      expect(
-        screen.getByPlaceholderText("Paste your key"),
-      ).not.toBeNull(),
+      expect(screen.getByPlaceholderText("Paste your key")).not.toBeNull(),
     );
     expect(screen.getByRole("button", { name: "Save" })).not.toBeNull();
   });

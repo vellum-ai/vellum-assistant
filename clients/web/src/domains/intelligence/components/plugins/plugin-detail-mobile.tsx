@@ -5,11 +5,11 @@ import { createPortal } from "react-dom";
 import { FileMarkdown } from "@/components/file-markdown";
 import { PluginIcon } from "@/domains/intelligence/components/plugins/plugin-icon";
 import {
-    PluginDetailActionError,
-    PluginDetailActions,
-    PluginDetailError,
-    PluginDetailLoading,
-    PluginDetailMetadata,
+  PluginDetailActionError,
+  PluginDetailActions,
+  PluginDetailError,
+  PluginDetailLoading,
+  PluginDetailMetadata,
 } from "@/domains/intelligence/components/plugins/plugin-detail-shared";
 import { PluginOriginBadge } from "@/domains/intelligence/components/plugins/plugin-origin-badge";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";

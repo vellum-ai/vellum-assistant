@@ -56,7 +56,9 @@ export function useSoundEffects(
   // phase-equality guard keeps the body cheap during high-cadence streaming.
   useEffect(() => {
     return useTurnStore.subscribe((state, prev) => {
-      if (state.phase === prev.phase) return;
+      if (state.phase === prev.phase) {
+        return;
+      }
       if (state.phase === "awaiting_user_input") {
         void getSoundManager().play("needs_input");
         return;
@@ -83,7 +85,9 @@ export function useSoundEffects(
         RANDOM_SOUND_MIN_MS +
         Math.random() * (RANDOM_SOUND_MAX_MS - RANDOM_SOUND_MIN_MS);
       timer = window.setTimeout(() => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         void getSoundManager().play("random");
         scheduleNext();
       }, interval);

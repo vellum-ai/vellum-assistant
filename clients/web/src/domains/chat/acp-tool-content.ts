@@ -23,7 +23,9 @@ export type AcpToolContentBlock =
  * text. Returns `[]` for empty/undefined/malformed input — never throws.
  */
 export function parseAcpToolContent(content?: string): AcpToolContentBlock[] {
-  if (!content) return [];
+  if (!content) {
+    return [];
+  }
 
   let parsed: unknown;
   try {
@@ -32,7 +34,9 @@ export function parseAcpToolContent(content?: string): AcpToolContentBlock[] {
     // Input that looks structurally like JSON (object/array) but fails to parse
     // is malformed wire data → []. Free-form prose is treated as raw text.
     const trimmed = content.trimStart();
-    if (trimmed.startsWith("{") || trimmed.startsWith("[")) return [];
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      return [];
+    }
     return [{ type: "content", text: content }];
   }
 
@@ -41,14 +45,18 @@ export function parseAcpToolContent(content?: string): AcpToolContentBlock[] {
 
   for (const item of items) {
     const block = parseBlock(item);
-    if (block) blocks.push(block);
+    if (block) {
+      blocks.push(block);
+    }
   }
 
   return blocks;
 }
 
 function parseBlock(item: unknown): AcpToolContentBlock | null {
-  if (typeof item !== "object" || item === null) return null;
+  if (typeof item !== "object" || item === null) {
+    return null;
+  }
   const obj = item as Record<string, unknown>;
 
   switch (obj.type) {
@@ -70,7 +78,9 @@ function parseBlock(item: unknown): AcpToolContentBlock | null {
       // of its own; surface a `text` field only on the best-effort chance the
       // wire shape includes one rather than discarding it.
       const text = extractTerminalText(obj);
-      return text !== undefined ? { type: "terminal", text } : { type: "terminal" };
+      return text !== undefined
+        ? { type: "terminal", text }
+        : { type: "terminal" };
     }
     default:
       return null;
@@ -83,10 +93,14 @@ function parseBlock(item: unknown): AcpToolContentBlock | null {
  * tolerating a bare string for resilience.
  */
 function extractContentText(content: unknown): string {
-  if (typeof content === "string") return content;
+  if (typeof content === "string") {
+    return content;
+  }
   if (typeof content === "object" && content !== null) {
     const text = (content as Record<string, unknown>).text;
-    if (typeof text === "string") return text;
+    if (typeof text === "string") {
+      return text;
+    }
   }
   return "";
 }
@@ -98,12 +112,20 @@ function extractContentText(content: unknown): string {
  * otherwise — never fabricating an empty string.
  */
 function extractTerminalText(obj: Record<string, unknown>): string | undefined {
-  if (typeof obj.text === "string") return obj.text;
-  if (typeof obj.output === "string") return obj.output;
-  if (typeof obj.content === "string") return obj.content;
+  if (typeof obj.text === "string") {
+    return obj.text;
+  }
+  if (typeof obj.output === "string") {
+    return obj.output;
+  }
+  if (typeof obj.content === "string") {
+    return obj.content;
+  }
   if (typeof obj.content === "object" && obj.content !== null) {
     const text = (obj.content as Record<string, unknown>).text;
-    if (typeof text === "string") return text;
+    if (typeof text === "string") {
+      return text;
+    }
   }
   return undefined;
 }
@@ -115,7 +137,9 @@ function extractTerminalText(obj: Record<string, unknown>): string | undefined {
  * returns `undefined`.
  */
 export function getAcpToolCommand(rawInput: unknown): string | undefined {
-  if (typeof rawInput !== "object" || rawInput === null) return undefined;
+  if (typeof rawInput !== "object" || rawInput === null) {
+    return undefined;
+  }
   const command = (rawInput as Record<string, unknown>).command;
   return typeof command === "string" ? command : undefined;
 }
@@ -137,8 +161,12 @@ export function getAcpToolOutputText(content?: string): string {
  * section. (Mirrors the inspector's `formatPayload`.)
  */
 export function formatRawValue(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value === "string") return value;
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
   if (typeof value === "object") {
     try {
       return JSON.stringify(value, null, 2);
@@ -158,10 +186,15 @@ export function getAcpFileChanges(
   blocks: AcpToolContentBlock[],
   locations?: { path: string; line?: number }[],
 ): { path: string; oldText?: string; newText?: string }[] {
-  const byPath = new Map<string, { path: string; oldText?: string; newText?: string }>();
+  const byPath = new Map<
+    string,
+    { path: string; oldText?: string; newText?: string }
+  >();
 
   for (const block of blocks) {
-    if (block.type !== "diff") continue;
+    if (block.type !== "diff") {
+      continue;
+    }
     byPath.set(block.path, {
       path: block.path,
       newText: block.newText,

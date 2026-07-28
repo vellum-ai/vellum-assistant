@@ -52,12 +52,16 @@ export async function emitWatchdogEventDirect(
     if (getRawShareAnalytics() === false) {
       return;
     }
-    if (!arePlatformFeaturesEnabled()) return;
+    if (!arePlatformFeaturesEnabled()) {
+      return;
+    }
 
     // Authenticated-only. Null before the CES handshake resolves credentials;
     // the event is simply dropped (no durable backlog to retry from).
     const client = await VellumPlatformClient.create();
-    if (!client) return;
+    if (!client) {
+      return;
+    }
 
     const event: WatchdogTelemetryEvent = {
       type: "watchdog",

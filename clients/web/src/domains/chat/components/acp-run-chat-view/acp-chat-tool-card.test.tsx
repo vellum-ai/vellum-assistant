@@ -144,25 +144,37 @@ describe("AcpChatToolCard", () => {
 
   test("renders the status pill per status", () => {
     const { rerender } = render(
-      <AcpChatToolCard block={toolBlock({ status: "running" })} onOpenDiff={() => {}} />,
+      <AcpChatToolCard
+        block={toolBlock({ status: "running" })}
+        onOpenDiff={() => {}}
+      />,
     );
     expect(screen.getByText("Running")).toBeDefined();
     expect(screen.getByTestId("acp-chat-tool-running")).toBeDefined();
 
     rerender(
-      <AcpChatToolCard block={toolBlock({ status: "completed" })} onOpenDiff={() => {}} />,
+      <AcpChatToolCard
+        block={toolBlock({ status: "completed" })}
+        onOpenDiff={() => {}}
+      />,
     );
     expect(screen.getByText("Completed")).toBeDefined();
 
     rerender(
-      <AcpChatToolCard block={toolBlock({ status: "error" })} onOpenDiff={() => {}} />,
+      <AcpChatToolCard
+        block={toolBlock({ status: "error" })}
+        onOpenDiff={() => {}}
+      />,
     );
     expect(screen.getByText("Failed")).toBeDefined();
   });
 
   test("hides the running indicator when not running", () => {
     render(
-      <AcpChatToolCard block={toolBlock({ status: "completed" })} onOpenDiff={() => {}} />,
+      <AcpChatToolCard
+        block={toolBlock({ status: "completed" })}
+        onOpenDiff={() => {}}
+      />,
     );
     expect(screen.queryByTestId("acp-chat-tool-running")).toBeNull();
   });
@@ -193,7 +205,10 @@ describe("AcpChatToolCard", () => {
     ]);
     const onOpenDiff = mock((_id: string, _fc: { path: string }) => {});
     render(
-      <AcpChatToolCard block={toolBlock({ content })} onOpenDiff={onOpenDiff} />,
+      <AcpChatToolCard
+        block={toolBlock({ content })}
+        onOpenDiff={onOpenDiff}
+      />,
     );
 
     const chip = screen.getByTestId("acp-chat-tool-file-chip");

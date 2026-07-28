@@ -9,7 +9,9 @@ export type { ConnectivityState };
 export function subscribeToConnectivity(
   callback: (state: ConnectivityState) => void,
 ): () => void {
-  if (!isElectron()) return () => undefined;
+  if (!isElectron()) {
+    return () => undefined;
+  }
   return window.vellum?.connectivity?.onState(callback) ?? (() => undefined);
 }
 
@@ -18,7 +20,9 @@ export function subscribeToConnectivity(
  * with backend health probes. No-op off Electron.
  */
 export function reportDeviceOnline(online: boolean): void {
-  if (!isElectron()) return;
+  if (!isElectron()) {
+    return;
+  }
   window.vellum?.connectivity?.setDevice(online);
 }
 
@@ -27,7 +31,9 @@ export function reportDeviceOnline(online: boolean): void {
 async function pullConnectivityState(
   invoke: () => Promise<ConnectivityState> | undefined,
 ): Promise<ConnectivityState | null> {
-  if (!isElectron()) return null;
+  if (!isElectron()) {
+    return null;
+  }
   try {
     return (await invoke()) ?? null;
   } catch {

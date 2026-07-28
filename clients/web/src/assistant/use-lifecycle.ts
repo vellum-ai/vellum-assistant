@@ -112,7 +112,9 @@ export function useAssistantLifecycle({
   // Hand poll results to the service — it decides whether to
   // project them (only while the lifecycle is transient).
   useEffect(() => {
-    if (!assistantResult) return;
+    if (!assistantResult) {
+      return;
+    }
     void lifecycleService.applyServerResult(assistantResult);
   }, [assistantResult]);
 }

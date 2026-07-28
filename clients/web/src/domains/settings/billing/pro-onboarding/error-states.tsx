@@ -5,7 +5,11 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { IconBadge } from "./primitives";
 
-export function FetchErrorState({ onGoToBilling }: { onGoToBilling: () => void }) {
+export function FetchErrorState({
+  onGoToBilling,
+}: {
+  onGoToBilling: () => void;
+}) {
   return (
     <div className="flex flex-col items-center gap-4 px-6 py-10 text-center">
       <IconBadge icon={AlertCircle} />

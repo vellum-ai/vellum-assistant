@@ -18,18 +18,14 @@ import {
 import { useState, type ReactNode } from "react";
 
 import {
-    buildPanelMenuItem,
-    PanelMenuDivider,
+  buildPanelMenuItem,
+  PanelMenuDivider,
 } from "@/domains/chat/components/panel-menu-item";
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { openExternalUrl } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import {
-  BottomSheet,
-  ContextMenu,
-  Menu,
-} from "@vellumai/design-library";
+import { BottomSheet, ContextMenu, Menu } from "@vellumai/design-library";
 
 /**
  * Hover-revealed "more" menu for a conversation row. Renders an ellipsis

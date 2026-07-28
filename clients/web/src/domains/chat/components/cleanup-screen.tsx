@@ -1,4 +1,3 @@
-
 import { type ReactNode, useEffect, useState } from "react";
 
 import { useHintRotation } from "@/domains/chat/hooks/use-hint-rotation";

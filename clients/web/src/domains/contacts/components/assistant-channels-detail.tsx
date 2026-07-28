@@ -1,8 +1,8 @@
 import { DetailCard } from "@/components/detail-card";
 import { assistantDisplayName } from "@/utils/assistant-display-name";
 import {
-    AssistantContactChannels,
-    type AssistantContactChannelsProps,
+  AssistantContactChannels,
+  type AssistantContactChannelsProps,
 } from "@/domains/contacts/components/assistant-contact-channels";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 

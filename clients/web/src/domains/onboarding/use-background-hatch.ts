@@ -40,8 +40,7 @@ import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { randomCharacterTraits } from "@/utils/avatar-random";
 
-const GENERIC_HATCH_ERROR =
-  "Failed to start your assistant. Please try again.";
+const GENERIC_HATCH_ERROR = "Failed to start your assistant. Please try again.";
 const TIMEOUT_ERROR =
   "Your assistant is taking longer than expected. Please try again.";
 const ORG_HEADER_ERROR =
@@ -120,13 +119,11 @@ export interface UseBackgroundHatchOptions {
  *
  * Unmounting aborts the sequence — see `abortedRef`.
  */
-export function useBackgroundHatch(
-  {
-    adoptExisting = false,
-    adoptAssistantId,
-    postCheckoutReturn = false,
-  }: UseBackgroundHatchOptions = {},
-): UseBackgroundHatch {
+export function useBackgroundHatch({
+  adoptExisting = false,
+  adoptAssistantId,
+  postCheckoutReturn = false,
+}: UseBackgroundHatchOptions = {}): UseBackgroundHatch {
   const queryClient = useQueryClient();
   const [ready, setReady] = useState(false);
   const [assistantId, setAssistantId] = useState<string | null>(null);
@@ -340,7 +337,11 @@ export function useBackgroundHatch(
             }
             if (!shouldRecoverFromHatchFailure(result.status)) {
               settleError(
-                extractErrorMessage(result.error, undefined, GENERIC_HATCH_ERROR),
+                extractErrorMessage(
+                  result.error,
+                  undefined,
+                  GENERIC_HATCH_ERROR,
+                ),
               );
               return;
             }
@@ -388,8 +389,7 @@ export function useBackgroundHatch(
               void saveManagedLockfileAssistant(
                 activeAssistantId,
                 result.data.name,
-                getActiveOrganizationIdForRequests() ??
-                  undefined,
+                getActiveOrganizationIdForRequests() ?? undefined,
               );
             }
             break;
@@ -475,7 +475,10 @@ export function useBackgroundHatch(
           // would hand the user an unreachable assistant.
           Sentry.captureMessage("Onboarding hatch wait exceeded timeout", {
             level: "warning",
-            extra: { maxWaitMs: MAX_HATCH_WAIT_MS, stage: "post_resize_health" },
+            extra: {
+              maxWaitMs: MAX_HATCH_WAIT_MS,
+              stage: "post_resize_health",
+            },
           });
           settleError(TIMEOUT_ERROR);
           return;

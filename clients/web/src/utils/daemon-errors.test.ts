@@ -78,13 +78,19 @@ describe("shouldRetryDaemonError", () => {
   });
 
   test("does not retry non-transient errors", () => {
-    expect(shouldRetryDaemonError(0, new ApiError(500, "Internal Server Error"))).toBe(false);
+    expect(
+      shouldRetryDaemonError(0, new ApiError(500, "Internal Server Error")),
+    ).toBe(false);
     expect(shouldRetryDaemonError(0, new Error("random error"))).toBe(false);
-    expect(shouldRetryDaemonError(0, new TypeError("Failed to fetch"))).toBe(false);
+    expect(shouldRetryDaemonError(0, new TypeError("Failed to fetch"))).toBe(
+      false,
+    );
   });
 
   test("retries 502 bad gateway", () => {
-    expect(shouldRetryDaemonError(0, new ApiError(502, "Bad gateway"))).toBe(true);
+    expect(shouldRetryDaemonError(0, new ApiError(502, "Bad gateway"))).toBe(
+      true,
+    );
   });
 
   test("retries 401 auth race", () => {

@@ -32,6 +32,4 @@ const useRenameRequestStoreBase = create<RenameRequestStore>((set) => ({
   clearRename: () => set({ renameRequest: null }),
 }));
 
-export const useRenameRequestStore = createSelectors(
-  useRenameRequestStoreBase,
-);
+export const useRenameRequestStore = createSelectors(useRenameRequestStoreBase);

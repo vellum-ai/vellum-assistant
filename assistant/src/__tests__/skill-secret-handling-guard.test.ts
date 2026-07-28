@@ -114,7 +114,9 @@ function findViolations(): Violation[] {
   const violations: Violation[] = [];
 
   for (const filePath of skillFiles) {
-    if (ALLOWLIST.has(filePath)) continue;
+    if (ALLOWLIST.has(filePath)) {
+      continue;
+    }
 
     let content: string;
     try {
@@ -157,14 +159,19 @@ function findViolations(): Violation[] {
       }
 
       // Skip empty lines
-      if (line.trim().length === 0) continue;
+      if (line.trim().length === 0) {
+        continue;
+      }
 
       // Skip negation lines — these instruct NOT to do something
-      if (NEGATION_PATTERNS.test(line)) continue;
+      if (NEGATION_PATTERNS.test(line)) {
+        continue;
+      }
 
       // Skip secure-prompt UI field lines (--label/--description/--placeholder, etc.)
-      if (inCredentialPromptBlock && CREDENTIAL_PROMPT_UI_FIELD.test(line))
+      if (inCredentialPromptBlock && CREDENTIAL_PROMPT_UI_FIELD.test(line)) {
         continue;
+      }
 
       // Strip markdown backticks before pattern matching so that
       // violations like `client_secret` are caught the same as bare words.

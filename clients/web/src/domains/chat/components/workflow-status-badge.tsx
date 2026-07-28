@@ -1,8 +1,5 @@
 import type { WorkflowRunStatus } from "@vellumai/assistant-api";
-import {
-  statusColor,
-  statusLabel,
-} from "@/utils/workflow-status";
+import { statusColor, statusLabel } from "@/utils/workflow-status";
 import { StatusBadgePill } from "@/domains/chat/components/status-badge-pill";
 import type { WorkflowLeafStatus } from "@/domains/chat/workflow-store";
 

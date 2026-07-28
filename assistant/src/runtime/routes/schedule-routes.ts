@@ -151,7 +151,9 @@ function getCreatedFromConversationState(
   }
 
   const cached = cache.get(conversationId);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
 
   const conversation = getConversation(conversationId);
   const state = {
@@ -183,7 +185,9 @@ function getCadenceDescription(
 function isOneShotForDisplay(
   job: Pick<ScheduleJob, "syntax" | "cronExpression">,
 ): boolean {
-  if (job.cronExpression == null) return true;
+  if (job.cronExpression == null) {
+    return true;
+  }
   return job.syntax === "rrule" && isSingleFireRRule(job.cronExpression);
 }
 
@@ -278,11 +282,17 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
       throw new BadRequestError("inferenceProfile must be a string or null");
     }
     const profileError = validateScheduleInferenceProfile(inferenceProfile);
-    if (profileError) throw new BadRequestError(profileError);
+    if (profileError) {
+      throw new BadRequestError(profileError);
+    }
   }
 
-  if (!name) throw new BadRequestError("name is required");
-  if (!expression) throw new BadRequestError("expression is required");
+  if (!name) {
+    throw new BadRequestError("name is required");
+  }
+  if (!expression) {
+    throw new BadRequestError("expression is required");
+  }
   // Workflow-mode runs trigger a saved workflow by name and ignore `job.message`
   // entirely (see the workflow branch below), so only require a message for the
   // execute path. Requiring it for workflow mode would force API/UI callers to
@@ -337,7 +347,9 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
       );
       return { schedule: serializeSchedule(job, new Map()) };
     } catch (err) {
-      if (err instanceof Error) throw new BadRequestError(err.message);
+      if (err instanceof Error) {
+        throw new BadRequestError(err.message);
+      }
       throw err;
     }
   }
@@ -350,7 +362,9 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
     const timeoutMs = body.timeoutMs == null ? null : Number(body.timeoutMs);
     if (timeoutMs !== null) {
       const timeoutError = validateScriptTimeoutMs(timeoutMs);
-      if (timeoutError) throw new BadRequestError(timeoutError);
+      if (timeoutError) {
+        throw new BadRequestError(timeoutError);
+      }
     }
     try {
       const job = await createSchedule({
@@ -368,7 +382,9 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
       log.info({ id: job.id, name: job.name }, "Script schedule created");
       return { schedule: serializeSchedule(job, new Map()) };
     } catch (err) {
-      if (err instanceof Error) throw new BadRequestError(err.message);
+      if (err instanceof Error) {
+        throw new BadRequestError(err.message);
+      }
       throw err;
     }
   }
@@ -388,7 +404,9 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
     log.info({ id: job.id, name: job.name }, "Schedule created");
     return { schedule: serializeSchedule(job, new Map()) };
   } catch (err) {
-    if (err instanceof Error) throw new BadRequestError(err.message);
+    if (err instanceof Error) {
+      throw new BadRequestError(err.message);
+    }
     throw err;
   }
 }
@@ -538,7 +556,9 @@ async function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
       throw new BadRequestError("timeoutMs must be a number or null");
     }
     const timeoutError = validateScriptTimeoutMs(updates.timeoutMs);
-    if (timeoutError) throw new BadRequestError(timeoutError);
+    if (timeoutError) {
+      throw new BadRequestError(timeoutError);
+    }
   }
 
   // Inference profile: null clears the override (back to the default
@@ -550,7 +570,9 @@ async function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     }
     if (typeof inferenceProfile === "string") {
       const profileError = validateScheduleInferenceProfile(inferenceProfile);
-      if (profileError) throw new BadRequestError(profileError);
+      if (profileError) {
+        throw new BadRequestError(profileError);
+      }
     }
     updates.inferenceProfile = inferenceProfile;
   }

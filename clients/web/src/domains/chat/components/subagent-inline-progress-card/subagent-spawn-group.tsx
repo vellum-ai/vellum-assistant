@@ -36,7 +36,9 @@ export function SubagentSpawnGroup({
     useSubagentStore.getState().fetchGroupDetail(subagentIds);
   };
 
-  if (subagentIds.length === 0) return null;
+  if (subagentIds.length === 0) {
+    return null;
+  }
 
   const transition = reduce
     ? { duration: 0 }

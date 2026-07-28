@@ -43,7 +43,10 @@ import type {
   PaginatedHistoryResult,
   TranscriptPaginationState,
 } from "@/domains/chat/transcript/types";
-import { applyEvent, resolveSnapshot } from "@/domains/chat/transcript/rolling-snapshot";
+import {
+  applyEvent,
+  resolveSnapshot,
+} from "@/domains/chat/transcript/rolling-snapshot";
 import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
 import { getSseEnvelopesSince } from "@/lib/streaming/stream-debug";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
@@ -134,7 +137,10 @@ export interface ChatSessionActions {
    *  the live view and the gap makes it unbridgeable: an anchor-less fetch
    *  (`seq` null) while the live view has folded seq-stamped events, or a
    *  stale-anchored fetch (`seq` below the live view's). Either is dropped. */
-  seedSnapshot: (conversationId: string, snapshot: PaginatedHistoryResult) => void;
+  seedSnapshot: (
+    conversationId: string,
+    snapshot: PaginatedHistoryResult,
+  ) => void;
   /** Fold one live stream event into the snapshot (no-op until seeded; the
    *  seed's replay covers anything that arrived first). Idempotent by `seq`. */
   applyEnvelopeToSnapshot: (envelope: AssistantEventEnvelope) => void;
@@ -147,17 +153,28 @@ export interface ChatSessionActions {
   /** Apply an updater to the materialized snapshot's messages — the seam
    *  imperative actions (confirmation/surface/rule cleanup) reach server-
    *  confirmed rows through. No-op until the snapshot is seeded. */
-  patchSnapshotMessages: (updater: (prev: DisplayMessage[]) => DisplayMessage[]) => void;
-  setError: (updater: ChatError | null | ((prev: ChatError | null) => ChatError | null)) => void;
-  setNotice: (updater: ChatError | null | ((prev: ChatError | null) => ChatError | null)) => void;
+  patchSnapshotMessages: (
+    updater: (prev: DisplayMessage[]) => DisplayMessage[],
+  ) => void;
+  setError: (
+    updater: ChatError | null | ((prev: ChatError | null) => ChatError | null),
+  ) => void;
+  setNotice: (
+    updater: ChatError | null | ((prev: ChatError | null) => ChatError | null),
+  ) => void;
   setIsLoadingHistory: (value: boolean) => void;
   setTranscriptPagination: (
     updater:
       | Omit<TranscriptPaginationState, "items">
-      | ((prev: Omit<TranscriptPaginationState, "items">) => Omit<TranscriptPaginationState, "items">),
+      | ((
+          prev: Omit<TranscriptPaginationState, "items">,
+        ) => Omit<TranscriptPaginationState, "items">),
   ) => void;
   setContextWindowUsage: (
-    updater: ContextWindowUsage | null | ((prev: ContextWindowUsage | null) => ContextWindowUsage | null),
+    updater:
+      | ContextWindowUsage
+      | null
+      | ((prev: ContextWindowUsage | null) => ContextWindowUsage | null),
   ) => void;
   setCompactionCircuitOpenUntil: (
     updater: Date | null | ((prev: Date | null) => Date | null),
@@ -204,7 +221,10 @@ export interface ChatSessionActions {
   setExpandedCardId: (cardId: string, expanded: boolean) => void;
 
   // --- Context window cache ---
-  setContextWindowUsageForConversation: (conversationId: string, usage: ContextWindowUsage) => void;
+  setContextWindowUsageForConversation: (
+    conversationId: string,
+    usage: ContextWindowUsage,
+  ) => void;
 
   // --- Ephemeral meta-command results ---
   addEphemeralMetaResult: (result: EphemeralMetaResult) => void;
@@ -335,7 +355,11 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
     // snapshot reset on conversation switch guarantees a non-null live view
     // belongs to `conversationId`.
     const current = get().snapshot;
-    if (snapshot.seq == null && current !== null && typeof current.seq === "number") {
+    if (
+      snapshot.seq == null &&
+      current !== null &&
+      typeof current.seq === "number"
+    ) {
       recordDiagnostic("history_seed_skipped_anchorless", {
         conversationId,
         liveSeq: current.seq,
@@ -380,7 +404,9 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
   },
 
   applyEnvelopeToSnapshot: (envelope) =>
-    set((s) => (s.snapshot ? { snapshot: applyEvent(s.snapshot, envelope) } : {})),
+    set((s) =>
+      s.snapshot ? { snapshot: applyEvent(s.snapshot, envelope) } : {},
+    ),
 
   addOptimisticSend: (message) =>
     set((s) => ({ optimisticSends: [...s.optimisticSends, message] })),
@@ -391,7 +417,9 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
   patchSnapshotMessages: (updater) =>
     set((s) =>
       s.snapshot
-        ? { snapshot: { ...s.snapshot, messages: updater(s.snapshot.messages) } }
+        ? {
+            snapshot: { ...s.snapshot, messages: updater(s.snapshot.messages) },
+          }
         : {},
     ),
 
@@ -401,8 +429,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
   setNotice: (updater) =>
     set((s) => ({ notice: applyUpdater(s.notice, updater) })),
 
-  setIsLoadingHistory: (value) =>
-    set({ isLoadingHistory: value }),
+  setIsLoadingHistory: (value) => set({ isLoadingHistory: value }),
 
   setTranscriptPagination: (updater) =>
     set((s) => ({
@@ -439,17 +466,24 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
     );
     if (isConversationSwitch && outgoingConversationId) {
       const interactionSnapshot = useInteractionStore.getState();
-      if (interactionSnapshot.pendingSecret || interactionSnapshot.pendingConfirmation) {
-        useConversationStore.getState().addAttentionConversationId(outgoingConversationId);
+      if (
+        interactionSnapshot.pendingSecret ||
+        interactionSnapshot.pendingConfirmation
+      ) {
+        useConversationStore
+          .getState()
+          .addAttentionConversationId(outgoingConversationId);
       }
     }
 
     // Re-hydrate from localStorage when the assistant changes (or on first
     // load) so persisted context-window data survives page reloads and
     // assistant switches.
-    const isAssistantSwitch = state.previousAssistantId !== null
-      && state.previousAssistantId !== assistantId;
-    const needsHydration = isAssistantSwitch || state.previousAssistantId === null;
+    const isAssistantSwitch =
+      state.previousAssistantId !== null &&
+      state.previousAssistantId !== assistantId;
+    const needsHydration =
+      isAssistantSwitch || state.previousAssistantId === null;
 
     recordDiagnostic("conversation_switch_reset", {
       assistantId,
@@ -482,14 +516,18 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       snapshot: null,
       optimisticSends: [],
       ephemeralMetaResults: [],
-      error: shouldSuppressGenericChatErrorNotice(state.error) ? state.error : null,
+      error: shouldSuppressGenericChatErrorNotice(state.error)
+        ? state.error
+        : null,
       notice: null,
       isLoadingHistory: true,
       transcriptPagination: { ...INITIAL_PAGINATION },
-      contextWindowUsage:
-        usageByConversation.get(activeConversationId) ?? null,
+      contextWindowUsage: usageByConversation.get(activeConversationId) ?? null,
       compactionCircuitOpenUntil: null,
-      dismissedSurfaceIds: loadDismissedSurfaceIds(assistantId, activeConversationId),
+      dismissedSurfaceIds: loadDismissedSurfaceIds(
+        assistantId,
+        activeConversationId,
+      ),
       streamingMessageIds: new Set(),
       pendingQueuedMessageIds: [],
       requestIdToMessageId: new Map(),
@@ -504,8 +542,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
     });
   },
 
-  markDraftResolution: () =>
-    set({ draftConversationIdResolution: true }),
+  markDraftResolution: () => set({ draftConversationIdResolution: true }),
 
   // --- Confirmation tool-call mapping ---
   setConfirmationToolCall: (requestId, toolCallId) =>
@@ -536,7 +573,9 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
   addDismissedSurfaceIds: (surfaceIds) =>
     set((s) => {
       const next = new Set(s.dismissedSurfaceIds);
-      for (const id of surfaceIds) next.add(id);
+      for (const id of surfaceIds) {
+        next.add(id);
+      }
       return { dismissedSurfaceIds: next };
     }),
 
@@ -544,8 +583,12 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
   batchUpdateStreamingMessageIds: (toAdd, toRemove) =>
     set((s) => {
       const next = new Set(s.streamingMessageIds);
-      for (const id of toAdd) next.add(id);
-      for (const id of toRemove) next.delete(id);
+      for (const id of toAdd) {
+        next.add(id);
+      }
+      for (const id of toRemove) {
+        next.delete(id);
+      }
       return { streamingMessageIds: next };
     }),
 
@@ -557,7 +600,9 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 
   shiftPendingQueuedMessageId: () => {
     const current = get().pendingQueuedMessageIds;
-    if (current.length === 0) return undefined;
+    if (current.length === 0) {
+      return undefined;
+    }
     const [first, ...rest] = current;
     set({ pendingQueuedMessageIds: rest });
     return first;
@@ -590,7 +635,9 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 
   consumePendingLocalDeletion: (messageId) => {
     const current = get().pendingLocalDeletions;
-    if (!current.has(messageId)) return false;
+    if (!current.has(messageId)) {
+      return false;
+    }
     const next = new Set(current);
     next.delete(messageId);
     set({ pendingLocalDeletions: next });
@@ -601,8 +648,11 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
   setExpandedToolCallId: (toolCallId, expanded) =>
     set((s) => {
       const next = new Set(s.expandedToolCallIds);
-      if (expanded) next.add(toolCallId);
-      else next.delete(toolCallId);
+      if (expanded) {
+        next.add(toolCallId);
+      } else {
+        next.delete(toolCallId);
+      }
       return { expandedToolCallIds: next };
     }),
 
@@ -629,9 +679,7 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 
   clearEphemeralMetaResults: () =>
     set((s) =>
-      s.ephemeralMetaResults.length === 0
-        ? s
-        : { ephemeralMetaResults: [] },
+      s.ephemeralMetaResults.length === 0 ? s : { ephemeralMetaResults: [] },
     ),
 }));
 

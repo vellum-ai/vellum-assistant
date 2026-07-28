@@ -524,7 +524,11 @@ describe("receiveEvent", () => {
 
     getState().receiveEvent({
       subagentId: "sa-1",
-      event: { type: "tool_use_start", toolName: "file_read", content: "Reading file" },
+      event: {
+        type: "tool_use_start",
+        toolName: "file_read",
+        content: "Reading file",
+      },
       timestamp: NOW + 300,
     });
 
@@ -599,7 +603,11 @@ describe("receiveEvent", () => {
 
     getState().receiveEvent({
       subagentId: "sa-1",
-      event: { type: "tool_result", content: "Permission denied", isError: true },
+      event: {
+        type: "tool_result",
+        content: "Permission denied",
+        isError: true,
+      },
       timestamp: NOW + 500,
     });
 
@@ -640,7 +648,9 @@ describe("receiveEvent", () => {
       timestamp: NOW + 700,
     });
 
-    expect(getState().byId["sa-1"]!.events[0]!.content).toBe("Hello from text field");
+    expect(getState().byId["sa-1"]!.events[0]!.content).toBe(
+      "Hello from text field",
+    );
   });
 
   it("reads result field for tool_result when content is absent", () => {
@@ -670,7 +680,11 @@ describe("receiveEvent", () => {
 
     getState().receiveEvent({
       subagentId: "sa-1",
-      event: { type: "assistant_text_delta", content: "from content", text: "from text" },
+      event: {
+        type: "assistant_text_delta",
+        content: "from content",
+        text: "from text",
+      },
       timestamp: NOW + 900,
     });
 
@@ -693,7 +707,11 @@ describe("receiveEvent", () => {
     });
     store.receiveEvent({
       subagentId: "sa-1",
-      event: { type: "tool_use_start", toolName: "bash", input: { command: "ls" } },
+      event: {
+        type: "tool_use_start",
+        toolName: "bash",
+        input: { command: "ls" },
+      },
       timestamp: NOW + 200,
     });
     store.receiveEvent({
@@ -757,7 +775,11 @@ describe("receiveEvent", () => {
     });
     store.receiveEvent({
       subagentId: "sa-1",
-      event: { type: "tool_use_start", toolName: "bash", input: { command: "ls" } },
+      event: {
+        type: "tool_use_start",
+        toolName: "bash",
+        input: { command: "ls" },
+      },
       timestamp: NOW + 200,
     });
     store.receiveEvent({
@@ -830,7 +852,11 @@ describe("receiveEvent", () => {
     const store = getState();
     store.receiveEvent({
       subagentId: "sa-1",
-      event: { type: "tool_use_start", toolName: "bash", input: { command: "ls" } },
+      event: {
+        type: "tool_use_start",
+        toolName: "bash",
+        input: { command: "ls" },
+      },
       timestamp: NOW + 100,
     });
     store.receiveEvent({
@@ -1205,7 +1231,9 @@ describe("byParent index", () => {
     });
 
     expect(
-      getState().byParent.get("msg-x")?.map((e) => e.subagentId),
+      getState()
+        .byParent.get("msg-x")
+        ?.map((e) => e.subagentId),
     ).toEqual(["sa-early", "sa-late"]);
   });
 
@@ -1282,7 +1310,9 @@ describe("byParent index", () => {
     expect(getState().byParent.get("msg-1")).toBe(bucketBefore);
     // msg-2's bucket grew.
     expect(
-      getState().byParent.get("msg-2")?.map((e) => e.subagentId),
+      getState()
+        .byParent.get("msg-2")
+        ?.map((e) => e.subagentId),
     ).toEqual(["sa-b", "sa-c"]);
   });
 });
@@ -1400,7 +1430,9 @@ describe("reanchorToMessage", () => {
 
     const { byParent, byId } = getState();
     expect(byParent.get("msg-1")?.map((e) => e.subagentId)).toEqual(["sa-1"]);
-    expect(byParent.get("stable-1")?.map((e) => e.subagentId)).toEqual(["sa-1"]);
+    expect(byParent.get("stable-1")?.map((e) => e.subagentId)).toEqual([
+      "sa-1",
+    ]);
     expect(byId["sa-1"]!.parentMessageId).toBe("msg-1");
     expect(byId["sa-1"]!.parentMessageStableId).toBe("stable-1");
   });
@@ -1424,7 +1456,9 @@ describe("reanchorToMessage", () => {
     getState().reanchorToMessage({ stableId: "stable-1", messageId: "msg-1" });
 
     expect(
-      getState().byParent.get("msg-1")?.map((e) => e.subagentId),
+      getState()
+        .byParent.get("msg-1")
+        ?.map((e) => e.subagentId),
     ).toEqual(["sa-early", "sa-late"]);
   });
 
@@ -1448,7 +1482,9 @@ describe("reanchorToMessage", () => {
     getState().reanchorToMessage({ stableId: "stable-1", messageId: "msg-1" });
 
     expect(
-      getState().byParent.get("msg-1")?.map((e) => e.subagentId),
+      getState()
+        .byParent.get("msg-1")
+        ?.map((e) => e.subagentId),
     ).toEqual(["sa-existing", "sa-stable"]);
   });
 

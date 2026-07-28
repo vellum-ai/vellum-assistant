@@ -45,9 +45,13 @@ const sdkActual = await import("@/generated/daemon/sdk.gen");
 // `?category=` read narrows the installed plugins to that category server-side.
 const pluginsGetSpy = mock(
   async (options: { query?: { category?: string } }) => {
-    if (installedGate) await installedGate;
+    if (installedGate) {
+      await installedGate;
+    }
     const selected = options?.query?.category;
-    if (!selected) return installedResult;
+    if (!selected) {
+      return installedResult;
+    }
     const plugins = (installedResult.data?.plugins ?? []).filter(
       (p) => (p.category ?? "system") === selected,
     );
@@ -55,8 +59,12 @@ const pluginsGetSpy = mock(
   },
 );
 const pluginsSearchGetSpy = mock(async () => {
-  if (catalogGate) await catalogGate;
-  if (catalogResult instanceof Error) throw catalogResult;
+  if (catalogGate) {
+    await catalogGate;
+  }
+  if (catalogResult instanceof Error) {
+    throw catalogResult;
+  }
   return { data: catalogResult };
 });
 mock.module("@/generated/daemon/sdk.gen", () => ({
@@ -65,9 +73,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   pluginsSearchGet: pluginsSearchGetSpy,
 }));
 
-const { usePluginsList } = await import(
-  "@/domains/intelligence/plugins/use-plugins-list"
-);
+const { usePluginsList } =
+  await import("@/domains/intelligence/plugins/use-plugins-list");
 
 function installed(overrides: Partial<InstalledPlugin> = {}): InstalledPlugin {
   // `enabled` is omitted by default to model an older daemon that predates the
@@ -159,7 +166,10 @@ describe("usePluginsList", () => {
 
   test("dedups catalog entries already installed (by name)", async () => {
     installedResult = installedOk([installed({ id: "dup", name: "dup" })]);
-    catalogResult = catalogOk([match({ name: "dup" }), match({ name: "fresh" })]);
+    catalogResult = catalogOk([
+      match({ name: "dup" }),
+      match({ name: "fresh" }),
+    ]);
 
     const { result } = renderPluginsList();
 
@@ -331,9 +341,7 @@ describe("usePluginsList", () => {
     };
     rerender({ assistantId: "asst-b" });
 
-    await waitFor(() =>
-      expect(result.current.categorySupported).toBe(false),
-    );
+    await waitFor(() => expect(result.current.categorySupported).toBe(false));
   });
 
   test("exposes enabled on installed items and latches pluginToggleSupported", async () => {
@@ -401,7 +409,9 @@ describe("usePluginsList", () => {
     // pending) actually knows `mailer` is `email`.
     const degraded: InstalledResult = {
       data: {
-        plugins: [installed({ id: "mailer", name: "mailer", category: "system" })],
+        plugins: [
+          installed({ id: "mailer", name: "mailer", category: "system" }),
+        ],
         categoryCounts: { system: 1 },
         totalCount: 1,
       } as PluginsGetResponse,
@@ -409,7 +419,9 @@ describe("usePluginsList", () => {
     };
     const warm: InstalledResult = {
       data: {
-        plugins: [installed({ id: "mailer", name: "mailer", category: "email" })],
+        plugins: [
+          installed({ id: "mailer", name: "mailer", category: "email" }),
+        ],
         categoryCounts: { email: 1 },
         totalCount: 1,
       } as PluginsGetResponse,

@@ -71,7 +71,9 @@ export class LiveVoiceTokenError extends Error {
  * the generic.
  */
 function isLiveVoiceToken(value: unknown): value is LiveVoiceTokenResponse {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object") {
+    return false;
+  }
   const v = value as Record<string, unknown>;
   return typeof v.token === "string" && typeof v.expiresAt === "string";
 }

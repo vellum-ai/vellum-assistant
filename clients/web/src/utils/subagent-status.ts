@@ -8,7 +8,9 @@ import type { SubagentStatus } from "@vellumai/assistant-api";
 
 /** Whether the subagent is in an active (non-terminal) state. */
 export function isActiveStatus(status: SubagentStatus): boolean {
-  return status === "running" || status === "pending" || status === "awaiting_input";
+  return (
+    status === "running" || status === "pending" || status === "awaiting_input"
+  );
 }
 
 /**

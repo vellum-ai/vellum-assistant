@@ -123,7 +123,9 @@ function resolveUserId(user: RawSessionUser | null): string | null {
 }
 
 function toAuthUser(raw: RawSessionUser | null): AuthUser | null {
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   return {
     kind: "platform",
     id: resolveUserId(raw),
@@ -250,9 +252,13 @@ const isInconclusiveProbe = (
  * through the normal path.
  */
 async function restoreOfflineSession(set: AuthSet): Promise<boolean> {
-  if (!getElectronSessionToken()) return false;
+  if (!getElectronSessionToken()) {
+    return false;
+  }
   const cached = readUserSnapshot();
-  if (!cached) return false;
+  if (!cached) {
+    return false;
+  }
   // Consent/org sync falls back to device-cached keys when the server
   // fetch fails (it will, offline) — same continuity as an online boot.
   await syncUserScopedState(cached.id);
@@ -610,14 +616,18 @@ function probePlatformSession(
   const isStale = (): boolean => probeId !== latestPlatformProbe;
   platformProbeSettled = getSession()
     .then(async (result) => {
-      if (isStale()) return;
+      if (isStale()) {
+        return;
+      }
       if (result.ok && result.data.user) {
         const probedUser = toAuthUser(result.data.user);
         const userUpdate = options.setUserOnSuccess ? { user: probedUser } : {};
         // Adopting the probed user confirms a platform session outside the
         // `authenticatedPlatformUser` transition — persist here too so the
         // local-mode path feeds the offline restore (LUM-2412).
-        if (options.setUserOnSuccess) persistUserSnapshot(probedUser);
+        if (options.setUserOnSuccess) {
+          persistUserSnapshot(probedUser);
+        }
         // Sync platform assistants to the lockfile BEFORE setting
         // platformSession to "present". The auth middleware unblocks on
         // `platformSession !== "unknown"`, and hasAssistants() must
@@ -658,7 +668,9 @@ function probePlatformSession(
             // Sync failed or timed out — continue with cached lockfile data
           }
         }
-        if (isStale()) return;
+        if (isStale()) {
+          return;
+        }
         set({
           platformSession: "present",
           platformSessionRestoredOffline: false,
@@ -670,13 +682,17 @@ function probePlatformSession(
       }
     })
     .catch(() => {
-      if (isStale()) return;
+      if (isStale()) {
+        return;
+      }
       if (options.clearOnFailure) {
         set({ platformSession: "absent" });
       }
     })
     .finally(() => {
-      if (isStale()) return;
+      if (isStale()) {
+        return;
+      }
       set((state) =>
         state.platformSession === "unknown"
           ? { platformSession: "absent" }
@@ -736,7 +752,9 @@ function probePlatformSessionIfReachable(
 
 async function hasRemoteGatewaySessionAfterRefresh(): Promise<boolean> {
   try {
-    if (await refreshRemoteGatewaySession()) return true;
+    if (await refreshRemoteGatewaySession()) {
+      return true;
+    }
   } catch {
     // A network failure says nothing about an already-valid in-memory token.
   }
@@ -807,7 +825,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         // to the login screen (LUM-2412); only a settled "no session"
         // answer ends the session (and invalidates the snapshot).
         if (isInconclusiveProbe(result)) {
-          if (await restoreOfflineSession(set)) return;
+          if (await restoreOfflineSession(set)) {
+            return;
+          }
         } else {
           clearUserSnapshot();
         }
@@ -877,7 +897,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // revoked session must not be resurrected by a later offline boot.
     // Transport failures keep it (web builds land here too; without a
     // readable credential they stay on the login-screen behavior).
-    if (!isInconclusiveProbe(result)) clearUserSnapshot();
+    if (!isInconclusiveProbe(result)) {
+      clearUserSnapshot();
+    }
     set(sessionEnded());
   },
 
@@ -1060,7 +1082,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       await allauthLogout();
     } finally {
       // Clean up session token in the main process.
-      if (isElectron()) await window.vellum?.auth?.signOut?.();
+      if (isElectron()) {
+        await window.vellum?.auth?.signOut?.();
+      }
       // Web loopback: drop the token the local server's proxy authenticates with.
       if (isLocalMode() && !isElectron()) {
         await clearLocalPlatformSession();
@@ -1140,7 +1164,9 @@ export function setupAuthListeners(): () => void {
 
   const unsubResume = subscribe("app.resume", () => {
     // Mid-OAuth refocus — an unauthenticated probe would tear down state.
-    if (isOAuthFlowInFlight()) return;
+    if (isOAuthFlowInFlight()) {
+      return;
+    }
     void safeRefresh();
   });
   cleanups.push(unsubResume);

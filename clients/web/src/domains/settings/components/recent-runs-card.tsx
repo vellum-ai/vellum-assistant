@@ -144,8 +144,7 @@ export function RecentRunsCard({
                     conversationId
                       ? () => navigateToConversation(navigate, conversationId)
                       : hasLocalDetails
-                        ? () =>
-                            setExpandedRunId(isExpanded ? null : run.id)
+                        ? () => setExpandedRunId(isExpanded ? null : run.id)
                         : undefined
                   }
                   aria-label={`Run at ${formatTimestamp(run.startedAt)}`}

@@ -393,7 +393,9 @@ function setupController(
     Object.assign(transport, { requiresPcmAudio: true });
   }
   if (opts?.awaitPlaybackDrained) {
-    Object.assign(transport, { awaitPlaybackDrained: opts.awaitPlaybackDrained });
+    Object.assign(transport, {
+      awaitPlaybackDrained: opts.awaitPlaybackDrained,
+    });
   }
   const controller = new CallController(session.id, transport, task ?? null, {
     assistantId: opts?.assistantId,
@@ -1003,7 +1005,9 @@ describe("call-controller", () => {
       }) => {
         turnContents.push(opts.content);
         opts.onTextDelta(
-          turnContents.length === 2 ? "Okay, bye. [END_CALL]" : "Goodbye! [END_CALL]",
+          turnContents.length === 2
+            ? "Okay, bye. [END_CALL]"
+            : "Goodbye! [END_CALL]",
         );
         opts.onComplete();
         return { turnId: `run-${turnContents.length}`, abort: () => {} };
@@ -1098,7 +1102,9 @@ describe("call-controller", () => {
         drainCalls++;
         // First END_CALL drain resolves immediately; the second one is held
         // so we can assert teardown is gated on it, not on a 0ms timer.
-        if (drainCalls === 1) return Promise.resolve();
+        if (drainCalls === 1) {
+          return Promise.resolve();
+        }
         return new Promise<void>((r) => {
           resolveSecondDrain = r;
         });

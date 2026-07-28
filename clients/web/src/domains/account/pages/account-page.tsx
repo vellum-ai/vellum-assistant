@@ -3,7 +3,10 @@ import { Link } from "react-router";
 
 import { AccountHeading } from "@/components/account/account-form";
 import { AccountShell } from "@/components/account/account-shell";
-import { PROVIDER_CALLBACK_URL, PROVIDER_ID } from "@/domains/account/login-flow";
+import {
+  PROVIDER_CALLBACK_URL,
+  PROVIDER_ID,
+} from "@/domains/account/login-flow";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { startAuthFlow } from "@/runtime/native-auth";
 import {

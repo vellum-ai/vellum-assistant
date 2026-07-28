@@ -24,35 +24,25 @@ import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 // NOTE: Do NOT mock chat-scroll-area itself — that leaks across test
 // files via bun's shared module registry and breaks chat-scroll-area's
 // own tests. Instead, mock ChatScrollArea's deep dependencies.
-mock.module(
-  "@/domains/chat/transcript/transcript",
-  () => ({
-    Transcript: () => <div data-testid="transcript">TRANSCRIPT</div>,
-  }),
-);
+mock.module("@/domains/chat/transcript/transcript", () => ({
+  Transcript: () => <div data-testid="transcript">TRANSCRIPT</div>,
+}));
 
-mock.module(
-  "@/domains/chat/components/maintenance-recovery-card",
-  () => ({
-    MaintenanceRecoveryCard: () => <div>MAINTENANCE</div>,
-  }),
-);
+mock.module("@/domains/chat/components/maintenance-recovery-card", () => ({
+  MaintenanceRecoveryCard: () => <div>MAINTENANCE</div>,
+}));
 
 mock.module("@/domains/chat/components/chat-skeleton", () => ({
   ChatSkeleton: () => <div>SKELETON</div>,
 }));
 
-mock.module(
-  "@/domains/chat/components/scroll-to-latest-button",
-  () => ({
-    ScrollToLatestButton: ({ onClick }: { onClick: () => void }) => (
-      <button data-testid="scroll-to-latest" onClick={onClick}>
-        SCROLL_TO_LATEST
-      </button>
-    ),
-  }),
-);
-
+mock.module("@/domains/chat/components/scroll-to-latest-button", () => ({
+  ScrollToLatestButton: ({ onClick }: { onClick: () => void }) => (
+    <button data-testid="scroll-to-latest" onClick={onClick}>
+      SCROLL_TO_LATEST
+    </button>
+  ),
+}));
 
 mock.module("@vellumai/design-library", () => ({
   Button: ({
@@ -116,19 +106,13 @@ mock.module("@vellumai/design-library", () => ({
   ),
 }));
 
-mock.module(
-  "@/domains/chat/refresh-feedback-pill",
-  () => ({
-    RefreshFeedbackPill: () => <div>REFRESH_PILL</div>,
-  }),
-);
+mock.module("@/domains/chat/refresh-feedback-pill", () => ({
+  RefreshFeedbackPill: () => <div>REFRESH_PILL</div>,
+}));
 
-mock.module(
-  "@/domains/chat/components/question-prompt-slot",
-  () => ({
-    QuestionPromptSlot: () => <div data-testid="question-prompt-slot" />,
-  }),
-);
+mock.module("@/domains/chat/components/question-prompt-slot", () => ({
+  QuestionPromptSlot: () => <div data-testid="question-prompt-slot" />,
+}));
 
 // Import after mocks are registered.
 const { ChatBody } = await import("@/domains/chat/components/chat-body");
@@ -136,9 +120,7 @@ const { ChatBody } = await import("@/domains/chat/components/chat-body");
 const noop = () => {};
 const noopDrag = () => {};
 
-function baseProps(
-  overrides: Partial<ChatBodyProps> = {},
-): ChatBodyProps {
+function baseProps(overrides: Partial<ChatBodyProps> = {}): ChatBodyProps {
   return {
     variant: "main",
     scrollAreaProps: {
@@ -168,9 +150,7 @@ function baseProps(
   };
 }
 
-function withEmptyState(
-  overrides: Partial<ChatBodyProps> = {},
-): ChatBodyProps {
+function withEmptyState(overrides: Partial<ChatBodyProps> = {}): ChatBodyProps {
   return baseProps({
     scrollAreaProps: {
       ...baseProps().scrollAreaProps,
@@ -182,17 +162,13 @@ function withEmptyState(
 
 describe("ChatBody — empty-state centering (LUM-1566)", () => {
   test("applies safe_center and overflow-y-auto when empty state is visible", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody {...withEmptyState()} />,
-    );
+    const html = renderToStaticMarkup(<ChatBody {...withEmptyState()} />);
     expect(html).toContain("[justify-content:safe_center]");
     expect(html).toContain("overflow-y-auto");
   });
 
   test("does NOT apply safe_center or overflow-y-auto when empty state is hidden", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody {...baseProps()} />,
-    );
+    const html = renderToStaticMarkup(<ChatBody {...baseProps()} />);
     expect(html).not.toContain("[justify-content:safe_center]");
     expect(html).not.toContain("overflow-y-auto");
   });
@@ -240,27 +216,29 @@ describe("ChatBody — banner overlay suppression (LUM-1566)", () => {
   });
 
   test("reserves the measured bottom banner height", async () => {
-    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    const originalGetBoundingClientRect =
+      HTMLElement.prototype.getBoundingClientRect;
     const originalResizeObserver = globalThis.ResizeObserver;
     let measuredHeight = 137;
     let resizeCallback: ResizeObserverCallback | null = null;
 
-    HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
-      if (this.querySelector('[data-testid="banner"]')) {
-        return {
-          bottom: measuredHeight,
-          height: measuredHeight,
-          left: 0,
-          right: 0,
-          top: 0,
-          width: 0,
-          x: 0,
-          y: 0,
-          toJSON: () => ({}),
-        };
-      }
-      return originalGetBoundingClientRect.call(this);
-    };
+    HTMLElement.prototype.getBoundingClientRect =
+      function getBoundingClientRect() {
+        if (this.querySelector('[data-testid="banner"]')) {
+          return {
+            bottom: measuredHeight,
+            height: measuredHeight,
+            left: 0,
+            right: 0,
+            top: 0,
+            width: 0,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+          };
+        }
+        return originalGetBoundingClientRect.call(this);
+      };
     globalThis.ResizeObserver = class {
       constructor(callback: ResizeObserverCallback) {
         resizeCallback = callback;
@@ -290,7 +268,8 @@ describe("ChatBody — banner overlay suppression (LUM-1566)", () => {
         expect(container.innerHTML).toContain("padding-bottom: 164px");
       });
     } finally {
-      HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+      HTMLElement.prototype.getBoundingClientRect =
+        originalGetBoundingClientRect;
       globalThis.ResizeObserver = originalResizeObserver;
       cleanup();
     }
@@ -379,9 +358,7 @@ describe("ChatBody — startersSlot rendering", () => {
     const html = renderToStaticMarkup(
       <ChatBody
         {...withEmptyState({
-          startersSlot: (
-            <div data-testid="starters">STARTER_CHIPS</div>
-          ),
+          startersSlot: <div data-testid="starters">STARTER_CHIPS</div>,
         })}
       />,
     );
@@ -389,12 +366,9 @@ describe("ChatBody — startersSlot rendering", () => {
   });
 
   test("omits starters when startersSlot is undefined", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody {...withEmptyState()} />,
-    );
+    const html = renderToStaticMarkup(<ChatBody {...withEmptyState()} />);
     expect(html).not.toContain("STARTER_CHIPS");
   });
-
 });
 
 describe("ChatBody — pluginPillsSlot rendering", () => {
@@ -409,18 +383,14 @@ describe("ChatBody — pluginPillsSlot rendering", () => {
     );
     expect(html).toContain("PLUGIN_PILLS");
     // Order: composer, then plugin pills, then starters.
-    expect(html.indexOf("COMPOSER")).toBeLessThan(
-      html.indexOf("PLUGIN_PILLS"),
-    );
+    expect(html.indexOf("COMPOSER")).toBeLessThan(html.indexOf("PLUGIN_PILLS"));
     expect(html.indexOf("PLUGIN_PILLS")).toBeLessThan(
       html.indexOf("STARTER_CHIPS"),
     );
   });
 
   test("omits plugin pills when pluginPillsSlot is undefined", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody {...withEmptyState()} />,
-    );
+    const html = renderToStaticMarkup(<ChatBody {...withEmptyState()} />);
     expect(html).not.toContain("PLUGIN_PILLS");
   });
 });

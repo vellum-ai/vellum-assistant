@@ -51,27 +51,45 @@ function removeInvalidMessages(messages: DisplayMessage[]): DisplayMessage[] {
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i]!;
     if (isInvalidMessage(m)) {
-      if (!result) result = messages.slice(0, i);
+      if (!result) {
+        result = messages.slice(0, i);
+      }
       continue;
     }
-    if (result) result.push(m);
+    if (result) {
+      result.push(m);
+    }
   }
   return result ?? messages;
 }
 
 function isInvalidMessage(message: DisplayMessage): boolean {
   // Assistant rows always render; queued user rows render in the queue drawer.
-  if (message.role !== "user") return false;
-  if (message.queueStatus === "queued") return false;
+  if (message.role !== "user") {
+    return false;
+  }
+  if (message.queueStatus === "queued") {
+    return false;
+  }
 
   // Any meaningful signal short-circuits as valid. Without one of these the
   // row is a blank bubble (e.g. an orphan tool_result at a pagination boundary
   // that the daemon's renderer already stripped).
-  if (message.textSegments?.some((s) => s.trim().length > 0)) return false;
-  if (message.surfaces && message.surfaces.length > 0) return false;
-  if (message.attachments && message.attachments.length > 0) return false;
-  if (message.slackMessage) return false;
-  if (message.toolCalls?.some((tc) => tc.name !== "unknown")) return false;
+  if (message.textSegments?.some((s) => s.trim().length > 0)) {
+    return false;
+  }
+  if (message.surfaces && message.surfaces.length > 0) {
+    return false;
+  }
+  if (message.attachments && message.attachments.length > 0) {
+    return false;
+  }
+  if (message.slackMessage) {
+    return false;
+  }
+  if (message.toolCalls?.some((tc) => tc.name !== "unknown")) {
+    return false;
+  }
 
   return true;
 }
@@ -103,31 +121,49 @@ function isInvalidMessage(message: DisplayMessage): boolean {
 function removeDuplicateTrailingAssistant(
   messages: DisplayMessage[],
 ): DisplayMessage[] {
-  if (messages.length < 2) return messages;
+  if (messages.length < 2) {
+    return messages;
+  }
 
   const last = messages[messages.length - 1]!;
   const prev = messages[messages.length - 2]!;
 
-  if (last.role !== "assistant" || prev.role !== "assistant") return messages;
-  if (!hasSubstantiveContent(last)) return messages;
-  if (!textSegmentsMatch(prev, last)) return messages;
-  if (!toolCallsMatch(prev, last)) return messages;
+  if (last.role !== "assistant" || prev.role !== "assistant") {
+    return messages;
+  }
+  if (!hasSubstantiveContent(last)) {
+    return messages;
+  }
+  if (!textSegmentsMatch(prev, last)) {
+    return messages;
+  }
+  if (!toolCallsMatch(prev, last)) {
+    return messages;
+  }
 
   return messages.slice(0, -1);
 }
 
 function hasSubstantiveContent(message: DisplayMessage): boolean {
-  if (message.textSegments && message.textSegments.length > 0) return true;
-  if (message.toolCalls && message.toolCalls.length > 0) return true;
+  if (message.textSegments && message.textSegments.length > 0) {
+    return true;
+  }
+  if (message.toolCalls && message.toolCalls.length > 0) {
+    return true;
+  }
   return false;
 }
 
 function textSegmentsMatch(a: DisplayMessage, b: DisplayMessage): boolean {
   const aSegs = a.textSegments ?? [];
   const bSegs = b.textSegments ?? [];
-  if (aSegs.length !== bSegs.length) return false;
+  if (aSegs.length !== bSegs.length) {
+    return false;
+  }
   for (let i = 0; i < aSegs.length; i++) {
-    if (aSegs[i] !== bSegs[i]) return false;
+    if (aSegs[i] !== bSegs[i]) {
+      return false;
+    }
   }
   return true;
 }
@@ -135,12 +171,18 @@ function textSegmentsMatch(a: DisplayMessage, b: DisplayMessage): boolean {
 function toolCallsMatch(a: DisplayMessage, b: DisplayMessage): boolean {
   const aTcs = a.toolCalls ?? [];
   const bTcs = b.toolCalls ?? [];
-  if (aTcs.length !== bTcs.length) return false;
+  if (aTcs.length !== bTcs.length) {
+    return false;
+  }
   for (let i = 0; i < aTcs.length; i++) {
     const aTc = aTcs[i]!;
     const bTc = bTcs[i]!;
-    if (aTc.name !== bTc.name) return false;
-    if (aTc.result !== bTc.result) return false;
+    if (aTc.name !== bTc.name) {
+      return false;
+    }
+    if (aTc.result !== bTc.result) {
+      return false;
+    }
   }
   return true;
 }
@@ -185,25 +227,27 @@ function toolCallsMatch(a: DisplayMessage, b: DisplayMessage): boolean {
 const SYNTHETIC_DANGLING_RESULT =
   "Tool call completed on the server, but the result never reached the client. Subsequent assistant activity confirms the tool returned — this is a client-side data loss, not a tool failure.";
 
-function repairDanglingToolCalls(
-  messages: DisplayMessage[],
-): DisplayMessage[] {
+function repairDanglingToolCalls(messages: DisplayMessage[]): DisplayMessage[] {
   const lastAssistantIdx = findLastAssistantIndex(messages);
   // No subsequent-assistant evidence anywhere → nothing to repair against.
-  if (lastAssistantIdx <= 0) return messages;
+  if (lastAssistantIdx <= 0) {
+    return messages;
+  }
 
   let result: DisplayMessage[] | null = null;
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i]!;
     const isPatchable =
-      m.role === "assistant" &&
-      i < lastAssistantIdx &&
-      hasDanglingToolCall(m);
+      m.role === "assistant" && i < lastAssistantIdx && hasDanglingToolCall(m);
     if (!isPatchable) {
-      if (result) result.push(m);
+      if (result) {
+        result.push(m);
+      }
       continue;
     }
-    if (!result) result = messages.slice(0, i);
+    if (!result) {
+      result = messages.slice(0, i);
+    }
     result.push(withRepairedToolCalls(m));
   }
   return result ?? messages;
@@ -211,15 +255,15 @@ function repairDanglingToolCalls(
 
 function findLastAssistantIndex(messages: DisplayMessage[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]!.role === "assistant") return i;
+    if (messages[i]!.role === "assistant") {
+      return i;
+    }
   }
   return -1;
 }
 
 function hasDanglingToolCall(message: DisplayMessage): boolean {
-  return (
-    message.toolCalls?.some((tc) => isToolCallRunning(tc)) ?? false
-  );
+  return message.toolCalls?.some((tc) => isToolCallRunning(tc)) ?? false;
 }
 
 function withRepairedToolCalls(message: DisplayMessage): DisplayMessage {
@@ -311,10 +355,14 @@ function failStaleToolCalls(messages: DisplayMessage[]): DisplayMessage[] {
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i]!;
     if (m.role !== "assistant" || !hasStaleToolCall(m, nowMs)) {
-      if (result) result.push(m);
+      if (result) {
+        result.push(m);
+      }
       continue;
     }
-    if (!result) result = messages.slice(0, i);
+    if (!result) {
+      result = messages.slice(0, i);
+    }
     result.push(withStaleToolCallsFailed(m, nowMs));
   }
   return result ?? messages;
@@ -340,7 +388,9 @@ function isStale(tc: ChatMessageToolCall, nowMs: number): boolean {
   if (tc.pendingConfirmation) {
     return false;
   }
-  if (tc.startedAt === undefined) return false;
+  if (tc.startedAt === undefined) {
+    return false;
+  }
   const effectiveTimeoutMs = DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC * 1000;
   return nowMs - tc.startedAt > effectiveTimeoutMs + STALE_GRACE_MS;
 }

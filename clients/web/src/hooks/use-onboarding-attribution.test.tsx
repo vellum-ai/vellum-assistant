@@ -46,7 +46,9 @@ describe("useOnboardingAttribution", () => {
     const updater = p.setSearchParams.mock.calls[0][0] as (
       prev: URLSearchParams,
     ) => URLSearchParams;
-    const next = updater(new URLSearchParams("prompt=hi&vref=research_checkin"));
+    const next = updater(
+      new URLSearchParams("prompt=hi&vref=research_checkin"),
+    );
     expect(next.has("vref")).toBe(false);
     expect(next.get("prompt")).toBe("hi");
   });
@@ -77,7 +79,10 @@ describe("useOnboardingAttribution", () => {
     });
     expect(emit).toHaveBeenCalledTimes(1);
 
-    rerender({ ...p, searchParams: new URLSearchParams("vref=research_checkin") });
+    rerender({
+      ...p,
+      searchParams: new URLSearchParams("vref=research_checkin"),
+    });
     expect(emit).toHaveBeenCalledTimes(1);
   });
 });

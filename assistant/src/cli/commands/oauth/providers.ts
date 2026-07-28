@@ -63,8 +63,12 @@ function formatAvailableScopes(
   availableScopes: unknown,
   indent: string = "    ",
 ): string | null {
-  if (!availableScopes) return null;
-  if (typeof availableScopes === "string") return availableScopes;
+  if (!availableScopes) {
+    return null;
+  }
+  if (typeof availableScopes === "string") {
+    return availableScopes;
+  }
   if (Array.isArray(availableScopes)) {
     return (
       "\n" +
@@ -106,62 +110,111 @@ function formatProviderDetail(p: SerializedProvider): string {
   const lines: string[] = [];
   const name = p.displayName ?? p.providerKey;
   lines.push(`${p.providerKey} (${name})`);
-  if (p.description) lines.push(`  Description: ${p.description}`);
-  if (p.supportsManagedMode) lines.push(`  Managed mode: yes`);
-  if (p.managedServiceIsPaid) lines.push(`  Managed service is paid: yes`);
-  if (p.dashboardUrl) lines.push(`  Dashboard: ${p.dashboardUrl}`);
-  if (p.appType) lines.push(`  App type: ${p.appType}`);
+  if (p.description) {
+    lines.push(`  Description: ${p.description}`);
+  }
+  if (p.supportsManagedMode) {
+    lines.push(`  Managed mode: yes`);
+  }
+  if (p.managedServiceIsPaid) {
+    lines.push(`  Managed service is paid: yes`);
+  }
+  if (p.dashboardUrl) {
+    lines.push(`  Dashboard: ${p.dashboardUrl}`);
+  }
+  if (p.appType) {
+    lines.push(`  App type: ${p.appType}`);
+  }
   lines.push(
     `  Requires client secret: ${p.requiresClientSecret ? "yes" : "no"}`,
   );
-  if (p.clientIdPlaceholder)
+  if (p.clientIdPlaceholder) {
     lines.push(`  Client ID format: ${p.clientIdPlaceholder}`);
+  }
   lines.push(`  Auth URL: ${p.authUrl}`);
   lines.push(`  Token URL: ${p.tokenUrl}`);
-  if (p.refreshUrl) lines.push(`  Refresh URL: ${p.refreshUrl}`);
-  if (p.tokenEndpointAuthMethod)
+  if (p.refreshUrl) {
+    lines.push(`  Refresh URL: ${p.refreshUrl}`);
+  }
+  if (p.tokenEndpointAuthMethod) {
     lines.push(`  Token auth method: ${p.tokenEndpointAuthMethod}`);
-  if (p.tokenExchangeBodyFormat && p.tokenExchangeBodyFormat !== "form")
+  }
+  if (p.tokenExchangeBodyFormat && p.tokenExchangeBodyFormat !== "form") {
     lines.push(`  Token exchange body format: ${p.tokenExchangeBodyFormat}`);
-  if ((p.defaultScopes as string[])?.length > 0)
+  }
+  if ((p.defaultScopes as string[])?.length > 0) {
     lines.push(`  Default scopes: ${(p.defaultScopes as string[]).join(", ")}`);
+  }
   const avail = formatAvailableScopes(p.availableScopes);
-  if (avail) lines.push(`  Available scopes: ${avail}`);
-  if (p.scopeSeparator && p.scopeSeparator !== " ")
+  if (avail) {
+    lines.push(`  Available scopes: ${avail}`);
+  }
+  if (p.scopeSeparator && p.scopeSeparator !== " ") {
     lines.push(`  Scope separator: "${p.scopeSeparator}"`);
-  if (p.extraParams)
+  }
+  if (p.extraParams) {
     lines.push(`  Authorize params: ${formatJsonValue(p.extraParams)}`);
-  if (p.redirectUri) lines.push(`  Redirect URI: ${p.redirectUri}`);
-  if (p.loopbackPort) lines.push(`  Loopback port: ${p.loopbackPort}`);
-  if (p.baseUrl) lines.push(`  Base URL: ${p.baseUrl}`);
-  if (p.userinfoUrl) lines.push(`  Userinfo URL: ${p.userinfoUrl}`);
-  if (p.pingUrl) lines.push(`  Ping URL: ${p.pingUrl}`);
-  if (p.pingMethod) lines.push(`  Ping method: ${p.pingMethod}`);
-  if (p.pingHeaders)
+  }
+  if (p.redirectUri) {
+    lines.push(`  Redirect URI: ${p.redirectUri}`);
+  }
+  if (p.loopbackPort) {
+    lines.push(`  Loopback port: ${p.loopbackPort}`);
+  }
+  if (p.baseUrl) {
+    lines.push(`  Base URL: ${p.baseUrl}`);
+  }
+  if (p.userinfoUrl) {
+    lines.push(`  Userinfo URL: ${p.userinfoUrl}`);
+  }
+  if (p.pingUrl) {
+    lines.push(`  Ping URL: ${p.pingUrl}`);
+  }
+  if (p.pingMethod) {
+    lines.push(`  Ping method: ${p.pingMethod}`);
+  }
+  if (p.pingHeaders) {
     lines.push(`  Ping headers: ${formatJsonValue(p.pingHeaders)}`);
-  if (p.pingBody) lines.push(`  Ping body: ${formatJsonValue(p.pingBody)}`);
-  if (p.revokeUrl) lines.push(`  Revoke URL: ${p.revokeUrl}`);
-  if (p.revokeBodyTemplate)
+  }
+  if (p.pingBody) {
+    lines.push(`  Ping body: ${formatJsonValue(p.pingBody)}`);
+  }
+  if (p.revokeUrl) {
+    lines.push(`  Revoke URL: ${p.revokeUrl}`);
+  }
+  if (p.revokeBodyTemplate) {
     lines.push(
       `  Revoke body template: ${formatJsonValue(p.revokeBodyTemplate)}`,
     );
-  if (p.injectionTemplates)
+  }
+  if (p.injectionTemplates) {
     lines.push(
       `  Injection templates: ${formatJsonValue(p.injectionTemplates)}`,
     );
-  if (p.identityUrl) lines.push(`  Identity URL: ${p.identityUrl}`);
-  if (p.identityMethod) lines.push(`  Identity method: ${p.identityMethod}`);
-  if (p.identityHeaders)
+  }
+  if (p.identityUrl) {
+    lines.push(`  Identity URL: ${p.identityUrl}`);
+  }
+  if (p.identityMethod) {
+    lines.push(`  Identity method: ${p.identityMethod}`);
+  }
+  if (p.identityHeaders) {
     lines.push(`  Identity headers: ${formatJsonValue(p.identityHeaders)}`);
-  if (p.identityBody)
+  }
+  if (p.identityBody) {
     lines.push(`  Identity body: ${formatJsonValue(p.identityBody)}`);
-  if (p.identityResponsePaths)
+  }
+  if (p.identityResponsePaths) {
     lines.push(
       `  Identity response paths: ${(p.identityResponsePaths as string[]).join(", ")}`,
     );
-  if (p.identityFormat) lines.push(`  Identity format: ${p.identityFormat}`);
-  if (p.identityOkField)
+  }
+  if (p.identityFormat) {
+    lines.push(`  Identity format: ${p.identityFormat}`);
+  }
+  if (p.identityOkField) {
     lines.push(`  Identity ok field: ${p.identityOkField}`);
+  }
   if (p.setupNotes) {
     if (Array.isArray(p.setupNotes)) {
       lines.push(
@@ -171,8 +224,12 @@ function formatProviderDetail(p: SerializedProvider): string {
       lines.push(`  Setup notes: ${formatJsonValue(p.setupNotes)}`);
     }
   }
-  if (p.featureFlag) lines.push(`  Feature flag: ${p.featureFlag}`);
-  if (p.logoUrl) lines.push(`  Logo: ${p.logoUrl}`);
+  if (p.featureFlag) {
+    lines.push(`  Feature flag: ${p.featureFlag}`);
+  }
+  if (p.logoUrl) {
+    lines.push(`  Logo: ${p.logoUrl}`);
+  }
   lines.push(`  Created: ${p.createdAt}`);
   lines.push(`  Updated: ${p.updatedAt}`);
   return lines.join("\n");
@@ -227,7 +284,9 @@ export function registerProviderCommands(oauth: Command): void {
         queryParams,
       });
 
-      if (!r.ok) return exitFromIpcResult(r);
+      if (!r.ok) {
+        return exitFromIpcResult(r);
+      }
 
       // The route returns snake_case summaries; map to camelCase for
       // display consistency with the existing CLI contract.
@@ -360,56 +419,92 @@ export function registerProviderCommands(oauth: Command): void {
           token_url: opts.tokenUrl,
         };
 
-        if (opts.refreshUrl !== undefined) body.refresh_url = opts.refreshUrl;
-        if (opts.baseUrl !== undefined) body.base_url = opts.baseUrl;
-        if (opts.userinfoUrl !== undefined)
+        if (opts.refreshUrl !== undefined) {
+          body.refresh_url = opts.refreshUrl;
+        }
+        if (opts.baseUrl !== undefined) {
+          body.base_url = opts.baseUrl;
+        }
+        if (opts.userinfoUrl !== undefined) {
           body.userinfo_url = opts.userinfoUrl;
+        }
         body.default_scopes = opts.scopes ? opts.scopes.split(",") : [];
-        if (opts.scopeSeparator !== undefined)
+        if (opts.scopeSeparator !== undefined) {
           body.scope_separator = opts.scopeSeparator;
-        if (opts.tokenAuthMethod !== undefined)
+        }
+        if (opts.tokenAuthMethod !== undefined) {
           body.token_endpoint_auth_method = opts.tokenAuthMethod;
-        if (opts.tokenExchangeBodyFormat !== undefined)
+        }
+        if (opts.tokenExchangeBodyFormat !== undefined) {
           body.token_exchange_body_format = opts.tokenExchangeBodyFormat;
-        if (opts.pingUrl !== undefined) body.ping_url = opts.pingUrl;
-        if (opts.pingMethod !== undefined) body.ping_method = opts.pingMethod;
-        if (opts.pingHeaders !== undefined)
+        }
+        if (opts.pingUrl !== undefined) {
+          body.ping_url = opts.pingUrl;
+        }
+        if (opts.pingMethod !== undefined) {
+          body.ping_method = opts.pingMethod;
+        }
+        if (opts.pingHeaders !== undefined) {
           body.ping_headers = JSON.parse(opts.pingHeaders);
-        if (opts.pingBody !== undefined)
+        }
+        if (opts.pingBody !== undefined) {
           body.ping_body = JSON.parse(opts.pingBody);
-        if (opts.revokeUrl !== undefined) body.revoke_url = opts.revokeUrl;
-        if (opts.revokeBodyTemplate !== undefined)
+        }
+        if (opts.revokeUrl !== undefined) {
+          body.revoke_url = opts.revokeUrl;
+        }
+        if (opts.revokeBodyTemplate !== undefined) {
           body.revoke_body_template = JSON.parse(opts.revokeBodyTemplate);
-        if (opts.displayName !== undefined)
+        }
+        if (opts.displayName !== undefined) {
           body.display_name = opts.displayName;
-        if (opts.description !== undefined) body.description = opts.description;
-        if (opts.dashboardUrl !== undefined)
+        }
+        if (opts.description !== undefined) {
+          body.description = opts.description;
+        }
+        if (opts.dashboardUrl !== undefined) {
           body.dashboard_url = opts.dashboardUrl;
-        if (resolvedLogoUrl !== undefined) body.logo_url = resolvedLogoUrl;
-        if (opts.clientIdPlaceholder !== undefined)
+        }
+        if (resolvedLogoUrl !== undefined) {
+          body.logo_url = resolvedLogoUrl;
+        }
+        if (opts.clientIdPlaceholder !== undefined) {
           body.client_id_placeholder = opts.clientIdPlaceholder;
+        }
         body.requires_client_secret = opts.clientSecret;
-        if (opts.loopbackPort !== undefined)
+        if (opts.loopbackPort !== undefined) {
           body.loopback_port = parseInt(opts.loopbackPort, 10);
-        if (opts.injectionTemplates !== undefined)
+        }
+        if (opts.injectionTemplates !== undefined) {
           body.injection_templates = JSON.parse(opts.injectionTemplates);
-        if (opts.appType !== undefined) body.app_type = opts.appType;
-        if (opts.identityUrl !== undefined)
+        }
+        if (opts.appType !== undefined) {
+          body.app_type = opts.appType;
+        }
+        if (opts.identityUrl !== undefined) {
           body.identity_url = opts.identityUrl;
-        if (opts.identityMethod !== undefined)
+        }
+        if (opts.identityMethod !== undefined) {
           body.identity_method = opts.identityMethod;
-        if (opts.identityHeaders !== undefined)
+        }
+        if (opts.identityHeaders !== undefined) {
           body.identity_headers = JSON.parse(opts.identityHeaders);
-        if (opts.identityBody !== undefined)
+        }
+        if (opts.identityBody !== undefined) {
           body.identity_body = JSON.parse(opts.identityBody);
-        if (opts.identityResponsePaths !== undefined)
+        }
+        if (opts.identityResponsePaths !== undefined) {
           body.identity_response_paths = opts.identityResponsePaths.split(",");
-        if (opts.identityFormat !== undefined)
+        }
+        if (opts.identityFormat !== undefined) {
           body.identity_format = opts.identityFormat;
-        if (opts.identityOkField !== undefined)
+        }
+        if (opts.identityOkField !== undefined) {
           body.identity_ok_field = opts.identityOkField;
-        if (opts.setupNotes !== undefined)
+        }
+        if (opts.setupNotes !== undefined) {
           body.setup_notes = JSON.parse(opts.setupNotes);
+        }
         if (opts.availableScopes !== undefined) {
           body.available_scopes = opts.availableScopes.startsWith("http")
             ? opts.availableScopes
@@ -488,26 +583,45 @@ export function registerProviderCommands(oauth: Command): void {
       try {
         const body: Record<string, unknown> = {};
 
-        if (opts.authUrl !== undefined) body.auth_url = opts.authUrl;
-        if (opts.tokenUrl !== undefined) body.token_url = opts.tokenUrl;
-        if (opts.refreshUrl !== undefined) body.refresh_url = opts.refreshUrl;
-        if (opts.baseUrl !== undefined) body.base_url = opts.baseUrl;
-        if (opts.userinfoUrl !== undefined)
+        if (opts.authUrl !== undefined) {
+          body.auth_url = opts.authUrl;
+        }
+        if (opts.tokenUrl !== undefined) {
+          body.token_url = opts.tokenUrl;
+        }
+        if (opts.refreshUrl !== undefined) {
+          body.refresh_url = opts.refreshUrl;
+        }
+        if (opts.baseUrl !== undefined) {
+          body.base_url = opts.baseUrl;
+        }
+        if (opts.userinfoUrl !== undefined) {
           body.userinfo_url = opts.userinfoUrl;
-        if (opts.scopes !== undefined)
+        }
+        if (opts.scopes !== undefined) {
           body.default_scopes = opts.scopes.split(",");
-        if (opts.scopeSeparator !== undefined)
+        }
+        if (opts.scopeSeparator !== undefined) {
           body.scope_separator = opts.scopeSeparator;
-        if (opts.tokenAuthMethod !== undefined)
+        }
+        if (opts.tokenAuthMethod !== undefined) {
           body.token_endpoint_auth_method = opts.tokenAuthMethod;
-        if (opts.tokenExchangeBodyFormat !== undefined)
+        }
+        if (opts.tokenExchangeBodyFormat !== undefined) {
           body.token_exchange_body_format = opts.tokenExchangeBodyFormat;
-        if (opts.pingUrl !== undefined) body.ping_url = opts.pingUrl;
-        if (opts.pingMethod !== undefined) body.ping_method = opts.pingMethod;
-        if (opts.pingHeaders !== undefined)
+        }
+        if (opts.pingUrl !== undefined) {
+          body.ping_url = opts.pingUrl;
+        }
+        if (opts.pingMethod !== undefined) {
+          body.ping_method = opts.pingMethod;
+        }
+        if (opts.pingHeaders !== undefined) {
           body.ping_headers = JSON.parse(opts.pingHeaders);
-        if (opts.pingBody !== undefined)
+        }
+        if (opts.pingBody !== undefined) {
           body.ping_body = JSON.parse(opts.pingBody);
+        }
         if (opts.revokeUrl !== undefined) {
           body.revoke_url = opts.revokeUrl === "" ? null : opts.revokeUrl;
         }
@@ -517,13 +631,18 @@ export function registerProviderCommands(oauth: Command): void {
               ? null
               : JSON.parse(opts.revokeBodyTemplate);
         }
-        if (opts.displayName !== undefined)
+        if (opts.displayName !== undefined) {
           body.display_name = opts.displayName;
-        if (opts.description !== undefined) body.description = opts.description;
-        if (opts.dashboardUrl !== undefined)
+        }
+        if (opts.description !== undefined) {
+          body.description = opts.description;
+        }
+        if (opts.dashboardUrl !== undefined) {
           body.dashboard_url = opts.dashboardUrl;
-        if (opts.clientIdPlaceholder !== undefined)
+        }
+        if (opts.clientIdPlaceholder !== undefined) {
           body.client_id_placeholder = opts.clientIdPlaceholder;
+        }
 
         const resolvedLogoUrl = resolveLogoUrlFromFlags(opts);
         if (resolvedLogoUrl !== undefined) {
@@ -534,27 +653,39 @@ export function registerProviderCommands(oauth: Command): void {
           body.requires_client_secret = opts.clientSecret;
         }
 
-        if (opts.loopbackPort !== undefined)
+        if (opts.loopbackPort !== undefined) {
           body.loopback_port = parseInt(opts.loopbackPort, 10);
-        if (opts.injectionTemplates !== undefined)
+        }
+        if (opts.injectionTemplates !== undefined) {
           body.injection_templates = JSON.parse(opts.injectionTemplates);
-        if (opts.appType !== undefined) body.app_type = opts.appType;
-        if (opts.identityUrl !== undefined)
+        }
+        if (opts.appType !== undefined) {
+          body.app_type = opts.appType;
+        }
+        if (opts.identityUrl !== undefined) {
           body.identity_url = opts.identityUrl;
-        if (opts.identityMethod !== undefined)
+        }
+        if (opts.identityMethod !== undefined) {
           body.identity_method = opts.identityMethod;
-        if (opts.identityHeaders !== undefined)
+        }
+        if (opts.identityHeaders !== undefined) {
           body.identity_headers = JSON.parse(opts.identityHeaders);
-        if (opts.identityBody !== undefined)
+        }
+        if (opts.identityBody !== undefined) {
           body.identity_body = JSON.parse(opts.identityBody);
-        if (opts.identityResponsePaths !== undefined)
+        }
+        if (opts.identityResponsePaths !== undefined) {
           body.identity_response_paths = opts.identityResponsePaths.split(",");
-        if (opts.identityFormat !== undefined)
+        }
+        if (opts.identityFormat !== undefined) {
           body.identity_format = opts.identityFormat;
-        if (opts.identityOkField !== undefined)
+        }
+        if (opts.identityOkField !== undefined) {
           body.identity_ok_field = opts.identityOkField;
-        if (opts.setupNotes !== undefined)
+        }
+        if (opts.setupNotes !== undefined) {
           body.setup_notes = JSON.parse(opts.setupNotes);
+        }
         if (opts.availableScopes !== undefined) {
           if (opts.availableScopes === "") {
             body.available_scopes = null;

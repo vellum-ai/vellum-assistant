@@ -16,7 +16,9 @@ export function migrateEmbeddingVectorBlob(database: DrizzleDb): void {
   const checkpoint = raw
     .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey);
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   // Add the column if it doesn't exist yet
   try {
@@ -90,7 +92,9 @@ export function downEmbeddingVectorBlob(database: DrizzleDb): void {
       `SELECT 1 FROM pragma_table_info('memory_embeddings') WHERE name = 'vector_blob'`,
     )
     .get();
-  if (!hasColumn) return;
+  if (!hasColumn) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {

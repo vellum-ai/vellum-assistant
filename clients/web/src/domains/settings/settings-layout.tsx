@@ -23,8 +23,10 @@ import { SidebarTree, type SidebarItem } from "@/components/sidebar-tree";
  * navigation) and an `<Outlet />` for the active settings tab page.
  */
 export function SettingsLayout() {
-  const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
-  const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
+  const settingsDeveloperNav =
+    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const platformNotifications =
+    useClientFeatureFlagStore.use.platformNotifications();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   // The Bookmarks and Credentials tabs need routes that only newer assistants
   // serve (v0.8.1+ / v0.10.8+); an older assistant 404s them, so hide the
@@ -102,12 +104,15 @@ export function SettingsLayout() {
   }, [settingsDeveloperNav, hasPlatformSession, navigate, login]);
 
   const pageTitle = useMemo(() => {
-    if (pathname === routes.settings.root) {return "Settings";}
+    if (pathname === routes.settings.root) {
+      return "Settings";
+    }
     const match = SETTINGS_SIDEBAR.find(
-      (item) =>
-        pathname === item.href || pathname.startsWith(item.href + "/"),
+      (item) => pathname === item.href || pathname.startsWith(item.href + "/"),
     );
-    if (match) {return match.id === "billing" ? billingLabel : match.label;}
+    if (match) {
+      return match.id === "billing" ? billingLabel : match.label;
+    }
     return "Settings";
   }, [pathname, billingLabel]);
 
@@ -115,7 +120,11 @@ export function SettingsLayout() {
     <SidebarShell
       backHref={routes.assistant}
       sidebar={
-        <SidebarTree items={filteredItems} bottomItems={bottomItems} indexPath={routes.settings.root} />
+        <SidebarTree
+          items={filteredItems}
+          bottomItems={bottomItems}
+          indexPath={routes.settings.root}
+        />
       }
       title={pageTitle}
     >

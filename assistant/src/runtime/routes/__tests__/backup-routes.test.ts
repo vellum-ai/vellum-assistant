@@ -182,7 +182,9 @@ mock.module("../../../backup/restore.js", () => ({
       hasKey: false,
       workspaceDir: opts.workspaceDir,
     };
-    if (mockRestoreError) throw mockRestoreError;
+    if (mockRestoreError) {
+      throw mockRestoreError;
+    }
     return mockRestoreResult;
   },
   verifySnapshot: async (path: string) => {

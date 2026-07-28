@@ -68,7 +68,9 @@ export function readMacOsAssistantTurnsSeen(): number {
 }
 
 export function incrementMacOsAssistantTurnsSeen(delta = 1): void {
-  if (delta <= 0) return;
+  if (delta <= 0) {
+    return;
+  }
   const nextValue = readMacOsAssistantTurnsSeen() + delta;
   setLocalNumber(KEY_MAC_APP_ASSISTANT_TURNS_SEEN, nextValue);
 }
@@ -114,7 +116,9 @@ export function useMacOsNudgeState(): {
   // gate this rarely fires in-session; the mount effect above recomputes it
   // on the user's next visit, which is the real trigger.
   useEffect(() => {
-    if (firstSeenAt === 0 || ageEligible) return;
+    if (firstSeenAt === 0 || ageEligible) {
+      return;
+    }
     const remaining = MAC_APP_BANNER_MIN_AGE_MS - (Date.now() - firstSeenAt);
     if (remaining <= 0) {
       setAgeEligible(true);

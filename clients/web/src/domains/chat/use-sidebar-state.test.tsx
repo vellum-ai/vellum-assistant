@@ -18,9 +18,8 @@ mock.module("@/hooks/conversation-queries", () => ({
   }),
 }));
 
-const { SIDEBAR_CONVERSATION_LIMIT, useSidebarState } = await import(
-  "@/domains/chat/use-sidebar-state"
-);
+const { SIDEBAR_CONVERSATION_LIMIT, useSidebarState } =
+  await import("@/domains/chat/use-sidebar-state");
 
 function makeConversation(
   index: number,
@@ -107,7 +106,9 @@ describe("useSidebarState pagination", () => {
       const section = result.current.channelSections.find(
         (s) => s.channelId === "slack",
       );
-      if (!section) throw new Error("expected a slack channel section");
+      if (!section) {
+        throw new Error("expected a slack channel section");
+      }
       return section;
     };
 

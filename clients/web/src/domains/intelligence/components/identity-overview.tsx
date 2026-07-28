@@ -61,7 +61,10 @@ import {
 } from "./amoeba-avatar";
 import { AssistantNameEditor } from "./assistant-name-editor";
 import { resolveAvatarHex } from "./assistant-stage";
-import { buildIdentitySections, type IdentitySection } from "./identity-sections";
+import {
+  buildIdentitySections,
+  type IdentitySection,
+} from "./identity-sections";
 import { PersonalityRadar } from "./personality-radar";
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
@@ -118,7 +121,6 @@ const CARD_HOVER_LINES: Record<string, string> = {
   contacts: "The people I know and trust",
   channels: "All the places you can reach me",
 };
-
 
 /** "14 Jul, 9:00 am" — compact next-fire time for the schedules preview. */
 function formatNextRun(nextRunAt: number): string {
@@ -238,8 +240,11 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
           void queryClient.invalidateQueries({
             queryKey: assistantIdentityDetailsQueryKey(assistantId),
           });
-          const { version, assistantId: hydratedAssistantId, setIdentity } =
-            useAssistantIdentityStore.getState();
+          const {
+            version,
+            assistantId: hydratedAssistantId,
+            setIdentity,
+          } = useAssistantIdentityStore.getState();
           // Preserve the owner tag: a rename changes the name, not which
           // assistant the hydrated identity belongs to.
           setIdentity(newName, version, hydratedAssistantId);
@@ -275,7 +280,10 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
       }
     >
       {photoBackdrop && customImageUrl && (
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+        >
           {/* Scaled up so the blur never bleeds transparent edges in.
               Dimmed via brightness (not a flat scrim) so bright photos
               darken naturally — highlights keep their hue, like the dark
@@ -959,7 +967,10 @@ function OverviewBento({
                         : "text-[var(--content-secondary)]"
                     }`}
                   >
-                    <PersonalityRadar values={radar} className="h-auto w-full" />
+                    <PersonalityRadar
+                      values={radar}
+                      className="h-auto w-full"
+                    />
                   </span>
                 )}
               </Link>
@@ -985,8 +996,12 @@ function OverviewBento({
   // it) and Schedules the right, both the same height above the strip,
   // and everything else (Skills, Plugins, Workspace, Contacts, Channels)
   // runs as compact mini cards in a full-width bottom strip.
-  const mainSections = sections.filter((s) => !MINI_SECTION_KEYS.includes(s.key));
-  const miniSections = sections.filter((s) => MINI_SECTION_KEYS.includes(s.key));
+  const mainSections = sections.filter(
+    (s) => !MINI_SECTION_KEYS.includes(s.key),
+  );
+  const miniSections = sections.filter((s) =>
+    MINI_SECTION_KEYS.includes(s.key),
+  );
 
   // Top row is a centered trio — Personality, the greeting, Schedules —
   // and the rows below stay open so the page-anchored avatar shows

@@ -29,10 +29,18 @@ const MAX_DAEMON_RETRIES = 3;
  * failures (handled by `isTransientNetworkError`) or application bugs.
  */
 export function isExpectedDaemonTransientError(error: unknown): boolean {
-  if (!(error instanceof ApiError)) return false;
-  if (error.status === 503) return true;
-  if (error.status === 502) return true;
-  if (error.status === 401) return true;
+  if (!(error instanceof ApiError)) {
+    return false;
+  }
+  if (error.status === 503) {
+    return true;
+  }
+  if (error.status === 502) {
+    return true;
+  }
+  if (error.status === 401) {
+    return true;
+  }
   if (
     error.status === 400 &&
     error.message.includes("Organization-Id header")
@@ -64,6 +72,8 @@ export function shouldRetryDaemonError(
   failureCount: number,
   error: Error,
 ): boolean {
-  if (failureCount >= MAX_DAEMON_RETRIES) return false;
+  if (failureCount >= MAX_DAEMON_RETRIES) {
+    return false;
+  }
   return isExpectedDaemonTransientError(error);
 }

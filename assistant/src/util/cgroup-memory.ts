@@ -17,7 +17,9 @@ import { parseK8sMemoryBytes } from "./disk-usage.js";
 function readCgroupInt(path: string): number | null {
   try {
     const raw = readFileSync(path, "utf-8").trim();
-    if (raw === "max") return null;
+    if (raw === "max") {
+      return null;
+    }
     const bytes = parseInt(raw, 10);
     return Number.isFinite(bytes) && bytes > 0 ? bytes : null;
   } catch {
@@ -39,7 +41,9 @@ export function getContainerMemoryLimitBytes(): number | null {
     const envLimit = process.env.VELLUM_MEMORY_LIMIT;
     if (envLimit) {
       const parsed = parseK8sMemoryBytes(envLimit);
-      if (parsed !== null) return parsed;
+      if (parsed !== null) {
+        return parsed;
+      }
     }
   } catch {
     /* env var parsing failed – fall through to cgroups */
@@ -47,7 +51,9 @@ export function getContainerMemoryLimitBytes(): number | null {
 
   // 2. Try cgroups v2.
   const v2 = readCgroupInt("/sys/fs/cgroup/memory.max");
-  if (v2 !== null) return v2;
+  if (v2 !== null) {
+    return v2;
+  }
 
   // 3. Try cgroups v1.
   try {
@@ -57,7 +63,9 @@ export function getContainerMemoryLimitBytes(): number | null {
     ).trim();
     const bytes = parseInt(raw, 10);
     // cgroups v1 uses a near-INT64_MAX sentinel when no limit is set.
-    if (!isNaN(bytes) && bytes > 0 && bytes < totalmem() * 1.5) return bytes;
+    if (!isNaN(bytes) && bytes > 0 && bytes < totalmem() * 1.5) {
+      return bytes;
+    }
   } catch {
     /* not available */
   }

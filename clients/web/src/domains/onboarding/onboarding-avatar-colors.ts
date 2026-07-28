@@ -31,7 +31,9 @@ export function overlayColorsFor(
   allColorIds: readonly string[],
 ): string[] {
   const preferred = AVATAR_OVERLAY_COLORS[baseColorId];
-  if (preferred && preferred.length > 0) return preferred;
+  if (preferred && preferred.length > 0) {
+    return preferred;
+  }
   return allColorIds.filter((id) => id !== baseColorId);
 }
 
@@ -55,13 +57,21 @@ export function pickOverlayColors(
   const candidates = overlayColorsFor(baseColorId, allColorIds);
   const picked: string[] = [];
   for (const c of candidates) {
-    if (picked.length >= count) break;
-    if (picked.some((p) => clash(p, c))) continue;
+    if (picked.length >= count) {
+      break;
+    }
+    if (picked.some((p) => clash(p, c))) {
+      continue;
+    }
     picked.push(c);
   }
   for (const c of candidates) {
-    if (picked.length >= count) break;
-    if (!picked.includes(c)) picked.push(c);
+    if (picked.length >= count) {
+      break;
+    }
+    if (!picked.includes(c)) {
+      picked.push(c);
+    }
   }
   return picked;
 }

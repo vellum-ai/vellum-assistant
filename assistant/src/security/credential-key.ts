@@ -24,8 +24,12 @@ export function credentialKey(service: string, field: string): string {
  * leave anything else untouched.
  */
 export function normalizeCredentialRef(ref: string): string {
-  if (ref.startsWith("credential/")) return ref;
+  if (ref.startsWith("credential/")) {
+    return ref;
+  }
   const colonIdx = ref.lastIndexOf(":");
-  if (colonIdx < 1 || colonIdx === ref.length - 1) return ref;
+  if (colonIdx < 1 || colonIdx === ref.length - 1) {
+    return ref;
+  }
   return credentialKey(ref.slice(0, colonIdx), ref.slice(colonIdx + 1));
 }

@@ -15,7 +15,7 @@ const eslintConfig = defineConfig([
       // Require braces on every control-statement body (if/else/for/
       // while/do). A braceless body is a maintenance hazard: a second
       // line added under the condition reads as guarded but always runs.
-      curly: ["warn", "all"],
+      curly: ["error", "all"],
       "simple-import-sort/imports": [
         "error",
         {

@@ -32,9 +32,9 @@ describe("parseInlineThinkingTags", () => {
   });
 
   test("treats an unclosed tag's remainder as still-streaming thinking", () => {
-    expect(parseInlineThinkingTags("<thinking>still figuring this out")).toEqual([
-      { type: "thinking", thinking: "still figuring this out" },
-    ]);
+    expect(
+      parseInlineThinkingTags("<thinking>still figuring this out"),
+    ).toEqual([{ type: "thinking", thinking: "still figuring this out" }]);
   });
 
   test("handles multiple blocks interleaved with text", () => {
@@ -52,7 +52,9 @@ describe("parseInlineThinkingTags", () => {
 
   test("drops whitespace-only text between tags and empty thinking bodies", () => {
     expect(
-      parseInlineThinkingTags("<thinking>a</thinking>\n\n<thinking>b</thinking>"),
+      parseInlineThinkingTags(
+        "<thinking>a</thinking>\n\n<thinking>b</thinking>",
+      ),
     ).toEqual([
       { type: "thinking", thinking: "a" },
       { type: "thinking", thinking: "b" },
@@ -63,9 +65,7 @@ describe("parseInlineThinkingTags", () => {
   });
 
   test("supports the <think> variant alongside <thinking>", () => {
-    expect(
-      parseInlineThinkingTags("<think>short form</think>reply"),
-    ).toEqual([
+    expect(parseInlineThinkingTags("<think>short form</think>reply")).toEqual([
       { type: "thinking", thinking: "short form" },
       { type: "text", text: "reply" },
     ]);

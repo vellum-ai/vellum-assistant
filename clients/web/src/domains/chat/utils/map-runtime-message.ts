@@ -58,7 +58,9 @@ export function mapServerSurfaces(
  * numbers in SSE events; this normalizes both to a consistent number.
  */
 function parseRuntimeTimestamp(ts: unknown): number | undefined {
-  if (typeof ts === "number") return ts;
+  if (typeof ts === "number") {
+    return ts;
+  }
   if (typeof ts === "string") {
     const parsed = new Date(ts).getTime();
     return Number.isFinite(parsed) ? parsed : undefined;
@@ -151,20 +153,48 @@ export function mapRuntimeToDisplayMessage(
     id: m.id,
     role: m.role,
   };
-  if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
-  if (m.clientMessageId) msg.clientMessageId = m.clientMessageId;
-  if (m.surfaces) msg.surfaces = mapServerSurfaces(m.surfaces);
-  if (contentBlocks) msg.contentBlocks = contentBlocks;
-  if (normalizedSegments) msg.textSegments = normalizedSegments;
-  if (normalizedContentOrder) msg.contentOrder = normalizedContentOrder;
-  if (thinkingSegments) msg.thinkingSegments = thinkingSegments;
-  if (m.subagentNotification) msg.isSubagentNotification = true;
-  if (m.acpNotification) msg.isAcpNotification = true;
-  if (m.backgroundEventNotification) msg.isBackgroundEventNotification = true;
-  if (m.systemCard) msg.isSystemCard = true;
-  if (m.slackMessage) msg.slackMessage = m.slackMessage;
-  if (toolCalls) msg.toolCalls = toolCalls;
-  if (timestamp != null) msg.timestamp = timestamp;
+  if (m.mergedMessageIds?.length) {
+    msg.mergedMessageIds = m.mergedMessageIds;
+  }
+  if (m.clientMessageId) {
+    msg.clientMessageId = m.clientMessageId;
+  }
+  if (m.surfaces) {
+    msg.surfaces = mapServerSurfaces(m.surfaces);
+  }
+  if (contentBlocks) {
+    msg.contentBlocks = contentBlocks;
+  }
+  if (normalizedSegments) {
+    msg.textSegments = normalizedSegments;
+  }
+  if (normalizedContentOrder) {
+    msg.contentOrder = normalizedContentOrder;
+  }
+  if (thinkingSegments) {
+    msg.thinkingSegments = thinkingSegments;
+  }
+  if (m.subagentNotification) {
+    msg.isSubagentNotification = true;
+  }
+  if (m.acpNotification) {
+    msg.isAcpNotification = true;
+  }
+  if (m.backgroundEventNotification) {
+    msg.isBackgroundEventNotification = true;
+  }
+  if (m.systemCard) {
+    msg.isSystemCard = true;
+  }
+  if (m.slackMessage) {
+    msg.slackMessage = m.slackMessage;
+  }
+  if (toolCalls) {
+    msg.toolCalls = toolCalls;
+  }
+  if (timestamp != null) {
+    msg.timestamp = timestamp;
+  }
   if (m.queueStatus) {
     msg.queueStatus = m.queueStatus;
   }
@@ -173,7 +203,9 @@ export function mapRuntimeToDisplayMessage(
   }
 
   const attachments = structuredAttachments ?? parsedAttachments;
-  if (attachments) msg.attachments = attachments;
+  if (attachments) {
+    msg.attachments = attachments;
+  }
 
   return msg;
 }

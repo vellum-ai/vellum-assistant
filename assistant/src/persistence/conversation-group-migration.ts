@@ -40,7 +40,9 @@ export function _resetGroupMigrationForTests(): void {
  * the `migrated` flag makes subsequent calls no-ops.
  */
 export function ensureGroupMigration(): void {
-  if (migrated) return;
+  if (migrated) {
+    return;
+  }
 
   // 1. Create groups table if not exists
   rawExec(`

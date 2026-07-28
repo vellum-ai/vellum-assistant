@@ -76,7 +76,7 @@ export function useConversationChangeEffects(
         ids.push(entry.subagentId);
       }
     }
-    return ids.sort().join(',');
+    return ids.sort().join(",");
   });
 
   // Auto-fetch details for subagents reconstructed from history
@@ -86,7 +86,9 @@ export function useConversationChangeEffects(
     }
     for (const entry of Object.values(useSubagentStore.getState().byId)) {
       if (needsDetailFetch(entry)) {
-        void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, entry.subagentId);
+        void useSubagentStore
+          .getState()
+          .fetchDetailIfNeeded(assistantId, entry.subagentId);
       }
     }
   }, [assistantId, unfetchedSubagentKey]);

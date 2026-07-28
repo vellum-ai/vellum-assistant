@@ -25,8 +25,12 @@ export function registerPingCommand(oauth: Command): void {
 
       try {
         const body: Record<string, unknown> = { provider };
-        if (opts.account) body.account = opts.account;
-        if (opts.clientId) body.client_id = opts.clientId;
+        if (opts.account) {
+          body.account = opts.account;
+        }
+        if (opts.clientId) {
+          body.client_id = opts.clientId;
+        }
 
         const r = await cliIpcCall<{
           ok: boolean;
@@ -36,7 +40,9 @@ export function registerPingCommand(oauth: Command): void {
           hint?: string;
         }>("oauth_ping", { body });
 
-        if (!r.ok) return exitFromIpcResult(r);
+        if (!r.ok) {
+          return exitFromIpcResult(r);
+        }
 
         const result = r.result!;
 

@@ -20,7 +20,9 @@ export class PromiseGuard<T> {
    * @param onError - Optional callback invoked when the factory rejects (before re-throwing).
    */
   run(factory: () => Promise<T>, onError?: (err: unknown) => void): Promise<T> {
-    if (this.promise) return this.promise;
+    if (this.promise) {
+      return this.promise;
+    }
 
     this.promise = factory();
     this.promise.catch((err) => {

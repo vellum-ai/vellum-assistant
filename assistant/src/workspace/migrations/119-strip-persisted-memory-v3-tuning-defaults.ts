@@ -104,21 +104,29 @@ export const stripPersistedMemoryV3TuningDefaultsMigration: WorkspaceMigration =
 
     run(workspaceDir: string): void {
       const configPath = join(workspaceDir, "config.json");
-      if (!existsSync(configPath)) return;
+      if (!existsSync(configPath)) {
+        return;
+      }
 
       let config: Record<string, unknown>;
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!isPlainObject(raw)) return;
+        if (!isPlainObject(raw)) {
+          return;
+        }
         config = raw;
       } catch {
         return;
       }
 
       const memory = config.memory;
-      if (!isPlainObject(memory)) return;
+      if (!isPlainObject(memory)) {
+        return;
+      }
       const v3 = memory.v3;
-      if (!isPlainObject(v3)) return;
+      if (!isPlainObject(v3)) {
+        return;
+      }
 
       let changed = false;
 
@@ -129,7 +137,9 @@ export const stripPersistedMemoryV3TuningDefaultsMigration: WorkspaceMigration =
             : isPlainObject(v3[leaf.parent])
               ? (v3[leaf.parent] as Record<string, unknown>)
               : undefined;
-        if (container === undefined || !(leaf.key in container)) continue;
+        if (container === undefined || !(leaf.key in container)) {
+          continue;
+        }
         if (
           (leaf.defaults as ReadonlyArray<unknown>).includes(
             container[leaf.key],
@@ -149,7 +159,9 @@ export const stripPersistedMemoryV3TuningDefaultsMigration: WorkspaceMigration =
         }
       }
 
-      if (!changed) return;
+      if (!changed) {
+        return;
+      }
 
       try {
         writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");

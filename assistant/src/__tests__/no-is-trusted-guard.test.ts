@@ -48,7 +48,9 @@ describe("isTrusted guard", () => {
       .trim()
       .split("\n")
       .filter((line) => {
-        if (!line) return false;
+        if (!line) {
+          return false;
+        }
         let stripped = line;
         for (const token of ALLOWED_TOKENS) {
           stripped = stripped.replaceAll(token, "");

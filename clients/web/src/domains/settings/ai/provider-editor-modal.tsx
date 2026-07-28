@@ -160,9 +160,10 @@ export function ProviderEditorContent({
   // Only a changed label is validated — keeping the stored label must never
   // lock the row out of unrelated edits (key rotation).
   const labelChanged = label.trim() !== (connection?.label ?? "").trim();
-  const nameConflict = isOpenAICompatible && labelChanged
-    ? customProviderNameConflict(label, connections, connection?.name)
-    : null;
+  const nameConflict =
+    isOpenAICompatible && labelChanged
+      ? customProviderNameConflict(label, connections, connection?.name)
+      : null;
   const canSave = name.trim().length > 0 && nameConflict === null;
 
   async function handleSave() {

@@ -54,15 +54,23 @@ export async function healGuardianBindingDrift(
   }
 
   const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
-  if (!guardians) return false;
+  if (!guardians) {
+    return false;
+  }
   const guardian = guardianForChannel(guardians, "vellum");
-  if (!guardian) return false;
+  if (!guardian) {
+    return false;
+  }
 
   const currentPrincipalId = guardian.principalId;
   // Only repair auto-generated principals — never overwrite a real one.
-  if (!currentPrincipalId?.startsWith("vellum-principal-")) return false;
+  if (!currentPrincipalId?.startsWith("vellum-principal-")) {
+    return false;
+  }
   // No-op when the principal already matches the JWT principal.
-  if (currentPrincipalId === incomingPrincipalId) return false;
+  if (currentPrincipalId === incomingPrincipalId) {
+    return false;
+  }
 
   // Resolve the assistant-mirror row to repair so local trust resolution
   // converges on the JWT principal. The gateway delivery supplies the guardian
@@ -70,7 +78,9 @@ export async function healGuardianBindingDrift(
   // so resolve that locally by the guardian's vellum-channel address.
   const localContact = findContactByAddress("vellum", guardian.address);
   const localChannel = localContact?.channels.find((c) => c.type === "vellum");
-  if (!localContact || !localChannel) return false;
+  if (!localContact || !localChannel) {
+    return false;
+  }
 
   const updated = repairChannelAddress(localChannel.id, incomingPrincipalId);
 
@@ -116,7 +126,9 @@ export async function reResolveTrustOnResetDrift(
     incomingPrincipalId.startsWith("vellum-principal-") &&
     !!gatewayPrincipal?.startsWith("vellum-principal-") &&
     gatewayPrincipal !== incomingPrincipalId;
-  if (!isResetDrift) return null;
+  if (!isResetDrift) {
+    return null;
+  }
   await healGuardianBindingDrift(incomingPrincipalId);
   return withSourceChannel(
     sourceChannel,

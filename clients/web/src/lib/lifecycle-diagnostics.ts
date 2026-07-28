@@ -42,6 +42,8 @@ export function subscribeLifecycleDiagnostics(): () => void {
     }),
   );
   return () => {
-    for (const unsub of unsubscribers) unsub();
+    for (const unsub of unsubscribers) {
+      unsub();
+    }
   };
 }

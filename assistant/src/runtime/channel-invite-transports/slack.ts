@@ -25,7 +25,9 @@ interface SlackBotInfo {
  */
 function resolveSlackBotInfo(): SlackBotInfo | undefined {
   const { botUsername, teamName } = getConfig().slack;
-  if (!botUsername) return undefined;
+  if (!botUsername) {
+    return undefined;
+  }
   return { botUsername, teamName: teamName || undefined };
 }
 
@@ -38,7 +40,9 @@ export const slackInviteAdapter: ChannelInviteAdapter = {
 
   resolveChannelHandle(): string | undefined {
     const botInfo = resolveSlackBotInfo();
-    if (!botInfo) return undefined;
+    if (!botInfo) {
+      return undefined;
+    }
     return `@${botInfo.botUsername}`;
   },
 };

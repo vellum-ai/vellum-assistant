@@ -67,10 +67,7 @@ const useQuoteReplyStoreBase = create<QuoteReplyStore>()((set) => ({
 
   addStagedQuote: (quote) =>
     set((s) => ({
-      stagedQuotes: [
-        ...s.stagedQuotes,
-        { ...quote, id: createQuoteId() },
-      ],
+      stagedQuotes: [...s.stagedQuotes, { ...quote, id: createQuoteId() }],
       replyBubble: null,
     })),
 

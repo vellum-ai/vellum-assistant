@@ -28,12 +28,16 @@ export async function resolveLocalPrincipalTrustContext(
   // Fail closed: a null read means the gateway is unreachable — never grant
   // guardian on a miss.
   const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
-  if (!guardians) return unknownContext;
+  if (!guardians) {
+    return unknownContext;
+  }
 
   const guardian = guardians.find(
     (g) => g.principalId === input.actorPrincipalId,
   );
-  if (!guardian) return unknownContext;
+  if (!guardian) {
+    return unknownContext;
+  }
 
   return {
     sourceChannel: input.sourceChannel,

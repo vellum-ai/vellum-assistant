@@ -62,9 +62,15 @@ function filterSuggestions(
   const excluded = new Set(exclude.map(normalize));
   const out: string[] = [];
   for (const s of suggestions) {
-    if (excluded.has(normalize(s))) continue;
-    if (q.length === 0 || normalize(s).includes(q)) out.push(s);
-    if (out.length >= limit) break;
+    if (excluded.has(normalize(s))) {
+      continue;
+    }
+    if (q.length === 0 || normalize(s).includes(q)) {
+      out.push(s);
+    }
+    if (out.length >= limit) {
+      break;
+    }
   }
   return out;
 }
@@ -133,9 +139,7 @@ function SuggestionList({
                 size={15}
                 className="shrink-0 text-[var(--content-tertiary)]"
               />
-              <span className="min-w-0 truncate">
-                Add “{opt.value}”
-              </span>
+              <span className="min-w-0 truncate">Add “{opt.value}”</span>
               <span className="ml-auto shrink-0 text-body-small-default text-[var(--content-tertiary)]">
                 ↵ Enter
               </span>
@@ -189,7 +193,9 @@ function useDismiss(
 ) {
   useEffect(() => {
     function onPointerDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) close();
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        close();
+      }
     }
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
@@ -234,10 +240,16 @@ export function TagAutocompleteInput({
   // suggestion or an existing chip — so novel hobbies are one keystroke away and
   // the list never looks like a fixed menu.
   const canAddCustom = useMemo(() => {
-    if (!trimmedQuery) return false;
+    if (!trimmedQuery) {
+      return false;
+    }
     const q = normalize(trimmedQuery);
-    if (values.some((v) => normalize(v) === q)) return false;
-    if (items.some((s) => normalize(s) === q)) return false;
+    if (values.some((v) => normalize(v) === q)) {
+      return false;
+    }
+    if (items.some((s) => normalize(s) === q)) {
+      return false;
+    }
     return true;
   }, [trimmedQuery, values, items]);
 
@@ -260,7 +272,9 @@ export function TagAutocompleteInput({
 
   function addChip(raw: string) {
     const next = raw.trim();
-    if (!next) return;
+    if (!next) {
+      return;
+    }
     // Case-insensitive dedup; keep the first-entered casing.
     if (!values.some((v) => normalize(v) === normalize(next))) {
       onChange([...values, next]);
@@ -292,10 +306,14 @@ export function TagAutocompleteInput({
         e.preventDefault();
         addChip(query);
       }
-    } else if (e.key === "," ) {
+    } else if (e.key === ",") {
       e.preventDefault();
       addChip(query);
-    } else if (e.key === "Backspace" && query.length === 0 && values.length > 0) {
+    } else if (
+      e.key === "Backspace" &&
+      query.length === 0 &&
+      values.length > 0
+    ) {
       removeChip(values[values.length - 1]!);
     } else if (e.key === "Escape") {
       setOpen(false);

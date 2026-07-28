@@ -70,7 +70,9 @@ export function redactLogString(value: string): string {
 // ---------------------------------------------------------------------------
 
 function redactValue(value: unknown, depth: number): unknown {
-  if (depth > 8) return value;
+  if (depth > 8) {
+    return value;
+  }
 
   if (typeof value === "string") {
     return redactLogString(value);
@@ -102,7 +104,9 @@ function redactValue(value: unknown, depth: number): unknown {
 // ---------------------------------------------------------------------------
 
 function serializeError(err: unknown, depth: number): unknown {
-  if (depth > 8 || err == null) return err;
+  if (depth > 8 || err == null) {
+    return err;
+  }
 
   if (!(err instanceof Error)) {
     return err;

@@ -8,13 +8,19 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const workspaceFileGetMock = mock(
-  async (): Promise<{ data?: unknown; error?: unknown; response: unknown }> => ({
+  async (): Promise<{
+    data?: unknown;
+    error?: unknown;
+    response: unknown;
+  }> => ({
     response: { ok: true, status: 200 },
   }),
 );
 mock.module("@/generated/daemon/sdk.gen", () => ({
   workspaceFileGet: workspaceFileGetMock,
-  workspaceWritePost: mock(async () => ({ response: { ok: true, status: 200 } })),
+  workspaceWritePost: mock(async () => ({
+    response: { ok: true, status: 200 },
+  })),
 }));
 
 const { fetchPersonalitySliders } = await import("./personality-sliders");

@@ -74,7 +74,9 @@ async function boot() {
             Sentry.captureException(error, {
               tags: {
                 context: "RouterProvider",
-                boundary: isChunkLoadError(error) ? "lazy-route" : "route-render",
+                boundary: isChunkLoadError(error)
+                  ? "lazy-route"
+                  : "route-render",
               },
             });
           }}

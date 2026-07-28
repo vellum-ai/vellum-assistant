@@ -97,7 +97,8 @@ describe("useRotatingIndex", () => {
 
   test("clamps to 0..count-1 on the render where count shrinks", () => {
     const { result, rerender } = renderHook(
-      ({ count }) => useRotatingIndex(count, { intervalMs: 1000, enabled: true }),
+      ({ count }) =>
+        useRotatingIndex(count, { intervalMs: 1000, enabled: true }),
       { initialProps: { count: 3 } },
     );
 

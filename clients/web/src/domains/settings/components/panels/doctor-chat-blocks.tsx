@@ -105,8 +105,7 @@ export function ToolCallBlock({
       : "Completed 1 step";
 
   const canExpand =
-    !isRunning &&
-    (result !== undefined || Object.keys(input).length > 0);
+    !isRunning && (result !== undefined || Object.keys(input).length > 0);
 
   return (
     <div className="my-1 w-full">

@@ -19,7 +19,10 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import type { AttachmentMetadata, DisplayAttachment } from "@/types/attachment-types";
+import type {
+  AttachmentMetadata,
+  DisplayAttachment,
+} from "@/types/attachment-types";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { uploadChatAttachment } from "@/domains/chat/api/messages";
 import {
@@ -101,10 +104,16 @@ function draftStorageKey(assistantId: string): string {
 
 function loadDrafts(assistantId: string): Map<string, string> {
   const raw = getLocalSetting(draftStorageKey(assistantId), "");
-  if (!raw) return new Map();
+  if (!raw) {
+    return new Map();
+  }
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
       return new Map();
     }
     return new Map(
@@ -117,10 +126,7 @@ function loadDrafts(assistantId: string): Map<string, string> {
   }
 }
 
-function persistDrafts(
-  assistantId: string,
-  drafts: Map<string, string>,
-): void {
+function persistDrafts(assistantId: string, drafts: Map<string, string>): void {
   setLocalSetting(
     draftStorageKey(assistantId),
     JSON.stringify(Object.fromEntries(drafts)),
@@ -143,7 +149,10 @@ function canQueueFile(file: File): boolean {
   if (file.size <= MAX_ATTACHMENT_BYTES) {
     return true;
   }
-  return isAutoResizableImage(file) && file.size <= IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES;
+  return (
+    isAutoResizableImage(file) &&
+    file.size <= IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES
+  );
 }
 
 /** Extract the trailing path segment for the chip label, stripping any trailing separator. */
@@ -278,7 +287,9 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
 
   handleConversationSwitch: ({ previousKey, nextKey }) => {
     const isSwitch = previousKey !== null && previousKey !== nextKey;
-    if (!isSwitch || !previousKey) return;
+    if (!isSwitch || !previousKey) {
+      return;
+    }
 
     // Save outgoing conversation's draft.
     const currentInput = get().input;
@@ -292,7 +303,8 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     const savedDraft = (nextKey && draftsMap.get(nextKey)) ?? "";
     set({
       input: savedDraft,
-      restoredDraftConversationId: savedDraft.length > 0 && nextKey ? nextKey : null,
+      restoredDraftConversationId:
+        savedDraft.length > 0 && nextKey ? nextKey : null,
     });
 
     // Persist after the save/restore cycle.
@@ -337,7 +349,9 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
   // --- Attachment actions ---
   addFiles: (files, assistantId) => {
     const list = Array.from(files);
-    if (list.length === 0) return;
+    if (list.length === 0) {
+      return;
+    }
     if (!assistantId) {
       set({ attachmentLastError: "No active assistant. Please try again." });
       return;
@@ -365,7 +379,9 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       set({ attachmentLastError: null });
     }
 
-    if (accepted.length === 0) return;
+    if (accepted.length === 0) {
+      return;
+    }
 
     const queued: Array<{ pending: PendingAttachmentUpload; file: File }> =
       accepted.map((file) => ({
@@ -400,7 +416,8 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
             }
           }
 
-          const uploadFile = prepared.status === "failed" ? file : prepared.file;
+          const uploadFile =
+            prepared.status === "failed" ? file : prepared.file;
           if (uploadFile.size > MAX_ATTACHMENT_BYTES) {
             markFailed(
               set,
@@ -432,12 +449,17 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
           }
 
           if (!result.ok) {
-            markFailed(set, pending.localId, result.error.detail ?? "Upload failed");
+            markFailed(
+              set,
+              pending.localId,
+              result.error.detail ?? "Upload failed",
+            );
             return;
           }
 
           const localMime = uploadFile.type || "application/octet-stream";
-          const storedFilename = result.filename ?? (uploadFile.name || "attachment");
+          const storedFilename =
+            result.filename ?? (uploadFile.name || "attachment");
           const storedMime = result.mimeType ?? localMime;
           const storedSize = result.sizeBytes ?? uploadFile.size;
 
@@ -446,7 +468,10 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
           // decodable by this renderer — preview the stored bytes instead.
           let previewSource: Blob = uploadFile;
           if (storedMime.startsWith("image/") && storedMime !== localMime) {
-            const storedBlob = await fetchAttachmentContentBlob(assistantId, result.id);
+            const storedBlob = await fetchAttachmentContentBlob(
+              assistantId,
+              result.id,
+            );
             if (cancelledUploads.has(pending.localId)) {
               cancelledUploads.delete(pending.localId);
               return;
@@ -520,7 +545,9 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       if (target && target.kind === "uploading") {
         cancelledUploads.add(localId);
       }
-      return { attachments: s.attachments.filter((att) => att.localId !== localId) };
+      return {
+        attachments: s.attachments.filter((att) => att.localId !== localId),
+      };
     });
     revokePreview(localId);
   },

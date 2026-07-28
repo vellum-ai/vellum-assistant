@@ -258,7 +258,9 @@ function parseSkillResult(
   let searchFrom = stdout.length;
   while (searchFrom > 0) {
     const markerIdx = stdout.lastIndexOf("__skill_result", searchFrom - 1);
-    if (markerIdx === -1) {break;}
+    if (markerIdx === -1) {
+      break;
+    }
 
     const lineStart = stdout.lastIndexOf("\n", markerIdx) + 1;
     const lineEnd = stdout.indexOf("\n", markerIdx);
@@ -282,7 +284,9 @@ function parseSkillResult(
   searchFrom = stdout.length;
   while (searchFrom > 0) {
     const markerIdx = stdout.lastIndexOf("__skill_error", searchFrom - 1);
-    if (markerIdx === -1) {break;}
+    if (markerIdx === -1) {
+      break;
+    }
 
     const lineStart = stdout.lastIndexOf("\n", markerIdx) + 1;
     const lineEnd = stdout.indexOf("\n", markerIdx);

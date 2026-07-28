@@ -22,15 +22,23 @@ export function linearScale(
  * @see https://observablehq.com/@d3/d3-ticks — D3's tick generation reference
  */
 export function niceStep(rawStep: number): number {
-  if (rawStep <= 0) return 1;
+  if (rawStep <= 0) {
+    return 1;
+  }
   const magnitude = 10 ** Math.floor(Math.log10(rawStep));
   const normalized = rawStep / magnitude;
   let nice: number;
-  if (normalized <= 1) nice = 1;
-  else if (normalized <= 2) nice = 2;
-  else if (normalized <= 2.5) nice = 2.5;
-  else if (normalized <= 5) nice = 5;
-  else nice = 10;
+  if (normalized <= 1) {
+    nice = 1;
+  } else if (normalized <= 2) {
+    nice = 2;
+  } else if (normalized <= 2.5) {
+    nice = 2.5;
+  } else if (normalized <= 5) {
+    nice = 5;
+  } else {
+    nice = 10;
+  }
   return nice * magnitude;
 }
 
@@ -40,7 +48,9 @@ export function niceStep(rawStep: number): number {
  * is deterministic — no heuristics, no floating-point guessing.
  */
 export function niceStepDigits(step: number): number {
-  if (step >= 1) return Number.isInteger(step) ? 0 : 1;
+  if (step >= 1) {
+    return Number.isInteger(step) ? 0 : 1;
+  }
   const magnitude = 10 ** Math.floor(Math.log10(step));
   const normalized = step / magnitude;
   const is25 = Math.abs(normalized - 2.5) < 0.01;
@@ -61,7 +71,9 @@ export function niceMax(
   const raw = Math.max(0, ...values);
   const tickCount = opts?.tickCount ?? 5;
 
-  if (raw === 0) return opts?.integerOnly ? tickCount : 1;
+  if (raw === 0) {
+    return opts?.integerOnly ? tickCount : 1;
+  }
 
   if (opts?.integerOnly) {
     const step = Math.max(1, Math.ceil(raw / tickCount));
@@ -74,7 +86,9 @@ export function niceMax(
 
 /** Generate `count + 1` evenly-spaced tick values from 0 to `max`. */
 export function generateTicks(max: number, count: number): number[] {
-  if (max === 0) return [0];
+  if (max === 0) {
+    return [0];
+  }
   const step = max / count;
   // Round each tick to the step's precision to avoid floating-point drift
   // (e.g. 0.2 × 3 = 0.6000000000000001).
@@ -108,19 +122,24 @@ export function topRoundedRect(
 }
 
 /** Pick evenly-spaced X label indices that avoid overlap on narrow viewports. */
-export function pickXTickIndices(
-  total: number,
-  isMobile: boolean,
-): number[] {
-  if (total <= 0) return [];
+export function pickXTickIndices(total: number, isMobile: boolean): number[] {
+  if (total <= 0) {
+    return [];
+  }
   if (isMobile) {
-    if (total <= 3) return Array.from({ length: total }, (_, i) => i);
+    if (total <= 3) {
+      return Array.from({ length: total }, (_, i) => i);
+    }
     return [0, Math.floor(total / 2), total - 1];
   }
   const maxTicks = Math.min(total, 12);
   const step = Math.max(1, Math.ceil(total / maxTicks));
   const indices: number[] = [];
-  for (let i = 0; i < total; i += step) indices.push(i);
-  if (indices[indices.length - 1] !== total - 1) indices.push(total - 1);
+  for (let i = 0; i < total; i += step) {
+    indices.push(i);
+  }
+  if (indices[indices.length - 1] !== total - 1) {
+    indices.push(total - 1);
+  }
   return indices;
 }

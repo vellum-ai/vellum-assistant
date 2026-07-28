@@ -100,8 +100,12 @@ mock.module("./oauth-store.js", () => ({
     opts?: { clientId?: string; account?: string },
   ) => {
     const conn = mockConnections.get(service);
-    if (!conn) return undefined;
-    if (opts?.account && conn.accountInfo !== opts.account) return undefined;
+    if (!conn) {
+      return undefined;
+    }
+    if (opts?.account && conn.accountInfo !== opts.account) {
+      return undefined;
+    }
     return conn;
   },
   getActiveConnections: (
@@ -109,13 +113,19 @@ mock.module("./oauth-store.js", () => ({
     opts?: { clientId?: string; account?: string },
   ) => {
     const conn = mockConnections.get(service);
-    if (!conn) return [];
-    if (opts?.account && conn.accountInfo !== opts.account) return [];
+    if (!conn) {
+      return [];
+    }
+    if (opts?.account && conn.accountInfo !== opts.account) {
+      return [];
+    }
     return [conn];
   },
   getConnection: (id: string) => {
     for (const conn of mockConnections.values()) {
-      if (conn.id === id) return conn;
+      if (conn.id === id) {
+        return conn;
+      }
     }
     return undefined;
   },

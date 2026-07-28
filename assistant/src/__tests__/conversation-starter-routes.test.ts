@@ -27,12 +27,16 @@ function dispatch(path: string, method = "GET"): unknown | Promise<unknown> {
   const urlPath = url.pathname.replace("/v1/", "");
 
   const route = ROUTES.find((r) => {
-    if (r.method !== method) return false;
+    if (r.method !== method) {
+      return false;
+    }
     // Simple matching: "conversation-starters" or "conversation-starters/:id"
     const pattern = r.endpoint.replace(/:(\w+)/g, "([^/]+)");
     return new RegExp(`^${pattern}$`).test(urlPath);
   });
-  if (!route) throw new Error(`No route found for ${method} ${urlPath}`);
+  if (!route) {
+    throw new Error(`No route found for ${method} ${urlPath}`);
+  }
 
   // Extract path params from the endpoint pattern
   const pathParams: Record<string, string> = {};

@@ -100,21 +100,14 @@ export function VoiceComposerBar({
     <div
       role="group"
       aria-label="Voice session"
-      className={cn(
-        "flex items-center gap-3 px-2 pb-2",
-        standalone && "pt-3",
-      )}
+      className={cn("flex items-center gap-3 px-2 pb-2", standalone && "pt-3")}
     >
       {/* pl-1 keeps the toggle roughly on the textarea's px-4 text inset. */}
       <div className="flex shrink-0 items-center gap-2 pl-1">
         <Button
           variant="ghost"
           iconOnly={
-            muted ? (
-              <MicOff className="h-4 w-4" />
-            ) : (
-              <Mic className="h-4 w-4" />
-            )
+            muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />
           }
           onClick={onToggleMute}
           aria-label={muted ? "Unmute microphone" : "Mute microphone"}

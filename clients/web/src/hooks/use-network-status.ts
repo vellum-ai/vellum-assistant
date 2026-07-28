@@ -13,20 +13,26 @@ export function useNetworkStatus(): boolean {
   const [connected, setConnected] = useState(true);
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
+    if (!Capacitor.isNativePlatform()) {
+      return;
+    }
 
     let removed = false;
 
     Network.getStatus()
       .then((status) => {
-        if (!removed) setConnected(status.connected);
+        if (!removed) {
+          setConnected(status.connected);
+        }
       })
       .catch(() => {
         // Plugin call failed — leave state at the optimistic default.
       });
 
     const handle = Network.addListener("networkStatusChange", (status) => {
-      if (!removed) setConnected(status.connected);
+      if (!removed) {
+        setConnected(status.connected);
+      }
     });
 
     return () => {

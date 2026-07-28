@@ -29,7 +29,9 @@ export function migrateDropScheduleSkillScriptHandoff(
   const columnNames = new Set(columns.map((c) => c.name));
 
   for (const column of ["then_execute", "skill_id", "skill_version_hash"]) {
-    if (!columnNames.has(column)) continue;
+    if (!columnNames.has(column)) {
+      continue;
+    }
     raw.exec(`ALTER TABLE cron_jobs DROP COLUMN ${column}`);
     log.info({ column }, "Dropped reverted schedule column from cron_jobs");
   }

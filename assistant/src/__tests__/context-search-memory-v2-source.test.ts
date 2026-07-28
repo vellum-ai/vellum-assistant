@@ -55,7 +55,9 @@ mock.module("../plugins/defaults/memory/substrate/qdrant.js", () => ({
     limit: number,
   ): Promise<QdrantHit[]> => {
     qdrantCalls.push({ limit });
-    if (qdrantThrows) {throw qdrantThrows;}
+    if (qdrantThrows) {
+      throw qdrantThrows;
+    }
     return qdrantHits;
   },
 }));

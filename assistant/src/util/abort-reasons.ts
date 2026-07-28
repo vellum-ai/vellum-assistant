@@ -47,7 +47,9 @@ export function createAbortReason(
 }
 
 export function isAbortReason(value: unknown): value is AbortReason {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
   return (
     (value as Record<string, unknown>)[ABORT_REASON_TAG] === true &&
     typeof (value as Record<string, unknown>).kind === "string" &&

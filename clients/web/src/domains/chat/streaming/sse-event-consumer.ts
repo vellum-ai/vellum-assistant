@@ -345,11 +345,7 @@ export function createSseEventConsumer(
           // `recordLocalSeq` ignores a null/undefined seq itself.
           recordLocalSeq(eventConversationId, eventSeq, getSeqGeneration());
         };
-        if (
-          eventSeq != null &&
-          localSeq != null &&
-          eventSeq <= localSeq
-        ) {
+        if (eventSeq != null && localSeq != null && eventSeq <= localSeq) {
           const seqDiagnostic = {
             conversationId: eventConversationId,
             eventType: event.type,

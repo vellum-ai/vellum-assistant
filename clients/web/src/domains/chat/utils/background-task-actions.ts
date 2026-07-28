@@ -12,7 +12,9 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 function activeAssistantId(): string {
   const id = useResolvedAssistantsStore.getState().activeAssistantId;
-  if (!id) throw new Error("No active assistant");
+  if (!id) {
+    throw new Error("No active assistant");
+  }
   return id;
 }
 

@@ -1,4 +1,3 @@
-
 import { Brain } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -84,7 +83,9 @@ function CircularRing({
         strokeDasharray={RING_CIRCUMFERENCE}
         strokeDashoffset={dashOffset}
         transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
-        style={{ transition: "stroke-dashoffset 250ms ease-out, stroke 250ms ease-out" }}
+        style={{
+          transition: "stroke-dashoffset 250ms ease-out, stroke 250ms ease-out",
+        }}
       />
     </svg>
   );
@@ -108,10 +109,7 @@ function DesktopTooltipContent({
       <div className="text-body-small-default text-[var(--content-secondary)]">
         Context window:
       </div>
-      <div
-        className="text-body-medium-default"
-        style={{ color: ringColor }}
-      >
+      <div className="text-body-medium-default" style={{ color: ringColor }}>
         {percentage}% full
       </div>
       {maxTokens != null && (
@@ -157,7 +155,9 @@ function MobileSheetContent({
           <Brain className="h-7 w-7 text-[var(--primary-base)]" />
         </span>
 
-        <BottomSheet.Title className="justify-center">Context Window</BottomSheet.Title>
+        <BottomSheet.Title className="justify-center">
+          Context Window
+        </BottomSheet.Title>
 
         <div className="w-full px-2">
           <div className="relative h-4 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--content-tertiary)_20%,transparent)]">
@@ -223,9 +223,10 @@ export function ContextWindowIndicator({
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
-  const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number } | null>(
-    null,
-  );
+  const [tooltipPosition, setTooltipPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -245,7 +246,8 @@ export function ContextWindowIndicator({
     const triggerRect = triggerRef.current.getBoundingClientRect();
     const tooltipRect = tooltipRef.current.getBoundingClientRect();
     const viewportWidth = window.innerWidth;
-    const idealLeft = triggerRect.left + triggerRect.width / 2 - tooltipRect.width / 2;
+    const idealLeft =
+      triggerRect.left + triggerRect.width / 2 - tooltipRect.width / 2;
     const clampedLeft = Math.max(
       8,
       Math.min(idealLeft, viewportWidth - tooltipRect.width - 8),
@@ -301,7 +303,10 @@ export function ContextWindowIndicator({
             />
           </button>
         </BottomSheet.Trigger>
-        <BottomSheet.Content aria-describedby={undefined} className="max-h-[85dvh]">
+        <BottomSheet.Content
+          aria-describedby={undefined}
+          className="max-h-[85dvh]"
+        >
           <BottomSheet.Header className="sr-only">
             <BottomSheet.Title>Context Window</BottomSheet.Title>
           </BottomSheet.Header>

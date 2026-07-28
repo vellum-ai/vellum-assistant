@@ -4,10 +4,7 @@ import { act } from "react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
-import {
-  __resetForTesting,
-  publish,
-} from "@/lib/event-bus";
+import { __resetForTesting, publish } from "@/lib/event-bus";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 
 type CapturedEvent = {
@@ -43,7 +40,11 @@ function renderEventStreamWithCapture(
           });
         },
         reconcileActiveConversation: async () =>
-          ({ changed: false, messagesAdded: 0, assistantProgress: false }) as never,
+          ({
+            changed: false,
+            messagesAdded: 0,
+            assistantProgress: false,
+          }) as never,
         startReconciliationLoop: () => {},
         cancelReconciliation: () => {},
         reachabilityProbe: () => {},

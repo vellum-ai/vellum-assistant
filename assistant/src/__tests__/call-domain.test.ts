@@ -25,7 +25,9 @@ mock.module("../calls/twilio-config.js", () => ({
 mock.module("../calls/twilio-provider.js", () => ({
   TwilioVoiceProvider: class {
     async checkCallerIdEligibility(number: string) {
-      if (number === "+15550002222") return { eligible: true };
+      if (number === "+12025550102") {
+        return { eligible: true };
+      }
       return {
         eligible: false,
         reason: `${number} is not eligible as a caller ID`,
@@ -34,8 +36,9 @@ mock.module("../calls/twilio-provider.js", () => ({
     async initiateCall(args: Record<string, unknown>) {
       twilioInitiateCallCount++;
       twilioInitiateCallArgs.push(args);
-      if (twilioInitiateCallBehavior === "error")
+      if (twilioInitiateCallBehavior === "error") {
         throw new Error("Twilio unavailable");
+      }
       return { callSid: "CA_test_123" };
     }
     async endCall() {
@@ -117,7 +120,9 @@ beforeEach(() => {
 
 let ensuredConvIds = new Set<string>();
 function ensureConversation(id: string): void {
-  if (ensuredConvIds.has(id)) return;
+  if (ensuredConvIds.has(id)) {
+    return;
+  }
   const db = getDb();
   const now = Date.now();
   db.insert(conversations)
@@ -144,7 +149,9 @@ function getLatestAssistantText(conversationId: string): string | null {
   const msgs = getMessages(conversationId).filter(
     (m) => m.role === "assistant",
   );
-  if (msgs.length === 0) return null;
+  if (msgs.length === 0) {
+    return null;
+  }
   const latest = msgs[msgs.length - 1];
   return latest.content
     .filter(
@@ -184,7 +191,7 @@ describe("resolveCallerIdentity — strict implicit-default policy", () => {
 
   test("implicit call uses assistant_number even when userNumber is configured", async () => {
     const result = await resolveCallerIdentity(
-      makeConfig({ userNumber: "+15550002222" }),
+      makeConfig({ userNumber: "+12025550102" }),
     );
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -206,13 +213,13 @@ describe("resolveCallerIdentity — strict implicit-default policy", () => {
 
   test("explicit user_number succeeds when eligible", async () => {
     const result = await resolveCallerIdentity(
-      makeConfig({ userNumber: "+15550002222" }),
+      makeConfig({ userNumber: "+12025550102" }),
       "user_number",
     );
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.mode).toBe("user_number");
-      expect(result.fromNumber).toBe("+15550002222");
+      expect(result.fromNumber).toBe("+12025550102");
       expect(result.source).toBe("user_config");
     }
   });
@@ -239,7 +246,7 @@ describe("resolveCallerIdentity — strict implicit-default policy", () => {
 
   test("explicit override rejected when allowPerCallOverride=false", async () => {
     const result = await resolveCallerIdentity(
-      makeConfig({ allowPerCallOverride: false, userNumber: "+15550002222" }),
+      makeConfig({ allowPerCallOverride: false, userNumber: "+12025550102" }),
       "user_number",
     );
     expect(result.ok).toBe(false);

@@ -17,11 +17,17 @@ import { sequenceHelp } from "./sequence.help.js";
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  if (hours < 24) {
+    return `${hours}h ${minutes % 60}m`;
+  }
   const days = Math.floor(hours / 24);
   return `${days}d ${hours % 24}h`;
 }
@@ -71,13 +77,17 @@ export function registerSequenceCommand(program: Command): void {
       subcommand(seqCmd, "list").action(async (opts: { status?: string }) => {
         const json = resolveJson(seqCmd);
         const params: Record<string, unknown> = {};
-        if (opts.status) params.status = opts.status;
+        if (opts.status) {
+          params.status = opts.status;
+        }
 
         const r = await cliIpcCall<{ sequences: SequenceSummary[] }>(
           "sequence_list",
           params,
         );
-        if (!r.ok) return exitFromIpcResult(r);
+        if (!r.ok) {
+          return exitFromIpcResult(r);
+        }
 
         const seqs = r.result!.sequences;
 
@@ -107,7 +117,9 @@ export function registerSequenceCommand(program: Command): void {
           sequence: SequenceSummary;
           enrollments: { total: number; byStatus: Record<string, number> };
         }>("sequence_get", { id });
-        if (!r.ok) return exitFromIpcResult(r);
+        if (!r.ok) {
+          return exitFromIpcResult(r);
+        }
 
         const { sequence: seq, enrollments } = r.result!;
 
@@ -119,10 +131,12 @@ export function registerSequenceCommand(program: Command): void {
         process.stdout.write(`  Name:          ${seq.name}\n`);
         process.stdout.write(`  ID:            ${seq.id}\n`);
         process.stdout.write(`  Status:        ${seq.status}\n`);
-        if (seq.channel)
+        if (seq.channel) {
           process.stdout.write(`  Channel:       ${seq.channel}\n`);
-        if (seq.description)
+        }
+        if (seq.description) {
           process.stdout.write(`  Description:   ${seq.description}\n`);
+        }
         process.stdout.write(`  Exit on reply: ${seq.exitOnReply}\n`);
         process.stdout.write(
           `  Active:        ${seq.activeEnrollments} enrollment(s)\n\n`,
@@ -150,7 +164,9 @@ export function registerSequenceCommand(program: Command): void {
         const r = await cliIpcCall<{ message: string }>("sequence_pause", {
           id,
         });
-        if (!r.ok) return exitFromIpcResult(r);
+        if (!r.ok) {
+          return exitFromIpcResult(r);
+        }
 
         if (json) {
           console.log(JSON.stringify({ ok: true, message: r.result!.message }));
@@ -165,7 +181,9 @@ export function registerSequenceCommand(program: Command): void {
         const r = await cliIpcCall<{ message: string }>("sequence_resume", {
           id,
         });
-        if (!r.ok) return exitFromIpcResult(r);
+        if (!r.ok) {
+          return exitFromIpcResult(r);
+        }
 
         if (json) {
           console.log(JSON.stringify({ ok: true, message: r.result!.message }));
@@ -182,7 +200,9 @@ export function registerSequenceCommand(program: Command): void {
             "sequence_cancel_enrollment",
             { enrollmentId },
           );
-          if (!r.ok) return exitFromIpcResult(r);
+          if (!r.ok) {
+            return exitFromIpcResult(r);
+          }
 
           if (json) {
             console.log(
@@ -203,7 +223,9 @@ export function registerSequenceCommand(program: Command): void {
           totalEnrollments: number;
           activeEnrollments: number;
         }>("sequence_stats");
-        if (!r.ok) return exitFromIpcResult(r);
+        if (!r.ok) {
+          return exitFromIpcResult(r);
+        }
 
         const stats = r.result!;
 
@@ -229,7 +251,9 @@ export function registerSequenceCommand(program: Command): void {
         const r = await cliIpcCall<{ config: GuardrailConfig }>(
           "sequence_guardrails_show",
         );
-        if (!r.ok) return exitFromIpcResult(r);
+        if (!r.ok) {
+          return exitFromIpcResult(r);
+        }
 
         const cfg = r.result!.config;
 
@@ -264,7 +288,9 @@ export function registerSequenceCommand(program: Command): void {
             message: string;
             config: GuardrailConfig;
           }>("sequence_guardrails_set", { key, value });
-          if (!r.ok) return exitFromIpcResult(r);
+          if (!r.ok) {
+            return exitFromIpcResult(r);
+          }
 
           if (json) {
             console.log(
@@ -290,7 +316,9 @@ export function registerSequenceCommand(program: Command): void {
 function resolveJson(cmd: Command): boolean {
   let c: Command | null = cmd;
   while (c) {
-    if ((c.opts() as { json?: boolean }).json) return true;
+    if ((c.opts() as { json?: boolean }).json) {
+      return true;
+    }
     c = c.parent;
   }
   return false;

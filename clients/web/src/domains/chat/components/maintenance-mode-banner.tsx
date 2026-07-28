@@ -1,12 +1,11 @@
-
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
 import {
-    useActiveAssistantLifecycleIsLoading,
-    usePlatformGate,
+  useActiveAssistantLifecycleIsLoading,
+  usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { Button } from "@vellumai/design-library";
 
@@ -40,12 +39,16 @@ export function MaintenanceModeBanner({
   // catches exactly the deep-link race we care about.
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
 
-  if (platformGate === "gated") return null;
+  if (platformGate === "gated") {
+    return null;
+  }
 
   const isResolving = platformGate === "full" && isLifecycleLoading;
 
   const handleResumeAssistant = async () => {
-    if (isExiting) return;
+    if (isExiting) {
+      return;
+    }
     setIsExiting(true);
     setExitError(null);
     try {

@@ -1,4 +1,3 @@
-
 import { AlertCircle, ChevronRight, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
@@ -6,8 +5,8 @@ import { Link, useLocation, useSearchParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-    organizationsBillingSummaryRetrieveOptions,
-    organizationsBillingTopUpsCheckoutSessionCreateMutation,
+  organizationsBillingSummaryRetrieveOptions,
+  organizationsBillingTopUpsCheckoutSessionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { routes } from "@/utils/routes";
@@ -16,8 +15,16 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 const DEFAULT_TOP_UP_AMOUNTS: [string, ...string[]] = [
-  "10.00", "20.00", "30.00", "40.00", "50.00",
-  "60.00", "70.00", "80.00", "90.00", "100.00",
+  "10.00",
+  "20.00",
+  "30.00",
+  "40.00",
+  "50.00",
+  "60.00",
+  "70.00",
+  "80.00",
+  "90.00",
+  "100.00",
 ];
 
 function formatCredits(value: string): string {
@@ -63,16 +70,15 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
     organizationsBillingSummaryRetrieveOptions(),
   );
 
-  const topUpAmounts =
-    summary?.allowed_top_up_amounts?.length
-      ? summary.allowed_top_up_amounts
-      : DEFAULT_TOP_UP_AMOUNTS;
+  const topUpAmounts = summary?.allowed_top_up_amounts?.length
+    ? summary.allowed_top_up_amounts
+    : DEFAULT_TOP_UP_AMOUNTS;
 
   const [selectedAmount, setSelectedAmount] = useState<string | null>(null);
   const amount =
     selectedAmount && topUpAmounts.includes(selectedAmount)
       ? selectedAmount
-      : topUpAmounts[0] ?? DEFAULT_TOP_UP_AMOUNTS[0];
+      : (topUpAmounts[0] ?? DEFAULT_TOP_UP_AMOUNTS[0]);
 
   const checkoutMutation = useMutation(
     organizationsBillingTopUpsCheckoutSessionCreateMutation(),

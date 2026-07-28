@@ -18,7 +18,9 @@ export const DOMAINS_DIR = path.join(WEB_ROOT, "src/domains");
  */
 export function ownDomainFor(filePath) {
   const rel = path.relative(DOMAINS_DIR, filePath);
-  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) {
+    return null;
+  }
   const [first] = rel.split(path.sep);
   return first || null;
 }
@@ -37,15 +39,21 @@ export function ownDomainFor(filePath) {
  * the absolute path of the file containing the import.
  */
 export function targetDomainFor(source, importerFile) {
-  if (typeof source !== "string") return null;
+  if (typeof source !== "string") {
+    return null;
+  }
 
   const alias = /^@\/domains\/([^/]+)(?:\/|$)/.exec(source);
-  if (alias) return alias[1];
+  if (alias) {
+    return alias[1];
+  }
 
   if (source.startsWith(".") && importerFile) {
     const resolved = path.resolve(path.dirname(importerFile), source);
     const rel = path.relative(DOMAINS_DIR, resolved);
-    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) {
+      return null;
+    }
     const [first] = rel.split(path.sep);
     return first || null;
   }

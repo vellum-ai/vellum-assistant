@@ -91,15 +91,18 @@ const TERMINAL_STATUSES = new Set<AcpRunStatus>([
 
 /** Map a daemon session status string onto an {@link AcpRunStatus}. */
 function toRunStatus(status: string): AcpRunStatus {
-  if (TERMINAL_STATUSES.has(status as AcpRunStatus))
+  if (TERMINAL_STATUSES.has(status as AcpRunStatus)) {
     return status as AcpRunStatus;
+  }
   return status === "initializing" ? "initializing" : "running";
 }
 
 function toRawEvents(eventLog: AcpSessionEventLogItem[]): AcpRunRawEvent[] {
   const events: AcpRunRawEvent[] = [];
   for (const item of eventLog) {
-    if (!item.updateType) continue;
+    if (!item.updateType) {
+      continue;
+    }
     // Leave `seq` undefined when the persisted item lacks one (event logs from
     // older daemons). The store keeps seqless events out of the high-water mark,
     // matching the daemon, which seeds its resume counter from numeric seqs only
@@ -173,7 +176,9 @@ export async function fetchAcpSessions(
       query: { conversationId, limit: ACP_SNAPSHOT_LIMIT },
       throwOnError: false,
     });
-    if (!response?.ok || !data?.sessions) return null;
+    if (!response?.ok || !data?.sessions) {
+      return null;
+    }
     return data.sessions
       .filter((row): row is AcpSessionRow => !!row?.id)
       .map(toRunEntry);
@@ -212,14 +217,23 @@ function applyAcpSnapshot(
   entries: AcpRunEntry[] | null,
   priorActiveIds: string[],
 ): void {
-  if (entries === null) return;
+  if (entries === null) {
+    return;
+  }
   const store = useAcpRunStore.getState();
-  if (entries.length > 0) store.seedFromHistory(entries);
-  if (entries.length >= ACP_SNAPSHOT_LIMIT) return;
+  if (entries.length > 0) {
+    store.seedFromHistory(entries);
+  }
+  if (entries.length >= ACP_SNAPSHOT_LIMIT) {
+    return;
+  }
   const present = new Set(entries.map((e) => e.acpSessionId));
   const missing = priorActiveIds.filter((id) => !present.has(id));
   if (missing.length > 0) {
-    store.retireMissingRuns({ acpSessionIds: missing, completedAt: Date.now() });
+    store.retireMissingRuns({
+      acpSessionIds: missing,
+      completedAt: Date.now(),
+    });
   }
 }
 
@@ -228,11 +242,15 @@ export function useAcpRunRehydration(
   conversationId: string | null,
 ): void {
   useEffect(() => {
-    if (!assistantId || !conversationId) return;
+    if (!assistantId || !conversationId) {
+      return;
+    }
     let cancelled = false;
     const priorActiveIds = activeRunIdsFor(conversationId);
     void fetchAcpSessions(assistantId, conversationId).then((entries) => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       applyAcpSnapshot(entries, priorActiveIds);
     });
     return () => {
@@ -249,8 +267,14 @@ export function useAcpRunRehydration(
   useBusSubscription(
     "sse.opened",
     ({ assistantId: openedAssistantId, cause }) => {
-      if (cause === "fresh" || cause === "anchor") return;
-      if (!assistantId || !conversationId || openedAssistantId !== assistantId) {
+      if (cause === "fresh" || cause === "anchor") {
+        return;
+      }
+      if (
+        !assistantId ||
+        !conversationId ||
+        openedAssistantId !== assistantId
+      ) {
         return;
       }
       const priorActiveIds = activeRunIdsFor(conversationId);

@@ -13,7 +13,9 @@ await initializeDb();
 
 const createHandler = (() => {
   const route = ROUTES.find((r) => r.operationId === "createSchedule");
-  if (!route) throw new Error("createSchedule route not found");
+  if (!route) {
+    throw new Error("createSchedule route not found");
+  }
   return route.handler;
 })();
 

@@ -32,8 +32,7 @@ const ONBOARDING_MACHINE_DRF_FIELD_KEYS = [
 
 export const ONBOARDING_ERROR_CODE_MESSAGES: Record<string, string> = {
   subdomain_taken: "That subdomain is already taken. Try another.",
-  assistant_already_has_domain:
-    "Your assistant already has a custom domain.",
+  assistant_already_has_domain: "Your assistant already has a custom domain.",
   no_assistant_to_attach_domain:
     "We couldn't find an assistant to attach this domain to.",
   exceeds_machine_tier: "That machine size isn't available on your plan.",
@@ -53,7 +52,9 @@ export function extractOnboardingErrorMessage(
     const rec = error as Record<string, unknown>;
     if (typeof rec.error === "string") {
       const mapped = ONBOARDING_ERROR_CODE_MESSAGES[rec.error];
-      if (mapped) return mapped;
+      if (mapped) {
+        return mapped;
+      }
     }
     for (const key of ONBOARDING_MACHINE_DRF_FIELD_KEYS) {
       const msgs = rec[key];

@@ -68,7 +68,9 @@ async function computeContentHashes(
 
   for (const entryPath of entries) {
     const file = zip.file(entryPath);
-    if (!file || file.dir) continue;
+    if (!file || file.dir) {
+      continue;
+    }
     const content = await file.async("nodebuffer");
     const hash = createHash("sha256").update(content).digest("hex");
     hashes[entryPath] = hash;

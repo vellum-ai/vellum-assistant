@@ -73,7 +73,9 @@ export function getGroup(groupId: string): ConversationGroupRow | null {
     "SELECT id, name, icon, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id = ?",
     groupId,
   );
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return {
     id: row.id,
     name: row.name,
@@ -139,7 +141,9 @@ export function updateGroup(
 ): ConversationGroupRow | null {
   ensureGroupMigration();
   const existing = getGroup(groupId);
-  if (!existing) return null;
+  if (!existing) {
+    return null;
+  }
 
   const fields: string[] = [];
   const values: (string | number | null)[] = [];
@@ -157,7 +161,9 @@ export function updateGroup(
     values.push(updates.sortPosition);
   }
 
-  if (fields.length === 0) return existing;
+  if (fields.length === 0) {
+    return existing;
+  }
 
   fields.push("updated_at = ?");
   const now = Math.floor(Date.now() / 1000);
@@ -214,8 +220,12 @@ export function reorderGroups(
         "SELECT id, is_system_group FROM conversation_groups WHERE id = ?",
         update.groupId,
       );
-      if (!group) continue;
-      if (group.is_system_group === 1) continue;
+      if (!group) {
+        continue;
+      }
+      if (group.is_system_group === 1) {
+        continue;
+      }
 
       if (update.sortPosition < 4) {
         throw new Error(

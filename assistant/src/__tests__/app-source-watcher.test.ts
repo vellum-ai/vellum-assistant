@@ -19,7 +19,9 @@ let capturedErrorHandler: ((err: unknown) => void) | null = null;
 const mockWatcher = {
   close: mock(() => {}),
   on: mock((event: string, handler: (err: unknown) => void) => {
-    if (event === "error") capturedErrorHandler = handler;
+    if (event === "error") {
+      capturedErrorHandler = handler;
+    }
   }),
 };
 const mockExistsSync = mock((p: string): boolean => p === TEST_APPS_DIR);

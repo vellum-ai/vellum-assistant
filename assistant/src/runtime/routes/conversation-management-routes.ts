@@ -104,7 +104,9 @@ const log = getLogger("conversation-management-routes");
 
 function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
-  if (!id) throw new NotFoundError(`Conversation ${rawId} not found`);
+  if (!id) {
+    throw new NotFoundError(`Conversation ${rawId} not found`);
+  }
   return id;
 }
 

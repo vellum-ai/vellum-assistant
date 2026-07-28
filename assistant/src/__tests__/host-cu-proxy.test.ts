@@ -517,7 +517,13 @@ describe("HostCuProxy", () => {
       // All of these normalize to an exempt combo the mac helper would execute
       // identically: spaced, uppercase, alt->option alias, command->cmd alias,
       // and reversed modifier order.
-      const variants = ["cmd + a", "CMD+A", "alt+tab", "command+c", "tab+shift"];
+      const variants = [
+        "cmd + a",
+        "CMD+A",
+        "alt+tab",
+        "command+c",
+        "tab+shift",
+      ];
 
       for (const [i, variant] of variants.entries()) {
         setup();

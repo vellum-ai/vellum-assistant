@@ -127,7 +127,9 @@ function isPlumbingFrame(line: string): boolean {
   ) {
     return true;
   }
-  if (line.includes(SELF_MODULE)) return true;
+  if (line.includes(SELF_MODULE)) {
+    return true;
+  }
   const isDependency =
     line.includes("node_modules/") || line.includes(".bun/install/cache/");
   return isDependency && !line.includes(ASSISTANT_SRC_MARKER);
@@ -136,7 +138,9 @@ function isPlumbingFrame(line: string): boolean {
 /** `src/`-relative path, or bare basename when the frame is outside `src/`. */
 function shortenStackFile(file: string): string {
   const idx = file.lastIndexOf("/src/");
-  if (idx >= 0) return file.slice(idx + "/src/".length);
+  if (idx >= 0) {
+    return file.slice(idx + "/src/".length);
+  }
   return file.split("/").pop() ?? file;
 }
 
@@ -166,13 +170,19 @@ function isAnonymousFunctionName(name: string): boolean {
 export function callerFromStack(
   stack: string | undefined = new Error().stack,
 ): string | undefined {
-  if (!stack) return undefined;
+  if (!stack) {
+    return undefined;
+  }
   const lines = stack.split("\n");
   let anonymousFallback: string | undefined;
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
-    if (!line.includes("at ")) continue;
-    if (isPlumbingFrame(line)) continue;
+    if (!line.includes("at ")) {
+      continue;
+    }
+    if (isPlumbingFrame(line)) {
+      continue;
+    }
     // Bun renders frames as `at fn (file:line:col)`, `at file:line:col`, or
     // (for some optimized frames) `at file:line` with no function or column.
     const withFn = line.match(
@@ -318,7 +328,9 @@ export function wrapSqliteForSlowQueryLogging(
     let byLabel = proxiesByStmt.get(stmt);
     if (byLabel) {
       const cached = byLabel.get(cacheKey);
-      if (cached) return cached;
+      if (cached) {
+        return cached;
+      }
     } else {
       byLabel = new Map();
       proxiesByStmt.set(stmt, byLabel);
@@ -334,7 +346,9 @@ export function wrapSqliteForSlowQueryLogging(
               target as unknown as Record<string, (...a: unknown[]) => unknown>
             )[prop].bind(target);
             fn = (...args: unknown[]): unknown => {
-              if (timing) return call(...args); // inner re-entry: no timing
+              if (timing) {
+                return call(...args);
+              } // inner re-entry: no timing
               timing = true;
               const start = now();
               let result: unknown;
@@ -430,7 +444,9 @@ export function wrapSqliteForSlowQueryLogging(
     (label: string | undefined) =>
     (sql: string, ...params: unknown[]): unknown => {
       const call = originalRun as (...a: unknown[]) => unknown;
-      if (timing) return call(sql, ...params);
+      if (timing) {
+        return call(sql, ...params);
+      }
       timing = true;
       const start = now();
       let result: unknown;
@@ -443,7 +459,9 @@ export function wrapSqliteForSlowQueryLogging(
       } finally {
         timing = false;
         const durationMs = now() - start;
-        if (durationMs >= thresholdMs) emit(sql, label, durationMs, result);
+        if (durationMs >= thresholdMs) {
+          emit(sql, label, durationMs, result);
+        }
       }
     };
 

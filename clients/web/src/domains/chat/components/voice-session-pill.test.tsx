@@ -24,9 +24,8 @@ mock.module("@/hooks/use-is-mobile", () => ({
 }));
 
 // Imported after the mock so the component picks up the mocked module.
-const { VoiceSessionErrorChip, VoiceSessionPill } = await import(
-  "@/domains/chat/components/voice-session-pill"
-);
+const { VoiceSessionErrorChip, VoiceSessionPill } =
+  await import("@/domains/chat/components/voice-session-pill");
 type VoiceSessionPillProps = React.ComponentProps<typeof VoiceSessionPill>;
 
 beforeEach(() => {
@@ -57,9 +56,12 @@ function renderPill(overrides: Partial<VoiceSessionPillProps> = {}) {
   return handlers;
 }
 
-const stopButton = () => screen.queryByRole("button", { name: "Stop assistant response" });
-const endButton = () => screen.getByRole("button", { name: "End voice session" });
-const navButton = () => screen.queryByRole("button", { name: "Go to voice session thread" });
+const stopButton = () =>
+  screen.queryByRole("button", { name: "Stop assistant response" });
+const endButton = () =>
+  screen.getByRole("button", { name: "End voice session" });
+const navButton = () =>
+  screen.queryByRole("button", { name: "Go to voice session thread" });
 
 describe("VoiceSessionPill — textless surface", () => {
   test("paints no visible label — state reaches AT via a live region only", () => {
@@ -211,7 +213,9 @@ describe("VoiceSessionPill — condensed mobile form", () => {
     // One trigger, no inline controls: three icon buttons leave the header's
     // centre title unreadable at phone widths.
     expect(trigger()).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Mute microphone" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Mute microphone" }),
+    ).toBeNull();
     expect(
       screen.queryByRole("button", { name: "End voice session" }),
     ).toBeNull();

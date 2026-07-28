@@ -22,6 +22,9 @@ import type {
   ToolResultContent,
   ToolUseContent,
 } from "../../providers/types.js";
+import { getLogger } from "../../util/logger.js";
+
+const log = getLogger("history-repair");
 
 interface RepairStats {
   assistantToolResultsMigrated: number;
@@ -292,6 +295,31 @@ export function repairHistory(messages: Message[]): RepairResult {
   }
 
   return { messages: merged, stats, inputToOutputIndex };
+}
+
+/**
+ * Repair the working history immediately before a provider call and return the
+ * repaired messages, warning when any normalization was applied. Thin logging
+ * wrapper over {@link repairHistory} for the per-turn agent-loop call site,
+ * which needs only the messages (not the stats or index map).
+ */
+export function repairHistoryForRun(
+  messages: Message[],
+  conversationId: string,
+): Message[] {
+  const { messages: repaired, stats } = repairHistory(messages);
+  if (
+    stats.assistantToolResultsMigrated > 0 ||
+    stats.missingToolResultsInserted > 0 ||
+    stats.orphanToolResultsDowngraded > 0 ||
+    stats.consecutiveSameRoleMerged > 0
+  ) {
+    log.warn(
+      { conversationId, phase: "pre_run", ...stats },
+      "Repaired runtime history before provider call",
+    );
+  }
+  return repaired;
 }
 
 function buildResultMessage(

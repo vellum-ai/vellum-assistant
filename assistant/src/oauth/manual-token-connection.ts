@@ -42,7 +42,9 @@ function resolveManualTokenAccountInfo(
 
   if (provider === "telegram") {
     const botUsername = getTelegramBotUsername();
-    if (!botUsername) return { source: "none" };
+    if (!botUsername) {
+      return { source: "none" };
+    }
     return {
       value: botUsername.startsWith("@") ? botUsername : `@${botUsername}`,
       source: "derived",
@@ -56,10 +58,14 @@ function accountInfoForManualTokenSync(
   provider: string,
   resolved: ResolvedAccountInfo,
 ): string | undefined {
-  if (resolved.source !== "derived") return resolved.value;
+  if (resolved.source !== "derived") {
+    return resolved.value;
+  }
 
   const existing = getConnectionByProvider(provider);
-  if (existing?.accountInfo) return undefined;
+  if (existing?.accountInfo) {
+    return undefined;
+  }
   return resolved.value;
 }
 
@@ -103,7 +109,9 @@ export async function ensureManualTokenConnection(
  */
 export function removeManualTokenConnection(provider: string): void {
   const conn = getConnectionByProvider(provider);
-  if (!conn) return;
+  if (!conn) {
+    return;
+  }
   deleteConnection(conn.id);
 }
 

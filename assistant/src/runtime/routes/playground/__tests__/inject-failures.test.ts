@@ -18,8 +18,12 @@ mock.module("../../../../context/token-estimator.js", () => ({
 
 mock.module("../helpers.js", () => ({
   getConversationById: async (id: string) => {
-    if (!_mockConversation) {return undefined;}
-    if (_mockConversation.conversationId !== id) {return undefined;}
+    if (!_mockConversation) {
+      return undefined;
+    }
+    if (_mockConversation.conversationId !== id) {
+      return undefined;
+    }
     return _mockConversation as unknown as Conversation;
   },
   listConversationsByTitlePrefix: () => [],
@@ -68,7 +72,9 @@ function findRoute() {
   const route = ROUTES.find(
     (r) => r.operationId === "playgroundInjectCompactionFailures",
   );
-  if (!route) {throw new Error("inject-failures route not registered");}
+  if (!route) {
+    throw new Error("inject-failures route not registered");
+  }
   return route;
 }
 

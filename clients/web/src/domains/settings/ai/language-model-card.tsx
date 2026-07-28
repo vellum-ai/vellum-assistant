@@ -11,12 +11,8 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import {
-  ByoServiceCard,
-} from "@/domains/settings/ai/shared-ui";
-import {
-  SaveButton,
-} from "@/components/service-form-controls";
+import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
+import { SaveButton } from "@/components/service-form-controls";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";

@@ -16,7 +16,9 @@ let ipcError: Error | undefined;
 const ipcCallPersistentMock = mock(
   async (method: string, params?: Record<string, unknown>) => {
     ipcCalls.push({ method, params });
-    if (ipcError) throw ipcError;
+    if (ipcError) {
+      throw ipcError;
+    }
     return ipcResult;
   },
 );
@@ -29,7 +31,9 @@ import { ROUTES as trustRuleRoutes } from "../../runtime/routes/trust-rules-rout
 
 function findRoute(method: string) {
   const route = trustRuleRoutes.find((r) => r.operationId === method);
-  if (!route) throw new Error(`Route not found: ${method}`);
+  if (!route) {
+    throw new Error(`Route not found: ${method}`);
+  }
   return route;
 }
 

@@ -28,7 +28,11 @@ let mockIpcResult: {
   error?: string;
 } = {
   ok: true,
-  result: { transcript: "hello world", provider: "openai-whisper", durationSeconds: 1.5 },
+  result: {
+    transcript: "hello world",
+    provider: "openai-whisper",
+    durationSeconds: 1.5,
+  },
 };
 
 /** Captured log output for assertion. */
@@ -104,7 +108,9 @@ async function runCommand(
     const program = buildProgram();
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;
@@ -124,7 +130,11 @@ beforeEach(() => {
   lastIpcCall = null;
   mockIpcResult = {
     ok: true,
-    result: { transcript: "hello world", provider: "openai-whisper", durationSeconds: 1.5 },
+    result: {
+      transcript: "hello world",
+      provider: "openai-whisper",
+      durationSeconds: 1.5,
+    },
   };
   logOutput = [];
   process.exitCode = 0;
@@ -283,7 +293,11 @@ describe("empty transcript", () => {
   test("empty transcript prints 'No speech detected' to stdout", async () => {
     mockIpcResult = {
       ok: true,
-      result: { transcript: "", provider: "openai-whisper", durationSeconds: 0.5 },
+      result: {
+        transcript: "",
+        provider: "openai-whisper",
+        durationSeconds: 0.5,
+      },
     };
 
     const { exitCode, stdout } = await runCommand([
@@ -300,7 +314,11 @@ describe("empty transcript", () => {
   test("empty transcript with --json outputs ok: true with empty transcript", async () => {
     mockIpcResult = {
       ok: true,
-      result: { transcript: "", provider: "openai-whisper", durationSeconds: 0.5 },
+      result: {
+        transcript: "",
+        provider: "openai-whisper",
+        durationSeconds: 0.5,
+      },
     };
 
     const { exitCode, stdout } = await runCommand([

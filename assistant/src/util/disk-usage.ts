@@ -22,16 +22,22 @@ export interface DiskUsageInfo {
 function getDirectorySizeBytes(paths: string[]): number | null {
   try {
     const existing = paths.filter((p) => existsSync(p));
-    if (existing.length === 0) return null;
+    if (existing.length === 0) {
+      return null;
+    }
     const result = spawnSync("du", ["-sb", ...existing], {
       encoding: "utf-8",
       timeout: 30_000,
     });
-    if (result.status !== 0) return null;
+    if (result.status !== 0) {
+      return null;
+    }
     let total = 0;
     for (const line of result.stdout.trim().split("\n")) {
       const size = parseInt(line.split("\t")[0], 10);
-      if (!isNaN(size) && size > 0) total += size;
+      if (!isNaN(size) && size > 0) {
+        total += size;
+      }
     }
     return total > 0 ? total : null;
   } catch {
@@ -167,7 +173,9 @@ export function parseK8sMemoryBytes(value: string): number | null {
   const match = value
     .trim()
     .match(/^(\d+(?:\.\d+)?)\s*(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E|m)?$/);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   const num = parseFloat(match[1]);
   const unit = match[2] ?? "";
   const multipliers: Record<string, number> = {
@@ -187,7 +195,9 @@ export function parseK8sMemoryBytes(value: string): number | null {
     Ei: 1024 ** 6,
   };
   const mult = multipliers[unit];
-  if (mult === undefined) return null;
+  if (mult === undefined) {
+    return null;
+  }
   const bytes = Math.round(num * mult);
   return bytes > 0 ? bytes : null;
 }

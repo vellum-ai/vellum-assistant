@@ -51,7 +51,9 @@ export const capacitorFlavor: SentryFlavor = {
         // stays first so a denied event is dropped before any work is done on
         // it — the gate is not weakened by what runs after it.
         beforeSend: (event, hint) => {
-          if (!diagnosticsConsentGranted()) return null;
+          if (!diagnosticsConsentGranted()) {
+            return null;
+          }
           return enrich ? enrich(event, hint) : event;
         },
       },

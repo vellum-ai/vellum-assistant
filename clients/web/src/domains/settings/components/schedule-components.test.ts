@@ -72,15 +72,12 @@ const {
   SYSTEM_TASK_URL_IDS,
   systemTaskKindFromUrlId,
 } = await import("@/domains/settings/utils/schedule-formatters");
-const { RecentRunsCard } = await import(
-  "@/domains/settings/components/recent-runs-card"
-);
-const { CreateScheduleModal } = await import(
-  "@/domains/settings/components/create-schedule-modal"
-);
-const { SystemTaskRow, SystemTasksSection } = await import(
-  "@/domains/settings/components/system-tasks-section"
-);
+const { RecentRunsCard } =
+  await import("@/domains/settings/components/recent-runs-card");
+const { CreateScheduleModal } =
+  await import("@/domains/settings/components/create-schedule-modal");
+const { SystemTaskRow, SystemTasksSection } =
+  await import("@/domains/settings/components/system-tasks-section");
 
 afterEach(() => {
   cleanup();
@@ -513,15 +510,30 @@ describe("RecentRunsCard", () => {
 describe("summarizeRunsForUsage", () => {
   test("counts only executed runs, not skipped/missed/bookkeeping rows", () => {
     const runs = [
-      run({ id: "r-ok", status: "ok", startedAt: 1_000, estimatedCostUsd: 0.1 }),
+      run({
+        id: "r-ok",
+        status: "ok",
+        startedAt: 1_000,
+        estimatedCostUsd: 0.1,
+      }),
       run({
         id: "r-error",
         status: "error",
         startedAt: 1_100,
         estimatedCostUsd: 0.05,
       }),
-      run({ id: "r-skip", status: "skipped", startedAt: 1_200, estimatedCostUsd: 0 }),
-      run({ id: "r-miss", status: "missed", startedAt: 1_300, estimatedCostUsd: 0 }),
+      run({
+        id: "r-skip",
+        status: "skipped",
+        startedAt: 1_200,
+        estimatedCostUsd: 0,
+      }),
+      run({
+        id: "r-miss",
+        status: "missed",
+        startedAt: 1_300,
+        estimatedCostUsd: 0,
+      }),
       run({
         id: "r-pending",
         status: "pending",

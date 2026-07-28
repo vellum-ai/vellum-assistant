@@ -18,7 +18,13 @@ import {
   test,
 } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 
 // ---------------------------------------------------------------------------
@@ -80,9 +86,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
 // after the env var is set.
 const originalStripePk = process.env.VITE_STRIPE_PUBLISHABLE_KEY;
 process.env.VITE_STRIPE_PUBLISHABLE_KEY = "pk_test_fake";
-const { AutoTopUpPaymentMethodModal } = await import(
-  "./auto-top-up-payment-method-modal"
-);
+const { AutoTopUpPaymentMethodModal } =
+  await import("./auto-top-up-payment-method-modal");
 
 // `bun test` runs all test files in one process, so restore the env var to
 // avoid leaking it into other test files.
@@ -117,12 +122,16 @@ async function renderModalWithForm(): Promise<ReturnType<typeof render>> {
 }
 
 function fireOnReady(props: ElementProps | null): void {
-  if (!props?.onReady) throw new Error("expected an onReady handler");
+  if (!props?.onReady) {
+    throw new Error("expected an onReady handler");
+  }
   act(() => props.onReady!());
 }
 
 function fireOnLoadError(props: ElementProps | null): void {
-  if (!props?.onLoadError) throw new Error("expected an onLoadError handler");
+  if (!props?.onLoadError) {
+    throw new Error("expected an onLoadError handler");
+  }
   act(() => props.onLoadError!());
 }
 
@@ -182,7 +191,9 @@ describe("AutoTopUpPaymentMethodModal billing address", () => {
     fireOnReady(paymentElementProps);
     fireOnReady(addressElementProps);
 
-    fireEvent.submit(getByTestId("auto-top-up-pm-save-button").closest("form")!);
+    fireEvent.submit(
+      getByTestId("auto-top-up-pm-save-button").closest("form")!,
+    );
 
     await waitFor(() => {
       if (confirmSetupCalls.length === 0) {

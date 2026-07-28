@@ -37,7 +37,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
   messagesPost: (opts: PostCall) => {
     postCalls.push(opts);
-    if (postShouldThrow) return Promise.reject(new Error("network blew up"));
+    if (postShouldThrow) {
+      return Promise.reject(new Error("network blew up"));
+    }
     return Promise.resolve({
       data: {},
       error: undefined,

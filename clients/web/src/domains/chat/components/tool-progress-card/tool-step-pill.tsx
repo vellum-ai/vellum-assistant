@@ -81,7 +81,8 @@ const INTERACTIVE_BASE =
   "transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]";
 
 /** Resting / hover fill for a non-active pill. */
-const IDLE_COLOR_CLASSES = "bg-[var(--surface-overlay)] text-[var(--content-default)]";
+const IDLE_COLOR_CLASSES =
+  "bg-[var(--surface-overlay)] text-[var(--content-default)]";
 
 /**
  * 14px favicon glyph occupying the same slot as the tool variant's lucide icon.

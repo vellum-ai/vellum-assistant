@@ -39,7 +39,9 @@ export function CreateMemoryModal({
 
   const handleCreate = useCallback(async () => {
     const trimmed = content.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -122,7 +124,9 @@ export function CreateMemoryModal({
             variant="primary"
             onClick={handleCreate}
             disabled={isSaving || !content.trim()}
-            leftIcon={isSaving ? <Loader2 className="animate-spin" /> : undefined}
+            leftIcon={
+              isSaving ? <Loader2 className="animate-spin" /> : undefined
+            }
           >
             {isSaving ? "Creating…" : "Create memory"}
           </Button>

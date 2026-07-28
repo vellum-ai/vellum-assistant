@@ -53,14 +53,22 @@ interface ReadinessResponse {
 // ---------------------------------------------------------------------------
 
 function statusGlyph(s: ChannelSnapshot): string {
-  if (s.ready) return "✅";
-  if (s.setupStatus === "not_configured") return "○ ";
+  if (s.ready) {
+    return "✅";
+  }
+  if (s.setupStatus === "not_configured") {
+    return "○ ";
+  }
   return "⚠️ ";
 }
 
 function statusWord(s: ChannelSnapshot): string {
-  if (s.ready) return "ready";
-  if (s.setupStatus === "not_configured") return "not configured";
+  if (s.ready) {
+    return "ready";
+  }
+  if (s.setupStatus === "not_configured") {
+    return "not configured";
+  }
   return "incomplete";
 }
 

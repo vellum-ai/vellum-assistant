@@ -95,7 +95,9 @@ function reportCorruption(
   const now = Date.now();
   const last =
     lastReportAtByDatabase.get(detail.database) ?? Number.NEGATIVE_INFINITY;
-  if (now - last < REPORT_COOLDOWN_MS) return;
+  if (now - last < REPORT_COOLDOWN_MS) {
+    return;
+  }
   lastReportAtByDatabase.set(detail.database, now);
 
   log.error(detail, "SQLite corruption detected");
@@ -135,7 +137,9 @@ export function observeSqliteStatementError(
   err: unknown,
   context: StatementErrorContext,
 ): void {
-  if (!isSqliteCorruptionError(err)) return;
+  if (!isSqliteCorruptionError(err)) {
+    return;
+  }
   reportCorruption({
     database: context.database ?? "unknown",
     error: err instanceof Error ? err.message : String(err),

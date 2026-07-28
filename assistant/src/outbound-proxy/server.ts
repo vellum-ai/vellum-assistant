@@ -43,18 +43,28 @@ export interface ProxyServerConfig {
 function parseConnectTarget(
   url: string | undefined,
 ): { host: string; port: number } | null {
-  if (!url) return null;
+  if (!url) {
+    return null;
+  }
   const colonIdx = url.lastIndexOf(":");
-  if (colonIdx <= 0) return null;
+  if (colonIdx <= 0) {
+    return null;
+  }
   let host = url.slice(0, colonIdx);
   const portStr = url.slice(colonIdx + 1);
-  if (!host || !portStr) return null;
+  if (!host || !portStr) {
+    return null;
+  }
   const port = Number(portStr);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return null;
+  }
   // Strip brackets from IPv6 literals -- net.connect expects the raw address
   if (host.startsWith("[") && host.endsWith("]")) {
     host = host.slice(1, -1);
-    if (!host) return null;
+    if (!host) {
+      return null;
+    }
   }
   return { host, port };
 }

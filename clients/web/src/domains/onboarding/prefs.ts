@@ -209,7 +209,9 @@ export function isAnalyticsEnabled(): boolean {
  * and tolerant of disabled storage.
  */
 export function readSelectedVersion(): string {
-  if (typeof window === "undefined") return "";
+  if (typeof window === "undefined") {
+    return "";
+  }
   try {
     return getLocalSetting(KEY_SELECTED_VERSION, "");
   } catch {
@@ -222,7 +224,9 @@ export function readSelectedVersion(): string {
  * the key so the next hatch uses the managed "latest" default.
  */
 export function writeSelectedVersion(version: string): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   try {
     if (version === "") {
       removeLocalSetting(KEY_SELECTED_VERSION);

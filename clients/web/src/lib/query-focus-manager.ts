@@ -36,7 +36,9 @@ import { subscribe } from "@/lib/event-bus";
 export function setupQueryFocusManager(): () => void {
   focusManager.setEventListener((handleFocus) => {
     const unsubResume = subscribe("app.resume", ({ signal }) => {
-      if (signal === "online") return;
+      if (signal === "online") {
+        return;
+      }
       handleFocus(true);
     });
     const unsubHidden = subscribe("app.hidden", () => {
@@ -52,8 +54,7 @@ export function setupQueryFocusManager(): () => void {
   // setup that re-registers the standard visibilitychange handler.
   return () => {
     focusManager.setEventListener((handleFocus) => {
-      const handler = () =>
-        handleFocus(document.visibilityState === "visible");
+      const handler = () => handleFocus(document.visibilityState === "visible");
       document.addEventListener("visibilitychange", handler);
       return () => document.removeEventListener("visibilitychange", handler);
     });

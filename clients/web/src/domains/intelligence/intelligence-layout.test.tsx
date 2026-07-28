@@ -39,9 +39,8 @@ mock.module("@/components/layout/chat-layout-slots-store", () => ({
   },
 }));
 
-const { IntelligenceLayout } = await import(
-  "@/domains/intelligence/intelligence-layout"
-);
+const { IntelligenceLayout } =
+  await import("@/domains/intelligence/intelligence-layout");
 
 const renderLayoutAt = (path: string) =>
   render(

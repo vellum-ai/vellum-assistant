@@ -69,7 +69,9 @@ export const seedDefaultUserGuardrailsMigration: WorkspaceMigration = {
     // is a no-op there.
     if (existsSync(defaultPath)) {
       try {
-        if (readFileSync(defaultPath, "utf-8").trim().length > 0) return;
+        if (readFileSync(defaultPath, "utf-8").trim().length > 0) {
+          return;
+        }
       } catch {
         // Unreadable file: leave it untouched rather than risk overwriting.
         return;

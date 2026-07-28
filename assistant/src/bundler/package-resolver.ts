@@ -40,7 +40,9 @@ export function getCacheDir(): string {
  * (i.e. not a relative/absolute path, not preact/react which are aliased).
  */
 export function isBareImport(name: string): boolean {
-  if (name.startsWith(".") || name.startsWith("/")) return false;
+  if (name.startsWith(".") || name.startsWith("/")) {
+    return false;
+  }
   if (
     name.startsWith("preact") ||
     name.startsWith("react") ||

@@ -55,7 +55,7 @@ export function registerTelemetryCommand(program: Command): void {
             "telemetry_flush",
             {},
           );
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               {
                 ok: false,
@@ -64,6 +64,7 @@ export function registerTelemetryCommand(program: Command): void {
               },
               cmd,
             );
+          }
 
           const result = r.result!;
           if (shouldOutputJson(cmd)) {

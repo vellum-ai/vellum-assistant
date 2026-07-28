@@ -163,7 +163,9 @@ describe("removeByConversation preserves question interactions", () => {
   }
 
   afterEach(() => {
-    for (const id of ids) pendingInteractions.resolve(id, "cancelled");
+    for (const id of ids) {
+      pendingInteractions.resolve(id, "cancelled");
+    }
     ids.length = 0;
   });
 

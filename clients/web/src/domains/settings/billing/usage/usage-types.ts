@@ -14,12 +14,7 @@ import type {
 } from "@/generated/daemon/types.gen";
 
 export type UsageTimeRange =
-  | "today"
-  | "yesterday"
-  | "7d"
-  | "30d"
-  | "90d"
-  | "all";
+  "today" | "yesterday" | "7d" | "30d" | "90d" | "all";
 
 export type UsageGranularity = "daily" | "hourly";
 

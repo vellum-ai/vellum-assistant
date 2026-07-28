@@ -115,7 +115,9 @@ const resolveWithGuard = async (
   });
 
   if (decision.action === "wait") {
-    await whenStoreState(useAuthStore, (s) => isSessionSettled(s.sessionStatus));
+    await whenStoreState(useAuthStore, (s) =>
+      isSessionSettled(s.sessionStatus),
+    );
     // Two local-mode cases hang on the platform probe: the cold boot with an
     // empty lockfile, and any step that names the signal on its wait — a
     // checkout return whose org already has a self-hosted assistant reaches

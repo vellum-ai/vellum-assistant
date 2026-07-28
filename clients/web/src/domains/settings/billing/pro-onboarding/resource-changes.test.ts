@@ -3,7 +3,10 @@ import { describe, expect, test } from "bun:test";
 import type { ProvisioningDimensions } from "./provisioning-machine";
 import { buildResourceChanges } from "./resource-changes";
 
-const targets: ProvisioningDimensions = { machineSize: "large", storageGib: 50 };
+const targets: ProvisioningDimensions = {
+  machineSize: "large",
+  storageGib: 50,
+};
 const from: ProvisioningDimensions = { machineSize: "small", storageGib: 10 };
 
 describe("buildResourceChanges", () => {
@@ -14,7 +17,11 @@ describe("buildResourceChanges", () => {
       credits: { from: "0", to: "50 credits" },
     });
 
-    expect(changes.map((c) => c.key)).toEqual(["machine", "storage", "credits"]);
+    expect(changes.map((c) => c.key)).toEqual([
+      "machine",
+      "storage",
+      "credits",
+    ]);
     expect(changes[0]).toEqual({
       key: "machine",
       label: "Machine",

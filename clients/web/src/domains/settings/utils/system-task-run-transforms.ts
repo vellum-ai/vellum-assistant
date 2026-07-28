@@ -16,7 +16,8 @@ type ConsolidationRun = ConsolidationRunsGetResponse["runs"][number];
 type RetrospectiveRun = RetrospectiveRunsGetResponse["runs"][number];
 
 /** Union of all raw system-task run types from the daemon SDK. */
-export type AnySystemTaskRun = HeartbeatRun | ConsolidationRun | RetrospectiveRun;
+export type AnySystemTaskRun =
+  HeartbeatRun | ConsolidationRun | RetrospectiveRun;
 
 /** Human-readable labels for heartbeat `skip_reason` codes. */
 const SKIP_REASON_LABELS: Record<string, string> = {

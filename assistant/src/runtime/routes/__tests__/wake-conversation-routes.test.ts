@@ -33,7 +33,9 @@ await initializeDb();
 
 const handler = (() => {
   const route = ROUTES.find((r) => r.operationId === "wake_conversation");
-  if (!route) throw new Error("wake_conversation route not found");
+  if (!route) {
+    throw new Error("wake_conversation route not found");
+  }
   return route.handler;
 })();
 

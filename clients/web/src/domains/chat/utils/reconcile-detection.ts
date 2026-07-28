@@ -29,13 +29,19 @@ export function serverSnapshotHasNewContent(
   const localByKey = new Map<string, DisplayMessage>();
   for (const m of localView) {
     for (const key of messageIdentityKeys(m)) {
-      if (!localByKey.has(key)) localByKey.set(key, m);
+      if (!localByKey.has(key)) {
+        localByKey.set(key, m);
+      }
     }
   }
   for (const sm of serverMessages) {
     const match = sm.id ? localByKey.get(sm.id) : undefined;
-    if (!match) return true;
-    if (messagePlainText(match) !== messagePlainText(sm)) return true;
+    if (!match) {
+      return true;
+    }
+    if (messagePlainText(match) !== messagePlainText(sm)) {
+      return true;
+    }
   }
   return false;
 }
@@ -75,16 +81,24 @@ export function serverHasAssistantProgress(
     const lastLocalUser = localMessages[lastLocalUserIndex]!;
     const lastLocalUserText = messagePlainText(lastLocalUser);
     const serverUserIndex = serverMessages.findLastIndex((message) => {
-      if (message.role !== "user") return false;
-      if (lastLocalUser.id && message.id === lastLocalUser.id) return true;
+      if (message.role !== "user") {
+        return false;
+      }
+      if (lastLocalUser.id && message.id === lastLocalUser.id) {
+        return true;
+      }
       return messagePlainText(message) === lastLocalUserText;
     });
-    if (serverUserIndex === -1) return false;
+    if (serverUserIndex === -1) {
+      return false;
+    }
     serverSearchStartIndex = serverUserIndex + 1;
   }
 
   for (const serverMessage of serverMessages.slice(serverSearchStartIndex)) {
-    if (serverMessage.role !== "assistant") continue;
+    if (serverMessage.role !== "assistant") {
+      continue;
+    }
 
     const serverMessageText = messagePlainText(serverMessage);
     const localById = serverMessage.id
@@ -92,8 +106,12 @@ export function serverHasAssistantProgress(
       : undefined;
     if (localById) {
       claimedLocal.add(localById);
-      if (localById.id === liveRowId) return true;
-      if (messagePlainText(localById) !== serverMessageText) return true;
+      if (localById.id === liveRowId) {
+        return true;
+      }
+      if (messagePlainText(localById) !== serverMessageText) {
+        return true;
+      }
       continue;
     }
 
@@ -104,7 +122,9 @@ export function serverHasAssistantProgress(
     );
     if (localByContent) {
       claimedLocal.add(localByContent);
-      if (localByContent.id === liveRowId) return true;
+      if (localByContent.id === liveRowId) {
+        return true;
+      }
       continue;
     }
 

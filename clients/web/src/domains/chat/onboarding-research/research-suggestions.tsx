@@ -22,7 +22,9 @@ export function ResearchSuggestions({
   suggestions,
   onSelect,
 }: ResearchSuggestionsProps) {
-  if (suggestions.length === 0) return null;
+  if (suggestions.length === 0) {
+    return null;
+  }
   return (
     <div className="flex w-full flex-col gap-3">
       <h2 className="text-lg font-medium text-[var(--content-secondary)]">

@@ -14,7 +14,10 @@
 
 import { create } from "zustand";
 
-import type { ChatEntry, NewChatEntry } from "@/domains/settings/components/panels/doctor-history";
+import type {
+  ChatEntry,
+  NewChatEntry,
+} from "@/domains/settings/components/panels/doctor-history";
 import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------
@@ -84,7 +87,10 @@ export interface DoctorPanelActions {
   setStreamingEntryId: (id: string | null) => void;
   setEntries: (entries: ChatEntry[]) => void;
   resetReplayState: () => void;
-  seedReplayState: (sourceEventIds: string[], latestSourceEventId: string | null) => void;
+  seedReplayState: (
+    sourceEventIds: string[],
+    latestSourceEventId: string | null,
+  ) => void;
   recordReplayableSourceEventId: (sourceEventId: string) => boolean;
 }
 
@@ -141,7 +147,10 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
   appendEntry: (entry) => {
     const id = get().nextId();
     set((s) => ({
-      entries: [...s.entries, { ...entry, id, timestamp: Date.now() } as ChatEntry],
+      entries: [
+        ...s.entries,
+        { ...entry, id, timestamp: Date.now() } as ChatEntry,
+      ],
     }));
   },
 

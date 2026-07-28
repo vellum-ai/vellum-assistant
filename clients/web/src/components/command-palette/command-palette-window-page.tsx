@@ -105,7 +105,9 @@ export function CommandPaletteWindowPage() {
         multiAssistantEnabled && !isGatewayAuthMode() && currentOrganizationId
           ? resolveSelectedAssistantId(currentOrganizationId)
           : activeAssistantId;
-      if (!selectedId) return null;
+      if (!selectedId) {
+        return null;
+      }
       const entry = assistants.find((a) => a.id === selectedId);
       return entry ? { id: entry.id, name: entry.name } : null;
     },
@@ -121,32 +123,32 @@ export function CommandPaletteWindowPage() {
   const assistantId = selectedAssistant?.id ?? null;
   const { conversations } = useConversationListQuery(assistantId, true);
 
-  const handleItemSelect = useCallback(
-    (item: CommandPaletteItemData) => {
-      const command = commandForItem(item);
-      if (command) {
-        void selectCommandPaletteCommand(command);
-      }
-    },
-    [],
-  );
+  const handleItemSelect = useCallback((item: CommandPaletteItemData) => {
+    const command = commandForItem(item);
+    if (command) {
+      void selectCommandPaletteCommand(command);
+    }
+  }, []);
 
-  const { commandPalette, mergedSections, handleItemSelect: selectItem } =
-    useCommandPaletteSections({
-      assistantId,
-      assistantName: selectedAssistant?.name,
-      conversations,
-      activeConversationId: undefined,
-      startNewConversation: noop,
-      switchConversation: noop,
-      navigate: noopNavigate,
-      navigateToSettings: noop,
-      isOpen: true,
-      onClose: () => {
-        void dismissCommandPaletteWindow();
-      },
-      onItemSelect: handleItemSelect,
-    });
+  const {
+    commandPalette,
+    mergedSections,
+    handleItemSelect: selectItem,
+  } = useCommandPaletteSections({
+    assistantId,
+    assistantName: selectedAssistant?.name,
+    conversations,
+    activeConversationId: undefined,
+    startNewConversation: noop,
+    switchConversation: noop,
+    navigate: noopNavigate,
+    navigateToSettings: noop,
+    isOpen: true,
+    onClose: () => {
+      void dismissCommandPaletteWindow();
+    },
+    onItemSelect: handleItemSelect,
+  });
 
   return (
     <div className="h-screen w-screen bg-transparent">

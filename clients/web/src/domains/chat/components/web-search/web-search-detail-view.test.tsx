@@ -35,8 +35,18 @@ describe("WebSearchDetailView", () => {
         detail={payload({
           searchQuery: "best vector databases",
           searchResults: [
-            { rank: 1, title: "First", url: "https://a.com/x", domain: "a.com" },
-            { rank: 2, title: "Second", url: "https://b.org/y", domain: "b.org" },
+            {
+              rank: 1,
+              title: "First",
+              url: "https://a.com/x",
+              domain: "a.com",
+            },
+            {
+              rank: 2,
+              title: "Second",
+              url: "https://b.org/y",
+              domain: "b.org",
+            },
           ],
         })}
       />,

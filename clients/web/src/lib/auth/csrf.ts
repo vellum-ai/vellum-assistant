@@ -43,12 +43,18 @@ let csrfBootstrap: Promise<void> | null = null;
 
 export async function ensureCsrfCookie(): Promise<void> {
   // Electron authenticates via a token header - no CSRF needed.
-  if (isElectron()) return;
-  if (isGatewayAuthMode()) return;
+  if (isElectron()) {
+    return;
+  }
+  if (isGatewayAuthMode()) {
+    return;
+  }
 
   clearDuplicateCsrfCookies();
 
-  if (getCsrfToken()) return;
+  if (getCsrfToken()) {
+    return;
+  }
 
   if (!csrfBootstrap) {
     csrfBootstrap = (async () => {
@@ -57,7 +63,9 @@ export async function ensureCsrfCookie(): Promise<void> {
           await getAllauthByClientV1AuthSession({
             path: { client: "browser" },
           });
-          if (getCsrfToken()) return;
+          if (getCsrfToken()) {
+            return;
+          }
         } catch {
           console.warn(
             `CSRF cookie bootstrap failed (attempt ${attempt + 1}/2)`,

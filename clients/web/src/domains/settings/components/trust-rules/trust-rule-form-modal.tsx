@@ -1,11 +1,11 @@
 import { X } from "lucide-react";
 import {
-    type FormEvent,
-    type KeyboardEvent,
-    type MouseEvent,
-    useCallback,
-    useRef,
-    useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  useCallback,
+  useRef,
+  useState,
 } from "react";
 import { createPortal } from "react-dom";
 
@@ -24,10 +24,18 @@ const TOOL_OPTIONS = [
   "skill_load",
 ];
 
-const RISK_OPTIONS: { value: TrustRuleRisk; label: string; description: string }[] = [
+const RISK_OPTIONS: {
+  value: TrustRuleRisk;
+  label: string;
+  description: string;
+}[] = [
   { value: "low", label: "Low", description: "Auto-approve without prompting" },
   { value: "medium", label: "Medium", description: "Prompt before executing" },
-  { value: "high", label: "High", description: "Always require explicit approval" },
+  {
+    value: "high",
+    label: "High",
+    description: "Always require explicit approval",
+  },
 ];
 
 export interface TrustRuleFormModalProps {
@@ -47,7 +55,9 @@ export function TrustRuleFormModal({
   const [tool, setTool] = useState(existingRule.tool);
   const [pattern, setPattern] = useState(existingRule.pattern);
   const [risk, setRisk] = useState<TrustRuleRisk>(existingRule.risk);
-  const [description, setDescription] = useState(existingRule.description ?? "");
+  const [description, setDescription] = useState(
+    existingRule.description ?? "",
+  );
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -57,7 +67,9 @@ export function TrustRuleFormModal({
   const handleSubmit = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
-      if (!canSave) return;
+      if (!canSave) {
+        return;
+      }
       const resolvedDescription =
         description.trim() || `${tool} — ${trimmedPattern}`;
       setSubmitting(true);
@@ -76,19 +88,32 @@ export function TrustRuleFormModal({
         setSubmitting(false);
       }
     },
-    [assistantId, canSave, description, existingRule, onSaved, risk, tool, trimmedPattern],
+    [
+      assistantId,
+      canSave,
+      description,
+      existingRule,
+      onSaved,
+      risk,
+      tool,
+      trimmedPattern,
+    ],
   );
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+      }
     },
     [onClose],
   );
 
   const handleBackdropClick = useCallback(
     (e: MouseEvent) => {
-      if (e.target === dialogRef.current) onClose();
+      if (e.target === dialogRef.current) {
+        onClose();
+      }
     },
     [onClose],
   );
@@ -121,7 +146,10 @@ export function TrustRuleFormModal({
           </button>
         </div>
 
-        <form onSubmit={(e) => void handleSubmit(e)} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+        <form
+          onSubmit={(e) => void handleSubmit(e)}
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4"
+        >
           {errorMessage && <Notice tone="error">{errorMessage}</Notice>}
 
           <div>

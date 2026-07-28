@@ -43,7 +43,9 @@ export class CompactionTrailRequestError extends Error {
 function isCompactionTrailResponse(
   value: unknown,
 ): value is ConversationsByIdCompactionGetResponse {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object") {
+    return false;
+  }
   const v = value as Record<string, unknown>;
   return typeof v.conversationId === "string" && Array.isArray(v.events);
 }

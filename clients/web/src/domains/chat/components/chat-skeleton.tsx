@@ -1,7 +1,5 @@
 export function SkeletonBar({ className }: { className?: string }) {
-  return (
-    <div className={`skeleton-shimmer rounded ${className ?? ""}`} />
-  );
+  return <div className={`skeleton-shimmer rounded ${className ?? ""}`} />;
 }
 
 export function ChatSkeleton() {

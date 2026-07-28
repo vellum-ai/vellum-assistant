@@ -286,7 +286,9 @@ function renderDbBlock(file: FileFacts, db: DbFacts | null): string {
     `${formatTimestampUtc(file.mtimeMs)}  (${formatAge(Date.now() - file.mtimeMs)})`,
   );
 
-  if (!db) return out;
+  if (!db) {
+    return out;
+  }
 
   out += "\n";
   out += row("SQLite", db.sqliteVersion);
@@ -440,7 +442,9 @@ function readMigrationSummary(mainDbPath: string): MigrationSummary | null {
 }
 
 function renderSummary(migration: MigrationSummary | undefined): string {
-  if (!migration) return "";
+  if (!migration) {
+    return "";
+  }
 
   let out = "\nMigration summary (cross-database)\n";
 

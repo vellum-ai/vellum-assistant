@@ -16,7 +16,9 @@ import { isTransientNetworkError } from "@/utils/is-transient-network-error";
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#throwing-errors
  */
 export function normalizeToError(value: unknown): Error {
-  if (value instanceof Error) return value;
+  if (value instanceof Error) {
+    return value;
+  }
 
   if (typeof value === "object" && value !== null) {
     const obj = value as Record<string, unknown>;
@@ -86,8 +88,12 @@ export function captureError(
     bestEffort?: boolean;
   },
 ): void {
-  if (isTransientNetworkError(error)) return;
-  if (opts.bestEffort && isExpectedDaemonTransientError(error)) return;
+  if (isTransientNetworkError(error)) {
+    return;
+  }
+  if (opts.bestEffort && isExpectedDaemonTransientError(error)) {
+    return;
+  }
   console.error(`[${opts.context}]`, error);
 
   const normalized = normalizeToError(error);

@@ -140,7 +140,9 @@ describe("OpenAI Responses API cutover guard", () => {
 
     const violations: string[] = [];
     for (const file of files) {
-      if (ALLOWED_FILES.has(file)) continue;
+      if (ALLOWED_FILES.has(file)) {
+        continue;
+      }
       const source = readFileSync(join(OPENAI_PROVIDERS_DIR, file), "utf-8");
       if (source.includes("chat.completions.create(")) {
         violations.push(file);

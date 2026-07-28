@@ -135,7 +135,9 @@ function startFrame(conversationId = "conversation-123"): string {
 }
 
 async function waitForOpen(ws: WebSocket, timeoutMs = 2000): Promise<void> {
-  if (ws.readyState === WebSocket.OPEN) return;
+  if (ws.readyState === WebSocket.OPEN) {
+    return;
+  }
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
@@ -160,7 +162,9 @@ async function waitForOpen(ws: WebSocket, timeoutMs = 2000): Promise<void> {
 }
 
 async function waitForClose(ws: WebSocket, timeoutMs = 2000): Promise<void> {
-  if (ws.readyState === WebSocket.CLOSED) return;
+  if (ws.readyState === WebSocket.CLOSED) {
+    return;
+  }
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
