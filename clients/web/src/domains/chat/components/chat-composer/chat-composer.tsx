@@ -40,7 +40,6 @@ import {
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   isLiveVoiceSessionActive,
-  releaseLiveVoiceTurn,
   restoreVoiceRoom,
   setLiveVoiceEntryOrigin,
   setLiveVoiceMuted,
@@ -350,8 +349,8 @@ export function ChatComposer({
     isLiveVoiceActive && hasLiveVoiceTranscript && showUserTranscriptPref;
   // Session verbs go through the store seams registered by the layout-owned
   // controller: `starter` (registered for the controller's whole mount) to
-  // start, per-session `controls` to stop/release — the latter via the shared
-  // module-level `endLiveVoiceSession`/`releaseLiveVoiceTurn` helpers, which
+  // start, per-session `controls` to end/interrupt — the latter via the shared
+  // module-level `endLiveVoiceSession`/`stopLiveVoiceResponse` helpers, which
   // read the store with `getState()` per STATE_MANAGEMENT.md (no subscription
   // needed for callback-only reads).
   // First-run interception: the very first voice-mode entry opens a
@@ -565,6 +564,13 @@ export function ChatComposer({
   const showInlineVoicePreview =
     isVoiceActive && !isLocallyGenerating && !isElectronHost;
   const hideTextareaForVoice = isNative && showInlineVoicePreview;
+  // A live-voice session disables the textarea outright (see its `disabled`
+  // below), so its placeholder is dead chrome inviting an interaction that
+  // cannot happen — the voice bar is the only live control. Collapse the row
+  // away and let the bar stand alone. The user transcript, when the pref is
+  // on, occupies that same grid cell and is real content, so it keeps the row.
+  const hideTextareaForLiveVoice = isLiveVoiceActive && !showLiveVoiceTranscript;
+  const hideTextareaRow = hideTextareaForVoice || hideTextareaForLiveVoice;
   const hasStagedQuotes = useQuoteReplyStore.use.stagedQuotes().length > 0;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedQuotes;
@@ -679,7 +685,7 @@ export function ChatComposer({
             This avoids the iOS WKWebView re-dispatch bug entirely: no DOM
             geometry mutation means no re-fired input events.
             Reference: https://css-tricks.com/the-cleanest-trick-for-autogrowing-textareas/ */}
-            <div className={hideTextareaForVoice ? "hidden" : "grid"}>
+            <div className={hideTextareaRow ? "hidden" : "grid"}>
               <div
                 aria-hidden
                 className="pointer-events-none col-start-1 row-start-1 overflow-hidden whitespace-pre-wrap break-words px-4 pt-3 pb-2 text-chat"
@@ -921,15 +927,13 @@ export function ChatComposer({
               // Voice session bar (Light 53): the whole action row — slots,
               // attach, both mic buttons, and send — is replaced by the bar
               // for the duration of the session. ✕ ends the session (the
-              // normal row returns via `isLiveVoiceActive` flipping false);
-              // green ↑ manually releases the current turn while listening.
+              // normal row returns via `isLiveVoiceActive` flipping false).
               <VoiceComposerBar
                 state={liveVoiceState}
                 getAmplitude={getLiveVoiceInputAmplitude}
                 muted={liveVoiceMuted}
                 onToggleMute={() => setLiveVoiceMuted(!liveVoiceMuted)}
                 onEnd={endLiveVoiceSession}
-                onSend={releaseLiveVoiceTurn}
                 // Turn-scoped stop is hands-free-only; a manual session's
                 // interrupt ends the whole session (✕ owns that).
                 onStop={liveVoiceHandsFree ? stopLiveVoiceResponse : undefined}
@@ -938,6 +942,7 @@ export function ChatComposer({
                 // is their only session surface).
                 onExpand={isPopout ? undefined : restoreVoiceRoom}
                 waveAccentHex={voiceWaveAccentHex}
+                standalone={hideTextareaForLiveVoice}
               />
             ) : (
               <div className="flex items-center justify-between gap-1 px-2 pb-2">

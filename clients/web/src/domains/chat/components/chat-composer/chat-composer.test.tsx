@@ -1217,18 +1217,33 @@ describe("ChatComposer — live-voice integration", () => {
     expect(liveControls.stop).toHaveBeenCalledTimes(1);
   });
 
-  test("voice bar ↑ manually releases the turn while listening", () => {
+  test("voice bar offers no manual send — turns release themselves", () => {
     // GIVEN a listening session owned by this composer
     useTurnStore.setState(INITIAL_TURN_STATE);
     seedLiveVoiceSession("listening");
 
-    // WHEN the user clicks send-now
-    const { getByLabelText } = renderVoiceComposer();
-    fireEvent.click(getByLabelText("Send now"));
+    // WHEN the bar renders
+    const { queryByLabelText } = renderVoiceComposer();
 
-    // THEN the turn is released through the store-registered controls
-    expect(liveControls.release).toHaveBeenCalledTimes(1);
-    expect(liveControls.stop).not.toHaveBeenCalled();
+    // THEN there is no send-now control: server VAD (hands-free) and
+    // auto-release (manual fallback) both end the turn without the user, so
+    // the ↑ advertised an action they never need (JARVIS-1363).
+    expect(queryByLabelText("Send now")).toBeNull();
+    expect(liveControls.release).not.toHaveBeenCalled();
+  });
+
+  test("voice session hides the textarea and its placeholder", () => {
+    // GIVEN a listening session owned by this composer
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    seedLiveVoiceSession("listening");
+
+    // WHEN the bar renders
+    const { container } = renderVoiceComposer();
+
+    // THEN the textarea row is collapsed: it is disabled for the session's
+    // duration, so its placeholder invited an interaction that cannot happen.
+    const textarea = container.querySelector("textarea");
+    expect(textarea?.closest("div.hidden")).not.toBeNull();
   });
 
   test("dictation active hides the live-voice button (reverse mutual exclusion)", () => {

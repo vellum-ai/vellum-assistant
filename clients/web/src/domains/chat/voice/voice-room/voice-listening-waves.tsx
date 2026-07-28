@@ -92,6 +92,20 @@ export type VoiceWavePalette = "aurora" | "accent" | "tone";
  */
 export type VoiceWavePlacement = "bottom" | "top" | "center" | "inline";
 
+/**
+ * Edge fade for the inline wave strips (composer bar, title-bar pill).
+ *
+ * Those strips clip the drifting layers with `overflow-hidden`, which ends
+ * the band on a hard vertical edge mid-wave. Masking the container instead
+ * lets the band dissolve into the surface at both ends, so the strip reads as
+ * a window onto a continuous wave rather than a cropped rectangle.
+ *
+ * `-webkit-mask-image` is not optional: the iOS client is a WKWebView, which
+ * still needs the prefixed property.
+ */
+export const VOICE_WAVE_EDGE_FADE_CLASS =
+  "[mask-image:linear-gradient(to_right,transparent_0%,black_12%,black_88%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_right,transparent_0%,black_12%,black_88%,transparent_100%)]";
+
 export function VoiceListeningWaves({
   getAmplitude,
   waveStyle = "fill",
