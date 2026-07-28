@@ -8,7 +8,7 @@
  * failed requests against older installations.
  *
  * Response *enrichment* (label/objective/child conversation id, added in
- * 0.10.13) is not gated here: `reconcileFromDaemon` degrades per-field, so
+ * 0.11.0) is not gated here: `reconcileFromDaemon` degrades per-field, so
  * a bare `{status}` response from 0.10.0–0.10.12 still updates known
  * entries and stubs unknowns.
  */

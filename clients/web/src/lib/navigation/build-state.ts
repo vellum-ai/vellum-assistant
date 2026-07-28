@@ -15,7 +15,6 @@ import {
   readConsentHydrated,
 } from "@/domains/onboarding/prefs";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
-import { isNativePlatform } from "@/runtime/native-auth";
 import {
   assistantsValidForOrg,
   useResolvedAssistantsStore,
@@ -57,7 +56,6 @@ export function buildNavigationState(
       ? remoteGatewayPublicPathPrefix()
       : "",
     isGatewayAuth: isGatewayAuthMode(),
-    isNative: isNativePlatform(),
     hasAssistants: assistants.length > 0,
     hasPlatformHostedAssistant: hasPlatformHostedAssistant(assistants),
     sessionSettled: isSessionSettled(sessionStatus),

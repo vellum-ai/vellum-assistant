@@ -29,6 +29,18 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import {
+  deepRepairHistory,
+  repairHistory,
+} from "../agent/history-repair/history-repair.js";
+import postModelCall from "../agent/history-repair/hooks/post-model-call.js";
+import stop from "../agent/history-repair/hooks/stop.js";
+import userPromptSubmit from "../agent/history-repair/hooks/user-prompt-submit.js";
+import {
+  isOrderingRepairAttempted,
+  markOrderingRepairAttempted,
+  resetRepairStateStoreForTests,
+} from "../agent/history-repair/repair-state-store.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
   PluginLogger,
@@ -36,18 +48,6 @@ import type {
   StopContext,
   UserPromptSubmitContext,
 } from "../plugin-api/types.js";
-import postModelCall from "../plugins/defaults/history-repair/hooks/post-model-call.js";
-import stop from "../plugins/defaults/history-repair/hooks/stop.js";
-import userPromptSubmit from "../plugins/defaults/history-repair/hooks/user-prompt-submit.js";
-import {
-  isOrderingRepairAttempted,
-  markOrderingRepairAttempted,
-  resetRepairStateStoreForTests,
-} from "../plugins/defaults/history-repair/repair-state-store.js";
-import {
-  deepRepairHistory,
-  repairHistory,
-} from "../plugins/defaults/history-repair/terminal.js";
 import { defaultHistoryRepairPlugin } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {

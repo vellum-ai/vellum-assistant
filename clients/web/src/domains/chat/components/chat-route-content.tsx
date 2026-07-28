@@ -985,6 +985,7 @@ export function ChatMainPanel({
     dockStartersToBottom,
     renderAvatar,
     emptyStatePlaceholder,
+    composerPeekSlot,
   } = useChatEmptyState({
     assistantId,
     conversationId: activeConversationId,
@@ -1113,6 +1114,16 @@ export function ChatMainPanel({
           <ComposerSettingsMenu
             assistantId={assistantId}
             conversationId={activeConversation?.conversationId}
+            segments="access"
+          />
+        ) : undefined
+      }
+      modelPickerSlot={
+        assistantId ? (
+          <ComposerSettingsMenu
+            assistantId={assistantId}
+            conversationId={activeConversation?.conversationId}
+            segments="profile"
           />
         ) : undefined
       }
@@ -1325,6 +1336,7 @@ export function ChatMainPanel({
   return (
     <>
       {mainContent}
+      {composerPeekSlot}
       <MicPermissionPrimer
         open={showPrimer}
         onContinue={handlePrimerContinue}

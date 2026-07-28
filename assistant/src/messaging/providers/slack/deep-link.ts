@@ -94,28 +94,47 @@ export function buildSlackPermalink(params: {
   );
 }
 
+/**
+ * Web URL for a channel. Workspace-branded when the team URL is known,
+ * otherwise the workspace-agnostic `https://slack.com/archives/…` form —
+ * Slack resolves the channel id to the right workspace for any
+ * authenticated viewer (the web client already synthesizes this exact
+ * shape from message permalinks, see `getSlackChannelLinkFromMessageLink`
+ * in `clients/web`).
+ */
 export function buildSlackWebChannelUrl(params: {
   teamUrl?: string | null;
   channelId: string;
-}): string | undefined {
-  const teamUrl = normalizeSlackTeamUrl(params.teamUrl);
-  if (!teamUrl) return undefined;
-
+}): string {
+  const teamUrl = normalizeSlackTeamUrl(params.teamUrl) ?? "https://slack.com";
   return `${teamUrl}/archives/${encodeURIComponent(params.channelId)}`;
 }
 
+/**
+ * Deep-link pair for a message. The web URL always exists: it is
+ * workspace-branded when the team URL is configured and otherwise falls
+ * back to the workspace-agnostic `buildSlackPermalink` form, so installs
+ * that never learned their workspace identity (e.g. gateway-connected
+ * Slack) still get working links. The `slack://` app URL still requires
+ * a known team id.
+ */
 export function buildSlackMessageDeepLinks(params: {
   teamId?: string | null;
   teamUrl?: string | null;
   channelId: string;
   messageTs: string;
   threadTs?: string;
-}): SlackMessageDeepLinks | undefined {
+}): SlackMessageDeepLinks {
   const appUrl = buildSlackAppMessageUrl(params);
-  const webUrl = buildSlackWebMessageUrl(params);
-  if (!appUrl && !webUrl) return undefined;
+  const webUrl =
+    buildSlackWebMessageUrl(params) ??
+    buildSlackPermalink({
+      channelId: params.channelId,
+      messageTs: params.messageTs,
+      ...(params.threadTs ? { threadTs: params.threadTs } : {}),
+    });
   return {
     ...(appUrl ? { appUrl } : {}),
-    ...(webUrl ? { webUrl } : {}),
+    webUrl,
   };
 }

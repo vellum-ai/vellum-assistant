@@ -1,48 +1,7 @@
-/**
- * Discovery of plugin-declared public ingress routes.
- *
- * A plugin that needs inbound traffic — a webhook, a provider dialling a
- * realtime socket — cannot reach the public surface today. Every public
- * route in the gateway is hand-written and the Velay path allowlist is a
- * frozen literal, which works for first-party integrations (someone edits
- * the gateway when they add one) but not for a plugin, which ships
- * separately and cannot patch a frozen array. The workaround has been for
- * the plugin to stand up its own tunnel and public address.
- *
- * Instead a plugin declares what it needs in a static file on the
- * workspace volume the gateway already reads:
- *
- *     <workspaceDir>/plugins/<plugin>/channels/ingress.json
- *
- *     {
- *       "routes": [
- *         { "path": "realtime", "kind": "websocket", "description": "…" }
- *       ]
- *     }
- *
- * and the gateway composes the public path from the plugin's own name:
- *
- *     /webhooks/plugins/<plugin>/<path>
- *
- * The file is inert data, never code: the gateway must not execute
- * assistant-supplied logic to find out what to expose.
- *
- * ## What this module does and does not do
- *
- * It discovers and validates declarations. It does **not** serve them. A
- * declaration is a request, not a grant — routing them requires a guardian
- * approval gate that does not exist yet, so nothing here is wired into the
- * request path.
- *
- * ## Trust
- *
- * Everything below treats the manifest as untrusted input from the
- * assistant, because that is what it is. The plugin repo validating its
- * own file is a convenience for its authors, not a guarantee to us.
- */
+/** Discovery of plugin-declared public ingress routes from the workspace volume. */
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { join, posix } from "node:path";
 
 import { z } from "zod";
 
@@ -58,37 +17,44 @@ export const PLUGIN_WEBHOOK_PREFIX = "/webhooks/plugins";
 export const PLUGIN_INGRESS_MANIFEST_RELPATH = join("channels", "ingress.json");
 
 /**
- * Transport a declared route expects. The gateway bridges HTTP and
- * WebSocket differently (`velay/http-bridge.ts` vs `websocket-bridge.ts`),
- * so it has to know which before a connection arrives.
+ * Transport a declared route expects. HTTP and WebSocket are bridged
+ * differently (`velay/http-bridge.ts` vs `velay/websocket-bridge.ts`), so
+ * the kind has to be known before a connection arrives.
  */
 export const IngressRouteKindSchema = z.enum(["http", "websocket"]);
 export type IngressRouteKind = z.infer<typeof IngressRouteKindSchema>;
 
-/**
- * A plugin directory name that is safe to place in a public URL.
- *
- * The directory name becomes a path segment, so it is validated rather
- * than trusted: anything that could alter the shape of the composed path
- * is rejected outright.
- */
+/** Plugin directory name usable as a public URL path segment. */
 const SAFE_PLUGIN_NAME = /^[a-z0-9][a-z0-9._-]*$/i;
+
+/**
+ * A path is canonical when percent-decoding and POSIX normalization both
+ * leave it unchanged.
+ *
+ * Velay percent-decodes and `path.Clean`s an inbound path before matching
+ * it against the allowlist, so a non-canonical declaration is served under
+ * a different path than the one declared: `%2e%2e/other/hook` decodes out
+ * of the declaring plugin's namespace, and `a//b` cleans to `a/b`,
+ * colliding with a separate `a/b` declaration that the exact-string
+ * duplicate check treats as distinct.
+ */
+function isCanonicalPath(value: string): boolean {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    // Malformed percent-encoding — Velay's decode would fail or differ.
+    return false;
+  }
+  return decoded === value && posix.normalize(value) === value;
+}
 
 export const IngressRouteSchema = z.object({
   /**
    * Path relative to the plugin's own namespace — `"realtime"`, not
-   * `/webhooks/plugins/meeting-bot/realtime`. The plugin never writes the
-   * prefix, so it cannot name another plugin's route: cross-plugin
-   * interception is unrepresentable rather than something we have to
-   * detect.
-   *
-   * `.` and `..` segments are rejected because Velay percent-decodes and
-   * runs `path.Clean` on the inbound path before matching its allowlist
-   * (see `IsPathAllowed` in the platform repo). A declared
-   * `../other/steal` would otherwise compose to a path that cleans out of
-   * the declaring plugin's namespace. A trailing slash is rejected for
-   * the same reason — `path.Clean` strips it, so a composed path ending
-   * in one could never match.
+   * `/webhooks/plugins/meeting-bot/realtime`. The prefix and the plugin
+   * name are supplied by the gateway, so a declaration cannot name another
+   * plugin's route.
    */
   path: z
     .string()
@@ -100,6 +66,10 @@ export const IngressRouteSchema = z.object({
     .refine((p) => !p.endsWith("/"), {
       message: "path must not end in a trailing slash",
     })
+    .refine(isCanonicalPath, {
+      message:
+        "path must be canonical: unencoded, with no empty, '.' or redundant segments",
+    })
     .refine((p) => !p.split("/").some((seg) => seg === "." || seg === ".."), {
       message: "path must not contain . or .. segments",
     }),
@@ -110,12 +80,9 @@ export const IngressRouteSchema = z.object({
 export type IngressRoute = z.infer<typeof IngressRouteSchema>;
 
 /**
- * The declaration itself.
- *
- * No version and no plugin name. The format is ours, not something a
- * plugin versions independently, and the plugin's identity is already
- * known from the directory the file was read from — taking it from the
- * file content would let a manifest claim to be a different plugin.
+ * A plugin's declaration. The plugin's identity comes from the directory
+ * the file is read from, not from its contents, so a manifest cannot claim
+ * to belong to a different plugin.
  */
 export const PluginIngressManifestSchema = z.object({
   routes: z.array(IngressRouteSchema).min(1),
@@ -128,7 +95,7 @@ export interface DiscoveredPluginIngress {
   routes: readonly IngressRoute[];
 }
 
-/** A declaration that was found but could not be used, and why. */
+/** A declaration that was found but rejected, and why. */
 export interface PluginIngressProblem {
   plugin: string;
   reason: string;
@@ -137,8 +104,8 @@ export interface PluginIngressProblem {
 export interface PluginIngressDiscovery {
   plugins: DiscoveredPluginIngress[];
   /**
-   * Rejected declarations. Surfaced rather than thrown: one plugin's
-   * malformed file must never take down discovery for every other plugin.
+   * Rejected declarations, reported rather than thrown so that one
+   * malformed manifest cannot suppress discovery for every other plugin.
    */
   problems: PluginIngressProblem[];
 }
@@ -148,7 +115,7 @@ export function pluginWebhookPath(plugin: string, path: string): string {
   return `${PLUGIN_WEBHOOK_PREFIX}/${plugin}/${path.replace(/^\/+/, "")}`;
 }
 
-/** Absolute paths a discovered plugin is asking us to expose. */
+/** Absolute paths a discovered plugin is asking the gateway to expose. */
 export function ingressRoutePaths(
   discovered: DiscoveredPluginIngress,
 ): string[] {
@@ -180,13 +147,15 @@ export interface DiscoverPluginIngressOptions {
 /**
  * Scan the workspace for plugin ingress declarations.
  *
- * Skips plugins carrying a `.disabled` sentinel — the same source of truth
- * the assistant uses for hooks, tools, and routes. Without this, disabling
- * a plugin would leave its public routes live.
+ * A manifest is untrusted input from the assistant and is validated here
+ * independently of any checks the plugin performs on itself.
  *
- * Note that only workspace-installed plugins are visible here. Default
- * plugins ship inside the assistant binary, which the gateway cannot read,
- * so they cannot declare ingress by this route.
+ * Plugins carrying a `.disabled` sentinel are skipped, matching the source
+ * of truth the assistant uses for hooks, tools, and routes, so a disabled
+ * plugin holds no public routes.
+ *
+ * Only workspace-installed plugins are visible. Default plugins ship
+ * inside the assistant binary, which the gateway cannot read.
  */
 export function discoverPluginIngress(
   opts: DiscoverPluginIngressOptions = {},
@@ -198,29 +167,49 @@ export function discoverPluginIngress(
 
   let entries: string[];
   try {
-    entries = readdirSync(pluginsDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
+    entries = readdirSync(pluginsDir);
   } catch {
-    // No plugins directory at all is the normal empty case, not an error.
+    // An absent plugins directory is the empty case, not a failure.
     return { plugins, problems };
   }
 
   for (const plugin of entries) {
+    const pluginDir = join(pluginsDir, plugin);
+    try {
+      // statSync rather than Dirent.isDirectory so plugins installed as
+      // symlinked roots are seen, matching the assistant's own plugin scan.
+      if (!statSync(pluginDir).isDirectory()) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+
+    // A directory only counts as a plugin when it carries a package.json,
+    // the same gate the assistant's scan applies. Without it a symlink to
+    // any directory holding an ingress manifest would hold public routes
+    // for something the assistant never loads.
+    if (!existsSync(join(pluginDir, "package.json"))) {
+      continue;
+    }
+
     if (!SAFE_PLUGIN_NAME.test(plugin)) {
-      // Never report a name we would not serve — it lands in logs.
       problems.push({
+        // Quoted so an unservable name is unambiguous in logs.
         plugin: JSON.stringify(plugin),
         reason: "plugin directory name is not a safe URL path segment",
       });
       continue;
     }
 
-    const pluginDir = join(pluginsDir, plugin);
-    if (existsSync(join(pluginDir, ".disabled"))) continue;
+    if (existsSync(join(pluginDir, ".disabled"))) {
+      continue;
+    }
 
     const manifestPath = join(pluginDir, PLUGIN_INGRESS_MANIFEST_RELPATH);
-    if (!existsSync(manifestPath)) continue;
+    if (!existsSync(manifestPath)) {
+      continue;
+    }
 
     let raw: unknown;
     try {
@@ -258,12 +247,9 @@ export function discoverPluginIngress(
 const DEFAULT_TTL_MS = 5000;
 
 /**
- * TTL-cached view of {@link discoverPluginIngress}.
- *
- * Discovery walks the filesystem, so the request path should not repeat it
- * per connection. The TTL means installing, enabling, or disabling a
- * plugin takes effect without a gateway restart — the same
- * read-through-with-staleness contract as {@link ConfigFileCache}.
+ * TTL-cached view of {@link discoverPluginIngress}, so the request path
+ * does not re-walk the filesystem per connection and plugin installs or
+ * toggles take effect without a gateway restart.
  */
 export class PluginIngressCache {
   private readonly ttlMs: number;

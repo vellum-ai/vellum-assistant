@@ -20,8 +20,6 @@ const base: NavigationState = {
   isRemoteGateway: false,
   remoteGatewayPublicPathPrefix: "",
   isGatewayAuth: false,
-  // Web/Electron by default; the native fork is exercised explicitly.
-  isNative: false,
   hasAssistants: true,
   hasPlatformHostedAssistant: true,
   sessionSettled: true,
@@ -612,13 +610,6 @@ describe("resolveNavigation", () => {
       action: "redirect",
       to: RESEARCH_FUNNEL_URL,
     };
-    // The native shell has no research flow, so it keeps the foreground
-    // hatching screen.
-    const NATIVE_MANAGED_FUNNEL: NavigationDecision = {
-      action: "redirect",
-      to: HATCHING_FUNNEL_URL,
-    };
-
     // A brand-new org: nothing resolved at all.
     const EMPTY_ORG = {
       hasAssistants: false,
@@ -637,20 +628,6 @@ describe("resolveNavigation", () => {
       expect(guard(s(EMPTY_ORG), POST_CHECKOUT_BILLING)).toEqual(
         MANAGED_FUNNEL,
       );
-    });
-
-    // The research flow isn't wired for the Capacitor shell, so the native paid
-    // return still gets the foreground hatching screen.
-    test("keeps the foreground hatching entry on native", () => {
-      expect(
-        guard(s({ ...EMPTY_ORG, isNative: true }), POST_CHECKOUT_BILLING),
-      ).toEqual(NATIVE_MANAGED_FUNNEL);
-      expect(
-        guard(
-          s({ ...NO_MANAGED_ASSISTANT, isNative: true }),
-          POST_CHECKOUT_BILLING,
-        ),
-      ).toEqual(NATIVE_MANAGED_FUNNEL);
     });
 
     // The decision is "does a managed plan have a target", not "is the list
@@ -1091,20 +1068,16 @@ describe("resolveNavigation", () => {
       }
     });
 
-    // The stale-toggle gate is research-only. The hatching entry — where the
-    // native paid return lands, and where a `returnTo` stashed by an older
-    // client still points — resolves `allow` here and re-reviews stale terms at
-    // the screen's own `hatch-gate` instead.
+    // The stale-toggle gate is research-only. The hatching entry — where a
+    // `returnTo` stashed by an older client may still point — resolves `allow`
+    // here and re-reviews stale terms at the screen's own `hatch-gate` instead.
     test("leaves a stale-consent paid hatching return on its allow", () => {
       for (const stale of STALE_TOGGLES) {
         expect(
           guard(s({ ...ELECTRON_PAID, ...stale }), HATCHING_FUNNEL_URL),
         ).toEqual(ALLOW);
         expect(
-          guard(
-            s({ ...EMPTY_ORG, isNative: true, ...stale }),
-            HATCHING_FUNNEL_URL,
-          ),
+          guard(s({ ...EMPTY_ORG, ...stale }), HATCHING_FUNNEL_URL),
         ).toEqual(ALLOW);
       }
     });

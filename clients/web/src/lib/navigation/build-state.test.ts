@@ -19,16 +19,6 @@ mock.module("@/lib/auth/gateway-session", () => ({
   isGatewayAuthMode: () => false,
 }));
 
-// The shell fork the paid provisioning funnel reads. Spread the real module so
-// the rest of the platform auth graph (`isOAuthFlowInFlight` and friends) stays
-// available to the stores build-state pulls in.
-let mockIsNativePlatform = false;
-const nativeAuthActual = await import("@/runtime/native-auth");
-mock.module("@/runtime/native-auth", () => ({
-  ...nativeAuthActual,
-  isNativePlatform: () => mockIsNativePlatform,
-}));
-
 // Consent prefs read storage; pin them so the access decision is isolated.
 mock.module("@/domains/onboarding/prefs", () => ({
   readTosAccepted: () => true,
@@ -50,7 +40,6 @@ const initialAuthState = useAuthStore.getState();
 beforeEach(() => {
   mockIsLocalMode = true;
   mockIsRemoteGatewayMode = false;
-  mockIsNativePlatform = false;
   useAuthStore.setState(initialAuthState, true);
   useOrganizationStore.setState({
     currentOrganizationId: null,
@@ -122,22 +111,6 @@ describe("buildNavigationState — isAuthenticated mirrors sessionStatus", () =>
     });
 
     expect(buildNavigationState().platformSession).toBe("unknown");
-  });
-});
-
-describe("buildNavigationState — isNative", () => {
-  // The post-checkout provisioning funnel forks on this: native keeps the
-  // foreground hatching screen, web and Electron take the headless research
-  // entry.
-
-  test("false in a browser or the Electron shell", () => {
-    expect(buildNavigationState().isNative).toBe(false);
-  });
-
-  test("true inside the native Capacitor shell", () => {
-    mockIsNativePlatform = true;
-
-    expect(buildNavigationState().isNative).toBe(true);
   });
 });
 

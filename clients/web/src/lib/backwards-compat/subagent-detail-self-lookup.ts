@@ -1,7 +1,7 @@
 /**
  * Backwards-compat gate: subagent detail self-lookup.
  *
- * From assistant 0.10.13, `GET /subagents/:id` resolves the subagent's own
+ * From assistant 0.11.0, `GET /subagents/:id` resolves the subagent's own
  * conversation id from the daemon's live/rehydrated manager state and treats
  * the `conversationId` query parameter as a fallback only (it also returns
  * `label` / `parentToolUseId` so a recovering client can rebuild identity).
@@ -19,7 +19,7 @@
  */
 import { assistantSupports } from "@/lib/backwards-compat/utils";
 
-const MIN_VERSION = "0.10.13";
+const MIN_VERSION = "0.11.0";
 
 /**
  * Snapshot check (safe outside React — stream handlers, store actions):

@@ -12,9 +12,8 @@
 import type {
   HookFunction,
   UserPromptSubmitContext,
-} from "@vellumai/plugin-api";
-
-import { repairHistory } from "../terminal.js";
+} from "../../../plugin-api/types.js";
+import { repairHistory } from "../history-repair.js";
 
 const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   const { messages, stats } = repairHistory(ctx.latestMessages);

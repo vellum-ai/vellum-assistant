@@ -434,6 +434,21 @@ export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
 }
 
+/**
+ * Returns `<workspaceDir>/prompts/system` — the workspace override layer for
+ * system prompt sections. Layout: `prompts/system/<NN-name>.md`.
+ *
+ * The bundled section registry (`prompts/templates/system-sections.ts`) is
+ * the source of default truth; a file here with the same id replaces the
+ * bundled body (or, stripped to nothing, silences it), and a brand-new
+ * `<NN-name>` adds a workspace-only section. Because that includes the
+ * security-policy sections, writes under this directory are gated as a
+ * control-plane prompt surface (`permissions/workspace-policy.ts`).
+ */
+export function getWorkspaceSystemPromptDir(): string {
+  return join(getWorkspaceDir(), "prompts", "system");
+}
+
 // ── Profiler filesystem layout ──────────────────────────────────────────
 // Managed profiler runs live under <workspace>/data/profiler/. These
 // helpers enforce a single canonical layout so every runtime caller

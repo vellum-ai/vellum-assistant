@@ -23,7 +23,7 @@ export interface SubagentDetailAddress {
  * when nothing at hand can address it.
  *
  * The child id works on every daemon. A stub recovered without its
- * `subagent_spawned` may only know the parent conversation: 0.10.13+ daemons
+ * `subagent_spawned` may only know the parent conversation: 0.11.0+ daemons
  * resolve the subagent's own conversation and treat this parameter as a
  * fallback, so the parent id is a harmless wire placeholder there. An older
  * daemon would trust it verbatim and parse the parent's messages as the

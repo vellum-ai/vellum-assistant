@@ -149,6 +149,10 @@ export interface ChatComposerProps {
   // chrome surfacing existing buttons (rendered in the form's bottom-left row)
   thresholdPickerSlot?: ReactNode;
   contextWindowIndicatorSlot?: ReactNode;
+  // Model-profile picker rendered on the row's right end, beside the mic
+  // (Figma: New-App 7471-25234). The orchestrator passes a second
+  // `ComposerSettingsMenu` instance scoped to the profile segment.
+  modelPickerSlot?: ReactNode;
 
   // Slot rendered above the form (between the max-width wrapper and the form).
   // The main variant uses this for attachment-error / voice-error / disk-pressure
@@ -221,6 +225,7 @@ export function ChatComposer({
   assistantId,
   conversationId,
   thresholdPickerSlot,
+  modelPickerSlot,
   contextWindowIndicatorSlot,
   noticesAboveFormSlot,
   hasBillingBanner = false,
@@ -958,12 +963,27 @@ export function ChatComposer({
                 standalone={hideTextareaForLiveVoice}
               />
             ) : (
+              // Action row per Figma 7471-25234: attach | divider | access
+              // on the left; model profile | divider | mic, send on the
+              // right.
               <div className="flex items-center justify-between gap-1 px-2 pb-2">
-                <div className="flex min-w-0 items-center gap-1">
+                <div className="flex min-w-0 items-center gap-2">
                   {contextWindowIndicatorSlot}
+                  {!isAssistantBusy && (
+                    <AttachFileButton
+                      disabled={typingDisabled || !assistantId}
+                      onFilesSelected={onAddAttachmentFiles}
+                    />
+                  )}
+                  {!isAssistantBusy && thresholdPickerSlot ? (
+                    <div
+                      aria-hidden="true"
+                      className="h-4 w-px shrink-0 bg-[var(--border-base)] touch-mobile:-mx-1"
+                    />
+                  ) : null}
                   {thresholdPickerSlot}
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
+                <div className="flex shrink-0 items-center gap-2">
                   {isAssistantBusy ? (
                     <>
                       {/* Desktop: always show stop. Mobile: show stop only when there is no sendable content. */}
@@ -1001,10 +1021,13 @@ export function ChatComposer({
                     </>
                   ) : (
                     <>
-                      <AttachFileButton
-                        disabled={typingDisabled || !assistantId}
-                        onFilesSelected={onAddAttachmentFiles}
-                      />
+                      {modelPickerSlot}
+                      {modelPickerSlot && showVoiceInput ? (
+                        <div
+                          aria-hidden="true"
+                          className="h-4 w-px shrink-0 bg-[var(--border-base)] touch-mobile:-mx-1"
+                        />
+                      ) : null}
                       {showVoiceInput && (
                         <VoiceInputButton
                           ref={voiceInputRef}

@@ -1,15 +1,18 @@
 /**
- * Default `history-repair` behavior: the implementation that normalizes a
- * message history so it satisfies the provider's tool-use/tool-result pairing
- * and role-alternation rules.
+ * History repair: normalizes a message history so it satisfies the provider's
+ * tool-use/tool-result pairing and role-alternation rules.
  *
- * This module is side-effect free: importing it does not register any plugin.
- * `repairHistory` is the canonical repair pass, run per turn via the plugin's
- * `user-prompt-submit` hook (`./hooks/user-prompt-submit.ts`) and exported so
- * daemon call sites and tests can reach it directly. `deepRepairHistory` is an
- * aggressive one-shot fallback applied after a provider ordering rejection, and
- * `isRepairableOrderingError` recognizes the rejections it can recover — so
- * detection and repair of ordering drift live together as one unit.
+ * Built-in daemon logic, shared by every call site directly (it is not a
+ * pluggable behavior): the daemon's own passes (persisted-history normalization
+ * at load in `daemon/conversation.ts`, provider-error classification in
+ * `daemon/conversation-error.ts`) and the bundled default-behavior hooks under
+ * `./hooks/`. Side-effect free — importing it registers nothing.
+ *
+ * `repairHistory` is the canonical repair pass, run per turn by the
+ * `user-prompt-submit` hook (`./hooks/user-prompt-submit.ts`). `deepRepairHistory`
+ * is an aggressive one-shot fallback applied after a provider ordering
+ * rejection, and `isRepairableOrderingError` recognizes the rejections it can
+ * recover — so detection and repair of ordering drift live together as one unit.
  */
 
 import type {
@@ -18,7 +21,7 @@ import type {
   ServerToolUseContent,
   ToolResultContent,
   ToolUseContent,
-} from "@vellumai/plugin-api";
+} from "../../providers/types.js";
 
 interface RepairStats {
   assistantToolResultsMigrated: number;

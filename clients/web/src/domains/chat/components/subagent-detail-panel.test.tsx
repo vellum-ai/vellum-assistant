@@ -23,7 +23,7 @@ mock.module("@/components/avatar-renderer", () => ({
 }));
 
 // Detail addressability is version-gated; pin it on so the open-fetch tests
-// below exercise the parent-only fallback a 0.10.13+ daemon supports.
+// below exercise the parent-only fallback a 0.11.0+ daemon supports.
 mock.module("@/lib/backwards-compat/subagent-detail-self-lookup", () => ({
   supportsSubagentDetailSelfLookup: () => true,
 }));

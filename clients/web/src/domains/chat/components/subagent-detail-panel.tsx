@@ -215,7 +215,7 @@ export function SubagentDetailPanel({
   // conversation-load auto-fetch only covers live rows, so opening one of the
   // many terminal rows reconcile materializes is what pays for its detail.
   // Addressability goes through the shared predicate so a stub that knows only
-  // its parent conversation (0.10.13+ daemons resolve the child themselves)
+  // its parent conversation (0.11.0+ daemons resolve the child themselves)
   // isn't skipped here while the auto-fetch happily fetches it.
   const canFetchDetail = canAddressSubagentDetail(entry);
   useEffect(() => {

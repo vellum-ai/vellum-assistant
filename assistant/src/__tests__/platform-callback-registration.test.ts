@@ -7,27 +7,27 @@ let mockPlatformBaseUrl = "";
 let mockPlatformAssistantId = "";
 let mockSecureKeys: Record<string, string> = {};
 
+// Bun shares mocked modules across test files in a combined run, so each mock
+// spreads the real module and overrides only what this file drives. Replacing
+// a module wholesale drops the exports peer tests import from it and breaks
+// their ESM named-import validation whenever this mock wins evaluation.
+const actualEnvRegistry = await import("../config/env-registry.js");
 mock.module("../config/env-registry.js", () => ({
+  ...actualEnvRegistry,
   getIsPlatform: () => mockIsPlatform,
-  // Not called by this test, but the real util/logger.js + util/platform.js
-  // (loaded now that the logger is silent under test instead of mocked)
-  // import these names, and ESM named-import validation requires them.
-  getWorkspaceDirOverride: () => process.env.VELLUM_WORKSPACE_DIR,
-  getDebugStdoutLogs: () => false,
-  getIsContainerized: () => false,
 }));
 
+const actualEnv = await import("../config/env.js");
 mock.module("../config/env.js", () => ({
+  ...actualEnv,
   getPlatformBaseUrl: () => mockPlatformBaseUrl,
   getPlatformAssistantId: () => mockPlatformAssistantId,
 }));
 
+const actualSecureKeys = await import("../security/secure-keys.js");
 mock.module("../security/secure-keys.js", () => ({
+  ...actualSecureKeys,
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? undefined,
-  // Bun shares mocked modules across test files in a combined run; peer
-  // tests import this name from the same module, so stub it to keep their
-  // ESM named-import validation satisfied when this mock wins evaluation.
-  deleteSecureKeyAsync: async () => ({ deleted: false }),
 }));
 
 const originalFetch = globalThis.fetch;

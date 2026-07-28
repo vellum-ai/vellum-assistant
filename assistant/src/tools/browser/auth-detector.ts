@@ -1,8 +1,17 @@
+import { truncate } from "../../util/truncate.js";
 import {
   evaluateExpression,
   getCurrentUrl,
 } from "./cdp-client/cdp-dom-helpers.js";
 import type { CdpClient } from "./cdp-client/types.js";
+
+/**
+ * Caps on the page-authored parts of a formatted challenge — the service
+ * name and each field label are read from the DOM, so a hostile login
+ * page could otherwise make the formatted challenge arbitrarily long.
+ */
+const MAX_LABEL_CHARS = 80;
+const MAX_FIELDS = 12;
 
 export type AuthChallengeType = "login" | "2fa" | "oauth_consent" | "captcha";
 
@@ -367,7 +376,9 @@ export async function detectAuthChallenge(
  * for appending to browser_navigate output.
  */
 export function formatAuthChallenge(challenge: AuthChallenge): string {
-  const serviceName = challenge.service ? `${challenge.service} ` : "";
+  const serviceName = challenge.service
+    ? `${truncate(challenge.service, MAX_LABEL_CHARS)} `
+    : "";
   const typeLabel =
     challenge.type === "login"
       ? "login page"
@@ -383,10 +394,14 @@ export function formatAuthChallenge(challenge: AuthChallenge): string {
   ];
 
   if (challenge.fields.length > 0) {
-    const fieldDescs = challenge.fields
-      .map((f) => `${f.label} (${f.type})`)
+    const shown = challenge.fields.slice(0, MAX_FIELDS);
+    const fieldDescs = shown
+      .map((f) => `${truncate(f.label, MAX_LABEL_CHARS)} (${f.type})`)
       .join(", ");
-    lines.push(`  Fields: ${fieldDescs}`);
+    const omitted = challenge.fields.length - shown.length;
+    lines.push(
+      `  Fields: ${fieldDescs}${omitted > 0 ? ` (+${omitted} more)` : ""}`,
+    );
   }
 
   return lines.join("\n");

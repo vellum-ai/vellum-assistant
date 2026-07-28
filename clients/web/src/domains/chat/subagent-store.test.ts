@@ -1553,7 +1553,7 @@ describe("ensureEntry", () => {
     expect(entry?.hydrationPending).toBe(true);
   });
 
-  it("arms on the child id even on a pre-0.10.13 daemon", () => {
+  it("arms on the child id even on a pre-0.11.0 daemon", () => {
     // The child id addresses the subagent's own conversation, so an old
     // daemon trusting it verbatim still parses the right messages.
     selfLookupSupported = false;
@@ -1584,7 +1584,7 @@ describe("ensureEntry", () => {
     expect(entry?.hydrationPending).toBe(true);
   });
 
-  it("leaves a parent-only stub un-armed on a pre-0.10.13 daemon", () => {
+  it("leaves a parent-only stub un-armed on a pre-0.11.0 daemon", () => {
     selfLookupSupported = false;
 
     getState().ensureEntry({
@@ -1820,7 +1820,7 @@ describe("fetchDetailIfNeeded conversation id", () => {
     );
   });
 
-  it("does not fetch with a parent-only entry on a pre-0.10.13 daemon", async () => {
+  it("does not fetch with a parent-only entry on a pre-0.11.0 daemon", async () => {
     selfLookupSupported = false;
     getState().spawnSubagent({
       subagentId: "sa-1",
@@ -2704,7 +2704,7 @@ describe("reconcileFromDaemon hydration arming", () => {
     expect(getState().byId["sa-1"]?.hydrationPending).toBeUndefined();
   });
 
-  it("leaves an unaddressable row un-armed on a pre-0.10.13 daemon", async () => {
+  it("leaves an unaddressable row un-armed on a pre-0.11.0 daemon", async () => {
     selfLookupSupported = false;
     reconcileReply = { ok: true, subagents: { "sa-1": { status: "running" } } };
 

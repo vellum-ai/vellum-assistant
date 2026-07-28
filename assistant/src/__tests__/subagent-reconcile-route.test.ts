@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getDb } from "../persistence/db-connection.js";
 import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
-import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/354-add-subagent-parent-tool-use-id.js";
+import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/355-add-subagent-parent-tool-use-id.js";
 import { resetTestTables } from "../persistence/raw-query.js";
 import {
   type SubagentRecord,

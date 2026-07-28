@@ -267,17 +267,17 @@ export interface SubagentActions {
     outputTokens?: number;
     totalCost?: number;
     events: SubagentTimelineEvent[];
-    /** Backfills a stub entry's placeholder label (0.10.13+ daemons). */
+    /** Backfills a stub entry's placeholder label (0.11.0+ daemons). */
     label?: string;
     /**
      * Backfills a stub entry's spawn anchor and registers it in
-     * `byToolUseId` (0.10.13+ daemons), restoring exact message anchoring
+     * `byToolUseId` (0.11.0+ daemons), restoring exact message anchoring
      * for entries recovered without their `subagent_spawned` event.
      */
     parentToolUseId?: string;
     /**
      * The child conversation the daemon resolved for this subagent
-     * (0.10.13+). A stub that could only address the fetch through the
+     * (0.11.0+). A stub that could only address the fetch through the
      * parent-id fallback learns its true child conversation here.
      */
     conversationId?: string;
@@ -361,7 +361,7 @@ export interface SubagentActions {
    * no longer knows about to `interrupted` — they died with a daemon restart
    * and no terminal event is ever coming.
    *
-   * 0.10.13+ daemons return full identity per child (label, objective, child
+   * 0.11.0+ daemons return full identity per child (label, objective, child
    * conversation id, spawn anchor) so unknown ids materialize as complete rows
    * and known placeholder rows are backfilled; older ones return only
    * `status`, which recovers stub-level rows the detail fetch can still flesh
@@ -852,7 +852,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     get().spawnSubagent({
       subagentId: params.subagentId,
       // Placeholder identity when the evidence carries none — the detail
-      // fetch (0.10.13+ daemons) or a later snapshot backfills it.
+      // fetch (0.11.0+ daemons) or a later snapshot backfills it.
       label: params.label ?? "",
       objective: params.objective ?? "",
       status,
