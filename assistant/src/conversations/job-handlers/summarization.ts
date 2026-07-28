@@ -52,7 +52,9 @@ export async function buildConversationSummaryJob(
   const conversationId = asString(job.payload.conversationId);
   if (!conversationId) return;
   const db = getMemoryDb();
-  if (!db) return;
+  if (!db) {
+    return;
+  }
 
   const existing = db
     .select()
