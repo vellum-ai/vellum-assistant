@@ -55,7 +55,7 @@ await initializeDb();
 
 function resetTables() {
   const db = getDb();
-  // memory_embeddings and memory_segments now live on the memory connection,
+  // memory_embeddings and memory_segments live on the memory connection,
   // alongside memory_graph_nodes and memory_jobs.
   const memory = getMemorySqlite()!;
   memory.run("DELETE FROM memory_embeddings");

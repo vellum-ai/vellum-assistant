@@ -15,7 +15,7 @@ import {
  * including `vector_blob`) plus `content_hash` (migration 102). `vector_json`
  * was made nullable by migration 026a's table rebuild. The table is polymorphic
  * (`target_type`/`target_id`, no foreign key), so there is no cascade to
- * replace — every consumer already deletes embeddings explicitly, and those
+ * replace. Every consumer already deletes embeddings explicitly, and those
  * deletes move to the memory connection with the table.
  */
 export const MEMORY_EMBEDDINGS_RELOCATION: RelocationSpec = {

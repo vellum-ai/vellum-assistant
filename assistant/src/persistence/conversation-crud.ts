@@ -1839,8 +1839,8 @@ export function deleteConversation(id: string): DeletedMemoryIds {
 
   // Collect the conversation's segment ids from the memory connection BEFORE the
   // delete: the startup orphan sweep purges memory_segments whose conversation_id
-  // no longer exists, so reading after the conversation row is gone could race
-  // it and return nothing (losing the Qdrant purge). Best-effort — a missing or
+  // does not exist, so reading after the conversation row is gone could race
+  // it and return nothing (losing the Qdrant purge). Best-effort: a missing or
   // locked memory database yields no ids and must not abort the delete.
   const memoryDb = getMemoryDb();
   if (memoryDb) {
@@ -1860,8 +1860,8 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   }
 
   db.transaction((tx) => {
-    // memory_segments no longer cascades from messages/conversations — it lives
-    // on the memory connection now and is purged by the conversation-deleted
+    // memory_segments does not cascade from messages/conversations; it lives
+    // on the memory connection and is purged by the conversation-deleted
     // hook below. The main-DB cascade still removes message_attachments.
     tx.delete(toolInvocations)
       .where(eq(toolInvocations.conversationId, id))
@@ -1871,7 +1871,7 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   });
 
   // Delete the segment embeddings on the memory connection after the main delete
-  // succeeds. Best-effort — a memory-DB failure must not abort the disk cleanup
+  // succeeds. Best-effort: a memory-DB failure must not abort the disk cleanup
   // and conversation-deleted hook below.
   if (memoryDb && result.segmentIds.length > 0) {
     try {
@@ -1954,7 +1954,7 @@ export async function deleteConversationGently(
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
 
   // Collect the conversation's memory segment ids from the memory connection
-  // (memory_segments moved off the main DB) so the caller can clean up the
+  // (memory_segments is on the memory connection) so the caller can clean up the
   // matching Qdrant vectors. The segment rows are purged by the
   // conversation-deleted hook; their embeddings are deleted after the main
   // delete below. Best-effort: a missing memory database yields no ids.
@@ -2011,7 +2011,7 @@ export async function deleteConversationGently(
 
   // Bulk message delete off the event loop, in lock-friendly batches. Cascades
   // to message_attachments, bookmarks, channel_inbound_events (memory_segments
-  // moved to the memory connection and is purged by the hook below).
+  // is on the memory connection and is purged by the hook below).
   const del = await deleteConversationRowsInBatches({
     conversationId: id,
     table: "messages",
@@ -2035,7 +2035,7 @@ export async function deleteConversationGently(
 
   // Delete the segment embeddings on the memory connection (memory_embeddings is
   // not FK-linked to segments, so nothing cascades them). Best-effort, after the
-  // main delete succeeds — a memory-DB failure must not abort the hook/disk
+  // main delete succeeds. A memory-DB failure must not abort the hook/disk
   // cleanup below.
   if (memoryDb && result.segmentIds.length > 0) {
     try {

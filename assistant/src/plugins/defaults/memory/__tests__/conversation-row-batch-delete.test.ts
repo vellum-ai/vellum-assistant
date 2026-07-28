@@ -27,7 +27,7 @@ await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
-  // memory_segments lives on the dedicated memory connection now.
+  // memory_segments lives on the dedicated memory connection.
   getMemorySqlite()?.run("DELETE FROM memory_segments");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
@@ -89,10 +89,10 @@ describe("deleteConversationRowsInBatches", () => {
     expect(countMessages(keep.id)).toBe(1);
   });
 
-  // The low-level batch delete no longer cascades to memory_segments: the table
-  // moved to the memory connection (a different database file), so the main-DB
+  // The low-level batch delete does not cascade to memory_segments: the table
+  // is on the memory connection (a different database file), so the main-DB
   // cascade cannot reach it. deleteConversationGently purges those rows through
-  // the conversation-deleted hook instead — covered by conversation-memory-purge
+  // the conversation-deleted hook instead, covered by conversation-memory-purge
   // and the deleteConversationGently test below.
 });
 
@@ -107,7 +107,7 @@ describe("deleteConversationGently", () => {
       skipIndexing: true,
     });
     const now = Date.now();
-    // memory_segments lives on the memory connection now — seed it there.
+    // memory_segments lives on the memory connection, so seed it there.
     getMemorySqlite()!.run(
       `INSERT INTO memory_segments
         (id, message_id, conversation_id, role, segment_index, text, token_estimate, created_at, updated_at)
@@ -117,7 +117,7 @@ describe("deleteConversationGently", () => {
     const result = await deleteConversationGently(conv.id);
     // The ids are collected from the memory connection for the caller's Qdrant
     // purge. The segment rows are purged by the conversation-deleted hook, which
-    // is disabled in this memory-off suite — that purge is covered by
+    // is disabled in this memory-off suite. That purge is covered by
     // conversation-memory-purge instead.
     expect(result.segmentIds).toEqual(["seg-gentle"]);
     expect(countMessages(conv.id)).toBe(0);

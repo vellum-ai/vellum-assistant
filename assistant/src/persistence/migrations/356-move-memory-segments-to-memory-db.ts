@@ -14,7 +14,7 @@ import {
  * the physical order left by the `ALTER TABLE … ADD COLUMN` history: the base
  * `CREATE` columns (migration 000) plus `scope_id` and `content_hash` (both
  * added by migration 102). `scope_id` is a real `NOT NULL DEFAULT 'default'`
- * column even though the Drizzle schema does not map it — dropping it here would
+ * column even though the Drizzle schema does not map it, and dropping it here would
  * lose that data on the drain.
  *
  * The `message_id`/`conversation_id` foreign keys to `messages`/`conversations`
@@ -44,7 +44,7 @@ export const MEMORY_SEGMENTS_RELOCATION: RelocationSpec = {
 
 /**
  * Create `memory_segments` on the memory connection. Idempotent
- * (`IF NOT EXISTS`) — the dedicated connection performs no DDL on open, so this
+ * (`IF NOT EXISTS`). The dedicated connection performs no DDL on open, so this
  * migration owns the schema. The `message_id`/`conversation_id` columns keep
  * their values but drop the cross-file `REFERENCES`; the indexes mirror
  * migrations 016 and 102.
@@ -81,7 +81,7 @@ export function ensureMemorySegmentsSchema(memoryRaw: Database): void {
  *
  * Registered with `dependsOn` on every migration that reads or writes
  * `memory_segments` on main so the move never outruns one where those rows are
- * still expected there — including `migrateDeletePrivateConversations`, which
+ * still expected there, including `migrateDeletePrivateConversations`, which
  * runs `DELETE FROM messages` relying on the segment cascade.
  */
 export async function migrateMoveMemorySegmentsToMemoryDb(

@@ -355,7 +355,7 @@ export function maybeEnqueueGraphBootstrap(): void {
     return; // Graph already populated
   }
 
-  // Check for historical data to bootstrap from. Segments now live on the
+  // Check for historical data to bootstrap from. Segments live on the
   // memory connection alongside the graph nodes read above.
   const segmentCount =
     memoryDb

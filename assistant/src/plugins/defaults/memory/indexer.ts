@@ -121,8 +121,8 @@ export async function indexMessageNow(
   }> = [];
 
   // memory_segments has no cross-file FK to messages, so this call must not
-  // leave pieces for a message that no longer exists. Skip early when the source
-  // row is already gone — the common case of a backfill job running after the
+  // leave pieces for a message with no row. Skip early when the source
+  // row is already gone, the common case of a backfill job running after the
   // message was deleted. A post-write re-check below closes the narrower window
   // where the delete lands mid-transaction.
   const sourceMessage = getDb()
@@ -197,7 +197,7 @@ export async function indexMessageNow(
   // where a delete lands between it and this write. If the message is gone now,
   // drop the pieces this call just wrote and skip the embedding jobs, so a
   // delete racing a backfill leaves nothing searchable behind. No embeddings
-  // exist yet — the skipped jobs are what would have created them.
+  // exist yet. The skipped jobs are what would have created them.
   const stillExists = getDb()
     .select({ id: messages.id })
     .from(messages)

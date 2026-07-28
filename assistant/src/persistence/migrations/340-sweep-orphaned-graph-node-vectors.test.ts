@@ -107,7 +107,7 @@ beforeEach(() => {
     source_type TEXT NOT NULL DEFAULT 'inferred',
     scope_id TEXT NOT NULL DEFAULT 'default'
   )`);
-  // memory_embeddings also moved to the memory DB (a later migration); this
+  // memory_embeddings is also on the memory DB; this
   // migration reads it on the main connection too, so recreate its shape here.
   raw.run(/*sql*/ `CREATE TABLE IF NOT EXISTS memory_embeddings (
     id TEXT PRIMARY KEY, target_type TEXT NOT NULL, target_id TEXT NOT NULL,

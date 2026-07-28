@@ -3,7 +3,7 @@
  * conversation lives on) must remove that message's memory_segments and their
  * embeddings on the memory connection, while a sibling message's rows survive.
  * The conversation-keyed purge does not apply here, so this explicit delete is
- * the sole cleanup for message-scoped rows — there is no orphan-sweep backstop.
+ * the sole cleanup for message-scoped rows. There is no orphan-sweep backstop.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
