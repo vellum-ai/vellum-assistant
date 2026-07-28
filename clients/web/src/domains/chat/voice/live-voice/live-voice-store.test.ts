@@ -34,6 +34,14 @@ beforeEach(() => {
   useLiveVoiceStore.getState().setStarter(null);
 });
 
+function makeStarter() {
+  return {
+    prewarm: mock(() => {}),
+    cancelPrewarm: mock(() => {}),
+    start: mock((_assistantId: string, _conversationId: string | null) => {}),
+  };
+}
+
 describe("useLiveVoiceStore — session context", () => {
   test("defaults to null assistant/conversation when idle", () => {
     expect(useLiveVoiceStore.getState().assistantId).toBeNull();
@@ -79,7 +87,7 @@ describe("useLiveVoiceStore — session starter", () => {
   });
 
   test("setStarter registers and deregisters the controller's starter", () => {
-    const starter = mock(() => {});
+    const starter = makeStarter();
     useLiveVoiceStore.getState().setStarter(starter);
     expect(useLiveVoiceStore.getState().starter).toBe(starter);
     useLiveVoiceStore.getState().setStarter(null);
@@ -87,7 +95,7 @@ describe("useLiveVoiceStore — session starter", () => {
   });
 
   test("reset preserves the starter — session teardown must not deregister the mounted controller", () => {
-    const starter = mock(() => {});
+    const starter = makeStarter();
     useLiveVoiceStore.getState().setStarter(starter);
     // Simulate a full session lifecycle ending in teardown's reset().
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
@@ -347,7 +355,7 @@ describe("dismissLiveVoiceFailure", () => {
   });
 
   test("preserves the mount-scoped starter, like any reset", () => {
-    const starter = mock(() => {});
+    const starter = makeStarter();
     useLiveVoiceStore.getState().setStarter(starter);
     useLiveVoiceStore.getState().fail("boom");
 

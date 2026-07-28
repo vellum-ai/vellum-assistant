@@ -153,6 +153,38 @@ afterEach(() => {
   useLiveVoiceStore.getState().reset();
 });
 
+describe("playback prewarm", () => {
+  test("reserves playback before start and reuses it for the session", async () => {
+    const h = renderController();
+
+    act(() => {
+      h.view.result.current.prewarmPlayback();
+    });
+
+    expect(h.getPlayerCreateCount()).toBe(1);
+    expect(h.player.prewarmCount).toBe(1);
+    expect(h.view.result.current.state).toBe("idle");
+
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+    });
+
+    expect(h.getPlayerCreateCount()).toBe(1);
+    expect(h.player.prewarmCount).toBe(2);
+  });
+
+  test("canceling a prewarm releases the reserved player", () => {
+    const h = renderController();
+    act(() => {
+      h.view.result.current.prewarmPlayback();
+      h.view.result.current.cancelPrewarmedPlayback();
+    });
+
+    expect(h.player.disposeCount).toBe(1);
+    expect(h.view.result.current.state).toBe("idle");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Full turn
 // ---------------------------------------------------------------------------

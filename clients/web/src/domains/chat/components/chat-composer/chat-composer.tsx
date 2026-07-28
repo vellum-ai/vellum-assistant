@@ -395,6 +395,11 @@ export function ChatComposer({
     if (!assistantId || liveVoicePreflightPendingRef.current) {
       return;
     }
+    // WebKit's media-element playback permission is transient. Reserve and
+    // prewarm the controller-owned player synchronously from this gesture,
+    // before the readiness request yields to the event loop.
+    const starter = useLiveVoiceStore.getState().starter;
+    starter?.prewarm();
     // Gate the open on the daemon's readiness verdict BEFORE starting, so the
     // room never flashes open then immediately closes for a user with no
     // usable STT/TTS provider. The daemon runs managed-speech defaulting as
@@ -416,6 +421,13 @@ export function ChatComposer({
       latest.assistantId !== assistantId ||
       latest.conversationId !== conversationId
     ) {
+      starter?.cancelPrewarm();
+      return;
+    }
+    // The layout-owned controller may have unmounted while preflight was in
+    // flight. Do not invoke a stale starter captured from the old mount.
+    if (useLiveVoiceStore.getState().starter !== starter) {
+      starter?.cancelPrewarm();
       return;
     }
     // Fail OPEN on a null verdict (preflight network/daemon error): a preflight
@@ -423,6 +435,7 @@ export function ChatComposer({
     // WS-level start handshake surface any real credential problem via the
     // existing failure `Notice`. Only an explicit `not-ready` keeps us closed.
     if (verdict?.status === "not-ready") {
+      starter?.cancelPrewarm();
       setVoiceConfigNotice(
         verdict.userMessage ??
           "Voice isn't set up yet. Configure a voice provider to start talking.",
@@ -439,7 +452,7 @@ export function ChatComposer({
     // Publish the origin BEFORE starting; the controller carries it across its
     // start-time `reset()` (see the live-voice store's `entryOrigin`).
     setLiveVoiceEntryOrigin(origin);
-    useLiveVoiceStore.getState().starter?.(assistantId, conversationId ?? null);
+    starter?.start(assistantId, conversationId ?? null);
   }, [assistantId, conversationId]);
   const handleLiveVoiceStart = useCallback(
     (origin?: { x: number; y: number }) => {

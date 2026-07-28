@@ -154,6 +154,10 @@ export interface UseLiveVoiceResult {
   inputAmplitude: number;
   /** Failure message when `state === "failed"`, else `null`. */
   error: string | null;
+  /** Unlock assistant playback synchronously from the initiating user gesture. */
+  prewarmPlayback: () => void;
+  /** Release playback reserved by a readiness check that will not start. */
+  cancelPrewarmedPlayback: () => void;
   /** Start a session for `assistantId`, optionally attaching a conversation. */
   start: (
     assistantId: string,
@@ -372,10 +376,10 @@ export function useLiveVoice(
   // useCallback self-reference cycle.
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Owns the prewarmed player while a reconnect is waiting on its backoff
-  // timer. Keeping its MediaStream element alive preserves the user activation
-  // that started iOS voice-processing playback.
-  const reconnectPlayerRef = useRef<LiveVoiceAudioPlayer | null>(null);
+  // Owns a prewarmed player before the first connection and during reconnect
+  // backoff. Keeping its MediaStream element alive preserves the user
+  // activation that started iOS voice-processing playback.
+  const standbyPlayerRef = useRef<LiveVoiceAudioPlayer | null>(null);
   // Initial-connect resilience (JARVIS-1282). `hasReadyRef` records whether the
   // current session lifecycle ever reached `ready` — false during the very
   // first connect, so a transient pre-`ready` connection failure (cold velay
@@ -396,17 +400,25 @@ export function useLiveVoice(
     | null
   >(null);
 
-  const cancelReconnect = useCallback(() => {
+  const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
     }
-    const player = reconnectPlayerRef.current;
-    reconnectPlayerRef.current = null;
+  }, []);
+
+  const disposeStandbyPlayer = useCallback(() => {
+    const player = standbyPlayerRef.current;
+    standbyPlayerRef.current = null;
     if (player) {
       void player.dispose();
     }
   }, []);
+
+  const cancelPendingConnection = useCallback(() => {
+    clearReconnectTimer();
+    disposeStandbyPlayer();
+  }, [clearReconnectTimer, disposeStandbyPlayer]);
 
   /**
    * Tear down the active session's primitives, clear the ref, and reset the
@@ -421,7 +433,7 @@ export function useLiveVoice(
   const teardown = useCallback(() => {
     // Cancel any pending hands-free reconnect first — teardown is terminal, so
     // a queued reconnect must not resurrect the session behind idle UI.
-    cancelReconnect();
+    cancelPendingConnection();
     reconnectAttemptRef.current = 0;
     initialConnectAttemptRef.current = 0;
     hasReadyRef.current = false;
@@ -441,12 +453,12 @@ export function useLiveVoice(
     sessionRef.current = null;
     disposeSessionPrimitives(session);
     useLiveVoiceStore.getState().reset();
-  }, [cancelReconnect]);
+  }, [cancelPendingConnection]);
 
   const stop = useCallback(async () => {
     // A user-initiated stop ends the session outright — drop any pending
     // reconnect and its attempt budget.
-    cancelReconnect();
+    cancelPendingConnection();
     reconnectAttemptRef.current = 0;
     initialConnectAttemptRef.current = 0;
     hasReadyRef.current = false;
@@ -471,7 +483,7 @@ export function useLiveVoice(
     // here would leave that session's mic hot behind idle UI.
     if (startGenerationRef.current !== startGeneration) return;
     useLiveVoiceStore.getState().reset();
-  }, [cancelReconnect]);
+  }, [cancelPendingConnection]);
 
   /**
    * Manual turn release ("send now"). Guarded to `listening` so a stray click
@@ -545,6 +557,34 @@ export function useLiveVoice(
     [],
   );
 
+  const createPlayer = useCallback(
+    () =>
+      (
+        optionsRef.current.createPlayer ?? (() => new LiveVoiceAudioPlayer())
+      )(),
+    [],
+  );
+
+  const prewarmPlayback = useCallback(() => {
+    if (
+      sessionRef.current ||
+      standbyPlayerRef.current ||
+      isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)
+    ) {
+      return;
+    }
+    const player = createPlayer();
+    standbyPlayerRef.current = player;
+    player.prewarm();
+  }, [createPlayer]);
+
+  const cancelPrewarmedPlayback = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      return;
+    }
+    disposeStandbyPlayer();
+  }, [disposeStandbyPlayer]);
+
   // The connect flow, shared by the user-facing `start()` and the hands-free
   // reconnect path. `start()` owns the "already active" guard and resets the
   // reconnect budget; `connectSession` assumes it may run. On reconnect it is
@@ -602,15 +642,12 @@ export function useLiveVoice(
       const client = (
         opts.createClient ?? (() => new LiveVoiceChannelClient())
       )();
-      const player =
-        reconnectPlayerRef.current ??
-        (opts.createPlayer ?? (() => new LiveVoiceAudioPlayer()))();
-      reconnectPlayerRef.current = null;
-      // A fresh session prewarms playback inside the mic-button gesture.
-      // Reconnects reuse that already-started player, and this repeated call is
-      // a no-op while its AudioContext is running. Deferring fresh setup to the
-      // first `tts_audio` frame would land outside any gesture and start
-      // suspended.
+      const player = standbyPlayerRef.current ?? createPlayer();
+      standbyPlayerRef.current = null;
+      // The composer reserves and prewarms this player before its async
+      // readiness check. Reconnects reuse it too; this repeated call is a no-op
+      // while its AudioContext is running. Direct callers without a reservation
+      // still create and prewarm here.
       player.prewarm();
       // Route the room avatar's `responding` pulse to real TTS output. The mic
       // amplitude (the only prior source) is near-silent while the assistant
@@ -951,7 +988,7 @@ export function useLiveVoice(
               // entry origin, which the re-entered `connectSession` preserves),
               // so the avatar keeps animating and the user can still bail.
               sessionRef.current = null;
-              reconnectPlayerRef.current = session.player;
+              standbyPlayerRef.current = session.player;
               disposeSessionPrimitives(session, { keepPlayerAlive: true });
               const s = useLiveVoiceStore.getState();
               s.setState("connecting");
@@ -1011,7 +1048,7 @@ export function useLiveVoice(
             // reconnect rather than a vanished session and the user can still
             // bail during the gap.
             sessionRef.current = null;
-            reconnectPlayerRef.current = session.player;
+            standbyPlayerRef.current = session.player;
             disposeSessionPrimitives(session, { keepPlayerAlive: true });
             const s = useLiveVoiceStore.getState();
             s.setState("connecting");
@@ -1068,7 +1105,7 @@ export function useLiveVoice(
           : {}),
       });
     },
-    [teardown, stop, release, interrupt, setMuted, updateConfig],
+    [teardown, stop, release, interrupt, setMuted, updateConfig, createPlayer],
   );
 
   // Let the transport `closed` handler re-enter the connect flow for a
@@ -1095,13 +1132,13 @@ export function useLiveVoice(
       if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) return;
       // Fresh user-initiated session: drop any stale reconnect budget/timer and
       // the initial-connect resilience budget (a new session starts unreadied).
-      cancelReconnect();
+      clearReconnectTimer();
       reconnectAttemptRef.current = 0;
       initialConnectAttemptRef.current = 0;
       hasReadyRef.current = false;
       await connectSession(assistantId, conversationId, startOptions ?? {});
     },
-    [connectSession, cancelReconnect],
+    [connectSession, clearReconnectTimer],
   );
 
   // Release everything if the consumer unmounts mid-session. teardown() also
@@ -1117,6 +1154,8 @@ export function useLiveVoice(
     assistantTranscript,
     inputAmplitude,
     error,
+    prewarmPlayback,
+    cancelPrewarmedPlayback,
     start,
     stop,
   };

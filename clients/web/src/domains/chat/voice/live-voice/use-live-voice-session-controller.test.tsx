@@ -86,7 +86,7 @@ async function startListeningViaStarter(
   conversationId: string | null = "conv-1",
 ) {
   await act(async () => {
-    useLiveVoiceStore.getState().starter?.("assistant-1", conversationId);
+    useLiveVoiceStore.getState().starter?.start("assistant-1", conversationId);
     await Promise.resolve();
   });
   await act(async () => {
@@ -151,10 +151,21 @@ describe("starter registration", () => {
     expect(useLiveVoiceStore.getState().controls).not.toBeNull();
   });
 
+  test("starter prewarms playback without opening a session", () => {
+    const h = renderPersistentController();
+
+    useLiveVoiceStore.getState().starter?.prewarm();
+
+    expect(h.player.prewarmCount).toBe(1);
+    expect(h.clients).toHaveLength(0);
+    expect(h.captures).toHaveLength(0);
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+  });
+
   test("starter maps a null conversation to a conversation-less start (draft case)", async () => {
     const h = renderPersistentController();
     await act(async () => {
-      useLiveVoiceStore.getState().starter?.("assistant-1", null);
+      useLiveVoiceStore.getState().starter?.start("assistant-1", null);
       await Promise.resolve();
     });
 

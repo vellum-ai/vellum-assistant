@@ -170,10 +170,11 @@ playback through the same voice-processing unit and can use it as the echo
 reference. `LiveVoiceAudioPlayer` is the canonical implementation.
 
 Start the media element from the same user gesture that prewarms the
-`AudioContext`, and on teardown pause it, clear `srcObject`, and stop every
-track owned by the destination stream. Automatic reconnects must reuse the
-already-started player and MediaStream element: creating a replacement from a
-backoff timer loses the original user activation and can make `play()` fail.
+`AudioContext`, before awaiting readiness preflight or any other asynchronous
+work. On teardown, pause it, clear `srcObject`, and stop every track owned by
+the destination stream. Automatic reconnects must reuse the already-started
+player and MediaStream element: creating a replacement from a backoff timer
+loses the original user activation and can make `play()` fail.
 
 References:
 
