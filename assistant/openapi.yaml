@@ -13621,6 +13621,7 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending app-control request ID
                 state:
                   type: string
