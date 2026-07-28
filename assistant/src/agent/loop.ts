@@ -10,6 +10,7 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.js";
+import { truncateToolResult } from "../context/tool-result-truncation.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -2188,9 +2189,9 @@ export class AgentLoop {
 
         // Spool oversized results to `.tool-results/` and swap the inline
         // copy for the post-turn pass's stub now — on the raw blocks, before
-        // the post-tool-use hooks, event emission, and history append. Running
-        // ahead of the hooks means the spooled file holds the tool's full
-        // output rather than the truncate plugin's tail-dropped copy, and the
+        // truncation, the post-tool-use hooks, event emission, and history
+        // append. Running first means the spooled file holds the tool's full
+        // output rather than the tail-dropped copy, and truncation and the
         // hooks then see the stub. Stubbing before the first send keeps the
         // provider-bound history strictly append-only (rewriting an earlier
         // message between calls would invalidate the prompt-cache prefix on
@@ -2212,13 +2213,17 @@ export class AgentLoop {
           }
         }
 
-        // Run the `post-tool-use` hook once per tool result, after the tool
-        // returns and before the result joins the provider-bound history.
-        // The default tool-result-truncate plugin tail-drops oversized output
-        // to fit the context window (spool-stubbed results are already tiny;
-        // spool-exempt ones still rely on it); user hooks can swap in a
-        // smarter strategy (e.g. a summariser) or observe results for side
-        // effects.
+        // Bound each tool result, then run the `post-tool-use` hook once per
+        // result — after the tool returns and before the result joins the
+        // provider-bound history.
+        //
+        // Truncation is built-in daemon logic, not a hook: a single result
+        // that blows the context window is a hard provider rejection, so it
+        // is tail-dropped to a budget derived from the model's context window
+        // unconditionally, ahead of every hook (spool-stubbed results are
+        // already tiny; spool-exempt ones rely on this pass). Hooks then see
+        // an already-bounded result and can swap in a smarter strategy (e.g.
+        // a summariser) or observe results for side effects.
         const contextWindowTokens =
           options.resolveContextWindow?.().maxInputTokens ??
           this.config.maxInputTokens ??
@@ -2231,9 +2236,21 @@ export class AgentLoop {
             resultBlocks.push(block);
             continue;
           }
+          const toolResponse = block as ToolResultContent;
+          const bounded = truncateToolResult(
+            toolResponse.content,
+            contextWindowTokens,
+          );
+          if (bounded.truncated) {
+            toolResponse.content = bounded.content;
+            rlog.warn(
+              { toolUseId: toolResponse.tool_use_id },
+              "Truncated oversized tool result to prevent context overflow",
+            );
+          }
           const postToolUseCtx: PostToolUseInputContext = {
             conversationId: this.conversationId,
-            toolResponse: block as ToolResultContent,
+            toolResponse,
             messages: history,
             additionalContext: null,
             model: response.model,

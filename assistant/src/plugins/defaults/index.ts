@@ -86,8 +86,6 @@ import titleGenerateUserPromptSubmit from "./title-generate/hooks/user-prompt-su
 import titleGeneratePkg from "./title-generate/package.json" with { type: "json" };
 import toolErrorPostToolUse from "./tool-error/hooks/post-tool-use.js";
 import toolErrorPkg from "./tool-error/package.json" with { type: "json" };
-import toolResultTruncatePostToolUse from "./tool-result-truncate/hooks/post-tool-use.js";
-import toolResultTruncatePkg from "./tool-result-truncate/package.json" with { type: "json" };
 import { turnContextInjectors } from "./turn-context/injectors.js";
 import turnContextPkg from "./turn-context/package.json" with { type: "json" };
 import { workspaceInjectors } from "./workspace/injectors.js";
@@ -405,21 +403,6 @@ export const defaultSurfaceCompletionNudgePlugin: Plugin = {
 };
 
 /**
- * `tool-result-truncate` — a `post-tool-use` hook that tail-drops an oversized
- * tool result down to a character budget derived from the model's context
- * window before the result is sent to the provider.
- */
-export const defaultToolResultTruncatePlugin: Plugin = {
-  manifest: {
-    name: toolResultTruncatePkg.name,
-    version: toolResultTruncatePkg.version,
-  },
-  hooks: {
-    "post-tool-use": toolResultTruncatePostToolUse,
-  },
-};
-
-/**
  * Full set of first-party default plugins. Used by
  * {@link registerDefaultPlugins} to drive the registration loop; the array
  * order is the registration order, which fixes hook-chain order (defaults run
@@ -436,7 +419,6 @@ export function getAllDefaultPlugins(): readonly Plugin[] {
     defaultSessionPlugin,
     defaultPlatformHostedPlugin,
     defaultImageFallbackPlugin,
-    defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultMaxTokensContinuePlugin,
     defaultToolErrorPlugin,

@@ -118,7 +118,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/tools/tool-manifest.ts",
     "src/workflows/leaf-runner.ts",
   ],
-  "tool-result-truncate": ["src/context/tool-result-truncation.ts"],
 };
 
 function importSpecifierRegex(): RegExp {

@@ -275,13 +275,13 @@ export interface PostCompactContext
  * polymorphic return shape. The daemon threads the final `toolResponse`
  * into the provider-bound history.
  *
- * Multiple plugins' hooks chain in registration order — each plugin's hook
- * sees the previous plugin's mutations. The default tool-result-truncate
- * plugin contributes a hook here that tail-drops oversized output to fit the
- * model's context window; the default tool-error plugin sets
- * {@link additionalContext} with retry coaching for failed results. User hooks
- * can swap in a smarter strategy (e.g. a summarizer) or observe results for
- * side effects.
+ * The daemon tail-drops oversized output to fit the model's context window
+ * before the chain runs, so every hook sees an already-bounded result.
+ * Multiple plugins' hooks then chain in registration order — each plugin's
+ * hook sees the previous plugin's mutations. The default tool-error plugin
+ * sets {@link additionalContext} with retry coaching for failed results. User
+ * hooks can swap in a smarter strategy (e.g. a summarizer) or observe results
+ * for side effects.
  */
 export interface PostToolUseInputContext {
   /** Conversation ID the tool ran on. */

@@ -3,16 +3,18 @@
  * tool-use/tool-result pairing and role-alternation rules.
  *
  * Built-in daemon logic, shared by every call site directly (it is not a
- * pluggable behavior): the daemon's own passes (persisted-history normalization
- * at load in `daemon/conversation.ts`, provider-error classification in
- * `daemon/conversation-error.ts`) and the bundled default-behavior hooks under
- * `./hooks/`. Side-effect free — importing it registers nothing.
+ * pluggable behavior): persisted-history normalization at load in
+ * `daemon/conversation.ts`, provider-error classification in
+ * `daemon/conversation-error.ts`, and the agent loop's per-turn and
+ * on-rejection passes. Side-effect free — importing it registers nothing.
  *
- * `repairHistory` is the canonical repair pass, run per turn by the
- * `user-prompt-submit` hook (`./hooks/user-prompt-submit.ts`). `deepRepairHistory`
- * is an aggressive one-shot fallback applied after a provider ordering
- * rejection, and `isRepairableOrderingError` recognizes the rejections it can
- * recover — so detection and repair of ordering drift live together as one unit.
+ * `repairHistory` is the canonical repair pass, run per turn through
+ * {@link repairHistoryForRun} in `daemon/conversation-agent-loop.ts`,
+ * immediately before the provider call.
+ * `deepRepairHistory` is an aggressive one-shot fallback applied after a
+ * provider ordering rejection, and `isRepairableOrderingError` recognizes the
+ * rejections it can recover — so detection and repair of ordering drift live
+ * together as one unit.
  */
 
 import type {

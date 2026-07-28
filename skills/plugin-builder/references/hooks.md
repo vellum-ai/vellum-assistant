@@ -120,8 +120,8 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 
 **Context:** `PostToolUseContext`
 **When:** After each tool returns, before the result rejoins the history sent to the provider.
-**Use it to:** Transform the tool result, for example truncating oversized output to fit the context window.
-**Example:** [tool-result-truncate](https://github.com/vellum-ai/vellum-assistant/blob/5a79f009573790dd085223a0133135410a6fe41d/assistant/src/plugins/defaults/tool-result-truncate/hooks/post-tool-use.ts)
+**Use it to:** Transform the tool result, or append model-only guidance about it. The assistant already tail-drops oversized output to fit the context window before the chain runs, so `toolResponse` is bounded on arrival.
+**Example:** [tool-error](https://github.com/vellum-ai/vellum-assistant/blob/5a79f009573790dd085223a0133135410a6fe41d/assistant/src/plugins/defaults/tool-error/hooks/post-tool-use.ts)
 
 | Field               | Type                     | Access    | Description                                                                                                                                                                                                                             |
 | ------------------- | ------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

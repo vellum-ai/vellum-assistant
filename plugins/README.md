@@ -332,11 +332,10 @@ export default async function postToolUse(
 }
 ```
 
-Multiple plugins' hooks chain in registration order — each plugin sees
-the previous plugin's mutations. The default `tool-result-truncate`
-plugin contributes a hook here that tail-drops oversized output to fit
-the context window; because defaults register first, it runs ahead of
-user hooks.
+The assistant tail-drops oversized output to fit the context window before
+the chain runs, so every hook sees an already-bounded result. Multiple
+plugins' hooks then chain in registration order — each plugin sees the
+previous plugin's mutations.
 
 ### `post-model-call`
 
