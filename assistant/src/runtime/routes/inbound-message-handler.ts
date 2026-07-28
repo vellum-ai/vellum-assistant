@@ -1302,6 +1302,9 @@ export async function handleChannelInbound({
             actorExternalId: admittedSenderId,
             actorDisplayName: body.actorDisplayName,
             actorUsername: body.actorUsername,
+            // The nudge fires after recordInbound, so the originating
+            // conversation exists — attach the in-app card to it.
+            destinationConversationId: result.conversationId,
             messagePreview: truncate(
               trimmedContent,
               MESSAGE_PREVIEW_MAX_LENGTH,

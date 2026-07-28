@@ -24,6 +24,7 @@ import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
 } from "../notifications/guardian-delivery-recorder.js";
+import { buildVellumCardAffinity } from "../notifications/vellum-card-affinity.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
@@ -113,6 +114,9 @@ export async function bridgeQuestionRequestToGuardian(
     sourceChannel,
     sourceContextId: conversationId,
     requiresConversation: true,
+    // Pin the in-app (vellum) card to the conversation the question was
+    // asked in, so the guardian answers it in context.
+    ...(buildVellumCardAffinity(conversationId) ?? {}),
     attentionHints: {
       requiresAction: true,
       urgency: "high",
