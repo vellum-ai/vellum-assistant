@@ -123,6 +123,10 @@ assistant conversations wake "$id" --hint "Summarize the new items" --external-c
 
 Execute-mode runs use the default `mainAgent` model selection unless the schedule pins an `inference_profile` (a key from `llm.profiles`). Pin a profile when a recurring task should run on a specific model — e.g. a cost-optimized profile for a high-frequency digest. Pass `inference_profile: null` on update to revert to the default. The pinned profile is shown on the schedule's details page in settings.
 
+## Conversation Group
+
+Conversations created by a schedule's runs land in the sidebar's Scheduled section by default. Pass `group` (a group name or id) on create or update to file them into a custom sidebar group instead — e.g. a "Briefs" group for a morning digest. The group must already exist (create it with the conversation-groups skill); pass `group: null` on update to revert to the default. If the group is later deleted, runs fall back to the Scheduled section. Changing the group affects future runs only — move an existing conversation with `conversation_move_to_group`.
+
 ## Conversation Reuse
 
 Recurring schedules reuse the same conversation across runs by default — subsequent runs continue the conversation from the last successful run, preserving context and channel thread continuity. Set `reuse_conversation: false` explicitly if each run should start with a fresh conversation (e.g. independent reports that shouldn't accumulate prior context). One-shot schedules always create a fresh conversation.

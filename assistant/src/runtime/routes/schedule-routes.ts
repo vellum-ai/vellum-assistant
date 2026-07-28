@@ -36,6 +36,7 @@ import {
   getSchedule,
   getScheduleRuns,
   listSchedules,
+  resolveScheduleConversationGroupId,
   type ScheduleJob,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
@@ -1108,7 +1109,7 @@ async function handleRunScheduleNow(id: string) {
   if (!conversationId) {
     const conversation = await bootstrapConversation({
       source: "schedule",
-      groupId: "system:scheduled",
+      groupId: resolveScheduleConversationGroupId(schedule),
       origin: "schedule",
       systemHint: `Schedule (manual): ${schedule.name}`,
     });

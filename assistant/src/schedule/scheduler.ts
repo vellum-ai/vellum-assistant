@@ -38,6 +38,7 @@ import {
   failOneShotPermanently,
   getLastScheduleConversationId,
   resetRetryCount,
+  resolveScheduleConversationGroupId,
   retryOneShot,
   type RoutingIntent,
   type ScheduleJob,
@@ -107,6 +108,7 @@ async function emitScheduleNotifySignal(payload: {
   message: string;
   routingIntent: RoutingIntent;
   routingHints: Record<string, unknown>;
+  groupId: string;
   deepLinkConversationId?: string;
 }): Promise<void> {
   await emitNotificationSignal({
@@ -130,7 +132,7 @@ async function emitScheduleNotifySignal(payload: {
     routingIntent: payload.routingIntent,
     routingHints: payload.routingHints,
     conversationMetadata: {
-      groupId: "system:scheduled",
+      groupId: payload.groupId,
       scheduleJobId: payload.id,
       source: "schedule",
     },
@@ -536,6 +538,7 @@ export async function runDueSchedulesOnce(
           message: job.message,
           routingIntent: job.routingIntent,
           routingHints: job.routingHints,
+          groupId: resolveScheduleConversationGroupId(job),
           ...(job.createdFromConversationId
             ? { deepLinkConversationId: job.createdFromConversationId }
             : {}),
@@ -918,7 +921,7 @@ export async function runDueSchedulesOnce(
         // timeouts.scheduleTurnTimeoutSec (default 1800s).
         timeoutMs: getConfig().timeouts.scheduleTurnTimeoutSec * 1000,
         origin: "schedule",
-        groupId: "system:scheduled",
+        groupId: resolveScheduleConversationGroupId(job),
         conversationType: "scheduled",
         scheduleJobId: job.id,
         suppressFailureNotifications: job.quiet === true,
