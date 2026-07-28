@@ -2423,20 +2423,46 @@ export class AgentLoop {
         }
 
         // A provider rejection is a model-call outcome: the loop has nothing
-        // more to produce this turn unless a recovery hook repairs the history
-        // and asks to retry. Run the `post-model-call` hook with the rejection
-        // attached — a recovery hook (e.g. history-repair on an ordering
-        // violation) can re-normalize the history and set `decision` to
-        // `"continue"` to re-issue the call; hooks that only act on a real
-        // reply ignore the rejection. The same per-run backstop bounds these
-        // error-driven retries as the success-path ones. The chain is run
-        // fail-open: a hook throw surfaces the original rejection.
+        // more to produce this turn unless the history is repaired and the call
+        // re-issued. Two recovery paths, in order, both bounded by the same
+        // per-run backstop as the success-path retries.
         //
         // Confined to genuine provider rejections: a throw from elsewhere in
         // the turn body (tool execution, the success-path stop/post-model-call
         // hooks) is not a provider stop, so it falls straight through to the
         // error path below.
         if (error === providerCallError) {
+          // Built-in history-repair recovery takes precedence. A tool_use/
+          // tool_result pairing or ordering rejection is recovered by deep-
+          // repairing the history and re-issuing the call. It runs before the
+          // post-model-call chain so a hook that continues generically on a
+          // rejection can't burn the retry budget re-sending the same malformed
+          // history. Bounded to one pass per turn (a second consecutive
+          // ordering rejection means the repair could not recover).
+          if (
+            isRepairableOrderingError(err.message) &&
+            !orderingRepairAttempted &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
+          ) {
+            orderingRepairAttempted = true;
+            postModelCallContinues++;
+            history = deepRepairHistory(history).messages;
+            // Deep repair merges and drops messages, so the prior input
+            // boundary no longer maps onto the new array; the repaired history
+            // is the base the retry's output appends after.
+            newMessagesStart = history.length;
+            rlog.warn(
+              { turn: toolUseTurns, messageCount: history.length },
+              "Provider ordering error — recovering via history deep-repair",
+            );
+            continue;
+          }
+
+          // Otherwise, let a post-model-call recovery hook (e.g. image-recovery
+          // on an image-too-large rejection) re-normalize the history and set
+          // `decision` to `"continue"` to re-issue the call; hooks that only
+          // act on a real reply ignore the rejection. The chain is run
+          // fail-open: a hook throw surfaces the original rejection.
           const errorOutcomeCtx: PostModelCallInputContext = {
             conversationId: this.conversationId,
             callSite: callSite ?? null,
@@ -2469,31 +2495,6 @@ export class AgentLoop {
             // onto the new array; the repaired history is the base the retry's
             // output appends after.
             newMessagesStart = history.length;
-            continue;
-          }
-
-          // Built-in history-repair recovery. A provider rejection on a
-          // tool_use/tool_result pairing or ordering violation is recoverable
-          // by deep-repairing the history and re-issuing the call. Bounded to
-          // one pass per turn (a second consecutive ordering rejection means
-          // the repair could not recover), and to the same per-run backstop as
-          // the hook-driven retries above.
-          if (
-            isRepairableOrderingError(err.message) &&
-            !orderingRepairAttempted &&
-            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
-          ) {
-            orderingRepairAttempted = true;
-            postModelCallContinues++;
-            history = deepRepairHistory(history).messages;
-            // Deep repair merges and drops messages, so the prior input
-            // boundary no longer maps onto the new array; the repaired history
-            // is the base the retry's output appends after.
-            newMessagesStart = history.length;
-            rlog.warn(
-              { turn: toolUseTurns, messageCount: history.length },
-              "Provider ordering error — recovering via history deep-repair",
-            );
             continue;
           }
         }

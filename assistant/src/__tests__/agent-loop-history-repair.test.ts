@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { AgentEvent } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
+import { registerPlugin } from "../plugins/registry.js";
 import type {
   Message,
   Provider,
@@ -104,5 +105,50 @@ describe("agent loop — built-in history-repair recovery", () => {
     // Initial call + exactly one deep-repair retry, then the rejection surfaces.
     expect(callCount()).toBe(2);
     expect(events.some((e) => e.type === "error")).toBe(true);
+  });
+
+  test("native ordering repair takes precedence over a generic hook continue", async () => {
+    // A user hook that blindly continues on any rejection without repairing.
+    // Native ordering repair must run first, so the retry sends a repaired
+    // history and recovers — rather than this hook re-sending the malformed
+    // history and burning the retry budget.
+    let genericContinueFired = 0;
+    registerPlugin({
+      manifest: { name: "generic-continue", version: "0.0.1" },
+      hooks: {
+        "post-model-call": async (ctx) => {
+          if (ctx.error) {
+            genericContinueFired += 1;
+            ctx.decision = "continue";
+          }
+        },
+      },
+    });
+
+    const { provider, callCount } = orderingRejectionProvider(1);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // Native repair handled the ordering rejection before the hook chain ran,
+    // so the generic hook never fired on it and recovery succeeded in one retry.
+    expect(genericContinueFired).toBe(0);
+    expect(callCount()).toBe(2);
+    expect(history[history.length - 1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    });
   });
 });
