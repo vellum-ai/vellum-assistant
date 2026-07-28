@@ -75,10 +75,10 @@ export interface SubagentEntry {
    * Conversation id passed to the detail fetch. History hydration and
    * reconcile-on-load supply the subagent's OWN conversation id; the live
    * `subagent_event` path stamps the PARENT's (the only id that event
-   * carries). The ambiguity is harmless on 0.10.13+ daemons — the detail
+   * carries). The ambiguity is harmless on 0.11.0+ daemons — the detail
    * route resolves the true conversation from manager state and treats
    * this value as a fallback — and the stamping is version-gated so
-   * pre-0.10.13 daemons are never sent a parent id they'd trust verbatim.
+   * pre-0.11.0 daemons are never sent a parent id they'd trust verbatim.
    */
   conversationId?: string;
   /** StableId of the parent assistant message that spawned this subagent. */
@@ -221,11 +221,11 @@ export interface SubagentActions {
     outputTokens?: number;
     totalCost?: number;
     events: SubagentTimelineEvent[];
-    /** Backfills a stub entry's placeholder label (0.10.13+ daemons). */
+    /** Backfills a stub entry's placeholder label (0.11.0+ daemons). */
     label?: string;
     /**
      * Backfills a stub entry's spawn anchor and registers it in
-     * `byToolUseId` (0.10.13+ daemons), restoring exact message anchoring
+     * `byToolUseId` (0.11.0+ daemons), restoring exact message anchoring
      * for entries recovered without their `subagent_spawned` event.
      */
     parentToolUseId?: string;
@@ -512,7 +512,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       subagentId: params.subagentId,
       // Reconcile-driven creation supplies real identity; evidence-driven
       // stubs get a placeholder that the detail fetch backfills on
-      // 0.10.13+ daemons (see `loadDetail`).
+      // 0.11.0+ daemons (see `loadDetail`).
       label: params.label ?? "",
       objective: "",
       status: params.status ?? "running",

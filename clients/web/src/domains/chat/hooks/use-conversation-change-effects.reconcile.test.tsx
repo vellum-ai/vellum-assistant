@@ -1,6 +1,6 @@
 /**
  * Tests for the reconcile-on-load path of `useConversationChangeEffects`
- * (LUM-2875): on 0.10.13+ daemons, loading a conversation asks
+ * (LUM-2875): on 0.11.0+ daemons, loading a conversation asks
  * `subagents/reconcile` for every subagent the daemon knows about and
  * materializes store entries for the ones this client never saw spawn.
  * Split from the main test file so the SDK/gate mocks can't perturb the
@@ -132,7 +132,7 @@ describe("useConversationChangeEffects — reconcile-on-load", () => {
     expect(entry?.status).toBe("running");
   });
 
-  test("skips entirely on a pre-0.10.13 daemon", async () => {
+  test("skips entirely on a pre-0.11.0 daemon", async () => {
     recoverySupported = false;
     reconcileResponse = {
       subagents: { "sa-1": { status: "running", label: "x" } },
