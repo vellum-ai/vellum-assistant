@@ -1,7 +1,7 @@
 /**
- * Tests for the monitor's quick_check sampler. The corruption seed writes junk
- * over a b-tree page of a rollback-journal database (WAL would keep the data in
- * the -wal file, leaving the main file a bare header the check would pass).
+ * Tests for the quick_check probe. The corruption seed writes junk over a
+ * b-tree page of a rollback-journal database (WAL would keep the data in the
+ * -wal file, leaving the main file a bare header the check would pass).
  */
 
 import { closeSync, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
@@ -10,7 +10,11 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 
-import { runIntegrityCheck } from "../db-integrity-sample.js";
+import { assertNotLiveDb } from "../../__tests__/assert-not-live-db.js";
+import {
+  type IntegritySampleResult,
+  runIntegrityCheck,
+} from "../db-integrity-check.js";
 
 let dir: string;
 let dbPath: string;
@@ -21,6 +25,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  assertNotLiveDb(dbPath);
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -38,6 +43,15 @@ function seedDb(walMode: boolean): void {
   }
 }
 
+function corruptDb(): void {
+  const fd = openSync(dbPath, "r+");
+  try {
+    writeSync(fd, Buffer.alloc(32 * 1024, 0xff), 0, 32 * 1024, 4096);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 test("returns null when the database does not exist", () => {
   expect(runIntegrityCheck(dbPath)).toBeNull();
 });
@@ -52,13 +66,21 @@ test("reports ok on a healthy database", () => {
 
 test("reports corruption instead of throwing", () => {
   seedDb(false);
-  const fd = openSync(dbPath, "r+");
-  try {
-    writeSync(fd, Buffer.alloc(32 * 1024, 0xff), 0, 32 * 1024, 4096);
-  } finally {
-    closeSync(fd);
-  }
+  corruptDb();
   const result = runIntegrityCheck(dbPath);
+  expect(result?.ok).toBe(false);
+  expect(result?.errors.length).toBeGreaterThan(0);
+});
+
+test("subprocess entry prints the JSON verdict", () => {
+  seedDb(false);
+  corruptDb();
+  const entry = new URL("../db-integrity-check.ts", import.meta.url).pathname;
+  const proc = Bun.spawnSync({ cmd: ["bun", "run", entry, dbPath] });
+  expect(proc.exitCode).toBe(0);
+  const result = JSON.parse(
+    proc.stdout.toString(),
+  ) as IntegritySampleResult | null;
   expect(result?.ok).toBe(false);
   expect(result?.errors.length).toBeGreaterThan(0);
 });
