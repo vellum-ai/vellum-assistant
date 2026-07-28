@@ -96,18 +96,26 @@ export function buildSlackPermalink(params: {
 
 /**
  * Web URL for a channel. Workspace-branded when the team URL is known,
- * otherwise the workspace-agnostic `https://slack.com/archives/…` form —
- * Slack resolves the channel id to the right workspace for any
- * authenticated viewer (the web client already synthesizes this exact
- * shape from message permalinks, see `getSlackChannelLinkFromMessageLink`
- * in `clients/web`).
+ * otherwise Slack's documented channel deep-link endpoint
+ * (https://docs.slack.dev/interactivity/deep-linking/) — `app_redirect`
+ * resolves the channel for the signed-in user, scoped to `team` when the
+ * team id is known.
  */
 export function buildSlackWebChannelUrl(params: {
+  teamId?: string | null;
   teamUrl?: string | null;
   channelId: string;
 }): string {
-  const teamUrl = normalizeSlackTeamUrl(params.teamUrl) ?? "https://slack.com";
-  return `${teamUrl}/archives/${encodeURIComponent(params.channelId)}`;
+  const teamUrl = normalizeSlackTeamUrl(params.teamUrl);
+  if (teamUrl) {
+    return `${teamUrl}/archives/${encodeURIComponent(params.channelId)}`;
+  }
+  const search = new URLSearchParams({ channel: params.channelId });
+  const teamId = params.teamId?.trim();
+  if (teamId) {
+    search.set("team", teamId);
+  }
+  return `https://slack.com/app_redirect?${search.toString()}`;
 }
 
 /**

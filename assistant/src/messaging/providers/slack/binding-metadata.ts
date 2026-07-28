@@ -47,6 +47,7 @@ export function buildSlackBindingMetadata(
     : undefined;
 
   const channelWebUrl = buildSlackWebChannelUrl({
+    teamId: slackConfig?.teamId,
     teamUrl: slackConfig?.teamUrl,
     channelId: binding.externalChatId,
   });

@@ -83,9 +83,15 @@ describe("buildSlackWebChannelUrl", () => {
     ).toBe("https://example.slack.com/archives/C123");
   });
 
-  test("falls back to slack.com without a teamUrl", () => {
+  test("falls back to the app_redirect deep link without a teamUrl", () => {
     expect(buildSlackWebChannelUrl({ channelId: "C123" })).toBe(
-      "https://slack.com/archives/C123",
+      "https://slack.com/app_redirect?channel=C123",
+    );
+  });
+
+  test("scopes the app_redirect fallback to the team when the id is known", () => {
+    expect(buildSlackWebChannelUrl({ teamId: "T123", channelId: "C123" })).toBe(
+      "https://slack.com/app_redirect?channel=C123&team=T123",
     );
   });
 });

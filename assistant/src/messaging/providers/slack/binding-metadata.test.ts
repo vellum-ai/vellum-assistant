@@ -58,14 +58,14 @@ describe("buildSlackBindingMetadata sourceLink", () => {
   test("falls back to workspace-agnostic slack.com links without a teamUrl", () => {
     // An empty teamUrl is the schema default — e.g. installs whose Slack
     // connection came through the gateway and never ran the local bot-token
-    // setup. Links must still be produced via the slack.com permalink form.
+    // setup. Links must still be produced via Slack's team-agnostic forms.
     seedSlack({ teamId: "", teamUrl: "" });
     const metadata = buildSlackBindingMetadata(makeBinding({}));
     expect(metadata.sourceLink).toEqual({
-      webUrl: "https://slack.com/archives/C0CHANNEL",
+      webUrl: "https://slack.com/app_redirect?channel=C0CHANNEL",
     });
     expect(metadata.slackChannel?.link).toEqual({
-      webUrl: "https://slack.com/archives/C0CHANNEL",
+      webUrl: "https://slack.com/app_redirect?channel=C0CHANNEL",
     });
   });
 
