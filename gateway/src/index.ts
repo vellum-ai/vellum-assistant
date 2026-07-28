@@ -2636,6 +2636,21 @@ async function main() {
         );
       });
 
+      // Vellum credentials are load-bearing for the Telegram webhook URL when
+      // the managed callback fallback applies: a platform connection arriving
+      // or rotating after Telegram setup must repoint Telegram at the managed
+      // callback route without waiting for an unrelated Telegram or ingress
+      // change, or a system wake. Skipped when telegram credentials changed in
+      // the same event, since that branch already reconciled above.
+      if (telegramReady && !changed.has("telegram")) {
+        reconcileTelegramWebhook(telegramCaches).catch((err) => {
+          log.error(
+            { err },
+            "Failed to reconcile Telegram webhook after vellum credential change",
+          );
+        });
+      }
+
       // Force an immediate per-assistant feature-flag re-sync. A `vellum`
       // credential change means a warm-pool claim / key rotation / late
       // provisioning — the assistant identity the platform evaluates flags
