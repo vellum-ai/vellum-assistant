@@ -75,9 +75,9 @@ export interface SubagentEntry {
    * Conversation id passed to the detail fetch. History hydration and
    * reconcile-on-load supply the subagent's OWN conversation id; the live
    * `subagent_event` path stamps the PARENT's (the only id that event
-   * carries). The ambiguity is harmless on 0.11.0+ daemons — the detail
+   * carries). The ambiguity is harmless on 0.11.0+ daemons (the detail
    * route resolves the true conversation from manager state and treats
-   * this value as a fallback — and the stamping is version-gated so
+   * this value as a fallback), and the stamping is version-gated so
    * pre-0.11.0 daemons are never sent a parent id they'd trust verbatim.
    */
   conversationId?: string;

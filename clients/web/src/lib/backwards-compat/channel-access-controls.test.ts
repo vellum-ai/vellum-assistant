@@ -19,7 +19,7 @@ afterEach(() => {
 
 // The surface requires the two-level channel contract — the runtime collapse
 // of stored `medium`/`high` cells, the room default for cell-less rooms, and
-// the sensitive-tool floor lift — which ships in 0.11.0. A 0.10.8–0.10.12
+// the sensitive-tool floor lift, which ships in 0.11.0. A 0.10.8–0.10.12
 // assistant serves the channel-permission-overrides routes but honors raw
 // thresholds, so the two-level picker would display "Conservative" for a
 // cell that backend treats as its stored value. `false` = render the
