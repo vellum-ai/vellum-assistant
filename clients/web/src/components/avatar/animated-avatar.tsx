@@ -321,6 +321,9 @@ export function AnimatedAvatar({
       style={{
         animation: breatheAnimation,
         transformOrigin: "center",
+        // The body fills the viewBox edge to edge, so the busy wobble (±6%) and
+        // the idle twitch draw past it and would otherwise be clipped flat.
+        overflow: "visible",
       }}
     >
       <g
