@@ -63,7 +63,9 @@ export interface TranscriptMessageBodyProps {
     toolCall: ChatMessageToolCall,
   ) => void | Promise<void>;
   /** Callback when the user picks "Allow & Create Rule" from the split button. */
-  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
+  onAllowAndCreateRule?: (
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
@@ -109,11 +111,17 @@ export interface TranscriptMessageBodyProps {
 function extractSubagentIdFromResult(
   toolCall: ChatMessageToolCall,
 ): string | undefined {
-  if (!isSubagentSpawnCall(toolCall)) return undefined;
-  if (typeof toolCall.result !== "string" || !toolCall.result) return undefined;
+  if (!isSubagentSpawnCall(toolCall)) {
+    return undefined;
+  }
+  if (typeof toolCall.result !== "string" || !toolCall.result) {
+    return undefined;
+  }
   try {
     const parsed = JSON.parse(toolCall.result) as { subagentId?: unknown };
-    return typeof parsed.subagentId === "string" ? parsed.subagentId : undefined;
+    return typeof parsed.subagentId === "string"
+      ? parsed.subagentId
+      : undefined;
   } catch {
     return undefined;
   }
@@ -135,7 +143,9 @@ export function lookupSubagentEntriesForMessage(
 ): readonly SubagentEntry[] {
   // Fast path for messages with no spawned subagents — avoids the lookup in
   // the hot per-render selector.
-  if (byParent.size === 0) return EMPTY_SUBAGENT_ENTRIES;
+  if (byParent.size === 0) {
+    return EMPTY_SUBAGENT_ENTRIES;
+  }
 
   // `byParent` never stores empty buckets, so a present bucket always has
   // entries and can be returned by reference.
@@ -173,7 +183,9 @@ export function resolveSpawnedSubagentIds(
   claimed: Set<string>,
 ): string[] {
   const spawnToolCalls = toolCalls.filter(isSubagentSpawnCall);
-  if (spawnToolCalls.length === 0) return [];
+  if (spawnToolCalls.length === 0) {
+    return [];
+  }
 
   const ids: string[] = [];
 
@@ -208,8 +220,12 @@ export function resolveSpawnedSubagentIds(
  * render an inline card.
  */
 function extractRunIdFromResult(toolCall: ChatMessageToolCall): string | null {
-  if (!isRunWorkflowCall(toolCall)) return null;
-  if (typeof toolCall.result !== "string" || !toolCall.result) return null;
+  if (!isRunWorkflowCall(toolCall)) {
+    return null;
+  }
+  if (typeof toolCall.result !== "string" || !toolCall.result) {
+    return null;
+  }
   try {
     const parsed = JSON.parse(toolCall.result) as { runId?: unknown };
     return typeof parsed.runId === "string" ? parsed.runId : null;
@@ -230,7 +246,9 @@ export function workflowRunIdForCall(
   toolCall: ChatMessageToolCall,
   byToolUseId: Map<string, string>,
 ): string | null {
-  if (!isRunWorkflowCall(toolCall)) return null;
+  if (!isRunWorkflowCall(toolCall)) {
+    return null;
+  }
   return byToolUseId.get(toolCall.id) ?? extractRunIdFromResult(toolCall);
 }
 
@@ -255,7 +273,9 @@ export function resolveWorkflowRunIds(
   const ids: string[] = [];
 
   for (const tc of toolCalls) {
-    if (!isRunWorkflowCall(tc)) continue;
+    if (!isRunWorkflowCall(tc)) {
+      continue;
+    }
     const byId = byToolUseId.get(tc.id);
     if (byId && !claimed.has(byId)) {
       ids.push(byId);
@@ -302,13 +322,19 @@ export function computeCardBackedWorkflowRunIds(
   const backed = new Set<string>();
   for (const tc of toolCalls) {
     const rid = workflowRunIdForCall(tc, state.byToolUseId);
-    if (rid === null) continue;
+    if (rid === null) {
+      continue;
+    }
     if (state.byId[rid] !== undefined) {
       backed.add(rid);
       continue;
     }
-    if (state.notFoundRunIds.has(rid)) continue;
-    if (state.hydrationFailedRunIds.has(rid)) continue;
+    if (state.notFoundRunIds.has(rid)) {
+      continue;
+    }
+    if (state.hydrationFailedRunIds.has(rid)) {
+      continue;
+    }
     backed.add(rid);
   }
   return backed;
@@ -324,8 +350,12 @@ export function computeCardBackedWorkflowRunIds(
 function extractAcpSessionIdFromResult(
   toolCall: ChatMessageToolCall,
 ): string | null {
-  if (!isAcpSpawnCall(toolCall)) return null;
-  if (typeof toolCall.result !== "string" || !toolCall.result) return null;
+  if (!isAcpSpawnCall(toolCall)) {
+    return null;
+  }
+  if (typeof toolCall.result !== "string" || !toolCall.result) {
+    return null;
+  }
   try {
     const parsed = JSON.parse(toolCall.result) as { acpSessionId?: unknown };
     return typeof parsed.acpSessionId === "string" ? parsed.acpSessionId : null;
@@ -344,8 +374,12 @@ function extractAcpSessionIdFromResult(
 export function extractBgIdFromResult(
   toolCall: ChatMessageToolCall,
 ): string | undefined {
-  if (!isBackgroundBashCall(toolCall)) return undefined;
-  if (typeof toolCall.result !== "string" || !toolCall.result) return undefined;
+  if (!isBackgroundBashCall(toolCall)) {
+    return undefined;
+  }
+  if (typeof toolCall.result !== "string" || !toolCall.result) {
+    return undefined;
+  }
   try {
     const parsed = JSON.parse(toolCall.result) as {
       backgrounded?: unknown;
@@ -377,7 +411,9 @@ export function resolveBackgroundTaskIds(
   const ids: string[] = [];
 
   for (const tc of toolCalls) {
-    if (!isBackgroundBashCall(tc)) continue;
+    if (!isBackgroundBashCall(tc)) {
+      continue;
+    }
     const id = extractBgIdFromResult(tc);
     if (id && !claimed.has(id)) {
       ids.push(id);
@@ -400,8 +436,12 @@ export function acpRunIdForCall(
   toolCall: ChatMessageToolCall,
   byToolUseId: Map<string, string>,
 ): string | null {
-  if (!isAcpSpawnCall(toolCall)) return null;
-  return byToolUseId.get(toolCall.id) ?? extractAcpSessionIdFromResult(toolCall);
+  if (!isAcpSpawnCall(toolCall)) {
+    return null;
+  }
+  return (
+    byToolUseId.get(toolCall.id) ?? extractAcpSessionIdFromResult(toolCall)
+  );
 }
 
 /**
@@ -425,7 +465,9 @@ export function resolveAcpRunIds(
   const ids: string[] = [];
 
   for (const tc of toolCalls) {
-    if (!isAcpSpawnCall(tc)) continue;
+    if (!isAcpSpawnCall(tc)) {
+      continue;
+    }
     const byId = byToolUseId.get(tc.id);
     if (byId && !claimed.has(byId)) {
       ids.push(byId);
@@ -457,7 +499,9 @@ function firstPresentLabel(
 ): string | undefined {
   for (const candidate of candidates) {
     const normalized = candidate?.trim();
-    if (normalized) return normalized;
+    if (normalized) {
+      return normalized;
+    }
   }
   return undefined;
 }
@@ -466,14 +510,18 @@ function getSlackSenderLabel(
   message: DisplayMessage,
   assistantDisplayName?: string | null,
 ): string | null {
-  if (!message.slackMessage) return null;
+  if (!message.slackMessage) {
+    return null;
+  }
   const sender = message.slackMessage.sender;
-  return firstPresentLabel(
-    sender?.displayName,
-    sender?.name,
-    sender?.username,
-    sender?.externalUserId,
-  ) ?? fallbackRoleLabel(message.role, assistantDisplayName);
+  return (
+    firstPresentLabel(
+      sender?.displayName,
+      sender?.name,
+      sender?.username,
+      sender?.externalUserId,
+    ) ?? fallbackRoleLabel(message.role, assistantDisplayName)
+  );
 }
 
 export function isInteractiveClickTarget(target: Element | null): boolean {
@@ -488,15 +536,14 @@ export function SlackMessageAttribution({
   assistantDisplayName?: string | null;
 }) {
   const label = getSlackSenderLabel(message, assistantDisplayName);
-  if (!label) return null;
+  if (!label) {
+    return null;
+  }
 
   const className =
     "inline-flex items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]";
   return (
-    <div
-      data-testid="slack-message-attribution"
-      className={className}
-    >
+    <div data-testid="slack-message-attribution" className={className}>
       <span>{label}</span>
     </div>
   );
@@ -506,20 +553,19 @@ export function SlackMessageAttribution({
  * Compact inline rendering of a Slack reaction event. Shows the emoji
  * character (or `:shortcode:` fallback) plus the actor name and verb.
  */
-export function SlackReactionLine({
-  message,
-}: {
-  message: DisplayMessage;
-}) {
+export function SlackReactionLine({ message }: { message: DisplayMessage }) {
   const lookupEmoji = useEmojiLookup();
   const reaction = message.slackMessage?.reaction;
-  if (!reaction) return null;
+  if (!reaction) {
+    return null;
+  }
 
   const emojiChar = lookupEmoji(reaction.emoji);
   const emojiDisplay = emojiChar ?? `:${reaction.emoji}:`;
-  const actor = reaction.actorDisplayName
-    ?? message.slackMessage?.sender?.displayName
-    ?? message.slackMessage?.sender?.name;
+  const actor =
+    reaction.actorDisplayName ??
+    message.slackMessage?.sender?.displayName ??
+    message.slackMessage?.sender?.name;
   const verb = reaction.op === "added" ? "reacted" : "removed reaction";
 
   return (

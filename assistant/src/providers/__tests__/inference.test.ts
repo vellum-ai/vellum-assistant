@@ -105,7 +105,9 @@ describe("Connection CRUD", () => {
       auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.connection.name).toBe("my-anthropic");
     expect(result.connection.provider).toBe("anthropic");
     expect(result.connection.auth.type).toBe("api_key");
@@ -119,7 +121,9 @@ describe("Connection CRUD", () => {
       auth: { type: "none" },
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("invalid_provider");
   });
 
@@ -136,7 +140,9 @@ describe("Connection CRUD", () => {
       auth: { type: "platform" },
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("already_exists");
   });
 
@@ -167,7 +173,9 @@ describe("Connection CRUD", () => {
       auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.connection.auth.type).toBe("api_key");
     const fetched = getConnection(db, "updatable");
     expect(fetched?.auth.type).toBe("api_key");
@@ -177,7 +185,9 @@ describe("Connection CRUD", () => {
     const { db } = setupDb();
     const result = updateConnection(db, "ghost", { auth: { type: "none" } });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("not_found");
   });
 
@@ -197,7 +207,9 @@ describe("Connection CRUD", () => {
     const { db } = setupDb();
     const result = deleteConnection(db, "ghost");
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("not_found");
   });
 
@@ -213,9 +225,13 @@ describe("Connection CRUD", () => {
       referencingProfiles: ["profile-a", "profile-b"],
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error.code).toBe("has_references");
-    if (result.error.code !== "has_references") return;
+    if (result.error.code !== "has_references") {
+      return;
+    }
     expect(result.error.count).toBe(2);
   });
 

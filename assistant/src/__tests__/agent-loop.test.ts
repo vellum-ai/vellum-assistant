@@ -1129,9 +1129,12 @@ describe("AgentLoop", () => {
     let lastToolUseIdx = -1;
     let firstToolResultIdx = events.length;
     events.forEach((e, i) => {
-      if (e.type === "tool_use") lastToolUseIdx = i;
-      if (e.type === "tool_result" && i < firstToolResultIdx)
+      if (e.type === "tool_use") {
+        lastToolUseIdx = i;
+      }
+      if (e.type === "tool_result" && i < firstToolResultIdx) {
         firstToolResultIdx = i;
+      }
     });
     expect(lastToolUseIdx).toBeLessThan(firstToolResultIdx);
 

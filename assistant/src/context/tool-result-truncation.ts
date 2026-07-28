@@ -21,9 +21,13 @@ export function truncateToolResultsAcrossHistory(
   const mapped = messages.map((msg) => {
     let changed = false;
     const nextContent: ContentBlock[] = msg.content.map((block) => {
-      if (block.type !== "tool_result") return block;
+      if (block.type !== "tool_result") {
+        return block;
+      }
       const tr = block as ToolResultContent;
-      if (tr.content.length <= maxChars) return block;
+      if (tr.content.length <= maxChars) {
+        return block;
+      }
       changed = true;
       truncatedCount++;
       return {

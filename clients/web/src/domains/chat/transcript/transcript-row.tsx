@@ -177,7 +177,9 @@ export const TranscriptRow = memo(function TranscriptRow({
             item.active ? "h-7 opacity-100" : "h-0 opacity-0"
           }`}
         >
-          <StreamingShimmerText>{item.label ?? "Thinking"}</StreamingShimmerText>
+          <StreamingShimmerText>
+            {item.label ?? "Thinking"}
+          </StreamingShimmerText>
         </div>
       );
 

@@ -239,7 +239,9 @@ export function createXaiProvider(
           signal: request.signal,
         });
       } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") throw err;
+        if (err instanceof Error && err.name === "AbortError") {
+          throw err;
+        }
         throw new XaiTtsError(
           "XAI_TTS_REQUEST_FAILED",
           `xAI TTS request failed: ${err instanceof Error ? err.message : String(err)}`,

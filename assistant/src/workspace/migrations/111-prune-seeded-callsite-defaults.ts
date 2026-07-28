@@ -59,22 +59,30 @@ export const pruneSeededCallsiteDefaultsMigration: WorkspaceMigration = {
     "Remove seeded LLM call-site default materializations so fresh workspaces show no overrides",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     const callSites = readObject(llm.callSites);
-    if (callSites === null) return;
+    if (callSites === null) {
+      return;
+    }
 
     let changed = false;
     for (const [callSite, seed] of Object.entries(SEEDED_CALL_SITES)) {
@@ -83,7 +91,9 @@ export const pruneSeededCallsiteDefaultsMigration: WorkspaceMigration = {
         changed = true;
       }
     }
-    if (!changed) return;
+    if (!changed) {
+      return;
+    }
 
     if (Object.keys(callSites).length === 0) {
       delete llm.callSites;
@@ -115,20 +125,34 @@ function readObject(value: unknown): Record<string, unknown> | null {
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (typeof a !== "object" || typeof b !== "object") return false;
-  if (Array.isArray(a) || Array.isArray(b)) return false;
+  if (a === b) {
+    return true;
+  }
+  if (a === null || b === null) {
+    return false;
+  }
+  if (typeof a !== "object" || typeof b !== "object") {
+    return false;
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return false;
+  }
 
   const aRecord = a as Record<string, unknown>;
   const bRecord = b as Record<string, unknown>;
   const aKeys = Object.keys(aRecord);
   const bKeys = Object.keys(bRecord);
-  if (aKeys.length !== bKeys.length) return false;
+  if (aKeys.length !== bKeys.length) {
+    return false;
+  }
 
   for (const key of aKeys) {
-    if (!Object.prototype.hasOwnProperty.call(bRecord, key)) return false;
-    if (!deepEqual(aRecord[key], bRecord[key])) return false;
+    if (!Object.prototype.hasOwnProperty.call(bRecord, key)) {
+      return false;
+    }
+    if (!deepEqual(aRecord[key], bRecord[key])) {
+      return false;
+    }
   }
   return true;
 }

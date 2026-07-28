@@ -84,10 +84,14 @@ export async function cliIpcCall<T = unknown>(
     let callTimer: ReturnType<typeof setTimeout> | undefined;
 
     const finish = (result: CliIpcCallResult<T>) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(connectTimer);
-      if (callTimer) clearTimeout(callTimer);
+      if (callTimer) {
+        clearTimeout(callTimer);
+      }
       socket.destroy();
       resolve(result);
     };
@@ -145,7 +149,9 @@ export async function cliIpcCall<T = unknown>(
 
     const reader = new IpcFrameReader(
       (envelope) => {
-        if (envelope.id !== reqId) return;
+        if (envelope.id !== reqId) {
+          return;
+        }
         const msg = envelope as IpcResponse;
         if (msg.error) {
           finish({
@@ -236,10 +242,14 @@ export async function cliIpcCallBinary(
             errorDetails?: unknown;
           },
     ) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(connectTimer);
-      if (callTimer) clearTimeout(callTimer);
+      if (callTimer) {
+        clearTimeout(callTimer);
+      }
       socket.destroy();
       resolve(result);
     };
@@ -296,7 +306,9 @@ export async function cliIpcCallBinary(
 
     const reader = new IpcFrameReader(
       (envelope, binary) => {
-        if (envelope.id !== reqId) return;
+        if (envelope.id !== reqId) {
+          return;
+        }
         const msg = envelope as IpcResponse;
         if (msg.error) {
           finish({
@@ -404,7 +416,9 @@ export async function cliIpcCallStream(
       errorCode?: string;
       errorDetails?: unknown;
     }) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       clearTimeout(connectTimer);
       clearTimeout(firstByteTimer);
@@ -491,7 +505,9 @@ export async function cliIpcCallStream(
     const reader = new IpcFrameReader(
       (envelope) => {
         // Non-streaming envelope with error (e.g. method not found, auth failure)
-        if (envelope.id !== reqId) return;
+        if (envelope.id !== reqId) {
+          return;
+        }
         const msg = envelope as IpcResponse;
         finishError({
           ok: false,
@@ -504,7 +520,9 @@ export async function cliIpcCallStream(
       (err) => finishError({ ok: false, error: err.message }),
       {
         onStreamStart: (envelope) => {
-          if (envelope.id !== reqId) return;
+          if (envelope.id !== reqId) {
+            return;
+          }
           clearTimeout(firstByteTimer);
           const body = new ReadableStream<Uint8Array>({
             start(ctrl) {
@@ -598,8 +616,14 @@ export function exitFromIpcResult(
  * Exit code matrix matches {@link exitFromIpcResult}.
  */
 export function exitCodeFromIpcResult(r: { statusCode?: number }): number {
-  if (r.statusCode === undefined) return 10;
-  if (r.statusCode >= 500) return 3;
-  if (r.statusCode >= 400) return 2;
+  if (r.statusCode === undefined) {
+    return 10;
+  }
+  if (r.statusCode >= 500) {
+    return 3;
+  }
+  if (r.statusCode >= 400) {
+    return 2;
+  }
   return 1;
 }

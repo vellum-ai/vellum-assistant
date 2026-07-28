@@ -22,10 +22,10 @@ import { ContextMenu, SideMenu } from "@vellumai/design-library";
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
 import { ConversationRow } from "@/domains/chat/components/conversation-row";
 import {
-    hasAnyGroupMenuAction,
-    renderGroupMenuItems,
-    renderGroupMenuItemsAsPanelItems,
-    type GroupMenuItemsProps,
+  hasAnyGroupMenuAction,
+  renderGroupMenuItems,
+  renderGroupMenuItemsAsPanelItems,
+  type GroupMenuItemsProps,
 } from "@/domains/chat/components/group-actions-menu";
 import type { PaginatedSection } from "@/domains/chat/use-sidebar-state";
 import type { Conversation } from "@/types/conversation-types";

@@ -67,7 +67,9 @@ function computeDelay(
     const targetTime = new Date(retryAfterHeader).getTime();
     if (Number.isFinite(targetTime)) {
       const delayMs = targetTime - Date.now();
-      if (delayMs > 0) return Math.min(delayMs, 2_147_483_647);
+      if (delayMs > 0) {
+        return Math.min(delayMs, 2_147_483_647);
+      }
     }
   }
   const exponential = initialBackoffMs * Math.pow(2, attempt - 1);
@@ -259,8 +261,12 @@ export async function sendWhatsAppMediaMessage(
   const { phoneNumberId, accessToken } = await resolveCredentials();
 
   const mediaPayload: Record<string, unknown> = { id: mediaId };
-  if (caption) mediaPayload.caption = caption;
-  if (mediaType === "document" && filename) mediaPayload.filename = filename;
+  if (caption) {
+    mediaPayload.caption = caption;
+  }
+  if (mediaType === "document" && filename) {
+    mediaPayload.filename = filename;
+  }
 
   return retryableFetch<WhatsAppSendMessageResult>("sendMediaMessage", () =>
     fetch(`${WHATSAPP_API_BASE}/${phoneNumberId}/messages`, {

@@ -558,7 +558,9 @@ export function markConversationUnread(conversationId: string): boolean {
 export function getAttentionStateByConversationIds(
   conversationIds: string[],
 ): Map<string, AttentionState> {
-  if (conversationIds.length === 0) return new Map();
+  if (conversationIds.length === 0) {
+    return new Map();
+  }
 
   const db = getDb();
   const rows = db

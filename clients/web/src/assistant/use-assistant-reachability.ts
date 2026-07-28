@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
@@ -24,11 +23,7 @@ export const MAX_WINDOW_MS = 60_000;
 export const BUS_REENTRY_COOLDOWN_MS = 5_000;
 
 export type ReachabilityPhase =
-  | "idle"
-  | "checking"
-  | "connecting"
-  | "ready"
-  | "failed";
+  "idle" | "checking" | "connecting" | "ready" | "failed";
 
 export type ReachabilityState =
   | { phase: "idle" }
@@ -81,20 +76,25 @@ export function useAssistantReachability(
     setState({ phase: "idle" });
   }, [clearFailureTimer]);
 
-  const probe = useCallback((options?: ReachabilityProbeOptions) => {
-    if (!assistantId) return;
-    const mode = options?.mode ?? "visible";
-    const showConnectingImmediately =
-      mode === "visible" && (options?.showConnectingImmediately ?? true);
+  const probe = useCallback(
+    (options?: ReachabilityProbeOptions) => {
+      if (!assistantId) {
+        return;
+      }
+      const mode = options?.mode ?? "visible";
+      const showConnectingImmediately =
+        mode === "visible" && (options?.showConnectingImmediately ?? true);
 
-    if (showConnectingImmediately) {
-      enterConnecting();
-    } else if (mode === "background") {
-      setState({ phase: "checking" });
-    }
+      if (showConnectingImmediately) {
+        enterConnecting();
+      } else if (mode === "background") {
+        setState({ phase: "checking" });
+      }
 
-    lifecycleService.triggerReachabilityProbe();
-  }, [assistantId, enterConnecting]);
+      lifecycleService.triggerReachabilityProbe();
+    },
+    [assistantId, enterConnecting],
+  );
 
   // Subscribe to the lifecycle store's reachable field. When the
   // lifecycle service transitions reachable true/false, derive the
@@ -108,10 +108,14 @@ export function useAssistantReachability(
     const prev = prevReachableRef.current;
     prevReachableRef.current = storeReachable;
 
-    if (storeReachable === undefined) return;
+    if (storeReachable === undefined) {
+      return;
+    }
 
     if (storeReachable === true) {
-      if (prev === true) return;
+      if (prev === true) {
+        return;
+      }
       clearFailureTimer();
       readyAtRef.current = Date.now();
       setState({ phase: "ready" });
@@ -144,8 +148,5 @@ export function useAssistantReachability(
     };
   }, [assistantId, clearFailureTimer]);
 
-  return useMemo(
-    () => ({ state, probe, reset }),
-    [state, probe, reset],
-  );
+  return useMemo(() => ({ state, probe, reset }), [state, probe, reset]);
 }

@@ -99,9 +99,9 @@ describe("chat error classification", () => {
   });
 
   test("does not suppress inline notice when displayAs is inline or absent", () => {
-    expect(
-      shouldSuppressGenericChatErrorNotice({ displayAs: "inline" }),
-    ).toBe(false);
+    expect(shouldSuppressGenericChatErrorNotice({ displayAs: "inline" })).toBe(
+      false,
+    );
     expect(shouldSuppressGenericChatErrorNotice({})).toBe(false);
     expect(
       shouldShowGenericChatErrorNotice({ code: "X", displayAs: "inline" }),

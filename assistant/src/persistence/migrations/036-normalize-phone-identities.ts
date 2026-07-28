@@ -31,7 +31,9 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
   const checkpoint = raw
     .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey);
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   const PHONE_CHANNELS = ["sms", "voice", "whatsapp"];
 
@@ -62,17 +64,23 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     const tableExists = raw
       .query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
       .get(table);
-    if (!tableExists) return;
+    if (!tableExists) {
+      return;
+    }
 
     const colExists = raw
       .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = ?`)
       .get(table, column);
-    if (!colExists) return;
+    if (!colExists) {
+      return;
+    }
 
     const chanColExists = raw
       .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = ?`)
       .get(table, channelColumn);
-    if (!chanColExists) return;
+    if (!chanColExists) {
+      return;
+    }
 
     const hasUpdatedAt = !!raw
       .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = 'updated_at'`)
@@ -100,7 +108,9 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     const selectColumns = [`id`, column];
     if (effectiveScope) {
       for (const peer of effectiveScope.peerColumns) {
-        if (!selectColumns.includes(peer)) selectColumns.push(peer);
+        if (!selectColumns.includes(peer)) {
+          selectColumns.push(peer);
+        }
       }
     }
 
@@ -110,7 +120,9 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
       )
       .all(...PHONE_CHANNELS) as Array<{ id: string; [key: string]: string }>;
 
-    if (rows.length === 0) return;
+    if (rows.length === 0) {
+      return;
+    }
 
     const update = raw.prepare(
       `UPDATE ${table} SET ${column} = ? WHERE id = ?`,
@@ -119,7 +131,9 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
 
     for (const row of rows) {
       const original = row[column];
-      if (!original) continue;
+      if (!original) {
+        continue;
+      }
       const normalized = normalizePhoneNumber(original);
       if (normalized && normalized !== original) {
         if (effectiveScope) {
@@ -160,12 +174,16 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     const tableExists = raw
       .query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
       .get(table);
-    if (!tableExists) return;
+    if (!tableExists) {
+      return;
+    }
 
     const colExists = raw
       .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = ?`)
       .get(table, column);
-    if (!colExists) return;
+    if (!colExists) {
+      return;
+    }
 
     const hasUpdatedAt = !!raw
       .query(`SELECT 1 FROM pragma_table_info(?) WHERE name = 'updated_at'`)
@@ -192,7 +210,9 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     const selectColumns = [`id`, column];
     if (effectiveScope) {
       for (const peer of effectiveScope.peerColumns) {
-        if (!selectColumns.includes(peer)) selectColumns.push(peer);
+        if (!selectColumns.includes(peer)) {
+          selectColumns.push(peer);
+        }
       }
     }
 
@@ -202,7 +222,9 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
       )
       .all() as Array<{ id: string; [key: string]: string }>;
 
-    if (rows.length === 0) return;
+    if (rows.length === 0) {
+      return;
+    }
 
     const update = raw.prepare(
       `UPDATE ${table} SET ${column} = ? WHERE id = ?`,
@@ -211,7 +233,9 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
 
     for (const row of rows) {
       const original = row[column];
-      if (!original) continue;
+      if (!original) {
+        continue;
+      }
       const normalized = normalizePhoneNumber(original);
       if (normalized && normalized !== original) {
         if (effectiveScope) {

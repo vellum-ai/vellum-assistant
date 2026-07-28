@@ -94,7 +94,9 @@ export function createIncrementalDetailProjection(
     // so the cached `payloads`/`meta` stay in sync for the next incremental diff.
     const builtPayloads: ToolDetailPayload[] = [];
     const builtMeta: DetailMeta[] = [];
-    for (const event of events) reducer(builtPayloads, builtMeta, event);
+    for (const event of events) {
+      reducer(builtPayloads, builtMeta, event);
+    }
 
     prevEvents = events;
     payloads = builtPayloads;

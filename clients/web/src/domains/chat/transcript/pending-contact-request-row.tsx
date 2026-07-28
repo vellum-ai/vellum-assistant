@@ -4,7 +4,10 @@
  */
 
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { handleContactPromptSubmit, handleContactPromptCancel } from "@/domains/chat/contact-actions";
+import {
+  handleContactPromptSubmit,
+  handleContactPromptCancel,
+} from "@/domains/chat/contact-actions";
 import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
 
 export function PendingContactRequestRow() {
@@ -12,7 +15,9 @@ export function PendingContactRequestRow() {
   const isSubmitting = useInteractionStore.use.isSubmittingContactRequest();
   const accepted = useInteractionStore.use.contactRequestAccepted();
 
-  if (!pendingContactRequest) return null;
+  if (!pendingContactRequest) {
+    return null;
+  }
 
   return (
     <ContactPromptCard

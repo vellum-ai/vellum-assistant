@@ -71,10 +71,14 @@ export async function buildManagedBaseUrl(
   provider: string,
 ): Promise<string | undefined> {
   const meta = PLATFORM_PROVIDER_META[provider];
-  if (!meta?.managed || !meta.proxyPath) return undefined;
+  if (!meta?.managed || !meta.proxyPath) {
+    return undefined;
+  }
 
   const ctx = await resolveManagedProxyContext();
-  if (!ctx.enabled) return undefined;
+  if (!ctx.enabled) {
+    return undefined;
+  }
 
   return `${ctx.platformBaseUrl}${meta.proxyPath}`;
 }
@@ -89,6 +93,8 @@ export async function managedFallbackEnabledFor(
   provider: string,
 ): Promise<boolean> {
   const meta = PLATFORM_PROVIDER_META[provider];
-  if (!meta?.managed) return false;
+  if (!meta?.managed) {
+    return false;
+  }
   return await hasManagedProxyPrereqs();
 }

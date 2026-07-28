@@ -70,7 +70,9 @@ export function migrateScrubCorruptedImageAttachments(
       file_path: string | null;
     }>;
 
-    if (rows.length === 0) break;
+    if (rows.length === 0) {
+      break;
+    }
 
     for (const row of rows) {
       lastRowid = row.rowid;

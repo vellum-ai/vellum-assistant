@@ -353,7 +353,9 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     const rows = fetchUserFilesByPrincipal("principal-mixed");
     // `bob-1999.md` is non-auto-incremented, `bob-2.md` is auto-incremented;
     // the former wins regardless of age.
-    for (const row of rows) expect(row.user_file).toBe("bob-1999.md");
+    for (const row of rows) {
+      expect(row.user_file).toBe("bob-1999.md");
+    }
   });
 
   test("classifies 4+ digit counter tails as auto-incremented", () => {
@@ -382,7 +384,9 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     const rows = fetchUserFilesByPrincipal("principal-big");
     // Despite `carol-1000.md` being older, it's auto-incremented, so
     // `carol.md` wins as canonical.
-    for (const row of rows) expect(row.user_file).toBe("carol.md");
+    for (const row of rows) {
+      expect(row.user_file).toBe("carol.md");
+    }
   });
 
   test("excludes full date-shaped tails from the auto-increment class", () => {
@@ -410,7 +414,9 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     const rows = fetchUserFilesByPrincipal("principal-datefull");
     // `dana-2.md` is auto-incremented; `dana-2025-04-13.md` is a date-shaped
     // slug and wins as canonical.
-    for (const row of rows) expect(row.user_file).toBe("dana-2025-04-13.md");
+    for (const row of rows) {
+      expect(row.user_file).toBe("dana-2025-04-13.md");
+    }
   });
 
   test("treats year-prefixed single-digit counter slug as auto-incremented", () => {
@@ -440,7 +446,9 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     const rows = fetchUserFilesByPrincipal("principal-yc");
     // Despite being older, `dana-2025-2.md` is auto-incremented, so
     // `dana-2025.md` (the clean base) wins as canonical.
-    for (const row of rows) expect(row.user_file).toBe("dana-2025.md");
+    for (const row of rows) {
+      expect(row.user_file).toBe("dana-2025.md");
+    }
   });
 
   test("treats year-prefixed single-digit tail as base slug when display name generates it", () => {
@@ -471,7 +479,9 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     // `dana-2025-4.md` is a legitimate base slug (disambiguated by display
     // name), while `dana-2.md` is auto-incremented. The base slug must win
     // as canonical, otherwise canonical would point at a collision counter.
-    for (const row of rows) expect(row.user_file).toBe("dana-2025-4.md");
+    for (const row of rows) {
+      expect(row.user_file).toBe("dana-2025-4.md");
+    }
   });
 
   test("is idempotent", () => {
@@ -495,6 +505,8 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     migrateNormalizeUserFileByPrincipal(db);
 
     const rows = fetchUserFilesByPrincipal("principal-i");
-    for (const row of rows) expect(row.user_file).toBe("chris.md");
+    for (const row of rows) {
+      expect(row.user_file).toBe("chris.md");
+    }
   });
 });

@@ -59,9 +59,13 @@ export const FILE_READ_TOOL_NAMES = new Set<string>([
 function buildToolNameById(messages: Message[]): Map<string, string> {
   const byId = new Map<string, string>();
   for (const msg of messages) {
-    if (msg.role !== "assistant") continue;
+    if (msg.role !== "assistant") {
+      continue;
+    }
     for (const block of msg.content) {
-      if (block.type !== "tool_use") continue;
+      if (block.type !== "tool_use") {
+        continue;
+      }
       const tu = block as ToolUseContent;
       byId.set(tu.id, tu.name);
     }
@@ -80,13 +84,21 @@ export function isTruncationEligible(
   tr: ToolResultContent,
   toolName: string | undefined,
 ): boolean {
-  if (typeof tr.content !== "string") return false;
-  if (tr.content.length <= THRESHOLD_CHARS) return false;
-  if (tr.is_error) return false;
+  if (typeof tr.content !== "string") {
+    return false;
+  }
+  if (tr.content.length <= THRESHOLD_CHARS) {
+    return false;
+  }
+  if (tr.is_error) {
+    return false;
+  }
   if (toolName !== undefined && TRUNCATION_EXEMPT_TOOLS.has(toolName)) {
     return false;
   }
-  if (tr.content.includes(TRUNCATION_MARKER)) return false;
+  if (tr.content.includes(TRUNCATION_MARKER)) {
+    return false;
+  }
   return true;
 }
 
@@ -252,7 +264,9 @@ export function postTurnTruncateToolResults(
   const mapped = messages.map((msg) => {
     let changed = false;
     const nextContent: ContentBlock[] = msg.content.map((block) => {
-      if (block.type !== "tool_result") return block;
+      if (block.type !== "tool_result") {
+        return block;
+      }
       const tr = block as ToolResultContent;
 
       if (!isTruncationEligible(tr, toolNameById.get(tr.tool_use_id))) {
@@ -307,13 +321,21 @@ export function derefToolResultReReads(messages: Message[]): {
   const reReadToolUseIds = new Set<string>();
 
   for (const msg of messages) {
-    if (msg.role !== "assistant") continue;
+    if (msg.role !== "assistant") {
+      continue;
+    }
     for (const block of msg.content) {
-      if (block.type !== "tool_use") continue;
+      if (block.type !== "tool_use") {
+        continue;
+      }
       const tu = block as ToolUseContent;
-      if (!FILE_READ_TOOL_NAMES.has(tu.name)) continue;
+      if (!FILE_READ_TOOL_NAMES.has(tu.name)) {
+        continue;
+      }
       const filePath = tu.input.path ?? tu.input.file_path;
-      if (typeof filePath !== "string") continue;
+      if (typeof filePath !== "string") {
+        continue;
+      }
       if (filePath.includes(`/${TOOL_RESULT_DIR}/`)) {
         reReadToolUseIds.add(tu.id);
       }
@@ -327,16 +349,24 @@ export function derefToolResultReReads(messages: Message[]): {
   let dereferencedCount = 0;
 
   const mapped = messages.map((msg) => {
-    if (msg.role !== "user") return msg;
+    if (msg.role !== "user") {
+      return msg;
+    }
 
     let changed = false;
     const nextContent: ContentBlock[] = msg.content.map((block) => {
-      if (block.type !== "tool_result") return block;
+      if (block.type !== "tool_result") {
+        return block;
+      }
       const tr = block as ToolResultContent;
-      if (!reReadToolUseIds.has(tr.tool_use_id)) return block;
+      if (!reReadToolUseIds.has(tr.tool_use_id)) {
+        return block;
+      }
 
       // Skip error results — preserve diagnostics (e.g. file not found).
-      if (tr.is_error) return block;
+      if (tr.is_error) {
+        return block;
+      }
 
       changed = true;
       dereferencedCount++;

@@ -86,7 +86,9 @@ export function LibraryView({
   const handleImportBundle = useCallback(
     async (e: ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (!file || isImporting) return;
+      if (!file || isImporting) {
+        return;
+      }
       setIsImporting(true);
       try {
         const result = await importBundle(assistantId, file);
@@ -101,7 +103,9 @@ export function LibraryView({
         );
       } finally {
         setIsImporting(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
       }
     },
     [assistantId, isImporting, queryClient, onOpenApp],
@@ -110,7 +114,9 @@ export function LibraryView({
   // --- Deploy ---
   const handleDeploy = useCallback(
     async (appId: string) => {
-      if (isDeploying) return;
+      if (isDeploying) {
+        return;
+      }
       const app = apps.find((a) => a.id === appId);
       const appName = app?.name ?? "this app";
       try {

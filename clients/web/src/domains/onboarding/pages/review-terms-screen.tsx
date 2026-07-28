@@ -3,30 +3,30 @@ import { useCallback, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import {
-    AgreementsCard,
-    PrivacyPreferencesCard,
+  AgreementsCard,
+  PrivacyPreferencesCard,
 } from "@/domains/onboarding/components/consent-controls";
 import {
-    privacyChangeNotes,
-    tosChangeNotes,
+  privacyChangeNotes,
+  tosChangeNotes,
 } from "@/domains/onboarding/consent-changelog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
-    useAnalyticsConsentCurrent,
-    useDiagnosticsConsentCurrent,
-    useHasConsentRecord,
-    usePrivacyConsent,
-    useShareAnalytics,
-    useShareDiagnostics,
-    useTosAccepted,
+  useAnalyticsConsentCurrent,
+  useDiagnosticsConsentCurrent,
+  useHasConsentRecord,
+  usePrivacyConsent,
+  useShareAnalytics,
+  useShareDiagnostics,
+  useTosAccepted,
 } from "@/domains/onboarding/prefs";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import {
-    PRIVACY_CONSENT_VERSION,
-    TOS_CONSENT_VERSION,
-    saveConsent,
+  PRIVACY_CONSENT_VERSION,
+  TOS_CONSENT_VERSION,
+  saveConsent,
 } from "@/lib/consent/consent-persistence";
 import { sanitizeReturnTo } from "@/utils/return-to";
 import { routes } from "@/utils/routes";
@@ -128,7 +128,10 @@ export function ReviewTermsScreen() {
       hasPlatformSession,
     });
 
-    const destination = sanitizeReturnTo(searchParams.get("returnTo"), routes.assistant);
+    const destination = sanitizeReturnTo(
+      searchParams.get("returnTo"),
+      routes.assistant,
+    );
     void navigate(destination, { replace: true });
   }, [
     privacyConsent,
@@ -242,7 +245,6 @@ export function ReviewTermsScreen() {
             Log out
           </Button>
         </div>
-
       </div>
     </OnboardingLayout>
   );

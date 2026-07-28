@@ -96,7 +96,9 @@ function now(): number {
 /** Roll buckets forward so `current` always covers the live second. */
 function roll(ts: number): void {
   const age = ts - current.startedAt;
-  if (age < BUCKET_MS) return;
+  if (age < BUCKET_MS) {
+    return;
+  }
   if (age >= BUCKET_MS * 2) {
     // Idle gap — everything on record is stale.
     previous = emptyBucket(ts);
@@ -134,10 +136,14 @@ export function recordCommit(): void {
   current.commits += 1;
   if (lastCommitAt !== 0 && ts - lastCommitAt < BACK_TO_BACK_MS) {
     backToBackRun += 1;
-    if (backToBackRun > maxBackToBackRun) maxBackToBackRun = backToBackRun;
+    if (backToBackRun > maxBackToBackRun) {
+      maxBackToBackRun = backToBackRun;
+    }
   } else {
     backToBackRun = 1;
-    if (maxBackToBackRun === 0) maxBackToBackRun = 1;
+    if (maxBackToBackRun === 0) {
+      maxBackToBackRun = 1;
+    }
   }
   lastCommitAt = ts;
 }
@@ -152,7 +158,9 @@ export function snapshotCommitPressure(): CommitPressureSnapshot | null {
   roll(ts);
   const updates = current.updates + previous.updates;
   const commits = current.commits + previous.commits;
-  if (updates === 0 && commits === 0) return null;
+  if (updates === 0 && commits === 0) {
+    return null;
+  }
 
   const merged = new Map<string, number>(previous.sources);
   for (const [key, count] of current.sources) {
@@ -180,10 +188,14 @@ export function snapshotCommitPressure(): CommitPressureSnapshot | null {
  */
 function queryLabel(queryKey: readonly unknown[]): string {
   const head = queryKey[0];
-  if (typeof head === "string") return head;
+  if (typeof head === "string") {
+    return head;
+  }
   if (head && typeof head === "object" && "_id" in head) {
     const id = (head as { _id: unknown })._id;
-    if (typeof id === "string") return id;
+    if (typeof id === "string") {
+      return id;
+    }
   }
   return "unknown";
 }
@@ -196,9 +208,13 @@ function queryLabel(queryKey: readonly unknown[]): string {
  *
  * Returns the unsubscribe handle.
  */
-export function installQueryPressureProbe(queryClient: QueryClient): () => void {
+export function installQueryPressureProbe(
+  queryClient: QueryClient,
+): () => void {
   return queryClient.getQueryCache().subscribe((event) => {
-    if (event.type !== "updated") return;
+    if (event.type !== "updated") {
+      return;
+    }
     recordUpdate(`query:${queryLabel(event.query.queryKey)}`);
   });
 }

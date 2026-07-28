@@ -201,7 +201,9 @@ function runManagedOAuthConnect({
     };
 
     const finish = (result: ManagedOAuthConnectResult) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       cleanup();
       window.localStorage.removeItem(oauthCompletionStorageKey(requestId));
@@ -266,7 +268,9 @@ function runManagedOAuthConnect({
       event: CustomEvent<OAuthCompleteDeepLinkPayload>,
     ) {
       const payload = event.detail;
-      if (payload.requestId !== requestId) return;
+      if (payload.requestId !== requestId) {
+        return;
+      }
       handleOAuthCompletePayload({
         type: "vellum:oauth-complete",
         requestId: payload.requestId,

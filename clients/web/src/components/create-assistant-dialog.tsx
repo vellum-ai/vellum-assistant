@@ -43,7 +43,9 @@ export function CreateAssistantDialog({
     <Modal.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next && !pending) onClose();
+        if (!next && !pending) {
+          onClose();
+        }
       }}
     >
       <Modal.Content size="sm">
@@ -61,7 +63,9 @@ export function CreateAssistantDialog({
             autoFocus
             disabled={pending}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !pending) void handleCreate();
+              if (e.key === "Enter" && !pending) {
+                void handleCreate();
+              }
             }}
           />
         </Modal.Body>

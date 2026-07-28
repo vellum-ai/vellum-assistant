@@ -44,7 +44,9 @@ describe("isConnectionCompatibleWithModel", () => {
 });
 
 describe("describeSubscriptionModelIncompatibility", () => {
-  const subscriptionConn = { auth: { type: "oauth_subscription" as const } as never };
+  const subscriptionConn = {
+    auth: { type: "oauth_subscription" as const } as never,
+  };
   const apiKeyConn = { auth: { type: "api_key" as const } as never };
 
   test("returns message when all candidates are oauth_subscription and model is incompatible", () => {

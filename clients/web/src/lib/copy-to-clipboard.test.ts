@@ -77,4 +77,29 @@ describe("copyToClipboard", () => {
     expect(toastError).toHaveBeenCalledWith("Couldn't copy.");
     expect(captureErrorMock).toHaveBeenCalledTimes(1);
   });
+
+  test("shows the error toast and reports when the Clipboard API is unavailable", () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined,
+    });
+    try {
+      const onCopied = mock(() => {});
+      copyToClipboard("some text", {
+        successMessage: "Copied!",
+        errorMessage: "Couldn't copy.",
+        onCopied,
+      });
+
+      expect(onCopied).not.toHaveBeenCalled();
+      expect(toastSuccess).not.toHaveBeenCalled();
+      expect(toastError).toHaveBeenCalledWith("Couldn't copy.");
+      expect(captureErrorMock).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+      });
+    }
+  });
 });

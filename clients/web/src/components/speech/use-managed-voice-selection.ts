@@ -87,7 +87,11 @@ export function useManagedVoiceSelection(
   // `services.tts` falls under the ConfigGetResponse index signature (`unknown`),
   // so narrow it explicitly. Mirrors the Settings card.
   const daemonTts = daemonConfig?.services?.tts as
-    | { provider?: string; mode?: string; providers?: { vellum?: { model?: string } } }
+    | {
+        provider?: string;
+        mode?: string;
+        providers?: { vellum?: { model?: string } };
+      }
     | undefined;
   const isManaged =
     daemonTts?.mode === "managed" || daemonTts?.provider === "vellum";
@@ -117,13 +121,7 @@ export function useManagedVoiceSelection(
 
   const currentModel = useMemo(() => {
     const configured = daemonTts?.providers?.vellum?.model;
-    return (
-      pendingModel ??
-      configured ??
-      defaultModel ??
-      voices[0]?.model ??
-      ""
-    );
+    return pendingModel ?? configured ?? defaultModel ?? voices[0]?.model ?? "";
   }, [pendingModel, daemonTts, defaultModel, voices]);
 
   // Writes run one at a time in click order, and only the newest one settles the
@@ -136,7 +134,9 @@ export function useManagedVoiceSelection(
 
   const selectModel = useCallback(
     (model: string) => {
-      if (!assistantId || model === currentModel) return;
+      if (!assistantId || model === currentModel) {
+        return;
+      }
       const seq = ++latestWrite.current;
       setPendingModel(model);
       setSelecting(true);

@@ -130,7 +130,9 @@ export function checkDuplicateEnrollment(
   email: string,
   excludeEnrollmentId?: string,
 ): GuardrailResult {
-  if (!config.duplicateEnrollmentCheck) return { ok: true };
+  if (!config.duplicateEnrollmentCheck) {
+    return { ok: true };
+  }
 
   const existing = listEnrollments({
     sequenceId,
@@ -154,7 +156,9 @@ export function checkCooldown(
   sequenceId: string,
   email: string,
 ): GuardrailResult {
-  if (config.cooldownPeriodMs <= 0) return { ok: true };
+  if (config.cooldownPeriodMs <= 0) {
+    return { ok: true };
+  }
 
   const cutoff = Date.now() - config.cooldownPeriodMs;
   const past = listEnrollments({ sequenceId, contactEmail: email });

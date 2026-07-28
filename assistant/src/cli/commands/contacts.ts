@@ -127,10 +127,16 @@ function formatContactDetail(
   const lines: string[] = [];
   lines.push(`ID:           ${c.id}`);
   lines.push(`Display Name: ${c.displayName}`);
-  if (c.role) lines.push(`Role:         ${c.role}`);
+  if (c.role) {
+    lines.push(`Role:         ${c.role}`);
+  }
   lines.push(`Type:         ${c.contactType}`);
-  if (c.notes) lines.push(`Notes:        ${c.notes}`);
-  if (c.principalId) lines.push(`Principal:    ${c.principalId}`);
+  if (c.notes) {
+    lines.push(`Notes:        ${c.notes}`);
+  }
+  if (c.principalId) {
+    lines.push(`Principal:    ${c.principalId}`);
+  }
   lines.push(`Created:      ${new Date(c.createdAt).toISOString()}`);
   lines.push(`Updated:      ${new Date(c.updatedAt).toISOString()}`);
   lines.push(`Interactions: ${c.interactionCount ?? 0}`);
@@ -186,11 +192,12 @@ export function registerContactsCommand(program: Command): void {
             },
           });
 
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
 
           const results = r.result!.contacts;
           if (shouldOutputJson(cmd)) {
@@ -218,11 +225,12 @@ export function registerContactsCommand(program: Command): void {
             pathParams: { id },
           });
 
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
 
           const { contact, assistantMetadata } = r.result!;
           if (shouldOutputJson(cmd)) {
@@ -271,11 +279,12 @@ export function registerContactsCommand(program: Command): void {
             { timeoutMs },
           );
 
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
 
           if (!r.result?.ok) {
             writeError(cmd, r.result?.error ?? "Contact prompt failed");
@@ -334,11 +343,12 @@ export function registerContactsCommand(program: Command): void {
             },
           });
 
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
 
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, r.result);
@@ -380,11 +390,12 @@ export function registerContactsCommand(program: Command): void {
             },
           });
 
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
 
           const invitesList = r.result!.invites;
           if (shouldOutputJson(cmd)) {
@@ -457,11 +468,12 @@ export function registerContactsCommand(program: Command): void {
             },
           });
 
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
 
           const { invite } = r.result!;
           if (shouldOutputJson(cmd)) {
@@ -470,7 +482,9 @@ export function registerContactsCommand(program: Command): void {
             process.stdout.write(
               `Created invite ${invite.id} (${invite.sourceChannel})\n`,
             );
-            if (invite.token) process.stdout.write(`Token: ${invite.token}\n`);
+            if (invite.token) {
+              process.stdout.write(`Token: ${invite.token}\n`);
+            }
           }
         },
       );
@@ -484,11 +498,12 @@ export function registerContactsCommand(program: Command): void {
             pathParams: { id: inviteId },
           });
 
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
 
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, { ok: true, invite: r.result!.invite });
@@ -540,11 +555,12 @@ export function registerContactsCommand(program: Command): void {
             },
           });
 
-          if (!r.ok)
+          if (!r.ok) {
             return exitFromIpcResult(
               r as { ok: false; error?: string; statusCode?: number },
               cmd,
             );
+          }
 
           const result = r.result!;
           if (shouldOutputJson(cmd)) {

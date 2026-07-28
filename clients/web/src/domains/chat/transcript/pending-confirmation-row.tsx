@@ -4,14 +4,19 @@
  */
 
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { handleConfirmationSubmit, handleAllowAndCreateRule } from "@/domains/chat/confirmation-actions";
+import {
+  handleConfirmationSubmit,
+  handleAllowAndCreateRule,
+} from "@/domains/chat/confirmation-actions";
 import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card";
 
 export function PendingConfirmationRow() {
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
   const isSubmitting = useInteractionStore.use.isSubmittingConfirmation();
 
-  if (!pendingConfirmation) return null;
+  if (!pendingConfirmation) {
+    return null;
+  }
 
   const showAllowAndCreateRule =
     pendingConfirmation.persistentDecisionsAllowed !== false &&
@@ -22,7 +27,9 @@ export function PendingConfirmationRow() {
       confirmation={pendingConfirmation}
       isSubmitting={isSubmitting}
       onSubmit={handleConfirmationSubmit}
-      onAllowAndCreateRule={showAllowAndCreateRule ? handleAllowAndCreateRule : undefined}
+      onAllowAndCreateRule={
+        showAllowAndCreateRule ? handleAllowAndCreateRule : undefined
+      }
     />
   );
 }

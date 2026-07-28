@@ -38,7 +38,8 @@ export function parseAssistantEvent(
   // Determine the inner payload: envelope-wrapped or flat shape.
   const unwrapped = unwrapMessageEnvelope(data);
   const inner =
-    unwrapped !== data && typeof (unwrapped as Record<string, unknown>).type === "string"
+    unwrapped !== data &&
+    typeof (unwrapped as Record<string, unknown>).type === "string"
       ? unwrapped
       : data;
 
@@ -50,9 +51,7 @@ export function parseAssistantEvent(
   return {
     id: typeof data.id === "string" ? data.id : "",
     conversationId:
-      typeof data.conversationId === "string"
-        ? data.conversationId
-        : undefined,
+      typeof data.conversationId === "string" ? data.conversationId : undefined,
     seq: typeof data.seq === "number" ? data.seq : undefined,
     emittedAt: typeof data.emittedAt === "string" ? data.emittedAt : "",
     message: event,

@@ -87,7 +87,9 @@ export function ChatScrollArea({
       {isLoadingHistory && messageCount === 0 && <ChatSkeleton />}
       {showMaintenanceRecoveryCard && <MaintenanceRecoveryCard />}
       {showEmptyState && <ChatEmptyState {...emptyStateProps} />}
-      {messageCount > 0 && <Transcript ref={transcriptRef} {...transcriptProps} />}
+      {messageCount > 0 && (
+        <Transcript ref={transcriptRef} {...transcriptProps} />
+      )}
     </div>
   );
 }

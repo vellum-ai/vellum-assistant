@@ -214,11 +214,17 @@ export interface ToolCallCardData {
  * not `3m 12s`) so the label stays glanceable in the card header and chips.
  */
 export function formatMs(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 1000) return "<1s";
+  if (!Number.isFinite(ms) || ms < 1000) {
+    return "<1s";
+  }
   const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
   return `${Math.round(minutes / 60)}h`;
 }
 
@@ -290,7 +296,9 @@ function buildWebSearchStepFromResultText(
   text: string,
 ): (ToolCallCardStep & { kind: "web_search" }) | null {
   const parsed = parseWebSearchResultText(text);
-  if (parsed.length === 0) return null;
+  if (parsed.length === 0) {
+    return null;
+  }
   const { visible, overflowResults } = clampResults(parsed);
   return {
     kind: "web_search",
@@ -355,7 +363,9 @@ function isFailedEmptyWebSearch(
   ws: NonNullable<ToolActivityMetadata["webSearch"]>,
   tc: ChatMessageToolCall,
 ): boolean {
-  if (ws.results.length > 0) return false;
+  if (ws.results.length > 0) {
+    return false;
+  }
   return Boolean(ws.errorMessage) || Boolean(tc.isError);
 }
 
@@ -389,7 +399,9 @@ function computeDurationMs(
   startedAt: number | undefined,
   completedAt: number | undefined,
 ): number | null {
-  if (startedAt == null || completedAt == null) return null;
+  if (startedAt == null || completedAt == null) {
+    return null;
+  }
   return Math.max(0, completedAt - startedAt);
 }
 
@@ -437,7 +449,9 @@ function computeItemDurationMs(
   nowMs: number | undefined,
 ): number | null {
   if (item.kind === "thinking") {
-    if (!item.text) return null;
+    if (!item.text) {
+      return null;
+    }
     if (item.completedAt != null) {
       return computeDurationMs(item.startedAt, item.completedAt);
     }
@@ -447,15 +461,18 @@ function computeItemDurationMs(
     return null;
   }
   const tc = item.toolCall;
-  if (isSubagentSpawnCall(tc)) return null;
+  if (isSubagentSpawnCall(tc)) {
+    return null;
+  }
   // The header total is the user-perceived "time they feel", so it anchors on
   // the first-byte `previewStartedAt` (falling back to execution start) rather
   // than `tc.startedAt`. This includes the input-streaming gap before the tool
   // actually runs. The per-step rows still show the tool's own execution
   // latency via `computeToolDurationLabel`.
   const perceived = perceivedStartedAt(tc);
-  if (tc.completedAt != null)
+  if (tc.completedAt != null) {
     return computeDurationMs(perceived, tc.completedAt);
+  }
   if (isToolCallRunning(tc) && perceived != null && nowMs != null) {
     return Math.max(0, nowMs - perceived);
   }
@@ -493,11 +510,15 @@ function computeTotalDurationLabel(
   let anyTimed = false;
   for (const item of items) {
     const ms = computeItemDurationMs(item, nowMs);
-    if (ms == null) continue;
+    if (ms == null) {
+      continue;
+    }
     anyTimed = true;
     total += ms;
   }
-  if (!anyTimed) return "";
+  if (!anyTimed) {
+    return "";
+  }
   return formatMs(total);
 }
 
@@ -638,7 +659,9 @@ function deriveCurrentStepInfo(
         const parsed = parseWebSearchResultText(tc.result);
         if (parsed.length > 0) {
           const title = parsed[parsed.length - 1]!.title;
-          if (title) return title;
+          if (title) {
+            return title;
+          }
         }
       }
     }
@@ -646,7 +669,9 @@ function deriveCurrentStepInfo(
     if (tc.name === "web_fetch") {
       const url = typeof tc.input?.url === "string" ? tc.input.url : "";
       const host = url ? extractDomain(url) : "";
-      if (host) return terminal ? host : `Reading ${host}`;
+      if (host) {
+        return terminal ? host : `Reading ${host}`;
+      }
     }
   }
   return "";
@@ -663,10 +688,14 @@ function deriveCarouselItems(
 ): WebSearchResultItem[] {
   for (let i = toolCalls.length - 1; i >= 0; i--) {
     const tc = toolCalls[i]!;
-    if (tc.name !== "web_search") continue;
+    if (tc.name !== "web_search") {
+      continue;
+    }
     const metadata = resolveMetadata(tc, liveWebActivity);
     const results = metadata?.webSearch?.results;
-    if (results && results.length > 0) return results;
+    if (results && results.length > 0) {
+      return results;
+    }
   }
   return [];
 }
@@ -684,9 +713,15 @@ function deriveCarouselItems(
 export function combineCardStates(
   states: Array<"loading" | "complete" | "error" | "denied">,
 ): "loading" | "complete" | "error" | "denied" {
-  if (states.includes("denied")) return "denied";
-  if (states.includes("loading")) return "loading";
-  if (states.includes("error")) return "error";
+  if (states.includes("denied")) {
+    return "denied";
+  }
+  if (states.includes("loading")) {
+    return "loading";
+  }
+  if (states.includes("error")) {
+    return "error";
+  }
   return "complete";
 }
 
@@ -709,8 +744,12 @@ function deriveCardState(
       ) {
         return "denied";
       }
-      if (isToolCallRunning(tc)) return "loading";
-      if (tc.isError) return "error";
+      if (isToolCallRunning(tc)) {
+        return "loading";
+      }
+      if (tc.isError) {
+        return "error";
+      }
       return "complete";
     }),
   );
@@ -749,7 +788,9 @@ function buildStepForToolCall(
   tc: ChatMessageToolCall,
   liveWebActivity: Record<string, ToolActivityMetadata>,
 ): ToolCallCardStep | null {
-  if (isSubagentSpawnCall(tc)) return null;
+  if (isSubagentSpawnCall(tc)) {
+    return null;
+  }
   if (!isWebTool(tc)) {
     return buildToolStep(tc);
   }

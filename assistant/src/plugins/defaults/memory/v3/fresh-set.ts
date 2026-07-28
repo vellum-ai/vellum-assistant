@@ -49,7 +49,9 @@ export function computeFreshSet(
   opts: FreshSetOptions,
 ): Slug[] {
   const { k, excludeSlugs } = opts;
-  if (k <= 0) return [];
+  if (k <= 0) {
+    return [];
+  }
 
   return entries
     .filter((entry) => entry.modifiedAt > 0 && !excludeSlugs.has(entry.slug))

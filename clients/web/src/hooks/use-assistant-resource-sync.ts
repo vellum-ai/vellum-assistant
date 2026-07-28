@@ -29,6 +29,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 
+import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/invalidate-memory-queries";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import {
   configGetQueryKey,
@@ -53,18 +54,22 @@ import { SYNC_TAGS } from "@/lib/sync/types";
  */
 export function useAssistantResourceSync(
   assistantId: string | null,
-  isAssistantActive: boolean
+  isAssistantActive: boolean,
 ): void {
   const queryClient = useQueryClient();
   const pathOpts = { path: { assistant_id: assistantId ?? "" } };
 
   useBusSubscription("sse.event", (envelope) => {
-    if (!assistantId || !isAssistantActive) return;
+    if (!assistantId || !isAssistantActive) {
+      return;
+    }
     const event = envelope.message;
 
     switch (event.type) {
       case "sync_changed":
-        if (event.originClientId && event.originClientId === getClientId()) return;
+        if (event.originClientId && event.originClientId === getClientId()) {
+          return;
+        }
         for (const tag of event.tags) {
           switch (tag) {
             case SYNC_TAGS.assistantAvatar:
@@ -81,6 +86,10 @@ export function useAssistantResourceSync(
               void queryClient.invalidateQueries({
                 queryKey: configGetQueryKey(pathOpts),
               });
+              // Memory availability is derived from config (`memory.enabled`,
+              // `memory.v3.live`), so a config write on any client can change
+              // what the Memory surface must render.
+              invalidateMemoryQueries(queryClient, assistantId);
               break;
             case SYNC_TAGS.assistantSounds:
               void queryClient.invalidateQueries({
@@ -95,15 +104,26 @@ export function useAssistantResourceSync(
                 queryKey: schedulesGetQueryKey(pathOpts),
               });
               void queryClient.invalidateQueries({
-                queryKey: [{ _id: "schedulesByIdRunsGet", path: { assistant_id: assistantId } }],
+                queryKey: [
+                  {
+                    _id: "schedulesByIdRunsGet",
+                    path: { assistant_id: assistantId },
+                  },
+                ],
               });
               void queryClient.invalidateQueries({
-                queryKey: [{ _id: "schedulesUsagesummaryGet", path: { assistant_id: assistantId } }],
+                queryKey: [
+                  {
+                    _id: "schedulesUsagesummaryGet",
+                    path: { assistant_id: assistantId },
+                  },
+                ],
               });
               break;
             case SYNC_TAGS.appsList:
               void queryClient.invalidateQueries({
-                predicate: (query) => isGeneratedQueryKey(query.queryKey, "appsGet"),
+                predicate: (query) =>
+                  isGeneratedQueryKey(query.queryKey, "appsGet"),
               });
               break;
             case SYNC_TAGS.pluginsList:
@@ -115,16 +135,19 @@ export function useAssistantResourceSync(
 
       case "home_feed_updated":
         void queryClient.invalidateQueries({
-          predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
+          predicate: (query) =>
+            isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
         });
         return;
 
       case "relationship_state_updated":
         void queryClient.invalidateQueries({
-          predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
+          predicate: (query) =>
+            isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
         });
         void queryClient.invalidateQueries({
-          predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeStateGet"),
+          predicate: (query) =>
+            isGeneratedQueryKey(query.queryKey, "homeStateGet"),
         });
         return;
 
@@ -143,8 +166,12 @@ export function useAssistantResourceSync(
   });
 
   useBusSubscription("sse.opened", ({ cause }) => {
-    if (!assistantId || !isAssistantActive) return;
-    if (cause === "fresh") return;
+    if (!assistantId || !isAssistantActive) {
+      return;
+    }
+    if (cause === "fresh") {
+      return;
+    }
     // Reconnect — invalidate all assistant-level resource caches so
     // stale data from missed `sync_changed` events gets refreshed.
     void queryClient.invalidateQueries({
@@ -156,6 +183,7 @@ export function useAssistantResourceSync(
     void queryClient.invalidateQueries({
       queryKey: configGetQueryKey(pathOpts),
     });
+    invalidateMemoryQueries(queryClient, assistantId);
     void queryClient.invalidateQueries({
       queryKey: soundsConfigGetQueryKey(pathOpts),
     });
@@ -166,10 +194,17 @@ export function useAssistantResourceSync(
       queryKey: schedulesGetQueryKey(pathOpts),
     });
     void queryClient.invalidateQueries({
-      queryKey: [{ _id: "schedulesByIdRunsGet", path: { assistant_id: assistantId } }],
+      queryKey: [
+        { _id: "schedulesByIdRunsGet", path: { assistant_id: assistantId } },
+      ],
     });
     void queryClient.invalidateQueries({
-      queryKey: [{ _id: "schedulesUsagesummaryGet", path: { assistant_id: assistantId } }],
+      queryKey: [
+        {
+          _id: "schedulesUsagesummaryGet",
+          path: { assistant_id: assistantId },
+        },
+      ],
     });
     void queryClient.invalidateQueries({
       predicate: (query) => isGeneratedQueryKey(query.queryKey, "appsGet"),

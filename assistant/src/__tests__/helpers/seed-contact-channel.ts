@@ -42,7 +42,9 @@ export function seedContactChannel(params: {
   principalId?: string | null;
 }): { contactId: string; channelId: string } {
   const address = params.externalUserId ?? params.externalChatId;
-  if (!address) throw new Error("seedContactChannel requires an address");
+  if (!address) {
+    throw new Error("seedContactChannel requires an address");
+  }
 
   const contact = upsertContact({
     id: params.contactId,

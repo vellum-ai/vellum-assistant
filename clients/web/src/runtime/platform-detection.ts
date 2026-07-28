@@ -17,11 +17,17 @@ import { isNativePlatform } from "@/runtime/native-auth";
  * Always returns `false` during SSR (no `navigator`).
  */
 export function isIOSBrowser(): boolean {
-  if (typeof navigator === "undefined") return false;
+  if (typeof navigator === "undefined") {
+    return false;
+  }
 
   const ua = navigator.userAgent;
-  if (/iPhone|iPod/.test(ua)) return true;
-  if (/iPad/.test(ua)) return true;
+  if (/iPhone|iPod/.test(ua)) {
+    return true;
+  }
+  if (/iPad/.test(ua)) {
+    return true;
+  }
 
   // iPadOS 13+ in desktop mode: reports as Mac but has multitouch
   const uaData = (
@@ -48,7 +54,9 @@ export function isIOSBrowser(): boolean {
  * Ref: https://developer.chrome.com/docs/multidevice/user-agent/#chrome_for_ios_user_agent
  */
 export function isSafariBrowser(): boolean {
-  if (typeof navigator === "undefined") return false;
+  if (typeof navigator === "undefined") {
+    return false;
+  }
   const ua = navigator.userAgent;
   return (
     /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium/.test(ua)
@@ -67,8 +75,12 @@ export function isSafariBrowser(): boolean {
  * Always returns `false` during SSR (no `navigator`).
  */
 export function isMacOSBrowser(): boolean {
-  if (typeof navigator === "undefined") return false;
-  if (isIOSBrowser()) return false;
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+  if (isIOSBrowser()) {
+    return false;
+  }
   const uaData = (
     navigator as Navigator & {
       userAgentData?: { platform?: string };
@@ -91,7 +103,9 @@ export function isMacOSBrowser(): boolean {
  * Always returns `false` during SSR (no `navigator`).
  */
 export function isAndroidBrowser(): boolean {
-  if (typeof navigator === "undefined") return false;
+  if (typeof navigator === "undefined") {
+    return false;
+  }
   return /Android/i.test(navigator.userAgent);
 }
 
@@ -137,14 +151,20 @@ export type ClientOs = "macos" | "ios" | "android" | "web";
  * `false` when `window`/`navigator` are undefined, so SSR resolves to `web`.
  */
 export function detectClientOs(): ClientOs {
-  if (isElectron()) return "macos";
+  if (isElectron()) {
+    return "macos";
+  }
   if (isNativePlatform()) {
     // `isNativePlatform()` is true for the iOS AND Android Capacitor shells,
     // so distinguish them explicitly rather than assuming iOS.
     return Capacitor.getPlatform() === "android" ? "android" : "ios";
   }
-  if (isIOSBrowser()) return "ios";
-  if (isAndroidBrowser()) return "android";
+  if (isIOSBrowser()) {
+    return "ios";
+  }
+  if (isAndroidBrowser()) {
+    return "android";
+  }
   return "web";
 }
 

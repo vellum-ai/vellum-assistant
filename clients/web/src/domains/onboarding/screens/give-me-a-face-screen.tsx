@@ -52,7 +52,9 @@ interface Arrangement {
 function initialArrangement(count: number, centerChar: number): Arrangement {
   const edgeOrder: number[] = [];
   for (let i = 0; i < count; i++) {
-    if (i !== centerChar) edgeOrder.push(i);
+    if (i !== centerChar) {
+      edgeOrder.push(i);
+    }
   }
   return { centerChar, edgeOrder };
 }
@@ -69,7 +71,9 @@ export function GiveMeAFaceScreen({
   const setSelectedIndex = useOnboardingAvatarPoolStore.use.setSelectedIndex();
 
   useEffect(() => {
-    if (components) ensureGenerated(components);
+    if (components) {
+      ensureGenerated(components);
+    }
   }, [components, ensureGenerated]);
 
   const count = characters.length;
@@ -100,7 +104,9 @@ export function GiveMeAFaceScreen({
 
   // Keep the store's selection in sync so the chosen avatar survives navigation.
   useEffect(() => {
-    if (arrangement) setSelectedIndex(arrangement.centerChar);
+    if (arrangement) {
+      setSelectedIndex(arrangement.centerChar);
+    }
   }, [arrangement, setSelectedIndex]);
 
   // Prefill the name for the centered avatar, swapping it as you cycle — but
@@ -124,9 +130,13 @@ export function GiveMeAFaceScreen({
   // The incoming avatar flies off-screen then pops into the center; the old
   // center shrinks away then reappears at `slot` (both tracked via `swap`).
   function moveTo(targetChar: number) {
-    if (!arrangement || targetChar === arrangement.centerChar) return;
+    if (!arrangement || targetChar === arrangement.centerChar) {
+      return;
+    }
     const slot = arrangement.edgeOrder.indexOf(targetChar);
-    if (slot < 0) return;
+    if (slot < 0) {
+      return;
+    }
     const edgeOrder = [...arrangement.edgeOrder];
     edgeOrder[slot] = arrangement.centerChar;
     setSwap({
@@ -149,7 +159,9 @@ export function GiveMeAFaceScreen({
   const ready = !!components && !!arrangement && !!centeredTraits;
 
   function handleContinue() {
-    if (centeredTraits) onContinue({ traits: centeredTraits, name: name.trim() });
+    if (centeredTraits) {
+      onContinue({ traits: centeredTraits, name: name.trim() });
+    }
   }
 
   // Roll a random name from the pool (different from the current one). Counts as
@@ -158,7 +170,9 @@ export function GiveMeAFaceScreen({
   function randomizeName() {
     nameCustomized.current = true;
     setName((current) => {
-      const options = ASSISTANT_NAMES.filter((candidate) => candidate !== current);
+      const options = ASSISTANT_NAMES.filter(
+        (candidate) => candidate !== current,
+      );
       const pool = options.length > 0 ? options : ASSISTANT_NAMES;
       return pool[Math.floor(Math.random() * pool.length)]!;
     });
@@ -176,121 +190,121 @@ export function GiveMeAFaceScreen({
       className="relative h-full overflow-hidden bg-[var(--surface-base)] text-[var(--content-default)]"
     >
       <OnboardingStageSizeProvider size={stageSize}>
-      {ready && (
-        <OnboardingCharacterStage
-          components={components}
-          characters={characters}
-          centerChar={arrangement.centerChar}
-          edgeOrder={arrangement.edgeOrder}
-          entering={swap?.entering ?? null}
-          exiting={swap?.exiting ?? null}
-          onEnterComplete={(char) =>
-            setSwap((curr) => (curr?.entering.char === char ? null : curr))
-          }
-          onSelectChar={moveTo}
-        />
-      )}
+        {ready && (
+          <OnboardingCharacterStage
+            components={components}
+            characters={characters}
+            centerChar={arrangement.centerChar}
+            edgeOrder={arrangement.edgeOrder}
+            entering={swap?.entering ?? null}
+            exiting={swap?.exiting ?? null}
+            onEnterComplete={(char) =>
+              setSwap((curr) => (curr?.entering.char === char ? null : curr))
+            }
+            onSelectChar={moveTo}
+          />
+        )}
 
-      {/* Redo routes through Continue (not the generic step redo) so any avatar
+        {/* Redo routes through Continue (not the generic step redo) so any avatar
           or name edits made after stepping back are captured before advancing —
           otherwise the redo would re-stage the previous selection. */}
-      <OnboardingTopBar
-        tone="light"
-        onBack={onBack}
-        onNext={onForward ? handleContinue : undefined}
-      />
+        <OnboardingTopBar
+          tone="light"
+          onBack={onBack}
+          onNext={onForward ? handleContinue : undefined}
+        />
 
-      {/* Title */}
-      <h1
-        className="absolute left-1/2 top-[22%] z-10 -translate-x-1/2 whitespace-nowrap text-center text-[2.6rem] leading-none max-md:w-[90vw] max-md:whitespace-normal max-md:text-[2.08rem]"
-        style={{
-          fontFamily: "var(--font-serif)",
-          animation: "fadeInUp 0.4s ease-out both",
-        }}
-      >
-        Give me a face and a name
-      </h1>
-
-      {/* Cycle arrows, flanking the centered avatar */}
-      <button
-        type="button"
-        aria-label="Previous character"
-        onClick={goPrev}
-        className={`absolute left-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
-      >
-        <ArrowLeft className="h-4 w-4" />
-      </button>
-      <button
-        type="button"
-        aria-label="Next character"
-        onClick={goNext}
-        className={`absolute right-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
-      >
-        <ArrowRight className="h-4 w-4" />
-      </button>
-
-      {/* Name (view ↔ edit) + Continue, grouped with room between them. */}
-      <div className="absolute left-1/2 top-[58%] z-10 flex -translate-x-1/2 flex-col items-center gap-10 max-md:top-[54%]">
-        <div className="flex flex-col items-center gap-4">
-        {editingName ? (
-          <input
-            ref={nameInputRef}
-            value={name}
-            onChange={(e) => {
-              nameCustomized.current = true;
-              setName(e.target.value);
-            }}
-            onBlur={() => setEditingName(false)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                setEditingName(false);
-              }
-            }}
-            placeholder="Name your assistant"
-            aria-label="Assistant name"
-            className="w-[234px] rounded-2xl border border-[var(--border-element)] bg-transparent px-4 py-2.5 text-center text-lg text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-colors duration-150 focus:border-[var(--border-active)]"
-          />
-        ) : (
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => setEditingName(true)}
-              aria-label="Edit name"
-              className="flex cursor-pointer items-center gap-2.5"
-            >
-              <span
-                className={`text-2xl font-medium ${name ? "text-[var(--content-default)]" : "text-[var(--content-tertiary)]"}`}
-              >
-                {name || "Name your assistant"}
-              </span>
-              <Pencil className="h-5 w-5 text-[var(--content-tertiary)]" />
-            </button>
-            <button
-              type="button"
-              onClick={randomizeName}
-              aria-label="Shuffle name"
-              title="Shuffle name"
-              className="cursor-pointer text-[var(--content-tertiary)] transition-[transform,color] duration-300 hover:rotate-180 hover:text-[var(--content-default)]"
-            >
-              <Dices className="h-5 w-5" />
-            </button>
-          </div>
-        )}
-        </div>
-
-        <Button
-          type="button"
-          variant="primary"
-          size="regular"
-          rightIcon={<ArrowRight size={16} />}
-          disabled={!ready}
-          onClick={handleContinue}
-          className="h-11 w-[234px] text-base"
+        {/* Title */}
+        <h1
+          className="absolute left-1/2 top-[22%] z-10 -translate-x-1/2 whitespace-nowrap text-center text-[2.6rem] leading-none max-md:w-[90vw] max-md:whitespace-normal max-md:text-[2.08rem]"
+          style={{
+            fontFamily: "var(--font-serif)",
+            animation: "fadeInUp 0.4s ease-out both",
+          }}
         >
-          Continue
-        </Button>
-      </div>
+          Give me a face and a name
+        </h1>
+
+        {/* Cycle arrows, flanking the centered avatar */}
+        <button
+          type="button"
+          aria-label="Previous character"
+          onClick={goPrev}
+          className={`absolute left-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          aria-label="Next character"
+          onClick={goNext}
+          className={`absolute right-[calc(50%-170px)] top-[43%] -translate-y-1/2 ${arrowClass}`}
+        >
+          <ArrowRight className="h-4 w-4" />
+        </button>
+
+        {/* Name (view ↔ edit) + Continue, grouped with room between them. */}
+        <div className="absolute left-1/2 top-[58%] z-10 flex -translate-x-1/2 flex-col items-center gap-10 max-md:top-[54%]">
+          <div className="flex flex-col items-center gap-4">
+            {editingName ? (
+              <input
+                ref={nameInputRef}
+                value={name}
+                onChange={(e) => {
+                  nameCustomized.current = true;
+                  setName(e.target.value);
+                }}
+                onBlur={() => setEditingName(false)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    setEditingName(false);
+                  }
+                }}
+                placeholder="Name your assistant"
+                aria-label="Assistant name"
+                className="w-[234px] rounded-2xl border border-[var(--border-element)] bg-transparent px-4 py-2.5 text-center text-lg text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-colors duration-150 focus:border-[var(--border-active)]"
+              />
+            ) : (
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setEditingName(true)}
+                  aria-label="Edit name"
+                  className="flex cursor-pointer items-center gap-2.5"
+                >
+                  <span
+                    className={`text-2xl font-medium ${name ? "text-[var(--content-default)]" : "text-[var(--content-tertiary)]"}`}
+                  >
+                    {name || "Name your assistant"}
+                  </span>
+                  <Pencil className="h-5 w-5 text-[var(--content-tertiary)]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={randomizeName}
+                  aria-label="Shuffle name"
+                  title="Shuffle name"
+                  className="cursor-pointer text-[var(--content-tertiary)] transition-[transform,color] duration-300 hover:rotate-180 hover:text-[var(--content-default)]"
+                >
+                  <Dices className="h-5 w-5" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          <Button
+            type="button"
+            variant="primary"
+            size="regular"
+            rightIcon={<ArrowRight size={16} />}
+            disabled={!ready}
+            onClick={handleContinue}
+            className="h-11 w-[234px] text-base"
+          >
+            Continue
+          </Button>
+        </div>
       </OnboardingStageSizeProvider>
     </div>
   );

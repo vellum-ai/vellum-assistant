@@ -76,7 +76,9 @@ export function identifyService(url: string): string | undefined {
   }
   for (const { pattern, service, pathPattern } of SERVICE_PATTERNS) {
     if (pattern.test(parsed.hostname)) {
-      if (pathPattern && !pathPattern.test(parsed.pathname)) continue;
+      if (pathPattern && !pathPattern.test(parsed.pathname)) {
+        continue;
+      }
       return service;
     }
   }
@@ -100,8 +102,9 @@ export function isAuthUrl(url: string): boolean {
         pattern.test(parsedUrl.hostname) &&
         (!pathPattern || pathPattern.test(parsedUrl.pathname)),
     )
-  )
+  ) {
     return true;
+  }
   // Generic path patterns - match against pathname only to avoid false positives
   // from query parameters or fragments that happen to contain auth-related words.
   return GENERIC_AUTH_PATTERNS.some((p) => p.test(parsedUrl.pathname));

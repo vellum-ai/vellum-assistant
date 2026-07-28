@@ -59,7 +59,9 @@ const ctx: ToolContext = {
 };
 
 beforeEach(() => {
-  if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+  if (existsSync(TEST_DIR)) {
+    rmSync(TEST_DIR, { recursive: true });
+  }
   mkdirSync(TEST_DIR, { recursive: true });
   _setMetadataPath(META_PATH);
   mockGetOrStartSession.mockClear();
@@ -68,7 +70,9 @@ beforeEach(() => {
 
 afterAll(() => {
   _setMetadataPath(null);
-  if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+  if (existsSync(TEST_DIR)) {
+    rmSync(TEST_DIR, { recursive: true });
+  }
   mock.restore();
 });
 

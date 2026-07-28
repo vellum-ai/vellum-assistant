@@ -48,7 +48,9 @@ export const seedNowMdMigration: WorkspaceMigration = {
     // file are existing workspaces, and the comment-only stub injects nothing,
     // so re-creating it on upgrade is harmless and exactly the intended fix.
     const filePath = join(workspaceDir, "NOW.md");
-    if (existsSync(filePath)) return;
+    if (existsSync(filePath)) {
+      return;
+    }
     try {
       writeFileSync(filePath, NOW_MD_STUB, "utf-8");
     } catch (err) {

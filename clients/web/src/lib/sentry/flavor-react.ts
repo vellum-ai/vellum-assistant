@@ -12,7 +12,9 @@ export const reactFlavor: SentryFlavor = {
   },
   close() {
     const client = Sentry.getClient();
-    if (!client) return;
+    if (!client) {
+      return;
+    }
     void client.close(2000);
     Sentry.getCurrentScope().setClient(undefined);
   },

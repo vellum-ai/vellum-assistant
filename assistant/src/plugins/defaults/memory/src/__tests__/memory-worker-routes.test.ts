@@ -60,7 +60,9 @@ const { ROUTES, embeddingStatusSchema } =
 
 function handler(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`route ${operationId} not registered`);
+  if (!route) {
+    throw new Error(`route ${operationId} not registered`);
+  }
   return route.handler as () => Promise<Record<string, unknown>>;
 }
 

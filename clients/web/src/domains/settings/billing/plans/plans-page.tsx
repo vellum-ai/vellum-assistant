@@ -672,7 +672,7 @@ export function PlansPage() {
             priceCaption={freeCopy?.priceCaption ?? "Forever"}
             ctaLabel={
               freeRelation === "downgrade"
-                ? downgradeLabel("Free")
+                ? downgradeLabel("Base")
                 : (freeCopy?.cta ?? "Start Free")
             }
             features={FREE_FEATURES}

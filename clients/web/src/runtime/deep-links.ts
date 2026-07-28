@@ -27,13 +27,17 @@ export type DeepLink =
   | { kind: "unknown"; url: string };
 
 export async function drainPendingDeepLinks(): Promise<DeepLink[]> {
-  if (!isElectron()) return [];
+  if (!isElectron()) {
+    return [];
+  }
   return (await window.vellum?.deepLinks.drain()) ?? [];
 }
 
 export function subscribeToDeepLinks(
   callback: (link: DeepLink) => void,
 ): () => void {
-  if (!isElectron()) return () => undefined;
+  if (!isElectron()) {
+    return () => undefined;
+  }
   return window.vellum?.deepLinks.onLink(callback) ?? (() => undefined);
 }

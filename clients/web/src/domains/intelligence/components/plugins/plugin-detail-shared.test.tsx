@@ -11,8 +11,8 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import {
-    PluginDetailActions,
-    PluginDetailMetadata,
+  PluginDetailActions,
+  PluginDetailMetadata,
 } from "@/domains/intelligence/components/plugins/plugin-detail-shared";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
@@ -39,7 +39,9 @@ const githubPlugin: PluginsByNameGetResponse = {
 
 describe("PluginDetailMetadata", () => {
   test("renders source repo link, homepage, and license rows", () => {
-    const { container } = render(<PluginDetailMetadata plugin={githubPlugin} />);
+    const { container } = render(
+      <PluginDetailMetadata plugin={githubPlugin} />,
+    );
     const html = container.innerHTML;
 
     expect(html).toContain("vellum-ai/level-up");
@@ -78,7 +80,7 @@ describe("PluginDetailMetadata", () => {
     const html = container.innerHTML;
 
     expect(html).toContain("Local");
-    expect(html).not.toContain("href=\"https://github.com");
+    expect(html).not.toContain('href="https://github.com');
   });
 });
 
@@ -117,7 +119,9 @@ describe("PluginDetailActions auto-include toggle", () => {
       />,
     );
 
-    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe(
+      "true",
+    );
     expect(screen.getByText("Auto-include in chat")).toBeTruthy();
   });
 

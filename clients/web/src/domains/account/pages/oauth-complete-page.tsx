@@ -233,7 +233,9 @@ export function OAuthCompletePage() {
   const completionSent = useRef(false);
 
   useEffect(() => {
-    if (completionSent.current) return;
+    if (completionSent.current) {
+      return;
+    }
     completionSent.current = true;
 
     const payload: OAuthCompletePayload = {
@@ -260,7 +262,14 @@ export function OAuthCompletePage() {
         <h1>{title}</h1>
         <p>{subtitle}</p>
         {!isSuccess && oauthCode && (
-          <p style={{ marginTop: 8, fontSize: 11, color: "var(--oauth-text-secondary)", opacity: 0.7 }}>
+          <p
+            style={{
+              marginTop: 8,
+              fontSize: 11,
+              color: "var(--oauth-text-secondary)",
+              opacity: 0.7,
+            }}
+          >
             Error: {oauthCode}
           </p>
         )}

@@ -41,9 +41,8 @@ mock.module("@/lib/local-mode", () => ({
   setActiveLockfileAssistant: setActiveLockfileAssistantMock,
 }));
 
-const { resolveSelectedAssistantId, setSelectedAssistant } = await import(
-  "./selection"
-);
+const { resolveSelectedAssistantId, setSelectedAssistant } =
+  await import("./selection");
 
 function platformAssistant(
   id: string,

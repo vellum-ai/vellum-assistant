@@ -26,7 +26,9 @@ function flag(name: string): boolean {
 
 function int(name: string): number | undefined {
   const raw = str(name);
-  if (raw === undefined) return undefined;
+  if (raw === undefined) {
+    return undefined;
+  }
   const n = parseInt(raw, 10);
   return Number.isFinite(n) ? n : undefined;
 }

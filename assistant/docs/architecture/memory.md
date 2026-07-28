@@ -123,6 +123,13 @@ build can never drift. The same predicate gates procedural-memory-as-skills,
 so both v3-tier features honor the Memory opt-out identically. `GET /v1/memory-graph-node` serves node detail,
 including `buffer:` ids for pending entries.
 
+`GET /v1/memory/stats` also reports `tier` (`memoryTier()`: `off` / `v1` /
+`v2` / `v3`), which is what lets the web Memory tab explain an unavailable
+graph instead of stating a bare "not available": `off` is the user's own
+Memory opt-out and points at Settings, while `v1`/`v2` point at the v3
+migration. `graph_supported` is exactly `tier === "v3"`, so the capability
+bit and its explanation are derived from one gate.
+
 ## Capture beyond `remember`
 
 - **Retrospective** (`memory-retrospective-*.ts`): periodic per-conversation

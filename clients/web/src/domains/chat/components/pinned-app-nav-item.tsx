@@ -54,13 +54,15 @@ export function PinnedAppNavItem({
   }
 
   const trailingActions: SwipeAction[] = isPointerCoarse()
-    ? [{
-        id: "unpin",
-        label: "Unpin",
-        icon: PinOff,
-        variant: "destructive",
-        onSelect: () => unpin(app.appId),
-      }]
+    ? [
+        {
+          id: "unpin",
+          label: "Unpin",
+          icon: PinOff,
+          variant: "destructive",
+          onSelect: () => unpin(app.appId),
+        },
+      ]
     : [];
 
   return (

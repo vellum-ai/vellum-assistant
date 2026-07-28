@@ -69,16 +69,13 @@ mock.module("@/utils/fetch-conversation-detail", () => ({
   },
 }));
 
-const { useSendMessage } = await import(
-  "@/domains/chat/hooks/use-send-message"
-);
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { useSendMessage } =
+  await import("@/domains/chat/hooks/use-send-message");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 const { useTurnStore } = await import("@/domains/chat/turn-store");
 
 const queryClient = new QueryClient();

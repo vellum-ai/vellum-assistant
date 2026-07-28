@@ -72,7 +72,9 @@ export function registerAppCommands(oauth: Command): void {
           providers: Array<{ provider_key: string }>;
         }>("oauth_providers_get", { queryParams: {} });
 
-        if (!provR.ok) return exitFromIpcResult(provR);
+        if (!provR.ok) {
+          return exitFromIpcResult(provR);
+        }
 
         const allRows: ReturnType<typeof formatAppRow>[] = [];
         for (const p of provR.result?.providers ?? []) {
@@ -97,7 +99,9 @@ export function registerAppCommands(oauth: Command): void {
         queryParams: { provider_key: opts.providerKey },
       });
 
-      if (!r.ok) return exitFromIpcResult(r);
+      if (!r.ok) {
+        return exitFromIpcResult(r);
+      }
 
       const rows = (r.result?.apps ?? []).map(formatAppRow);
 
@@ -129,9 +133,15 @@ export function registerAppCommands(oauth: Command): void {
       }
 
       const queryParams: Record<string, string> = {};
-      if (opts.id) queryParams.id = opts.id;
-      if (opts.provider) queryParams.provider = opts.provider;
-      if (opts.clientId) queryParams.client_id = opts.clientId;
+      if (opts.id) {
+        queryParams.id = opts.id;
+      }
+      if (opts.provider) {
+        queryParams.provider = opts.provider;
+      }
+      if (opts.clientId) {
+        queryParams.client_id = opts.clientId;
+      }
 
       const r = await cliIpcCall<{ app: AppRow }>("oauth_apps_by_query_get", {
         queryParams,

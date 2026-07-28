@@ -86,8 +86,7 @@ describe("assistant platform callback-routes list", () => {
         id: "route-2",
         assistant_id: "019d6d4f-6dbd-779f-91d3-cb273b9429a5",
         type: "telegram",
-        callback_path:
-          "019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/telegram",
+        callback_path: "019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/telegram",
         callback_url:
           "https://dev-platform.vellum.ai/v1/gateway/callbacks/019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/telegram/",
       },
@@ -179,12 +178,12 @@ describe("assistant platform callback-routes list", () => {
     }
 
     expect(mockCalls[0][0]).toBe("platform_callback_routes_register");
-    expect(
-      (mockCalls[0][1].body as Record<string, unknown>).path,
-    ).toBe("webhooks/telegram");
-    expect(
-      (mockCalls[0][1].body as Record<string, unknown>).type,
-    ).toBe("telegram");
+    expect((mockCalls[0][1].body as Record<string, unknown>).path).toBe(
+      "webhooks/telegram",
+    );
+    expect((mockCalls[0][1].body as Record<string, unknown>).type).toBe(
+      "telegram",
+    );
 
     const parsed = JSON.parse(stdoutChunks.join(""));
     expect(parsed.ok).toBe(true);

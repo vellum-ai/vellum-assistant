@@ -139,7 +139,13 @@ describe("parseWeatherData", () => {
     const result = parseWeatherData({
       location: "NYC",
       hourly: [
-        { time: "Now", icon: "sun.max.fill", tempC: 22, temp: 72, temperature: 72 },
+        {
+          time: "Now",
+          icon: "sun.max.fill",
+          tempC: 22,
+          temp: 72,
+          temperature: 72,
+        },
         { time: "1PM", icon: "cloud.fill", temp: 68 },
         { time: "2PM", icon: "cloud.fill", temperature: 65 },
       ],

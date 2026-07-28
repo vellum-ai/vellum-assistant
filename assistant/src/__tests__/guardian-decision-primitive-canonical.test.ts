@@ -103,7 +103,9 @@ describe("applyGuardianDecision", () => {
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     expect(result.requestId).toBe(req.id);
     // Grant is not minted because the tool_approval resolver fails (no pending
     // interaction registered in the test environment). The decision primitive
@@ -136,7 +138,9 @@ describe("applyGuardianDecision", () => {
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     expect(result.grantMinted).toBe(false);
 
     expect(sim.getRequest(req.id)!.status).toBe("denied");
@@ -162,7 +166,9 @@ describe("applyGuardianDecision", () => {
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
 
     const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
@@ -209,7 +215,9 @@ describe("applyGuardianDecision", () => {
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     expect(result.resolverFailed).toBe(true);
     expect(result.resolverFailureReason).toBe("decision_persist_failed");
     expect(result.grantMinted).toBe(false);
@@ -234,7 +242,9 @@ describe("applyGuardianDecision", () => {
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("identity_mismatch");
 
     // Request remains pending; no decide was attempted
@@ -261,7 +271,9 @@ describe("applyGuardianDecision", () => {
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     // No grant minted because trusted actor has no actorExternalUserId
     expect(result.grantMinted).toBe(false);
   });
@@ -285,7 +297,9 @@ describe("applyGuardianDecision", () => {
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("request_misconfigured");
   });
 
@@ -305,7 +319,9 @@ describe("applyGuardianDecision", () => {
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("identity_mismatch");
   });
 
@@ -335,7 +351,9 @@ describe("applyGuardianDecision", () => {
       actorContext: guardianActor(),
     });
     expect(second.applied).toBe(false);
-    if (second.applied) return;
+    if (second.applied) {
+      return;
+    }
     expect(second.reason).toBe("already_resolved");
 
     // First decision stuck
@@ -364,7 +382,9 @@ describe("applyGuardianDecision", () => {
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("already_resolved");
   });
 
@@ -378,7 +398,9 @@ describe("applyGuardianDecision", () => {
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("not_found");
   });
 
@@ -400,7 +422,9 @@ describe("applyGuardianDecision", () => {
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("invalid_action");
 
     // Request remains pending
@@ -502,7 +526,9 @@ describe("applyGuardianDecision", () => {
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("expired");
   });
 
@@ -610,7 +636,9 @@ describe("applyGuardianDecision", () => {
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     expect(result.grantMinted).toBe(true);
 
     const db = getDb();

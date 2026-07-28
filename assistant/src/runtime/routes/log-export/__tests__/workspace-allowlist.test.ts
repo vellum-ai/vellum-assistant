@@ -343,7 +343,9 @@ describe("collectWorkspaceData — conversations entry", () => {
   test("canonical-named symlinks are rejected before the message-window scan runs", () => {
     // Symlink creation requires elevated permissions on Windows; skip
     // there to avoid spurious failures in CI on Windows hosts.
-    if (process.platform === "win32") return;
+    if (process.platform === "win32") {
+      return;
+    }
 
     // Create an external directory containing a messages.jsonl whose
     // single message timestamp falls inside the requested window. If
@@ -419,7 +421,9 @@ describe("collectWorkspaceData — conversations entry", () => {
     // ~500 padding lines + 1 match line ≈ 250 KB, well over a single
     // 64 KB chunk.
     const lines: string[] = [];
-    for (let i = 0; i < 500; i++) lines.push(padLine);
+    for (let i = 0; i < 500; i++) {
+      lines.push(padLine);
+    }
     lines.push(matchLine);
     writeFileSync(
       join(dir, "messages.jsonl"),
@@ -613,7 +617,9 @@ describe("collectWorkspaceData — conversations entry", () => {
   test("skips symlinked directories to avoid infinite loops", () => {
     // Symlink creation requires elevated permissions on Windows; skip
     // there to avoid spurious failures in CI on Windows hosts.
-    if (process.platform === "win32") return;
+    if (process.platform === "win32") {
+      return;
+    }
 
     // Seed a single canonical conversation directory and stick a
     // symlink loop inside it (`loop -> .`). `dirSizeWithinBudget` uses
@@ -661,7 +667,9 @@ describe("collectWorkspaceData — conversations entry", () => {
   test("rejects top-level symlinks pointing outside the conversations dir", () => {
     // Symlink creation requires elevated permissions on Windows; skip
     // there to avoid spurious failures in CI on Windows hosts.
-    if (process.platform === "win32") return;
+    if (process.platform === "win32") {
+      return;
+    }
 
     // Create a directory OUTSIDE `conversations/` that masquerades as a
     // valid conversation dir (with a `meta.json`). The allowlist guard

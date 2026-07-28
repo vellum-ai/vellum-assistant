@@ -3,8 +3,8 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import {
-    organizationsBillingSubscriptionRetrieveOptions,
-    useOrganizationsBillingPortalSessionCreateMutation,
+  organizationsBillingSubscriptionRetrieveOptions,
+  useOrganizationsBillingPortalSessionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -17,7 +17,9 @@ export interface PortalReturnSnapshot {
   plan_id: string;
 }
 
-export function writePortalReturnSnapshot(snapshot: PortalReturnSnapshot): void {
+export function writePortalReturnSnapshot(
+  snapshot: PortalReturnSnapshot,
+): void {
   try {
     // Clear any stale snapshot before writing. If setItem then throws
     // (quota / private mode), the return-handler falls back to the generic
@@ -34,10 +36,14 @@ export function writePortalReturnSnapshot(snapshot: PortalReturnSnapshot): void 
 }
 
 export function readPortalReturnSnapshot(): PortalReturnSnapshot | null {
-  if (typeof sessionStorage === "undefined") return null;
+  if (typeof sessionStorage === "undefined") {
+    return null;
+  }
   try {
     const raw = sessionStorage.getItem(PORTAL_RETURN_SNAPSHOT_KEY);
-    if (!raw) return null;
+    if (!raw) {
+      return null;
+    }
     const parsed = JSON.parse(raw) as Partial<PortalReturnSnapshot>;
     if (
       typeof parsed.cancel_at_period_end !== "boolean" ||
@@ -78,7 +84,9 @@ export function buildPortalReturnSnapshot(
       }
     | undefined,
 ): PortalReturnSnapshot | null {
-  if (!data) return null;
+  if (!data) {
+    return null;
+  }
   return {
     cancel_at_period_end: data.cancel_at_period_end,
     cancel_at: data.cancel_at ?? null,
@@ -92,7 +100,9 @@ export function buildPortalReturnSnapshot(
  */
 export function formatGraceDate(iso: string): string {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
+  if (Number.isNaN(d.getTime())) {
+    return iso;
+  }
   return d.toLocaleDateString(undefined, {
     year: "numeric",
     month: "long",
@@ -117,7 +127,9 @@ export function getEffectiveCancelDate(
     | undefined
     | null,
 ): string | null {
-  if (!data) return null;
+  if (!data) {
+    return null;
+  }
   return data.cancel_at ?? data.current_period_end ?? null;
 }
 

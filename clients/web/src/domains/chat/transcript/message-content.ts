@@ -90,7 +90,9 @@ function splitInlineThinkingBlocks(
   return blocks.flatMap((block): ConversationContentBlock[] => {
     const segments =
       block.type === "text" ? parseInlineThinkingTags(block.text) : null;
-    if (!segments) {return [block];}
+    if (!segments) {
+      return [block];
+    }
     return segments.map((seg) =>
       seg.type === "thinking"
         ? { type: "thinking", thinking: seg.thinking }
@@ -120,8 +122,10 @@ export function groupContentBlocks(
     : blocks;
 
   const groups: ContentBlockGroup[] = [];
-  let current: { type: "activity"; items: ContentBlockActivityItem[] } | null =
-    null;
+  let current: {
+    type: "activity";
+    items: ContentBlockActivityItem[];
+  } | null = null;
 
   const openActivity = () => {
     if (!current) {
@@ -190,7 +194,9 @@ export function groupContentBlocks(
  * truth for the transcript's `MultiActivityGroup` props and the activity-steps
  * side panel's live re-derivation, so the two views cannot drift.
  */
-export function activityItemsToCardData(items: ContentBlockActivityItem[]): {
+export function activityItemsToCardData(
+  items: ContentBlockActivityItem[],
+): {
   cardItems: ToolCallCardItem[];
   toolCalls: ChatMessageToolCall[];
   pendingVisuals: ChatMessageToolCall[];
@@ -273,10 +279,16 @@ export function isSuppressedVisualizeRender(tc: ChatMessageToolCall): boolean {
  * miss every spawn and leave inline subagent cards unrendered.
  */
 export function isSubagentSpawnCall(toolCall: ChatMessageToolCall): boolean {
-  if (toolCall.name === "subagent_spawn") {return true;}
-  if (toolCall.name !== "skill_execute") {return false;}
+  if (toolCall.name === "subagent_spawn") {
+    return true;
+  }
+  if (toolCall.name !== "skill_execute") {
+    return false;
+  }
   const input = toolCall.input;
-  if (input == null || typeof input !== "object") {return false;}
+  if (input == null || typeof input !== "object") {
+    return false;
+  }
   return (input as Record<string, unknown>).tool === "subagent_spawn";
 }
 
@@ -289,10 +301,16 @@ export function isSubagentSpawnCall(toolCall: ChatMessageToolCall): boolean {
  * every launch and leave the inline workflow card unrendered.
  */
 export function isRunWorkflowCall(toolCall: ChatMessageToolCall): boolean {
-  if (toolCall.name === "run_workflow") {return true;}
-  if (toolCall.name !== "skill_execute") {return false;}
+  if (toolCall.name === "run_workflow") {
+    return true;
+  }
+  if (toolCall.name !== "skill_execute") {
+    return false;
+  }
   const input = toolCall.input;
-  if (input == null || typeof input !== "object") {return false;}
+  if (input == null || typeof input !== "object") {
+    return false;
+  }
   return (input as Record<string, unknown>).tool === "run_workflow";
 }
 
@@ -306,10 +324,16 @@ export function isRunWorkflowCall(toolCall: ChatMessageToolCall): boolean {
  * unrendered.
  */
 export function isAcpSpawnCall(toolCall: ChatMessageToolCall): boolean {
-  if (toolCall.name === "acp_spawn") {return true;}
-  if (toolCall.name !== "skill_execute") {return false;}
+  if (toolCall.name === "acp_spawn") {
+    return true;
+  }
+  if (toolCall.name !== "skill_execute") {
+    return false;
+  }
   const input = toolCall.input;
-  if (input == null || typeof input !== "object") {return false;}
+  if (input == null || typeof input !== "object") {
+    return false;
+  }
   return (input as Record<string, unknown>).tool === "acp_spawn";
 }
 
@@ -320,9 +344,13 @@ export function isAcpSpawnCall(toolCall: ChatMessageToolCall): boolean {
  * real `bash`/`host_bash` tool, so we match the raw tool name plus the flag.
  */
 export function isBackgroundBashCall(toolCall: ChatMessageToolCall): boolean {
-  if (toolCall.name !== "bash" && toolCall.name !== "host_bash") {return false;}
+  if (toolCall.name !== "bash" && toolCall.name !== "host_bash") {
+    return false;
+  }
   const input = toolCall.input;
-  if (input == null || typeof input !== "object") {return false;}
+  if (input == null || typeof input !== "object") {
+    return false;
+  }
   return (input as Record<string, unknown>).background === true;
 }
 

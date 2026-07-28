@@ -23,7 +23,10 @@ describe("parseInlineSurfaces", () => {
       expect(surfaceSegment.surface.surfaceType).toBe("card");
       expect(surfaceSegment.surface.data.template).toBe("task_progress");
       expect(surfaceSegment.surface.title).toBe("Test");
-      const td = surfaceSegment.surface.data.templateData as Record<string, unknown>;
+      const td = surfaceSegment.surface.data.templateData as Record<
+        string,
+        unknown
+      >;
       expect(Array.isArray(td.steps)).toBe(true);
     }
 
@@ -107,7 +110,8 @@ describe("parseInlineSurfaces", () => {
   });
 
   test("generates unique surfaceIds across calls", () => {
-    const input = '<ui_show surface_type="card" template="t"> {"title":"T"} </ui_show>';
+    const input =
+      '<ui_show surface_type="card" template="t"> {"title":"T"} </ui_show>';
     const r1 = parseInlineSurfaces(input);
     const r2 = parseInlineSurfaces(input);
     if (r1![0].type === "surface" && r2![0].type === "surface") {

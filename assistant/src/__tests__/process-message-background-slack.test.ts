@@ -148,7 +148,9 @@ function createDeferred<T = void>(): Deferred<T> {
 
 async function waitForRunAgentLoopCall(): Promise<void> {
   for (let i = 0; i < 10; i++) {
-    if (activeConversation.runAgentLoop.mock.calls.length > 0) return;
+    if (activeConversation.runAgentLoop.mock.calls.length > 0) {
+      return;
+    }
     await Promise.resolve();
   }
 }

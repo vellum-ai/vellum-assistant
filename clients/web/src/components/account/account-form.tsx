@@ -1,4 +1,8 @@
-import { type FormEvent, type InputHTMLAttributes, type ReactNode } from "react";
+import {
+  type FormEvent,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from "react";
 
 import { Notice } from "@vellumai/design-library";
 
@@ -61,9 +65,7 @@ export function AccountForm({
   );
 }
 
-export function AccountInput(
-  props: InputHTMLAttributes<HTMLInputElement>,
-) {
+export function AccountInput(props: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
@@ -84,7 +86,9 @@ export function AccountHeading({
       <h1 className="mb-2 font-serif text-[2rem] font-bold italic text-[var(--content-default)]">
         {title}
       </h1>
-      {subtitle && <p className="text-sm text-[var(--content-secondary)]">{subtitle}</p>}
+      {subtitle && (
+        <p className="text-sm text-[var(--content-secondary)]">{subtitle}</p>
+      )}
     </div>
   );
 }

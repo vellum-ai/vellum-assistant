@@ -154,8 +154,7 @@ export function shouldRetryUsageGroupQuery(
 
 function isUnsupportedUsageGroupByError(error: unknown): boolean {
   return (
-    error instanceof ApiError &&
-    UNSUPPORTED_GROUP_BY_STATUSES.has(error.status)
+    error instanceof ApiError && UNSUPPORTED_GROUP_BY_STATUSES.has(error.status)
   );
 }
 
@@ -163,8 +162,7 @@ export function trendTitle(
   rangeGranularity: UsageGranularity,
   groupBy?: UsageGroupBy,
 ): string {
-  const prefix =
-    rangeGranularity === "hourly" ? "Hourly Trend" : "Daily Trend";
+  const prefix = rangeGranularity === "hourly" ? "Hourly Trend" : "Daily Trend";
   if (!groupBy || groupBy === "conversation") {
     return prefix;
   }
@@ -179,9 +177,7 @@ export function resolveEffectiveUsageGranularity({
 }: {
   requestedGranularity: UsageGranularity;
   isLoading: boolean;
-  buckets:
-    | readonly Pick<UsageSeriesBucket, "bucketId" | "date">[]
-    | undefined;
+  buckets: readonly Pick<UsageSeriesBucket, "bucketId" | "date">[] | undefined;
 }): UsageGranularity {
   if (requestedGranularity !== "hourly") {
     return "daily";
@@ -194,9 +190,7 @@ export function resolveEffectiveUsageGranularity({
   return buckets.some(isHourlyBucket) ? "hourly" : "daily";
 }
 
-function isHourlyBucket(
-  bucket: Pick<UsageSeriesBucket, "bucketId" | "date">,
-) {
+function isHourlyBucket(bucket: Pick<UsageSeriesBucket, "bucketId" | "date">) {
   return bucket.bucketId.includes("|") || isHourlyDate(bucket.date);
 }
 

@@ -3,13 +3,13 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import type {
-    LlmContextResponse,
-    MemoryCandidate,
-    MemoryRecallLog,
-    MemoryV2ActivationLog,
-    MemoryV2ConceptRow,
-    MemoryV3SelectionLog,
-    MemoryV3SelectionRow,
+  LlmContextResponse,
+  MemoryCandidate,
+  MemoryRecallLog,
+  MemoryV2ActivationLog,
+  MemoryV2ConceptRow,
+  MemoryV3SelectionLog,
+  MemoryV3SelectionRow,
 } from "@vellumai/assistant-api";
 import { Card } from "@vellumai/design-library";
 
@@ -106,9 +106,7 @@ function ViewPill({
       onClick={onClick}
       className="rounded-full px-3 py-1 text-label-default transition-colors"
       style={{
-        background: active
-          ? "var(--surface-active)"
-          : "var(--surface-overlay)",
+        background: active ? "var(--surface-active)" : "var(--surface-overlay)",
         color: active ? "var(--content-default)" : "var(--content-secondary)",
         border: "none",
         cursor: "pointer",
@@ -129,7 +127,9 @@ function MemoryRecallSection({
       <div className="p-4">
         <SectionCard
           title="Memory disabled"
-          subtitle={recall.reason ?? "Memory recall was disabled for this turn."}
+          subtitle={
+            recall.reason ?? "Memory recall was disabled for this turn."
+          }
         />
       </div>
     );
@@ -167,7 +167,8 @@ function MemoryRecallSection({
           rows={[
             {
               label: "Semantic hits",
-              value: recall.semanticHits != null ? fmt(recall.semanticHits) : "—",
+              value:
+                recall.semanticHits != null ? fmt(recall.semanticHits) : "—",
             },
             {
               label: "After merge",
@@ -183,11 +184,15 @@ function MemoryRecallSection({
             },
             {
               label: "Selected",
-              value: recall.selectedCount != null ? fmt(recall.selectedCount) : "—",
+              value:
+                recall.selectedCount != null ? fmt(recall.selectedCount) : "—",
             },
             {
               label: "Injected tokens",
-              value: recall.injectedTokens != null ? fmt(recall.injectedTokens) : "—",
+              value:
+                recall.injectedTokens != null
+                  ? fmt(recall.injectedTokens)
+                  : "—",
             },
           ]}
         />
@@ -278,7 +283,11 @@ function MemoryRecallSection({
   );
 }
 
-function CandidateRow({ candidate }: { candidate: MemoryCandidate }): ReactNode {
+function CandidateRow({
+  candidate,
+}: {
+  candidate: MemoryCandidate;
+}): ReactNode {
   return (
     <div
       className="flex items-start justify-between gap-3 rounded-md px-3 py-2"
@@ -291,9 +300,7 @@ function CandidateRow({ candidate }: { candidate: MemoryCandidate }): ReactNode 
         >
           {candidate.nodeId}
         </code>
-        {candidate.type != null && (
-          <TypeChip label={candidate.type} />
-        )}
+        {candidate.type != null && <TypeChip label={candidate.type} />}
       </div>
       <div className="flex shrink-0 flex-col items-end gap-0.5">
         <span
@@ -425,7 +432,10 @@ function V2ConfigCard({
               Activation weights and selection thresholds.
             </span>
           </span>
-          <span className="shrink-0" style={{ color: "var(--content-secondary)" }}>
+          <span
+            className="shrink-0"
+            style={{ color: "var(--content-secondary)" }}
+          >
             {expanded ? (
               <ChevronDown size={14} aria-hidden />
             ) : (
@@ -859,9 +869,7 @@ function SectionCard({
               </span>
             )}
           </div>
-          {copyText != null && (
-            <CopyButton text={copyText} />
-          )}
+          {copyText != null && <CopyButton text={copyText} />}
         </div>
         {children}
       </div>
@@ -877,10 +885,7 @@ function MetaGrid({
   return (
     <div className="flex flex-col gap-2">
       {rows.map(({ label, value }) => (
-        <div
-          key={label}
-          className="flex items-baseline justify-between gap-3"
-        >
+        <div key={label} className="flex items-baseline justify-between gap-3">
           <span
             className="shrink-0 text-label-default"
             style={{ color: "var(--content-secondary)" }}
@@ -958,7 +963,12 @@ function CopyButton({ text }: { text: string }): ReactNode {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
-  useEffect(() => () => { clearTimeout(timerRef.current!); }, []);
+  useEffect(
+    () => () => {
+      clearTimeout(timerRef.current!);
+    },
+    [],
+  );
 
   const handleCopy = () => {
     copyToClipboard(text, {
@@ -979,7 +989,9 @@ function CopyButton({ text }: { text: string }): ReactNode {
       className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-label-default transition-colors"
       style={{
         background: "var(--surface-overlay)",
-        color: copied ? "var(--system-positive-strong)" : "var(--content-secondary)",
+        color: copied
+          ? "var(--system-positive-strong)"
+          : "var(--content-secondary)",
         border: "none",
         cursor: "pointer",
       }}

@@ -55,9 +55,7 @@ function LeadIndicator({ status }: { status: WorkflowLeaf["status"] }) {
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={
-          reduce
-            ? { duration: 0 }
-            : { duration: 0.15, ease: [0.16, 1, 0.3, 1] }
+          reduce ? { duration: 0 } : { duration: 0.15, ease: [0.16, 1, 0.3, 1] }
         }
         className="flex shrink-0 items-center"
       >

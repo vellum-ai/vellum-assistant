@@ -28,7 +28,9 @@ import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = QUESTION_ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -49,7 +51,9 @@ function registerQuestion(
   rpcResolve: (value: unknown) => void = () => {},
 ): void {
   const optionsById: Record<string, string[]> = {};
-  for (const q of questions) optionsById[q.id] = q.options;
+  for (const q of questions) {
+    optionsById[q.id] = q.options;
+  }
   pendingInteractions.register(requestId, {
     conversationId: "conv-1",
     kind: "question",

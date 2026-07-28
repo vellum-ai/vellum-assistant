@@ -13,7 +13,9 @@ describe("CreatureFooter", () => {
     const img = container.querySelector("img");
     expect(img).not.toBeNull();
     expect(img?.getAttribute("alt")).toBe("");
-    expect(img?.getAttribute("src")).toMatch(/login-background-characters\.svg$/);
+    expect(img?.getAttribute("src")).toMatch(
+      /login-background-characters\.svg$/,
+    );
   });
 
   test("pins the container to the physical bottom with `fixed` (not `absolute`)", () => {

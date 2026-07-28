@@ -32,7 +32,10 @@ describe("IpcFrameReader", () => {
     const json = Buffer.from(JSON.stringify(envelope), "utf-8");
     const frame = buildFrame(json);
 
-    const received: Array<{ envelope: unknown; binary: Uint8Array | undefined }> = [];
+    const received: Array<{
+      envelope: unknown;
+      binary: Uint8Array | undefined;
+    }> = [];
 
     const reader = new IpcFrameReader((env, binary) => {
       received.push({ envelope: env, binary });
@@ -53,12 +56,17 @@ describe("IpcFrameReader", () => {
       result: "ok",
       headers: { "content-length": "5" },
     };
-    const jsonFrame = buildFrame(Buffer.from(JSON.stringify(envelope), "utf-8"));
+    const jsonFrame = buildFrame(
+      Buffer.from(JSON.stringify(envelope), "utf-8"),
+    );
     const binaryFrame = buildFrame(Buffer.from(binaryData));
 
     const allData = Buffer.concat([jsonFrame, binaryFrame]);
 
-    const received: Array<{ envelope: unknown; binary: Uint8Array | undefined }> = [];
+    const received: Array<{
+      envelope: unknown;
+      binary: Uint8Array | undefined;
+    }> = [];
 
     const reader = new IpcFrameReader((env, binary) => {
       received.push({ envelope: env, binary });
@@ -70,7 +78,9 @@ describe("IpcFrameReader", () => {
     expect(received[0].envelope).toEqual(envelope);
     expect(received[0].binary).toBeInstanceOf(Uint8Array);
     expect(received[0].binary).toHaveLength(5);
-    expect(Array.from(received[0].binary!)).toEqual([0x01, 0x02, 0x03, 0x04, 0x05]);
+    expect(Array.from(received[0].binary!)).toEqual([
+      0x01, 0x02, 0x03, 0x04, 0x05,
+    ]);
   });
 
   test("parses chunked stream (transfer-encoding: chunked)", () => {
@@ -81,12 +91,19 @@ describe("IpcFrameReader", () => {
       id: "req-3",
       headers: { "transfer-encoding": "chunked" },
     };
-    const jsonFrame = buildFrame(Buffer.from(JSON.stringify(envelope), "utf-8"));
+    const jsonFrame = buildFrame(
+      Buffer.from(JSON.stringify(envelope), "utf-8"),
+    );
     const chunk1Frame = buildFrame(Buffer.from(chunk1));
     const chunk2Frame = buildFrame(Buffer.from(chunk2));
     const terminator = buildTerminator();
 
-    const allData = Buffer.concat([jsonFrame, chunk1Frame, chunk2Frame, terminator]);
+    const allData = Buffer.concat([
+      jsonFrame,
+      chunk1Frame,
+      chunk2Frame,
+      terminator,
+    ]);
 
     const events: string[] = [];
     let startEnvelope: unknown = null;
@@ -127,7 +144,10 @@ describe("IpcFrameReader", () => {
     const legacyPayload = JSON.stringify({ id: "x", result: 1 }) + "\n";
     const buf = Buffer.from(legacyPayload, "utf-8");
 
-    const received: Array<{ envelope: unknown; binary: Uint8Array | undefined }> = [];
+    const received: Array<{
+      envelope: unknown;
+      binary: Uint8Array | undefined;
+    }> = [];
 
     const reader = new IpcFrameReader((env, binary) => {
       received.push({ envelope: env, binary });

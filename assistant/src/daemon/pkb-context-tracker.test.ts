@@ -51,7 +51,12 @@ describe("getInContextPkbPaths", () => {
     const conversation = makeConversation([
       assistantMessageWithBlocks([fileReadToolUse(insidePath)]),
     ]);
-    const result = getInContextPkbPaths(conversation, [], PKB_ROOT, WORKING_DIR);
+    const result = getInContextPkbPaths(
+      conversation,
+      [],
+      PKB_ROOT,
+      WORKING_DIR,
+    );
     expect(result).toEqual(new Set([insidePath]));
   });
 
@@ -59,7 +64,12 @@ describe("getInContextPkbPaths", () => {
     const conversation = makeConversation([
       assistantMessageWithBlocks([fileReadToolUse("/etc/hosts")]),
     ]);
-    const result = getInContextPkbPaths(conversation, [], PKB_ROOT, WORKING_DIR);
+    const result = getInContextPkbPaths(
+      conversation,
+      [],
+      PKB_ROOT,
+      WORKING_DIR,
+    );
     expect(result).toEqual(new Set());
   });
 
@@ -74,7 +84,12 @@ describe("getInContextPkbPaths", () => {
     const conversation = makeConversation([
       assistantMessageWithBlocks([bogus]),
     ]);
-    const result = getInContextPkbPaths(conversation, [], PKB_ROOT, WORKING_DIR);
+    const result = getInContextPkbPaths(
+      conversation,
+      [],
+      PKB_ROOT,
+      WORKING_DIR,
+    );
     expect(result).toEqual(new Set());
   });
 
@@ -111,7 +126,12 @@ describe("getInContextPkbPaths", () => {
         fileReadToolUse("notes/../../../etc/shadow"),
       ]),
     ]);
-    const result = getInContextPkbPaths(conversation, [], PKB_ROOT, WORKING_DIR);
+    const result = getInContextPkbPaths(
+      conversation,
+      [],
+      PKB_ROOT,
+      WORKING_DIR,
+    );
     expect(result).toEqual(new Set());
   });
 
@@ -124,7 +144,12 @@ describe("getInContextPkbPaths", () => {
         fileReadToolUse("./deep/subdir/file.md"),
       ]),
     ]);
-    const result = getInContextPkbPaths(conversation, [], PKB_ROOT, WORKING_DIR);
+    const result = getInContextPkbPaths(
+      conversation,
+      [],
+      PKB_ROOT,
+      WORKING_DIR,
+    );
     expect(result).toEqual(new Set());
   });
 
@@ -135,7 +160,12 @@ describe("getInContextPkbPaths", () => {
     const conversation = makeConversation([
       assistantMessageWithBlocks([fileReadToolUse("pkb/threads.md")]),
     ]);
-    const result = getInContextPkbPaths(conversation, [], PKB_ROOT, WORKING_DIR);
+    const result = getInContextPkbPaths(
+      conversation,
+      [],
+      PKB_ROOT,
+      WORKING_DIR,
+    );
     expect(result).toEqual(new Set([path.join(PKB_ROOT, "threads.md")]));
   });
 
@@ -147,9 +177,7 @@ describe("getInContextPkbPaths", () => {
       PKB_ROOT,
       WORKING_DIR,
     );
-    expect(result).toEqual(
-      new Set([path.join(PKB_ROOT, "notes/relative.md")]),
-    );
+    expect(result).toEqual(new Set([path.join(PKB_ROOT, "notes/relative.md")]));
   });
 
   test("auto-inject and file_read paths union (no duplicates)", () => {

@@ -35,7 +35,9 @@ import { useAuthStore } from "@/stores/auth-store";
 
 function tryInit(options: BrowserOptions): void {
   const flavor = selectSentryFlavor();
-  if (flavor.getClientEnabled()) return;
+  if (flavor.getClientEnabled()) {
+    return;
+  }
   flavor.init(options);
 }
 
@@ -49,7 +51,9 @@ function tryClose(): void {
  * Idempotent when consent matches the current client state.
  */
 export function syncSentryClient(options: BrowserOptions): void {
-  if (!options.dsn) return;
+  if (!options.dsn) {
+    return;
+  }
   if (diagnosticsConsentGranted()) {
     tryInit(options);
   } else {

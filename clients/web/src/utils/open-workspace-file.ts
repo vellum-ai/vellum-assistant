@@ -10,7 +10,5 @@ import { routes } from "@/utils/routes";
  */
 export async function openWorkspaceFile(path: string): Promise<void> {
   const { router } = await import("@/routes");
-  await router.navigate(
-    `${routes.workspace}?file=${encodeURIComponent(path)}`,
-  );
+  await router.navigate(`${routes.workspace}?file=${encodeURIComponent(path)}`);
 }

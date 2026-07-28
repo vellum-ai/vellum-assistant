@@ -256,7 +256,9 @@ export function generateAppDirName(
   existingNames: Set<string>,
 ): string {
   const base = slugify(name);
-  if (!existingNames.has(base)) return base;
+  if (!existingNames.has(base)) {
+    return base;
+  }
   let counter = 2;
   while (existingNames.has(`${base}-${counter}`)) {
     counter++;
@@ -293,7 +295,9 @@ export function resolveAppDir(id: string): {
   const entries = readdirSync(dir);
 
   for (const entry of entries) {
-    if (!entry.endsWith(".json")) continue;
+    if (!entry.endsWith(".json")) {
+      continue;
+    }
     const filePath = join(dir, entry);
     try {
       const raw = readFileSync(filePath, "utf-8");
@@ -327,7 +331,9 @@ export function getAppDirPath(appId: string): string {
  */
 export function resolveAppIdByDirName(dirName: string): string | null {
   const cached = dirNameToIdCache.get(dirName);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
 
   // Check forward cache (reverse iteration)
   for (const [id, dn] of idToDirNameCache) {
@@ -368,11 +374,15 @@ export function resolveAppIdFromPath(filePath: string): string | null {
   } catch {
     return null;
   }
-  if (!filePath.startsWith(appsDir + "/")) return null;
+  if (!filePath.startsWith(appsDir + "/")) {
+    return null;
+  }
 
   const relPath = filePath.slice(appsDir.length + 1);
   const slashIdx = relPath.indexOf("/");
-  if (slashIdx === -1) return null; // file directly in apps/ (e.g. the .json definition)
+  if (slashIdx === -1) {
+    return null;
+  } // file directly in apps/ (e.g. the .json definition)
 
   const dirName = relPath.slice(0, slashIdx);
   const innerPath = relPath.slice(slashIdx + 1);
@@ -390,7 +400,9 @@ function invalidateDirNameCache(appId?: string): void {
   if (appId) {
     const dirName = idToDirNameCache.get(appId);
     idToDirNameCache.delete(appId);
-    if (dirName) dirNameToIdCache.delete(dirName);
+    if (dirName) {
+      dirNameToIdCache.delete(dirName);
+    }
   } else {
     idToDirNameCache.clear();
     dirNameToIdCache.clear();
@@ -492,9 +504,13 @@ function savePages(appDirPath: string, pages: Record<string, string>): void {
 /** Load pages from disk. Returns undefined if no pages directory exists. */
 function loadPages(appDirPath: string): Record<string, string> | undefined {
   const pagesDir = join(appDirPath, "pages");
-  if (!existsSync(pagesDir)) return undefined;
+  if (!existsSync(pagesDir)) {
+    return undefined;
+  }
   const entries = readdirSync(pagesDir);
-  if (entries.length === 0) return undefined;
+  if (entries.length === 0) {
+    return undefined;
+  }
   const pages: Record<string, string> = {};
   for (const entry of entries) {
     pages[entry] = readFileSync(join(pagesDir, entry), "utf-8");
@@ -512,7 +528,9 @@ function collectExistingDirNames(): Set<string> {
   const entries = readdirSync(dir);
   const names = new Set<string>();
   for (const entry of entries) {
-    if (!entry.endsWith(".json")) continue;
+    if (!entry.endsWith(".json")) {
+      continue;
+    }
     try {
       const raw = readFileSync(join(dir, entry), "utf-8");
       const parsed = JSON.parse(raw) as { id?: string; dirName?: string };
@@ -602,7 +620,9 @@ export function getApp(id: string): AppDefinition | null {
   const { dirName, appDir } = resolveAppDir(id);
   const dir = getAppsDir();
   const filePath = join(dir, `${dirName}.json`);
-  if (!existsSync(filePath)) return null;
+  if (!existsSync(filePath)) {
+    return null;
+  }
   const raw = readFileSync(filePath, "utf-8");
   const app = JSON.parse(raw) as AppDefinition;
 
@@ -647,7 +667,9 @@ export function listApps(): AppDefinition[] {
   const entries = readdirSync(dir);
   const apps: AppDefinition[] = [];
   for (const entry of entries) {
-    if (!entry.endsWith(".json")) continue;
+    if (!entry.endsWith(".json")) {
+      continue;
+    }
     const filePath = join(dir, entry);
     try {
       const raw = readFileSync(filePath, "utf-8");
@@ -924,7 +946,9 @@ export function updateApp(
 ): AppDefinition {
   validateId(id);
   const existing = getApp(id);
-  if (!existing) throw new Error(`App not found: ${id}`);
+  if (!existing) {
+    throw new Error(`App not found: ${id}`);
+  }
 
   const { dirName, appDir } = resolveAppDir(id);
 
@@ -1005,7 +1029,9 @@ export function createAppRecord(
 ): AppRecord {
   validateId(appId);
   const app = getApp(appId);
-  if (!app) throw new Error(`App not found: ${appId}`);
+  if (!app) {
+    throw new Error(`App not found: ${appId}`);
+  }
   const recordsDir = join(getAppDirPath(appId), "records");
   mkdirSync(recordsDir, { recursive: true });
   const now = Date.now();
@@ -1030,7 +1056,9 @@ export function getAppRecord(
   validateId(appId);
   validateId(recordId);
   const filePath = join(getAppDirPath(appId), "records", `${recordId}.json`);
-  if (!existsSync(filePath)) return null;
+  if (!existsSync(filePath)) {
+    return null;
+  }
   const raw = readFileSync(filePath, "utf-8");
   return JSON.parse(raw) as AppRecord;
 }
@@ -1038,11 +1066,15 @@ export function getAppRecord(
 export function queryAppRecords(appId: string): AppRecord[] {
   validateId(appId);
   const recordsDir = join(getAppDirPath(appId), "records");
-  if (!existsSync(recordsDir)) return [];
+  if (!existsSync(recordsDir)) {
+    return [];
+  }
   const entries = readdirSync(recordsDir);
   const records: AppRecord[] = [];
   for (const entry of entries) {
-    if (!entry.endsWith(".json")) continue;
+    if (!entry.endsWith(".json")) {
+      continue;
+    }
     try {
       const raw = readFileSync(join(recordsDir, entry), "utf-8");
       records.push(JSON.parse(raw) as AppRecord);
@@ -1061,7 +1093,9 @@ export function updateAppRecord(
   validateId(appId);
   validateId(recordId);
   const existing = getAppRecord(appId, recordId);
-  if (!existing) throw new Error(`AppRecord not found: ${appId}/${recordId}`);
+  if (!existing) {
+    throw new Error(`AppRecord not found: ${appId}/${recordId}`);
+  }
   const updated: AppRecord = {
     ...existing,
     data,
@@ -1095,7 +1129,9 @@ export function deleteAppRecord(appId: string, recordId: string): void {
 export function listAppFiles(appId: string): string[] {
   validateId(appId);
   const appDir = getAppDirPath(appId);
-  if (!existsSync(appDir)) return [];
+  if (!existsSync(appDir)) {
+    return [];
+  }
 
   const results: string[] = [];
 
@@ -1106,10 +1142,13 @@ export function listAppFiles(appId: string): string[] {
       const relPath = relative(appDir, fullPath);
       // Skip records/ directory
       const normalized = relPath.replace(/\\/g, "/");
-      if (normalized === "records" || normalized.startsWith("records/"))
+      if (normalized === "records" || normalized.startsWith("records/")) {
         continue;
+      }
       // Skip app.json
-      if (normalized === "app.json") continue;
+      if (normalized === "app.json") {
+        continue;
+      }
 
       const stat = statSync(fullPath);
       if (stat.isDirectory()) {
@@ -1240,7 +1279,9 @@ export function addAppConversationId(
   options?: { inherited?: boolean },
 ): boolean {
   const app = getApp(appId);
-  if (!app) return false;
+  if (!app) {
+    return false;
+  }
 
   const { dirName } = resolveAppDir(appId);
   const dir = getAppsDir();
@@ -1398,7 +1439,9 @@ export function backfillAppConversationIds(): void {
         continue;
       }
 
-      if (!Array.isArray(parsed)) continue;
+      if (!Array.isArray(parsed)) {
+        continue;
+      }
 
       for (const block of parsed) {
         if (

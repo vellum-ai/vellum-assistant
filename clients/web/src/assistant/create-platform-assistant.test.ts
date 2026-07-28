@@ -45,7 +45,9 @@ mock.module("@/stores/organization-store", () => ({
 }));
 mock.module("@/utils/api-errors", () => ({
   extractErrorMessage: (e: unknown, _r: unknown, fallback?: string) =>
-    e && typeof e === "object" && typeof (e as { detail?: unknown }).detail === "string"
+    e &&
+    typeof e === "object" &&
+    typeof (e as { detail?: unknown }).detail === "string"
       ? (e as { detail: string }).detail
       : (fallback ?? "error"),
 }));
@@ -63,7 +65,10 @@ beforeEach(() => {
 describe("createPlatformAssistant", () => {
   test("hatches with mode=create, syncs the lockfile, and switches to the new id", async () => {
     const result = await createPlatformAssistant("My Bot");
-    expect(hatchAssistantMock).toHaveBeenCalledWith({ name: "My Bot" }, "create");
+    expect(hatchAssistantMock).toHaveBeenCalledWith(
+      { name: "My Bot" },
+      "create",
+    );
     expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalledWith(
       [{ id: "ast-new", is_local: false, created: "" }],
       "org-test",
@@ -81,7 +86,9 @@ describe("createPlatformAssistant", () => {
     hatchResult = { ok: false, status: 500, error: { detail: "boom" } };
     const result = await createPlatformAssistant("x");
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toBe("boom");
+    if (!result.ok) {
+      expect(result.error).toBe("boom");
+    }
     expect(setSelectedAssistantMock).not.toHaveBeenCalled();
   });
 });

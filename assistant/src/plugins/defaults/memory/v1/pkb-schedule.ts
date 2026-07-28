@@ -20,7 +20,9 @@ import { getWorkspaceDir } from "../paths.js";
  */
 export function hasPkbBufferContent(): boolean {
   const bufferPath = join(getWorkspaceDir(), "pkb", "buffer.md");
-  if (!existsSync(bufferPath)) return false;
+  if (!existsSync(bufferPath)) {
+    return false;
+  }
   try {
     const content = stripCommentLines(readFileSync(bufferPath, "utf-8")).trim();
     return content.length > 0;

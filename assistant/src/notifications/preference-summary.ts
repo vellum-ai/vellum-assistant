@@ -85,7 +85,9 @@ function formatConditions(appliesWhenJson: string): string {
   }
 
   // Skip empty condition objects
-  if (!conditions || typeof conditions !== "object") return "";
+  if (!conditions || typeof conditions !== "object") {
+    return "";
+  }
 
   const parts: string[] = [];
 

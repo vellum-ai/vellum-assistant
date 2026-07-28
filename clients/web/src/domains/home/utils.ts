@@ -15,7 +15,9 @@ export type FeedTimeGroup = "today" | "yesterday" | "older";
  */
 export function sortFeedItems(items: FeedItem[]): FeedItem[] {
   return [...items].sort((a, b) => {
-    if (a.priority !== b.priority) return b.priority - a.priority;
+    if (a.priority !== b.priority) {
+      return b.priority - a.priority;
+    }
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 }
@@ -52,9 +54,15 @@ export function groupByTime(items: FeedItem[]): Map<FeedTimeGroup, FeedItem[]> {
   }
 
   const result = new Map<FeedTimeGroup, FeedItem[]>();
-  if (groups.today.length > 0) result.set("today", groups.today);
-  if (groups.yesterday.length > 0) result.set("yesterday", groups.yesterday);
-  if (groups.older.length > 0) result.set("older", groups.older);
+  if (groups.today.length > 0) {
+    result.set("today", groups.today);
+  }
+  if (groups.yesterday.length > 0) {
+    result.set("yesterday", groups.yesterday);
+  }
+  if (groups.older.length > 0) {
+    result.set("older", groups.older);
+  }
 
   return result;
 }
@@ -66,7 +74,9 @@ export function filterByCategory(
   items: FeedItem[],
   category: FeedItemCategory | null,
 ): FeedItem[] {
-  if (category === null) return items;
+  if (category === null) {
+    return items;
+  }
   return items.filter((item) => (item.category ?? "system") === category);
 }
 
@@ -124,4 +134,3 @@ export function getPresentCategories(items: FeedItem[]): FeedItemCategory[] {
   }
   return [...categories];
 }
-

@@ -135,7 +135,9 @@ function getSaveBtn(): HTMLButtonElement {
   const btn = document.querySelector<HTMLButtonElement>(
     '[data-testid="modal-save-btn"]',
   );
-  if (!btn) throw new Error("expected a modal-save-btn");
+  if (!btn) {
+    throw new Error("expected a modal-save-btn");
+  }
   return btn;
 }
 
@@ -178,7 +180,9 @@ function providerTrigger(): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
     'button[role="combobox"][aria-labelledby="profile-editor-provider-label"]',
   );
-  if (!trigger) throw new Error("expected the Provider dropdown trigger");
+  if (!trigger) {
+    throw new Error("expected the Provider dropdown trigger");
+  }
   return trigger;
 }
 
@@ -194,7 +198,9 @@ function selectModel(label: string): void {
   // helper robust to the optional Connection dropdown appearing alongside it.
   const provTrigger = providerTrigger();
   for (const trigger of dropdownTriggers()) {
-    if (trigger === provTrigger) continue;
+    if (trigger === provTrigger) {
+      continue;
+    }
     fireEvent.click(trigger);
     const option = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -294,7 +300,9 @@ function findSwitchByLabel(label: string): HTMLButtonElement | null {
 /** The Top P toggle is a switch labelled (via aria-labelledby) "Top P". */
 function topPSwitch(): HTMLButtonElement {
   const sw = findSwitchByLabel("Top P");
-  if (!sw) throw new Error("expected a Top P switch");
+  if (!sw) {
+    throw new Error("expected a Top P switch");
+  }
   return sw;
 }
 
@@ -313,7 +321,9 @@ function findTopPSlider(): HTMLElement | null {
 
 function topPSlider(): HTMLElement {
   const slider = findTopPSlider();
-  if (!slider) throw new Error("expected a Top P slider (aria-valuemax=1)");
+  if (!slider) {
+    throw new Error("expected a Top P slider (aria-valuemax=1)");
+  }
   return slider;
 }
 

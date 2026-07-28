@@ -58,7 +58,9 @@ export function computeEffectiveSignificance(
 ): number {
   const elapsedMs = now - node.lastReinforced;
   const elapsedDays = elapsedMs / (1000 * 60 * 60 * 24);
-  if (elapsedDays <= 0) return node.significance;
+  if (elapsedDays <= 0) {
+    return node.significance;
+  }
   return node.significance * Math.exp(-elapsedDays / node.stability);
 }
 
@@ -86,8 +88,12 @@ export function computeActivationSpread(
     Array<{ neighbor: string; weight: number }>
   >();
   for (const edge of edges) {
-    if (!adjacency.has(edge.sourceNodeId)) adjacency.set(edge.sourceNodeId, []);
-    if (!adjacency.has(edge.targetNodeId)) adjacency.set(edge.targetNodeId, []);
+    if (!adjacency.has(edge.sourceNodeId)) {
+      adjacency.set(edge.sourceNodeId, []);
+    }
+    if (!adjacency.has(edge.targetNodeId)) {
+      adjacency.set(edge.targetNodeId, []);
+    }
     adjacency.get(edge.sourceNodeId)!.push({
       neighbor: edge.targetNodeId,
       weight: edge.weight,
@@ -108,10 +114,14 @@ export function computeActivationSpread(
     const nextFrontier: Array<{ id: string; weight: number }> = [];
     for (const { id, weight } of frontier) {
       const neighbors = adjacency.get(id);
-      if (!neighbors) continue;
+      if (!neighbors) {
+        continue;
+      }
 
       for (const { neighbor, weight: edgeWeight } of neighbors) {
-        if (startSet.has(neighbor)) continue; // Don't boost start nodes
+        if (startSet.has(neighbor)) {
+          continue;
+        } // Don't boost start nodes
 
         const spreadWeight = weight * edgeWeight * decayFactor;
         const current = activation.get(neighbor) ?? 0;
@@ -146,7 +156,9 @@ export function computeRecencyBoost(
   halfLifeDays: number = 7,
 ): number {
   const elapsedDays = (nowMs - node.created) / (1000 * 60 * 60 * 24);
-  if (elapsedDays <= 0) return 1.0;
+  if (elapsedDays <= 0) {
+    return 1.0;
+  }
   return Math.max(0, 1.0 - elapsedDays / (halfLifeDays * 2));
 }
 

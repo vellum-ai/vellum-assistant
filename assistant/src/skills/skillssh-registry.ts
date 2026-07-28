@@ -65,7 +65,9 @@ export function providerDisplayName(provider: string): string {
 
 export function formatAuditBadges(auditData: SkillAuditData): string {
   const providers = Object.keys(auditData);
-  if (providers.length === 0) return "Security: no audit data";
+  if (providers.length === 0) {
+    return "Security: no audit data";
+  }
 
   const badges = providers.map((provider) => {
     const audit = auditData[provider]!;
@@ -107,7 +109,9 @@ export async function fetchSkillAudits(
   source: string,
   skillSlugs: string[],
 ): Promise<AuditResponse> {
-  if (skillSlugs.length === 0) return {};
+  if (skillSlugs.length === 0) {
+    return {};
+  }
 
   const params = new URLSearchParams({
     source,
@@ -219,7 +223,9 @@ export async function findSkillDirInTree(
     headers,
     signal: AbortSignal.timeout(15_000),
   });
-  if (response.status === 404) return null;
+  if (response.status === 404) {
+    return null;
+  }
   if (!response.ok) {
     throw new Error(
       `GitHub API error while searching repo tree: HTTP ${response.status} ${response.statusText}`,
@@ -233,7 +239,9 @@ export async function findSkillDirInTree(
       entry.type === "blob" &&
       (entry.path === suffix || entry.path.endsWith(`/${suffix}`)),
   );
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
 
   // Return the directory containing SKILL.md (strip the trailing /SKILL.md)
   return match.path.slice(0, -"/SKILL.md".length);
@@ -299,7 +307,9 @@ export async function fetchSkillFromGitHub(
         continue;
       }
 
-      if (entry.type !== "file" || !entry.download_url) continue;
+      if (entry.type !== "file" || !entry.download_url) {
+        continue;
+      }
       const fileResponse = await fetch(entry.download_url, {
         headers,
         signal: AbortSignal.timeout(10_000),
@@ -369,7 +379,9 @@ export async function fetchSkillFromGitHub(
         Object.assign(result, subFiles);
         continue;
       }
-      if (entry.type !== "file" || !entry.download_url) continue;
+      if (entry.type !== "file" || !entry.download_url) {
+        continue;
+      }
       const fileResponse = await fetch(entry.download_url, {
         headers,
         signal: AbortSignal.timeout(10_000),

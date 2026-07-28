@@ -13,9 +13,15 @@ export function str(val: unknown): string | undefined {
 
 /** Narrow `unknown` → `number | undefined`. Rejects NaN, ±Infinity, booleans, and empty strings. */
 export function num(val: unknown): number | undefined {
-  if (val === undefined || val === null) return undefined;
-  if (typeof val === "boolean") return undefined;
-  if (typeof val === "string" && val.trim() === "") return undefined;
+  if (val === undefined || val === null) {
+    return undefined;
+  }
+  if (typeof val === "boolean") {
+    return undefined;
+  }
+  if (typeof val === "string" && val.trim() === "") {
+    return undefined;
+  }
   const n = Number(val);
   return Number.isFinite(n) ? n : undefined;
 }
@@ -37,7 +43,9 @@ export function strOrNum(val: unknown): string | number | undefined {
  * Returns `[]` if the input is not an array; skips non-object items.
  */
 export function filterRecords(val: unknown): Record<string, unknown>[] {
-  if (!Array.isArray(val)) return [];
+  if (!Array.isArray(val)) {
+    return [];
+  }
   return val.filter(
     (item): item is Record<string, unknown> =>
       item !== null && typeof item === "object" && !Array.isArray(item),

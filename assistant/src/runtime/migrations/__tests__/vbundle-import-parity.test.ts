@@ -83,7 +83,9 @@ function sha256Hex(data: Uint8Array): string {
  */
 function walkDiskTree(root: string): Map<string, string> {
   const out = new Map<string, string>();
-  if (!existsSync(root)) return out;
+  if (!existsSync(root)) {
+    return out;
+  }
 
   const stack: string[] = [root];
   while (stack.length > 0) {
@@ -184,7 +186,9 @@ describe("vbundle import parity (buffer vs streaming)", () => {
 
   test("A — full workspace + credentials: identical disk outcome", async () => {
     const dbBytes = new Uint8Array(16);
-    for (let i = 0; i < dbBytes.length; i++) dbBytes[i] = (i * 17) & 0xff;
+    for (let i = 0; i < dbBytes.length; i++) {
+      dbBytes[i] = (i * 17) & 0xff;
+    }
 
     const configJson = JSON.stringify({ version: 1 });
     const metadataJson = JSON.stringify({
@@ -203,7 +207,9 @@ describe("vbundle import parity (buffer vs streaming)", () => {
     });
 
     const openaiKey = new Uint8Array(16);
-    for (let i = 0; i < openaiKey.length; i++) openaiKey[i] = (i + 5) & 0xff;
+    for (let i = 0; i < openaiKey.length; i++) {
+      openaiKey[i] = (i + 5) & 0xff;
+    }
     const anthropicKey = new TextEncoder().encode("sk-ant-test");
 
     const { archive } = buildVBundle({

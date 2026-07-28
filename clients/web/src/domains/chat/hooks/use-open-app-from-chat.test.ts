@@ -1,11 +1,4 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
 // `mock.module` is safe for `use-is-mobile` because it's a pure
@@ -33,15 +26,11 @@ import { useOpenAppFromChat } from "./use-open-app-from-chat";
 
 let viewerSnapshot: ReturnType<typeof useViewerStore.getState>;
 let conversationSnapshot: ReturnType<typeof useConversationStore.getState>;
-let selectionSnapshot: ReturnType<
-  typeof useResolvedAssistantsStore.getState
->;
+let selectionSnapshot: ReturnType<typeof useResolvedAssistantsStore.getState>;
 
 const loadAppMock = mock(async (_assistantId: string, _appId: string) => {});
 const enterAppEditingMock = mock(() => undefined);
-const setEditingConversationIdMock = mock(
-  (_id: string | null) => undefined,
-);
+const setEditingConversationIdMock = mock((_id: string | null) => undefined);
 
 beforeEach(() => {
   viewerSnapshot = useViewerStore.getState();

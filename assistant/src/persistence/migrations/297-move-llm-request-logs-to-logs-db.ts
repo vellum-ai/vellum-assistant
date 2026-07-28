@@ -107,5 +107,7 @@ export async function migrateMoveLlmRequestLogsToLogsDb(
   const raw = getSqliteFrom(database);
   const needsDrain = stageTableForRelocation(raw, RELOCATION.table);
 
-  if (needsDrain) await drainStagedTable(raw, RELOCATION);
+  if (needsDrain) {
+    await drainStagedTable(raw, RELOCATION);
+  }
 }

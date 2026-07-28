@@ -42,9 +42,9 @@ afterEach(() => {
   cleanup();
 });
 
-function renderHeader(props: Partial<
-  React.ComponentProps<typeof ChatLayoutHeader>
-> = {}) {
+function renderHeader(
+  props: Partial<React.ComponentProps<typeof ChatLayoutHeader>> = {},
+) {
   return render(
     <ChatLayoutHeader
       isMobile
@@ -66,7 +66,9 @@ describe("ChatLayoutHeader — right cluster", () => {
       topBarRightSlot: <button type="button">Notifications</button>,
     });
     expect(screen.getByTestId("voice-pill")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Search (Ctrl+K)" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Search (Ctrl+K)" }),
+    ).toBeTruthy();
     expect(screen.getByText("Notifications")).toBeTruthy();
     expect(overflowTrigger()).toBeNull();
   });
@@ -98,7 +100,9 @@ describe("ChatLayoutHeader — right cluster", () => {
 
     fireEvent.click(overflowTrigger()!);
 
-    expect(screen.getByRole("button", { name: "Search (Ctrl+K)" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Search (Ctrl+K)" }),
+    ).toBeTruthy();
     expect(screen.getByText("Notifications")).toBeTruthy();
   });
 

@@ -187,104 +187,122 @@ const LIFECYCLE_CONFIG: OptimisticLifecycleConfig<
 // Store
 // ---------------------------------------------------------------------------
 
-const useBackgroundTaskStoreBase = create<BackgroundTaskStore>()((set, get) => ({
-  ...INITIAL_STATE,
+const useBackgroundTaskStoreBase = create<BackgroundTaskStore>()(
+  (set, get) => ({
+    ...INITIAL_STATE,
 
-  startTask: (event) => {
-    const { byId, orderedIds } = get();
-    if (byId[event.id]) return;
+    startTask: (event) => {
+      const { byId, orderedIds } = get();
+      if (byId[event.id]) {
+        return;
+      }
 
-    const entry: BackgroundTaskEntry = {
-      id: event.id,
-      toolName: event.toolName,
-      conversationId: event.conversationId,
-      command: event.command,
-      startedAt: event.startedAt,
-      status: "running",
-    };
+      const entry: BackgroundTaskEntry = {
+        id: event.id,
+        toolName: event.toolName,
+        conversationId: event.conversationId,
+        command: event.command,
+        startedAt: event.startedAt,
+        status: "running",
+      };
 
-    set({
-      byId: { ...byId, [event.id]: entry },
-      orderedIds: [...orderedIds, event.id],
-    });
-  },
+      set({
+        byId: { ...byId, [event.id]: entry },
+        orderedIds: [...orderedIds, event.id],
+      });
+    },
 
-  completeTask: (event) => {
-    const { byId } = get();
-    const existing = byId[event.id];
-    if (!existing) return;
+    completeTask: (event) => {
+      const { byId } = get();
+      const existing = byId[event.id];
+      if (!existing) {
+        return;
+      }
 
-    // Preserve an optimistic cancel: the daemon's cancellation reports a
-    // "failed" terminal, which must not regress the user-visible "cancelled".
-    const status =
-      existing.status === "cancelled" && event.status === "failed"
-        ? "cancelled"
-        : event.status;
+      // Preserve an optimistic cancel: the daemon's cancellation reports a
+      // "failed" terminal, which must not regress the user-visible "cancelled".
+      const status =
+        existing.status === "cancelled" && event.status === "failed"
+          ? "cancelled"
+          : event.status;
 
-    set({
-      byId: {
-        ...byId,
-        [event.id]: {
-          ...existing,
-          status,
-          exitCode: event.exitCode,
-          output: event.output,
-          completedAt: event.completedAt,
+      set({
+        byId: {
+          ...byId,
+          [event.id]: {
+            ...existing,
+            status,
+            exitCode: event.exitCode,
+            output: event.output,
+            completedAt: event.completedAt,
+          },
         },
-      },
-    });
-  },
+      });
+    },
 
-  cancelTask: (id) => {
-    const { byId } = get();
-    const next = optimisticCancel(byId[id], LIFECYCLE_CONFIG);
-    if (!next) return;
+    cancelTask: (id) => {
+      const { byId } = get();
+      const next = optimisticCancel(byId[id], LIFECYCLE_CONFIG);
+      if (!next) {
+        return;
+      }
 
-    set({ byId: { ...byId, [id]: next } });
-  },
+      set({ byId: { ...byId, [id]: next } });
+    },
 
-  restoreTaskStatus: (id, prev) => {
-    const { byId } = get();
-    const next = optimisticRestore(byId[id], prev, LIFECYCLE_CONFIG);
-    if (!next) return;
+    restoreTaskStatus: (id, prev) => {
+      const { byId } = get();
+      const next = optimisticRestore(byId[id], prev, LIFECYCLE_CONFIG);
+      if (!next) {
+        return;
+      }
 
-    set({ byId: { ...byId, [id]: next } });
-  },
+      set({ byId: { ...byId, [id]: next } });
+    },
 
-  retireMissing: (activeIds, knownIds) => {
-    const { byId } = get();
-    const active = new Set(activeIds);
-    const known = new Set(knownIds);
-    let changed = false;
-    const next = { ...byId };
-    for (const entry of Object.values(byId)) {
-      // Retire only tasks known before the snapshot and absent from it; a task
-      // started while the fetch was in flight is in `byId` but not `known`, so
-      // it is left running. The status guard (already-terminal) lives in
-      // `optimisticRetire`.
-      if (!known.has(entry.id) || active.has(entry.id)) continue;
-      const retired = optimisticRetire(entry, LIFECYCLE_CONFIG);
-      if (!retired) continue;
-      next[entry.id] = retired;
-      changed = true;
-    }
-    if (changed) set({ byId: next });
-  },
+    retireMissing: (activeIds, knownIds) => {
+      const { byId } = get();
+      const active = new Set(activeIds);
+      const known = new Set(knownIds);
+      let changed = false;
+      const next = { ...byId };
+      for (const entry of Object.values(byId)) {
+        // Retire only tasks known before the snapshot and absent from it; a task
+        // started while the fetch was in flight is in `byId` but not `known`, so
+        // it is left running. The status guard (already-terminal) lives in
+        // `optimisticRetire`.
+        if (!known.has(entry.id) || active.has(entry.id)) {
+          continue;
+        }
+        const retired = optimisticRetire(entry, LIFECYCLE_CONFIG);
+        if (!retired) {
+          continue;
+        }
+        next[entry.id] = retired;
+        changed = true;
+      }
+      if (changed) {
+        set({ byId: next });
+      }
+    },
 
-  seedFromHistory: (entries) => {
-    const { byId, orderedIds } = get();
-    set(
-      seedEntriesFromHistory({
-        entries,
-        byId,
-        orderedIds,
-        idOf: (entry) => entry.id,
-        merge: mergeHistoryEntry,
-      }),
-    );
-  },
+    seedFromHistory: (entries) => {
+      const { byId, orderedIds } = get();
+      set(
+        seedEntriesFromHistory({
+          entries,
+          byId,
+          orderedIds,
+          idOf: (entry) => entry.id,
+          merge: mergeHistoryEntry,
+        }),
+      );
+    },
 
-  reset: () => set({ byId: {}, orderedIds: [] }),
-}));
+    reset: () => set({ byId: {}, orderedIds: [] }),
+  }),
+);
 
-export const useBackgroundTaskStore = createSelectors(useBackgroundTaskStoreBase);
+export const useBackgroundTaskStore = createSelectors(
+  useBackgroundTaskStoreBase,
+);

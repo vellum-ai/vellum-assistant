@@ -78,10 +78,14 @@ export interface TallyResult {
  */
 export function binomialTwoSidedSignP(a: number, b: number): number {
   const n = a + b;
-  if (n === 0) return 1;
+  if (n === 0) {
+    return 1;
+  }
   const logFact: number[] = new Array(n + 1);
   logFact[0] = 0;
-  for (let i = 1; i <= n; i++) logFact[i] = logFact[i - 1]! + Math.log(i);
+  for (let i = 1; i <= n; i++) {
+    logFact[i] = logFact[i - 1]! + Math.log(i);
+  }
   const logChoose = (k: number): number =>
     logFact[n]! - logFact[k]! - logFact[n - k]!;
   const hi = Math.max(a, b);
@@ -105,7 +109,9 @@ function winnerSide(
   if (w !== "A" && w !== "B" && w !== "tie") {
     w = v.scoreA > v.scoreB ? "A" : v.scoreB > v.scoreA ? "B" : "tie";
   }
-  if (w === "tie") return "tie";
+  if (w === "tie") {
+    return "tie";
+  }
   return w === "A" ? key.a : key.b;
 }
 
@@ -160,9 +166,13 @@ export function tallyVerdicts(
     panelSizes.push(g.sides.length);
     const nSnap = g.sides.filter((s) => s === "snapshot").length;
     const nStage = g.sides.filter((s) => s === "staging").length;
-    if (nStage > nSnap) stagingWins++;
-    else if (nSnap > nStage) snapshotWins++;
-    else ties++; // tie vote, or equal snapshot/staging votes
+    if (nStage > nSnap) {
+      stagingWins++;
+    } else if (nSnap > nStage) {
+      snapshotWins++;
+    } else {
+      ties++;
+    } // tie vote, or equal snapshot/staging votes
     sumSnap += mean(g.snap);
     sumStage += mean(g.stage);
   }
@@ -172,10 +182,13 @@ export function tallyVerdicts(
   const signTestP = binomialTwoSidedSignP(snapshotWins, stagingWins);
 
   let verdict: TallyResult["verdict"];
-  if (stagingWins > snapshotWins && signTestP < alpha) verdict = "wiki-wins";
-  else if (snapshotWins > stagingWins && signTestP < alpha)
+  if (stagingWins > snapshotWins && signTestP < alpha) {
+    verdict = "wiki-wins";
+  } else if (snapshotWins > stagingWins && signTestP < alpha) {
     verdict = "wiki-loses";
-  else verdict = "tie";
+  } else {
+    verdict = "tie";
+  }
   const gate: "pass" | "fail" = verdict === "wiki-loses" ? "fail" : "pass";
 
   const panel = {

@@ -1,4 +1,3 @@
-
 import { KeyRound } from "lucide-react";
 
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";

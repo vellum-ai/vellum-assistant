@@ -111,7 +111,9 @@ function lastPersistedSlackMeta(): SlackMessageMetadata | null {
   const metadata = addMessageCalls.at(-1)?.metadata;
   expect(metadata).toBeDefined();
   const raw = metadata?.slackMeta;
-  if (raw === undefined) return null;
+  if (raw === undefined) {
+    return null;
+  }
   expect(typeof raw).toBe("string");
   return readSlackMetadata(raw as string);
 }

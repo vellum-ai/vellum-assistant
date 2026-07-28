@@ -13,7 +13,10 @@ import { isLocalMode } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { primeElectronSessionToken } from "@/runtime/session-token";
-import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric";
+import {
+  isBiometricEnabled,
+  storeBiometricToken,
+} from "@/runtime/native-biometric";
 import { routes } from "@/utils/routes";
 
 /**
@@ -205,7 +208,8 @@ export function installSessionCookies(sessionToken: string): void {
   // `max-age` makes the cookie persistent. If unspecified, the cookie
   // expires at the end of the session, and users will be required to
   // login again.
-  const cookieAttrs = "path=/; domain=.vellum.ai; secure; samesite=lax; max-age=1209600";
+  const cookieAttrs =
+    "path=/; domain=.vellum.ai; secure; samesite=lax; max-age=1209600";
   document.cookie = `sessionid=${sessionToken}; ${cookieAttrs}`;
   document.cookie = `__Secure-sessionid=${sessionToken}; ${cookieAttrs}`;
 }
@@ -215,13 +219,17 @@ export function installSessionCookies(sessionToken: string): void {
  * Checks `__Secure-sessionid` (prod) then `sessionid` (dev).
  */
 export function getSessionTokenFromCookies(): string | null {
-  if (typeof document === "undefined") return null;
+  if (typeof document === "undefined") {
+    return null;
+  }
   const cookies = document.cookie.split("; ");
   for (const name of ["__Secure-sessionid", "sessionid"]) {
     const entry = cookies.find((c) => c.startsWith(`${name}=`));
     if (entry) {
       const value = entry.slice(name.length + 1);
-      if (value) return value;
+      if (value) {
+        return value;
+      }
     }
   }
   return null;
@@ -314,7 +322,9 @@ export async function startAuthFlow(
       // the second arg (as an own property, not in `message`). Match the
       // code exactly rather than substring-matching the message.
       const errorCode = (err as { code?: unknown } | null | undefined)?.code;
-      if (errorCode === "USER_CANCELLED") return;
+      if (errorCode === "USER_CANCELLED") {
+        return;
+      }
       throw err;
     }
     return;

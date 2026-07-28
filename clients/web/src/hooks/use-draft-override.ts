@@ -12,7 +12,9 @@ import { useCallback, useEffect, useState } from "react";
  * Pass `undefined` to clear the draft (revert to server value).
  * Any `T` value — including `null` — is stored as a valid draft.
  */
-export function useDraftOverride<T>(serverValue: T): [T, (draft: T | undefined) => void] {
+export function useDraftOverride<T>(
+  serverValue: T,
+): [T, (draft: T | undefined) => void] {
   const [draft, setDraft] = useState<{ value: T } | undefined>(undefined);
 
   useEffect(() => {

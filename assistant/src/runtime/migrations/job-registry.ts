@@ -70,12 +70,16 @@ export class JobAlreadyInProgressError extends Error {
 const kFetchBodyError = Symbol.for("vellum.migrationImport.fetchBodyError");
 
 function isFetchBodyError(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
+  if (!err || typeof err !== "object") {
+    return false;
+  }
   return (err as unknown as Record<symbol, boolean>)[kFetchBodyError] === true;
 }
 
 function extractUpstreamStatus(err: unknown): number | undefined {
-  if (!err || typeof err !== "object") return undefined;
+  if (!err || typeof err !== "object") {
+    return undefined;
+  }
   const status = (err as { upstreamStatus?: unknown }).upstreamStatus;
   return typeof status === "number" ? status : undefined;
 }
@@ -147,10 +151,18 @@ function cloneJob(job: MigrationJob): MigrationJob {
     status: job.status,
     createdAt: job.createdAt,
   };
-  if (job.startedAt !== undefined) snapshot.startedAt = job.startedAt;
-  if (job.completedAt !== undefined) snapshot.completedAt = job.completedAt;
-  if (job.error !== undefined) snapshot.error = { ...job.error };
-  if (job.result !== undefined) snapshot.result = job.result;
+  if (job.startedAt !== undefined) {
+    snapshot.startedAt = job.startedAt;
+  }
+  if (job.completedAt !== undefined) {
+    snapshot.completedAt = job.completedAt;
+  }
+  if (job.error !== undefined) {
+    snapshot.error = { ...job.error };
+  }
+  if (job.result !== undefined) {
+    snapshot.result = job.result;
+  }
   return snapshot;
 }
 
@@ -245,9 +257,13 @@ export class MigrationJobRegistry {
   public sweep(): void {
     const now = Date.now();
     for (const [id, job] of this.jobs) {
-      if (job.status !== "complete" && job.status !== "failed") continue;
+      if (job.status !== "complete" && job.status !== "failed") {
+        continue;
+      }
       const completedAt = job.completedAt;
-      if (completedAt === undefined) continue;
+      if (completedAt === undefined) {
+        continue;
+      }
       if (now - completedAt >= this.completedJobTtlMs) {
         this.jobs.delete(id);
       }

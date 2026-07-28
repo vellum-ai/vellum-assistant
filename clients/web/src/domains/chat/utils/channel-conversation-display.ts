@@ -24,12 +24,18 @@ function cleanLabel(value: string | null | undefined): string | undefined {
 export function getChannelBindingDisplayText(
   binding: ConversationChannelBinding | null | undefined,
 ): string | undefined {
-  if (!binding) return undefined;
+  if (!binding) {
+    return undefined;
+  }
   const name =
     cleanLabel(binding.externalChatName) ??
     cleanLabel(binding.displayName) ??
     cleanLabel(binding.username);
-  if (!name) return undefined;
-  if (name === binding.externalChatId) return undefined;
+  if (!name) {
+    return undefined;
+  }
+  if (name === binding.externalChatId) {
+    return undefined;
+  }
   return name;
 }

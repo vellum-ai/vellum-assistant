@@ -35,7 +35,9 @@ export async function graphExtractJob(
   config: AssistantConfig,
 ): Promise<void> {
   const conversationId = asString(job.payload.conversationId);
-  if (!conversationId) return;
+  if (!conversationId) {
+    return;
+  }
 
   // Read checkpoint for incremental extraction
   const checkpointKey = `graph_extract:${conversationId}:last_ts`;

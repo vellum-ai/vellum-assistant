@@ -30,8 +30,12 @@ export function registerDisconnectCommand(oauth: Command): void {
 
       try {
         const body: Record<string, unknown> = { provider };
-        if (opts.account) body.account = opts.account;
-        if (opts.connectionId) body.connection_id = opts.connectionId;
+        if (opts.account) {
+          body.account = opts.account;
+        }
+        if (opts.connectionId) {
+          body.connection_id = opts.connectionId;
+        }
 
         const r = await cliIpcCall<{
           ok: boolean;
@@ -40,7 +44,9 @@ export function registerDisconnectCommand(oauth: Command): void {
           account?: string;
         }>("oauth_disconnect", { body });
 
-        if (!r.ok) return exitFromIpcResult(r);
+        if (!r.ok) {
+          return exitFromIpcResult(r);
+        }
 
         const result = r.result!;
         writeOutput(cmd, result);

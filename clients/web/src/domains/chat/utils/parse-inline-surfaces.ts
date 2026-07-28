@@ -1,8 +1,7 @@
 import type { Surface } from "@/domains/chat/types/types";
 
 export type InlineSegment =
-  | { type: "text"; content: string }
-  | { type: "surface"; surface: Surface };
+  { type: "text"; content: string } | { type: "surface"; surface: Surface };
 
 const UI_SHOW_RE = /<ui_show\s*([^>]*)>([\s\S]*?)<\/ui_show>/g;
 const ATTR_RE = /(\w+)="([^"]*)"/g;
@@ -23,7 +22,10 @@ export function parseInlineSurfaces(text: string): InlineSegment[] | null {
 
   while ((match = UI_SHOW_RE.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      segments.push({ type: "text", content: text.slice(lastIndex, match.index) });
+      segments.push({
+        type: "text",
+        content: text.slice(lastIndex, match.index),
+      });
     }
 
     const attrString = match[1];

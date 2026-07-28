@@ -53,7 +53,9 @@ function resolveModelDisplayName(
 ): string {
   if (provider) {
     const match = getModelsForProvider(provider).find((m) => m.id === modelId);
-    if (match) return match.displayName;
+    if (match) {
+      return match.displayName;
+    }
   }
   // Fallback: strip common path prefixes for readability
   const lastSlash = modelId.lastIndexOf("/");

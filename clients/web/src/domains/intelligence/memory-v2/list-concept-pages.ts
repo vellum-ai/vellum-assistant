@@ -45,22 +45,14 @@ export function listConceptPagesOptions(assistantId: string) {
         }
         throw new ApiError(
           response.status,
-          extractErrorMessage(
-            error,
-            response,
-            "Failed to load concept pages.",
-          ),
+          extractErrorMessage(error, response, "Failed to load concept pages."),
         );
       }
 
       if (!response.ok) {
         throw new ApiError(
           response.status,
-          extractErrorMessage(
-            error,
-            response,
-            "Failed to load concept pages.",
-          ),
+          extractErrorMessage(error, response, "Failed to load concept pages."),
         );
       }
 

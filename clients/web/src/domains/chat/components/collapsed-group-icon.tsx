@@ -2,6 +2,7 @@ import { useCallback, useState, type ReactNode } from "react";
 
 import type { LucideIcon } from "lucide-react";
 
+import { IconTile } from "@/domains/chat/components/icon-tile";
 import type { Conversation } from "@/types/conversation-types";
 import { Popover, Tooltip } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
@@ -145,22 +146,15 @@ export function CollapsedGroupIcon({
 
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
-      <Tooltip content={label} side="right">
-        <Popover.Trigger asChild>
-          <button
-            type="button"
-            aria-label={label}
-            aria-haspopup="dialog"
-            className="relative flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-[6px] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-default)]"
-          >
-            <Icon size={14} />
-            <GroupIndicatorDot
-              state={indicatorState}
-              className="absolute right-0 top-0 border-2 border-[var(--surface-overlay)]"
-            />
-          </button>
-        </Popover.Trigger>
-      </Tooltip>
+      <Popover.Trigger asChild>
+        <IconTile label={label} side="right" aria-haspopup="dialog">
+          <Icon size={14} />
+          <GroupIndicatorDot
+            state={indicatorState}
+            className="absolute right-0 top-0 border-2 border-[var(--surface-overlay)]"
+          />
+        </IconTile>
+      </Popover.Trigger>
       <Popover.Content
         side="right"
         align="start"

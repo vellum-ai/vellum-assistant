@@ -21,7 +21,9 @@ interface VellumConfig {
 function getLocalConfig(): { webUrl: string } {
   const injected = (window as unknown as { __VELLUM_CONFIG__?: VellumConfig })
     .__VELLUM_CONFIG__;
-  if (injected?.webUrl) return { webUrl: injected.webUrl };
+  if (injected?.webUrl) {
+    return { webUrl: injected.webUrl };
+  }
   return { webUrl: FALLBACK_WEB_URL };
 }
 

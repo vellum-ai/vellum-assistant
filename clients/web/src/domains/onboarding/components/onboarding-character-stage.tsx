@@ -91,7 +91,11 @@ function centerSize(w: number, h: number): number {
  * the edge avatar's radius from the screen edge, so most of the avatar is cut
  * off — only the inner (eye-bearing) part shows.
  */
-export function edgeSlots(w: number, h: number, edgeRadius: number): { x: number; y: number }[] {
+export function edgeSlots(
+  w: number,
+  h: number,
+  edgeRadius: number,
+): { x: number; y: number }[] {
   const side = edgeRadius * 0.4; // ~60% of the avatar clipped off-screen
   const corner = edgeRadius * 0.48;
   // Order matches HARDCODED_POOL indices 1–11 (see onboarding-avatar-pool-store).
@@ -169,7 +173,8 @@ export function OnboardingCharacterStage({
   // bottom re-crowds). Those characters stay reachable via the arrows.
   const isMobile = w < 640;
   const MOBILE_HIDDEN_SLOTS = new Set([4, 7, 8, 9, 10]);
-  const slotHidden = (slot: number) => isMobile && MOBILE_HIDDEN_SLOTS.has(slot);
+  const slotHidden = (slot: number) =>
+    isMobile && MOBILE_HIDDEN_SLOTS.has(slot);
 
   // Every avatar renders in the large edge box; the center one is scaled down.
   const size = edgeSize(w, h);
@@ -228,20 +233,51 @@ export function OnboardingCharacterStage({
               style={{ width: size, height: size, zIndex: CENTER_Z }}
               initial={false}
               animate={{
-                x: [from.x - half, off.x - half, off.x - half, centerTx, centerTx, centerTx],
-                y: [from.y - half, off.y - half, off.y - half, centerTy, centerTy, centerTy],
-                scale: [fromScale, fromScale, fromScale, centerScaleVal * 0.7, centerScaleVal * 1.08, centerScaleVal],
+                x: [
+                  from.x - half,
+                  off.x - half,
+                  off.x - half,
+                  centerTx,
+                  centerTx,
+                  centerTx,
+                ],
+                y: [
+                  from.y - half,
+                  off.y - half,
+                  off.y - half,
+                  centerTy,
+                  centerTy,
+                  centerTy,
+                ],
+                scale: [
+                  fromScale,
+                  fromScale,
+                  fromScale,
+                  centerScaleVal * 0.7,
+                  centerScaleVal * 1.08,
+                  centerScaleVal,
+                ],
                 opacity: [fromOpacity, fromOpacity, 0, 0, 1, 1],
               }}
               transition={{
                 duration: 0.85,
                 times: [0, 0.28, 0.34, 0.42, 0.72, 1],
-                ease: ["easeIn", "linear", "linear", "easeOut", "easeOut"] as Easing[],
+                ease: [
+                  "easeIn",
+                  "linear",
+                  "linear",
+                  "easeOut",
+                  "easeOut",
+                ] as Easing[],
               }}
               onAnimationComplete={() => onEnterComplete(i)}
             >
               {/* Ends upright in the center. */}
-              <AnimatedAvatar components={components} traits={traits} size={size} />
+              <AnimatedAvatar
+                components={components}
+                traits={traits}
+                size={size}
+              />
             </motion.div>
           );
         }
@@ -251,7 +287,9 @@ export function OnboardingCharacterStage({
         // then flies in from the edge and bounces into its slot. If that slot is
         // hidden on mobile, skip it so it doesn't land in a dropped side slot.
         if (isExiting) {
-          if (slotHidden(exiting.toSlot)) return null;
+          if (slotHidden(exiting.toSlot)) {
+            return null;
+          }
           const to = slots[exiting.toSlot]!;
           const off = offscreenPoint(to, centerX, centerY, w, h);
           // Settle into the destination slot's depth (dim/shrunk if it's a
@@ -262,22 +300,57 @@ export function OnboardingCharacterStage({
             <motion.div
               key={i}
               className="absolute left-0 top-0"
-              style={{ width: size, height: size, zIndex: slotDepthZ(exiting.toSlot) }}
+              style={{
+                width: size,
+                height: size,
+                zIndex: slotDepthZ(exiting.toSlot),
+              }}
               initial={false}
               animate={{
-                x: [centerTx, centerTx, off.x - half, off.x - half, to.x - half, to.x - half],
-                y: [centerTy, centerTy, off.y - half, off.y - half, to.y - half, to.y - half],
-                scale: [centerScaleVal, centerScaleVal * 0.6, toScale, toScale, toScale * 1.1, toScale],
+                x: [
+                  centerTx,
+                  centerTx,
+                  off.x - half,
+                  off.x - half,
+                  to.x - half,
+                  to.x - half,
+                ],
+                y: [
+                  centerTy,
+                  centerTy,
+                  off.y - half,
+                  off.y - half,
+                  to.y - half,
+                  to.y - half,
+                ],
+                scale: [
+                  centerScaleVal,
+                  centerScaleVal * 0.6,
+                  toScale,
+                  toScale,
+                  toScale * 1.1,
+                  toScale,
+                ],
                 opacity: [1, 0, 0, toOpacity, toOpacity, toOpacity],
               }}
               transition={{
                 duration: 0.85,
                 times: [0, 0.28, 0.34, 0.45, 0.78, 1],
-                ease: ["easeIn", "linear", "linear", "easeOut", "easeOut"] as Easing[],
+                ease: [
+                  "easeIn",
+                  "linear",
+                  "linear",
+                  "easeOut",
+                  "easeOut",
+                ] as Easing[],
               }}
             >
               {/* Lands tilted in its destination slot. */}
-              <div style={{ transform: `rotate(${slotRotation(exiting.toSlot)}deg)` }}>
+              <div
+                style={{
+                  transform: `rotate(${slotRotation(exiting.toSlot)}deg)`,
+                }}
+              >
                 <AnimatedAvatar
                   components={components}
                   traits={traits}
@@ -291,10 +364,10 @@ export function OnboardingCharacterStage({
 
         const charSlot = slotOfChar.get(i) ?? 0;
         // Drop the side-slot characters on mobile (they're not the center).
-        if (!isCenter && slotHidden(charSlot)) return null;
-        const point = isCenter
-          ? { x: centerX, y: centerY }
-          : slots[charSlot]!;
+        if (!isCenter && slotHidden(charSlot)) {
+          return null;
+        }
+        const point = isCenter ? { x: centerX, y: centerY } : slots[charSlot]!;
         return (
           <motion.div
             key={i}

@@ -41,7 +41,9 @@ function makeContext(
 describe("persistUserMessage setProcessing failure", () => {
   test("clears request-id and abort bookkeeping when setProcessing(true) throws", async () => {
     const ctx = makeContext((value) => {
-      if (value) throw new Error("database is locked (SQLITE_BUSY)");
+      if (value) {
+        throw new Error("database is locked (SQLITE_BUSY)");
+      }
     });
 
     await expect(

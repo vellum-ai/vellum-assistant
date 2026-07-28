@@ -25,7 +25,9 @@ export function migrateDropContactChannelTelemetry(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
 
   for (const column of TELEMETRY_COLUMNS) {
-    if (!tableHasColumn(database, "contact_channels", column)) continue;
+    if (!tableHasColumn(database, "contact_channels", column)) {
+      continue;
+    }
     raw.run(/*sql*/ `ALTER TABLE contact_channels DROP COLUMN ${column}`);
     log.info(`Dropped ${column} column from contact_channels`);
   }

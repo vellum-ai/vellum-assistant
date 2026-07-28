@@ -29,9 +29,8 @@ describe("diagnostics ring separation", () => {
 
     // THEN each event lands only in its own ring
     const mainAdded = getDiagnosticsEvents().slice(mainBefore);
-    const lifecycleAdded = getLifecycleDiagnosticsEvents().slice(
-      lifecycleBefore,
-    );
+    const lifecycleAdded =
+      getLifecycleDiagnosticsEvents().slice(lifecycleBefore);
     expect(mainAdded.map((e) => e.kind)).toContain("ring_test_main");
     expect(mainAdded.map((e) => e.kind)).not.toContain("ring_test_lifecycle");
     expect(lifecycleAdded.map((e) => e.kind)).toContain("ring_test_lifecycle");

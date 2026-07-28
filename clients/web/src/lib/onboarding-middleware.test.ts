@@ -67,5 +67,4 @@ describe("onboardingCompletedMiddleware", () => {
     expect(result).toBe("ok");
     expect(next).toHaveBeenCalled();
   });
-
 });

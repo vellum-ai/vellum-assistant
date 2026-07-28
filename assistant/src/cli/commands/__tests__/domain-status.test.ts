@@ -16,9 +16,7 @@ import { Command } from "commander";
 // Mock state
 // ---------------------------------------------------------------------------
 
-let mockIpcCallFn = mock(() =>
-  Promise.resolve({ ok: true, result: {} }),
-);
+let mockIpcCallFn = mock(() => Promise.resolve({ ok: true, result: {} }));
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before importing the module under test
@@ -142,7 +140,12 @@ describe("assistant domain status", () => {
   test("--json outputs structured response", async () => {
     mockDomainStatusWithVerification();
 
-    const output = await runDomainCommand("domain", "--json", "status", "becky");
+    const output = await runDomainCommand(
+      "domain",
+      "--json",
+      "status",
+      "becky",
+    );
 
     const parsed = JSON.parse(output.trim());
     expect(parsed.domain.domain).toBe("becky.vellum.me");
@@ -171,7 +174,12 @@ describe("assistant domain status", () => {
       }),
     ) as unknown as typeof mockIpcCallFn;
 
-    const output = await runDomainCommand("domain", "--json", "status", "becky");
+    const output = await runDomainCommand(
+      "domain",
+      "--json",
+      "status",
+      "becky",
+    );
 
     expect(process.exitCode).not.toBe(0);
     const parsed = JSON.parse(output.trim());

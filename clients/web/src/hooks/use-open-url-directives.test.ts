@@ -29,14 +29,16 @@ const toastWarningMock = mock(
   (_message: string, _options?: Record<string, unknown>) => "toast-1",
 );
 mock.module("@vellumai/design-library/components/toast", () => ({
-  toast: Object.assign(mock(() => "toast-0"), {
-    warning: toastWarningMock,
-  }),
+  toast: Object.assign(
+    mock(() => "toast-0"),
+    {
+      warning: toastWarningMock,
+    },
+  ),
 }));
 
-const { handleOpenUrlDirectiveEnvelope } = await import(
-  "@/hooks/use-open-url-directives"
-);
+const { handleOpenUrlDirectiveEnvelope } =
+  await import("@/hooks/use-open-url-directives");
 
 const originalWindow = globalThis.window;
 
@@ -45,7 +47,9 @@ function setMockWindow({
   open,
 }: {
   origin?: string;
-  open?: ((url?: string, target?: string, features?: string) => Window | null) | null;
+  open?:
+    | ((url?: string, target?: string, features?: string) => Window | null)
+    | null;
 } = {}): void {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
@@ -96,7 +100,11 @@ describe("handleOpenUrlDirectiveEnvelope", () => {
       deps(),
     );
 
-    expect(open).toHaveBeenCalledWith(oauthUrl, "_blank", "width=500,height=600");
+    expect(open).toHaveBeenCalledWith(
+      oauthUrl,
+      "_blank",
+      "width=500,height=600",
+    );
     expect(toastWarningMock).not.toHaveBeenCalled();
   });
 

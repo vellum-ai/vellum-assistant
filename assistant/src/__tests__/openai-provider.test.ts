@@ -96,7 +96,9 @@ mock.module("openai", () => ({
         ) => {
           lastCreateParams = params;
           lastCreateOptions = options ?? null;
-          if (shouldThrow) throw shouldThrow;
+          if (shouldThrow) {
+            throw shouldThrow;
+          }
 
           return {
             [Symbol.asyncIterator]: async function* () {

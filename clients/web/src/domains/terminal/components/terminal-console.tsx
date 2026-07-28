@@ -1,4 +1,9 @@
-import { type MutableRefObject, useEffect, useLayoutEffect, useRef } from "react";
+import {
+  type MutableRefObject,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import type { Terminal as TerminalType, IDisposable } from "xterm";
 import "xterm/css/xterm.css";
 
@@ -35,7 +40,9 @@ export function TerminalConsole({
 
   useEffect(() => {
     const terminal = terminalRef.current;
-    if (!terminal) return;
+    if (!terminal) {
+      return;
+    }
 
     terminal.options.disableStdin = readOnly;
     if (!readOnly) {
@@ -44,7 +51,9 @@ export function TerminalConsole({
   }, [readOnly]);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current) {
+      return;
+    }
 
     const el = containerRef.current;
     let disposed = false;
@@ -56,7 +65,9 @@ export function TerminalConsole({
 
     Promise.all([import("xterm"), import("xterm-addon-fit")]).then(
       ([{ Terminal }, { FitAddon }]) => {
-        if (disposed || !el) return;
+        if (disposed || !el) {
+          return;
+        }
 
         const term = new Terminal({
           cursorBlink: true,

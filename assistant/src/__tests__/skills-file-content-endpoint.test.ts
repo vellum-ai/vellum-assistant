@@ -113,37 +113,63 @@ mock.module("../skills/catalog-cache.js", () => ({
 const INLINE_SKIP_DIRS = new Set(["node_modules", "__pycache__", ".git"]);
 
 function inlineSanitizeRelativePath(rawPath: string): string | null {
-  if (typeof rawPath !== "string" || rawPath.length === 0) return null;
-  if (rawPath.includes("\0")) return null;
-  if (rawPath.startsWith("/")) return null;
-  if (/^[a-zA-Z]:[/\\]/.test(rawPath)) return null;
+  if (typeof rawPath !== "string" || rawPath.length === 0) {
+    return null;
+  }
+  if (rawPath.includes("\0")) {
+    return null;
+  }
+  if (rawPath.startsWith("/")) {
+    return null;
+  }
+  if (/^[a-zA-Z]:[/\\]/.test(rawPath)) {
+    return null;
+  }
   let candidate = rawPath.replace(/\\/g, "/");
   while (candidate.startsWith("./")) {
     candidate = candidate.slice(2);
   }
-  if (candidate.length === 0) return null;
+  if (candidate.length === 0) {
+    return null;
+  }
   const segments: string[] = [];
   for (const seg of candidate.split("/")) {
-    if (seg === "" || seg === ".") continue;
+    if (seg === "" || seg === ".") {
+      continue;
+    }
     if (seg === "..") {
-      if (segments.length === 0) return null;
+      if (segments.length === 0) {
+        return null;
+      }
       segments.pop();
       continue;
     }
     segments.push(seg);
   }
-  if (segments.length === 0) return null;
+  if (segments.length === 0) {
+    return null;
+  }
   const normalized = segments.join("/");
-  if (normalized.startsWith("/")) return null;
-  if (/^[a-zA-Z]:[/\\]/.test(normalized)) return null;
+  if (normalized.startsWith("/")) {
+    return null;
+  }
+  if (/^[a-zA-Z]:[/\\]/.test(normalized)) {
+    return null;
+  }
   return normalized;
 }
 
 function inlineHasHiddenOrSkippedSegment(sanitized: string): boolean {
   for (const segment of sanitized.split("/")) {
-    if (segment.length === 0) continue;
-    if (segment.startsWith(".")) return true;
-    if (INLINE_SKIP_DIRS.has(segment)) return true;
+    if (segment.length === 0) {
+      continue;
+    }
+    if (segment.startsWith(".")) {
+      return true;
+    }
+    if (INLINE_SKIP_DIRS.has(segment)) {
+      return true;
+    }
   }
   return false;
 }
@@ -356,7 +382,9 @@ describe("getSkillFileContent — installed skill", () => {
 
     const result = await getSkillFileContent("my-skill", "SKILL.md");
     expect("error" in result).toBe(false);
-    if ("error" in result) return;
+    if ("error" in result) {
+      return;
+    }
     expect(result.path).toBe("SKILL.md");
     expect(result.name).toBe("SKILL.md");
     expect(result.size).toBe("# hello world\n".length);
@@ -376,7 +404,9 @@ describe("getSkillFileContent — installed skill", () => {
 
     const result = await getSkillFileContent("my-skill", "img.png");
     expect("error" in result).toBe(false);
-    if ("error" in result) return;
+    if ("error" in result) {
+      return;
+    }
     expect(result.isBinary).toBe(true);
     expect(result.content).toBeNull();
     expect(result.name).toBe("img.png");
@@ -391,7 +421,9 @@ describe("getSkillFileContent — installed skill", () => {
     for (const bad of ["../secrets", "..", "/etc/passwd", "./../escape"]) {
       const result = await getSkillFileContent("my-skill", bad);
       expect("error" in result).toBe(true);
-      if (!("error" in result)) continue;
+      if (!("error" in result)) {
+        continue;
+      }
       expect(result.status).toBe(400);
       expect(result.error).toBe("Invalid path");
     }
@@ -405,7 +437,9 @@ describe("getSkillFileContent — installed skill", () => {
 
     const result = await getSkillFileContent("my-skill", "SKILL.md\0.png");
     expect("error" in result).toBe(true);
-    if (!("error" in result)) return;
+    if (!("error" in result)) {
+      return;
+    }
     expect(result.status).toBe(400);
   });
 
@@ -417,7 +451,9 @@ describe("getSkillFileContent — installed skill", () => {
 
     const result = await getSkillFileContent("my-skill", "ghost.txt");
     expect("error" in result).toBe(true);
-    if (!("error" in result)) return;
+    if (!("error" in result)) {
+      return;
+    }
     expect(result.status).toBe(404);
     expect(result.error).toBe("File not found");
   });
@@ -448,7 +484,9 @@ describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
 
     const result = await getSkillFileContent("remote-skill", "SKILL.md");
     expect("error" in result).toBe(false);
-    if ("error" in result) return;
+    if ("error" in result) {
+      return;
+    }
     expect(result.path).toBe("SKILL.md");
     expect(result.name).toBe("SKILL.md");
     expect(result.size).toBe(14);
@@ -465,7 +503,9 @@ describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
 
     const result = await getSkillFileContent("ghost-skill", "SKILL.md");
     expect("error" in result).toBe(true);
-    if (!("error" in result)) return;
+    if (!("error" in result)) {
+      return;
+    }
     expect(result.status).toBe(404);
     expect(result.error).toBe("Skill not found");
   });
@@ -494,7 +534,9 @@ describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
 
     const result = await getSkillFileContent("owner/repo/my-skill", "SKILL.md");
     expect("error" in result).toBe(false);
-    if ("error" in result) return;
+    if ("error" in result) {
+      return;
+    }
     expect(result.content).toBe("# skillssh content\n");
     expect(result.path).toBe("SKILL.md");
   });
@@ -524,7 +566,9 @@ describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
 
     const result = await getSkillFileContent("cool-tool", "SKILL.md");
     expect("error" in result).toBe(false);
-    if ("error" in result) return;
+    if ("error" in result) {
+      return;
+    }
     expect(result.content).toBe("# clawhub content yo\n");
     expect(result.path).toBe("SKILL.md");
   });
@@ -543,7 +587,9 @@ describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
 
     const result = await getSkillFileContent("known-skill", "nonexistent.txt");
     expect("error" in result).toBe(true);
-    if (!("error" in result)) return;
+    if (!("error" in result)) {
+      return;
+    }
     expect(result.status).toBe(404);
     expect(result.error).toBe("File not found");
   });
@@ -583,7 +629,9 @@ describe("getSkillFileContent — uninstalled skill (provider chain)", () => {
     const result = await getSkillFileContent("simple-slug", "SKILL.md");
     // Should be "File not found" (vellum handled but returned null)
     expect("error" in result).toBe(true);
-    if (!("error" in result)) return;
+    if (!("error" in result)) {
+      return;
+    }
     expect(result.error).toBe("File not found");
     // Clawhub should NOT have been called
     expect(clawhubReadCalls).toEqual([]);
@@ -601,7 +649,9 @@ describe("getSkillFileContent — skill not found", () => {
 
     const result = await getSkillFileContent("ghost-skill", "SKILL.md");
     expect("error" in result).toBe(true);
-    if (!("error" in result)) return;
+    if (!("error" in result)) {
+      return;
+    }
     expect(result.status).toBe(404);
     expect(result.error).toBe("Skill not found");
   });
@@ -639,7 +689,9 @@ describe("getSkillFileContent — installed skill with missing directory", () =>
     const result = await getSkillFileContent("ghost-installed", "SKILL.md");
 
     expect("error" in result).toBe(true);
-    if (!("error" in result)) return;
+    if (!("error" in result)) {
+      return;
+    }
     expect(result.status).toBe(404);
     expect(result.error).toContain("ghost-installed");
     expect(result.error).toContain("directory missing");
@@ -662,7 +714,9 @@ describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
 
     const result = await getSkillFileContent("leaky-skill", ".env");
     expect("error" in result).toBe(true);
-    if (!("error" in result)) return;
+    if (!("error" in result)) {
+      return;
+    }
     expect(result.status).toBe(400);
     expect(result.error).toBe("Invalid path");
   });
@@ -686,7 +740,9 @@ describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
 
     const result = await getSkillFileContent("catalog-leaky", ".env");
     expect("error" in result).toBe(true);
-    if (!("error" in result)) return;
+    if (!("error" in result)) {
+      return;
+    }
     expect(result.status).toBe(400);
     expect(result.error).toBe("Invalid path");
     // The hidden-segment check must run before the provider chain.
@@ -702,7 +758,9 @@ describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
     for (const bad of [".git/config", "docs/.hidden/file.md"]) {
       const result = await getSkillFileContent("my-skill", bad);
       expect("error" in result).toBe(true);
-      if (!("error" in result)) continue;
+      if (!("error" in result)) {
+        continue;
+      }
       expect(result.status).toBe(400);
       expect(result.error).toBe("Invalid path");
     }
@@ -721,7 +779,9 @@ describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
     ]) {
       const result = await getSkillFileContent("my-skill", bad);
       expect("error" in result).toBe(true);
-      if (!("error" in result)) continue;
+      if (!("error" in result)) {
+        continue;
+      }
       expect(result.status).toBe(400);
       expect(result.error).toBe("Invalid path");
     }
@@ -735,7 +795,9 @@ describe("getSkillFileContent — hidden / SKIP_DIRS rejection", () => {
 
     const result = await getSkillFileContent("healthy-skill", "SKILL.md");
     expect("error" in result).toBe(false);
-    if ("error" in result) return;
+    if ("error" in result) {
+      return;
+    }
     expect(result.content).toBe("# hello\n");
     expect(result.name).toBe("SKILL.md");
   });

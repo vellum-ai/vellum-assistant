@@ -29,8 +29,7 @@ const MARKETING_ASSISTANT_NAME_CACHE_KEY = "vellum_assistant_name";
  * service can't own routing). On failure carries a user-facing message.
  */
 export type RetireOutcome =
-  | { ok: true; nextRoute: string }
-  | { ok: false; error: string };
+  { ok: true; nextRoute: string } | { ok: false; error: string };
 
 /**
  * Resolve where to send the user after a retire. Reads `hasAssistants`
@@ -41,9 +40,7 @@ function getPostRetireRoute(): string {
   const decision = resolveNavigation(buildNavigationState(), {
     kind: "post-retire",
   });
-  return decision.action === "redirect"
-    ? decision.to
-    : routes.welcome;
+  return decision.action === "redirect" ? decision.to : routes.welcome;
 }
 
 /**
@@ -94,7 +91,8 @@ export async function retireAssistant(
           if (remaining.ok) {
             await syncPlatformAssistantsToLockfile(
               remaining.data,
-              useOrganizationStore.getState().currentOrganizationId ?? undefined,
+              useOrganizationStore.getState().currentOrganizationId ??
+                undefined,
             );
           }
         } catch {

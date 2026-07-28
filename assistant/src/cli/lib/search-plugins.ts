@@ -155,7 +155,9 @@ export function projectMarketplaceEntries(
   const matches: PluginSearchMatch[] = [];
   const seen = new Set<string>();
   for (const entry of entries) {
-    if (seen.has(entry.name)) continue;
+    if (seen.has(entry.name)) {
+      continue;
+    }
     seen.add(entry.name);
     matches.push(marketplaceMatch(entry));
   }

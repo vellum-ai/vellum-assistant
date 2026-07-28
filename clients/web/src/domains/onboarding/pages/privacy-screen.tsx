@@ -2,30 +2,30 @@ import { useCallback, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import {
-    AgreementsCard,
-    PrivacyPreferencesCard,
+  AgreementsCard,
+  PrivacyPreferencesCard,
 } from "@/domains/onboarding/components/consent-controls";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
-    emitOnboardingFunnelStepCompleted,
-    getOnboardingFunnelSessionId,
-    ONBOARDING_FUNNEL_STEPS,
+  emitOnboardingFunnelStepCompleted,
+  getOnboardingFunnelSessionId,
+  ONBOARDING_FUNNEL_STEPS,
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
 import { CHECKOUT_CONTINUE_PARAM } from "@/lib/billing/checkout-continuation";
 import {
-    clearCheckoutIntent,
-    readCheckoutIntent,
+  clearCheckoutIntent,
+  readCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 import { isLocalMode } from "@/lib/local-mode";
 import { postCheckoutHatchReturnTo } from "@/lib/navigation/navigation-resolver";
 import {
-    usePrivacyConsent,
-    useShareDiagnostics,
-    useTosAccepted,
+  usePrivacyConsent,
+  useShareDiagnostics,
+  useTosAccepted,
 } from "@/domains/onboarding/prefs";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -71,7 +71,14 @@ export function PrivacyScreen() {
 
     // Analytics isn't asked here — the server keeps share_analytics null
     // until the user opts in via settings or review-terms.
-    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics: shareDiagnosticsChecked, hasPlatformSession });
+    saveConsent({
+      userId,
+      tos: tosAccepted,
+      privacy: privacyConsent,
+      shareAnalytics: null,
+      shareDiagnostics: shareDiagnosticsChecked,
+      hasPlatformSession,
+    });
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
       userId,
     });
@@ -93,11 +100,15 @@ export function PrivacyScreen() {
 
     const hostingParam = searchParams.get("hosting");
     const params = new URLSearchParams();
-    if (hostingParam) params.set("hosting", hostingParam);
+    if (hostingParam) {
+      params.set("hosting", hostingParam);
+    }
     // Carry the marketing plugin attribution forward so the research runner can
     // read it off the URL and pre-install that plugin (see `plugin-attribution`).
     const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
-    if (pluginParam) params.set(ATTRIBUTED_PLUGIN_PARAM, pluginParam);
+    if (pluginParam) {
+      params.set(ATTRIBUTED_PLUGIN_PARAM, pluginParam);
+    }
     const qs = params.toString();
     // A local-hosting onboarding (hosting=local/docker in a local-mode build)
     // must run the foreground local hatch first, so it goes to `hatching`, which
@@ -170,7 +181,11 @@ export function PrivacyScreen() {
           </div>
         )}
         <h1
-          className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}
+          className={
+            electron
+              ? "text-title-large"
+              : "text-3xl font-semibold tracking-tight"
+          }
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
           Before You Start
@@ -248,7 +263,6 @@ export function PrivacyScreen() {
             Back
           </Button>
         </div>
-
       </div>
     </OnboardingLayout>
   );

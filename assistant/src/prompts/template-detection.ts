@@ -24,14 +24,18 @@ export function isTemplateContent(
   content: string | null,
   templateFileName: string,
 ): boolean {
-  if (content == null) return false;
+  if (content == null) {
+    return false;
+  }
   const templatesDir = resolveBundledDir(
     import.meta.dirname ?? __dirname,
     "templates",
     "templates",
   );
   const templatePath = join(templatesDir, templateFileName);
-  if (!existsSync(templatePath)) return false;
+  if (!existsSync(templatePath)) {
+    return false;
+  }
   try {
     const templateContent = stripCommentLines(
       readFileSync(templatePath, "utf-8"),

@@ -59,12 +59,13 @@ export function DetailShell({
           #F6F5F4 in light) rather than `--border-base`, which equals the
           drawer's `--surface-lift` in dark mode and would render invisible. */}
       <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-hover)] px-5 py-4">
-        {icon ?? (Glyph ? (
-          <Glyph
-            className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
-            aria-hidden
-          />
-        ) : null)}
+        {icon ??
+          (Glyph ? (
+            <Glyph
+              className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
+              aria-hidden
+            />
+          ) : null)}
         {titleNode ?? (
           <Typography
             variant="title-medium"

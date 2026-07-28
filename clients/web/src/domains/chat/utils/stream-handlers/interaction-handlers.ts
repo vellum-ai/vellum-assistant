@@ -130,7 +130,9 @@ export function handleQuestionRequest(
   ctx: StreamHandlerContext,
 ): void {
   const entries = normalizeQuestionRequest(event);
-  if (entries.length === 0) return;
+  if (entries.length === 0) {
+    return;
+  }
   ctx.turnActions.onQuestionRequest();
   useInteractionStore.getState().showQuestion({
     requestId: event.requestId,

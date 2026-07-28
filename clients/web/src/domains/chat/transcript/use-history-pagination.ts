@@ -58,11 +58,15 @@ export function conversationHistoryQueryKey(
 export function aggregateSubagentNotifications(
   pages: readonly PaginatedHistoryResult[] | undefined,
 ): NonNullable<PaginatedHistoryResult["subagentNotifications"]> | undefined {
-  if (!pages?.length) return undefined;
+  if (!pages?.length) {
+    return undefined;
+  }
   const acc: NonNullable<PaginatedHistoryResult["subagentNotifications"]> = [];
   for (let i = pages.length - 1; i >= 0; i--) {
     const ns = pages[i]?.subagentNotifications;
-    if (ns?.length) acc.push(...ns);
+    if (ns?.length) {
+      acc.push(...ns);
+    }
   }
   return acc.length > 0 ? acc : undefined;
 }
@@ -75,11 +79,15 @@ export function aggregateSubagentNotifications(
 export function aggregateBackgroundToolCompletions(
   pages: readonly PaginatedHistoryResult[] | undefined,
 ): BackgroundTaskEntry[] | undefined {
-  if (!pages?.length) return undefined;
+  if (!pages?.length) {
+    return undefined;
+  }
   const acc: BackgroundTaskEntry[] = [];
   for (let i = pages.length - 1; i >= 0; i--) {
     const cs = pages[i]?.backgroundToolCompletions;
-    if (cs?.length) acc.push(...cs);
+    if (cs?.length) {
+      acc.push(...cs);
+    }
   }
   return acc.length > 0 ? acc : undefined;
 }
@@ -104,8 +112,7 @@ export interface HistoryPaginationResult {
   latestPage: PaginatedHistoryResult | undefined;
   /** Subagent notifications aggregated across all loaded pages, oldest-first. */
   subagentNotifications:
-    | NonNullable<PaginatedHistoryResult["subagentNotifications"]>
-    | undefined;
+    NonNullable<PaginatedHistoryResult["subagentNotifications"]> | undefined;
   /** Background-task completions aggregated across all loaded pages, oldest-first. */
   backgroundToolCompletions: BackgroundTaskEntry[] | undefined;
   /** First-time load with no cached data available. */
@@ -162,11 +169,7 @@ export function useHistoryPagination({
       }
       void signal; // AbortController signal available for future use
       if (pageParam != null) {
-        return fetchOlderHistoryPage(
-          assistantId,
-          conversationId,
-          pageParam,
-        );
+        return fetchOlderHistoryPage(assistantId, conversationId, pageParam);
       }
       return fetchLatestHistoryPage(assistantId, conversationId);
     },
@@ -207,7 +210,9 @@ export function useHistoryPagination({
   // here closes that gap on the read path so a long turn renders as one
   // bubble regardless of how scroll-to-load chunked it.
   const messages = useMemo(() => {
-    if (!query.data?.pages?.length) return EMPTY_MESSAGES;
+    if (!query.data?.pages?.length) {
+      return EMPTY_MESSAGES;
+    }
     const { pages } = query.data;
     const flattened: DisplayMessage[] =
       pages.length === 1

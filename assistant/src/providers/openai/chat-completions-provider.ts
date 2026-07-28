@@ -66,7 +66,9 @@ export function detectOpenAICompatibleContextOverflow(
 ): { actualTokens?: number; maxTokens?: number } | null {
   // OpenAI-compatible providers use 400 (most) or 413 (rarer payload-too-large).
   const status = error.status;
-  if (status !== 400 && status !== 413) return null;
+  if (status !== 400 && status !== 413) {
+    return null;
+  }
   const code = error.code;
   const codeMatches =
     typeof code === "string" &&
@@ -80,7 +82,9 @@ export function detectOpenAICompatibleContextOverflow(
     /context.?length.?exceeded|context.?window.?exceeded|prompt.?is.?too.?long|prompt_too_long|input.?too.?long|too.?many.?(?:input.?)?tokens|maximum.?context/i.test(
       message,
     );
-  if (!codeMatches && !messageMatches) return null;
+  if (!codeMatches && !messageMatches) {
+    return null;
+  }
   // OpenAI-compatible providers rarely report usable token counts; best-effort extract.
   return extractOverflowTokensFromMessage(message);
 }
@@ -260,7 +264,9 @@ function isReasoningOptOutRejection(error: unknown, params: unknown): boolean {
 export function mapNeutralToolChoice(
   toolChoice: unknown,
 ): OpenAI.Chat.Completions.ChatCompletionToolChoiceOption | undefined {
-  if (toolChoice == null || typeof toolChoice !== "object") return undefined;
+  if (toolChoice == null || typeof toolChoice !== "object") {
+    return undefined;
+  }
   const tc = toolChoice as { type?: unknown; name?: unknown };
   switch (tc.type) {
     case "auto":
@@ -287,7 +293,9 @@ const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
 
 function partialTagSuffix(text: string, tag: string): number {
   for (let len = Math.min(text.length, tag.length - 1); len > 0; len--) {
-    if (text.endsWith(tag.substring(0, len))) return len;
+    if (text.endsWith(tag.substring(0, len))) {
+      return len;
+    }
   }
   return 0;
 }
@@ -605,7 +613,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
             const reasoningDetails = deltaWithReasoning.reasoning_details;
             if (Array.isArray(reasoningDetails)) {
               for (const entry of reasoningDetails) {
-                if (entry.type === "reasoning.encrypted") continue;
+                if (entry.type === "reasoning.encrypted") {
+                  continue;
+                }
                 const piece = entry.summary ?? entry.text;
                 if (piece) {
                   sawVisibleDetail = true;
@@ -634,8 +644,12 @@ export class OpenAIChatCompletionsProvider implements Provider {
                   toolCallMap.set(tc.index, { id: "", name: "", args: "" });
                 }
                 const entry = toolCallMap.get(tc.index)!;
-                if (tc.id) entry.id = tc.id;
-                if (tc.function?.name) entry.name += tc.function.name;
+                if (tc.id) {
+                  entry.id = tc.id;
+                }
+                if (tc.function?.name) {
+                  entry.name += tc.function.name;
+                }
                 toolProgress.emitPreviewStart(entry.id, entry.name);
                 if (tc.function?.arguments) {
                   entry.args += tc.function.arguments;
@@ -854,18 +868,30 @@ export class OpenAIChatCompletionsProvider implements Provider {
           rawBody?: string;
           reason?: ProviderErrorReason;
         } = {};
-        if (retryAfterMs !== undefined)
+        if (retryAfterMs !== undefined) {
           errorOptions.retryAfterMs = retryAfterMs;
-        if (abortReason) errorOptions.abortReason = abortReason;
-        if (normalized.apiErrorCode)
+        }
+        if (abortReason) {
+          errorOptions.abortReason = abortReason;
+        }
+        if (normalized.apiErrorCode) {
           errorOptions.apiErrorCode = normalized.apiErrorCode;
-        if (normalized.apiErrorType)
+        }
+        if (normalized.apiErrorType) {
           errorOptions.apiErrorType = normalized.apiErrorType;
-        if (normalized.apiErrorParam)
+        }
+        if (normalized.apiErrorParam) {
           errorOptions.apiErrorParam = normalized.apiErrorParam;
-        if (normalized.requestId) errorOptions.requestId = normalized.requestId;
-        if (normalized.rawBody) errorOptions.rawBody = normalized.rawBody;
-        if (normalized.reason) errorOptions.reason = normalized.reason;
+        }
+        if (normalized.requestId) {
+          errorOptions.requestId = normalized.requestId;
+        }
+        if (normalized.rawBody) {
+          errorOptions.rawBody = normalized.rawBody;
+        }
+        if (normalized.reason) {
+          errorOptions.reason = normalized.reason;
+        }
         throw new ProviderError(
           formattedMessage,
           this.name,
@@ -1009,7 +1035,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
           break;
         case "thinking":
           // Anthropic thinking blocks carry signatures — skip those.
-          if (!block.signature) reasoningParts.push(block.thinking);
+          if (!block.signature) {
+            reasoningParts.push(block.thinking);
+          }
           break;
         case "tool_use":
           toolCalls.push({

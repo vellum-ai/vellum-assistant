@@ -56,8 +56,8 @@ mock.module("../notifications/deliveries-store.js", () => ({
 // Captures call arguments so tests can inspect what was passed in.
 // Set `nextPairingResult` to override the return value for a single call.
 let nextPairingResult:
-  import("../notifications/conversation-pairing.js").PairingResult | null =
-  null;
+  | import("../notifications/conversation-pairing.js").PairingResult
+  | null = null;
 let pairingCallCount = 0;
 
 interface PairingCall {
@@ -156,7 +156,9 @@ class MockAdapter implements ChannelAdapter {
     _dest: ChannelDestination,
   ): Promise<DeliveryResult> {
     this.sent.push(payload);
-    if (this.shouldFail) return { success: false, error: "Mock failure" };
+    if (this.shouldFail) {
+      return { success: false, error: "Mock failure" };
+    }
     return { success: true };
   }
 }

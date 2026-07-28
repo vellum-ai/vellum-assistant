@@ -172,6 +172,7 @@ Each module owns one feature's old/new split. Current registry:
 | `use-supports-image-gen-vellum-provider.ts` | `0.11.0`                  | Vellum image-gen selection persists as legacy `{ mode: "managed" }` with no provider field                | Save path writes `provider: "vellum"`, which the config enum accepts                        |
 | `use-supports-new-chat-plugins.ts`  | `0.12.0`                          | New-chat plugin picker hidden; the send path omits the per-chat plugin set (older daemons ignore it)      | Picker renders and the send path includes the per-chat plugin set the daemon applies        |
 | `use-supports-inchat-plugin-edit.ts` | `0.12.0`                         | In-chat plugin pill hidden; the conversation GET omits `enabledPlugins` so per-chat scope is unreadable   | Pill renders the conversation's plugin scope and edits it via `PUT /conversations/:id/enabledplugins` |
+| `use-supports-group-icons.ts`       | `0.11.1`                          | Group rows carry no `icon` field; the group create/rename dialog is name-only and group writes omit `icon` | Groups persist a nullable icon name; the dialog shows an icon picker and group writes include `icon` |
 
 When you delete a row here, also delete its module, its test, and the now-dead
 legacy branch at the call site.

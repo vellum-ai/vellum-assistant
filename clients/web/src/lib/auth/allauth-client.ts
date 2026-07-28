@@ -38,10 +38,7 @@ export function isConflict(result: AllauthResult): boolean {
   return !result.ok && result.status === 409;
 }
 
-function errorResult(
-  error: unknown,
-  status?: number,
-): AllauthResult<never> {
+function errorResult(error: unknown, status?: number): AllauthResult<never> {
   const err = error as Record<string, unknown> | undefined;
   if (err && Array.isArray(err.errors)) {
     return { ok: false, status, errors: err.errors };
@@ -66,10 +63,9 @@ export async function getSession(): Promise<AllauthResult<Authenticated>> {
 }
 
 export async function logout(): Promise<AllauthResult> {
-  const { data, error, response } =
-    await deleteAllauthByClientV1AuthSession({
-      path: { client: allauthClient() },
-    });
+  const { data, error, response } = await deleteAllauthByClientV1AuthSession({
+    path: { client: allauthClient() },
+  });
 
   if (data) {
     return { ok: true, data };

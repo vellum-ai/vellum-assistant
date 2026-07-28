@@ -3,6 +3,7 @@ import { and, asc, desc, eq, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
+import { getGroup } from "../persistence/group-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { rawChanges } from "../persistence/raw-query.js";
 import { scheduleJobs, scheduleRuns } from "../persistence/schema/index.js";
@@ -72,6 +73,13 @@ export interface ScheduleJob {
    * LLM-executed runs; null = default main-agent model selection.
    */
   inferenceProfile: string | null;
+  /**
+   * Sidebar group (`conversation_groups` id) for conversations created by
+   * the schedule's runs; null = the default `system:scheduled`. Resolve via
+   * {@link resolveScheduleConversationGroupId}, since the group may have
+   * been deleted since it was set.
+   */
+  groupId: string | null;
   createdFromConversationId: string | null;
   createdBy: string;
   mode: ScheduleMode;
@@ -131,6 +139,7 @@ export async function createSchedule(params: {
   retryBackoffMs?: number;
   timeoutMs?: number | null;
   inferenceProfile?: string | null;
+  groupId?: string | null;
   createdFromConversationId?: string | null;
 }): Promise<ScheduleJob> {
   const expression = params.expression ?? params.cronExpression ?? null;
@@ -176,6 +185,7 @@ export async function createSchedule(params: {
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
   const timeoutMs = params.timeoutMs ?? null;
   const inferenceProfile = params.inferenceProfile ?? null;
+  const groupId = params.groupId ?? null;
   const createdFromConversationId = params.createdFromConversationId ?? null;
   const description = normalizeDescription(
     params.description,
@@ -217,6 +227,7 @@ export async function createSchedule(params: {
     retryBackoffMs,
     timeoutMs,
     inferenceProfile,
+    groupId,
     createdFromConversationId,
     createdBy: params.createdBy ?? "agent",
     mode,
@@ -237,6 +248,21 @@ export async function createSchedule(params: {
   return parseJobRow(row);
 }
 
+/**
+ * Sidebar group for conversations created by a schedule's runs. The job's
+ * `groupId` wins only while the group still exists: a schedule may outlive
+ * its custom group, and creating a conversation with a dangling group id
+ * would violate the conversations->conversation_groups FK.
+ */
+export function resolveScheduleConversationGroupId(
+  job: Pick<ScheduleJob, "groupId">,
+): string {
+  if (job.groupId && getGroup(job.groupId)) {
+    return job.groupId;
+  }
+  return "system:scheduled";
+}
+
 export function getSchedule(id: string): ScheduleJob | null {
   const db = getDb();
   const row = db
@@ -244,7 +270,9 @@ export function getSchedule(id: string): ScheduleJob | null {
     .from(scheduleJobs)
     .where(eq(scheduleJobs.id, id))
     .get();
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return parseJobRow(row);
 }
 
@@ -325,6 +353,7 @@ export async function updateSchedule(
     retryBackoffMs?: number;
     timeoutMs?: number | null;
     inferenceProfile?: string | null;
+    groupId?: string | null;
     createdFromConversationId?: string | null;
   },
 ): Promise<ScheduleJob | null> {
@@ -334,7 +363,9 @@ export async function updateSchedule(
     .from(scheduleJobs)
     .where(eq(scheduleJobs.id, id))
     .get();
-  if (!existing) return null;
+  if (!existing) {
+    return null;
+  }
 
   // Resolve the effective syntax and expression after this update
   const newSyntax =
@@ -369,50 +400,88 @@ export async function updateSchedule(
   const now = Date.now();
   const set: Record<string, unknown> = { updatedAt: now };
 
-  if (updates.name !== undefined) set.name = updates.name;
-  if (updates.description !== undefined)
+  if (updates.name !== undefined) {
+    set.name = updates.name;
+  }
+  if (updates.description !== undefined) {
     set.description = normalizeDescription(updates.description);
-  if (updates.cronExpression !== undefined || updates.expression !== undefined)
+  }
+  if (
+    updates.cronExpression !== undefined ||
+    updates.expression !== undefined
+  ) {
     set.cronExpression = newExpr;
-  if (updates.syntax !== undefined) set.scheduleSyntax = newSyntax;
-  if (updates.timezone !== undefined) set.timezone = updates.timezone;
-  if (updates.message !== undefined) set.message = updates.message;
-  if (updates.script !== undefined) set.script = updates.script;
-  if (updates.enabled !== undefined) set.enabled = updates.enabled;
-  if (updates.mode !== undefined) set.mode = updates.mode;
-  if (updates.routingIntent !== undefined)
+  }
+  if (updates.syntax !== undefined) {
+    set.scheduleSyntax = newSyntax;
+  }
+  if (updates.timezone !== undefined) {
+    set.timezone = updates.timezone;
+  }
+  if (updates.message !== undefined) {
+    set.message = updates.message;
+  }
+  if (updates.script !== undefined) {
+    set.script = updates.script;
+  }
+  if (updates.enabled !== undefined) {
+    set.enabled = updates.enabled;
+  }
+  if (updates.mode !== undefined) {
+    set.mode = updates.mode;
+  }
+  if (updates.routingIntent !== undefined) {
     set.routingIntent = updates.routingIntent;
-  if (updates.routingHints !== undefined)
+  }
+  if (updates.routingHints !== undefined) {
     set.routingHintsJson = JSON.stringify(updates.routingHints);
-  if (updates.quiet !== undefined) set.quiet = updates.quiet;
-  if (updates.reuseConversation !== undefined)
+  }
+  if (updates.quiet !== undefined) {
+    set.quiet = updates.quiet;
+  }
+  if (updates.reuseConversation !== undefined) {
     set.reuseConversation = updates.reuseConversation;
-  if (updates.wakeConversationId !== undefined)
+  }
+  if (updates.wakeConversationId !== undefined) {
     set.wakeConversationId = updates.wakeConversationId;
-  if (updates.workflowName !== undefined)
+  }
+  if (updates.workflowName !== undefined) {
     set.workflowName = updates.workflowName;
+  }
   // `workflowArgs` may legitimately be any JSON value (including null), so
   // detect presence by key rather than `!== undefined`.
-  if ("workflowArgs" in updates)
+  if ("workflowArgs" in updates) {
     set.workflowArgsJson =
       updates.workflowArgs === undefined
         ? null
         : JSON.stringify(updates.workflowArgs);
+  }
   // `capabilities` may legitimately be any JSON value (including null), so
   // detect presence by key rather than `!== undefined`.
-  if ("capabilities" in updates)
+  if ("capabilities" in updates) {
     set.capabilitiesJson =
       updates.capabilities == null
         ? null
         : JSON.stringify(updates.capabilities);
-  if (updates.maxRetries !== undefined) set.maxRetries = updates.maxRetries;
-  if (updates.retryBackoffMs !== undefined)
+  }
+  if (updates.maxRetries !== undefined) {
+    set.maxRetries = updates.maxRetries;
+  }
+  if (updates.retryBackoffMs !== undefined) {
     set.retryBackoffMs = updates.retryBackoffMs;
-  if (updates.timeoutMs !== undefined) set.timeoutMs = updates.timeoutMs;
-  if (updates.inferenceProfile !== undefined)
+  }
+  if (updates.timeoutMs !== undefined) {
+    set.timeoutMs = updates.timeoutMs;
+  }
+  if (updates.inferenceProfile !== undefined) {
     set.inferenceProfile = updates.inferenceProfile;
-  if (updates.createdFromConversationId !== undefined)
+  }
+  if (updates.groupId !== undefined) {
+    set.groupId = updates.groupId;
+  }
+  if (updates.createdFromConversationId !== undefined) {
     set.createdFromConversationId = updates.createdFromConversationId;
+  }
 
   // Recompute nextRunAt if schedule timing may have changed (only for recurring)
   if (
@@ -451,7 +520,9 @@ export async function deleteSchedule(id: string): Promise<boolean> {
     },
     { op: "deleteSchedule", context: { scheduleId: id } },
   );
-  if (deleted) notifySchedulesChanged();
+  if (deleted) {
+    notifySchedulesChanged();
+  }
   return deleted;
 }
 
@@ -546,7 +617,9 @@ export async function claimDueSchedules(now: number): Promise<ScheduleJob[]> {
       { op: "claimDueSchedules.recurring", context: { scheduleId: row.id } },
     );
 
-    if (!recurringClaimed) continue;
+    if (!recurringClaimed) {
+      continue;
+    }
 
     claimed.push(
       parseJobRow({
@@ -592,7 +665,9 @@ export async function claimDueSchedules(now: number): Promise<ScheduleJob[]> {
       { op: "claimDueSchedules.oneShot", context: { scheduleId: row.id } },
     );
 
-    if (!oneShotClaimed) continue;
+    if (!oneShotClaimed) {
+      continue;
+    }
 
     claimed.push(
       parseJobRow({
@@ -604,7 +679,9 @@ export async function claimDueSchedules(now: number): Promise<ScheduleJob[]> {
     );
   }
 
-  if (claimed.length > 0) notifySchedulesChanged();
+  if (claimed.length > 0) {
+    notifySchedulesChanged();
+  }
   return claimed;
 }
 
@@ -629,7 +706,9 @@ export async function completeOneShot(id: string): Promise<void> {
     },
     { op: "completeOneShot", context: { scheduleId: id } },
   );
-  if (changed) notifySchedulesChanged();
+  if (changed) {
+    notifySchedulesChanged();
+  }
 }
 
 /**
@@ -652,7 +731,9 @@ export async function failOneShot(id: string): Promise<void> {
     },
     { op: "failOneShot", context: { scheduleId: id } },
   );
-  if (changed) notifySchedulesChanged();
+  if (changed) {
+    notifySchedulesChanged();
+  }
 }
 
 /**
@@ -677,7 +758,9 @@ export async function retryOneShot(id: string): Promise<void> {
     },
     { op: "retryOneShot", context: { scheduleId: id } },
   );
-  if (changed) notifySchedulesChanged();
+  if (changed) {
+    notifySchedulesChanged();
+  }
 }
 
 /**
@@ -703,7 +786,9 @@ export async function failOneShotPermanently(id: string): Promise<void> {
     },
     { op: "failOneShotPermanently", context: { scheduleId: id } },
   );
-  if (changed) notifySchedulesChanged();
+  if (changed) {
+    notifySchedulesChanged();
+  }
 }
 
 /**
@@ -727,7 +812,9 @@ export async function cancelSchedule(id: string): Promise<boolean> {
     },
     { op: "cancelSchedule", context: { scheduleId: id } },
   );
-  if (cancelled) notifySchedulesChanged();
+  if (cancelled) {
+    notifySchedulesChanged();
+  }
   return cancelled;
 }
 
@@ -809,7 +896,9 @@ export async function completeScheduleRun(
     .from(scheduleRuns)
     .where(eq(scheduleRuns.id, runId))
     .get();
-  if (!run) return;
+  if (!run) {
+    return;
+  }
 
   const durationMs = now - run.startedAt;
 
@@ -855,7 +944,9 @@ export async function completeScheduleRun(
           context: { scheduleId: run.jobId },
         },
       );
-      if (changed) notifySchedulesChanged();
+      if (changed) {
+        notifySchedulesChanged();
+      }
     }
   } else {
     const changed = await withSqliteRetry(
@@ -868,7 +959,9 @@ export async function completeScheduleRun(
       },
       { op: "completeScheduleRun.jobOk", context: { scheduleId: run.jobId } },
     );
-    if (changed) notifySchedulesChanged();
+    if (changed) {
+      notifySchedulesChanged();
+    }
   }
 }
 
@@ -944,16 +1037,22 @@ export function formatLocalDate(timestamp: number): string {
 //   "0 9 1 * *"         -> "On the 1st of every month at 9:00 AM"
 //   "30 14 * * *"       -> "Every day at 2:30 PM"
 export function describeCronExpression(expr: string | null): string {
-  if (!expr) return "One-time";
+  if (!expr) {
+    return "One-time";
+  }
   try {
     const cron = new Cron(expr, { maxRuns: 0 });
     // Access Croner internal state to extract the parsed cron pattern.
     // This is fragile but necessary — Croner doesn't expose a public API for this.
     const cronInternal = cron as unknown as Record<string, unknown>;
     const states = cronInternal._states;
-    if (!states || typeof states !== "object") return expr;
+    if (!states || typeof states !== "object") {
+      return expr;
+    }
     const p = (states as Record<string, unknown>).pattern;
-    if (!p || typeof p !== "object") return expr;
+    if (!p || typeof p !== "object") {
+      return expr;
+    }
     const pattern = p as {
       minute: number[];
       hour: number[];
@@ -965,23 +1064,33 @@ export function describeCronExpression(expr: string | null): string {
     };
 
     const activeMinutes = pattern.minute.reduce<number[]>((acc, v, i) => {
-      if (v) acc.push(i);
+      if (v) {
+        acc.push(i);
+      }
       return acc;
     }, []);
     const activeHours = pattern.hour.reduce<number[]>((acc, v, i) => {
-      if (v) acc.push(i);
+      if (v) {
+        acc.push(i);
+      }
       return acc;
     }, []);
     const activeDays = pattern.day.reduce<number[]>((acc, v, i) => {
-      if (v) acc.push(i + 1);
+      if (v) {
+        acc.push(i + 1);
+      }
       return acc;
     }, []);
     const activeDOW = pattern.dayOfWeek.reduce<number[]>((acc, v, i) => {
-      if (v) acc.push(i);
+      if (v) {
+        acc.push(i);
+      }
       return acc;
     }, []);
     const activeMonths = pattern.month.reduce<number[]>((acc, v, i) => {
-      if (v) acc.push(i + 1);
+      if (v) {
+        acc.push(i + 1);
+      }
       return acc;
     }, []);
 
@@ -1186,7 +1295,9 @@ export async function scheduleRetry(
     { op: "scheduleRetry.revertStatus", context: { scheduleId: id } },
   );
   changed = reverted || changed;
-  if (changed) notifySchedulesChanged();
+  if (changed) {
+    notifySchedulesChanged();
+  }
 }
 
 /**
@@ -1204,7 +1315,9 @@ export async function resetRetryCount(id: string): Promise<void> {
     },
     { op: "resetRetryCount", context: { scheduleId: id } },
   );
-  if (changed) notifySchedulesChanged();
+  if (changed) {
+    notifySchedulesChanged();
+  }
 }
 
 /**
@@ -1288,6 +1401,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     retryBackoffMs: row.retryBackoffMs ?? 60000,
     timeoutMs: row.timeoutMs ?? null,
     inferenceProfile: row.inferenceProfile ?? null,
+    groupId: row.groupId ?? null,
     createdFromConversationId: row.createdFromConversationId ?? null,
     createdBy: row.createdBy,
     mode: (row.mode ?? "execute") as ScheduleMode,
@@ -1312,7 +1426,9 @@ function normalizeDescription(
 function safeParseJson(
   json: string | null | undefined,
 ): Record<string, unknown> {
-  if (!json) return {};
+  if (!json) {
+    return {};
+  }
   try {
     return JSON.parse(json) as Record<string, unknown>;
   } catch {
@@ -1326,7 +1442,9 @@ function safeParseJson(
  * args may be any JSON value — and an absent/unparseable column yields null.
  */
 function parseOptionalJson(json: string | null | undefined): unknown {
-  if (json == null) return null;
+  if (json == null) {
+    return null;
+  }
   try {
     return JSON.parse(json);
   } catch {

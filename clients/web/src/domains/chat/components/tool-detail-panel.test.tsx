@@ -6,7 +6,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render as rtlRender } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as rtlRender,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
@@ -26,12 +31,10 @@ const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
 const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
 mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
 
-const { ToolDetailPanel } = await import(
-  "@/domains/chat/components/tool-detail-panel"
-);
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { ToolDetailPanel } =
+  await import("@/domains/chat/components/tool-detail-panel");
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
@@ -70,7 +73,9 @@ function seedHistory(messages: DisplayMessage[]) {
   useChatSessionStore.setState({ snapshot: snap(messages) });
 }
 
-function makeDetail(overrides: Partial<ToolDetailPayload> = {}): ToolDetailPayload {
+function makeDetail(
+  overrides: Partial<ToolDetailPayload> = {},
+): ToolDetailPayload {
   return {
     toolCallId: "tc-1",
     toolName: "subagent_spawn",
@@ -170,9 +175,7 @@ describe("ToolDetailPanel", () => {
       {
         id: "m1",
         role: "assistant",
-        toolCalls: [
-          { id: "tc-1", name: "subagent_spawn", riskLevel: "low" },
-        ],
+        toolCalls: [{ id: "tc-1", name: "subagent_spawn", riskLevel: "low" }],
       } as DisplayMessage,
     ]);
     const { queryByText } = render(

@@ -38,7 +38,9 @@ export function canonicalizeInboundIdentity(
   rawId: string,
 ): string | null {
   const trimmed = rawId.trim();
-  if (trimmed.length === 0) return null;
+  if (trimmed.length === 0) {
+    return null;
+  }
 
   if (PHONE_CHANNELS.has(channel)) {
     const e164 = normalizePhoneNumber(trimmed);

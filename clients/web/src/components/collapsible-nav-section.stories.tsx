@@ -78,7 +78,7 @@ export const MultipleSections: Story = {
     docs: {
       description: {
         story:
-          "Multiple sections sharing a single root — `type=\"multiple\"` lets several stay open at once.",
+          'Multiple sections sharing a single root — `type="multiple"` lets several stay open at once.',
       },
     },
   },

@@ -77,7 +77,9 @@ export function handleDocumentCommentCreated(
 ): void {
   const comment = toDocumentComment(event);
   const existing = state.get(event.surfaceId) ?? [];
-  if (existing.some((c) => c.id === comment.id)) return;
+  if (existing.some((c) => c.id === comment.id)) {
+    return;
+  }
   existing.push(comment);
   state.set(event.surfaceId, existing);
   callbacks.onCommentsChanged(event.surfaceId);
@@ -90,10 +92,14 @@ export function handleDocumentCommentResolved(
   callbacks: DocumentCommentEventCallbacks,
 ): void {
   const comments = state.get(event.surfaceId);
-  if (!comments) return;
+  if (!comments) {
+    return;
+  }
 
   const target = comments.find((c) => c.id === event.commentId);
-  if (!target) return;
+  if (!target) {
+    return;
+  }
 
   target.status = "resolved";
   target.resolvedBy = event.resolvedBy;
@@ -108,10 +114,14 @@ export function handleDocumentCommentReopened(
   callbacks: DocumentCommentEventCallbacks,
 ): void {
   const comments = state.get(event.surfaceId);
-  if (!comments) return;
+  if (!comments) {
+    return;
+  }
 
   const target = comments.find((c) => c.id === event.commentId);
-  if (!target) return;
+  if (!target) {
+    return;
+  }
 
   target.status = "open";
   target.resolvedBy = null;
@@ -126,10 +136,14 @@ export function handleDocumentCommentDeleted(
   callbacks: DocumentCommentEventCallbacks,
 ): void {
   const comments = state.get(event.surfaceId);
-  if (!comments) return;
+  if (!comments) {
+    return;
+  }
 
   const idx = comments.findIndex((c) => c.id === event.commentId);
-  if (idx === -1) return;
+  if (idx === -1) {
+    return;
+  }
 
   comments.splice(idx, 1);
   if (comments.length === 0) {

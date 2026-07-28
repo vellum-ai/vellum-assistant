@@ -967,7 +967,9 @@ describe("ResearchOnboardingRoute hatch retry", () => {
     recoverOnRetry();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-    await waitFor(() => expect(checkEstablishedAssistantMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(checkEstablishedAssistantMock).toHaveBeenCalled(),
+    );
     expect(reinstallPluginsMock).toHaveBeenCalledTimes(1);
     const [names, awaitAssistantId] = reinstallPluginsMock.mock.calls[0] ?? [];
     expect(names).toEqual(["admin-copilot"]);
@@ -1017,7 +1019,9 @@ describe("ResearchOnboardingRoute hatch retry", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
     // The retry did re-arm what the dead hatch poisoned…
-    await waitFor(() => expect(checkEstablishedAssistantMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(checkEstablishedAssistantMock).toHaveBeenCalled(),
+    );
     // …but the sliders were never locked in, so there is no persona write to
     // redo — and an idle turn has no restored installs to re-enqueue either.
     expect(applyPersonalityMock).not.toHaveBeenCalled();

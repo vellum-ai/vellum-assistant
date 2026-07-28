@@ -200,7 +200,9 @@ export function createMockChromeExtension(
     } finally {
       inFlight.delete(frame.requestId);
     }
-    if (abortCtl.signal.aborted) return;
+    if (abortCtl.signal.aborted) {
+      return;
+    }
 
     const body: HostBrowserResultBody = {
       requestId: frame.requestId,
@@ -246,7 +248,9 @@ export function createMockChromeExtension(
     } catch {
       return;
     }
-    if (!parsed || typeof parsed !== "object") return;
+    if (!parsed || typeof parsed !== "object") {
+      return;
+    }
     const frame = parsed as Record<string, unknown>;
     if (frame.type === "host_browser_request") {
       const typed = frame as unknown as HostBrowserRequestFrame;
@@ -293,7 +297,9 @@ export function createMockChromeExtension(
       try {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            break;
+          }
           buffer += decoder.decode(value, { stream: true });
           // Parse SSE frames: "data: ...\n\n"
           const parts = buffer.split("\n\n");
@@ -401,7 +407,9 @@ export function createMockChromeExtension(
     },
     sendHostBrowserEvent(event) {
       const sock = ws;
-      if (!sock || sock.readyState !== WebSocket.OPEN) return;
+      if (!sock || sock.readyState !== WebSocket.OPEN) {
+        return;
+      }
       sock.send(
         JSON.stringify({
           type: "host_browser_event",
@@ -415,7 +423,9 @@ export function createMockChromeExtension(
     },
     sendSessionInvalidated(event) {
       const sock = ws;
-      if (!sock || sock.readyState !== WebSocket.OPEN) return;
+      if (!sock || sock.readyState !== WebSocket.OPEN) {
+        return;
+      }
       sock.send(
         JSON.stringify({
           type: "host_browser_session_invalidated",
@@ -426,7 +436,9 @@ export function createMockChromeExtension(
     },
     sendRaw(json: string) {
       const sock = ws;
-      if (!sock || sock.readyState !== WebSocket.OPEN) return;
+      if (!sock || sock.readyState !== WebSocket.OPEN) {
+        return;
+      }
       sock.send(json);
     },
   };

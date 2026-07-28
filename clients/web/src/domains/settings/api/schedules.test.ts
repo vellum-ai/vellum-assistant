@@ -18,7 +18,6 @@ interface UsageSummaryCall {
   throwOnError: false;
 }
 
-
 const summaryRows: SchedulesUsagesummaryGetResponse["summaries"] = [
   {
     scheduleId: "schedule-123",
@@ -54,10 +53,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const {
-  fetchSchedules,
-  fetchScheduleUsageSummary,
-} = await import("./schedules");
+const { fetchSchedules, fetchScheduleUsageSummary } =
+  await import("./schedules");
 
 afterEach(() => {
   usageSummaryCalls = [];
@@ -113,8 +110,6 @@ describe("fetchSchedules", () => {
   });
 });
 
-
-
 describe("fetchScheduleUsageSummary", () => {
   test("passes summary range query params to the daemon SDK", async () => {
     const result = await fetchScheduleUsageSummary("assistant-1", {
@@ -141,5 +136,3 @@ describe("fetchScheduleUsageSummary", () => {
     expect(usageSummaryCalls[0]?.query).toEqual({ from: 0, to: 200 });
   });
 });
-
-

@@ -101,7 +101,9 @@ export function makeCtx(
       return value;
     }),
     consumePendingLocalDeletion: mock((messageId: string) => {
-      if (!queueState.pendingLocalDeletions.has(messageId)) return false;
+      if (!queueState.pendingLocalDeletions.has(messageId)) {
+        return false;
+      }
       queueState.pendingLocalDeletions.delete(messageId);
       return true;
     }),

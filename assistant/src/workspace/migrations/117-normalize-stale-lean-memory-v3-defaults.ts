@@ -56,21 +56,29 @@ export const normalizeStaleLeanMemoryV3DefaultsMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!isPlainObject(raw)) return;
+      if (!isPlainObject(raw)) {
+        return;
+      }
       config = raw;
     } catch {
       return;
     }
 
     const memory = config.memory;
-    if (!isPlainObject(memory)) return;
+    if (!isPlainObject(memory)) {
+      return;
+    }
     const v3 = memory.v3;
-    if (!isPlainObject(v3)) return;
+    if (!isPlainObject(v3)) {
+      return;
+    }
 
     // Resolve each switched leaf to its container object + presence/value.
     const resolved = LEAN_LEAVES.map((leaf) => {
@@ -92,7 +100,9 @@ export const normalizeStaleLeanMemoryV3DefaultsMigration: WorkspaceMigration = {
         leaf.key in container &&
         container[leaf.key] === leaf.lean,
     );
-    if (!isLeanSeed) return;
+    if (!isLeanSeed) {
+      return;
+    }
 
     for (const { leaf, container } of resolved) {
       delete container![leaf.key];

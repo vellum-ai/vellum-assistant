@@ -25,7 +25,9 @@ const SKILL_EXECUTE_ENVELOPE_KEYS = new Set(["tool", "input", "activity"]);
 export function recoverSkillExecuteEnvelope(
   envelope: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (!isUnparseableToolArgs(envelope)) return envelope;
+  if (!isUnparseableToolArgs(envelope)) {
+    return envelope;
+  }
   try {
     const parsed: unknown = JSON.parse(envelope._raw);
     if (
@@ -73,7 +75,9 @@ export function resolveSkillExecuteInput(
     // A populated object is the well-formed case. An empty object falls
     // through to sibling rescue: the model may have nested nothing yet placed
     // the real parameters at the top level.
-    if (Object.keys(obj).length > 0) return obj;
+    if (Object.keys(obj).length > 0) {
+      return obj;
+    }
   } else if (typeof raw === "string" && raw.trim()) {
     try {
       const parsed: unknown = JSON.parse(raw);
@@ -92,7 +96,9 @@ export function resolveSkillExecuteInput(
       // the bare string onto it rather than discarding content the model
       // actually produced.
       const field = soleRequiredStringField(innerSchema);
-      if (field) return { [field]: raw };
+      if (field) {
+        return { [field]: raw };
+      }
     }
   }
 
@@ -101,7 +107,9 @@ export function resolveSkillExecuteInput(
       ([key]) => !SKILL_EXECUTE_ENVELOPE_KEYS.has(key),
     ),
   );
-  if (Object.keys(siblings).length > 0) return siblings;
+  if (Object.keys(siblings).length > 0) {
+    return siblings;
+  }
 
   return {};
 }
@@ -113,15 +121,21 @@ export function resolveSkillExecuteInput(
  * one field it can unambiguously belong to.
  */
 function soleRequiredStringField(innerSchema: unknown): string | null {
-  if (innerSchema == null || typeof innerSchema !== "object") return null;
+  if (innerSchema == null || typeof innerSchema !== "object") {
+    return null;
+  }
   const schema = innerSchema as {
     required?: unknown;
     properties?: Record<string, { type?: unknown } | undefined>;
   };
   const required = Array.isArray(schema.required) ? schema.required : [];
-  if (required.length !== 1) return null;
+  if (required.length !== 1) {
+    return null;
+  }
   const field = required[0];
-  if (typeof field !== "string") return null;
+  if (typeof field !== "string") {
+    return null;
+  }
   return schema.properties?.[field]?.type === "string" ? field : null;
 }
 
@@ -146,7 +160,9 @@ export function augmentSkillExecuteError(
   resolvedInput: Record<string, unknown>,
   result: ToolExecutionResult,
 ): ToolExecutionResult {
-  if (!result.isError || Object.keys(resolvedInput).length > 0) return result;
+  if (!result.isError || Object.keys(resolvedInput).length > 0) {
+    return result;
+  }
 
   const guidance =
     `\n\nThis skill_execute call carried no parameters for "${toolName}". ` +
