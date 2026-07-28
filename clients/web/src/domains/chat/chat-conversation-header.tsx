@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import {
   buildMoveToGroupTargets,
   isInCustomGroup,
@@ -112,6 +113,15 @@ export function ChatConversationHeader({
           : undefined
       }
       onCopyConversation={headerSupplements?.onCopyConversation ?? undefined}
+      onCopyConversationId={
+        activeConversation.conversationId
+          ? () =>
+              copyIdToClipboard(
+                activeConversation.conversationId!,
+                "Conversation ID",
+              )
+          : undefined
+      }
       onRefresh={
         headerSupplements?.onRefresh && activeConversation.conversationId != null
           ? headerSupplements.onRefresh

@@ -30,6 +30,7 @@ const allActions = {
   hasConversations: true,
   onRename: () => {},
   onDelete: () => {},
+  onCopyGroupId: () => {},
 };
 
 async function openMenu(label = "Group actions") {
@@ -55,6 +56,7 @@ describe("hasAnyGroupMenuAction", () => {
   test("true as soon as one callback is wired", () => {
     expect(hasAnyGroupMenuAction({ onMarkAllRead: () => {} })).toBe(true);
     expect(hasAnyGroupMenuAction({ onDelete: () => {} })).toBe(true);
+    expect(hasAnyGroupMenuAction({ onCopyGroupId: () => {} })).toBe(true);
   });
 });
 
@@ -70,6 +72,7 @@ describe("GroupActionsMenu", () => {
       expect(document.body.textContent).toContain("Archive All");
       expect(document.body.textContent).toContain("Rename");
       expect(document.body.textContent).toContain("Delete group");
+      expect(document.body.textContent).toContain("Copy group ID");
     } finally {
       cleanup();
     }
