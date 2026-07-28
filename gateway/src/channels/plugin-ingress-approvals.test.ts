@@ -46,7 +46,12 @@ function makeWorkspace(): string {
 }
 
 const ROUTES = [
-  { path: "realtime", kind: "websocket" as const, description: "events" },
+  {
+    path: "realtime",
+    kind: "websocket" as const,
+    signer: "plugin" as const,
+    description: "events",
+  },
 ];
 
 function writePlugin(
@@ -69,36 +74,60 @@ function writePlugin(
 describe("ingressDeclarationDigest", () => {
   it("is stable across route ordering", () => {
     const a = ingressDeclarationDigest([
-      { kind: "http", path: "a" },
-      { kind: "http", path: "b" },
+      { kind: "http", signer: "plugin", path: "a" },
+      { kind: "http", signer: "plugin", path: "b" },
     ]);
     const b = ingressDeclarationDigest([
-      { kind: "http", path: "b" },
-      { kind: "http", path: "a" },
+      { kind: "http", signer: "plugin", path: "b" },
+      { kind: "http", signer: "plugin", path: "a" },
     ]);
     expect(a).toBe(b);
   });
 
   it("ignores a description reword so an approval survives it", () => {
     const before = ingressDeclarationDigest([
-      { kind: "http", path: "a", description: "one" } as never,
+      {
+        kind: "http",
+        signer: "plugin",
+        path: "a",
+        description: "one",
+      } as never,
     ]);
     const after = ingressDeclarationDigest([
-      { kind: "http", path: "a", description: "reworded" } as never,
+      {
+        kind: "http",
+        signer: "plugin",
+        path: "a",
+        description: "reworded",
+      } as never,
     ]);
     expect(after).toBe(before);
   });
 
+  it("changes when the signer changes", () => {
+    // Switching signer changes whose key opens the route, so an approval for
+    // one must not carry over to the other.
+    expect(
+      ingressDeclarationDigest([{ kind: "http", signer: "vellum", path: "a" }]),
+    ).not.toBe(
+      ingressDeclarationDigest([{ kind: "http", signer: "plugin", path: "a" }]),
+    );
+  });
+
   it("changes when reach widens or a transport changes", () => {
-    const base = ingressDeclarationDigest([{ kind: "http", path: "a" }]);
+    const base = ingressDeclarationDigest([
+      { kind: "http", signer: "plugin", path: "a" },
+    ]);
     expect(
       ingressDeclarationDigest([
-        { kind: "http", path: "a" },
-        { kind: "http", path: "b" },
+        { kind: "http", signer: "plugin", path: "a" },
+        { kind: "http", signer: "plugin", path: "b" },
       ]),
     ).not.toBe(base);
     expect(
-      ingressDeclarationDigest([{ kind: "websocket", path: "a" }]),
+      ingressDeclarationDigest([
+        { kind: "websocket", signer: "plugin", path: "a" },
+      ]),
     ).not.toBe(base);
   });
 });

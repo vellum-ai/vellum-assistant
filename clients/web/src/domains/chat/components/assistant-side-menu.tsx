@@ -29,11 +29,7 @@ import {
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
-import {
-  SIDEBAR_CONVERSATION_LIMIT,
-  useSidebarState,
-  type UseSidebarStateParams,
-} from "@/domains/chat/use-sidebar-state";
+import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
@@ -609,7 +605,6 @@ export function AssistantSideMenu({
                         <ConversationNavSection
                           key={group.id}
                           value={group.id}
-                          icon={getGroupIcon(group.icon)}
                           label={group.name}
                           /* The "…" button and the header's right-click menu
                              both render from `groupMenu`. */
@@ -622,9 +617,7 @@ export function AssistantSideMenu({
                           groupMenu={groupMenu}
                           items={group.conversations}
                           dragSection={`group:${group.id}`}
-                          collapsedIndicator={collapsedActivityDot(
-                            group.conversations,
-                          )}
+                          collapsedIndicator={collapsedActivityDot(group.conversations)}
                         />
                       );
                     })}

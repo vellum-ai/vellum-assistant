@@ -151,6 +151,70 @@ describe("completeSubmittedSurface", () => {
     );
   });
 
+  it("treats a secondary-styled choice as a successful selection", () => {
+    const messages = [
+      msg({
+        surfaces: [
+          {
+            surfaceId: "s-first-run-scope",
+            surfaceType: "choice",
+            completed: false,
+            data: {},
+            actions: [
+              {
+                id: "scope_work",
+                label: "Help me plan my week",
+                style: "secondary",
+              },
+            ],
+          } as never,
+        ],
+      }),
+    ];
+
+    const result = completeSubmittedSurface(
+      messages,
+      "s-first-run-scope",
+      "scope_work",
+    );
+
+    expect(result[0]!.surfaces![0]!.completed).toBe(true);
+    expect(result[0]!.surfaces![0]!.completionSummary).toBe(
+      "Help me plan my week",
+    );
+  });
+
+  it("preserves an authoritative completion that arrives before the optimistic patch", () => {
+    const messages = [
+      msg({
+        surfaces: [
+          {
+            surfaceId: "s-first-run-scope",
+            surfaceType: "choice",
+            completed: true,
+            completionSummary: 'User chose: "Help me plan my week"',
+            data: {},
+            actions: [
+              {
+                id: "scope_work",
+                label: "Help me plan my week",
+                style: "secondary",
+              },
+            ],
+          } as never,
+        ],
+      }),
+    ];
+
+    expect(
+      completeSubmittedSurface(
+        messages,
+        "s-first-run-scope",
+        "scope_work",
+      ),
+    ).toBe(messages);
+  });
+
   it("leaves non-completing surfaces unchanged", () => {
     const messages = [
       msg({
@@ -195,7 +259,7 @@ describe("completeSubmittedSurface", () => {
       "access-request-req1",
       "apr:req1:leave_unverified",
       replyText,
-      { isGuardianDecision: true, tone: "neutral" },
+      { tone: "neutral" },
     );
 
     const surface = result[0]!.surfaces![0]!;

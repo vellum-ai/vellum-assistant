@@ -24,10 +24,7 @@ import { Button } from "@vellumai/design-library";
 
 import { buildForceLayout } from "./build-force-layout";
 import { CenteredMessage } from "./centered-message";
-import {
-  ConceptDetailPanel,
-  type ConceptDetailNode,
-} from "./concept-detail-panel";
+import { ConceptDetailPanel, type ConceptDetailNode } from "./concept-detail-panel";
 import { ConceptGraphIntroBanner } from "./concept-graph-intro-banner";
 import { ConceptGraphLegend } from "./concept-graph-legend";
 import {

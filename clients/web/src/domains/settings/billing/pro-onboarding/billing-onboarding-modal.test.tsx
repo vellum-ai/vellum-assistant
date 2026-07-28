@@ -39,6 +39,7 @@ import type {
   PlanListResponse,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
+import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
 import {
   readCheckoutIntent,
   saveCheckoutIntent,
@@ -75,6 +76,7 @@ let avatarComponents: CharacterComponents | null = null;
 let avatarTraits: CharacterTraits | null = null;
 let avatarCustomImageUrl: string | null = null;
 mock.module("@/hooks/use-assistant-avatar", () => ({
+  ...assistantAvatarMod,
   useAssistantAvatar: () => ({
     components: avatarComponents,
     traits: avatarTraits,
@@ -295,6 +297,11 @@ mock.module("@/generated/api/sdk.gen", () => ({
 const { BillingOnboardingModal } = await import("./billing-onboarding-modal");
 const { TAKEOVER_SURFACE, TAKEOVER_SURFACE_VAR } =
   await import("./provisioning-state");
+const {
+  clearTakeoverAvatarStash,
+  readTakeoverAvatarStash,
+  saveTakeoverAvatarStash,
+} = await import("@/lib/billing/takeover-avatar-stash");
 
 /**
  * Fast celebration dwell. Long enough for waitFor (50ms polls) to reliably
@@ -322,11 +329,11 @@ function renderModal({
     client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), plans);
   }
   const onClose = mock(() => {});
-  const view = render(
+  const tree = (open: boolean) => (
     <MemoryRouter>
       <QueryClientProvider client={client}>
         <BillingOnboardingModal
-          open
+          open={open}
           onClose={onClose}
           dwellMs={TEST_DWELL_MS}
           phaseMinMs={0}
@@ -334,9 +341,12 @@ function renderModal({
           resizeCredits={resizeCredits}
         />
       </QueryClientProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
-  return { client, onClose, ...view };
+  const view = render(tree(true));
+  /** Flips `open` to false, which is what the parent does on close. */
+  const close = () => view.rerender(tree(false));
+  return { client, onClose, close, ...view };
 }
 
 beforeEach(() => {
@@ -361,6 +371,9 @@ beforeEach(() => {
   dateNowOffsetMs = 0;
   toastInfoCalls.length = 0;
   sessionStorage.clear();
+  // Also resets the stash module's in-memory mirror, which sessionStorage.clear()
+  // leaves in place (it is simply never served while storage is readable).
+  clearTakeoverAvatarStash();
 });
 
 afterEach(() => {
@@ -427,11 +440,16 @@ describe("BillingOnboardingModal", () => {
     expect(queryByText("Super package")).toBeNull();
   });
 
-  test("domain_setup_available false skips straight to complete and clears the intent stash", async () => {
+  test("domain_setup_available false skips straight to complete, clearing the intent there and the avatar stash on close", async () => {
     saveCheckoutIntent({ kind: "package", packageKey: "super" });
+    saveTakeoverAvatarStash({
+      assistantId: "assistant-1",
+      components: BUNDLED_COMPONENTS,
+      traits: null,
+    });
     subscriptionPlanId = "pro";
     onboardingResponse = makeOnboarding({ domain_setup_available: false });
-    const { client, getByText, queryByText } = renderModal();
+    const { client, close, getByText, queryByText } = renderModal();
 
     await waitFor(
       () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
@@ -451,8 +469,14 @@ describe("BillingOnboardingModal", () => {
     });
     expect(queryByText("Assistant Email")).toBeNull();
     expect(readCheckoutIntent()).toBeNull();
+    // The stash outlives the step flip: the exit sheet still paints from the
+    // surface it feeds, so clearing here would slide that tint mid-fade.
+    expect(readTakeoverAvatarStash()).not.toBeNull();
     // Checkout mode never fires the modal-level domains query.
     expect(domainsCalls).toBe(0);
+
+    close();
+    expect(readTakeoverAvatarStash()).toBeNull();
   });
 
   test("no assistant to attach a domain to skips straight to complete", async () => {

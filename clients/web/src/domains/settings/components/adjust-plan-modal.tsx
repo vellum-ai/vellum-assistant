@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import {
   buildPortalReturnSnapshot,
   formatGraceDate,
@@ -255,6 +256,7 @@ export function AdjustPlanModal({
               storageTier: selectedStorageTier,
               creditTier: displayCreditTier,
             });
+            captureTakeoverAvatarStash(queryClient);
             void openUrl(data.checkout_url);
             return;
           }

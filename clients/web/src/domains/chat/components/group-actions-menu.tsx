@@ -18,12 +18,12 @@
  */
 
 import {
-  Archive,
-  CircleCheck,
-  Copy,
-  MoreHorizontal,
-  Pencil,
-  Trash2,
+    Archive,
+    CircleCheck,
+    Copy,
+    MoreHorizontal,
+    Pencil,
+    Trash2,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 

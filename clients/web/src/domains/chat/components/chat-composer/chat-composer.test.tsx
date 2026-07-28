@@ -20,6 +20,7 @@ import {
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import type { LiveVoicePreflightVerdict } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
+import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 // Pure helpers live in `chat-composer-utils` (no mocks needed), so import them
@@ -175,8 +176,11 @@ mock.module("@/lib/backwards-compat/use-supports-live-voice", () => ({
 }));
 
 // Avatar data feeding the voice bar's wave accent. Mocked so the composer
-// renders without a QueryClientProvider (the real hook is React Query).
+// renders without a QueryClientProvider (the real hook is React Query). The
+// real module is spread back in so its other exports survive the mock: the
+// auth store reaches `avatarQueryKey` through the takeover avatar stash.
 mock.module("@/hooks/use-assistant-avatar", () => ({
+  ...assistantAvatarMod,
   useAssistantAvatar: () => ({
     components: null,
     traits: null,

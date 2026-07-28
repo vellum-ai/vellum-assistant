@@ -2,8 +2,12 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import {
+  captureTakeoverAvatarStash,
+  clearTakeoverAvatarStash,
+} from "@/lib/billing/takeover-avatar-stash";
 import { organizationsBillingSubscriptionUpgradeCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
@@ -27,14 +31,26 @@ import { Button } from "@vellumai/design-library/components/button";
  * - `handed_off` — the package intent is stashed and Stripe is open.
  * - `settled` — terminal: an already-Pro `no_op`, a failed upgrade, or a bail.
  *
- * `handed_off` is the line that matters. Before it, this route owns the stash
- * and a bail clears it; after it, the stash belongs to the post-checkout return
- * trip and nothing here may touch it. Electron and native Capacitor open Stripe
- * without unloading the page, so the route is still mounted to enforce that —
- * and to offer the way out a browser closed short of paying otherwise leaves
- * the user without.
+ * `handed_off` is the line that matters. Before it, this route owns the stashes
+ * and a bail clears them; after it, they belong to the post-checkout return
+ * trip and nothing here may touch them. Electron and native Capacitor open
+ * Stripe without unloading the page, so the route is still mounted to enforce
+ * that, and to offer the way out a browser closed short of paying otherwise
+ * leaves the user without.
  */
 type CheckoutPhase = "idle" | "running" | "handed_off" | "settled";
+
+/**
+ * Drops everything an attempt that never reached Stripe left behind. A retry
+ * from the awaiting-return screen re-arms the attempt, so a hand-off followed
+ * by a failing retry forfeits the captured avatar on purpose: that path already
+ * clears the checkout intent, and the cold return falls back to the breathing
+ * placeholder.
+ */
+function abandonCheckout() {
+  clearCheckoutIntent();
+  clearTakeoverAvatarStash();
+}
 
 /**
  * Deep-link checkout entrypoint (`/assistant/checkout?package=<slug>`). The
@@ -108,6 +124,7 @@ export function CheckoutPage() {
   const bailLabel =
     bailTarget === routes.plans ? "View plans" : "Continue setup";
 
+  const queryClient = useQueryClient();
   const { mutateAsync } = useMutation(
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
@@ -152,19 +169,20 @@ export function CheckoutPage() {
         // Stash the selection so the post-checkout provisioning screen can show
         // the purchased package before the subscribe webhook lands.
         saveCheckoutIntent({ kind: "package", packageKey });
+        captureTakeoverAvatarStash(queryClient);
         setAwaitingReturn(returnTarget === "native");
         void openUrl(result.checkout_url);
         return;
       }
-      // `no_op` — already Pro, nothing to provision. Clear the marked stash so
-      // an already-Pro bounce doesn't leave it lingering for its TTL, then hand
-      // off rather than stranding the user on a blank splash. Pro→Pro is an
-      // in-place package switch, never Stripe Checkout, so the requested
+      // `no_op` means already Pro, nothing to provision. Clear the stashes so
+      // an already-Pro bounce doesn't leave them lingering for their TTL, then
+      // hand off rather than stranding the user on a blank splash. Pro→Pro is
+      // an in-place package switch, never Stripe Checkout, so the requested
       // package rides along to plans, which opens that switch from it. A
       // carried continuation owns the destination instead — an onboarding
       // resume must not divert into the switch modal.
       phaseRef.current = "settled";
-      clearCheckoutIntent();
+      abandonCheckout();
       navigate(
         bailTarget === routes.plans && packageKey
           ? routes.plansForPackage(packageKey)
@@ -178,7 +196,7 @@ export function CheckoutPage() {
       phaseRef.current = "settled";
       setFailed(true);
     }
-  }, [bailTarget, mutateAsync, navigate, packageKey]);
+  }, [bailTarget, mutateAsync, navigate, packageKey, queryClient]);
 
   // The retry the failure and hand-off UIs offer. A failed or abandoned attempt
   // re-runs the upgrade; a missing organization re-runs org resolution instead,
@@ -215,12 +233,12 @@ export function CheckoutPage() {
         return;
       }
       // The attempt is over. Settling it makes an in-flight upgrade's result a
-      // no-op, so a response landing after this can't open Stripe. The stash
-      // goes with it whatever ended the attempt: nothing was bought, and a
+      // no-op, so a response landing after this can't open Stripe. Both stashes
+      // go with it whatever ended the attempt: nothing was bought, and a
       // signup-marked intent left readable for its TTL is one the privacy
       // screen resumes checkout from.
       phaseRef.current = "settled";
-      clearCheckoutIntent();
+      abandonCheckout();
       navigate(bailTarget, { replace: true });
       return;
     }
@@ -269,13 +287,13 @@ export function CheckoutPage() {
         <div className="flex items-center gap-4">
           <Button onClick={retryCheckout}>Try again</Button>
           {/*
-           * Taking the escape ends the attempt, so the stash goes with it.
+           * Taking the escape ends the attempt, so both stashes go with it.
            * Nothing was bought, and a signup-marked intent left behind is one
            * the privacy screen resumes checkout from for the rest of its TTL.
            */}
           <Link
             to={bailTarget}
-            onClick={clearCheckoutIntent}
+            onClick={abandonCheckout}
             className="text-sm text-[var(--content-tertiary)] underline"
           >
             {bailLabel}
@@ -295,7 +313,7 @@ export function CheckoutPage() {
         <div className="flex items-center gap-4">
           <Button onClick={retryCheckout}>Reopen checkout</Button>
           {/*
-           * No `clearCheckoutIntent` here, unlike the failure escape: a
+           * No `abandonCheckout` here, unlike the failure escape: a
            * checkout that reached Stripe may have been paid for, and this page
            * can't tell. The hand-off already rewrote the stash without the
            * signup marker, so leaving it can only help the return trip — it

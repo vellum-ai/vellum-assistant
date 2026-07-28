@@ -1,4 +1,4 @@
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { toast } from "@vellumai/design-library/components/toast";
 
 /**
  * Copy an identifier (conversation id, group id) to the clipboard with toast
@@ -6,8 +6,8 @@ import { copyToClipboard } from "@/lib/copy-to-clipboard";
  * paste a precise reference into chat for the assistant to act on.
  */
 export function copyIdToClipboard(id: string, label: string): void {
-  copyToClipboard(id, {
-    successMessage: `${label} copied to clipboard.`,
-    errorMessage: `Couldn't copy the ${label.toLowerCase()}.`,
-  });
+  navigator.clipboard.writeText(id).then(
+    () => toast.success(`${label} copied to clipboard.`),
+    () => toast.error(`Couldn't copy the ${label.toLowerCase()}.`),
+  );
 }

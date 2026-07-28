@@ -145,6 +145,8 @@ import {
   createChannelIngressApproveHandler,
   createChannelIngressRevokeHandler,
 } from "./http/routes/channel-ingress.js";
+import { createPluginWebhookHandler } from "./http/routes/plugin-webhook.js";
+import { resolveCachedPluginIngress } from "./channels/plugin-ingress-approvals.js";
 import {
   createChannelPermissionOverridesListHandler,
   createChannelPermissionOverrideSetHandler,
@@ -605,6 +607,11 @@ async function main() {
     createChannelAdmissionPolicyDeleteHandler();
   const handleChannelIngressApprove = createChannelIngressApproveHandler();
   const handleChannelIngressRevoke = createChannelIngressRevokeHandler();
+  const handlePluginWebhook = createPluginWebhookHandler({
+    config,
+    resolve: resolveCachedPluginIngress,
+    credentials: credentialCache,
+  });
   const handleChannelPermissionOverridesList =
     createChannelPermissionOverridesListHandler();
   const handleChannelPermissionOverrideSet =
@@ -695,6 +702,15 @@ async function main() {
     {
       path: "/webhooks/mailgun",
       handler: (req) => handleMailgunWebhook(req),
+    },
+    // Plugin-declared webhooks. Unauthenticated like their neighbours above;
+    // what makes them safe is that only a guardian-approved declaration
+    // creates one, and every other path here 404s. Any method — the plugin's
+    // route module decides which verbs it answers.
+    {
+      path: /^\/webhooks\/plugins\/([^/]+)\/(.+)$/,
+      handler: (req, params) =>
+        handlePluginWebhook(req, params[0]!, params[1]!),
     },
 
     // ── BYO provider registration (auto-verify guardian email) ──
@@ -2619,6 +2635,21 @@ async function main() {
           "Failed to register email callback route after credential change",
         );
       });
+
+      // Vellum credentials are load-bearing for the Telegram webhook URL when
+      // the managed callback fallback applies: a platform connection arriving
+      // or rotating after Telegram setup must repoint Telegram at the managed
+      // callback route without waiting for an unrelated Telegram or ingress
+      // change, or a system wake. Skipped when telegram credentials changed in
+      // the same event, since that branch already reconciled above.
+      if (telegramReady && !changed.has("telegram")) {
+        reconcileTelegramWebhook(telegramCaches).catch((err) => {
+          log.error(
+            { err },
+            "Failed to reconcile Telegram webhook after vellum credential change",
+          );
+        });
+      }
 
       // Force an immediate per-assistant feature-flag re-sync. A `vellum`
       // credential change means a warm-pool claim / key rotation / late

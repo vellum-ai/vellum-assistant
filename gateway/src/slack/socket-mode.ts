@@ -11,6 +11,7 @@ import {
   SLACK_THREAD_ALREADY_MUTED,
   SLACK_THREAD_MUTE_SUCCESS,
 } from "../webhook-copy.js";
+import { ExponentialBackoff } from "../util/exponential-backoff.js";
 import {
   CatchupAbortSignal,
   fetchChannelHistorySince,
@@ -147,7 +148,11 @@ export class SlackSocketModeClient {
   private ws: WebSocket | null = null;
   private connecting = false;
   private running = false;
-  private reconnectAttempt = 0;
+  private readonly backoff = new ExponentialBackoff({
+    baseDelayMs: BASE_BACKOFF_MS,
+    maxDelayMs: MAX_BACKOFF_MS,
+    jitter: { mode: "additive", ratio: 0.5 },
+  });
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
   private store: SlackStore;
@@ -340,7 +345,7 @@ export class SlackSocketModeClient {
       this.reconnectTimer = null;
     }
 
-    this.reconnectAttempt = 0;
+    this.backoff.reset();
 
     const oldWs = this.ws;
     this.ws = null;
@@ -668,7 +673,7 @@ export class SlackSocketModeClient {
 
       ws.addEventListener("open", () => {
         log.info("Slack Socket Mode connected");
-        this.reconnectAttempt = 0;
+        this.backoff.reset();
         // Retry bot identity resolution on every reconnect so a transient
         // auth.test failure at startup is self-healing. Once resolved, the
         // check in resolveBotIdentity short-circuits immediately (no await
@@ -789,7 +794,7 @@ export class SlackSocketModeClient {
         }
         this.ws = null;
         // Reconnect immediately (attempt 0 = minimal backoff)
-        this.reconnectAttempt = 0;
+        this.backoff.reset();
         this.scheduleReconnect();
       }
       return;
@@ -1535,19 +1540,10 @@ export class SlackSocketModeClient {
     if (!this.running) return;
     if (this.reconnectTimer) return;
 
-    const backoff = Math.min(
-      BASE_BACKOFF_MS * Math.pow(2, this.reconnectAttempt),
-      MAX_BACKOFF_MS,
-    );
-    // Add jitter: 0-50% of backoff
-    const jitter = Math.random() * backoff * 0.5;
-    const delay = Math.round(backoff + jitter);
+    const attempt = this.backoff.attemptCount;
+    const delay = this.backoff.nextDelayMs();
 
-    log.info(
-      { attempt: this.reconnectAttempt, delayMs: delay },
-      "Scheduling Socket Mode reconnect",
-    );
-    this.reconnectAttempt++;
+    log.info({ attempt, delayMs: delay }, "Scheduling Socket Mode reconnect");
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;

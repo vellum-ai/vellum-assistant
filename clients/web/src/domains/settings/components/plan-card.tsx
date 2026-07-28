@@ -24,6 +24,7 @@ import {
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { packageSpecs } from "@/domains/settings/billing/plan-spec";
 import { PlanSpecCard } from "@/domains/settings/billing/plan-spec-card";
+import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
   formatGraceDate,
@@ -269,6 +270,7 @@ function RecommendedUpgrade({
           kind: "package",
           packageKey: recommended.key,
         });
+        captureTakeoverAvatarStash(queryClient);
         // Stripe returns with a `session_id`, which opens the
         // post-checkout Pro onboarding wizard — via the billing page on
         // web, via the `billing/checkout-complete` deep link on macOS.

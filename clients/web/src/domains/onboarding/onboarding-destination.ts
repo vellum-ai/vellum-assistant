@@ -21,5 +21,7 @@ export function onboardingDestinationAfterConsent({
   /** A local-hosting onboarding that must run the foreground local hatch. */
   isLocalHatch: boolean;
 }): string {
-  return isLocalHatch ? routes.onboarding.hatching : routes.onboarding.research;
+  return isLocalHatch
+    ? routes.onboarding.hatching
+    : routes.onboarding.research;
 }

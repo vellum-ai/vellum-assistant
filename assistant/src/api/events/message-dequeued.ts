@@ -16,6 +16,10 @@ export const MessageDequeuedEventSchema = z.object({
   type: z.literal("message_dequeued"),
   conversationId: z.string(),
   requestId: z.string(),
+  /** Sender-minted idempotency nonce from the originating POST, when the
+   *  sender provided one. Lets the originating client bind this event to
+   *  its local optimistic row by identity instead of arrival order. */
+  clientMessageId: z.string().optional(),
 });
 
 export type MessageDequeuedEvent = z.infer<typeof MessageDequeuedEventSchema>;
