@@ -194,7 +194,7 @@ describe("visualize_render", () => {
     await visualizeRenderTool.execute({ html, height: 99999 }, context);
 
     const parsed = UISurfaceShowEventSchema.parse(sent[0]);
-    expect(parsed.data.height).toBe(2000);
+    expect(parsed.data.height).toBe(1400);
   });
 
   test("rejects empty html without emitting a surface", async () => {

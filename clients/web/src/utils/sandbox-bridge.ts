@@ -281,12 +281,26 @@ export function buildWidgetPromptScript(frameId: string): string {
 }
 
 /**
+ * Content-Security-Policy for inline visual documents. A sandboxed frame
+ * without `allow-same-origin` still permits outbound subresource loads
+ * (`<img src="https://…">`, CSS `url(…)`, script-created `fetch`/`Image`),
+ * which would let model-authored markup leak conversation-derived content to
+ * arbitrary hosts. A visual is self-contained by contract: everything inline,
+ * fonts and images only as `data:` URIs, no network at all.
+ */
+export const WIDGET_CSP_META =
+  `<meta http-equiv="Content-Security-Policy" content="` +
+  `default-src 'none'; script-src 'unsafe-inline'; ` +
+  `style-src 'unsafe-inline'; img-src data:; font-src data:">`;
+
+/**
  * Inject the widget bridge into an inline visual's HTML.
  *
  * Unlike {@link injectBridge} there is no fetch proxy and no `window.vellum`
  * namespace — a visual is a self-contained illustration, not an app. It gets
- * the storage polyfill, the shared link interceptor, the height reporter and
- * `sendPrompt`.
+ * a network-blocking CSP (first, so it governs every script and subresource
+ * that follows), the storage polyfill, the shared link interceptor, the
+ * height reporter and `sendPrompt`.
  *
  * @param head Markup prepended alongside the storage polyfill — the resolved
  *   design tokens and inlined brand fonts.
@@ -307,7 +321,7 @@ export function injectWidgetBridge(
       // first measurement runs.
       { fallback: "append" },
     ),
-    buildStoragePolyfill() + head,
+    WIDGET_CSP_META + buildStoragePolyfill() + head,
   );
 }
 

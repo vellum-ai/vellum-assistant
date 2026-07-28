@@ -8,6 +8,7 @@ import {
   injectBridge,
   injectScript,
   injectWidgetBridge,
+  WIDGET_CSP_META,
   jsonForScript,
   preparePreviewHtml,
   prependScript,
@@ -409,6 +410,19 @@ describe("injectWidgetBridge", () => {
     expect(out.indexOf("vellum_widget_height")).toBeLessThan(bodyClose);
   });
 
+  it("puts the network-blocking CSP ahead of every script and the content", () => {
+    const out = injectWidgetBridge(
+      "<html><head></head><body><div>widget</div></body></html>",
+      FRAME_ID,
+      "<style>x</style>",
+    );
+    const cspIdx = out.indexOf(WIDGET_CSP_META);
+    expect(cspIdx).toBeGreaterThan(-1);
+    expect(out).toContain("default-src 'none'");
+    expect(cspIdx).toBeLessThan(out.indexOf("<script>"));
+    expect(cspIdx).toBeLessThan(out.indexOf("<div>widget</div>"));
+  });
+
   it("omits the fetch proxy — a visual is not an app", () => {
     const out = injectWidgetBridge("<div>widget</div>", FRAME_ID);
     expect(out).not.toContain("vellum_fetch_request");
@@ -417,7 +431,7 @@ describe("injectWidgetBridge", () => {
 
   it("handles fragments without head/body tags", () => {
     const out = injectWidgetBridge("<svg></svg>", FRAME_ID, "<style>x</style>");
-    expect(out.startsWith("<script>")).toBe(true);
+    expect(out.startsWith(WIDGET_CSP_META)).toBe(true);
     expect(out).toContain("<svg></svg>");
     expect(out.indexOf("<style>x</style>")).toBeLessThan(out.indexOf("<svg></svg>"));
     expect(out.indexOf("vellum_widget_height")).toBeGreaterThan(out.indexOf("<svg></svg>"));

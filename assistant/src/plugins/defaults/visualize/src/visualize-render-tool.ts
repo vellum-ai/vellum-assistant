@@ -22,9 +22,13 @@ import { TOKEN_FAMILY_SUMMARY, WIDGET_TOKEN_NAMES } from "./token-allowlist.js";
 /** Upper bound on fragment size. Well above any well-formed visual. */
 const MAX_HTML_CHARS = 48000;
 
-/** Bounds for the caller's initial height estimate, in CSS pixels. */
+/**
+ * Bounds for the caller's initial height estimate, in CSS pixels. MAX_HEIGHT
+ * matches the client renderer's clamp (`visual-surface.tsx`) so an estimate
+ * is never accepted here that the frame would clip there.
+ */
 const MIN_HEIGHT = 80;
-const MAX_HEIGHT = 2000;
+const MAX_HEIGHT = 1400;
 
 /**
  * Sub-resource loads the sandbox blocks outright. Catching them here turns a
