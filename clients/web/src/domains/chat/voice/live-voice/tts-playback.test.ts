@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import {
   LiveVoiceAudioPlayer,
@@ -16,6 +16,7 @@ import {
 
 interface MockSource {
   buffer: AudioBuffer | null;
+  connectedTo: AudioNode | null;
   startedAt: number | null;
   stopped: boolean;
   disconnected: boolean;
@@ -30,6 +31,19 @@ class MockAudioContext {
   state: AudioContextState = "suspended";
   resumeCount = 0;
   readonly sources: MockSource[] = [];
+  mediaStreamDestinationCreateCount = 0;
+  readonly mediaStreamTrack = {
+    stopped: false,
+    stop() {
+      this.stopped = true;
+    },
+  };
+  readonly mediaStream = {
+    getTracks: () => [this.mediaStreamTrack],
+  } as unknown as MediaStream;
+  readonly mediaStreamDestination = {
+    stream: this.mediaStream,
+  } as unknown as MediaStreamAudioDestinationNode;
 
   async resume(): Promise<void> {
     this.resumeCount++;
@@ -73,6 +87,7 @@ class MockAudioContext {
     const getCurrentTime = () => this.currentTime;
     const source: MockSource = {
       buffer: null,
+      connectedTo: null,
       startedAt: null,
       stopped: false,
       disconnected: false,
@@ -95,7 +110,9 @@ class MockAudioContext {
       set onended(cb: (() => void) | null) {
         source.onended = cb;
       },
-      connect() {},
+      connect(destination: AudioNode) {
+        source.connectedTo = destination;
+      },
       disconnect() {
         source.disconnected = true;
       },
@@ -110,8 +127,32 @@ class MockAudioContext {
     return node;
   }
 
+  createMediaStreamDestination(): MediaStreamAudioDestinationNode {
+    this.mediaStreamDestinationCreateCount += 1;
+    return this.mediaStreamDestination;
+  }
+
   async close(): Promise<void> {
     this.closed = true;
+  }
+}
+
+class MockMediaStreamPlaybackElement {
+  srcObject: HTMLMediaElement["srcObject"] = null;
+  playCount = 0;
+  pauseCount = 0;
+
+  constructor(private readonly playError?: Error) {}
+
+  async play(): Promise<void> {
+    this.playCount += 1;
+    if (this.playError) {
+      throw this.playError;
+    }
+  }
+
+  pause(): void {
+    this.pauseCount += 1;
   }
 }
 
@@ -124,7 +165,9 @@ function encodePcm16Base64(samples: number[]): string {
     bytes[i * 2 + 1] = (v >> 8) & 0xff;
   });
   let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
+  for (const b of bytes) {
+    binary += String.fromCharCode(b);
+  }
   return btoa(binary);
 }
 
@@ -139,7 +182,25 @@ function makePlayer(): {
   return { player, ctx };
 }
 
-function chunk(samples: number[], sampleRate = 24000): {
+function makeMediaStreamPlayer(playError?: Error): {
+  player: LiveVoiceAudioPlayer;
+  ctx: MockAudioContext;
+  mediaElement: MockMediaStreamPlaybackElement;
+} {
+  const ctx = new MockAudioContext();
+  const mediaElement = new MockMediaStreamPlaybackElement(playError);
+  const player = new LiveVoiceAudioPlayer({
+    audioContextFactory: () => ctx as unknown as AudioContextLike,
+    useMediaStreamOutput: true,
+    mediaStreamPlaybackElementFactory: () => mediaElement,
+  });
+  return { player, ctx, mediaElement };
+}
+
+function chunk(
+  samples: number[],
+  sampleRate = 24000,
+): {
   dataBase64: string;
   sampleRate: number;
   mimeType: string;
@@ -153,7 +214,9 @@ function chunk(samples: number[], sampleRate = 24000): {
 
 /** Drain the microtask queue so serialized async decodes settle. */
 async function flushMicrotasks(): Promise<void> {
-  for (let i = 0; i < 8; i++) await Promise.resolve();
+  for (let i = 0; i < 8; i++) {
+    await Promise.resolve();
+  }
 }
 
 /** Build a frame with an arbitrary mimeType and opaque (non-PCM) payload. */
@@ -215,6 +278,48 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(ctx.resumeCount).toBe(1);
   });
 
+  test("Capacitor iOS routes TTS through a playing MediaStream track", () => {
+    const {
+      player: mediaStreamPlayer,
+      ctx: mediaStreamContext,
+      mediaElement,
+    } = makeMediaStreamPlayer();
+
+    mediaStreamPlayer.prewarm();
+    mediaStreamPlayer.enqueue(chunk(new Array(24000).fill(100)));
+
+    expect(mediaStreamContext.mediaStreamDestinationCreateCount).toBe(1);
+    expect(mediaElement.srcObject).toBe(mediaStreamContext.mediaStream);
+    expect(mediaElement.playCount).toBe(1);
+    expect(mediaStreamContext.sources[0]!.connectedTo).toBe(
+      mediaStreamContext.mediaStreamDestination,
+    );
+  });
+
+  test("falls back to direct output when MediaStream playback is rejected", async () => {
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const {
+        player: mediaStreamPlayer,
+        ctx: mediaStreamContext,
+        mediaElement,
+      } = makeMediaStreamPlayer(new Error("playback rejected"));
+
+      mediaStreamPlayer.prewarm();
+      await flushMicrotasks();
+      mediaStreamPlayer.enqueue(chunk(new Array(24000).fill(100)));
+
+      expect(mediaElement.srcObject).toBeNull();
+      expect(mediaStreamContext.mediaStreamTrack.stopped).toBe(true);
+      expect(mediaStreamContext.sources[0]!.connectedTo).toBe(
+        mediaStreamContext.destination,
+      );
+      expect(consoleError).toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   test("schedules chunks in order, gaplessly, at the frame sample rate", () => {
     // Two 24 kHz frames of 24000 samples each => 1.0s buffers.
     player.enqueue(chunk(new Array(24000).fill(100)));
@@ -227,6 +332,7 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(ctx.sources[1]!.startedAt).toBeCloseTo(1.0, 6);
     // Buffers were built at the frame's own 24 kHz rate, not the 48 kHz ctx.
     expect(ctx.sources[0]!.buffer!.sampleRate).toBe(24000);
+    expect(ctx.sources[0]!.connectedTo).toBe(ctx.destination);
 
     expect(player.isPlaying).toBe(true);
   });
@@ -551,6 +657,21 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(ctx.sources.every((s) => s.stopped)).toBe(true);
     expect(ctx.closed).toBe(true);
     expect(player.isPlaying).toBe(false);
+  });
+
+  test("dispose() releases the iOS MediaStream output route", async () => {
+    const {
+      player: mediaStreamPlayer,
+      ctx: mediaStreamContext,
+      mediaElement,
+    } = makeMediaStreamPlayer();
+    mediaStreamPlayer.prewarm();
+
+    await mediaStreamPlayer.dispose();
+
+    expect(mediaElement.pauseCount).toBe(1);
+    expect(mediaElement.srcObject).toBeNull();
+    expect(mediaStreamContext.mediaStreamTrack.stopped).toBe(true);
   });
 
   test("dispose() is a no-op when no context was ever created", async () => {
