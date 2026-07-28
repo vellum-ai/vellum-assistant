@@ -61,6 +61,7 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
@@ -137,6 +138,8 @@ export function TranscriptMessageBody({
   isStreaming = false,
   isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
+  const collapseAssistantIntermediates =
+    useClientFeatureFlagStore.use.collapseAssistantIntermediates();
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
@@ -1025,38 +1028,40 @@ export function TranscriptMessageBody({
     (group) => group.type === "text" && group.text.trim().length > 0,
   );
   const renderedGroups = groups.map((group, gi) => renderGroupNode(group, gi));
-  const collapsibleGroupIndexes = groups.flatMap((group, groupIndex) => {
-    if (groupIndex >= finalResponseGroupIndex) {
-      return [];
-    }
-    if (group.type === "surface") {
-      return [];
-    }
-    if (group.type === "text") {
-      const isSurfaceAdjacent =
-        groups[groupIndex - 1]?.type === "surface" ||
-        groups[groupIndex + 1]?.type === "surface";
-      return parseInlineSurfaces(group.text) || isSurfaceAdjacent
-        ? []
-        : [groupIndex];
-    }
+  const collapsibleGroupIndexes = collapseAssistantIntermediates
+    ? groups.flatMap((group, groupIndex) => {
+        if (groupIndex >= finalResponseGroupIndex) {
+          return [];
+        }
+        if (group.type === "surface") {
+          return [];
+        }
+        if (group.type === "text") {
+          const isSurfaceAdjacent =
+            groups[groupIndex - 1]?.type === "surface" ||
+            groups[groupIndex + 1]?.type === "surface";
+          return parseInlineSurfaces(group.text) || isSurfaceAdjacent
+            ? []
+            : [groupIndex];
+        }
 
-    const { toolCalls } = activityItemsToCardData(group.items);
-    const hasVisibleOutputOrControl =
-      hasToolResultImages(toolCalls) ||
-      toolCalls.some(
-        (toolCall) =>
-          isToolCallRunning(toolCall) ||
-          toolCall.pendingConfirmation !== undefined ||
-          isSubagentSpawnCall(toolCall) ||
-          cardBackedWorkflowRunId(toolCall) !== null ||
-          cardBackedAcpRunId(toolCall) !== null ||
-          cardBackedBackgroundTaskId(toolCall) !== null ||
-          acpConnectToolUseId === toolCall.id ||
-          unknownNudgeToolCallIds?.has(toolCall.id) === true,
-      );
-    return hasVisibleOutputOrControl ? [] : [groupIndex];
-  });
+        const { toolCalls } = activityItemsToCardData(group.items);
+        const hasVisibleOutputOrControl =
+          hasToolResultImages(toolCalls) ||
+          toolCalls.some(
+            (toolCall) =>
+              isToolCallRunning(toolCall) ||
+              toolCall.pendingConfirmation !== undefined ||
+              isSubagentSpawnCall(toolCall) ||
+              cardBackedWorkflowRunId(toolCall) !== null ||
+              cardBackedAcpRunId(toolCall) !== null ||
+              cardBackedBackgroundTaskId(toolCall) !== null ||
+              acpConnectToolUseId === toolCall.id ||
+              unknownNudgeToolCallIds?.has(toolCall.id) === true,
+          );
+        return hasVisibleOutputOrControl ? [] : [groupIndex];
+      })
+    : [];
   const collapsibleGroupIndexSet = new Set(collapsibleGroupIndexes);
   const assistantContent =
     collapsibleGroupIndexes.length > 0

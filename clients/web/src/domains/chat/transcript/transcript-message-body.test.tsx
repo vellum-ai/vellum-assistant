@@ -1,4 +1,12 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -279,6 +287,7 @@ import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 const noop = () => {};
 
@@ -338,8 +347,16 @@ function surfaceBlock(surfaceId: string): ConversationContentBlock {
 afterAll(() => {
   mock.restore();
 });
+beforeEach(() => {
+  useClientFeatureFlagStore.setState({
+    collapseAssistantIntermediates: true,
+  });
+});
 afterEach(() => {
   cleanup();
+  useClientFeatureFlagStore.setState({
+    collapseAssistantIntermediates: false,
+  });
 });
 
 function renderMessage(
@@ -651,6 +668,36 @@ describe("TranscriptMessageBody", () => {
 
     expect(queryByText("I will check that.")).not.toBeNull();
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("keeps completed assistant activity visible when the flag is disabled", () => {
+    useClientFeatureFlagStore.setState({
+      collapseAssistantIntermediates: false,
+    });
+
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "ungated-response",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will check that."),
+            toolUseBlock({
+              id: "tc-ungated-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will check that.")).not.toBeNull();
+    expect(queryByText("Here is the final answer.")).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
   });
 
   test("keeps all assistant activity visible while the response is streaming", () => {
