@@ -273,9 +273,9 @@ export function VoiceSessionPill({
             muted ? "[--vbtn-fg:var(--system-negative-strong)]" : undefined
           }
         />
-        {/* With the label gone the waves are the pill's largest target, so
-            they carry the return-to-thread tap (a `button` only when there is
-            a thread to return to). */}
+        {/* The waves are the pill's largest target, so they carry the
+            return-to-thread tap — a `button` only when there is a thread to
+            return to. */}
         {onNavigate ? (
           <button
             type="button"

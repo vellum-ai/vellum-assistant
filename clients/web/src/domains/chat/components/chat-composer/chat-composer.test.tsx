@@ -1402,10 +1402,24 @@ describe("ChatComposer — live-voice integration", () => {
 // ---------------------------------------------------------------------------
 // Live-voice transcript in the composer text area (Light 55)
 //
-// While speech streams, the disabled textarea is visually hidden and the
-// display-only `VoiceLiveTranscript` renders in its grid cell; with no
-// transcript yet the textarea (and its placeholder) stays visible.
+// An owned live-voice session collapses the textarea row for its whole
+// duration — the textarea is disabled throughout, so its placeholder would
+// invite an interaction that cannot happen. When the show-your-words pref is
+// on and speech is streaming, the display-only `VoiceLiveTranscript` takes
+// that same grid cell and the row stays mounted to carry it.
+//
+// The textarea's own `className` is not the signal: the row wrapping it is
+// what carries `hidden`, so assertions go through `textareaRowHidden`.
 // ---------------------------------------------------------------------------
+
+/** Whether the grid row wrapping the textarea is collapsed. */
+function textareaRowHidden(container: HTMLElement): boolean {
+  const textarea = container.querySelector("textarea");
+  if (!textarea) {
+    throw new Error("no textarea rendered");
+  }
+  return textarea.closest("div.hidden") !== null;
+}
 
 describe("ChatComposer — live-voice transcript area", () => {
   test("streaming speech hides the textarea and renders the transcript in its place", () => {
@@ -1452,11 +1466,12 @@ describe("ChatComposer — live-voice transcript area", () => {
     // WHEN the composer renders
     const { container, queryByLabelText } = renderVoiceComposer();
 
-    // THEN no transcript region mounts and the (still-uneditable) textarea
-    // stays visible so its placeholder shows through instead
+    // THEN no transcript region mounts, and with nothing to put in that cell
+    // the whole row collapses — the disabled textarea's placeholder must not
+    // show through for the session's duration
     expect(queryByLabelText("Voice transcript")).toBeNull();
+    expect(textareaRowHidden(container)).toBe(true);
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-    expect(textarea.className).not.toContain("hidden");
     expect(textarea.disabled).toBe(true);
   });
 
@@ -1470,26 +1485,27 @@ describe("ChatComposer — live-voice transcript area", () => {
     // WHEN the composer renders
     const { container, queryByLabelText } = renderVoiceComposer();
 
-    // THEN no transcript region mounts and the textarea stays editable —
-    // thread A's speech must not leak into thread B's input
+    // THEN no transcript region mounts and this composer keeps a normal,
+    // editable input — thread A's speech must not leak into thread B's input,
+    // and thread B's own row is not a session surface
     expect(queryByLabelText("Voice transcript")).toBeNull();
+    expect(textareaRowHidden(container)).toBe(false);
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-    expect(textarea.className).not.toContain("hidden");
     expect(textarea.disabled).toBe(false);
   });
 
-  test("empty transcript keeps the textarea (and its placeholder) visible", () => {
-    // GIVEN an active owned session with no speech yet (Light 53 baseline)
+  test("empty transcript collapses the row rather than showing a dead placeholder", () => {
+    // GIVEN an active owned session with no speech yet
     useTurnStore.setState(INITIAL_TURN_STATE);
     seedLiveVoiceSession("listening");
 
     // WHEN the composer renders
     const { container, queryByLabelText } = renderVoiceComposer();
 
-    // THEN nothing replaces the textarea — its placeholder shows through
+    // THEN there is nothing to occupy the cell, so the row collapses and the
+    // voice bar stands alone
     expect(queryByLabelText("Voice transcript")).toBeNull();
-    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-    expect(textarea.className).not.toContain("hidden");
+    expect(textareaRowHidden(container)).toBe(true);
   });
 
   test("textarea is restored after the session ends, even with a leftover final transcript", () => {
@@ -1500,10 +1516,11 @@ describe("ChatComposer — live-voice transcript area", () => {
     // WHEN the composer renders
     const { container, queryByLabelText } = renderVoiceComposer();
 
-    // THEN the composer behaves normally: no transcript region, editable textarea
+    // THEN the composer behaves normally: no transcript region, and the row
+    // is back with an editable textarea
     expect(queryByLabelText("Voice transcript")).toBeNull();
+    expect(textareaRowHidden(container)).toBe(false);
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-    expect(textarea.className).not.toContain("hidden");
     expect(textarea.disabled).toBe(false);
   });
 
