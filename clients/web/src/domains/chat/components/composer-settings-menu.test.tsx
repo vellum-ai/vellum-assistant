@@ -271,7 +271,9 @@ import { ComposerSettingsMenu } from "@/domains/chat/components/composer-setting
 // Real store (not mocked) — the component reads the draft conversation id and
 // the pending-profile stash from it.
 import { useConversationStore } from "@/stores/conversation-store";
+import type { Conversation } from "@/types/conversation-types";
 import { ApiError } from "@/utils/api-errors";
+import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
 
 /** The config payload most cases mount against: one profile, "Smart". */
 const SMART_CONFIG = {
@@ -1075,5 +1077,39 @@ describe("compact composer collapse", () => {
       true,
       false,
     ]);
+  });
+});
+
+describe("Profile selection on a draft stub conversation (ATL-1136)", () => {
+  test("stashes the selection instead of PUTting against the unminted id", async () => {
+    // Guard against a hanging/altered config impl leaking from a prior test.
+    configGetMock.mockImplementation(async () => ({ data: SMART_CONFIG }));
+    // First send in flight: the optimistic draft stub is in the foreground
+    // list cache, so the composer's `conversationId` prop is the client-minted
+    // draft id — which has no server row yet, so a PUT against it would 404.
+    useConversationStore.getState().setActiveConversationId("draft-xyz");
+    const qc = createQueryClient();
+    qc.setQueryData(conversationsQueryKey("assistant-1"), [
+      { conversationId: "draft-xyz", draft: true } as Conversation,
+    ]);
+    renderMenu({ props: { conversationId: "draft-xyz" }, queryClient: qc });
+
+    await waitFor(() =>
+      expect(screen.getAllByText("Smart").length).toBeGreaterThan(0),
+    );
+    const smart = screen
+      .getAllByTestId("menu-item")
+      .find((b) => b.textContent?.includes("Smart"));
+    fireEvent.click(smart!);
+
+    // The selection lands in the stash (the send path / mint-time re-key
+    // applies it), with no network write and no error toast.
+    await waitFor(() => {
+      expect(
+        useConversationStore.getState().pendingDraftProfiles.get("draft-xyz"),
+      ).toBe("smart");
+    });
+    expect(inferenceprofilePut).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
   });
 });
