@@ -158,6 +158,12 @@ const TTS_MAX_OPEN_SYNTHESIS_JOBS = 2;
 // lull rather than on the heels of the turn that just ended; short enough that
 // the user is not left wondering whether the work survived.
 const CONTINUATION_ANNOUNCE_SILENCE_MS = 1_500;
+// How many times a pending announcement re-arms itself against a client
+// playback tail that outlasted its timer. Each re-arm waits out the whole
+// remaining tail, so one covers a reply of any length; the rest cover a fresh
+// reply's audio landing between two checks. Beyond the cap the announcement
+// falls back to the stash rather than chasing a call that keeps talking.
+const CONTINUATION_ANNOUNCE_MAX_DRAIN_REARMS = 3;
 // `content` of an announcement turn. The answer never rides here — it goes in
 // the model-facing control prompt (buildLiveDeliveryNote), so the only thing
 // persisted on the user side is this marker, and it persists hidden.
@@ -941,7 +947,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // session speaks the result on its own once the call has been quiet for
   // `continuationAnnounceSilenceMs`. This and `pendingContinuationResult` are
   // armed together and are two routes for ONE answer — whichever fires first
-  // clears the other, so the user hears it exactly once.
+  // clears the other, so the user hears it exactly once. An announcement whose
+  // turn fails to start hands the answer back to the stash, so a lost dispatch
+  // costs the announcement, not the answer.
   private pendingAnnouncement: ContinuationDelivery | null = null;
   private announcementTimer: ReturnType<typeof setTimeout> | null = null;
   // Set when a continuation actually spawns: the request it took over, so the
@@ -2033,15 +2041,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * exception applies. Re-arming resets the wait, so a run of arms collapses
    * into one announcement.
    *
+   * The silence the timer waits out starts when the audio the client already
+   * has queued runs out, so a continuation finishing at the tail end of a long
+   * spoken reply waits for that reply to actually finish playing.
+   *
    * `retry` marks the single re-arm a blocked attempt gets. Beyond that the
    * announcement is dropped rather than retried forever: the stash path still
    * delivers the same answer on the user's next turn, so a busy call loses
    * nothing.
    */
-  private scheduleContinuationAnnouncement(retry = false): void {
+  private scheduleContinuationAnnouncement(
+    retry = false,
+    drainRearms = 0,
+  ): void {
     if (this.announcementTimer) {
       clearTimeout(this.announcementTimer);
     }
+    // Queued client-side audio is the previous reply still being audible, so
+    // the silence window only begins once it has drained.
+    const drainMs = Math.max(0, this.assistantPlaybackTailUntilMs - Date.now());
     this.announcementTimer = setTimeout(() => {
       this.announcementTimer = null;
       const blockedBy = this.continuationAnnouncementBlocker();
@@ -2052,15 +2070,31 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       log.debug(
-        { conversationId: this.conversationId, blockedBy, retry },
+        { conversationId: this.conversationId, blockedBy, retry, drainRearms },
         "Voice duplex continuation announcement deferred",
       );
+      // A tail that grew while the timer ran (the reply was still streaming
+      // TTS when it was armed) is a wait of known length rather than a busy
+      // call, so it re-arms against the new deadline without spending the
+      // single retry the busy-call blockers get — otherwise a long reply's
+      // playback alone outlasts the budget and the announcement is dropped
+      // even though the call goes idle right after. The tail only extends
+      // while a turn is active, which blocks earlier, so the re-arms converge;
+      // the cap bounds the interleaving where a fresh turn's audio lands
+      // between two checks.
+      if (
+        blockedBy === "playback_draining" &&
+        drainRearms < CONTINUATION_ANNOUNCE_MAX_DRAIN_REARMS
+      ) {
+        this.scheduleContinuationAnnouncement(retry, drainRearms + 1);
+        return;
+      }
       if (retry || this.pendingAnnouncement === null) {
         this.pendingAnnouncement = null;
         return;
       }
-      this.scheduleContinuationAnnouncement(true);
-    }, this.continuationAnnounceSilenceMs);
+      this.scheduleContinuationAnnouncement(true, drainRearms);
+    }, drainMs + this.continuationAnnounceSilenceMs);
   }
 
   // Why the session must not speak up right now, or null when the call is
@@ -2077,6 +2111,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     if (this.activeAssistantTurn !== null) {
       return "turn_active";
+    }
+    // The turn can be cleared server-side (tts_done sent) while the client is
+    // still playing the audio it queued: that tail is the previous reply still
+    // being audible, so announcing over it is announcing over the assistant.
+    if (Date.now() < this.assistantPlaybackTailUntilMs) {
+      return "playback_draining";
     }
     if (this.vadSpeechStartPending || this.pendingBargeIn !== null) {
       return "speech_onset";
@@ -2108,21 +2148,49 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
     this.pendingAnnouncement = null;
-    // Delivered here, so the stash must not deliver the same answer again on
-    // the user's next turn.
+    // The two routes for one answer are mutually exclusive: while this turn is
+    // in flight the stash must not deliver the same answer again, and the stash
+    // only comes back if the turn provably never started.
     this.pendingContinuationResult = null;
-    log.info(
-      {
-        conversationId: this.conversationId,
-        resultChars: pending.answer.length,
-        resultDestination: "announced",
-      },
-      "Voice duplex continuation announced",
-    );
-    await this.launchAssistantTurn(
+    // Pins the invalidation state this hand-off was decided in: a hard stop
+    // landing while the turn starts owns the drop, and must not be undone by
+    // the restore below.
+    const stopGeneration = this.detachStopGeneration;
+    const started = await this.launchAssistantTurn(
       createSyntheticUtterance(),
       CONTINUATION_DELIVERY_CONTENT,
       { continuationDelivery: pending },
+    );
+    if (started) {
+      log.info(
+        {
+          conversationId: this.conversationId,
+          resultChars: pending.answer.length,
+          resultDestination: "announced",
+        },
+        "Voice duplex continuation announced",
+      );
+      return;
+    }
+    // The turn never reached the bridge (the conversation is busy from another
+    // surface, or the bridge threw), so nothing was persisted or spoken. Hand
+    // the answer back to the stash — the user's next turn is the fallback route
+    // that exists for exactly this. A newer continuation's answer already in
+    // the stash wins over this older one rather than being overwritten.
+    const restashed =
+      !this.isClosed &&
+      this.detachStopGeneration === stopGeneration &&
+      this.pendingContinuationResult === null;
+    if (restashed) {
+      this.pendingContinuationResult = pending.answer;
+    }
+    log.warn(
+      {
+        conversationId: this.conversationId,
+        resultChars: pending.answer.length,
+        resultDestination: restashed ? "stashed" : "dropped",
+      },
+      "Voice duplex continuation announcement could not start",
     );
   }
 
@@ -2962,7 +3030,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   // Build the ActiveAssistantTurn for a released utterance and drive its model
-  // leg.
+  // leg. Resolves true once the leg has a live turn handle, false when the
+  // dispatch never reached the bridge — the signal a caller with a fallback
+  // route (announceContinuation) needs, since a failed start is otherwise
+  // handled entirely inside startAssistantLeg.
   private async launchAssistantTurn(
     utterance: UtteranceCycle,
     content: string,
@@ -2985,7 +3056,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // verdict rolls everything back instead.
       speculative?: boolean;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     utterance.assistantTurnStarted = true;
     const token = Symbol("live-voice-assistant-turn");
     const turnId = this.ensureTurnId(utterance);
@@ -3054,7 +3125,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (!opts?.speculative) {
       await this.sendFrame({ type: "thinking", turnId });
       if (!this.isActiveAssistantTurn(token)) {
-        return;
+        return false;
       }
     } else {
       // Verdict-deadline fail-open: the deferred-everything window is only
@@ -3108,7 +3179,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Front-door leg: a fast model fronts every turn (the `voiceFrontDoor`
     // call site pins it) and may hand off to a quality leg on the escalate
     // verdict.
-    await this.startAssistantLeg(activeTurn, {
+    return await this.startAssistantLeg(activeTurn, {
       content,
       routingLeg: "front-door",
       frontDoor: true,
@@ -3119,7 +3190,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * Drive one model leg of an assistant turn through the session bridge,
    * streaming its deltas to the live-voice client and TTS. Returns once the
    * leg's turn handle is acquired (or the start fails) — turn completion stays
-   * callback-driven via message_complete, exactly as the single-leg path did.
+   * callback-driven via message_complete. The resolved boolean is whether the
+   * bridge actually handed back a turn handle: false means the leg never
+   * started (no bridge wired, or the start threw and was reported as an error
+   * frame), so nothing of this turn was persisted or spoken.
    *
    * A turn runs one leg normally. Under triage-and-escalate the front-door leg
    * (`frontDoor: true`) runs the verdict-first protocol: its leading tokens
@@ -3140,9 +3214,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       frontDoor?: boolean;
       spokenEscalationBridge?: string;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!this.startVoiceTurn) {
-      return;
+      return false;
     }
     const { token, utterance, turnId } = activeTurn;
 
@@ -3521,23 +3595,27 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         } else {
           handle.abort();
         }
-        return;
+        // The bridge ran: the leg's user row was persisted (or explicitly
+        // rolled back by the discard above), so this counts as started even
+        // though a newer turn owns the session.
+        return true;
       }
       if (current.finalized) {
         this.activeAssistantTurn = null;
-        return;
+        return true;
       }
       // The front-door leg may have handed off before its handle resolved;
       // abort it rather than exposing it as the turn's live handle.
       if (leg.frontDoor && current.escalationHandedOff) {
         handle.abort();
-        return;
+        return true;
       }
 
       current.handle = handle;
+      return true;
     } catch (err) {
       if (!this.isActiveAssistantTurn(token)) {
-        return;
+        return false;
       }
 
       this.clearFillerTimers(activeTurn);
@@ -3551,6 +3629,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       });
       await this.finalizePendingUtterance(utterance, "assistant_start_error");
       this.scheduleRearmAfterTurn();
+      return false;
     }
   }
 

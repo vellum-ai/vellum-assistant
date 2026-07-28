@@ -1664,10 +1664,25 @@ describe("LiveVoiceSession server VAD", () => {
     });
   }
 
+  // ~600 ms of 24 kHz mono PCM in a single chunk, so the client-side playback
+  // tail estimate outlives the turn that produced it by a wide margin.
+  function makeLongTailTts(): LiveVoiceTtsStreamer {
+    const audio = "x".repeat(28_800);
+    return mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk(audio));
+      return makeTtsResult(audio);
+    });
+  }
+
   function announcementOf(
     calls: VoiceTurnOptions[],
   ): VoiceTurnOptions | undefined {
     return calls.find((c) => c.content === CONTINUATION_DELIVERY_CONTENT);
+  }
+
+  function announcementCount(calls: VoiceTurnOptions[]): number {
+    return calls.filter((c) => c.content === CONTINUATION_DELIVERY_CONTENT)
+      .length;
   }
 
   test("voice-duplex-handoff on: a continuation finishing on an idle live call is announced", async () => {
@@ -1913,6 +1928,100 @@ describe("LiveVoiceSession server VAD", () => {
     await waitFor(() => countType(frames, "turn_cancelled") === 2);
     await flushAsyncCallbacks();
     expect(continuation.spawnBackgroundContinuation.mock.calls.length).toBe(1);
+  });
+
+  test("voice-duplex-handoff on: an announcement turn that cannot start hands the answer back to the stash", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    const continuation = makeControlledContinuation();
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      calls.push(options);
+      // The announcement turn cannot start — the conversation is busy from
+      // another surface. Real user turns still start normally.
+      if (options.content === CONTINUATION_DELIVERY_CONTENT) {
+        throw new Error("conversation is busy");
+      }
+      if (options.content !== "first question") {
+        options.callbacks?.assistant_text_delta?.(makeTextDelta("ok"));
+        options.callbacks?.message_complete?.(makeMessageComplete());
+      }
+      return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "", "third question"],
+      startVoiceTurn,
+      streamTtsAudio: makeImmediateTts(),
+      spawnBackgroundContinuation: continuation.spawnBackgroundContinuation,
+      continuationAnnounceSilenceMs: 20,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(
+      () => continuation.spawnBackgroundContinuation.mock.calls.length === 1,
+    );
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "utterance_discarded"),
+    );
+
+    continuation.finish("THE_RESULT");
+    await waitFor(() => announcementOf(calls) !== undefined);
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
+    await flushAsyncCallbacks();
+    // The failed attempt is not retried; the stash is the fallback route.
+    expect(announcementCount(calls)).toBe(1);
+
+    // Nothing was spoken, so the answer is still there for the user's next turn
+    // rather than being dropped with the announcement.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.some((c) => c.content === "third question"));
+    const later = calls.find((c) => c.content === "third question");
+    expect(later?.voiceControlPrompt).toContain("THE_RESULT");
+  });
+
+  test("voice-duplex-handoff on: an announcement waits out the client's queued playback", async () => {
+    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+    const continuation = makeControlledContinuation();
+    const { startVoiceTurn, calls } = makeNeverCompletingTurnStarter();
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question", "third question"],
+      startVoiceTurn,
+      streamTtsAudio: makeLongTailTts(),
+      spawnBackgroundContinuation: continuation.spawnBackgroundContinuation,
+      continuationAnnounceSilenceMs: 200,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(
+      () => continuation.spawnBackgroundContinuation.mock.calls.length === 1,
+    );
+    await waitFor(() => calls.some((c) => c.content === "second question"));
+
+    // The continuation finishes while the follow-up turn still holds the floor.
+    continuation.finish("THE_RESULT");
+    await flushAsyncCallbacks();
+
+    // That reply completes: the turn is cleared server-side, but the client
+    // still has ~600 ms of its audio queued.
+    const followUp = calls.find((c) => c.content === "second question");
+    followUp?.callbacks?.assistant_text_delta?.(makeTextDelta("ok"));
+    followUp?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    // The silence timer elapses mid-tail: the call looks idle but the previous
+    // reply is still audible, so the announcement holds.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(announcementOf(calls)).toBeUndefined();
+
+    // Once the queued audio has drained it lands, instead of being dropped for
+    // having been blocked.
+    await waitFor(() => announcementOf(calls) !== undefined);
+    expect(announcementOf(calls)?.voiceControlPrompt).toContain("THE_RESULT");
   });
 
   test("a late assistant_text_delta after a thinking barge-in never reaches the client", async () => {
