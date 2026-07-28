@@ -677,11 +677,16 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls).toHaveLength(1);
     expect(wakeCalls[0]!.conversationId).toBe("fork-conv-1");
     const opts = wakeCalls[0]!.opts;
+    // `bash` rides the same proc-to-skills gate as the authoring trio: it is
+    // there so a pass can run `assistant skills companion add` to bundle a
+    // script it observed, and it must never appear on the remember-only
+    // allowlist below.
     expect(opts.allowedTools).toEqual([
       "remember",
       "scaffold_managed_skill",
       "skill_load",
       "find_similar_skills",
+      "bash",
     ]);
     // skill-management is preactivated so the authoring trio is in the turn's
     // active set from turn 1 (not merely on the execution allowlist).
@@ -698,7 +703,8 @@ describe("memoryRetrospectiveJob", () => {
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(wakeCalls).toHaveLength(1);
-    // The authoring trio is not even named on the allowlist when inactive.
+    // The authoring trio — and bash with it — is not even named on the
+    // allowlist when inactive.
     expect(wakeCalls[0]!.opts.allowedTools).toEqual(["remember"]);
     // And skill-management is not preactivated, so its tools never go active.
     expect(wakeCalls[0]!.opts.preactivateSkillIds).toBeUndefined();

@@ -455,12 +455,26 @@ export async function runForkBasedRetrospective(
       // fork instruction and the checker's origin-scoped grant, so an inactive
       // install is remember-only — the authoring trio is not even named on the
       // allowlist. Any tool outside the active set is rejected at execution time.
+      //
+      // `bash` is on the list so a pass can bundle a script it observed running
+      // into the skill it just authored, via `assistant skills companion add`.
+      // It is a genuine widening and is meant to be read as one: unlike the
+      // authoring trio, bash has no origin-scoped grant in the checker
+      // (`isRetrospectiveSkillAuthoringGrant` names tools, and bash is not one
+      // of them), so every command it runs is classified normally and cleared
+      // against the `autonomous` auto-approve threshold — default `low`. That
+      // makes the companion-add verb (classified low, escalating to high for a
+      // sensitive `--from`) runnable unattended, and leaves every other
+      // low-risk command runnable too, including unconfined reads. Accepted
+      // deliberately: the alternative was a bespoke source-path policy inside
+      // the skill store, which proved to be a complexity attractor.
       allowedTools: procToSkillsActive
         ? [
             "remember",
             "scaffold_managed_skill",
             "skill_load",
             "find_similar_skills",
+            "bash",
           ]
         : ["remember"],
       // Always keep the source's full tool surface on the wire and resolve it

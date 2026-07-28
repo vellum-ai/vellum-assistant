@@ -147,63 +147,41 @@ export async function executeScaffoldManagedSkill(
   }
   const avoidWhen = avoidWhenResult.value;
 
-  // Validate and normalize companion files. Each entry carries the file bytes
-  // exactly one way: inline `content`, or `copy_from` naming an on-disk source
-  // the store validates and reads (managed-store.validateCompanionSource).
-  let files:
-    | Array<{ path: string; content?: string; copyFrom?: string }>
-    | undefined;
+  // Validate and normalize companion files. Every entry carries its bytes
+  // inline; a file that already exists on disk is copied in afterwards with
+  // `assistant skills companion add`, which validates the destination through
+  // the same store guards this call uses.
+  let files: Array<{ path: string; content: string }> | undefined;
   if (input.files !== undefined) {
     if (!Array.isArray(input.files)) {
       return {
-        content:
-          "Error: files must be an array of { path, content | copy_from } objects",
+        content: "Error: files must be an array of { path, content } objects",
         isError: true,
       };
     }
-    const collected: Array<{
-      path: string;
-      content?: string;
-      copyFrom?: string;
-    }> = [];
+    const collected: Array<{ path: string; content: string }> = [];
     for (const item of input.files) {
       if (typeof item !== "object" || item === null) {
         return {
           content:
-            "Error: each element in files must be a { path, content | copy_from } object",
+            "Error: each element in files must be a { path, content } object",
           isError: true,
         };
       }
-      const { path, content, copy_from } = item as Record<string, unknown>;
+      const { path, content } = item as Record<string, unknown>;
       if (typeof path !== "string" || !path.trim()) {
         return {
           content: "Error: each file must have a non-empty string path",
           isError: true,
         };
       }
-      if ((content === undefined) === (copy_from === undefined)) {
-        return {
-          content: `Error: file "${path}" must set exactly one of content or copy_from`,
-          isError: true,
-        };
-      }
-      if (content !== undefined && typeof content !== "string") {
+      if (typeof content !== "string") {
         return {
           content: "Error: each file's content must be a string",
           isError: true,
         };
       }
-      if (copy_from !== undefined && typeof copy_from !== "string") {
-        return {
-          content: "Error: each file's copy_from must be a string path",
-          isError: true,
-        };
-      }
-      collected.push({
-        path: path.trim(),
-        ...(content !== undefined ? { content: content as string } : {}),
-        ...(copy_from !== undefined ? { copyFrom: copy_from as string } : {}),
-      });
+      collected.push({ path: path.trim(), content });
     }
     if (collected.length > 0) {
       files = collected;

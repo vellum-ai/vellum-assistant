@@ -623,72 +623,25 @@ describe("scaffold_managed_skill tool", () => {
     expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
   });
 
-  test("copies a companion file from an on-disk source via copy_from", async () => {
-    const sourcePath = join(TEST_DIR, "proven-script.py");
-    writeFileSync(sourcePath, "print('ok')\n", "utf-8");
-
+  test("rejects a files entry with no inline content", async () => {
+    // Companion bytes are inline-only here; a file that already exists on disk
+    // is copied in afterwards with `assistant skills companion add`.
     const result = await executeScaffoldManagedSkill(
       {
-        skill_id: "copy-from-skill",
-        name: "Copy From Skill",
-        description: "Bundles a proven script",
-        body_markdown: "Run scripts/proven-script.py.",
-        files: [{ path: "scripts/proven-script.py", copy_from: sourcePath }],
-      },
-      makeContext(),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(
-      readFileSync(
-        join(
-          TEST_DIR,
-          "skills",
-          "copy-from-skill",
-          "scripts",
-          "proven-script.py",
-        ),
-        "utf-8",
-      ),
-    ).toBe("print('ok')\n");
-  });
-
-  test("rejects a files entry setting both content and copy_from", async () => {
-    const sourcePath = join(TEST_DIR, "dupe.py");
-    writeFileSync(sourcePath, "x", "utf-8");
-
-    const result = await executeScaffoldManagedSkill(
-      {
-        skill_id: "copy-from-both",
-        name: "Both",
-        description: "Both content and copy_from",
+        skill_id: "files-no-content",
+        name: "No Content",
+        description: "Missing content",
         body_markdown: "Body.",
-        files: [
-          { path: "scripts/dupe.py", content: "x", copy_from: sourcePath },
-        ],
+        files: [{ path: "scripts/x.py" }],
       },
       makeContext(),
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("exactly one of content or copy_from");
-    expect(existsSync(join(TEST_DIR, "skills", "copy-from-both"))).toBe(false);
-  });
-
-  test("rejects a non-string copy_from", async () => {
-    const result = await executeScaffoldManagedSkill(
-      {
-        skill_id: "copy-from-type",
-        name: "Bad Type",
-        description: "copy_from wrong type",
-        body_markdown: "Body.",
-        files: [{ path: "scripts/x.py", copy_from: 42 }],
-      },
-      makeContext(),
+    expect(result.content).toContain("content must be a string");
+    expect(existsSync(join(TEST_DIR, "skills", "files-no-content"))).toBe(
+      false,
     );
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("copy_from must be a string path");
   });
 
   test("rejects companion file path traversal with no partial writes", async () => {
